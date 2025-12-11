@@ -1,0 +1,126 @@
+<div class="panel-main-container">
+
+    <div class="panel-tabs">
+        <button class="panel-tab-btn active" data-tab="tab-welcome">
+            <i class="fa-solid fa-circle-info"></i> Welcome
+        </button>
+        <button class="panel-tab-btn" data-tab="tab-flightplan">
+            <i class="fa-solid fa-file-invoice"></i> Flight Plan
+        </button>
+    </div>
+
+    <div class="panel-content-wrapper">
+
+        <div id="tab-welcome" class="tab-content active">
+            <div class="info-panel-content">
+                <div class="info-panel-header">
+                    <h3>Welcome to InFlight</h3>
+                    <span class="beta-badge">BETA</span>
+                </div>
+                <p class="welcome-text">
+                    Thank you for participating in the open beta for InFlight. 
+                    We are actively developing new features and appreciate your feedback.
+                </p>
+
+                <h4>Key Features</h4>
+                <ul class="features-list">
+                    <li><i class="fa-solid fa-satellite-dish"></i> Live Global Aircraft Tracking</li>
+                    <li><i class="fa-solid fa-tower-broadcast"></i> Real-Time ATC & NOTAMs</li>
+                    <li><i class="fa-solid fa-gauge-high"></i> In-Depth Aircraft PFD & VSD</li>
+                    <li><i class="fa-solid fa-chart-line"></i> Live Pilot Grade & Stat Reporting</li>
+                    <li><i class="fa-solid fa-magnifying-glass"></i> Aircraft Search & Map Filtering</li>
+                </ul>
+
+                <h4 style="margin-top: 28px;">Coming Soon: 'Pro' Features</h4>
+                <p class="pro-feature-note">
+                    We plan to introduce an optional "Pro" subscription (approx. $1.99/mo) to support 
+                    development, as mentioned in our Terms.
+                </p>
+                <ul class="features-list">
+                    <li><i class="fa-solid fa-cloud-sun-rain pro-icon"></i> Advanced OWM Weather Overlays</li>
+                    <li><i class="fa-solid fa-plus-circle pro-icon"></i> Other Premium Functionalities</li>
+                </ul>
+                
+                <p class="beta-note" style="margin-top: 28px;">
+                    <i class="fa-solid fa-bug"></i>
+                    As this is a beta, you may encounter bugs or incomplete features. Please report any 
+                    issues to our development team.
+                </p>
+
+                <div class="panel-footer-links">
+                    <a href="terms.html" target="_blank" rel="noopener noreferrer">Terms & Conditions</a>
+                    <span>&bull;</span>
+                    <a href="privacy.html" target="_blank" rel="noopener noreferrer">Privacy Policy</a>
+                </div>
+            </div>
+            </div>
+
+        <div id="tab-flightplan" class="tab-content">
+            
+            <div id="manual-dispatch-container" class="flight-plan-content">
+                <div class="info-panel-header">
+                    <h3>Simbrief Flight Plan</h3>
+                </div>
+                
+                <p class="welcome-text">
+                    Use the form below to generate a new flight plan using SimBrief.
+                </p>
+
+                <div class="fp-form">
+                    <div class="form-group">
+                        <label for="fp-flightNumber">Flight Number</label>
+                        <input type="text" id="fp-flightNumber" name="fp-flightNumber" placeholder="e.g., AAL123">
+                    </div>
+                    <div class="form-group-row">
+                        <div class="form-group">
+                            <label for="fp-departure">Departure</label>
+                            <input type="text" id="fp-departure" name="fp-departure" placeholder="EGLL">
+                        </div>
+                        <div class="form-group">
+                            <label for="fp-arrival">Arrival</label>
+                            <input type="text" id="fp-arrival" name="fp-arrival" placeholder="KJFK">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="fp-aircraft">Aircraft Type</label>
+                        <select id="fp-aircraft" name="fp-aircraft" class="form-control"> <option value="" disabled selected>Select an aircraft...</option>
+                        </select>
+                    </div>
+
+                    <button id="generate-with-simbrief-btn" class="sb-generate-btn">
+                        <i class="fa-solid fa-plane-departure"></i> Generate with SimBrief
+                    </button>
+                </div>
+
+                <form id="sbapiform" class="hidden" target="simbrief" method="post" action="https://www.simbrief.com/ofp/ofp.php">
+                    <input type="text" id="sb-username" name="username" value="" title="SimBrief username" placeholder="SimBrief username" aria-label="SimBrief username">
+                    <input type="text" id="sb-orig" name="orig" value="" title="Departure airport (ICAO)" placeholder="Departure (ICAO), e.g., EGLL" aria-label="Departure airport">
+                    <input type="text" id="sb-dest" name="dest" value="" title="Arrival airport (ICAO)" placeholder="Arrival (ICAO), e.g., KJFK" aria-label="Arrival airport">
+                    <input type="text" id="sb-type" name="type" value="" title="Aircraft type" placeholder="Aircraft type, e.g., A320" aria-label="Aircraft type">
+                    <input type="text" id="sb-fltnum" name="fltnum" value="" title="Flight number" placeholder="Flight number, e.g., AAL123" aria-label="Flight number">
+                    <input type="text" id="sb-return_url" name="return_url" value="" title="Return URL" placeholder="Return URL for form response" aria-label="Return URL">
+                </form>
+
+            </div> 
+            
+            <div id="dispatch-pass-display" class="hidden">
+                </div>
+
+            <div id="saved-flights-container" class="flight-plan-content" style="padding-top: 0;">
+                <div class="info-panel-header" style="border-top: 1px solid rgba(255, 255, 255, 0.1); margin: 0; padding-top: 20px;">
+                    <h3>Saved Flight Plans</h3>
+                    <button id="saved-flights-delete-all-btn" class="sb-close-btn" title="Delete All Saved Flights" style="font-size: 0.8rem; color: #dc3545; background: rgba(220, 53, 69, 0.1); width: auto; padding: 4px 10px; border-radius: 5px;">
+                        <i class="fa-solid fa-trash"></i> Delete All
+                    </button>
+                </div>
+
+                <p id="no-saved-flights-msg" class="welcome-text" style="display: none; margin-top: 16px;">
+                    You have no flight plans saved in your browser.
+                </p>
+
+                <ul id="saved-flights-list" class="saved-flights-list">
+                    </ul>
+            </div>
+            </div> 
+    </div> 
+</div>

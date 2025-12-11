@@ -1,0 +1,139 @@
+⚠️ Service Transition - Current Status (September 2025)
+Important: All planned restrictions are now in effect as of September 1, 2025.
+
+✓ Currently Active Restrictions:
+⚠️ Tiled API: Limited to zoom level 10 for free users (Patrons maintain full zoom access)
+⚠️ Rate limiting: 1000 requests/IP/minute for free users (Patrons unlimited)
+⚠️ Composite images: Available for Patrons only (discontinued for free users)
+❌ Single radar processed images: Discontinued for all users (source images only)
+For complete details about changes and timeline, please see our main API documentation and API Transition FAQ.
+
+If you’re looking for alternatives, here is our blogpost from founder’s perspective: Weather Radar APIs in 2025: A Founder’s Complete Market Overview
+
+Thank you for using Rain Viewer’s Weather Maps API. We appreciate your understanding as we focus our efforts on delivering the best precipitation prediction through our consumer applications.
+
+URL
+https://api.rainviewer.com/public/weather-maps.json
+
+Purpose and Description
+Contains the past (2 hours) and forecast (30 minutes) weather radar data and the past infrared satellite data (2 hours). Suitable to display in the applications, on the websites, or in any other mapping software. It can also be used as a source for the weather API.
+
+Note: Some features will be phased out according to the timeline above.
+
+Database File Example
+Here is an example of the weather maps API file with two frames for each data section. The data inside the example is out of date and cannot be used in real queries. To get actual data, please open the API file directly.
+
+{
+  "version": "2.0",
+  "generated": 1609402525,
+  "host": "https://tilecache.rainviewer.com",
+  "radar": {
+    "past": [
+      {
+        "time": 1609401600,
+        "path": "/v2/radar/1609401600"
+      },
+      {
+        "time": 1609402200,
+        "path": "/v2/radar/1609402200"
+      }
+    ],
+    "nowcast": [
+      {
+        "time": 1609402800,
+        "path": "/v2/radar/nowcast_6b3c5a659cf4"
+      },
+      {
+        "time": 1609403400,
+        "path": "/v2/radar/nowcast_dd3474d83b20"
+      }
+    ]
+  },
+  "satellite": {
+    "infrared": [
+      {
+        "time": 1609401600,
+        "path": "/v2/satellite/0680143a9470"
+      },
+      {
+        "time": 1609402200,
+        "path": "/v2/satellite/ba88bf38ac55"
+      }
+    ]
+  }
+}
+Root Object
+key	Description	Example
+version	API Version.
+Values: String(8)
+Status: Available	“2.0.1”
+generated	Unix timestamp date (UTC) when this API file was generated. Useful for checking for updates.
+Values: Int(8)
+Status: Available	1609402525
+host	Host and protocol for the images.
+Values: String(255)
+Status: Available	https://tilecache.rainviewer.com
+radar	Weather radar maps.
+Values: Radar object
+Status: Partial - see below	 
+satellite	Satellite maps.
+Values: Satellite object
+Status: ⚠️ Discontinuing Jan 1, 2026	 
+Radar Object
+key	Description	Example
+past	Past weather radar frames. 2 hours, with 10-minute steps.
+Values: Array(Frame Object)
+Status: ⚠️ Available	 
+nowcast	Future weather radar frames. 30 minutes or 60 minutes for Gold+ and Platinum API Patrons.
+Values: Array(Frame Object)
+Status: ⚠️ Discontinuing Jan 1, 2026	 
+Satellite Object
+key	Description	Example
+infrared	Past 2 hours of the infrared satellite data (channel 13) from the available satellites.
+Values: Array(Frame Object)
+Status: ⚠️ Discontinuing Jan 1, 2026	 
+Frame Object
+key	Description	Example
+time	Map frame generation data in UNIX timestamp format (UTC). The map frame typically contains the images (radar, satellite) from different times, so this is not the time of the data rather than frame generation time.
+Values: Int(8)	1609401600
+path	Base path for the images of that frame. For information on its usage, refer to the next How to use host and path information section of this page
+Values: String(255)	/v2/satellite/0680143a9470
+How to use host and path information
+You should use the host and path data from the API as a part of the URL. All available URLs and their parameters are described below.
+
+Each url starts with {host}, where:
+
+{host} is a host from the Root Object of this API.
+URL	Description
+{path}/{size}/{z}/{x}/{y}/{color}/{options}.png	Radar data: displays one tile with the composite radar reflectivity data, with specified size, color scheme, and additional options.
+Status: ⚠️ Available (max zoom 10 for free users, full zoom for Patrons)
+{path}/{size}/{z}/{lat}/{lon}/{color}/{options}.png	Radar data: same as the link above, but with the center at specified coordinates (EPSG:4326) with desired zoom size. Great for widgets
+Status: ⚠️ Available (max zoom 10 for free users, full zoom for Patrons)
+{path}/{big_size}/{color}/{options}.png	Composite image with radar reflectivity for the entire world. Generates slowly, up to 10 seconds per image loads. Cannot be smoothed. IMPORTANT: color scheme and the snow mask for satellite data should always be “0”.
+Status: ❌ Discontinued (Patrons only until Jan 1, 2026)
+Current limitations (as of September 2025):
+
+Active now: Maximum zoom level limited to 10 for free users (Patrons maintain full zoom access)
+Active now: Rate limiting of 1000 requests/IP/minute for free users (Patrons unlimited)
+Active now: Composite images (16384, 8192, 4096 sizes) available for Patrons only (discontinued for free users)
+Coming January 1, 2026: Satellite IR maps discontinued, nowcast radar data discontinued, rate limiting of 100 requests/IP/minute for all users, maximum zoom level limited to 7 for all users
+
+{ts} – one of the available Unix timestamps from the API.
+{x}, {y}, {z} – x, y, and zoom level of the tile that you want to download. Read more about tiles Note: z will be limited to max level 10 from September 1, 2025 for free users (Patrons maintain full zoom access)
+{latitude}, {longitude} - latitude and longitude of specific coordinates accordingly. Decimal format. Must contain a dot in the number. Example: -32.7892, 108.67821.
+{size} – image size, can be 256 or 512.
+{big_size} – can be 2000, 4000, 8000, 16000, or 24000 (24000x12000 px or ~2km per pixel). For square images use 4096, 8192, and 16384 accordingly.
+{color} - the number of the color scheme from the provided list.
+{options} – list of options separated by the _ symbol. For example: ‘1_0’ means smoothed (1) image without snow color scheme (0). Now two options are available: {smooth}_{snow}
+{smooth} - blur (1) or not (0) radar data. Large composite images are always not smoothed due to performance issues.
+{snow} - display (1) or not (0) snow in separate colors on the tiles.
+Weather Radar Coverage
+Additionally, one more product is available: the weather radar coverage mask. This mask shows where is weather radar coverage available (transparent areas) and where is not (black areas). We don’t update this mask often. The links are the same as for radar and satellite products, but without options and color scheme.
+
+URL	Description
+/v2/coverage/0/{size}/{z}/{x}/{y}/0/0_0.png	Coverage tile: where radar data is available (transparent areas) and where is not (black areas).
+Status: ⚠️ Available (max zoom 10 for free users, full zoom for Patrons)
+/v2/coverage/0/{size}/{z}/{lat}/{lon}/0/0_0.png	Coverage data as above but for specified center coordinates (latitude, longitude).
+Status: ⚠️ Available (max zoom 10 for free users, full zoom for Patrons)
+/v2/coverage/0/{big_size}/0/0_0.png	Composite coverage tile for the entire world at once. Generates slowly.
+Status: ❌ Discontinued (Patrons only until Jan 1, 2026)

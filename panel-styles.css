@@ -1,0 +1,517 @@
+/* Add this file to your main HTML file's <head> section:
+  <link rel="stylesheet" href="panel-styles.css">
+*/
+
+/* --- [NEW] Info Panel Content Styles --- */
+/* (This is your existing content) */
+.info-panel-content {
+    padding: 20px;
+    color: #e8eaf6;
+    font-size: 0.95rem;
+    line-height: 1.6;
+}
+
+.info-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding-bottom: 12px;
+}
+
+.info-panel-header h3 {
+    margin: 0;
+    font-size: 1.3rem;
+    font-weight: 600;
+    color: #fff;
+}
+
+.beta-badge {
+    background-color: #f39c12;
+    color: #1a1a1a;
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 20px;
+    text-transform: uppercase;
+    animation: pulse-beta 2s infinite;
+}
+
+@keyframes pulse-beta {
+    0% { box-shadow: 0 0 0 0 rgba(243, 156, 18, 0.7); }
+    70% { box-shadow: 0 0 0 10px rgba(243, 156, 18, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(243, 156, 18, 0); }
+}
+
+.welcome-text {
+    color: #c5cae9;
+    font-size: 0.9rem;
+    margin-bottom: 20px;
+}
+
+.info-panel-content h4 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #00a8ff;
+    text-transform: uppercase;
+    margin-top: 24px;
+    margin-bottom: 12px;
+}
+
+.features-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.features-list li {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 0.9rem;
+}
+
+.features-list li .fa-solid {
+    width: 20px;
+    text-align: center;
+    color: #9fa8da;
+}
+
+.beta-note {
+    margin-top: 24px;
+    padding: 12px;
+    background: rgba(243, 156, 18, 0.1);
+    border: 1px solid rgba(243, 156, 18, 0.3);
+    border-radius: 8px;
+    font-size: 0.85rem;
+    color: #f39c12;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.beta-note .fa-solid {
+    font-size: 1.1rem;
+}
+
+/* --- [MODIFIED] Old tab UI elements --- */
+/* This section is NOW USED to style the tabs */
+.panel-tabs {
+    display: flex; /* <-- MODIFIED: Was 'none' */
+    /* [THEME UPDATE] Use a transparent dark overlay so the theme color shines through */
+    background-color: rgba(0, 0, 0, 0.2);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* This will remove the padding from the wrapper */
+.panel-content-wrapper {
+    padding: 0;
+    height: 100%; /* Ensure it fills the panel */
+}
+
+/* --- [NEW] Add custom scrollbar to the side panel --- */
+/* (This is your existing content) */
+.panel-content::-webkit-scrollbar {
+    width: 8px;
+}
+.panel-content::-webkit-scrollbar-track {
+    background: rgba(0,0,0,0.2);
+}
+.panel-content::-webkit-scrollbar-thumb {
+    background-color: #00a8ff;
+    border-radius: 10px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+}
+.panel-content::-webkit-scrollbar-thumb:hover {
+    background-color: #33c1ff;
+}
+/* --- [NEW] Styles for Welcome Panel Additions --- */
+/* (This is your existing content) */
+.pro-feature-note {
+    font-size: 0.85rem;
+    line-height: 1.5;
+    margin-bottom: 16px;
+    color: #c5cae9; /* Matches .welcome-text color */
+}
+
+.features-list .pro-icon {
+    width: 20px;
+    text-align: center;
+    color: #00a8ff; /* Theme blue from scrollbar */
+}
+
+.panel-footer-links {
+    margin-top: 28px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    text-align: center;
+    font-size: 0.85rem;
+}
+
+.panel-footer-links a {
+    color: #9fa8da; /* Matches feature icon color */
+    text-decoration: none;
+    margin: 0 8px;
+    transition: color 0.2s ease;
+}
+
+.panel-footer-links a:hover {
+    color: #fff;
+    text-decoration: underline;
+}
+
+.panel-footer-links span {
+    color: #5c6a9c; /* A muted separator color */
+}
+
+/* =====================================================
+--- [NEW] TAB AND FLIGHT PLAN FORM STYLES ---
+=====================================================
+*/
+
+/* --- Tab Buttons --- */
+
+.panel-tab-btn {
+    flex: 1;
+    padding: 14px 10px;
+    background: transparent;
+    border: none;
+    border-bottom: 3px solid transparent;
+    color: #9fa8da;
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s ease-in-out;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.panel-tab-btn:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: #fff;
+}
+
+.panel-tab-btn.active {
+    color: #fff;
+    border-bottom-color: #00a8ff;
+}
+
+/* --- Tab Content --- */
+
+.tab-content {
+    display: none; /* Hide all tabs by default */
+    height: 100%;
+    overflow-y: auto;
+}
+
+.tab-content.active {
+    display: block; /* Show the active tab */
+}
+
+/* Scrollbar for tab content */
+.tab-content::-webkit-scrollbar {
+    width: 8px;
+}
+.tab-content::-webkit-scrollbar-track {
+    background: rgba(0,0,0,0.2);
+}
+.tab-content::-webkit-scrollbar-thumb {
+    background-color: #00a8ff;
+    border-radius: 10px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+}
+.tab-content::-webkit-scrollbar-thumb:hover {
+    background-color: #33c1ff;
+}
+
+
+/* --- Flight Plan Form Styles --- */
+
+/* Add padding to the flight plan tab */
+.flight-plan-content {
+    padding: 20px;
+}
+
+.fp-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-top: 20px;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.form-group-row {
+    display: flex;
+    gap: 12px;
+}
+
+.form-group-row .form-group {
+    flex: 1;
+}
+
+.form-group label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #9fa8da;
+    text-transform: uppercase;
+}
+
+.form-group input[type="text"] {
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    padding: 12px;
+    color: #e8eaf6;
+    font-size: 0.95rem;
+    transition: all 0.2s ease;
+}
+
+.form-group input[type="text"]::placeholder {
+    color: #5c6a9c;
+}
+
+.form-group input[type="text"]:focus {
+    outline: none;
+    border-color: #00a8ff;
+    box-shadow: 0 0 0 3px rgba(0, 168, 255, 0.2);
+}
+
+.sb-generate-btn {
+    background-color: #00a8ff;
+    color: #fff;
+    font-size: 1rem;
+    font-weight: 600;
+    padding: 14px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.sb-generate-btn:hover {
+    background-color: #33c1ff;
+}
+
+.sb-generate-btn:disabled {
+    background-color: #5c6a9c;
+    cursor: not-allowed;
+}
+
+/* --- [FIX] Utility class to hide elements --- */
+/* (This ensures the old SimBrief form is hidden) */
+.hidden {
+    display: none;
+}
+
+/* --- [FIX] Style the <select> element to match inputs --- */
+.form-group select {
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    padding: 12px;
+    color: #e8eaf6;
+    font-size: 0.95rem;
+    transition: all 0.2s ease;
+    
+    /* [NEW] Basic appearance reset for styling */
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+
+    /* [NEW] Add a custom dropdown arrow */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%239fa8da'%3E%3Cpath fill-rule='evenodd' d='M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06Z' clip-rule='evenodd' /%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 16px 16px;
+}
+
+/* [NEW] Handle the <option> elements */
+.form-group select option {
+    background: #1C1E2A; /* Match your app's dark background */
+    color: #e8eaf6;
+}
+
+/* [NEW] Style for the :focus state */
+.form-group select:focus {
+    outline: none;
+    border-color: #00a8ff;
+    box-shadow: 0 0 0 3px rgba(0, 168, 255, 0.2);
+}
+
+/* [NEW] Style for the disabled option */
+.form-group select option[disabled] {
+    color: #5c6a9c;
+}
+
+/* =====================================================
+--- [NEW] SAVED FLIGHT PLAN LIST STYLES ---
+=====================================================
+*/
+
+/* Hide the delete all button by default */
+#saved-flights-delete-all-btn {
+    display: none;
+    transition: all 0.2s ease;
+}
+#saved-flights-delete-all-btn:hover {
+    background: #dc3545;
+    color: #fff;
+    transform: none; /* Override info window button hover */
+}
+
+.saved-flights-list {
+    list-style: none;
+    padding: 0;
+    margin: 16px 0 0 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.saved-flight-item {
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+}
+
+.saved-flight-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0; /* Prevents text overflow issues */
+}
+
+.saved-flight-info strong {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.saved-flight-info strong .fa-solid {
+    margin-right: 8px;
+    color: #00a8ff;
+}
+
+.saved-flight-info small {
+    font-size: 0.85rem;
+    color: #9fa8da;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.saved-flight-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+/* Base button style for view/delete */
+.saved-flight-btn {
+    border: none;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 8px 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+/* View Button */
+.saved-flight-view-btn {
+    background-color: #00a8ff;
+    color: #fff;
+}
+.saved-flight-view-btn:hover {
+    background-color: #33c1ff;
+}
+
+/* Delete Button */
+.saved-flight-delete-btn {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: #e8eaf6;
+}
+.saved-flight-delete-btn:hover {
+    background-color: #dc3545;
+    color: #fff;
+}
+
+/* =====================================================
+--- [NEW] CONSTRAIN ICAO INPUT WIDTH ---
+=====================================================
+*/
+
+#fp-departure,
+#fp-arrival {
+    width: 9ch;
+    text-transform: uppercase;
+}
+
+#fp-departure::placeholder,
+#fp-arrival::placeholder {
+    text-transform: none;
+}
+
+/* =====================================================
+--- [NEW] DYNAMIC THEME APPLICATION (SIDE MENU & PANEL) ---
+=====================================================
+   These styles hook into the CSS variables updated by flight.js
+*/
+
+/* 1. Target the main floating panel container */
+#sector-ops-floating-panel {
+    /* Apply the gradient defined by the user in Filter Settings */
+    background: linear-gradient(180deg, var(--iw-bg-start), var(--iw-bg-end)) !important;
+    
+    /* Add the frosted glass effect */
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    
+    /* Ensure borders blend nicely */
+    border-right: 1px solid rgba(255, 255, 255, 0.05);
+    
+    /* Smooth transition when changing colors */
+    transition: background 0.3s ease;
+}
+
+/* 2. Target the sidebar navigation (the icon strip on the far left) */
+.sidebar-nav {
+    background: linear-gradient(180deg, var(--iw-bg-start), var(--iw-bg-end)) !important;
+    border-right: 1px solid rgba(255, 255, 255, 0.05);
+    transition: background 0.3s ease;
+}
+
+/* 3. Optional: Ensure the mobile/tablet bottom bar also adapts if present */
+@media (max-width: 768px) {
+    .sidebar-nav {
+        background: linear-gradient(90deg, var(--iw-bg-start), var(--iw-bg-end)) !important;
+        border-top: 1px solid rgba(255, 255, 255, 0.05);
+    }
+}
