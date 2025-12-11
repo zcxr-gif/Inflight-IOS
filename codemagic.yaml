@@ -1,0 +1,33 @@
+workflows:
+  ios-workflow:
+    name: iOS Build
+    environment:
+      xcode: latest
+      node: latest
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: '*'
+          include: true
+          source: true
+    scripts:
+      - name: Install Dependencies
+        script: |
+          npm install
+      - name: Initialize iOS Platform
+        script: |
+          # This runs on the Codemagic Mac, so it works!
+          npx cap add ios
+      - name: Sync Web Assets
+        script: |
+          # This copies your html/js into the iOS project
+          npx cap sync
+      - name: Build IPA
+        script: |
+          # Navigate to iOS folder and build
+          cd ios
+          xcodebuild install -scheme App -destination generic/platform=iOS -archivePath App.xcarchive archive CODE_SIGNING_ALLOWED=NO
+          xcodebuild -exportArchive -archivePath App.xcarchive -exportOptionsPlist App/App-Info.plist -exportPath . -allowProvisioningUpdates
+    artifacts:
+      - ios/*.ipa

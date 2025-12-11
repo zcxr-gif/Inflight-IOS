@@ -1,6 +1,28 @@
 {
   "dependencies": {
+    "@capacitor/cli": "^8.0.0",
+    "@capacitor/core": "^8.0.0",
+    "@capacitor/ios": "^8.0.0",
     "node-fetch": "^2.7.0",
     "xml2js": "^0.6.2"
-  }
+  },
+  "name": "inflight-ios",
+  "version": "1.0.0",
+  "description": "��#\u0000 \u0000I\u0000n\u0000f\u0000l\u0000i\u0000g\u0000h\u0000t\u0000-\u0000I\u0000O\u0000S\u0000\r\u0000 \u0000",
+  "main": "flight.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zcxr-gif/Inflight-IOS.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/zcxr-gif/Inflight-IOS/issues"
+  },
+  "homepage": "https://github.com/zcxr-gif/Inflight-IOS#readme"
 }

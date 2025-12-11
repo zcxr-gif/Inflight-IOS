@@ -2,11 +2,18 @@ import { MapAnimator } from './mapAnimator.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
     // --- Global Configuration ---
-    const API_BASE_URL = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
-    const LIVE_FLIGHTS_API_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run/flights';
-    const ACARS_USER_API_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run/users'; // NEW: For user stats
-    let currentServerName = localStorage.getItem('preferredServer') || 'Expert Server';
-    const CURRENT_SITE_URL = window.location.origin;
+// REPLACE THIS SECTION AT THE TOP OF YOUR FILE
+
+const PRODUCTION_URL = 'https://inflight.info'; // <--- PUT YOUR REAL NETLIFY URL HERE
+const IS_LOCAL_OR_APP = window.location.hostname === 'localhost' || window.location.protocol === 'file:' || window.location.protocol === 'capacitor:';
+
+// If we are in an app/local, use the remote URL. Otherwise use relative (current) URL.
+const CURRENT_SITE_URL = IS_LOCAL_OR_APP ? PRODUCTION_URL : window.location.origin;
+
+const API_BASE_URL = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
+const LIVE_FLIGHTS_API_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run/flights';
+const ACARS_USER_API_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run/users';
+let currentServerName = localStorage.getItem('preferredServer') || 'Expert Server';
 
 
     // --- State Variables ---
@@ -2668,6 +2675,33 @@ function injectCustomStyles() {
         .search-result-item:last-child {
             border-bottom: none;
         }
+
+        /* Add this inside the css string in injectCustomStyles() */
+
+html, body {
+    /* Prevent bouncy scrolling on iOS */
+    overscroll-behavior-y: none;
+    -webkit-overflow-scrolling: touch;
+    
+    /* Handle the iPhone Notch (Safe Areas) */
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    
+    /* Prevent selecting text like a website */
+    -webkit-user-select: none;
+    user-select: none;
+    
+    /* Disable tap highlight color */
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* Allow text selection only on inputs */
+input, textarea {
+    -webkit-user-select: text;
+    user-select: text;
+}
     `;
 
     const style = document.createElement('style');
