@@ -14,26 +14,37 @@ workflows:
     scripts:
       - name: Install Dependencies
         script: |
-          # Force delete node_modules if it exists to prevent Windows permission errors
+          # Force clean install to avoid Windows/Mac permission issues
           rm -rf node_modules
           rm -f package-lock.json
-          
-          # Clean install
           npm install
           npm install @capacitor/cli @capacitor/core @capacitor/ios
+      
       - name: Initialize iOS Platform
         script: |
-          # This runs on the Codemagic Mac, so it works!
+          # Create the iOS project folder
           npx cap add ios
-      - name: Sync Web Assets
-        script: |
-          # This copies your html/js into the iOS project
           npx cap sync
-      - name: Build IPA
+      
+      - name: Build IPA (Unsigned)
         script: |
-          # Navigate to iOS folder and build
-          cd ios
-          xcodebuild install -scheme App -destination generic/platform=iOS -archivePath App.xcarchive archive CODE_SIGNING_ALLOWED=NO
-          xcodebuild -exportArchive -archivePath App.xcarchive -exportOptionsPlist App/App-Info.plist -exportPath . -allowProvisioningUpdates
+          # [FIX 1] Go into the correct 'App' folder where the workspace lives
+          cd ios/App
+          
+          # [FIX 2] Archive the build with Signing disabled
+          xcodebuild archive \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -archivePath App.xcarchive \
+            -sdk iphoneos \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO
+          
+          # [FIX 3] Manually package the IPA (Bypasses the missing .plist error)
+          mkdir Payload
+          cp -r App.xcarchive/Products/Applications/App.app Payload/
+          zip -r App.ipa Payload
+          
     artifacts:
-      - ios/*.ipa
+      - ios/App/*.ipa
