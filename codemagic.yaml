@@ -14,7 +14,13 @@ workflows:
     scripts:
       - name: Install Dependencies
         script: |
+          # Force delete node_modules if it exists to prevent Windows permission errors
+          rm -rf node_modules
+          rm -f package-lock.json
+          
+          # Clean install
           npm install
+          npm install @capacitor/cli @capacitor/core @capacitor/ios
       - name: Initialize iOS Platform
         script: |
           # This runs on the Codemagic Mac, so it works!
