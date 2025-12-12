@@ -9,6 +9,11 @@ workflows:
       xcode: latest
       node: latest
       cocoapods: default
+      # [NEW] Automatic Code Signing Configuration
+      # Documentation: Fetching files by distribution type and bundle identifier
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.your.bundle.id # <--- UPDATE THIS with your actual Bundle ID
     
     triggering:
       events:
@@ -44,45 +49,12 @@ workflows:
 
       - name: iOS Code Signing
         script: |
-          # Change context to the iOS App directory so xcode-project commands work
+          # Change context to the iOS App directory
           cd ios/App
           
-          keychain initialize
-          
-          # 1. Fetch Signing Files using the detected Bundle ID from the correct path
-          APP_ID=$(xcode-project detect-bundle-id)
-          echo "Detected Bundle ID: $APP_ID"
-          
-          app-store-connect fetch-signing-files "$APP_ID" \
-            --type IOS_APP_STORE \
-            --create
-            
-          keychain add-certificates
+          # [NEW] Apply the profiles fetched by the 'ios_signing' environment configuration.
+          # As per docs: "Steps Initialize keychain & Add certificates... are not required"
           xcode-project use-profiles
-
-          # 2. Extract Team ID from the fetched profile
-          # We look for the first mobileprovision file downloaded by the previous step
-          PROFILE_PATH=$(find ~/Library/MobileDevice/Provisioning\ Profiles -name "*.mobileprovision" | head -n 1)
-          
-          if [ -z "$PROFILE_PATH" ]; then
-            echo "Error: No provisioning profile found!"
-            exit 1
-          fi
-          
-          echo "Found Profile: $PROFILE_PATH"
-
-          # Extract the TeamIdentifier using standard macOS tools
-          TEAM_ID=$(security cms -D -i "$PROFILE_PATH" | /usr/libexec/PlistBuddy -c "Print :TeamIdentifier:0" /dev/stdin)
-          
-          if [ -z "$TEAM_ID" ]; then
-             echo "Error: Could not extract Team ID from profile."
-             exit 1
-          fi
-
-          echo "Detected Development Team ID: $TEAM_ID"
-          
-          # Export it to the Codemagic environment so the next step can use it
-          echo "DEVELOPMENT_TEAM=$TEAM_ID" >> $CM_ENV
 
       - name: Build IPA (Signed)
         script: |
@@ -97,7 +69,9 @@ workflows:
             BUILD_ARG="-project App.xcodeproj"
           fi
 
-          # [FIXED] Force Manual Signing and pass the Team ID explicitly
+          # Build Archive
+          # Note: We no longer pass DEVELOPMENT_TEAM explicitly.
+          # 'xcode-project use-profiles' has already updated the project settings with the correct Team ID.
           xcodebuild archive \
             $BUILD_ARG \
             -scheme App \
@@ -105,7 +79,6 @@ workflows:
             -archivePath App.xcarchive \
             -sdk iphoneos \
             -allowProvisioningUpdates \
-            DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
             CODE_SIGN_STYLE="Manual"
           
           # Export IPA
