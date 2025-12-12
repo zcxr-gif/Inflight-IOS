@@ -58,9 +58,10 @@ workflows:
           cd ios/App
           
           # Use Codemagic's build-ipa utility.
+          # FIX: Changed --configuration to --config
           xcode-project build-ipa \
             --scheme "App" \
-            --configuration "Release"
+            --config "Release"
 
     artifacts:
       - "build/ios/ipa/*.ipa"
