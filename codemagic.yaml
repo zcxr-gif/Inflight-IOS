@@ -4,7 +4,7 @@ workflows:
     
     # Link the API Key from Codemagic UI
     integrations:
-      app_store_connect: My App Store Key
+      app_store_connect: Personal
 
     environment:
       xcode: latest
