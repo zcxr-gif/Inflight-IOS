@@ -1,9 +1,17 @@
 workflows:
   ios-workflow:
     name: iOS Build
+    
+    # [NEW] Link the API Key from Codemagic UI
+    # Replace "My App Store Key" with the exact reference name you saved in Team Settings > Integrations.
+    integrations:
+      app_store_connect: My App Store Key
+
     environment:
       xcode: latest
       node: latest
+      cocoapods: default
+    
     triggering:
       events:
         - push
@@ -11,6 +19,7 @@ workflows:
         - pattern: '*'
           include: true
           source: true
+          
     scripts:
       - name: Install Dependencies
         script: |
@@ -21,16 +30,26 @@ workflows:
       
       - name: Initialize iOS Platform
         script: |
+          # [FIX] Remove existing ios folder to force a clean generation
+          rm -rf ios
+          
+          # Add platform and sync
           npx cap add ios
           npx cap sync
+          
+          # [FIX] Install Pods to generate the missing App.xcworkspace
+          cd ios/App
+          pod install
 
-      # [NEW STEP] Fetch Certificates and Profiles from Apple
-      # This requires APP_STORE_CONNECT_PRIVATE_KEY, KEY_IDENTIFIER, and ISSUER_ID 
-      # to be set in Environment Variables.
       - name: iOS Code Signing
         script: |
           keychain initialize
-          app-store-connect fetch-signing-files "$(xcode-project detect-bundle-id)" --type IOS_APP_STORE --create
+          
+          # [UPDATE] This now uses the API key linked in the 'integrations' section above
+          app-store-connect fetch-signing-files "$(xcode-project detect-bundle-id)" \
+            --type IOS_APP_STORE \
+            --create
+            
           keychain add-certificates
           xcode-project use-profiles
 
@@ -38,7 +57,13 @@ workflows:
         script: |
           cd ios/App
           
-          # [FIXED] Use standard archive command allowing signing
+          # Verify workspace exists
+          if [ ! -d "App.xcworkspace" ]; then
+            echo "Error: App.xcworkspace not found! Pod install likely failed."
+            exit 1
+          fi
+
+          # Archive using the workspace
           xcodebuild archive \
             -workspace App.xcworkspace \
             -scheme App \
@@ -47,21 +72,19 @@ workflows:
             -sdk iphoneos \
             -allowProvisioningUpdates
           
-          # Export the IPA using the archive
+          # Export IPA
           xcodebuild -exportArchive \
             -archivePath App.xcarchive \
             -exportOptionsPlist ../../export_options.plist \
             -exportPath .
           
-          # Rename for consistency if needed, though export usually names it App.ipa
           mv App.ipa app_signed.ipa
 
     artifacts:
       - ios/App/*.ipa
 
     publishing:
+      # [UPDATE] Uses the 'integration' auth method instead of manual variables
       app_store_connect:
-        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
-        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
-        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+        auth: integration
         submit_to_testflight: true
