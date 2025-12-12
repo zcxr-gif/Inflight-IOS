@@ -2,10 +2,9 @@ workflows:
   ios-workflow:
     name: iOS Build
     
-    # [NEW] Link the API Key from Codemagic UI
-    # Replace "My App Store Key" with the exact reference name you saved in Team Settings > Integrations.
+    # Link the API Key from Codemagic UI
     integrations:
-      app_store_connect: Personal
+      app_store_connect: My App Store Key
 
     environment:
       xcode: latest
@@ -30,42 +29,52 @@ workflows:
       
       - name: Initialize iOS Platform
         script: |
-          # [FIX] Remove existing ios folder to force a clean generation
+          # Remove existing ios folder to force a clean generation
           rm -rf ios
           
           # Add platform and sync
           npx cap add ios
           npx cap sync
           
-          # [FIX] Install Pods to generate the missing App.xcworkspace
+          # [FIXED] Only run pod install if a Podfile was actually generated
           cd ios/App
-          pod install
+          if [ -f "Podfile" ]; then
+            echo "Podfile found. Installing Pods..."
+            pod install
+          else
+            echo "No Podfile found. Skipping CocoaPods (using SPM)."
+          fi
 
       - name: iOS Code Signing
         script: |
           keychain initialize
           
-          # [UPDATE] This now uses the API key linked in the 'integrations' section above
+          # Fetch certificates
           app-store-connect fetch-signing-files "$(xcode-project detect-bundle-id)" \
             --type IOS_APP_STORE \
             --create
             
           keychain add-certificates
+          
+          # [FIXED] Apply profiles to the Project (works for both Pods and SPM)
           xcode-project use-profiles
 
       - name: Build IPA (Signed)
         script: |
           cd ios/App
           
-          # Verify workspace exists
-          if [ ! -d "App.xcworkspace" ]; then
-            echo "Error: App.xcworkspace not found! Pod install likely failed."
-            exit 1
+          # [FIXED] Smart Logic: Detect if we should build a Workspace (Pods) or Project (SPM)
+          if [ -d "App.xcworkspace" ]; then
+            echo "Building Workspace..."
+            BUILD_ARG="-workspace App.xcworkspace"
+          else
+            echo "Building Project (SPM)..."
+            BUILD_ARG="-project App.xcodeproj"
           fi
 
-          # Archive using the workspace
+          # Archive
           xcodebuild archive \
-            -workspace App.xcworkspace \
+            $BUILD_ARG \
             -scheme App \
             -configuration Release \
             -archivePath App.xcarchive \
@@ -84,7 +93,6 @@ workflows:
       - ios/App/*.ipa
 
     publishing:
-      # [UPDATE] Uses the 'integration' auth method instead of manual variables
       app_store_connect:
         auth: integration
         submit_to_testflight: true
