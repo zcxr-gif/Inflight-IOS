@@ -9,11 +9,12 @@ workflows:
       xcode: latest
       node: latest
       cocoapods: default
-      # [NEW] Automatic Code Signing Configuration
-      # Documentation: Fetching files by distribution type and bundle identifier
+      
+      # AUTOMATIC SIGNING CONFIGURATION
+      # This handles fetching the correct certs/profiles from Apple.
       ios_signing:
         distribution_type: app_store
-        bundle_identifier: com.tracker.Inflight
+        bundle_identifier: com.tracker.Inflight  # <--- REPLACE THIS WITH YOUR ACTUAL BUNDLE ID
     
     triggering:
       events:
@@ -49,48 +50,27 @@ workflows:
 
       - name: iOS Code Signing
         script: |
-          # Change context to the iOS App directory
           cd ios/App
           
-          # [NEW] Apply the profiles fetched by the 'ios_signing' environment configuration.
-          # As per docs: "Steps Initialize keychain & Add certificates... are not required"
+          # Initialize the keychain with the profiles fetched in the 'environment' step
           xcode-project use-profiles
 
       - name: Build IPA (Signed)
         script: |
           cd ios/App
           
-          # Detect Workspace (Pods) vs Project (SPM)
-          if [ -d "App.xcworkspace" ]; then
-            echo "Building Workspace..."
-            BUILD_ARG="-workspace App.xcworkspace"
-          else
-            echo "Building Project (SPM)..."
-            BUILD_ARG="-project App.xcodeproj"
-          fi
-
-          # Build Archive
-          # Note: We no longer pass DEVELOPMENT_TEAM explicitly.
-          # 'xcode-project use-profiles' has already updated the project settings with the correct Team ID.
-          xcodebuild archive \
-            $BUILD_ARG \
-            -scheme App \
-            -configuration Release \
-            -archivePath App.xcarchive \
-            -sdk iphoneos \
-            -allowProvisioningUpdates \
-            CODE_SIGN_STYLE="Manual"
-          
-          # Export IPA
-          xcodebuild -exportArchive \
-            -archivePath App.xcarchive \
-            -exportOptionsPlist ../../export_options.plist \
-            -exportPath .
-          
-          mv App.ipa app_signed.ipa
+          # [NEW FIX] Use Codemagic's build-ipa utility.
+          # This replaces manual xcodebuild archive/export commands.
+          # It automatically detects the workspace/project and uses the
+          # correct profile/cert mapping from the previous step.
+          xcode-project build-ipa \
+            --scheme "App" \
+            --configuration "Release"
 
     artifacts:
-      - ios/App/*.ipa
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - *.ipa
 
     publishing:
       app_store_connect:
