@@ -14,7 +14,6 @@ workflows:
     scripts:
       - name: Install Dependencies
         script: |
-          # Force clean install to avoid Windows/Mac permission issues
           rm -rf node_modules
           rm -f package-lock.json
           npm install
@@ -22,30 +21,41 @@ workflows:
       
       - name: Initialize iOS Platform
         script: |
-          # Create the iOS project folder
           npx cap add ios
           npx cap sync
-      
-      - name: Build IPA (Unsigned)
+
+      # [NEW STEP] Fetch Certificates and Profiles from Apple
+      # This requires APP_STORE_CONNECT_PRIVATE_KEY, KEY_IDENTIFIER, and ISSUER_ID 
+      # to be set in Environment Variables.
+      - name: iOS Code Signing
         script: |
-          # [FIX 1] Go into the correct 'App' folder where the workspace lives
+          keychain initialize
+          app-store-connect fetch-signing-files "$(xcode-project detect-bundle-id)" --type IOS_APP_STORE --create
+          keychain add-certificates
+          xcode-project use-profiles
+
+      - name: Build IPA (Signed)
+        script: |
           cd ios/App
           
-          # [FIX 2] Archive the build with Signing disabled
+          # [FIXED] Use standard archive command allowing signing
           xcodebuild archive \
             -workspace App.xcworkspace \
             -scheme App \
             -configuration Release \
             -archivePath App.xcarchive \
             -sdk iphoneos \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO
+            -allowProvisioningUpdates
           
-          # [FIX 3] Manually package the IPA (Bypasses the missing .plist error)
-          mkdir Payload
-          cp -r App.xcarchive/Products/Applications/App.app Payload/
-          zip -r App.ipa Payload
+          # Export the IPA using the archive
+          xcodebuild -exportArchive \
+            -archivePath App.xcarchive \
+            -exportOptionsPlist ../../export_options.plist \
+            -exportPath .
           
+          # Rename for consistency if needed, though export usually names it App.ipa
+          mv App.ipa app_signed.ipa
+
     artifacts:
       - ios/App/*.ipa
 
