@@ -2,7 +2,6 @@ workflows:
   ios-workflow:
     name: iOS Build
     
-    # Link the API Key from Codemagic UI
     integrations:
       app_store_connect: Personal
 
@@ -29,14 +28,12 @@ workflows:
       
       - name: Initialize iOS Platform
         script: |
-          # Remove existing ios folder to force a clean generation
+          # Clean restart of ios folder
           rm -rf ios
-          
-          # Add platform and sync
           npx cap add ios
           npx cap sync
           
-          # [FIXED] Only run pod install if a Podfile was actually generated
+          # Check for Podfile to decide on Pods vs SPM
           cd ios/App
           if [ -f "Podfile" ]; then
             echo "Podfile found. Installing Pods..."
@@ -49,21 +46,36 @@ workflows:
         script: |
           keychain initialize
           
-          # Fetch certificates
+          # 1. Fetch Signing Files
           app-store-connect fetch-signing-files "$(xcode-project detect-bundle-id)" \
             --type IOS_APP_STORE \
             --create
             
           keychain add-certificates
-          
-          # [FIXED] Apply profiles to the Project (works for both Pods and SPM)
           xcode-project use-profiles
+
+          # 2. [NEW] Extract Team ID from the fetched profile
+          # We look for the first mobileprovision file downloaded by the previous step
+          PROFILE_PATH=$(find ~/Library/MobileDevice/Provisioning\ Profiles -name "*.mobileprovision" | head -n 1)
+          
+          if [ -z "$PROFILE_PATH" ]; then
+            echo "Error: No provisioning profile found!"
+            exit 1
+          fi
+
+          # Extract the TeamIdentifier using standard macOS tools
+          TEAM_ID=$(security cms -D -i "$PROFILE_PATH" | /usr/libexec/PlistBuddy -c "Print :TeamIdentifier:0" /dev/stdin)
+          
+          echo "Detected Development Team ID: $TEAM_ID"
+          
+          # Export it to the Codemagic environment so the next step can use it
+          echo "DEVELOPMENT_TEAM=$TEAM_ID" >> $CM_ENV
 
       - name: Build IPA (Signed)
         script: |
           cd ios/App
           
-          # [FIXED] Smart Logic: Detect if we should build a Workspace (Pods) or Project (SPM)
+          # Detect Workspace (Pods) vs Project (SPM)
           if [ -d "App.xcworkspace" ]; then
             echo "Building Workspace..."
             BUILD_ARG="-workspace App.xcworkspace"
@@ -72,14 +84,16 @@ workflows:
             BUILD_ARG="-project App.xcodeproj"
           fi
 
-          # Archive
+          # [FIXED] Force Manual Signing and pass the Team ID explicitly
           xcodebuild archive \
             $BUILD_ARG \
             -scheme App \
             -configuration Release \
             -archivePath App.xcarchive \
             -sdk iphoneos \
-            -allowProvisioningUpdates
+            -allowProvisioningUpdates \
+            DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
+            CODE_SIGN_STYLE="Manual"
           
           # Export IPA
           xcodebuild -exportArchive \
