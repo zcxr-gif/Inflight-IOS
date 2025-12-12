@@ -13,7 +13,7 @@ workflows:
       # AUTOMATIC SIGNING CONFIGURATION
       ios_signing:
         distribution_type: app_store
-        bundle_identifier: com.tracker.Inflight  # <--- REPLACE THIS WITH YOUR ACTUAL BUNDLE ID
+        bundle_identifier: com.tracker.Inflight  # Ensure this matches your actual ID
     
     triggering:
       events:
@@ -47,6 +47,14 @@ workflows:
             echo "No Podfile found. Skipping CocoaPods (using SPM)."
           fi
 
+      - name: Increment Build Number
+        script: |
+          # Automatically syncs Xcode build number with Codemagic Build ID
+          # preventing "Duplicate Version" errors in TestFlight.
+          cd ios/App
+          echo "Updating build version to $BUILD_NUMBER"
+          agvtool new-version -all $BUILD_NUMBER
+
       - name: iOS Code Signing
         script: |
           cd ios/App
@@ -76,9 +84,10 @@ workflows:
           fi
 
     artifacts:
+      - "ios/App/build/ios/ipa/*.ipa" # <--- FIXED: Locates the file correctly
       - "build/ios/ipa/*.ipa"
-      - "/tmp/xcodebuild_logs/*.log"
       - "*.ipa"
+      - "/tmp/xcodebuild_logs/*.log"
 
     publishing:
       app_store_connect:
