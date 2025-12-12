@@ -11,7 +11,6 @@ workflows:
       cocoapods: default
       
       # AUTOMATIC SIGNING CONFIGURATION
-      # This handles fetching the correct certs/profiles from Apple.
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.tracker.Inflight  # <--- REPLACE THIS WITH YOUR ACTUAL BUNDLE ID
@@ -51,7 +50,6 @@ workflows:
       - name: iOS Code Signing
         script: |
           cd ios/App
-          
           # Initialize the keychain with the profiles fetched in the 'environment' step
           xcode-project use-profiles
 
@@ -59,18 +57,15 @@ workflows:
         script: |
           cd ios/App
           
-          # [NEW FIX] Use Codemagic's build-ipa utility.
-          # This replaces manual xcodebuild archive/export commands.
-          # It automatically detects the workspace/project and uses the
-          # correct profile/cert mapping from the previous step.
+          # Use Codemagic's build-ipa utility.
           xcode-project build-ipa \
             --scheme "App" \
             --configuration "Release"
 
     artifacts:
-      - build/ios/ipa/*.ipa
-      - /tmp/xcodebuild_logs/*.log
-      - *.ipa
+      - "build/ios/ipa/*.ipa"
+      - "/tmp/xcodebuild_logs/*.log"
+      - "*.ipa"
 
     publishing:
       app_store_connect:
