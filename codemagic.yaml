@@ -57,11 +57,23 @@ workflows:
         script: |
           cd ios/App
           
-          # Use Codemagic's build-ipa utility.
-          # FIX: Changed --configuration to --config
-          xcode-project build-ipa \
-            --scheme "App" \
-            --config "Release"
+          # Check if a Workspace exists (created by CocoaPods) or just a Project
+          if [ -d "App.xcworkspace" ]; then
+            echo "Detailed Build: Detected App.xcworkspace. Building Workspace."
+            
+            xcode-project build-ipa \
+              --workspace "App.xcworkspace" \
+              --scheme "App" \
+              --config "Release"
+              
+          else
+            echo "Detailed Build: No Workspace found. Building App.xcodeproj."
+            
+            xcode-project build-ipa \
+              --project "App.xcodeproj" \
+              --scheme "App" \
+              --config "Release"
+          fi
 
     artifacts:
       - "build/ios/ipa/*.ipa"
