@@ -13,7 +13,7 @@ workflows:
       # Documentation: Fetching files by distribution type and bundle identifier
       ios_signing:
         distribution_type: app_store
-        bundle_identifier: com.your.bundle.id # <--- UPDATE THIS with your actual Bundle ID
+        bundle_identifier: com.tracker.Inflight
     
     triggering:
       events:
