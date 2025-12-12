@@ -5,7 +5,7 @@ workflows:
     # [NEW] Link the API Key from Codemagic UI
     # Replace "My App Store Key" with the exact reference name you saved in Team Settings > Integrations.
     integrations:
-      app_store_connect: My App Store Key
+      app_store_connect: Personal
 
     environment:
       xcode: latest
