@@ -44,17 +44,23 @@ workflows:
 
       - name: iOS Code Signing
         script: |
+          # Change context to the iOS App directory so xcode-project commands work
+          cd ios/App
+          
           keychain initialize
           
-          # 1. Fetch Signing Files
-          app-store-connect fetch-signing-files "$(xcode-project detect-bundle-id)" \
+          # 1. Fetch Signing Files using the detected Bundle ID from the correct path
+          APP_ID=$(xcode-project detect-bundle-id)
+          echo "Detected Bundle ID: $APP_ID"
+          
+          app-store-connect fetch-signing-files "$APP_ID" \
             --type IOS_APP_STORE \
             --create
             
           keychain add-certificates
           xcode-project use-profiles
 
-          # 2. [NEW] Extract Team ID from the fetched profile
+          # 2. Extract Team ID from the fetched profile
           # We look for the first mobileprovision file downloaded by the previous step
           PROFILE_PATH=$(find ~/Library/MobileDevice/Provisioning\ Profiles -name "*.mobileprovision" | head -n 1)
           
@@ -62,10 +68,17 @@ workflows:
             echo "Error: No provisioning profile found!"
             exit 1
           fi
+          
+          echo "Found Profile: $PROFILE_PATH"
 
           # Extract the TeamIdentifier using standard macOS tools
           TEAM_ID=$(security cms -D -i "$PROFILE_PATH" | /usr/libexec/PlistBuddy -c "Print :TeamIdentifier:0" /dev/stdin)
           
+          if [ -z "$TEAM_ID" ]; then
+             echo "Error: Could not extract Team ID from profile."
+             exit 1
+          fi
+
           echo "Detected Development Team ID: $TEAM_ID"
           
           # Export it to the Codemagic environment so the next step can use it
