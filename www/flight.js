@@ -6910,74 +6910,17 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         }
     }
 
-    async function initializeSectorOpsMap(centerICAO) {
-        const container = document.getElementById('sector-ops-map-fullscreen');
-        if (!container) return Promise.resolve();
-
-        if (!MAPBOX_ACCESS_TOKEN) {
-            container.innerHTML = '<p class="map-error-msg">Map service not available.</p>';
-            return Promise.resolve();
-        }
-
-        if (sectorOpsMap) {
-            sectorOpsMap.remove();
-            sectorOpsMap = null;
-        }
-
-        const centerCoords = airportsData[centerICAO] ? [airportsData[centerICAO].lon, airportsData[centerICAO].lat] : [77.2, 28.6];
-
-        return new Promise((resolve) => {
-            try {
-                console.log("Initializing Mapbox instance...");
-                
-                sectorOpsMap = new mapboxgl.Map({
-                    container: 'sector-ops-map-fullscreen',
-                    style: currentMapStyle, 
-                    center: centerCoords,
-                    zoom: 4.5,
-                    projection: 'globe',
-                    attributionControl: false,
-                    logoPosition: 'bottom-left'
-                });
-
-                sectorOpsMap.on('load', async () => {
-                    console.log("Mapbox 'load' event fired.");
-                    try {
-                        // THIS FUNCTION WAS MISSING BEFORE:
-                        await setupMapLayersAndFog(); 
-                        sectorOpsMap.resize();
-                    } catch (e) {
-                        console.warn("Layer setup warning:", e);
-                    }
-                    resolve(); 
-                });
-
-                // Error handling to prevent infinite spinner
-                sectorOpsMap.on('error', (e) => {
-                    console.error("Mapbox Error:", e);
-                    // Resolve anyway to unblock UI
-                    if (e.error && (e.error.status === 401 || e.error.status === 403)) {
-                        showNotification("Map authentication failed.", "error");
-                    }
-                    resolve(); 
-                });
-
-            } catch (err) {
-                console.error("Critical Map Init Error:", err);
-                container.innerHTML = `<p class="error-text">Map failed: ${err.message}</p>`;
-                resolve();
-            }
-        });
-    }
-
-
+/**
+ * FIXED: Initializes the Mapbox map and guarantees app continues loading
+ * even if the map encounters generic errors (common on iOS).
+ */
 function initializeSectorOpsMap(centerICAO) {
     const container = document.getElementById('sector-ops-map-fullscreen');
 
-    // 1. Safety Check: If container is missing or has no size, Mapbox WILL hang.
+    // 1. Safety Check: If container is missing, resolve immediately to unblock app.
     if (!container) {
         console.error("Map container missing.");
-        return Promise.resolve(); // Resolve immediately to unblock app
+        return Promise.resolve(); 
     }
 
     if (!MAPBOX_ACCESS_TOKEN) {
@@ -6985,7 +6928,7 @@ function initializeSectorOpsMap(centerICAO) {
         return Promise.resolve();
     }
 
-    // Clean up existing map instance properly
+    // Clean up existing map instance
     if (sectorOpsMap) {
         sectorOpsMap.remove();
         sectorOpsMap = null;
@@ -6993,7 +6936,7 @@ function initializeSectorOpsMap(centerICAO) {
 
     const centerCoords = airportsData[centerICAO] ? [airportsData[centerICAO].lon, airportsData[centerICAO].lat] : [77.2, 28.6];
 
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
         try {
             console.log("Initializing Mapbox instance...");
             
@@ -7003,63 +6946,63 @@ function initializeSectorOpsMap(centerICAO) {
                 center: centerCoords,
                 zoom: 4.5,
                 projection: 'globe',
-                // --- IOS/CAPACITOR CRITICAL FIXES ---
-                failIfMajorPerformanceCaveat: false, // Force WebGL even if iOS complains about performance
-                trackResize: true, // Auto-resize if container changes
-                attributionControl: false, // Clean up UI
+                // --- iOS PERFORMANCE FIXES ---
+                failIfMajorPerformanceCaveat: false, // Essential for iOS WebViews
+                trackResize: true, 
+                attributionControl: false, 
                 logoPosition: 'bottom-left'
             });
 
-            // 2. Force a resize immediately. 
-            // On iOS, the canvas often initializes with wrong dimensions inside a WebView.
+            // Force resize for iOS WebViews (Fixes canvas sizing issues)
             setTimeout(() => {
                 if (sectorOpsMap) sectorOpsMap.resize();
             }, 100);
 
-            // 3. Rebuild layers if style changes
+            // Handle Style Load (Rebuild layers)
             sectorOpsMap.on('style.load', async () => {
-                console.log("Map style loaded/reloaded.");
+                console.log("Map style loaded.");
                 await setupMapLayersAndFog();
                 rebuildDynamicLayers();
             });
 
-            // 4. Handle Successful Load
+            // --- SUCCESS HANDLER ---
             sectorOpsMap.on('load', async () => {
                 console.log("Mapbox 'load' event fired successfully.");
                 try {
                     await setupMapLayersAndFog();
-                    // Force another resize just to be safe after layers are added
                     sectorOpsMap.resize();
                 } catch (e) {
                     console.warn("Layer setup warning:", e);
                 }
-                resolve(); // UNBLOCK THE APP
+                resolve(); // Unblocks the app
             });
 
-            // 5. Handle Errors (The "Stuck Spinner" Prevention)
-            // If the style is bad or network fails, this fires instead of 'load'
+            // --- FIXED ERROR HANDLER ---
             sectorOpsMap.on('error', (e) => {
                 console.error("Mapbox Error:", e);
                 
-                // Only unblock if it's a fatal error preventing startup
-                if (e.error && (e.error.status === 401 || e.error.status === 403 || e.error.status === 404)) {
+                // Specific user notification for auth errors
+                if (e.error && (e.error.status === 401 || e.error.status === 403)) {
                     showNotification("Map authentication failed.", "error");
-                    resolve(); // Unblock so user can at least see the UI
                 }
+
+                // CRITICAL FIX: Resolve the promise for ALL errors.
+                // This allows initializeApp() to finish and the loading icon to disappear,
+                // even if the map failed to render.
+                resolve(); 
             });
 
-            // 6. WebGL Context Loss Handler (iOS Memory Issue)
+            // --- WEBGL CRASH HANDLER ---
             sectorOpsMap.on('webglcontextlost', () => {
-                console.error("WebGL Context Lost! Attempting restore...");
-                showNotification("Map crashed (Memory). reloading...", "error");
-                // Optional: You could try to re-initialize here, 
-                // but usually resolving allows the UI to remain responsive.
+                console.error("WebGL Context Lost!");
+                showNotification("Map crashed (Memory).", "error");
+                resolve(); // Ensure app doesn't hang on crash
             });
 
         } catch (err) {
             console.error("Critical Map Initialization Error:", err);
             container.innerHTML = `<p class="error-text">Map failed: ${err.message}</p>`;
-            resolve(); // Unblock the app
+            resolve(); // Ensure app doesn't hang on catch
         }
     });
 }
