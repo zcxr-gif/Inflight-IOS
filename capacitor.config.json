@@ -3,6 +3,7 @@
   "appName": "Inflight",
   "webDir": "www",
   "server": {
+    "hostname": "inflight-secure", 
     "androidScheme": "https"
   },
   "plugins": {
