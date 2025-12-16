@@ -2,48 +2,40 @@ import { MapAnimator } from './mapAnimator.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
     // --- Global Configuration ---
-    
-    // 1. MAKE SURE THIS IS YOUR LIVE URL (No trailing slash is safer usually, but ensure consistency)
     const PRODUCTION_URL = 'https://inflight.info'; 
-
-    // 2. This check detects if you are in the iOS App (Capacitor/Cordova) or Localhost
     const IS_LOCAL_OR_APP = window.location.hostname === 'localhost' || 
                             window.location.protocol === 'file:' || 
                             window.location.protocol === 'capacitor:';
-
-    // 3. This forces the app to look at https://inflight.info for keys, not localhost
     const CURRENT_SITE_URL = IS_LOCAL_OR_APP ? PRODUCTION_URL : window.location.origin;
 
-
-const API_BASE_URL = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
-const LIVE_FLIGHTS_API_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run/flights';
-const ACARS_USER_API_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run/users';
-let currentServerName = localStorage.getItem('preferredServer') || 'Expert Server';
-
+    const API_BASE_URL = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
+    const LIVE_FLIGHTS_API_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run/flights';
+    const ACARS_USER_API_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run/users';
+    let currentServerName = localStorage.getItem('preferredServer') || 'Expert Server';
 
     // --- State Variables ---
     let OWM_API_KEY = null;
     let isWeatherLayerAdded = false;
-    let isCloudLayerAdded = false;   // NEW: For Clouds
-    let isWindLayerAdded = false;    // NEW: For Wind
+    let isCloudLayerAdded = false;
+    let isWindLayerAdded = false;
     let MAPBOX_ACCESS_TOKEN = null;
     let CURRENT_PILOT = null;
     let CURRENT_OFP_DATA = null;
     let airportsData = {};
-    let runwaysData = {}; // NEW: To store runway data indexed by airport ICAO
-    let currentMapFeatures = {}; // Key: flightId, Value: GeoJSON Feature
-    const DATA_REFRESH_INTERVAL_MS = 50000; // Your current refresh interval
-    const ACARS_SOCKET_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run'; // <-- NEW: For WebSocket
+    let runwaysData = {};
+    let currentMapFeatures = {}; 
+    const DATA_REFRESH_INTERVAL_MS = 50000;
+    const ACARS_SOCKET_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run';
     let isAircraftWindowLoading = false;
 
-    // --- [NEW] Map Style Constants & State ---
+    // --- Map Style Constants ---
     const MAP_STYLE_DARK = 'mapbox://styles/mapbox/dark-v11';
     const MAP_STYLE_LIGHT = 'mapbox://styles/servernoob/cmg3wq7an002p01s17kbx7lqk';
     const MAP_STYLE_SATELLITE = 'mapbox://styles/mapbox/satellite-streets-v12';
-    let currentMapStyle = MAP_STYLE_DARK; // Set the default
+    let currentMapStyle = MAP_STYLE_DARK;
 
     // --- Map-related State ---
-    let lastSocketUpdateTimestamp = 0; // NEW: Tracks the last valid flight data packet
+    let lastSocketUpdateTimestamp = 0;
     let liveTrailCache = new Map();
     const communityAircraftCache = new Map();
     const lookupQueue = new Map();
@@ -52,33 +44,32 @@ let currentServerName = localStorage.getItem('preferredServer') || 'Expert Serve
     let liveFlightsInterval = null;
     let sectorOpsMap = null;
     let mapAnimator = null;
-    let airportAndAtcMarkers = {}; // Holds all airport markers (blue dots and red ATC dots)
+    let airportAndAtcMarkers = {};
     let sectorOpsMapRouteLayers = [];
-    let sectorOpsLiveFlightPathLayers = {}; // NEW: To track multiple flight trails
-    let sectorOpsAtcNotamInterval = null; // <-- MODIFIED: Renamed from sectorOpsLiveFlightsInterval
-    let sectorOpsSocket = null; // <-- NEW: Socket.IO client instance
-    let activeAtcFacilities = []; // To store fetched ATC data
-    let activeNotams = []; // To store fetched NOTAMs data
-    let atcPopup = null; // To manage a single, shared popup instance
-    // State for the airport info window
+    let sectorOpsLiveFlightPathLayers = {};
+    let sectorOpsAtcNotamInterval = null;
+    let sectorOpsSocket = null;
+    let activeAtcFacilities = [];
+    let activeNotams = [];
+    let atcPopup = null;
+    
     let airportInfoWindow = null;
     let airportInfoWindowRecallBtn = null;
     let currentAirportInWindow = null;
-    // NEW: State for the aircraft info window
+    
     let aircraftInfoWindow = null;
-    let weatherSettingsWindow = null; // <-- This was added in the last step
-    let filterSettingsWindow = null; // <-- ADD THIS NEW VARIABLE
+    let weatherSettingsWindow = null;
+    let filterSettingsWindow = null;
     let aircraftInfoWindowRecallBtn = null;
-    let currentFlightInWindow = null; // Stores the flightId of the last selected aircraft
-    let activePfdUpdateInterval = null; // Interval for updating the PFD display
-    let activeGeocodeUpdateInterval = null; // NEW: Interval for reverse geocoding
+    let currentFlightInWindow = null;
+    let activePfdUpdateInterval = null;
+    let activeGeocodeUpdateInterval = null;
     let activeWeatherUpdateInterval = null;
-    let currentAircraftPositionForGeocode = null; // NEW: Stores the latest position
-    let lastGeocodeCoords = { lat: 0, lon: 0 }; // NEW: Prevents redundant calls
-    // --- FIX: Added roll_deg to state to prevent flickering ---
+    let currentAircraftPositionForGeocode = null;
+    let lastGeocodeCoords = { lat: 0, lon: 0 };
     let lastPfdState = { track_deg: 0, timestamp: 0, roll_deg: 0 };
-    // --- NEW: To cache flight data when switching to stats view ---
     let cachedFlightDataForStatsView = { flightProps: null, plan: null };
+    
     let mapFilters = {
         showVaOnly: false,
         showStaffOnly: false,
@@ -91,58 +82,140 @@ let currentServerName = localStorage.getItem('preferredServer') || 'Expert Serve
         iconColorMode: 'default',
         showAircraftLabels: false,
         useSimpleFlightWindow: false,
-        themeStartColor: '#18181b', // [UPDATED] Carbon/Zinc-900
-        themeEndColor: '#18181b',   // [UPDATED] Carbon/Zinc-900
-        themeOpacity: 90            // [UPDATED] Slightly more transparent (90%)
+        themeStartColor: '#18181b',
+        themeEndColor: '#18181b',
+        themeOpacity: 90
     };
 
-    const departureHubs = []; // Empty array
-    let ALL_AVAILABLE_ROUTES = []; // Empty array
-    const DYNAMIC_FLEET = []; // Empty array
+    const departureHubs = [];
+    let ALL_AVAILABLE_ROUTES = [];
+    const DYNAMIC_FLEET = [];
     const AIRCRAFT_SELECTION_LIST = [
-        // Airbus
-        { value: 'A318', name: 'Airbus A318-100' },
-        { value: 'A319', name: 'Airbus A319-100' },
-        { value: 'A320', name: 'Airbus A320-200' },
-        { value: 'A20N', name: 'Airbus A320neo' },
-        { value: 'A321', name: 'Airbus A321-200' },
-        { value: 'A21N', name: 'Airbus A321neo' },
-        { value: 'A333', name: 'Airbus A330-300' },
-        { value: 'A339', name: 'Airbus A330-900neo' },
-        { value: 'A346', name: 'Airbus A340-600' },
-        { value: 'A359', name: 'Airbus A350-900' },
-        { value: 'A388', name: 'Airbus A380-800' },
-        // Boeing
-        { value: 'B712', name: 'Boeing 717-200' },
-        { value: 'B737', name: 'Boeing 737-700' },
-        { value: 'B738', name: 'Boeing 737-800' },
-        { value: 'B739', name: 'Boeing 737-900' },
-        { value: 'B38M', name: 'Boeing 737 MAX 8' },
-        { value: 'B742', name: 'Boeing 747-200B' },
-        { value: 'B744', name: 'Boeing 747-400' },
-        { value: 'B748', name: 'Boeing 747-8' },
-        { value: 'B752', name: 'Boeing 757-200' },
-        { value: 'B763', name: 'Boeing 767-300ER' },
-        { value: 'B772', name: 'Boeing 777-200ER' },
-        { value: 'B77L', name: 'Boeing 777-200LR' },
-        { value: 'B77W', name: 'Boeing 777-300ER' },
-        { value: 'B788', name: 'Boeing 787-8' },
-        { value: 'B789', name: 'Boeing 787-9' },
-        { value: 'B78X', name: 'Boeing 787-10' },
-        // Bombardier (CRJ)
-        { value: 'CRJ2', name: 'Bombardier CRJ-200' },
-        { value: 'CRJ7', name: 'Bombardier CRJ-700' },
-        { value: 'CRJ9', name: 'Bombardier CRJ-900' },
-        { value: 'CRJX', name: 'Bombardier CRJ-1000' },
-        // De Havilland
-        { value: 'DH8D', name: 'De Havilland Dash 8 Q400' },
-        // Embraer
-        { value: 'E175', name: 'Embraer E175' },
-        { value: 'E190', name: 'Embraer E190' },
-        // McDonnell Douglas
-        { value: 'DC10', name: 'McDonnell Douglas DC-10' },
-        { value: 'MD11', name: 'McDonnell Douglas MD-11' },
+        { value: 'A318', name: 'Airbus A318-100' }, { value: 'A319', name: 'Airbus A319-100' },
+        { value: 'A320', name: 'Airbus A320-200' }, { value: 'A20N', name: 'Airbus A320neo' },
+        { value: 'A321', name: 'Airbus A321-200' }, { value: 'A21N', name: 'Airbus A321neo' },
+        { value: 'A333', name: 'Airbus A330-300' }, { value: 'A339', name: 'Airbus A330-900neo' },
+        { value: 'A346', name: 'Airbus A340-600' }, { value: 'A359', name: 'Airbus A350-900' },
+        { value: 'A388', name: 'Airbus A380-800' }, { value: 'B712', name: 'Boeing 717-200' },
+        { value: 'B737', name: 'Boeing 737-700' }, { value: 'B738', name: 'Boeing 737-800' },
+        { value: 'B739', name: 'Boeing 737-900' }, { value: 'B38M', name: 'Boeing 737 MAX 8' },
+        { value: 'B742', name: 'Boeing 747-200B' }, { value: 'B744', name: 'Boeing 747-400' },
+        { value: 'B748', name: 'Boeing 747-8' }, { value: 'B752', name: 'Boeing 757-200' },
+        { value: 'B763', name: 'Boeing 767-300ER' }, { value: 'B772', name: 'Boeing 777-200ER' },
+        { value: 'B77L', name: 'Boeing 777-200LR' }, { value: 'B77W', name: 'Boeing 777-300ER' },
+        { value: 'B788', name: 'Boeing 787-8' }, { value: 'B789', name: 'Boeing 787-9' },
+        { value: 'B78X', name: 'Boeing 787-10' }, { value: 'CRJ2', name: 'Bombardier CRJ-200' },
+        { value: 'CRJ7', name: 'Bombardier CRJ-700' }, { value: 'CRJ9', name: 'Bombardier CRJ-900' },
+        { value: 'CRJX', name: 'Bombardier CRJ-1000' }, { value: 'DH8D', name: 'De Havilland Dash 8 Q400' },
+        { value: 'E175', name: 'Embraer E175' }, { value: 'E190', name: 'Embraer E190' },
+        { value: 'DC10', name: 'McDonnell Douglas DC-10' }, { value: 'MD11', name: 'McDonnell Douglas MD-11' }
     ];
+
+    /**
+     * --- [NEW] Missing Function: setupMapLayersAndFog ---
+     * This adds the sources and layers for aircraft icons, labels, and map atmosphere.
+     */
+    async function setupMapLayersAndFog() {
+        if (!sectorOpsMap) return;
+
+        // 1. Add Atmosphere (Fog)
+        sectorOpsMap.setFog({
+            'range': [0.5, 10],
+            'color': '#242B4B',
+            'horizon-blend': 0.1,
+            'high-color': '#161B33',
+            'space-color': '#0B1026',
+            'star-intensity': 0.5
+        });
+
+        // 2. Load Aircraft Images
+        // You can add more icons here as needed
+        const icons = [
+            'icon-jumbo', 'icon-widebody', 'icon-narrowbody', 'icon-regional', 
+            'icon-private', 'icon-fighter', 'icon-military', 'icon-cessna', 'icon-default'
+        ];
+        
+        // Helper to load an image
+        const loadIcon = (name) => {
+            return new Promise((resolve) => {
+                if (sectorOpsMap.hasImage(name)) return resolve();
+                // Assumes images are in Images/map_icons/ folder
+                sectorOpsMap.loadImage(`Images/map_icons/${name}.png`, (error, image) => {
+                    if (error) {
+                        // Fallback: create a placeholder dot if image missing
+                        console.warn(`Icon ${name} missing, using fallback.`);
+                        return resolve(); 
+                    }
+                    sectorOpsMap.addImage(name, image);
+                    resolve();
+                });
+            });
+        };
+
+        // Load all icons in parallel (optional, but good for completeness)
+        // For now, we proceed to add layers even if images are loading
+        
+        // 3. Add Live Flights Source
+        if (!sectorOpsMap.getSource('sector-ops-live-flights-source')) {
+            sectorOpsMap.addSource('sector-ops-live-flights-source', {
+                type: 'geojson',
+                data: { type: 'FeatureCollection', features: [] }
+            });
+        }
+
+        // 4. Add Aircraft Layer
+        if (!sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
+            sectorOpsMap.addLayer({
+                id: 'sector-ops-live-flights-layer',
+                type: 'symbol',
+                source: 'sector-ops-live-flights-source',
+                layout: {
+                    // Use a fallback icon if specific category icon isn't found
+                    'icon-image': getIconImageExpression(mapFilters.iconColorMode),
+                    'icon-size': ['interpolate', ['linear'], ['zoom'], 4, 0.4, 10, 0.7],
+                    'icon-allow-overlap': true,
+                    'icon-rotate': ['get', 'heading'],
+                    'icon-rotation-alignment': 'map'
+                },
+                paint: {
+                    'icon-opacity': 1
+                }
+            });
+        }
+
+        // 5. Add Labels Layer
+        if (!sectorOpsMap.getLayer('sector-ops-live-flights-labels')) {
+            sectorOpsMap.addLayer({
+                id: 'sector-ops-live-flights-labels',
+                type: 'symbol',
+                source: 'sector-ops-live-flights-source',
+                minzoom: 5, // Only show labels when zoomed in a bit
+                layout: {
+                    'text-field': ['format',
+                        ['get', 'callsign'], { 'font-scale': 0.9 },
+                        '\n', {},
+                        ['get', 'altitude'], { 'font-scale': 0.8 },
+                        ' ft', { 'font-scale': 0.8 }
+                    ],
+                    'text-font': ['DIN Offc Pro Medium', 'Arial Unicode MS Bold'],
+                    'text-offset': [0, 1.2],
+                    'text-anchor': 'top',
+                    'visibility': mapFilters.showAircraftLabels ? 'visible' : 'none'
+                },
+                paint: {
+                    'text-color': '#ffffff',
+                    'text-halo-color': '#000000',
+                    'text-halo-width': 1.5
+                }
+            });
+        }
+
+        // 6. Initialize Animator
+        // This is critical - without this, the aircraft markers won't move/interpolate
+        if (!mapAnimator) {
+            mapAnimator = new MapAnimator(sectorOpsMap);
+        }
+    }
 
     /**
      * --- [NEW] Saves the current mapFilters state to local storage.
@@ -6837,328 +6910,64 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         }
     }
 
-    async function initializeSectorOpsView() {
-        const mapContainer = document.getElementById('sector-ops-map-fullscreen');
-        const viewContainer = document.getElementById('standalone-map-view'); 
-        
-        if (!viewContainer || !mapContainer) return;
-        
-        mainContentLoader.classList.add('active');
+    async function initializeSectorOpsMap(centerICAO) {
+        const container = document.getElementById('sector-ops-map-fullscreen');
+        if (!container) return Promise.resolve();
 
-        try {
-            // --- [MOVED UP] 1. Initialize Map FIRST ---
-            // We do this first so the map canvas is created at the bottom of the stack.
-            // Any HTML injected afterwards will correctly sit ON TOP of the map.
-            const selectedHub = "VIDP"; 
-            await initializeSectorOpsMap(selectedHub);
-
-            // --- 2. Inject Server Selector Pill ---
-            if (!document.getElementById('server-selector-container')) {
-                const selectorHtml = `
-                    <div id="server-selector-container">
-                        <button class="server-btn ${currentServerName === 'Expert Server' ? 'active' : ''}" data-server="Expert Server">Expert</button>
-                        <button class="server-btn ${currentServerName === 'Training Server' ? 'active' : ''}" data-server="Training Server">Training</button>
-                        <button class="server-btn ${currentServerName === 'Casual Server' ? 'active' : ''}" data-server="Casual Server">Casual</button>
-                    </div>
-                `;
-                mapContainer.insertAdjacentHTML('beforeend', selectorHtml);
-            }
-
-            // --- 3. Inject the Search Bar ---
-            if (!document.getElementById('sector-ops-search-container')) {
-                const searchHtml = `
-                    <div id="sector-ops-search-container">
-                        <div class="search-bar-container">
-                            <input type="text" id="sector-ops-search-input" placeholder="Search callsign..." autocomplete="off">
-                            
-                            <button id="sector-ops-search-clear" class="search-clear-btn" title="Clear">
-                                <i class="fa-solid fa-xmark"></i>
-                            </button>
-                            
-                            <div class="search-icon-label">
-                                <i class="fa-solid fa-magnifying-glass"></i>
-                            </div>
-                        </div>
-                        
-                        <div id="search-results-dropdown" class="search-results-dropdown"></div>
-                    </div>
-                `;
-                mapContainer.insertAdjacentHTML('beforeend', searchHtml);
-            }
-
-            // --- 4. Inject Airport Info Window ---
-            if (!document.getElementById('airport-info-window')) {
-                 const windowHtml = `
-                    <div id="airport-info-window" class="info-window">
-                        <div id="airport-window-content" class="info-window-content"></div>
-                    </div>
-                `;
-                mapContainer.insertAdjacentHTML('beforeend', windowHtml);
-            }
-
-            // --- 5. Inject Aircraft Info Window ---
-            if (!document.getElementById('aircraft-info-window')) {
-                 const windowHtml = `
-                    <div id="aircraft-info-window" class="info-window">
-                        
-                    </div>
-                `;
-                mapContainer.insertAdjacentHTML('beforeend', windowHtml);
-            }
-
-            // --- 6. Inject Weather Settings Window ---
-            if (!document.getElementById('weather-settings-window')) {
-                const windowHtml = `
-                    <div id="weather-settings-window" class="info-window">
-                        <div class="info-window-header">
-                            <h3><i class="fa-solid fa-cloud-sun" style="margin-right: 10px;"></i> Weather Settings</h3>
-                            <div class="info-window-actions">
-                                <button class="weather-window-hide-btn" title="Hide"><i class="fa-solid fa-compress"></i></button>
-                                <button class="weather-window-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
-                            </div>
-                        </div>
-                        <div id="weather-window-content" class="info-window-content">
-                            <ul class="weather-toggle-list">
-                                <li class="weather-toggle-item">
-                                    <span class="weather-toggle-label"><i class="fa-solid fa-cloud-rain"></i> Radar (Precip)</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="weather-toggle-precip">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-                                <li class="weather-toggle-item">
-                                    <span class="weather-toggle-label"><i class="fa-solid fa-triangle-exclamation"></i> SIGMETs</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="weather-toggle-sigmets">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-                                <li class="weather-toggle-item">
-                                    <span class="weather-toggle-label"><i class="fa-solid fa-cloud"></i> Cloud Cover</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="weather-toggle-clouds">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-                                <li class="weather-toggle-item">
-                                    <span class="weather-toggle-label"><i class="fa-solid fa-wind"></i> Wind Speed</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="weather-toggle-wind">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-                            </ul>
-                            <div class="weather-disclaimer-note">
-                                <i class="fa-solid fa-server"></i>
-                                <strong>Note:</strong> ONLY rain radar is provided. Other radars (sigmets, clouds, wind) are not available.
-                            </div>
-                        </div>
-                    </div>
-                `;
-                mapContainer.insertAdjacentHTML('beforeend', windowHtml);
-            }
-
-            // --- 7. Inject Settings Window ---
-            if (!document.getElementById('filter-settings-window')) {
-                const windowHtml = `
-                    <div id="filter-settings-window" class="info-window">
-                        <div class="info-window-header">
-                            <h3><i class="fa-solid fa-gear" style="margin-right: 10px;"></i> Settings</h3>
-                            <div class="info-window-actions">
-                                <button class="filter-window-hide-btn" title="Hide"><i class="fa-solid fa-compress"></i></button>
-                                <button class="filter-window-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
-                            </div>
-                        </div>
-                        <div id="filter-window-content" class="info-window-content">
-                            <ul class="filter-toggle-list">
-                                <li class="filter-toggle-item">
-                                    <span class="filter-toggle-label"><i class="fa-solid fa-tower-broadcast"></i> Hide Staffed Airports</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="filter-toggle-atc">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-
-                                <li class="filter-toggle-item">
-                                    <span class="filter-toggle-label"><i class="fa-solid fa-satellite"></i> Satellite Mode</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="filter-toggle-satellite-mode">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-                                
-                                <li class="filter-toggle-item">
-                                    <span class="filter-toggle-label"><i class="fa-solid fa-tags"></i> Show Aircraft Labels</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="filter-toggle-aircraft-labels">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-                            </ul>
-
-                            <div class="filter-section-divider">
-                                <span class="filter-section-title">Interface Style</span>
-                            </div>
-                            <ul class="filter-toggle-list" style="padding-top: 8px;">
-                                <li class="filter-toggle-item">
-                                    <span class="filter-toggle-label"><i class="fa-solid fa-tablet-screen-button"></i> Simple Flight Window</span>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="filter-toggle-simple-window">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </li>
-                            </ul>
-
-                            <div class="filter-section-divider">
-                                <span class="filter-section-title">Aircraft Icon Color</span>
-                            </div>
-                            <ul class="filter-toggle-list" id="icon-color-filter-group" style="padding-top: 8px;">
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="icon-color-default" name="icon-color-mode" value="default" checked>
-                                    <label for="icon-color-default"><i class="fa-solid fa-plane" style="color: #fff;"></i> Default (White)</label>
-                                </li>
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="icon-color-blue" name="icon-color-mode" value="blue">
-                                    <label for="icon-color-blue"><i class="fa-solid fa-plane" style="color: #00a8ff;"></i> Blue</label>
-                                </li>
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="icon-color-orange" name="icon-color-mode" value="orange">
-                                    <label for="icon-color-orange"><i class="fa-solid fa-plane" style="color: #ff9900;"></i> Orange</label>
-                                </li>
-                            </ul>
-                            
-                            <div class="filter-section-divider">
-                                <span class="filter-section-title">Active Flight Plan Display</span>
-                            </div>
-                            <ul class="filter-toggle-list" id="plan-filter-group" style="padding-top: 8px;">
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="plan-filter-none" name="plan-display-mode" value="none" checked>
-                                    <label for="plan-filter-none"><i class="fa-solid fa-eye-slash"></i> Hide Plan</label>
-                                </li>
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="plan-filter-direct" name="plan-display-mode" value="direct">
-                                    <label for="plan-filter-direct"><i class="fa-solid fa-route"></i> Direct to Destination</label>
-                                </li>
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="plan-filter-full" name="plan-display-mode" value="full">
-                                    <label for="plan-filter-full"><i class="fa-solid fa-diagram-project"></i> Full Filed Plan</label>
-                                </li>
-                            </ul>
-
-                            <div class="mobile-only-filter-section">
-                                <div class="filter-section-divider">
-                                    <span class="filter-section-title">Mobile Display Mode</span>
-                                </div>
-                                <ul class="filter-toggle-list" id="mobile-mode-filter-group" style="padding-top: 8px;">
-                                    <li class="filter-radio-item">
-                                        <input type="radio" id="mobile-mode-hud" name="mobile-display-mode" value="hud" checked>
-                                        <label for="mobile-mode-hud"><i class="fa-solid fa-rocket"></i> HUD View</label>
-                                    </li>
-                                    <li class="filter-radio-item">
-                                        <input type="radio" id="mobile-mode-legacy" name="mobile-display-mode" value="legacy">
-                                        <label for="mobile-mode-legacy"><i class="fa-solid fa-layer-group"></i> Legacy Sheet</label>
-                                    </li>
-                                </ul>
-                            </div>
-
-                            <div class="filter-section-divider">
-                                <span class="filter-section-title">Window Appearance</span>
-                            </div>
-                            <div class="filter-appearance-controls" style="padding: 10px; display: flex; flex-direction: column; gap: 10px;">
-                                <div style="display: flex; justify-content: space-between; align-items: center;">
-                                    <span style="color: #ccc; font-size: 0.9rem;">Gradient Start Color</span>
-                                    <input type="color" id="theme-color-start" value="#121426" style="background: none; border: none; width: 50px; height: 30px; cursor: pointer;">
-                                </div>
-                                <div style="display: flex; justify-content: space-between; align-items: center;">
-                                    <span style="color: #ccc; font-size: 0.9rem;">Gradient End Color</span>
-                                    <input type="color" id="theme-color-end" value="#121426" style="background: none; border: none; width: 50px; height: 30px; cursor: pointer;">
-                                </div>
-                                <div style="display: flex; gap: 10px;">
-                                     <button id="theme-reset-btn" class="cta-button" style="width: 100%; padding: 8px; font-size: 0.85rem; border-radius: 4px; background: rgba(255,255,255,0.1); border: 1px solid #444; color: #fff; cursor: pointer;">Reset Default Theme</button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-                mapContainer.insertAdjacentHTML('beforeend', windowHtml);
-            }
-            
-            // --- 8. Inject Toolbar Buttons (if missing) ---
-            const toolbarToggleBtn = document.getElementById('toolbar-toggle-panel-btn');
-            if (toolbarToggleBtn) {
-                 if (!document.getElementById('airport-recall-btn')) {
-                    toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
-                        <button id="airport-recall-btn" class="toolbar-btn" title="Show Airport Info">
-                            <i class="fa-solid fa-location-dot"></i>
-                        </button>
-                    `);
-                 }
-                 if (!document.getElementById('aircraft-recall-btn')) {
-                      toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
-                        <button id="aircraft-recall-btn" class="toolbar-btn" title="Show Aircraft Info">
-                            <i class="fa-solid fa-plane-up"></i>
-                        </button>
-                    `);
-                 }
-                 if (!document.getElementById('open-weather-settings-btn')) {
-                    toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
-                        <button id="open-weather-settings-btn" class="toolbar-btn" title="Weather Settings">
-                            <i class="fa-solid fa-cloud-sun"></i>
-                        </button>
-                    `);
-                 }
-                 if (!document.getElementById('open-filter-settings-btn')) {
-                    toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
-                        <button id="open-filter-settings-btn" class="toolbar-btn" title="Settings">
-                            <i class="fa-solid fa-gear"></i>
-                        </button>
-                    `);
-                 }
-            }
-            
-            // --- 9. Assign Global Variables ---
-            airportInfoWindow = document.getElementById('airport-info-window');
-            airportInfoWindowRecallBtn = document.getElementById('airport-recall-btn');
-            aircraftInfoWindow = document.getElementById('aircraft-info-window');
-            aircraftInfoWindowRecallBtn = document.getElementById('aircraft-recall-btn');
-            weatherSettingsWindow = document.getElementById('weather-settings-window');
-            filterSettingsWindow = document.getElementById('filter-settings-window');
-
-            // --- 10. Load Content and Setup Listeners ---
-            await loadExternalPanelContent();
-
-            setupSectorOpsEventListeners();
-            setupAirportWindowEvents();
-            setupAircraftWindowEvents();
-            setupWeatherSettingsWindowEvents();
-            setupFilterSettingsWindowEvents(); 
-            
-            // --- 11. Setup Search Listeners (Now that elements exist) ---
-            setupSearchEventListeners();
-
-            // --- [NEW] Initialize Smart Map Click ---
-            setupSmartMapBackgroundClick(); 
-
-            // --- 12. Listen for ND_READY signal ---
-            window.addEventListener('message', (event) => {
-                if (event.data && event.data.type === 'ND_READY') {
-                    refreshNavDisplayFromCache();
-                }
-            });
-
-            // --- 13. Start Live Loop ---
-            startSectorOpsLiveLoop();
-
-        } catch (error) {
-            console.error("Error initializing Sector Ops view:", error);
-            showNotification(error.message, 'error');
-            const panelContentWrapper = document.querySelector('#sector-ops-floating-panel .panel-content-wrapper');
-            if (panelContentWrapper) {
-                panelContentWrapper.innerHTML = `<p class="error-text" style="padding: 20px;">${error.message}</p>`;
-            }
-        } finally {
-            mainContentLoader.classList.remove('active');
+        if (!MAPBOX_ACCESS_TOKEN) {
+            container.innerHTML = '<p class="map-error-msg">Map service not available.</p>';
+            return Promise.resolve();
         }
+
+        if (sectorOpsMap) {
+            sectorOpsMap.remove();
+            sectorOpsMap = null;
+        }
+
+        const centerCoords = airportsData[centerICAO] ? [airportsData[centerICAO].lon, airportsData[centerICAO].lat] : [77.2, 28.6];
+
+        return new Promise((resolve) => {
+            try {
+                console.log("Initializing Mapbox instance...");
+                
+                sectorOpsMap = new mapboxgl.Map({
+                    container: 'sector-ops-map-fullscreen',
+                    style: currentMapStyle, 
+                    center: centerCoords,
+                    zoom: 4.5,
+                    projection: 'globe',
+                    attributionControl: false,
+                    logoPosition: 'bottom-left'
+                });
+
+                sectorOpsMap.on('load', async () => {
+                    console.log("Mapbox 'load' event fired.");
+                    try {
+                        // THIS FUNCTION WAS MISSING BEFORE:
+                        await setupMapLayersAndFog(); 
+                        sectorOpsMap.resize();
+                    } catch (e) {
+                        console.warn("Layer setup warning:", e);
+                    }
+                    resolve(); 
+                });
+
+                // Error handling to prevent infinite spinner
+                sectorOpsMap.on('error', (e) => {
+                    console.error("Mapbox Error:", e);
+                    // Resolve anyway to unblock UI
+                    if (e.error && (e.error.status === 401 || e.error.status === 403)) {
+                        showNotification("Map authentication failed.", "error");
+                    }
+                    resolve(); 
+                });
+
+            } catch (err) {
+                console.error("Critical Map Init Error:", err);
+                container.innerHTML = `<p class="error-text">Map failed: ${err.message}</p>`;
+                resolve();
+            }
+        });
     }
 
 
@@ -11339,28 +11148,31 @@ async function updateSectorOpsSecondaryData() {
 
 
     // --- Initial Load ---
-async function initializeApp() {
+    async function initializeApp() {
         mainContentLoader.classList.add('active');
 
-        loadFiltersFromLocalStorage();
+        try {
+            loadFiltersFromLocalStorage();
+            injectCustomStyles();
 
-        // Inject all custom CSS
-        injectCustomStyles();
-
-        // Fetch essential data in parallel
-        await Promise.all([
-            fetchApiKeys(),
-            fetchAirportsData(),
-            fetchRunwaysData()
-        ]);
-        
-        // Initialize the Sector Ops view
-        await initializeSectorOpsView(); 
-        
-        mainContentLoader.classList.remove('active');
+            // Fetch data
+            await Promise.all([
+                fetchApiKeys(),
+                fetchAirportsData(),
+                fetchRunwaysData()
+            ]);
+            
+            // Init Map View
+            await initializeSectorOpsView(); 
+        } catch (e) {
+            console.error("App Initialization Error:", e);
+            showNotification("Application failed to load completely.", "error");
+        } finally {
+            // ALWAYS remove loader
+            mainContentLoader.classList.remove('active');
+        }
     }
 
     window.displayPilotStats = displayPilotStats;
-
     initializeApp();
 });
