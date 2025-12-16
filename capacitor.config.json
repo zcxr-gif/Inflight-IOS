@@ -1,5 +1,13 @@
 {
   "appId": "com.tracker.Inflight",
   "appName": "Inflight",
-  "webDir": "www"
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  }
 }
