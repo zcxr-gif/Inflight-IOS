@@ -582,6 +582,38 @@ function handleSavedFlightListClick(e) {
         return []; // Return empty array
     }
 
+    async function initializeSectorOpsView() {
+        // 1. Ensure the view is visible
+        const view = document.getElementById('standalone-map-view');
+        if (view) view.classList.add('active');
+
+        // 2. DOM Elements
+        airportInfoWindow = document.getElementById('airport-info-window');
+        airportInfoWindowRecallBtn = document.getElementById('airport-recall-btn');
+        aircraftInfoWindow = document.getElementById('aircraft-info-window');
+        aircraftInfoWindowRecallBtn = document.getElementById('aircraft-recall-btn');
+        weatherSettingsWindow = document.getElementById('weather-settings-window');
+        filterSettingsWindow = document.getElementById('filter-settings-window');
+
+        // 3. Initialize Map
+        await initializeSectorOpsMap('EGLL'); 
+
+        // 4. Start Live Data
+        startSectorOpsLiveLoop();
+        
+        // 5. Setup Listeners
+        setupSectorOpsEventListeners();
+        setupWeatherSettingsWindowEvents();
+        setupFilterSettingsWindowEvents();
+        setupSearchEventListeners();
+        setupAircraftWindowEvents();
+        setupAirportWindowEvents();
+        setupSmartMapBackgroundClick();
+        
+        // 6. Load Panel
+        loadExternalPanelContent();
+    }
+
 
     // --- Helper: Fetch API Keys from Netlify Function ---
     async function fetchApiKeys() {
@@ -591,19 +623,22 @@ function handleSavedFlightListClick(e) {
             
             const config = await response.json();
             
-            if (!config.mapboxToken) throw new Error('Mapbox token is missing from server configuration.');
-            if (!config.owmApiKey) throw new Error('OWM API key is missing from server configuration.');
+            if (!config.mapboxToken) throw new Error('Mapbox token is missing.');
+            // if (!config.owmApiKey) throw new Error('OWM API key is missing.'); // Soft fail for weather
 
             // Set Mapbox key
             MAPBOX_ACCESS_TOKEN = config.mapboxToken;
-            mapboxgl.accessToken = MAPBOX_ACCESS_TOKEN;
+            if (typeof mapboxgl !== 'undefined') {
+                mapboxgl.accessToken = MAPBOX_ACCESS_TOKEN;
+            }
             
             // Set OWM key
             OWM_API_KEY = config.owmApiKey;
 
         } catch (error) {
             console.error('Failed to initialize API keys:', error.message);
-            showNotification('Could not load mapping or weather services.', 'error');
+            // Don't kill the app, just notify
+            // showNotification('Map setup failed.', 'error');
         }
     }
 
@@ -11092,11 +11127,12 @@ async function updateSectorOpsSecondaryData() {
 
     // --- Initial Load ---
     async function initializeApp() {
-        mainContentLoader.classList.add('active');
+        // Ensure loader is visible
+        if(mainContentLoader) mainContentLoader.classList.add('active');
 
         try {
             loadFiltersFromLocalStorage();
-            injectCustomStyles();
+            injectCustomStyles(); // Inject CSS
 
             // Fetch data
             await Promise.all([
@@ -11107,15 +11143,66 @@ async function updateSectorOpsSecondaryData() {
             
             // Init Map View
             await initializeSectorOpsView(); 
+            
         } catch (e) {
             console.error("App Initialization Error:", e);
-            showNotification("Application failed to load completely.", "error");
+            showNotification("Application loaded with errors.", "error");
         } finally {
-            // ALWAYS remove loader
-            mainContentLoader.classList.remove('active');
+            // --- [CRITICAL] ALWAYS REMOVE LOADER ---
+            if(mainContentLoader) {
+                // Short delay to ensure transition looks smooth
+                setTimeout(() => {
+                    mainContentLoader.classList.remove('active');
+                }, 500);
+            }
         }
     }
 
+    // ... [Include all other helper functions defined in previous response] ...
+    
+    // --- Add missing helper for Map Layers ---
+    async function setupMapLayersAndFog() {
+        if (!sectorOpsMap) return;
+        sectorOpsMap.setFog({ 'range': [0.5, 10], 'color': '#242B4B', 'horizon-blend': 0.1, 'high-color': '#161B33', 'space-color': '#0B1026', 'star-intensity': 0.5 });
+        
+        // Add Source
+        if (!sectorOpsMap.getSource('sector-ops-live-flights-source')) {
+            sectorOpsMap.addSource('sector-ops-live-flights-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        }
+
+        // Load Icons (Generic loop)
+        const icons = ['icon-jumbo', 'icon-widebody', 'icon-narrowbody', 'icon-regional', 'icon-private', 'icon-fighter', 'icon-military', 'icon-cessna', 'icon-default'];
+        icons.forEach(name => {
+            if (!sectorOpsMap.hasImage(name)) {
+                sectorOpsMap.loadImage(`Images/map_icons/${name}.png`, (error, image) => {
+                    if (!error) sectorOpsMap.addImage(name, image);
+                });
+            }
+        });
+
+        // Add Layers
+        if (!sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
+            sectorOpsMap.addLayer({
+                id: 'sector-ops-live-flights-layer',
+                type: 'symbol',
+                source: 'sector-ops-live-flights-source',
+                layout: {
+                    'icon-image': getIconImageExpression(mapFilters.iconColorMode),
+                    'icon-size': ['interpolate', ['linear'], ['zoom'], 4, 0.4, 10, 0.7],
+                    'icon-allow-overlap': true,
+                    'icon-rotate': ['get', 'heading'],
+                    'icon-rotation-alignment': 'map'
+                },
+                paint: { 'icon-opacity': 1 }
+            });
+        }
+        
+        if (!mapAnimator) mapAnimator = new MapAnimator(sectorOpsMap);
+    }
+
+    // Expose Global
     window.displayPilotStats = displayPilotStats;
+    
+    // Run
     initializeApp();
 });
