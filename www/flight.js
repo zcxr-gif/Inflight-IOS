@@ -213,7 +213,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         // 6. Initialize Animator
         // This is critical - without this, the aircraft markers won't move/interpolate
         if (!mapAnimator) {
-            mapAnimator = new MapAnimator(sectorOpsMap);
+            // FIX: Pass all 3 required arguments: Map, Source Name, and the Features Reference
+            mapAnimator = new MapAnimator(
+                sectorOpsMap, 
+                'sector-ops-live-flights-source', 
+                currentMapFeatures
+            );
         }
     }
 
@@ -571,77 +576,6 @@ function handleSavedFlightListClick(e) {
         return; // End execution
     }
 }
-    
-    async function fetchAndRenderRoutes() {
-        // This feature is disabled
-        console.log("Route feature is disabled.");
-        const routeContainer = document.getElementById('route-list-container');
-        if (routeContainer) {
-             routeContainer.innerHTML = '<p class="muted-text" style="padding: 2rem;">Route loading is disabled.</p>';
-        }
-        return []; // Return empty array
-    }
-
-    async function initializeSectorOpsView() {
-        // 1. Ensure the view is visible
-        const view = document.getElementById('standalone-map-view');
-        if (view) view.classList.add('active');
-
-        // 2. DOM Elements
-        airportInfoWindow = document.getElementById('airport-info-window');
-        airportInfoWindowRecallBtn = document.getElementById('airport-recall-btn');
-        aircraftInfoWindow = document.getElementById('aircraft-info-window');
-        aircraftInfoWindowRecallBtn = document.getElementById('aircraft-recall-btn');
-        weatherSettingsWindow = document.getElementById('weather-settings-window');
-        filterSettingsWindow = document.getElementById('filter-settings-window');
-
-        // 3. Initialize Map
-        await initializeSectorOpsMap('EGLL'); 
-
-        // 4. Start Live Data
-        startSectorOpsLiveLoop();
-        
-        // 5. Setup Listeners
-        setupSectorOpsEventListeners();
-        setupWeatherSettingsWindowEvents();
-        setupFilterSettingsWindowEvents();
-        setupSearchEventListeners();
-        setupAircraftWindowEvents();
-        setupAirportWindowEvents();
-        setupSmartMapBackgroundClick();
-        
-        // 6. Load Panel
-        loadExternalPanelContent();
-    }
-
-
-    // --- Helper: Fetch API Keys from Netlify Function ---
-    async function fetchApiKeys() {
-        try {
-            const response = await fetch(`${CURRENT_SITE_URL}/.netlify/functions/config`);
-            if (!response.ok) throw new Error('Could not fetch server configuration.');
-            
-            const config = await response.json();
-            
-            if (!config.mapboxToken) throw new Error('Mapbox token is missing.');
-            // if (!config.owmApiKey) throw new Error('OWM API key is missing.'); // Soft fail for weather
-
-            // Set Mapbox key
-            MAPBOX_ACCESS_TOKEN = config.mapboxToken;
-            if (typeof mapboxgl !== 'undefined') {
-                mapboxgl.accessToken = MAPBOX_ACCESS_TOKEN;
-            }
-            
-            // Set OWM key
-            OWM_API_KEY = config.owmApiKey;
-
-        } catch (error) {
-            console.error('Failed to initialize API keys:', error.message);
-            // Don't kill the app, just notify
-            // showNotification('Map setup failed.', 'error');
-        }
-    }
-
 
 function injectCustomStyles() {
     const styleId = 'sector-ops-custom-styles';
@@ -2823,6 +2757,77 @@ input, textarea {
     style.appendChild(document.createTextNode(css));
     document.head.appendChild(style);
 }
+    
+    async function fetchAndRenderRoutes() {
+        // This feature is disabled
+        console.log("Route feature is disabled.");
+        const routeContainer = document.getElementById('route-list-container');
+        if (routeContainer) {
+             routeContainer.innerHTML = '<p class="muted-text" style="padding: 2rem;">Route loading is disabled.</p>';
+        }
+        return []; // Return empty array
+    }
+
+    async function initializeSectorOpsView() {
+        // 1. Ensure the view is visible
+        const view = document.getElementById('standalone-map-view');
+        if (view) view.classList.add('active');
+
+        // 2. DOM Elements
+        airportInfoWindow = document.getElementById('airport-info-window');
+        airportInfoWindowRecallBtn = document.getElementById('airport-recall-btn');
+        aircraftInfoWindow = document.getElementById('aircraft-info-window');
+        aircraftInfoWindowRecallBtn = document.getElementById('aircraft-recall-btn');
+        weatherSettingsWindow = document.getElementById('weather-settings-window');
+        filterSettingsWindow = document.getElementById('filter-settings-window');
+
+        // 3. Initialize Map
+        await initializeSectorOpsMap('EGLL'); 
+
+        // 4. Start Live Data
+        startSectorOpsLiveLoop();
+        
+        // 5. Setup Listeners
+        setupSectorOpsEventListeners();
+        setupWeatherSettingsWindowEvents();
+        setupFilterSettingsWindowEvents();
+        setupSearchEventListeners();
+        setupAircraftWindowEvents();
+        setupAirportWindowEvents();
+        setupSmartMapBackgroundClick();
+        
+        // 6. Load Panel
+        loadExternalPanelContent();
+    }
+
+
+    // --- Helper: Fetch API Keys from Netlify Function ---
+    async function fetchApiKeys() {
+        try {
+            const response = await fetch(`${CURRENT_SITE_URL}/.netlify/functions/config`);
+            if (!response.ok) throw new Error('Could not fetch server configuration.');
+            
+            const config = await response.json();
+            
+            if (!config.mapboxToken) throw new Error('Mapbox token is missing.');
+            // if (!config.owmApiKey) throw new Error('OWM API key is missing.'); // Soft fail for weather
+
+            // Set Mapbox key
+            MAPBOX_ACCESS_TOKEN = config.mapboxToken;
+            if (typeof mapboxgl !== 'undefined') {
+                mapboxgl.accessToken = MAPBOX_ACCESS_TOKEN;
+            }
+            
+            // Set OWM key
+            OWM_API_KEY = config.owmApiKey;
+
+        } catch (error) {
+            console.error('Failed to initialize API keys:', error.message);
+            // Don't kill the app, just notify
+            // showNotification('Map setup failed.', 'error');
+        }
+    }
+
 
 /**
  * Deciphers Infinite Flight ATIS text into a structured object.
