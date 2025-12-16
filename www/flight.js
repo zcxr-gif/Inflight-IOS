@@ -2,13 +2,18 @@ import { MapAnimator } from './mapAnimator.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
     // --- Global Configuration ---
-// REPLACE THIS SECTION AT THE TOP OF YOUR FILE
+    
+    // 1. MAKE SURE THIS IS YOUR LIVE URL (No trailing slash is safer usually, but ensure consistency)
+    const PRODUCTION_URL = 'https://inflight.info'; 
 
-const PRODUCTION_URL = 'https://inflight.info'; // <--- PUT YOUR REAL NETLIFY URL HERE
-const IS_LOCAL_OR_APP = window.location.hostname === 'localhost' || window.location.protocol === 'file:' || window.location.protocol === 'capacitor:';
+    // 2. This check detects if you are in the iOS App (Capacitor/Cordova) or Localhost
+    const IS_LOCAL_OR_APP = window.location.hostname === 'localhost' || 
+                            window.location.protocol === 'file:' || 
+                            window.location.protocol === 'capacitor:';
 
-// If we are in an app/local, use the remote URL. Otherwise use relative (current) URL.
-const CURRENT_SITE_URL = IS_LOCAL_OR_APP ? PRODUCTION_URL : window.location.origin;
+    // 3. This forces the app to look at https://inflight.info for keys, not localhost
+    const CURRENT_SITE_URL = IS_LOCAL_OR_APP ? PRODUCTION_URL : window.location.origin;
+
 
 const API_BASE_URL = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
 const LIVE_FLIGHTS_API_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run/flights';

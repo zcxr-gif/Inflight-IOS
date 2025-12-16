@@ -1,10 +1,25 @@
 exports.handler = async (event, context) => {
+  // Define allowed origins (Your production site + local development/app schemes)
+  const headers = {
+    'Access-Control-Allow-Origin': '*', // OR specific origins like 'capacitor://localhost'
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Content-Type': 'application/json'
+  };
+
+  // Handle preflight OPTIONS request (browser checking permissions)
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 200,
+      headers,
+      body: ''
+    };
+  }
+
   try {
-    // Read both keys from Netlify's environment variables
     const mapboxToken = process.env.MAPBOX_ACCESS_TOKEN;
     const owmApiKey = process.env.OWM_API_KEY; 
 
-    // Check if both keys were found
     if (!mapboxToken || !owmApiKey) {
       const missing = [
         !mapboxToken ? 'MAPBOX_ACCESS_TOKEN' : '',
@@ -15,16 +30,14 @@ exports.handler = async (event, context) => {
       
       return {
         statusCode: 500,
+        headers, // Include headers even on error
         body: JSON.stringify({ error: `Server configuration error: Missing ${missing}` }),
       };
     }
 
-    // Send both keys in the JSON response
     return {
       statusCode: 200,
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers, // <--- CRITICAL: Send headers with the keys
       body: JSON.stringify({
         mapboxToken: mapboxToken,
         owmApiKey: owmApiKey 
@@ -35,6 +48,7 @@ exports.handler = async (event, context) => {
     console.error('Error in config function:', error);
     return {
       statusCode: 500,
+      headers,
       body: JSON.stringify({ error: 'Internal server error' }),
     };
   }
