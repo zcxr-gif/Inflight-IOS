@@ -112,194 +112,181 @@ document.addEventListener('DOMContentLoaded', async () => {
     ];
 
     /**
-         * --- [NEW] Extracted function to set up base layers.
-         * This is called on initial load AND on every style change.
+         * --- [FIXED] Extracted function to set up base layers.
+         * Includes concurrency guard and sequential loading to prevent memory crashes.
          */
+        let isLayerSetupActive = false; // Guard flag
+
         async function setupMapLayersAndFog() {
-            // 1. Set globe fog
-            sectorOpsMap.setFog({
-                color: 'rgb(186, 210, 235)', // Lower atmosphere
-                'high-color': 'rgb(36, 92, 223)', // Upper atmosphere
-                'horizon-blend': 0.02, // Smooth blend
-                'space-color': 'rgb(11, 11, 25)', // Space color
-                'star-intensity': 0.6 // Adjust star intensity
-            });
-    
-            // 2. Load all aircraft icons
-            const iconsToLoad = [
-                { id: 'icon-jumbo', path: '/Images/map_icons/jumbo.png' },
-                { id: 'icon-widebody', path: '/Images/map_icons/widebody.png' },
-                { id: 'icon-narrowbody', path: '/Images/map_icons/narrowbody.png' },
-                { id: 'icon-regional', path: '/Images/map_icons/regional.png' },
-                { id: 'icon-private', path: '/Images/map_icons/private.png' },
-                { id: 'icon-fighter', path: '/Images/map_icons/fighter.png' },
-                { id: 'icon-default', path: '/Images/map_icons/default.png' },
-                { id: 'icon-military', path: '/Images/map_icons/military.png' },
-                { id: 'icon-cessna', path: '/Images/map_icons/cessna.png' },
-                { id: 'icon-jumbo-orange', path: '/Images/map_icons/orange/jumbo.png' },
-                { id: 'icon-widebody-orange', path: '/Images/map_icons/orange/widebody.png' },
-                { id: 'icon-narrowbody-orange', path: '/Images/map_icons/orange/narrowbody.png' },
-                { id: 'icon-regional-orange', path: '/Images/map_icons/orange/regional.png' },
-                { id: 'icon-private-orange', path: '/Images/map_icons/orange/private.png' },
-                { id: 'icon-fighter-orange', path: '/Images/map_icons/orange/fighter.png' },
-                { id: 'icon-default-orange', path: '/Images/map_icons/orange/default.png' },
-                { id: 'icon-military-orange', path: '/Images/map_icons/orange/military.png' },
-                { id: 'icon-cessna-orange', path: '/Images/map_icons/orange/cessna.png' },
-                { id: 'icon-jumbo-blue', path: '/Images/map_icons/blue/jumbo.png' },
-                { id: 'icon-widebody-blue', path: '/Images/map_icons/blue/widebody.png' },
-                { id: 'icon-narrowbody-blue', path: '/Images/map_icons/blue/narrowbody.png' },
-                { id: 'icon-regional-blue', path: '/Images/map_icons/blue/regional.png' },
-                { id: 'icon-private-blue', path: '/Images/map_icons/blue/private.png' },
-                { id: 'icon-fighter-blue', path: '/Images/map_icons/blue/fighter.png' },
-                { id: 'icon-default-blue', path: '/Images/map_icons/blue/default.png' },
-                { id: 'icon-military-blue', path: '/Images/map_icons/blue/military.png' },
-                { id: 'icon-cessna-blue', path: '/Images/map_icons/blue/cessna.png' }
-            ];
-    
-            const imagePromises = iconsToLoad.map(icon =>
-                new Promise((res, rej) => {
-                    if (sectorOpsMap.hasImage(icon.id)) {
-                        res();
-                        return;
-                    }
-                    sectorOpsMap.loadImage(icon.path, (error, image) => {
-                        if (error) {
-                            console.warn(`Could not load icon: ${icon.path}`);
-                            rej(error);
-                        } else {
-                            sectorOpsMap.addImage(icon.id, image);
-                            res();
-                        }
+            if (isLayerSetupActive) return; // Prevent double-execution
+            isLayerSetupActive = true;
+
+            try {
+                // 1. Set globe fog
+                if (sectorOpsMap.getStyle()) {
+                    sectorOpsMap.setFog({
+                        color: 'rgb(186, 210, 235)', // Lower atmosphere
+                        'high-color': 'rgb(36, 92, 223)', // Upper atmosphere
+                        'horizon-blend': 0.02, // Smooth blend
+                        'space-color': 'rgb(11, 11, 25)', // Space color
+                        'star-intensity': 0.6 // Adjust star intensity
                     });
-                })
-            );
-            
-            await Promise.all(imagePromises).catch(err => console.error("Error loading map icons", err));
-    
-            // 3. Add base flight data source
-            if (!sectorOpsMap.getSource('sector-ops-live-flights-source')) {
-                sectorOpsMap.addSource('sector-ops-live-flights-source', {
-                    type: 'geojson',
-                    data: { type: 'FeatureCollection', features: Object.values(currentMapFeatures) }
-                });
-            }
-    
-            mapAnimator = new MapAnimator(sectorOpsMap, 'sector-ops-live-flights-source', currentMapFeatures);
-    
-            // 4. Add the ICON layer
-            if (!sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
-                sectorOpsMap.addLayer({
-                    id: 'sector-ops-live-flights-layer',
-                    type: 'symbol',
-                    source: 'sector-ops-live-flights-source',
-                    layout: {
-                        'icon-image': getIconImageExpression(mapFilters.iconColorMode),
-                        'icon-size': 0.08,
-                        'icon-rotate': ['get', 'heading'],
-                        'icon-rotation-alignment': 'map',
-                        'icon-allow-overlap': true,
-                        'icon-ignore-placement': true,
-                    }
-                });
-    
-                sectorOpsMap.on('click', 'sector-ops-live-flights-layer', (e) => {
-                    const props = e.features[0].properties;
-                    const flightProps = { ...props, position: JSON.parse(props.position), aircraft: JSON.parse(props.aircraft) };
-                    fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions').then(res => res.json()).then(data => {
-                        // [UPDATED] Use helper
-                        const sessionId = getCurrentSessionId(data);
-                        if (sessionId) {
-                            handleAircraftClick(flightProps, sessionId);
-                        }
-                    });
-                });
-    
-                // -------------------------------------------------------------
-                // --- NEW: HOVER POPUP LOGIC ---
-                // -------------------------------------------------------------
-                
-                // ✅ FIX: Only attach hover listeners on non-mobile/tablet devices
-                if (typeof window.MobileUIHandler === 'undefined' || !window.MobileUIHandler.isMobile()) {
-                    
-                    const hoverPopup = new mapboxgl.Popup({
-                        closeButton: false,
-                        closeOnClick: false,
-                        offset: 20 // Distance from the aircraft icon
-                    });
-    
-                    sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', (e) => {
-                        // Change cursor
-                        sectorOpsMap.getCanvas().style.cursor = 'pointer';
-    
-                        // Get properties
-                        const coordinates = e.features[0].geometry.coordinates.slice();
-                        const props = e.features[0].properties;
-    
-                        // Handle map wrapping
-                        while (Math.abs(e.lngLat.lng - coordinates[0]) > 180) {
-                            coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
-                        }
-    
-                        // Generate Custom "Widget" HTML
-                        const cardHTML = generateHoverCardHTML(props);
-    
-                        // Set HTML and Show
-                        hoverPopup.setLngLat(coordinates)
-                                  .setHTML(cardHTML)
-                                  .addTo(sectorOpsMap);
-                    });
-    
-                    sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => {
-                        sectorOpsMap.getCanvas().style.cursor = '';
-                        hoverPopup.remove(); // Hide the card immediately on exit
-                    });
-                } else {
-                     console.log("Hover popup disabled for mobile device.");
                 }
-                // -------------------------------------------------------------
-            }
-            
-            // 5. Add the LABEL layer
-            if (!sectorOpsMap.getLayer('sector-ops-live-flights-labels')) {
-                sectorOpsMap.addLayer({
-                    id: 'sector-ops-live-flights-labels',
-                    type: 'symbol',
-                    source: 'sector-ops-live-flights-source', 
-                    minzoom: 6.5,
-                    layout: {
-                        'visibility': mapFilters.showAircraftLabels ? 'visible' : 'none',
-                        'text-field': [
-                            'format',
-                            ['get', 'callsign'], { 'text-color': '#FFFFFF' }, 
-                            '\n', {},                  
-                            ['get', 'phase'],    
-                            { 
-                                'text-color': [ 
-                                    'match',
-                                    ['get', 'phase'],
-                                    'Climb', '#28a745',
-                                    'Cruise', '#007bff',
-                                    'Descent', '#ff9900',
-                                    'Approach', '#a33ea3',
-                                    'Ground', '#9fa8da',
-                                    '#e8eaf6'
-                                ]
-                            }
-                        ],
-                        'text-font': ['Mapbox Txt Regular', 'Arial Unicode MS Regular'],
-                        'text-size': 10,
-                        'text-offset': [0, 2.5],
-                        'text-anchor': 'top',
-                        'text-allow-overlap': false,
-                        'text-ignore-placement': false,
-                        'text-padding': 3,
-                    },
-                    paint: {
-                        'text-halo-color': 'rgba(10, 12, 26, 0.85)',
-                        'text-halo-width': 2,
-                        'text-halo-blur': 0
+        
+                // 2. Load aircraft icons SEQUENTIALLY to prevent memory crashes
+                const iconsToLoad = [
+                    { id: 'icon-jumbo', path: '/Images/map_icons/jumbo.png' },
+                    { id: 'icon-widebody', path: '/Images/map_icons/widebody.png' },
+                    { id: 'icon-narrowbody', path: '/Images/map_icons/narrowbody.png' },
+                    { id: 'icon-regional', path: '/Images/map_icons/regional.png' },
+                    { id: 'icon-private', path: '/Images/map_icons/private.png' },
+                    { id: 'icon-fighter', path: '/Images/map_icons/fighter.png' },
+                    { id: 'icon-default', path: '/Images/map_icons/default.png' },
+                    { id: 'icon-military', path: '/Images/map_icons/military.png' },
+                    { id: 'icon-cessna', path: '/Images/map_icons/cessna.png' },
+                    { id: 'icon-jumbo-orange', path: '/Images/map_icons/orange/jumbo.png' },
+                    { id: 'icon-widebody-orange', path: '/Images/map_icons/orange/widebody.png' },
+                    { id: 'icon-narrowbody-orange', path: '/Images/map_icons/orange/narrowbody.png' },
+                    { id: 'icon-regional-orange', path: '/Images/map_icons/orange/regional.png' },
+                    { id: 'icon-private-orange', path: '/Images/map_icons/orange/private.png' },
+                    { id: 'icon-fighter-orange', path: '/Images/map_icons/orange/fighter.png' },
+                    { id: 'icon-default-orange', path: '/Images/map_icons/orange/default.png' },
+                    { id: 'icon-military-orange', path: '/Images/map_icons/orange/military.png' },
+                    { id: 'icon-cessna-orange', path: '/Images/map_icons/orange/cessna.png' },
+                    { id: 'icon-jumbo-blue', path: '/Images/map_icons/blue/jumbo.png' },
+                    { id: 'icon-widebody-blue', path: '/Images/map_icons/blue/widebody.png' },
+                    { id: 'icon-narrowbody-blue', path: '/Images/map_icons/blue/narrowbody.png' },
+                    { id: 'icon-regional-blue', path: '/Images/map_icons/blue/regional.png' },
+                    { id: 'icon-private-blue', path: '/Images/map_icons/blue/private.png' },
+                    { id: 'icon-fighter-blue', path: '/Images/map_icons/blue/fighter.png' },
+                    { id: 'icon-default-blue', path: '/Images/map_icons/blue/default.png' },
+                    { id: 'icon-military-blue', path: '/Images/map_icons/blue/military.png' },
+                    { id: 'icon-cessna-blue', path: '/Images/map_icons/blue/cessna.png' }
+                ];
+        
+                // Load one by one instead of Promise.all to save memory
+                for (const icon of iconsToLoad) {
+                    if (!sectorOpsMap.hasImage(icon.id)) {
+                        await new Promise((resolve) => {
+                            sectorOpsMap.loadImage(icon.path, (error, image) => {
+                                if (!error && image) {
+                                    if (!sectorOpsMap.hasImage(icon.id)) sectorOpsMap.addImage(icon.id, image);
+                                }
+                                resolve(); // Resolve even on error to keep loop going
+                            });
+                        });
                     }
-                });
+                }
+        
+                // 3. Add base flight data source
+                if (!sectorOpsMap.getSource('sector-ops-live-flights-source')) {
+                    sectorOpsMap.addSource('sector-ops-live-flights-source', {
+                        type: 'geojson',
+                        data: { type: 'FeatureCollection', features: Object.values(currentMapFeatures) }
+                    });
+                }
+        
+                mapAnimator = new MapAnimator(sectorOpsMap, 'sector-ops-live-flights-source', currentMapFeatures);
+        
+                // 4. Add the ICON layer
+                if (!sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
+                    sectorOpsMap.addLayer({
+                        id: 'sector-ops-live-flights-layer',
+                        type: 'symbol',
+                        source: 'sector-ops-live-flights-source',
+                        layout: {
+                            'icon-image': getIconImageExpression(mapFilters.iconColorMode),
+                            'icon-size': 0.08,
+                            'icon-rotate': ['get', 'heading'],
+                            'icon-rotation-alignment': 'map',
+                            'icon-allow-overlap': true,
+                            'icon-ignore-placement': true,
+                        }
+                    });
+        
+                    sectorOpsMap.on('click', 'sector-ops-live-flights-layer', (e) => {
+                        const props = e.features[0].properties;
+                        const flightProps = { ...props, position: JSON.parse(props.position), aircraft: JSON.parse(props.aircraft) };
+                        fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions').then(res => res.json()).then(data => {
+                            const sessionId = getCurrentSessionId(data);
+                            if (sessionId) {
+                                handleAircraftClick(flightProps, sessionId);
+                            }
+                        });
+                    });
+                    
+                    // Add Hover Logic (Non-Mobile Only)
+                    if (typeof window.MobileUIHandler === 'undefined' || !window.MobileUIHandler.isMobile()) {
+                        const hoverPopup = new mapboxgl.Popup({
+                            closeButton: false,
+                            closeOnClick: false,
+                            offset: 20
+                        });
+        
+                        sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', (e) => {
+                            sectorOpsMap.getCanvas().style.cursor = 'pointer';
+                            const coordinates = e.features[0].geometry.coordinates.slice();
+                            const props = e.features[0].properties;
+                            while (Math.abs(e.lngLat.lng - coordinates[0]) > 180) {
+                                coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
+                            }
+                            const cardHTML = generateHoverCardHTML(props);
+                            hoverPopup.setLngLat(coordinates).setHTML(cardHTML).addTo(sectorOpsMap);
+                        });
+        
+                        sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => {
+                            sectorOpsMap.getCanvas().style.cursor = '';
+                            hoverPopup.remove();
+                        });
+                    }
+                }
+                
+                // 5. Add the LABEL layer
+                if (!sectorOpsMap.getLayer('sector-ops-live-flights-labels')) {
+                    sectorOpsMap.addLayer({
+                        id: 'sector-ops-live-flights-labels',
+                        type: 'symbol',
+                        source: 'sector-ops-live-flights-source', 
+                        minzoom: 6.5,
+                        layout: {
+                            'visibility': mapFilters.showAircraftLabels ? 'visible' : 'none',
+                            'text-field': [
+                                'format',
+                                ['get', 'callsign'], { 'text-color': '#FFFFFF' }, 
+                                '\n', {},                  
+                                ['get', 'phase'],    
+                                { 
+                                    'text-color': [ 
+                                        'match',
+                                        ['get', 'phase'],
+                                        'Climb', '#28a745',
+                                        'Cruise', '#007bff',
+                                        'Descent', '#ff9900',
+                                        'Approach', '#a33ea3',
+                                        'Ground', '#9fa8da',
+                                        '#e8eaf6'
+                                    ]
+                                }
+                            ],
+                            'text-font': ['Mapbox Txt Regular', 'Arial Unicode MS Regular'],
+                            'text-size': 10,
+                            'text-offset': [0, 2.5],
+                            'text-anchor': 'top',
+                            'text-allow-overlap': false,
+                            'text-ignore-placement': false,
+                            'text-padding': 3,
+                        },
+                        paint: {
+                            'text-halo-color': 'rgba(10, 12, 26, 0.85)',
+                            'text-halo-width': 2,
+                            'text-halo-blur': 0
+                        }
+                    });
+                }
+            } catch (err) {
+                console.error("Layer setup error:", err);
+            } finally {
+                isLayerSetupActive = false; // Release lock
             }
         }
 
@@ -657,6 +644,76 @@ function handleSavedFlightListClick(e) {
         return; // End execution
     }
 }
+    
+    async function fetchAndRenderRoutes() {
+        // This feature is disabled
+        console.log("Route feature is disabled.");
+        const routeContainer = document.getElementById('route-list-container');
+        if (routeContainer) {
+             routeContainer.innerHTML = '<p class="muted-text" style="padding: 2rem;">Route loading is disabled.</p>';
+        }
+        return []; // Return empty array
+    }
+
+    async function initializeSectorOpsView() {
+        // 1. Ensure the view is visible
+        const view = document.getElementById('standalone-map-view');
+        if (view) view.classList.add('active');
+
+        // 2. DOM Elements
+        airportInfoWindow = document.getElementById('airport-info-window');
+        airportInfoWindowRecallBtn = document.getElementById('airport-recall-btn');
+        aircraftInfoWindow = document.getElementById('aircraft-info-window');
+        aircraftInfoWindowRecallBtn = document.getElementById('aircraft-recall-btn');
+        weatherSettingsWindow = document.getElementById('weather-settings-window');
+        filterSettingsWindow = document.getElementById('filter-settings-window');
+
+        // 3. Initialize Map
+        await initializeSectorOpsMap('EGLL'); 
+
+        // 4. Start Live Data
+        startSectorOpsLiveLoop();
+        
+        // 5. Setup Listeners
+        setupSectorOpsEventListeners();
+        setupWeatherSettingsWindowEvents();
+        setupFilterSettingsWindowEvents();
+        setupSearchEventListeners();
+        setupAircraftWindowEvents();
+        setupAirportWindowEvents();
+        setupSmartMapBackgroundClick();
+        
+        // 6. Load Panel
+        loadExternalPanelContent();
+    }
+
+
+    // --- Helper: Fetch API Keys from Netlify Function ---
+    async function fetchApiKeys() {
+        try {
+            const response = await fetch(`${CURRENT_SITE_URL}/.netlify/functions/config`);
+            if (!response.ok) throw new Error('Could not fetch server configuration.');
+            
+            const config = await response.json();
+            
+            if (!config.mapboxToken) throw new Error('Mapbox token is missing.');
+            // if (!config.owmApiKey) throw new Error('OWM API key is missing.'); // Soft fail for weather
+
+            // Set Mapbox key
+            MAPBOX_ACCESS_TOKEN = config.mapboxToken;
+            if (typeof mapboxgl !== 'undefined') {
+                mapboxgl.accessToken = MAPBOX_ACCESS_TOKEN;
+            }
+            
+            // Set OWM key
+            OWM_API_KEY = config.owmApiKey;
+
+        } catch (error) {
+            console.error('Failed to initialize API keys:', error.message);
+            // Don't kill the app, just notify
+            // showNotification('Map setup failed.', 'error');
+        }
+    }
 
 function injectCustomStyles() {
     const styleId = 'sector-ops-custom-styles';
@@ -2838,77 +2895,6 @@ input, textarea {
     style.appendChild(document.createTextNode(css));
     document.head.appendChild(style);
 }
-    
-    async function fetchAndRenderRoutes() {
-        // This feature is disabled
-        console.log("Route feature is disabled.");
-        const routeContainer = document.getElementById('route-list-container');
-        if (routeContainer) {
-             routeContainer.innerHTML = '<p class="muted-text" style="padding: 2rem;">Route loading is disabled.</p>';
-        }
-        return []; // Return empty array
-    }
-
-    async function initializeSectorOpsView() {
-        // 1. Ensure the view is visible
-        const view = document.getElementById('standalone-map-view');
-        if (view) view.classList.add('active');
-
-        // 2. DOM Elements
-        airportInfoWindow = document.getElementById('airport-info-window');
-        airportInfoWindowRecallBtn = document.getElementById('airport-recall-btn');
-        aircraftInfoWindow = document.getElementById('aircraft-info-window');
-        aircraftInfoWindowRecallBtn = document.getElementById('aircraft-recall-btn');
-        weatherSettingsWindow = document.getElementById('weather-settings-window');
-        filterSettingsWindow = document.getElementById('filter-settings-window');
-
-        // 3. Initialize Map
-        await initializeSectorOpsMap('EGLL'); 
-
-        // 4. Start Live Data
-        startSectorOpsLiveLoop();
-        
-        // 5. Setup Listeners
-        setupSectorOpsEventListeners();
-        setupWeatherSettingsWindowEvents();
-        setupFilterSettingsWindowEvents();
-        setupSearchEventListeners();
-        setupAircraftWindowEvents();
-        setupAirportWindowEvents();
-        setupSmartMapBackgroundClick();
-        
-        // 6. Load Panel
-        loadExternalPanelContent();
-    }
-
-
-    // --- Helper: Fetch API Keys from Netlify Function ---
-    async function fetchApiKeys() {
-        try {
-            const response = await fetch(`${CURRENT_SITE_URL}/.netlify/functions/config`);
-            if (!response.ok) throw new Error('Could not fetch server configuration.');
-            
-            const config = await response.json();
-            
-            if (!config.mapboxToken) throw new Error('Mapbox token is missing.');
-            // if (!config.owmApiKey) throw new Error('OWM API key is missing.'); // Soft fail for weather
-
-            // Set Mapbox key
-            MAPBOX_ACCESS_TOKEN = config.mapboxToken;
-            if (typeof mapboxgl !== 'undefined') {
-                mapboxgl.accessToken = MAPBOX_ACCESS_TOKEN;
-            }
-            
-            // Set OWM key
-            OWM_API_KEY = config.owmApiKey;
-
-        } catch (error) {
-            console.error('Failed to initialize API keys:', error.message);
-            // Don't kill the app, just notify
-            // showNotification('Map setup failed.', 'error');
-        }
-    }
-
 
 /**
  * Deciphers Infinite Flight ATIS text into a structured object.
@@ -6774,24 +6760,17 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
     }
 
 /**
- * FIXED: Initializes the Mapbox map and guarantees app continues loading
- * even if the map encounters generic errors (common on iOS).
+ * FIXED: Initializes the Mapbox map.
+ * Filters non-fatal errors to prevent premature loader dismissal.
  */
 function initializeSectorOpsMap(centerICAO) {
     const container = document.getElementById('sector-ops-map-fullscreen');
 
-    // 1. Safety Check: If container is missing, resolve immediately to unblock app.
-    if (!container) {
-        console.error("Map container missing.");
-        return Promise.resolve(); 
-    }
-
+    if (!container) return Promise.resolve();
     if (!MAPBOX_ACCESS_TOKEN) {
         container.innerHTML = '<p class="map-error-msg">Map service not available.</p>';
         return Promise.resolve();
     }
-
-    // Clean up existing map instance
     if (sectorOpsMap) {
         sectorOpsMap.remove();
         sectorOpsMap = null;
@@ -6809,17 +6788,11 @@ function initializeSectorOpsMap(centerICAO) {
                 center: centerCoords,
                 zoom: 4.5,
                 projection: 'globe',
-                // --- iOS PERFORMANCE FIXES ---
-                failIfMajorPerformanceCaveat: false, // Essential for iOS WebViews
+                failIfMajorPerformanceCaveat: false,
                 trackResize: true, 
                 attributionControl: false, 
                 logoPosition: 'bottom-left'
             });
-
-            // Force resize for iOS WebViews (Fixes canvas sizing issues)
-            setTimeout(() => {
-                if (sectorOpsMap) sectorOpsMap.resize();
-            }, 100);
 
             // Handle Style Load (Rebuild layers)
             sectorOpsMap.on('style.load', async () => {
@@ -6830,42 +6803,40 @@ function initializeSectorOpsMap(centerICAO) {
 
             // --- SUCCESS HANDLER ---
             sectorOpsMap.on('load', async () => {
-                console.log("Mapbox 'load' event fired successfully.");
-                try {
-                    await setupMapLayersAndFog();
-                    sectorOpsMap.resize();
-                } catch (e) {
-                    console.warn("Layer setup warning:", e);
-                }
-                resolve(); // Unblocks the app
+                console.log("Mapbox 'load' event fired.");
+                // We call setup again just in case style.load didn't catch everything, 
+                // but the internal guard in setupMapLayersAndFog will prevent duplicates.
+                await setupMapLayersAndFog();
+                sectorOpsMap.resize();
+                resolve(); // SUCCESS: Map is ready
             });
 
             // --- FIXED ERROR HANDLER ---
             sectorOpsMap.on('error', (e) => {
-                console.error("Mapbox Error:", e);
+                // Ignore minor 404s (missing tiles/icons) to avoid hiding loader prematurely
+                if (e && e.error && (e.error.status === 404 || e.error.message.includes('image'))) {
+                    console.warn("Non-fatal map error:", e.error.message);
+                    return; 
+                }
                 
-                // Specific user notification for auth errors
+                console.error("Critical Mapbox Error:", e);
+                // Only resolve (and remove loader) if it's a critical auth/webgl error
                 if (e.error && (e.error.status === 401 || e.error.status === 403)) {
                     showNotification("Map authentication failed.", "error");
+                    resolve();
                 }
+            });
 
-                // CRITICAL FIX: Resolve the promise for ALL errors.
-                // This allows initializeApp() to finish and the loading icon to disappear,
-                // even if the map failed to render.
+            // --- CRASH HANDLER ---
+            sectorOpsMap.on('webglcontextlost', () => {
+                console.error("WebGL Context Lost!");
+                // Force a resolve so the app doesn't hang forever on the loading spinner
                 resolve(); 
             });
 
-            // --- WEBGL CRASH HANDLER ---
-            sectorOpsMap.on('webglcontextlost', () => {
-                console.error("WebGL Context Lost!");
-                showNotification("Map crashed (Memory).", "error");
-                resolve(); // Ensure app doesn't hang on crash
-            });
-
         } catch (err) {
-            console.error("Critical Map Initialization Error:", err);
-            container.innerHTML = `<p class="error-text">Map failed: ${err.message}</p>`;
-            resolve(); // Ensure app doesn't hang on catch
+            console.error("Map Init Exception:", err);
+            resolve();
         }
     });
 }
