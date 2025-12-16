@@ -4946,36 +4946,6 @@ function handleSocketFlightUpdate(data) {
             tailNumber: existingProps.tailNumber || null 
         };
 
-        // --- START: ASYNCHRONOUS LOOKUP LOGIC FOR HOVER CARD ---
-        if (acName && livName && !existingProps.communityImageUrl) {
-            if (communityAircraftCache.has(lookupKey)) {
-                const cachedData = communityAircraftCache.get(lookupKey);
-                if (cachedData) {
-                    newProperties.communityImageUrl = cachedData.communityImageUrl;
-                    newProperties.contributorName = cachedData.contributorName;
-                    newProperties.tailNumber = cachedData.tailNumber;
-                }
-            } else if (!lookupQueue.has(lookupKey)) {
-                fetchCommunityAircraftDetails(acName, livName)
-                    .then(result => {
-                        if (result && currentMapFeatures[flightId]) {
-                            currentMapFeatures[flightId].properties.communityImageUrl = result.communityImageUrl;
-                            currentMapFeatures[flightId].properties.contributorName = result.contributorName;
-                            currentMapFeatures[flightId].properties.tailNumber = result.tailNumber;
-                            
-                            if (isMapReady && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
-                                sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
-                                    type: 'FeatureCollection', 
-                                    features: Object.values(currentMapFeatures)
-                                });
-                            }
-                        }
-                    })
-                    .catch(() => { /* Ignore errors */ });
-            }
-        }
-        // --- END: ASYNCHRONOUS LOOKUP LOGIC ---
-
         // Manually update the data cache
         if (!currentMapFeatures[flightId]) {
             currentMapFeatures[flightId] = {
