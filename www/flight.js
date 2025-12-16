@@ -112,8 +112,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     ];
 
     /**
-     * --- [NEW] Missing Function: setupMapLayersAndFog ---
-     * This adds the sources and layers for aircraft icons, labels, and map atmosphere.
+     * --- [FIXED] Loads images and sets up layers ---
      */
     async function setupMapLayersAndFog() {
         if (!sectorOpsMap) return;
@@ -129,7 +128,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
 
         // 2. Load Aircraft Images
-        // You can add more icons here as needed
         const icons = [
             'icon-jumbo', 'icon-widebody', 'icon-narrowbody', 'icon-regional', 
             'icon-private', 'icon-fighter', 'icon-military', 'icon-cessna', 'icon-default'
@@ -142,19 +140,22 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // Assumes images are in Images/map_icons/ folder
                 sectorOpsMap.loadImage(`Images/map_icons/${name}.png`, (error, image) => {
                     if (error) {
-                        // Fallback: create a placeholder dot if image missing
-                        console.warn(`Icon ${name} missing, using fallback.`);
+                        console.warn(`Icon ${name} missing at Images/map_icons/${name}.png`);
+                        // Optional: Create a fallback 1x1 pixel image so map doesn't crash
                         return resolve(); 
                     }
-                    sectorOpsMap.addImage(name, image);
+                    if (!sectorOpsMap.hasImage(name)) {
+                        sectorOpsMap.addImage(name, image);
+                    }
                     resolve();
                 });
             });
         };
 
-        // Load all icons in parallel (optional, but good for completeness)
-        // For now, we proceed to add layers even if images are loading
-        
+        // --- THE MISSING LINE WAS HERE ---
+        // We must wait for images to load before adding layers that use them.
+        await Promise.all(icons.map(name => loadIcon(name))); 
+
         // 3. Add Live Flights Source
         if (!sectorOpsMap.getSource('sector-ops-live-flights-source')) {
             sectorOpsMap.addSource('sector-ops-live-flights-source', {
@@ -162,65 +163,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 data: { type: 'FeatureCollection', features: [] }
             });
         }
-
-        // 4. Add Aircraft Layer
-        if (!sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
-            sectorOpsMap.addLayer({
-                id: 'sector-ops-live-flights-layer',
-                type: 'symbol',
-                source: 'sector-ops-live-flights-source',
-                layout: {
-                    // Use a fallback icon if specific category icon isn't found
-                    'icon-image': getIconImageExpression(mapFilters.iconColorMode),
-                    'icon-size': ['interpolate', ['linear'], ['zoom'], 4, 0.4, 10, 0.7],
-                    'icon-allow-overlap': true,
-                    'icon-rotate': ['get', 'heading'],
-                    'icon-rotation-alignment': 'map'
-                },
-                paint: {
-                    'icon-opacity': 1
-                }
-            });
-        }
-
-        // 5. Add Labels Layer
-        if (!sectorOpsMap.getLayer('sector-ops-live-flights-labels')) {
-            sectorOpsMap.addLayer({
-                id: 'sector-ops-live-flights-labels',
-                type: 'symbol',
-                source: 'sector-ops-live-flights-source',
-                minzoom: 5, // Only show labels when zoomed in a bit
-                layout: {
-                    'text-field': ['format',
-                        ['get', 'callsign'], { 'font-scale': 0.9 },
-                        '\n', {},
-                        ['get', 'altitude'], { 'font-scale': 0.8 },
-                        ' ft', { 'font-scale': 0.8 }
-                    ],
-                    'text-font': ['DIN Offc Pro Medium', 'Arial Unicode MS Bold'],
-                    'text-offset': [0, 1.2],
-                    'text-anchor': 'top',
-                    'visibility': mapFilters.showAircraftLabels ? 'visible' : 'none'
-                },
-                paint: {
-                    'text-color': '#ffffff',
-                    'text-halo-color': '#000000',
-                    'text-halo-width': 1.5
-                }
-            });
-        }
-
-        // 6. Initialize Animator
-        // This is critical - without this, the aircraft markers won't move/interpolate
-        if (!mapAnimator) {
-            // FIX: Pass all 3 required arguments: Map, Source Name, and the Features Reference
-            mapAnimator = new MapAnimator(
-                sectorOpsMap, 
-                'sector-ops-live-flights-source', 
-                currentMapFeatures
-            );
-        }
-    }
 
     /**
      * --- [NEW] Saves the current mapFilters state to local storage.
