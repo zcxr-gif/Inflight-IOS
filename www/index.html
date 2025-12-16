@@ -1898,6 +1898,11 @@
             height: 24px;
             width: 24px;
         }
+        
+        #open-weather-settings-btn,
+        #open-filter-settings-btn {
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -1907,6 +1912,185 @@
             <div id="sector-ops-map-fullscreen"></div>
         </div>
     </div>
+
+    <div style="position: absolute; bottom: 90px; right: 20px; z-index: 1000; display: flex; flex-direction: column; gap: 10px;">
+        <button id="aircraft-recall-btn" class="toolbar-btn" style="display: none;" title="Recall Aircraft">
+            <i class="fa-solid fa-plane"></i>
+        </button>
+        <button id="airport-recall-btn" class="toolbar-btn" style="display: none;" title="Recall Airport">
+            <i class="fa-solid fa-tower-control"></i>
+        </button>
+    </div>
+
+    <div id="aircraft-info-window" class="info-window">
+        </div>
+
+    <div id="airport-info-window" class="info-window">
+        <div id="airport-window-content" class="info-window-content">
+            </div>
+    </div>
+
+    <div id="weather-settings-window" class="info-window" style="height: auto; max-height: 80vh;">
+        <div class="info-window-header">
+            <h3><i class="fa-solid fa-cloud-sun"></i> Weather Layers</h3>
+            <div class="info-window-actions">
+                <button class="weather-window-hide-btn"><i class="fa-solid fa-minus"></i></button>
+                <button class="weather-window-close-btn"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+        </div>
+        <div class="weather-toggle-list">
+            <div class="weather-disclaimer-note">
+                <i class="fa-solid fa-circle-info"></i> <strong>Note:</strong> Weather layers are high-resolution and may impact performance on older devices.
+            </div>
+            
+            <div class="weather-toggle-item">
+                <span class="weather-toggle-label"><i class="fa-solid fa-cloud-showers-heavy"></i> Global Radar</span>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="weather-toggle-precip">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+
+            <div class="weather-toggle-item">
+                <span class="weather-toggle-label"><i class="fa-solid fa-cloud"></i> Cloud Cover</span>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="weather-toggle-clouds">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+
+            <div class="weather-toggle-item">
+                <span class="weather-toggle-label"><i class="fa-solid fa-wind"></i> Wind Particles</span>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="weather-toggle-wind">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+
+            <div class="weather-toggle-item">
+                <span class="weather-toggle-label"><i class="fa-solid fa-triangle-exclamation"></i> SIGMETs</span>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="weather-toggle-sigmets">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <div id="filter-settings-window" class="info-window" style="height: auto; max-height: 80vh;">
+        <div class="info-window-header">
+            <h3><i class="fa-solid fa-layer-group"></i> Map Filters</h3>
+            <div class="info-window-actions">
+                <button class="filter-window-hide-btn"><i class="fa-solid fa-minus"></i></button>
+                <button class="filter-window-close-btn"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+        </div>
+        <div class="info-window-content">
+            <ul class="filter-toggle-list">
+                
+                <li class="filter-section-title">Visibility</li>
+                
+                <li class="filter-toggle-item">
+                    <span class="filter-toggle-label"><i class="fa-solid fa-users"></i> Staff / VA Only</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="filter-toggle-members-only">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </li>
+
+                <li class="filter-toggle-item">
+                    <span class="filter-toggle-label"><i class="fa-solid fa-tag"></i> Aircraft Labels</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="filter-toggle-aircraft-labels">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </li>
+
+                <li class="filter-section-divider"></li>
+                <li class="filter-section-title">Airports</li>
+
+                <li class="filter-toggle-item">
+                    <span class="filter-toggle-label"><i class="fa-solid fa-tower-broadcast"></i> Hide Staffed (ATC)</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="filter-toggle-atc">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </li>
+
+                <li class="filter-toggle-item">
+                    <span class="filter-toggle-label"><i class="fa-solid fa-circle-dot"></i> Hide Unstaffed</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="filter-toggle-no-atc">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </li>
+
+                <li class="filter-section-divider"></li>
+                <li class="filter-section-title">Appearance</li>
+
+                <li class="filter-toggle-item">
+                    <span class="filter-toggle-label"><i class="fa-solid fa-satellite"></i> Satellite Map</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="filter-toggle-satellite-mode">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </li>
+                
+                <div style="margin-top: 10px;">
+                    <span class="filter-section-title" style="margin-bottom: 5px; display:block;">Flight Plan Line</span>
+                    <div class="filter-radio-item">
+                        <input type="radio" id="fpl-mode-none" name="plan-display-mode" value="none" checked>
+                        <label for="fpl-mode-none">None</label>
+                    </div>
+                    <div class="filter-radio-item">
+                        <input type="radio" id="fpl-mode-direct" name="plan-display-mode" value="direct">
+                        <label for="fpl-mode-direct">Direct (Dotted)</label>
+                    </div>
+                    <div class="filter-radio-item">
+                        <input type="radio" id="fpl-mode-full" name="plan-display-mode" value="full">
+                        <label for="fpl-mode-full">Full Route (Polyline)</label>
+                    </div>
+                </div>
+
+                <li class="filter-section-divider"></li>
+                <li class="filter-section-title">Window Theme</li>
+                <div style="display: flex; gap: 10px; margin-top: 10px;">
+                    <div style="flex: 1;">
+                        <label style="font-size: 0.7rem; color: #9fa8da;">Top Color</label>
+                        <input type="color" id="theme-color-start" value="#121426" style="width: 100%; height: 30px; border: none; padding: 0;">
+                    </div>
+                    <div style="flex: 1;">
+                        <label style="font-size: 0.7rem; color: #9fa8da;">Bottom Color</label>
+                        <input type="color" id="theme-color-end" value="#121426" style="width: 100%; height: 30px; border: none; padding: 0;">
+                    </div>
+                </div>
+                <button id="theme-reset-btn" class="cta-button" style="width: 100%; margin-top: 10px; font-size: 0.8rem;">Reset Theme</button>
+
+            </ul>
+        </div>
+    </div>
+
+    <div id="sector-ops-search-container" class="sector-ops-search">
+        <div class="search-bar-container">
+            <label for="sector-ops-search-input" class="search-icon-label">
+                <i class="fa-solid fa-magnifying-glass search-icon"></i>
+            </label>
+            <input type="text" id="sector-ops-search-input" placeholder="Search Callsign, User, Aircraft...">
+            <button id="sector-ops-search-clear" class="search-clear-btn" style="display: none;">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+        <div id="search-results-dropdown" class="search-results-dropdown"></div>
+    </div>
+
+    <div id="server-selector-container">
+        <button class="server-btn active" data-server="Expert Server">Expert</button>
+        <button class="server-btn" data-server="Training Server">Training</button>
+        <button class="server-btn" data-server="Casual Server">Casual</button>
+    </div>
+
+    <button id="open-weather-settings-btn" type="button"></button>
+    <button id="open-filter-settings-btn" type="button"></button>
 
     <div id="sector-ops-floating-panel" class="sector-ops-floating-panel panel-collapsed">
         <button id="sector-ops-toggle-btn" class="panel-toggle-btn" aria-expanded="false" title="Toggle Panel">
@@ -1938,6 +2122,8 @@
     <div id="main-content-loader" class="main-loader-overlay active">
         <div class="spinner-large"></div>
     </div>
+
+    
 
     <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
     <script>eruda.init();</script>
