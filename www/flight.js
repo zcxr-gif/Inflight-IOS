@@ -10917,12 +10917,15 @@ async function updateSectorOpsSecondaryData() {
             console.error("App Initialization Error:", e);
             showNotification("Application loaded with errors.", "error");
         } finally {
-            // --- [CRITICAL] ALWAYS REMOVE LOADER ---
+            // --- [CRITICAL] ALWAYS REMOVE LOADER SMOOTHLY ---
             if(mainContentLoader) {
-                // Short delay to ensure transition looks smooth
+                // 1. Add the hidden class to trigger the CSS opacity fade
+                mainContentLoader.classList.add('hidden');
+                
+                // 2. Wait for transition (600ms) then remove from layout
                 setTimeout(() => {
-                    mainContentLoader.classList.remove('active');
-                }, 500);
+                    mainContentLoader.style.display = 'none';
+                }, 600);
             }
         }
     }
