@@ -14,6 +14,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     let currentServerName = localStorage.getItem('preferredServer') || 'Expert Server';
 
     // --- State Variables ---
+    let isAppFullyLoaded = false;
     let OWM_API_KEY = null;
     let isWeatherLayerAdded = false;
     let isCloudLayerAdded = false;
@@ -317,6 +318,27 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // On error, just use the defaults
             }
         }
+    }
+
+    /**
+     * --- [NEW] Helper to hide the loader smoothly ---
+     * Called when map is ready AND first flight data arrives.
+     */
+    function revealApplication() {
+        if (isAppFullyLoaded) return; // Run once only
+        isAppFullyLoaded = true;
+
+        const loader = document.getElementById('main-content-loader');
+        if (loader) {
+            // Add the 'hidden' class (defined in your CSS) to fade it out
+            loader.classList.add('hidden');
+            
+            // Optional: Completely remove from DOM after transition (0.6s)
+            setTimeout(() => {
+                loader.style.display = 'none';
+            }, 600);
+        }
+        console.log("Application fully loaded and revealed.");
     }
 
     async function fetchAndRenderRosters(hubIcao) {
@@ -5069,6 +5091,11 @@ function handleSocketFlightUpdate(data) {
             }
             delete currentMapFeatures[flightId]; 
         }
+    }
+    // --- [NEW] REVEAL APP ON FIRST DATA PACKET ---
+    // Once we have processed the first batch of flights, hide the loader.
+    if (!isAppFullyLoaded && isMapReady) {
+        revealApplication();
     }
 }
 
@@ -10896,9 +10923,9 @@ async function updateSectorOpsSecondaryData() {
 
     // --- Initial Load ---
     async function initializeApp() {
-        // Ensure loader is visible
-        if(mainContentLoader) mainContentLoader.classList.add('active');
-
+        // Ensure loader is visible initially
+        // (No 'active' class needed based on your CSS, just existence)
+        
         try {
             loadFiltersFromLocalStorage();
             injectCustomStyles(); // Inject CSS
@@ -10913,21 +10940,26 @@ async function updateSectorOpsSecondaryData() {
             // Init Map View
             await initializeSectorOpsView(); 
             
+            // --- [NEW] SAFETY TIMEOUT ---
+            // If the socket doesn't connect within 10 seconds, reveal the app anyway
+            // so the user isn't stuck on the loading screen forever.
+            setTimeout(() => {
+                if (!isAppFullyLoaded) {
+                    console.warn("Loading timeout reached. Forcing app reveal.");
+                    revealApplication();
+                }
+            }, 10000);
+
         } catch (e) {
             console.error("App Initialization Error:", e);
             showNotification("Application loaded with errors.", "error");
-        } finally {
-            // --- [CRITICAL] ALWAYS REMOVE LOADER SMOOTHLY ---
-            if(mainContentLoader) {
-                // 1. Add the hidden class to trigger the CSS opacity fade
-                mainContentLoader.classList.add('hidden');
-                
-                // 2. Wait for transition (600ms) then remove from layout
-                setTimeout(() => {
-                    mainContentLoader.style.display = 'none';
-                }, 600);
-            }
+            // If critical error, force reveal so they see the notification
+            revealApplication();
         }
+        
+        // [REMOVED] The 'finally' block that hid the loader is gone.
+        // The loader is now hidden inside handleSocketFlightUpdate() 
+        // or the safety timeout above.
     }
     // Expose Global
     window.displayPilotStats = displayPilotStats;
