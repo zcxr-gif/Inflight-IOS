@@ -103,7 +103,7 @@ const MobileUIHandler = {
             }
         });
 
-        console.log("Mobile UI Handler (HUD Rehaul v9.8 - Airport Fixes) Initialized.");
+        console.log("Mobile UI Handler (HUD Rehaul v9.9 - iOS Animation Fixes) Initialized.");
     },
 
     /**
@@ -726,11 +726,11 @@ const MobileUIHandler = {
                 left: var(--island-side-margin);
                 right: var(--island-side-margin);
                 max-height: 250px;
-                transform: translateY(-250%);
+                transform: translate3d(0, -250%, 0);
                 opacity: 0;
             }
             #mobile-aircraft-top-window.visible {
-                transform: translateY(0);
+                transform: translate3d(0, 0, 0);
                 opacity: 1;
             }
 
@@ -757,7 +757,7 @@ const MobileUIHandler = {
                 will-change: transform, opacity;
                 
                 /* Default Off-Screen State */
-                transform: translateY(120%);
+                transform: translate3d(0, 120%, 0);
                 opacity: 0;
                 z-index: 1045;
                 
@@ -766,7 +766,7 @@ const MobileUIHandler = {
             
             /* Active State for ALL Bottom Islands */
             .mobile-island-bottom.island-active {
-                transform: translateY(0);
+                transform: translate3d(0, 0, 0);
                 opacity: 1;
             }
 
@@ -994,18 +994,21 @@ const MobileUIHandler = {
                 /* --- Animation & State --- */
                 will-change: transform;
                 /* Start off-screen */
-                transform: translateY(100%); 
+                /* [iOS FIX] Use translate3d to force hardware acceleration */
+                transform: translate3d(0, 100%, 0); 
                 transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
             }
 
             /* "Peek" State (Default visible state) */
             .mobile-legacy-sheet.visible.peek {
-                transform: translateY(calc(100% - var(--legacy-peek-height)));
+                /* [iOS FIX] Use translate3d */
+                transform: translate3d(0, calc(100% - var(--legacy-peek-height)), 0);
             }
 
             /* "Expanded" State */
             .mobile-legacy-sheet.visible:not(.peek) {
-                transform: translateY(var(--hud-top-window-height));
+                /* [iOS FIX] Use translate3d */
+                transform: translate3d(0, var(--hud-top-window-height), 0);
             }
             
             /* --- [NEW] Drag Handle for Legacy Sheet --- */
@@ -1215,8 +1218,8 @@ const MobileUIHandler = {
 
     /**
      * [MODIFIED] Observes the original window for content.
-     * Now calls the correct "populate" function based on the active mode
-     * AND triggers the animation *after* population is complete.
+     * iOS FIX: Forces a layout reflow before applying the 'visible' class
+     * to ensure the slide-up animation triggers smoothly.
      */
     observeOriginalWindow(windowElement) {
         if (this.contentObserver) this.contentObserver.disconnect();
@@ -1224,45 +1227,48 @@ const MobileUIHandler = {
         this.contentObserver = new MutationObserver((mutationsList, obs) => {
             const mainContent = windowElement.querySelector('.unified-display-main-content');
             const attitudeGroup = mainContent?.querySelector('#attitude_group');
-            
-            // --- [NEW CHECK] For Simple Window (Iframe) ---
             const simpleIframe = windowElement.querySelector('#simple-flight-window-frame');
             
-            // --- [NEW CHECK] For Airport Window ---
+            // Airport check
             const isAirportWindow = windowElement.id === 'airport-info-window';
-            // Airports might have .airport-overview-panel or similar, but generally if they have children, they are ready.
             const isAirportReady = isAirportWindow && windowElement.children.length > 0;
 
-            // Condition 1: Standard PFD is built
+            // Check if content is ready
             const isStandardReady = mainContent && attitudeGroup && attitudeGroup.dataset.initialized === 'true';
-            // Condition 2: Simple Iframe is present
             const isSimpleReady = !!simpleIframe;
             
             if (isStandardReady || isSimpleReady || isAirportReady) {
                 
-                // --- [NEW] Router ---
                 if (this.activeMode === 'legacy') {
-                    // 1. Populate first (while off-screen)
+                    // 1. Populate content while off-screen
                     this.populateLegacySheet(windowElement);
                     
                     // 2. NOW, animate it in
                     if (this.activeWindow) {
-                        setTimeout(() => {
+                        // --- [iOS CRITICAL FIX] ---
+                        // We request the offsetWidth. We don't use the value, but reading it
+                        // forces the iOS WebView to calculate the layout *before* we add the class.
+                        // This prevents the "pop-in" effect.
+                        void this.activeWindow.offsetWidth; 
+
+                        requestAnimationFrame(() => {
                             this.activeWindow.classList.add('visible', 'peek');
                             this.legacySheetState.currentState = 'peek';
-                        }, 10);
+                        });
                     }
 
                 } else { // 'hud' mode
-                    // 1. Populate first (while off-screen)
                     this.populateSplitView(windowElement);
                     
-                    // 2. NOW, animate them in
-                    setTimeout(() => {
+                    // Force reflow for HUD elements too
+                    if (this.topWindowEl) void this.topWindowEl.offsetWidth;
+                    if (this.miniIslandEl) void this.miniIslandEl.offsetWidth;
+
+                    requestAnimationFrame(() => {
                         if (this.topWindowEl) this.topWindowEl.classList.add('visible');
                         if (this.miniIslandEl) this.miniIslandEl.classList.add('island-active');
-                        this.drawerState = 0; // Set initial state
-                    }, 10);
+                        this.drawerState = 0; 
+                    });
                 }
                 
                 obs.disconnect();
@@ -1703,7 +1709,8 @@ const MobileUIHandler = {
             newY = topStop - (overdrag * 0.3); // Resistance
         }
         
-        this.activeWindow.style.transform = `translateY(${newY}px)`;
+        // [iOS FIX] Use translate3d for hardware acceleration
+        this.activeWindow.style.transform = `translate3d(0, ${newY}px, 0)`;
         this.legacySheetState.currentSheetY = newY; // Store last position
     },
 

@@ -810,7 +810,7 @@ function injectCustomStyles() {
             position: absolute;
             top: 20px; 
             right: 20px;
-            width: 600px; 
+            width: 380px; /* [UPDATED] Changed from 600px to 380px for skinny look */
             max-width: 95vw;
             max-height: calc(100vh - 40px);
             background: linear-gradient(135deg, var(--iw-bg-start), var(--iw-bg-end));
@@ -1046,15 +1046,16 @@ function injectCustomStyles() {
         }
 
         .pfd-and-location-grid { 
-            display: grid; 
-            grid-template-columns: 2fr 1fr; 
-            gap: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
         }
 
         .info-right-col {
             display: flex;
             flex-direction: column;
             gap: 8px;
+            width: 100%; /* [UPDATED] Ensure it fills the new skinny width */
         }
         
         /* --- FMS & MODULE STYLES --- */
@@ -2882,33 +2883,6 @@ function injectCustomStyles() {
         .search-result-item:last-child {
             border-bottom: none;
         }
-
-        /* Add this inside the css string in injectCustomStyles() */
-
-html, body {
-    /* Prevent bouncy scrolling on iOS */
-    overscroll-behavior-y: none;
-    -webkit-overflow-scrolling: touch;
-    
-    /* Handle the iPhone Notch (Safe Areas) */
-    padding-top: env(safe-area-inset-top);
-    padding-bottom: env(safe-area-inset-bottom);
-    padding-left: env(safe-area-inset-left);
-    padding-right: env(safe-area-inset-right);
-    
-    /* Prevent selecting text like a website */
-    -webkit-user-select: none;
-    user-select: none;
-    
-    /* Disable tap highlight color */
-    -webkit-tap-highlight-color: transparent;
-}
-
-/* Allow text selection only on inputs */
-input, textarea {
-    -webkit-user-select: text;
-    user-select: text;
-}
     `;
 
     const style = document.createElement('style');
