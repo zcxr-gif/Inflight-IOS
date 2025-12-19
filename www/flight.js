@@ -14,7 +14,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     let currentServerName = localStorage.getItem('preferredServer') || 'Expert Server';
 
     // --- State Variables ---
-    let isAppFullyLoaded = false;
     let OWM_API_KEY = null;
     let isWeatherLayerAdded = false;
     let isCloudLayerAdded = false;
@@ -46,6 +45,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     let sectorOpsMap = null;
     let mapAnimator = null;
     let airportAndAtcMarkers = {};
+    let sectorOpsMapRouteLayers = [];
     let sectorOpsLiveFlightPathLayers = {};
     let sectorOpsAtcNotamInterval = null;
     let sectorOpsSocket = null;
@@ -317,27 +317,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // On error, just use the defaults
             }
         }
-    }
-
-    /**
-     * --- [NEW] Helper to hide the loader smoothly ---
-     * Called when map is ready AND first flight data arrives.
-     */
-    function revealApplication() {
-        if (isAppFullyLoaded) return; // Run once only
-        isAppFullyLoaded = true;
-
-        const loader = document.getElementById('main-content-loader');
-        if (loader) {
-            // Add the 'hidden' class (defined in your CSS) to fade it out
-            loader.classList.add('hidden');
-            
-            // Optional: Completely remove from DOM after transition (0.6s)
-            setTimeout(() => {
-                loader.style.display = 'none';
-            }, 600);
-        }
-        console.log("Application fully loaded and revealed.");
     }
 
     async function fetchAndRenderRosters(hubIcao) {
@@ -809,7 +788,7 @@ function injectCustomStyles() {
             position: absolute;
             top: 20px; 
             right: 20px;
-            width: 380px; /* [UPDATED] Changed from 600px to 380px for skinny look */
+            width: 600px; 
             max-width: 95vw;
             max-height: calc(100vh - 40px);
             background: linear-gradient(135deg, var(--iw-bg-start), var(--iw-bg-end));
@@ -1045,16 +1024,15 @@ function injectCustomStyles() {
         }
 
         .pfd-and-location-grid { 
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
+            display: grid; 
+            grid-template-columns: 2fr 1fr; 
+            gap: 8px;
         }
 
         .info-right-col {
             display: flex;
             flex-direction: column;
             gap: 8px;
-            width: 100%; /* [UPDATED] Ensure it fills the new skinny width */
         }
         
         /* --- FMS & MODULE STYLES --- */
@@ -2882,6 +2860,33 @@ function injectCustomStyles() {
         .search-result-item:last-child {
             border-bottom: none;
         }
+
+        /* Add this inside the css string in injectCustomStyles() */
+
+html, body {
+    /* Prevent bouncy scrolling on iOS */
+    overscroll-behavior-y: none;
+    -webkit-overflow-scrolling: touch;
+    
+    /* Handle the iPhone Notch (Safe Areas) */
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    
+    /* Prevent selecting text like a website */
+    -webkit-user-select: none;
+    user-select: none;
+    
+    /* Disable tap highlight color */
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* Allow text selection only on inputs */
+input, textarea {
+    -webkit-user-select: text;
+    user-select: text;
+}
     `;
 
     const style = document.createElement('style');
@@ -5065,11 +5070,6 @@ function handleSocketFlightUpdate(data) {
             delete currentMapFeatures[flightId]; 
         }
     }
-    // --- [NEW] REVEAL APP ON FIRST DATA PACKET ---
-    // Once we have processed the first batch of flights, hide the loader.
-    if (!isAppFullyLoaded && isMapReady) {
-        revealApplication();
-    }
 }
 
 function initializeSectorOpsSocket() {
@@ -6170,7 +6170,8 @@ async function updateLiveFlights() {
             if (closeBtn) {
                 airportInfoWindow.classList.remove('visible');
                 if (window.MobileUIHandler) MobileUIHandler.closeActiveWindow();
-                airportInfoWindowRecallBtn.classList.remove('visible'); 
+                airportInfoWindowRecallBtn.classList.remove('visible');
+                clearRouteLayers(); 
                 currentAirportInWindow = null;
             }
 
@@ -6752,19 +6753,16 @@ function initializeSectorOpsMap(centerICAO) {
             console.log("Initializing Mapbox instance...");
             
             sectorOpsMap = new mapboxgl.Map({
-    container: 'sector-ops-map-fullscreen',
-    // Add ?optimize=true to your style URLs
-    style: currentMapStyle + (currentMapStyle.includes('?') ? '&' : '?') + 'optimize=true',
-    center: centerCoords,
-    zoom: 4.5,
-    minZoom: 2,
-    maxZoom: 18,
-    renderWorldCopies: false, // Huge performance boost
-    pitchWithRotate: false,
-    renderWorldCopies: false,
-    antialias: true, // Crisper lines
-    projection: 'globe'
-});
+                container: 'sector-ops-map-fullscreen',
+                style: currentMapStyle, 
+                center: centerCoords,
+                zoom: 4.5,
+                projection: 'globe',
+                failIfMajorPerformanceCaveat: false,
+                trackResize: true, 
+                attributionControl: false, 
+                logoPosition: 'bottom-left'
+            });
 
             // Handle Style Load (Rebuild layers)
             sectorOpsMap.on('style.load', async () => {
@@ -6813,6 +6811,18 @@ function initializeSectorOpsMap(centerICAO) {
     });
 }
 
+
+
+    /**
+     * (REFACTORED) Clears only the route line layers from the map.
+     */
+    function clearRouteLayers() {
+        sectorOpsMapRouteLayers.forEach(id => {
+            if (sectorOpsMap.getLayer(id)) sectorOpsMap.removeLayer(id);
+            if (sectorOpsMap.getSource(id)) sectorOpsMap.removeSource(id);
+        });
+        sectorOpsMapRouteLayers = [];
+    }
 
     // NEW: Helper to clear the live flight trail from the map
     function clearLiveFlightPath(flightId) {
@@ -6874,6 +6884,12 @@ function initializeSectorOpsMap(centerICAO) {
         if (document.getElementById('weather-toggle-wind')?.checked) {
             isWindLayerAdded = false; // Force re-creation
             toggleWindLayer(true);
+        }
+
+        // 5. Re-apply airport routes
+        if (currentAirportInWindow) {
+            // This function already clears old layers and re-adds new ones
+            plotRoutesFromAirport(currentAirportInWindow);
         }
 
         // 6. Re-apply active flight trail
@@ -7108,6 +7124,7 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
         if (currentAirportInWindow && currentAirportInWindow !== icao) {
             airportInfoWindow.classList.remove('visible');
             airportInfoWindowRecallBtn.classList.remove('visible');
+            clearRouteLayers();
         }
 
         plotRoutesFromAirport(icao);
@@ -7702,9 +7719,9 @@ async function handleAircraftClick(flightProps, sessionId) {
         // --- [MODIFIED] Choose View Mode ---
         if (mapFilters.useSimpleFlightWindow) {
             // A. SIMPLE VIEW (IFRAME)
-            
-            // [WIDTH ADJUSTMENT] 420px
-            windowEl.style.width = '420px'; 
+
+            // [WIDTH ADJUSTMENT] 320px
+            windowEl.style.width = '320px'; 
             
             // [HEIGHT ADJUSTMENT] Full height minus top margin (20px) + bottom margin (20px)
             windowEl.style.height = 'calc(100vh - 40px)';
@@ -9900,6 +9917,64 @@ function updateFmsLegsModule(plan, currentPos) {
     }
 }
 
+    /**
+     * (NEW) Clears old routes and draws all new routes originating from a selected airport.
+     */
+    function plotRoutesFromAirport(departureICAO) {
+        clearRouteLayers(); // Clear only the lines, not the airport markers
+
+        const departureAirport = airportsData[departureICAO];
+        if (!departureAirport) return;
+
+        const departureCoords = [departureAirport.lon, departureAirport.lat];
+        const routesFromHub = ALL_AVAILABLE_ROUTES.filter(r => r.departure === departureICAO);
+
+        if (routesFromHub.length === 0) {
+            return;
+        }
+
+        // Create line features for each route
+        const routeLineFeatures = routesFromHub.map(route => {
+            const arrivalAirport = airportsData[route.arrival];
+            if (arrivalAirport) {
+                return {
+                    type: 'Feature',
+                    geometry: {
+                        type: 'LineString',
+                        coordinates: [departureCoords, [arrivalAirport.lon, arrivalAirport.lat]]
+                    }
+                };
+            }
+            return null;
+        }).filter(Boolean); // Filter out any routes with missing arrival data
+
+        const routeLinesId = `routes-from-${departureICAO}`;
+        sectorOpsMap.addSource(routeLinesId, {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: routeLineFeatures }
+        });
+
+        sectorOpsMap.addLayer({
+            id: routeLinesId,
+            type: 'line',
+            source: routeLinesId,
+            paint: {
+                'line-color': '#00a8ff', // A bright blue for visibility
+                'line-width': 2,
+                'line-opacity': 0.8
+            }
+        });
+
+        sectorOpsMapRouteLayers.push(routeLinesId); // Track the new layer for cleanup
+
+        // Fly to the selected airport
+        sectorOpsMap.flyTo({
+            center: departureCoords,
+            zoom: 5,
+            essential: true
+        });
+    }
+
 
 
 function setupSectorOpsEventListeners() {
@@ -10693,133 +10768,81 @@ function stopSectorOpsLiveLoop() {
 }
 
 
-/**
- * --- [OPTIMIZED] Renders ATC airports using GPU Layers instead of DOM Markers ---
- */
 function renderAirportMarkers() {
-    if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded()) return;
+        if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded()) return;
 
-    // 1. Build GeoJSON Features
-    const features = [];
-    const hideNoAtc = mapFilters.hideNoAtcMarkers;
-    const hideAtc = mapFilters.hideAtcMarkers;
+        // --- [FIXED] Read filter state from the global object ---
+        const hideNoAtc = mapFilters.hideNoAtcMarkers;
+        const hideAtc = mapFilters.hideAtcMarkers;
+        // --- [END FIXED] ---
 
-    // Build the list of active ATC ICAOs
-    const atcAirportIcaos = new Set(activeAtcFacilities.map(f => f.airportName).filter(Boolean));
+        // Clear all previously rendered airport markers to ensure a fresh state
+        Object.values(airportAndAtcMarkers).forEach(({ marker }) => marker.remove());
+        airportAndAtcMarkers = {};
 
-    Object.values(airportsData).forEach(apt => {
-        if (!apt.lat || !apt.lon) return;
+        const atcAirportIcaos = new Set(activeAtcFacilities.map(f => f.airportName).filter(Boolean));
         
-        const icao = apt.icao || apt.ident;
-        const hasAtc = atcAirportIcaos.has(icao);
+        const allRouteAirports = new Set();
+        ALL_AVAILABLE_ROUTES.forEach(route => {
+            allRouteAirports.add(route.departure);
+            allRouteAirports.add(route.arrival);
+        });
 
-        // Apply Filters
-        if (hideNoAtc && !hasAtc) return;
-        if (hideAtc && hasAtc) return;
-        
-        // If not ATC, skip (since routes are disabled, we only care about ATC airports)
-        if (!hasAtc) return;
+        const allAirportsToRender = new Set([...allRouteAirports, ...atcAirportIcaos]);
 
-        // Determine Type for Styling
-        let type = 'atc-twr'; // Default to tower
-        const specificAtc = activeAtcFacilities.filter(f => f.airportName === icao);
-        const isAppDep = specificAtc.some(f => f.type === 4 || f.type === 5); // 4=App, 5=Dep
-        if (isAppDep) type = 'atc-app';
+        allAirportsToRender.forEach(icao => {
+            const airport = airportsData[icao];
+            if (!airport || airport.lat == null || airport.lon == null) return;
 
-        features.push({
-            type: 'Feature',
-            geometry: { type: 'Point', coordinates: [apt.lon, apt.lat] },
-            properties: {
-                icao: icao,
-                name: apt.name,
-                type: type
+            const hasAtc = atcAirportIcaos.has(icao);
+
+            // --- [FIXED] Apply filter logic from state ---
+            if (hideNoAtc && !hasAtc) {
+                return; // Skip rendering this marker
             }
-        });
-    });
-
-    const sourceId = 'airports-source';
-    
-    // 2. Update Data or Create Source
-    if (sectorOpsMap.getSource(sourceId)) {
-        sectorOpsMap.getSource(sourceId).setData({
-            type: 'FeatureCollection',
-            features: features
-        });
-    } else {
-        sectorOpsMap.addSource(sourceId, {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: features }
-        });
-
-        // 3. Add Layers
-        
-        // Layer: ATC Glow (Approach/Departure)
-        sectorOpsMap.addLayer({
-            id: 'airports-layer-glow',
-            type: 'circle',
-            source: sourceId,
-            filter: ['==', ['get', 'type'], 'atc-app'],
-            paint: {
-                'circle-radius': 15,
-                'circle-color': '#00a8ff',
-                'circle-opacity': 0.3,
-                'circle-blur': 0.5
+            if (hideAtc && hasAtc) {
+                return; // Skip rendering this marker
             }
-        });
+            // --- [END FIXED] ---
 
-        // Layer: The Dots
-        sectorOpsMap.addLayer({
-            id: 'airports-layer-dots',
-            type: 'circle',
-            source: sourceId,
-            paint: {
-                'circle-radius': 6,
-                'circle-color': [
-                    'match', ['get', 'type'],
-                    'atc-twr', '#ef4444', // Red for Tower
-                    'atc-app', '#00a8ff', // Light Blue for App/Dep
-                    '#ef4444' // Fallback
-                ],
-                'circle-stroke-width': 2,
-                'circle-stroke-color': '#ffffff'
+            let markerClass; // Use 'let' to allow modification
+            let title = `${icao}: ${airport.name || 'Unknown Airport'}`;
+
+            if (hasAtc) {
+                const airportAtc = activeAtcFacilities.filter(f => f.airportName === icao);
+                // Check for Approach (type 4) or Departure (type 5)
+                const hasApproachOrDeparture = airportAtc.some(f => f.type === 4 || f.type === 5);
+
+                // Start with the base class for any staffed airport
+                markerClass = 'atc-active-marker';
+                title += ' (Active ATC)';
+
+                // Add the aura class if Approach/Departure is active
+                if (hasApproachOrDeparture) {
+                    markerClass += ' atc-approach-active';
+                    title += ' - Approach/Departure';
+                }
+
+            } else {
+                markerClass = 'destination-marker'; // For non-ATC airports
             }
-        });
+            
+            const el = document.createElement('div');
+            el.className = markerClass;
+            el.title = title;
 
-        // Layer: Labels (Text)
-        sectorOpsMap.addLayer({
-            id: 'airports-layer-labels',
-            type: 'symbol',
-            source: sourceId,
-            minzoom: 5,
-            layout: {
-                'text-field': ['get', 'icao'],
-                'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
-                'text-size': 11,
-                'text-offset': [0, 1.5],
-                'text-anchor': 'top'
-            },
-            paint: {
-                'text-color': '#ffffff',
-                'text-halo-color': '#000000',
-                'text-halo-width': 1
-            }
-        });
+            const marker = new mapboxgl.Marker({ element: el })
+                .setLngLat([airport.lon, airport.lat])
+                .addTo(sectorOpsMap);
 
-        // 4. Click Interaction
-        sectorOpsMap.on('click', 'airports-layer-dots', (e) => {
-            e.originalEvent.cancelBubble = true; 
-            const props = e.features[0].properties;
-            handleAirportClick(props.icao);
-        });
+            el.addEventListener('click', (e) => {
+                e.stopPropagation();
+                handleAirportClick(icao);
+            });
 
-        sectorOpsMap.on('mouseenter', 'airports-layer-dots', () => {
-            sectorOpsMap.getCanvas().style.cursor = 'pointer';
-        });
-        sectorOpsMap.on('mouseleave', 'airports-layer-dots', () => {
-            sectorOpsMap.getCanvas().style.cursor = '';
+            airportAndAtcMarkers[icao] = { marker: marker, className: markerClass };
         });
     }
-}
 
 
 // --- [UPDATED] Fetches ATC & NOTAMs for the CURRENTLY SELECTED SERVER ---
@@ -10873,9 +10896,9 @@ async function updateSectorOpsSecondaryData() {
 
     // --- Initial Load ---
     async function initializeApp() {
-        // Ensure loader is visible initially
-        // (No 'active' class needed based on your CSS, just existence)
-        
+        // Ensure loader is visible
+        if(mainContentLoader) mainContentLoader.classList.add('active');
+
         try {
             loadFiltersFromLocalStorage();
             injectCustomStyles(); // Inject CSS
@@ -10890,26 +10913,18 @@ async function updateSectorOpsSecondaryData() {
             // Init Map View
             await initializeSectorOpsView(); 
             
-            // --- [NEW] SAFETY TIMEOUT ---
-            // If the socket doesn't connect within 10 seconds, reveal the app anyway
-            // so the user isn't stuck on the loading screen forever.
-            setTimeout(() => {
-                if (!isAppFullyLoaded) {
-                    console.warn("Loading timeout reached. Forcing app reveal.");
-                    revealApplication();
-                }
-            }, 10000);
-
         } catch (e) {
             console.error("App Initialization Error:", e);
             showNotification("Application loaded with errors.", "error");
-            // If critical error, force reveal so they see the notification
-            revealApplication();
+        } finally {
+            // --- [CRITICAL] ALWAYS REMOVE LOADER ---
+            if(mainContentLoader) {
+                // Short delay to ensure transition looks smooth
+                setTimeout(() => {
+                    mainContentLoader.classList.remove('active');
+                }, 500);
+            }
         }
-        
-        // [REMOVED] The 'finally' block that hid the loader is gone.
-        // The loader is now hidden inside handleSocketFlightUpdate() 
-        // or the safety timeout above.
     }
     // Expose Global
     window.displayPilotStats = displayPilotStats;
