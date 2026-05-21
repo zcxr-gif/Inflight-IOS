@@ -689,30 +689,41 @@ function handleSavedFlightListClick(e) {
 
 
     // --- Helper: Fetch API Keys from Netlify Function ---
-    async function fetchApiKeys() {
-        try {
-            const response = await fetch(`${CURRENT_SITE_URL}/.netlify/functions/config`);
-            if (!response.ok) throw new Error('Could not fetch server configuration.');
-            
-            const config = await response.json();
-            
-            if (!config.mapboxToken) throw new Error('Mapbox token is missing.');
-            // if (!config.owmApiKey) throw new Error('OWM API key is missing.'); // Soft fail for weather
+    // Retries with exponential backoff so a transient network blip doesn't
+    // permanently leave the app without a Mapbox token (which leaves the map blank).
+    async function fetchApiKeys(maxAttempts = 3) {
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 6000);
+                const response = await fetch(`${CURRENT_SITE_URL}/.netlify/functions/config`, { signal: controller.signal });
+                clearTimeout(timeoutId);
 
-            // Set Mapbox key
-            MAPBOX_ACCESS_TOKEN = config.mapboxToken;
-            if (typeof mapboxgl !== 'undefined') {
-                mapboxgl.accessToken = MAPBOX_ACCESS_TOKEN;
+                if (!response.ok) throw new Error(`Config request failed (${response.status}).`);
+
+                const config = await response.json();
+
+                if (!config.mapboxToken) throw new Error('Mapbox token is missing.');
+
+                // Set Mapbox key
+                MAPBOX_ACCESS_TOKEN = config.mapboxToken;
+                if (typeof mapboxgl !== 'undefined') {
+                    mapboxgl.accessToken = MAPBOX_ACCESS_TOKEN;
+                }
+
+                // Set OWM key (soft requirement — weather still works without it)
+                OWM_API_KEY = config.owmApiKey;
+
+                return true; // success
+            } catch (error) {
+                console.error(`Failed to initialize API keys (attempt ${attempt}/${maxAttempts}):`, error.message);
+                if (attempt < maxAttempts) {
+                    // 1s, 2s, 4s backoff
+                    await new Promise(res => setTimeout(res, 1000 * Math.pow(2, attempt - 1)));
+                }
             }
-            
-            // Set OWM key
-            OWM_API_KEY = config.owmApiKey;
-
-        } catch (error) {
-            console.error('Failed to initialize API keys:', error.message);
-            // Don't kill the app, just notify
-            // showNotification('Map setup failed.', 'error');
         }
+        return false; // exhausted retries; caller surfaces a retry UI
     }
 
 function injectCustomStyles() {
@@ -6733,12 +6744,45 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
  * FIXED: Initializes the Mapbox map.
  * Filters non-fatal errors to prevent premature loader dismissal.
  */
+// Shows a tappable overlay so the user can recover from a failed map load
+// instead of staring at a blank screen / endless spinner.
+function showMapRetryOverlay(message, retryICAO = 'EGLL') {
+    const container = document.getElementById('sector-ops-map-fullscreen');
+    if (!container) return;
+    const existing = document.getElementById('map-retry-overlay');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'map-retry-overlay';
+    overlay.style.cssText = 'position:absolute;inset:0;z-index:500;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;background:#0d1117;color:#e8eaf6;text-align:center;padding:24px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;';
+    overlay.innerHTML = `
+        <div style="font-size:42px;">⚠️</div>
+        <div style="font-size:17px;font-weight:600;max-width:280px;line-height:1.4;">${message || 'The map failed to load.'}</div>
+        <button id="map-retry-btn" style="margin-top:8px;padding:12px 28px;font-size:16px;font-weight:600;color:#fff;background:#38bdf8;border:none;border-radius:12px;cursor:pointer;-webkit-tap-highlight-color:transparent;">Retry</button>
+    `;
+    container.appendChild(overlay);
+
+    const btn = document.getElementById('map-retry-btn');
+    if (btn) {
+        btn.addEventListener('click', async () => {
+            overlay.remove();
+            // Re-fetch keys if we never got a token, then re-init the map.
+            if (!MAPBOX_ACCESS_TOKEN) await fetchApiKeys();
+            await initializeSectorOpsMap(retryICAO);
+        });
+    }
+}
+
 function initializeSectorOpsMap(centerICAO) {
     const container = document.getElementById('sector-ops-map-fullscreen');
 
     if (!container) return Promise.resolve();
+    if (typeof mapboxgl === 'undefined') {
+        showMapRetryOverlay('Map engine could not be loaded. Check your connection and retry.', centerICAO);
+        return Promise.resolve();
+    }
     if (!MAPBOX_ACCESS_TOKEN) {
-        container.innerHTML = '<p class="map-error-msg">Map service not available.</p>';
+        showMapRetryOverlay('Map service unavailable. Check your connection and retry.', centerICAO);
         return Promise.resolve();
     }
     if (sectorOpsMap) {
@@ -6749,18 +6793,38 @@ function initializeSectorOpsMap(centerICAO) {
     const centerCoords = airportsData[centerICAO] ? [airportsData[centerICAO].lon, airportsData[centerICAO].lat] : [77.2, 28.6];
 
     return new Promise((resolve) => {
+        // --- Once-guard: the promise must settle exactly once, no matter how
+        // many error/load/timeout events fire. This is what prevents the app
+        // from hanging forever on the loading spinner. ---
+        let settled = false;
+        const settle = () => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(watchdog);
+            resolve();
+        };
+
+        // --- Watchdog: if the map hasn't reported 'load' within 20s, stop
+        // waiting, drop the spinner, and offer a retry. ---
+        const watchdog = setTimeout(() => {
+            if (settled) return;
+            console.error("Map load watchdog timed out.");
+            showMapRetryOverlay('The map is taking too long to load. Check your connection and retry.', centerICAO);
+            settle();
+        }, 20000);
+
         try {
             console.log("Initializing Mapbox instance...");
-            
+
             sectorOpsMap = new mapboxgl.Map({
                 container: 'sector-ops-map-fullscreen',
-                style: currentMapStyle, 
+                style: currentMapStyle,
                 center: centerCoords,
                 zoom: 4.5,
                 projection: 'globe',
                 failIfMajorPerformanceCaveat: false,
-                trackResize: true, 
-                attributionControl: false, 
+                trackResize: true,
+                attributionControl: false,
                 logoPosition: 'bottom-left'
             });
 
@@ -6774,39 +6838,51 @@ function initializeSectorOpsMap(centerICAO) {
             // --- SUCCESS HANDLER ---
             sectorOpsMap.on('load', async () => {
                 console.log("Mapbox 'load' event fired.");
-                // We call setup again just in case style.load didn't catch everything, 
+                // We call setup again just in case style.load didn't catch everything,
                 // but the internal guard in setupMapLayersAndFog will prevent duplicates.
                 await setupMapLayersAndFog();
                 sectorOpsMap.resize();
-                resolve(); // SUCCESS: Map is ready
+                settle(); // SUCCESS: Map is ready
             });
 
-            // --- FIXED ERROR HANDLER ---
+            // --- ERROR HANDLER ---
             sectorOpsMap.on('error', (e) => {
-                // Ignore minor 404s (missing tiles/icons) to avoid hiding loader prematurely
-                if (e && e.error && (e.error.status === 404 || e.error.message.includes('image'))) {
-                    console.warn("Non-fatal map error:", e.error.message);
-                    return; 
+                // Ignore minor 404s (missing tiles/icons) — these are non-fatal
+                // and shouldn't tear down a map that otherwise renders.
+                const status = e && e.error && e.error.status;
+                const msg = (e && e.error && e.error.message) || '';
+                if (status === 404 || msg.includes('image')) {
+                    console.warn("Non-fatal map error:", msg);
+                    return;
                 }
-                
+
                 console.error("Critical Mapbox Error:", e);
-                // Only resolve (and remove loader) if it's a critical auth/webgl error
-                if (e.error && (e.error.status === 401 || e.error.status === 403)) {
-                    showNotification("Map authentication failed.", "error");
-                    resolve();
+                if (status === 401 || status === 403) {
+                    // Auth failures are always fatal — recover immediately.
+                    showMapRetryOverlay('Map authentication failed.', centerICAO);
+                    settle();
+                } else if (!settled && navigator.onLine === false) {
+                    // Definite offline before the map ever loaded: don't make the
+                    // user wait out the watchdog.
+                    showMapRetryOverlay('You appear to be offline. Reconnect and retry.', centerICAO);
+                    settle();
                 }
+                // All other errors (transient tile/glyph failures, etc.) are left
+                // to the success path or the watchdog, so a map that would still
+                // load isn't torn down prematurely.
             });
 
             // --- CRASH HANDLER ---
             sectorOpsMap.on('webglcontextlost', () => {
                 console.error("WebGL Context Lost!");
-                // Force a resolve so the app doesn't hang forever on the loading spinner
-                resolve(); 
+                // Force settle so the app doesn't hang forever on the spinner.
+                settle();
             });
 
         } catch (err) {
             console.error("Map Init Exception:", err);
-            resolve();
+            showMapRetryOverlay('The map could not be started. Check your connection and retry.', centerICAO);
+            settle();
         }
     });
 }
@@ -10895,35 +10971,44 @@ async function updateSectorOpsSecondaryData() {
 
 
     // --- Initial Load ---
+    function hideMainLoader() {
+        if (!mainContentLoader) return;
+        // The CSS hides the loader via the `.hidden` class (opacity/visibility
+        // transition). Toggling any other class leaves it permanently on screen.
+        mainContentLoader.classList.add('hidden');
+    }
+
     async function initializeApp() {
         // Ensure loader is visible
-        if(mainContentLoader) mainContentLoader.classList.add('active');
+        if (mainContentLoader) mainContentLoader.classList.remove('hidden');
+
+        // --- Global safety watchdog ---
+        // No matter what hangs downstream, never trap the user behind the
+        // loading spinner. This is the last line of defense against freezes.
+        const loaderWatchdog = setTimeout(hideMainLoader, 25000);
 
         try {
             loadFiltersFromLocalStorage();
             injectCustomStyles(); // Inject CSS
 
-            // Fetch data
-            await Promise.all([
+            // Fetch data — allSettled so one failed fetch can't abort startup.
+            await Promise.allSettled([
                 fetchApiKeys(),
                 fetchAirportsData(),
                 fetchRunwaysData()
             ]);
-            
+
             // Init Map View
-            await initializeSectorOpsView(); 
-            
+            await initializeSectorOpsView();
+
         } catch (e) {
             console.error("App Initialization Error:", e);
             showNotification("Application loaded with errors.", "error");
         } finally {
+            clearTimeout(loaderWatchdog);
             // --- [CRITICAL] ALWAYS REMOVE LOADER ---
-            if(mainContentLoader) {
-                // Short delay to ensure transition looks smooth
-                setTimeout(() => {
-                    mainContentLoader.classList.remove('active');
-                }, 500);
-            }
+            // Short delay to ensure transition looks smooth.
+            setTimeout(hideMainLoader, 500);
         }
     }
     // Expose Global
