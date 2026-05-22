@@ -2,8 +2,13 @@
 <html lang="en" class="scroll-smooth">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>InFlight | Professional Flight Tracking</title>
+
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="InFlight">
+    <link rel="apple-touch-icon" href="Images/inflight.png">
     
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -138,10 +143,41 @@
             to { transform: rotate(360deg); }
         }
 
+        /* iOS native-app feel */
+        html, body {
+            /* Stop the page rubber-banding like a webpage */
+            overscroll-behavior-y: none;
+            -webkit-text-size-adjust: 100%;
+            text-size-adjust: 100%;
+            /* No blue flash on tap, no long-press callout/selection */
+            -webkit-tap-highlight-color: transparent;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        /* Keep real text content selectable */
+        input, textarea, p, h1, h2, h3, h4, li, span {
+            -webkit-user-select: text;
+            user-select: text;
+        }
+
         .nav-blur {
             background: rgba(10, 10, 10, 0.78);
             backdrop-filter: blur(16px);
             border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            /* Extend the bar under the status bar / notch */
+            padding-top: env(safe-area-inset-top, 0px);
+        }
+
+        /* Safe-area handling for the mobile menu drawer */
+        #mobile-menu-close {
+            top: calc(env(safe-area-inset-top, 0px) + 1.5rem);
+        }
+        #mobile-menu .relative {
+            padding-bottom: calc(2.5rem + env(safe-area-inset-bottom, 0px));
+        }
+        footer {
+            padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
         }
 
         .text-gradient {
