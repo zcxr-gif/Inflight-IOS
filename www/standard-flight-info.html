@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flight Info Window</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* --- IMPORT FONTS (Inter & JetBrains Mono) --- */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+        /* --- THEME VARIABLES --- */
+        :root {
+            /* Palette - Carbon/Zinc Theme */
+            --bg-glass: #18181b;      /* Zinc-900 base (Solid for iframe) */
+            --bg-panel: rgba(63, 63, 70, 0.35);      /* Zinc-700 lighter gray */
+            --bg-subtle: rgba(255, 255, 255, 0.03);  /* Very subtle highlight */
+            
+            /* Borders */
+            --border-glass: rgba(255, 255, 255, 0.08);
+            --border-highlight: rgba(255, 255, 255, 0.12);
+            
+            /* Typography */
+            --text-primary: #fafafa;    /* Zinc-50 */
+            --text-secondary: #a1a1aa;  /* Zinc-400 */
+            --text-dim: #52525b;        /* Zinc-600 */
+            
+            /* Functional Colors */
+            --color-accent: #e4e4e7;    /* Zinc-200 */
+            --color-brand: #38bdf8;     /* Sky Blue (Primary Brand) */
+            --color-success: #10b981;   /* Emerald */
+            --color-warning: #f59e0b;   /* Amber */
+            --color-danger: #ef4444;    /* Red */
+            --color-purple: #c084fc;    /* Purple */
+
+            /* Dimensions */
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 16px;
+            
+            /* Fonts */
+            --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            --font-data: 'JetBrains Mono', 'Consolas', monospace;
+        }
+
+        /* --- GLOBAL OVERRIDES --- */
+        body {
+            font-family: var(--font-ui);
+            color: var(--text-primary);
+            margin: 0;
+            padding: 0;
+            background: var(--bg-glass);
+            overflow: hidden; /* Main window usually handles scroll */
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* --- INFO WINDOW LAYOUT --- */
+        .info-window-content { 
+            overflow-y: auto; 
+            flex-grow: 1; 
+            padding: 0;
+            background: transparent; 
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* --- HEADER STYLES --- */
+        .aircraft-overview-panel { 
+            position: relative; 
+            height: 200px; 
+            background-size: cover; 
+            background-position: center; 
+            border-bottom-left-radius: 0; 
+            border-bottom-right-radius: 0; 
+            color: #fff; 
+            display: flex; 
+            flex-direction: column; 
+            justify-content: space-between; 
+            margin-bottom: -40px; 
+            background-image: url('/CommunityPlanes/default.png');
+        }
+        
+        .aircraft-overview-panel::before { 
+            content: ''; 
+            position: absolute; 
+            inset: 0; 
+            z-index: 1; 
+            background: linear-gradient(
+                to bottom,
+                rgba(0, 0, 0, 0.7) 0%, 
+                rgba(0, 0, 0, 0) 35%, 
+                rgba(0, 0, 0, 0.2) 80%, 
+                var(--bg-glass) 100%
+            ); 
+        }
+        
+        .overview-content { position: relative; z-index: 2; padding: 16px 20px 0 20px; display: flex; justify-content: space-between; align-items: flex-start; }
+        .overview-col-left h3 { margin: 0; font-size: 1.6rem; font-weight: 700; text-shadow: 0 4px 10px rgba(0, 0, 0, 0.7); display: flex; align-items: center; gap: 12px; }
+        .ac-header-logo { height: 1.8rem; width: auto; max-width: 100px; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.7)); }
+        .overview-col-left p { position: relative; margin: 0; font-size: 1.0rem; color: #e8eaf6; font-weight: 400; text-shadow: 0 2px 5px rgba(0, 0, 0, 0.6); min-height: 1.2em; margin-top: 4px; }
+        
+        .ac-header-subtext { 
+            white-space: normal; 
+        }
+        
+        .overview-actions { position: absolute; top: 16px; right: 16px; z-index: 3; display: flex; gap: 8px; }
+        .overview-actions button {
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: #fff;
+            width: 32px; height: 32px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: grid;
+            place-items: center;
+            backdrop-filter: blur(4px);
+        }
+
+        .route-icao {
+            font-family: var(--font-data);
+            font-size: 2rem;
+            font-weight: 800;
+            opacity: 0.2;
+            line-height: 1;
+        }
+
+        /* --- ROUTE SUMMARY --- */
+        .route-summary-overlay { 
+            position: relative; 
+            padding: 15px 20px 12px 20px; 
+            background: linear-gradient(180deg, 
+                transparent 0%, 
+                rgba(0, 0, 0, 0.2) 40%, 
+                var(--bg-glass) 100%
+            ); 
+            display: grid; 
+            grid-template-columns: auto 1fr auto; 
+            align-items: center; 
+            gap: 16px; 
+            width: 100%; 
+            box-sizing: border-box;
+        }
+        
+        .route-summary-airport { display: flex; flex-direction: column; }
+        #route-summary-dep { text-align: left; align-items: center; }
+        #route-summary-arr { text-align: right; align-items: center; }
+        .route-summary-airport .airport-line { display: flex; align-items: center; gap: 8px; }
+        .route-summary-airport .icao { font-family: var(--font-data); font-size: 1.2rem; font-weight: 700; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.5); }
+        .route-summary-airport .time { font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); margin-top: 4px; text-align: center; }
+        .country-flag { width: 20px; height: auto; border-radius: 3px; border: 1px solid rgba(255, 255, 255, 0.2); }
+        .route-progress-container { display: grid; grid-template-columns: 1fr; grid-template-rows: 1fr; align-items: center; justify-items: center; position: relative; min-height: 28px; }
+        .route-progress-bar-container { width: 100%; height: 6px; background: var(--bg-panel); border-radius: 3px; overflow: hidden; grid-row: 1; grid-column: 1; z-index: 1; }
+        .progress-bar-fill { height: 100%; width: 0%; background: var(--color-brand); transition: width 0.5s ease-out; border-radius: 3px; }
+        .flight-phase-indicator { padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 700; color: #fff; border: 1px solid var(--border-glass); grid-row: 1; grid-column: 1; z-index: 2; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5); }
+        .phase-climb { background: var(--color-success); opacity: 0.9; } .phase-cruise { background: var(--color-brand); opacity: 0.9; } .phase-descent { background: var(--color-warning); opacity: 0.9; } .phase-approach { background: var(--color-purple); opacity: 0.9; } .phase-enroute { background: var(--text-dim); opacity: 0.9; }
+
+        /* --- TABS --- */
+        .ac-info-window-tabs {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--bg-glass);
+            border-bottom: 1px solid var(--border-glass);
+            padding: 0 20px;
+            height: 60px;
+            flex-shrink: 0;
+        }
+        .ac-tabs-wrapper { display: flex; gap: 20px; height: 100%; }
+        .ac-info-tab-logo { height: 32px; width: auto; object-fit: contain; opacity: 0.8; }
+        .ac-info-tab-btn {
+            padding: 0 10px; height: 100%; border: none; background: transparent; color: var(--text-secondary); cursor: pointer;
+            font-size: 0.95rem; font-family: var(--font-ui); font-weight: 600; position: relative; display: flex; align-items: center; gap: 10px; transition: all 0.3s ease; border-bottom: 3px solid transparent;
+        }
+        .ac-info-tab-btn:hover { color: #fff; }
+        .ac-info-tab-btn.active { color: #fff; border-bottom-color: var(--color-brand); text-shadow: 0 0 10px rgba(56, 189, 248, 0.5); }
+        .ac-info-tab-btn.active i { color: var(--color-brand); }
+        .ac-info-tab-btn.pilot-tab-btn { color: var(--text-primary); font-weight: 700; letter-spacing: 0.5px; }
+        .ac-info-tab-btn.pilot-tab-btn i { color: var(--color-warning); }
+        .ac-info-tab-btn.pilot-tab-btn.active { color: #fff; border-bottom-color: var(--color-warning); text-shadow: 0 0 10px rgba(255, 183, 77, 0.5); }
+
+        /* --- MAIN CONTENT AREA --- */
+        .unified-display-main-content { 
+            padding: 16px; 
+            flex-grow: 1; 
+            display: flex; 
+            flex-direction: column; 
+            gap: 16px; 
+            background: linear-gradient(180deg, var(--bg-glass), var(--bg-glass));
+            border-top: 1px solid var(--border-glass);
+            overflow-y: auto;
+        }
+        .ac-tab-pane { display: none; flex-direction: column; gap: 16px; }
+        .ac-tab-pane.active { display: flex; }
+        .pfd-and-location-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 8px; }
+        .info-right-col { display: flex; flex-direction: column; gap: 8px; }
+
+        /* --- SHARED TECH MODULE STYLES --- */
+        .tech-module {
+            background: #0f172a; /* Solid Dark Slate */
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            margin-bottom: 8px; 
+            display: flex;
+            flex-direction: column;
+        }
+        .tech-module-header {
+            background: rgba(30, 41, 59, 0.5);
+            padding: 8px 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .tech-module-title {
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .tech-module-body { padding: 12px; background: #0f172a; position: relative; }
+
+        /* --- PFD STYLES --- */
+        .pfd-main-panel { display: flex; flex-direction: column; width: 100%; align-items: center; gap: 16px; }
+        .display-bezel { 
+            position: relative; background-color: #1f2937; border: 4px solid #374151; padding: 12px; 
+            border-radius: var(--radius-md); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); width: 100%; box-sizing: border-box; display: flex; flex-direction: column;
+        }
+        .screw { position: absolute; width: 0.5rem; height: 0.5rem; background-color: #4b5563; border-radius: 50%; box-shadow: inset 1px 1px 2px rgba(0,0,0,0.5); z-index: 5; }
+        .screw.tl { top: 0.35rem; left: 0.35rem; } .screw.tr { top: 0.35rem; right: 0.35rem; } .screw.bl { bottom: 0.35rem; left: 0.35rem; } .screw.br { bottom: 0.35rem; right: 0.35rem; }
+        .crt-container { width: 100%; position: relative; border: 2px solid #111827; background: #000; border-radius: 12px; overflow: hidden; box-shadow: inset 0 0 20px rgba(0,0,0,0.8); display: flex; }
+        .scanlines::before { 
+            content: " "; display: block; position: absolute; top: 0; left: 0; bottom: 0; right: 0; 
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06)); 
+            z-index: 10; background-size: 100% 2px, 3px 100%; pointer-events: none; 
+        }
+        #pfd-container { width: 100%; }
+        #pfd-container svg { width: 100%; height: auto; display: block; margin: 0; aspect-ratio: 787 / 800; background-color: #1a1a1a; filter: brightness(1.3) contrast(1.2) drop-shadow(0 0 2px rgba(255, 255, 255, 0.3)); }
+        #nd-container { width: 100%; aspect-ratio: 787 / 800; background: transparent; overflow: hidden; display: flex; justify-content: center; height: auto; }
+        #nav-display-frame { width: 100%; height: 100%; border: none; display: block; }
+
+        /* --- COCKPIT SENSOR --- */
+        .cockpit-view { position: relative; width: 140px; height: 80px; background: rgba(0,0,0,0.3); border-radius: 40px 40px 10px 10px; border: 1px solid var(--border-glass); display: flex; justify-content: space-between; padding: 10px 20px; box-sizing: border-box; margin-bottom: 10px; margin: 0 auto 10px auto; }
+        .cockpit-view::after { content: ''; position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); width: 14px; height: 40px; background: #333; border-radius: 4px; border: 1px solid #555; }
+        .seat { width: 35px; height: 40px; background: #222; border-radius: 6px; border: 1px solid #444; transition: all 0.5s ease; position: relative; display: flex; justify-content: center; align-items: center; }
+        .seat::before { content: ''; position: absolute; top: -8px; width: 25px; height: 8px; background: inherit; border-radius: 4px; border: 1px solid #444; }
+        .seat.active-green { background: rgba(16, 185, 129, 0.1); border-color: var(--color-success); box-shadow: 0 0 15px rgba(16, 185, 129, 0.2); }
+        .seat.active-green::before { border-color: var(--color-success); background: #064e3b; }
+        .seat.active-amber { background: rgba(245, 158, 11, 0.1); border-color: var(--color-warning); box-shadow: 0 0 15px rgba(245, 158, 11, 0.2); }
+        .seat.active-amber::before { border-color: var(--color-warning); background: #78350f; }
+        .seat.active-blue { background: rgba(56, 189, 248, 0.1); border-color: var(--color-brand); box-shadow: 0 0 15px rgba(56, 189, 248, 0.2); }
+        .seat.active-blue::before { border-color: var(--color-brand); background: #0c4a6e; }
+        .seat::after { content: attr(data-role); font-size: 0.6rem; font-weight: bold; color: var(--text-dim); margin-top: 2px; }
+        .seat.active-green::after, .seat.active-amber::after, .seat.active-blue::after { color: #fff; text-shadow: 0 0 5px currentColor; }
+        .seat-status-display { margin-top: 8px; font-family: var(--font-data); font-size: 0.75rem; text-align: center; width: 100%; display: flex; justify-content: space-between; color: var(--text-secondary); }
+        .status-pill { padding: 2px 8px; border-radius: 4px; background: rgba(255,255,255,0.05); border: 1px solid var(--border-glass); }
+        .status-pill.green { color: var(--color-success); border-color: rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.1); }
+        .status-pill.amber { color: var(--color-warning); border-color: rgba(245, 158, 11, 0.3); background: rgba(245, 158, 11, 0.1); }
+        .status-pill.blue { color: var(--color-brand); border-color: rgba(56, 189, 248, 0.3); background: rgba(56, 189, 248, 0.1); }
+        .status-pill.red { color: var(--color-danger); border-color: rgba(239, 68, 68, 0.3); background: rgba(239, 68, 68, 0.1); }
+        #seat-narrative-text { font-family: var(--font-ui); font-size: 0.7rem; color: var(--text-secondary); margin-top: 8px; text-align: center; border-top: 1px solid var(--border-glass); padding-top: 6px; width: 100%; font-style: italic; }
+        .cockpit-overlay-icon { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 2.5rem; z-index: 10; opacity: 0; pointer-events: none; }
+        .cockpit-overlay-icon.visible { opacity: 1; }
+        .icon-parking { color: var(--color-danger); border: 3px solid var(--color-danger); border-radius: 50%; width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; font-weight: bold; background: rgba(0,0,0,0.6); font-family: sans-serif; }
+        .icon-coffee { color: var(--color-warning); } .icon-cloud { color: var(--color-brand); }
+
+        /* --- FMS MODULE --- */
+        .fms-columns { display: grid; grid-template-columns: 2fr 1fr 1fr; padding: 4px 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); color: #94a3b8; font-size: 0.7rem; font-family: var(--font-data); }
+        .fms-list-scrollarea { flex-grow: 1; overflow-y: auto; padding: 5px 0; font-family: var(--font-data); }
+        .fms-row { display: grid; grid-template-columns: 2fr 1fr 1fr; padding: 4px 10px; font-size: 0.85rem; border-bottom: 1px solid rgba(255, 255, 255, 0.05); align-items: center; }
+        .fms-row.active-leg { background: rgba(192, 132, 252, 0.1); color: var(--color-purple); font-weight: bold; }
+        .fms-row.passed-leg { color: var(--text-dim); }
+        .fms-proc-header { padding: 4px 10px; background: rgba(255,255,255,0.02); color: var(--text-secondary); font-size: 0.75rem; font-weight: bold; border-top: 1px solid var(--border-glass); border-bottom: 1px solid var(--border-glass); display: flex; align-items: center; gap: 6px; }
+        .proc-tag { font-size: 0.6rem; padding: 1px 4px; border-radius: 2px; background: rgba(255,255,255,0.05); color: var(--text-secondary); }
+        .proc-tag.sid { background: rgba(16, 185, 129, 0.1); color: var(--color-success); }
+        .proc-tag.star { background: rgba(245, 158, 11, 0.1); color: var(--color-warning); }
+        .fms-row.is-child { padding-left: 20px; }
+        .fms-footer { background: rgba(30, 41, 59, 0.3); padding: 6px 10px; border-top: 1px solid rgba(255, 255, 255, 0.1); display: flex; justify-content: space-between; font-family: var(--font-data); }
+        .fms-stat { display: flex; gap: 8px; font-size: 0.8rem; }
+        .stat-label { color: var(--text-dim); } .stat-value { color: var(--text-primary); font-weight: bold; }
+        .fms-empty-state { text-align: center; padding: 20px; color: var(--text-dim); font-style: italic; }
+
+        /* --- NAV PANEL --- */
+        #location-data-panel { background: transparent; border: none; box-shadow: none; }
+        .nav-grid-container { padding: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+        .nav-cell { background: rgba(30, 41, 59, 0.5); border-radius: 4px; padding: 6px 10px; display: flex; flex-direction: column; justify-content: space-between; min-height: 45px; border: 1px solid rgba(255, 255, 255, 0.05); }
+        .nav-span-2 { grid-column: span 2; }
+        .nav-label { font-size: 0.6rem; color: var(--color-brand); text-transform: uppercase; margin-bottom: 4px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+        .nav-value { font-family: var(--font-data); font-size: 1.0rem; color: var(--text-primary); font-weight: 600; line-height: 1.2; }
+        .nav-value.large { font-size: 1.2rem; } .nav-value.small { font-size: 0.85rem; color: var(--text-secondary); } .nav-value.highlight { color: var(--color-success); text-shadow: 0 0 5px rgba(16, 185, 129, 0.2); } .nav-value.accent { color: var(--color-warning); }
+        .nav-row { display: flex; justify-content: space-between; align-items: baseline; width: 100%; flex-wrap: wrap; gap: 4px; }
+        .nav-unit { font-size: 0.7rem; color: var(--text-dim); margin-left: 2px; font-family: var(--font-ui); font-weight: 400; }
+
+        /* --- TECH CARD --- */
+        .tech-card { background: #0f172a; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5); position: relative; font-family: var(--font-ui); margin-bottom: 12px; }
+        .tech-card-header { padding: 12px 16px 4px; display: flex; justify-content: space-between; align-items: flex-start; position: relative; z-index: 10; }
+        .tech-badge { display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px; border-radius: 999px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.2); font-size: 9px; font-weight: 700; color: #34d399; text-transform: uppercase; letter-spacing: 0.05em; }
+        .tech-ping { position: relative; display: flex; height: 5px; width: 5px; }
+        .tech-ping span { position: absolute; display: inline-flex; height: 100%; width: 100%; border-radius: 50%; background-color: #34d399; }
+        .tech-ping .animate { animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite; opacity: 0.75; }
+        @keyframes ping { 75%, 100% { transform: scale(2); opacity: 0; } }
+        .tech-model { font-size: 1.1rem; font-weight: 700; color: #fff; letter-spacing: -0.025em; margin: 0; line-height: 1.2; }
+        .tech-airline { font-size: 0.75rem; font-weight: 500; color: rgba(56, 189, 248, 0.9); margin-top: 0px; display: flex; align-items: center; gap: 5px; }
+        .tech-content { padding: 12px; position: relative; z-index: 10; }
+        .tech-image-container { position: relative; width: 100%; aspect-ratio: 21 / 9; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2); border: 1px solid rgba(255, 255, 255, 0.05); background: #000; }
+        .tech-image { width: 100%; height: 100%; object-fit: cover; }
+        .tech-image-overlay { position: absolute; inset: 0; background: linear-gradient(to top, rgba(2, 6, 23, 0.9), transparent, transparent); opacity: 0.8; }
+        .tech-image-info { position: absolute; bottom: 8px; left: 10px; right: 10px; display: flex; justify-content: space-between; align-items: flex-end; }
+        .tech-photographer { display: flex; flex-direction: column; }
+        .tech-photo-label { font-size: 9px; color: #cbd5e1; font-weight: 500; margin-bottom: 0px; line-height: 1; }
+        .tech-photo-name { display: flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 600; color: #fff; }
+        .tech-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 12px; }
+        .tech-stat-card { background: rgba(30, 41, 59, 0.5); border: 1px solid rgba(255, 255, 255, 0.05); padding: 8px 10px; border-radius: 6px; transition: background 0.2s; }
+        .tech-stat-card:hover { background: rgba(30, 41, 59, 0.8); }
+        .tech-stat-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px; }
+        .tech-stat-label { font-size: 9px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; }
+        .tech-stat-value { font-family: var(--font-data); font-size: 0.95rem; color: #fff; font-weight: 600; letter-spacing: -0.025em; }
+        .tech-country-card { grid-column: span 2; background: rgba(30, 41, 59, 0.3); border: 1px solid rgba(255, 255, 255, 0.05); padding: 6px 10px; border-radius: 6px; display: flex; align-items: center; justify-content: space-between; }
+        .tech-country-left { display: flex; align-items: center; gap: 8px; }
+        .tech-country-icon { width: 24px; height: 24px; border-radius: 4px; background: rgba(51, 65, 85, 0.5); display: flex; align-items: center; justify-content: center; color: #94a3b8; }
+        .tech-bottom-bar { height: 3px; width: 100%; background: linear-gradient(to right, #0ea5e9, #2563eb, #4f46e5); opacity: 0.8; }
+
+        /* --- VSD --- */
+        .vsd-module-container { background: transparent; border: none; box-shadow: none; margin-bottom: 12px; height: 260px; max-height: 260px; display: flex; flex-direction: column; overflow: hidden; }
+        .vsd-panel { display: flex; flex-direction: column; background: transparent; flex-grow: 1; position: relative; overflow: hidden; width: 100%; }
+        .vsd-graph-window { position: relative; width: 100%; height: 100%; overflow: hidden; padding-left: 35px; box-sizing: border-box; background: #0f172a; }
+        #vsd-y-axis { position: absolute; top: 0; left: 0; width: 35px; height: 100%; background: #0f172a; border-right: 1px solid rgba(255, 255, 255, 0.1); z-index: 10; }
+        .y-axis-label { position: absolute; right: 4px; font-family: var(--font-data); font-size: 0.65rem; color: var(--text-dim); transform: translateY(-50%); }
+        #vsd-graph-content { position: relative; height: 100%; }
+        #vsd-profile-svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: visible; }
+        #vsd-profile-path { fill: none; stroke: #444; stroke-width: 2; stroke-dasharray: 4, 2; }
+        #vsd-flown-path { fill: none; stroke: var(--color-success); stroke-width: 3; filter: drop-shadow(0 0 4px rgba(0, 230, 0, 0.5)); }
+        #vsd-aircraft-icon { position: absolute; width: 14px; height: 14px; background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path fill="%2338bdf8" d="M488 256l-112-80v-96l-80 48-80-48v96L104 256 24 288v64l192-48v96l-32 32v32l72-24 72 24v-32l-32-32v-96l192 48v-64l-80-32z"/></svg>'); background-size: contain; background-repeat: no-repeat; transform: translate(-50%, -50%); z-index: 20; }
+        .vsd-wp-label { position: absolute; transform: translateX(-50%); font-family: var(--font-data); text-align: center; width: 60px; pointer-events: none; }
+        .vsd-wp-label .wp-name { display: block; font-size: 0.7rem; color: var(--color-brand); font-weight: bold; background: rgba(0,0,0,0.7); padding: 1px 3px; border-radius: 2px; }
+        .vsd-wp-label .wp-alt { display: block; font-size: 0.6rem; color: var(--text-secondary); margin-top: 1px; }
+        .vsd-footer { background: rgba(30, 41, 59, 0.3); padding: 4px 10px; border-top: 1px solid rgba(255, 255, 255, 0.1); display: flex; justify-content: space-between; align-items: center; font-size: 0.7rem; color: var(--text-dim); flex-shrink: 0; }
+        .vsd-legend-item { display: flex; align-items: center; gap: 5px; }
+        .dot-plan { width: 6px; height: 6px; background: #444; border-radius: 50%; }
+        .dot-flown { width: 6px; height: 6px; background: var(--color-success); border-radius: 50%; box-shadow: 0 0 4px var(--color-success); }
+
+        /* --- Scrollbar --- */
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background-color: var(--border-glass); border-radius: 2px; }
+    </style>
+</head>
+<body>
+
+    <div class="info-window-content">
+        <div class="aircraft-overview-panel" id="ac-overview-panel">
+            <div class="overview-actions">
+                <!-- Buttons removed as this is likely in an iframe/modal -->
+            </div>
+            <div class="overview-content">
+                <div class="overview-col-left">
+                    <h3 id="ac-header-callsign">
+                        <!-- Logo injected here -->
+                        <span id="header-callsign-text">---</span>
+                    </h3>
+                    <p id="ac-header-subtext-container">
+                        <span class="ac-header-subtext" id="ac-header-livery">---</span>
+                        <span class="ac-header-subtext" id="ac-header-actype">---</span>
+                    </p>
+                </div>
+                <div class="overview-col-right">
+                    <span class="route-icao" id="ac-header-dep">---</span>
+                    <span class="route-icao" id="ac-header-arr">---</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="route-summary-overlay">
+            <div class="route-summary-airport" id="route-summary-dep">
+                <div class="airport-line">
+                    <img src="" class="country-flag" id="ac-bar-dep-flag" style="display: none;">
+                    <span class="icao" id="ac-bar-dep">---</span>
+                </div>
+                <span class="time" id="ac-bar-atd">--:-- Z</span>
+            </div>
+            <div class="route-progress-container">
+                <div class="route-progress-bar-container">
+                    <div class="progress-bar-fill" id="ac-progress-bar"></div>
+                </div>
+                <div class="flight-phase-indicator" id="ac-phase-indicator">ENROUTE</div>
+            </div>
+            <div class="route-summary-airport" id="route-summary-arr">
+                 <div class="airport-line">
+                    <span class="icao" id="ac-bar-arr">---</span>
+                    <img src="" class="country-flag" id="ac-bar-arr-flag" style="display: none;">
+                </div>
+                <span class="time" id="ac-bar-eta">--:-- Z</span>
+            </div>
+        </div>
+
+        <div class="ac-info-window-tabs">
+            <div class="ac-tabs-wrapper">
+                <button class="ac-info-tab-btn active" data-tab="ac-tab-flight-data">
+                    <i class="fa-solid fa-gauge-high"></i> Flight Display
+                </button>
+                <button class="ac-info-tab-btn pilot-tab-btn" data-tab="ac-tab-pilot-report" id="pilot-report-tab-btn">
+                    <i class="fa-solid fa-chart-simple"></i> Pilot Report
+                </button>
+            </div>
+            <!-- Logo placeholder or remove -->
+        </div>
+
+        <div class="unified-display-main-content">
+            <div id="ac-tab-flight-data" class="ac-tab-pane active" style="gap: 6px;">
+                
+                <div class="pfd-and-location-grid">
+                    <div class="pfd-main-panel">
+                        <div class="display-bezel">
+                            <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
+                            <div class="crt-container scanlines" id="pfd-container">
+                                <!-- Static PFD SVG Placeholder -->
+                                <svg width="787" height="800" viewBox="0 0 787 800" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <g id="PFD">
+                                        <g transform="translate(0, 100)">
+                                            <g id="attitude_group" transform="translate(0, 0) rotate(0, 401.5, 312.5)">
+                                                <rect id="Sky" x="-186" y="-222" width="1121" height="600" fill="#0596FF"/>
+                                                <rect id="Ground" x="-138" y="307" width="1024" height="527" fill="#9A4710"/>
+                                                <line x1="361.5" x2="441.5" y1="312.5" y2="312.5" stroke="white" stroke-width="2"/>
+                                            </g>
+                                            <rect x="-6" y="5" width="191" height="566" fill="#030309"/>
+                                            <rect x="609" width="185" height="566" fill="#030309"/>
+                                            <!-- Speed Tape -->
+                                            <rect x="28" y="73" width="97" height="477" fill="#76767A"/>
+                                            <g id="speed_tape_group"></g>
+                                            <text id="speed_readout" x="72.5" y="318" fill="#00FF00" font-size="20" text-anchor="middle" font-weight="bold">---</text>
+                                            <!-- Alt Tape -->
+                                            <rect x="675" y="73" width="72" height="476" fill="#76767A"/>
+                                            <g id="altitude_tape_group"></g>
+                                            <text id="altitude_readout_hundreds" x="740" y="316" fill="#00FF00" font-size="32" text-anchor="end" font-weight="bold">---</text>
+                                            <!-- Heading -->
+                                            <rect x="243" y="599" width="326" height="66" fill="#76767A"/>
+                                            <g id="heading_tape_group"></g>
+                                            <text id="heading_readout" x="406" y="615" fill="#00FF00" font-size="16" text-anchor="middle" font-weight="bold">---</text>
+                                        </g>
+                                    </g>
+                                </svg>
+                            </div>
+                        </div>
+                        
+                        <div class="display-bezel">
+                            <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
+                            <div class="crt-container scanlines">
+                                <div id="nd-container">
+                                    <iframe id="nav-display-frame" src="nav.html" scrolling="no"></iframe>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                    
+                    <div class="info-right-col">
+                        
+                        <div class="tech-module" id="cockpit-seat-sensor">
+                            <div class="tech-module-header">
+                                <span class="tech-module-title"><i class="fa-solid fa-chair"></i> COCKPIT STATE</span>
+                                <span class="fms-page-count"><i class="fa-solid fa-satellite-dish"></i></span>
+                            </div>
+                            <div class="tech-module-body">
+                                <div class="cockpit-view">
+                                    <div id="seat-cpt" class="seat" data-role="CPT"></div>
+                                    <div id="seat-fo" class="seat" data-role="FO"></div>
+                                    
+                                    <div id="icon-parking-overlay" class="cockpit-overlay-icon icon-parking">P</div>
+                                    <div id="icon-coffee-overlay" class="cockpit-overlay-icon icon-coffee"><i class="fa-solid fa-mug-hot"></i></div>
+                                    <div id="icon-cloud-overlay" class="cockpit-overlay-icon icon-cloud"><i class="fa-solid fa-cloud"></i></div>
+                                </div>
+                                <div class="seat-status-display">
+                                    <span id="status-cpt-text" class="status-pill">CMD: ---</span>
+                                    <span id="status-fo-text" class="status-pill">FO: ---</span>
+                                </div>
+                                <div id="seat-narrative-text">
+                                    Initializing...
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="tod-calculator-module"></div>
+
+                        <div id="fms-legs-module" class="fms-module-container">
+                            <div class="fms-header">
+                                <span class="tech-module-title"><i class="fa-solid fa-route"></i> ACTIVE FLIGHT PLAN</span>
+                                <span class="fms-page-count">1/1</span>
+                            </div>
+                            
+                            <div class="fms-columns">
+                                <span class="col-wpt">LEGS</span>
+                                <span class="col-data text-center">CRS</span>
+                                <span class="col-data text-right">DIST</span>
+                            </div>
+
+                            <div id="fms-legs-list" class="fms-list-scrollarea">
+                                <div class="fms-empty-state">NO ROUTE LOADED</div>
+                            </div>
+                            
+                            <div class="fms-footer">
+                                <div class="fms-stat">
+                                    <span class="stat-label">DTG</span>
+                                    <span id="fms-total-dist" class="stat-value">---- NM</span>
+                                </div>
+                                <div class="fms-stat">
+                                    <span class="stat-label">ETE</span>
+                                    <span id="fms-total-ete" class="stat-value">--:--</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="tech-module" id="location-data-panel">
+                    <div class="tech-module-header">
+                        <span class="tech-module-title"><i class="fa-solid fa-location-crosshairs"></i> NAV DATA</span>
+                        <span class="nav-status-indicator"><div class="nav-blink"></div> LIVE</span>
+                    </div>
+                    
+                    <div class="tech-module-body" style="padding: 8px;">
+                        <div class="nav-grid-container">
+                            <div class="nav-cell">
+                                <span class="nav-label"><i class="fa-solid fa-map-location-dot"></i> Region</span>
+                                <span class="nav-value small" id="ac-location">Scanning...</span>
+                            </div>
+                            <div class="nav-cell">
+                                <span class="nav-label"><i class="fa-solid fa-tower-control"></i> Nearest</span>
+                                <div class="nav-row">
+                                    <span class="nav-value highlight" id="ac-nearest-apt">---</span>
+                                    <span class="nav-value" id="ac-nearest-apt-dist">--.- <span class="nav-unit">NM</span></span>
+                                </div>
+                            </div>
+                            <div class="nav-cell">
+                                <span class="nav-label"><i class="fa-solid fa-wind"></i> Wind</span>
+                                <span class="nav-value" id="ac-env-wind">---/--</span>
+                            </div>
+                            <div class="nav-cell">
+                                <span class="nav-label"><i class="fa-solid fa-temperature-half"></i> OAT</span>
+                                <span class="nav-value" id="ac-env-oat">--°C</span>
+                            </div>
+
+                            <div class="nav-cell nav-span-2">
+                                <span class="nav-label"><i class="fa-solid fa-location-crosshairs"></i> Position</span>
+                                <div class="nav-row">
+                                    <div><span class="nav-unit">LAT</span> <span class="nav-value" id="ac-lat">---</span></div>
+                                    <div><span class="nav-unit">LON</span> <span class="nav-value" id="ac-lon">---</span></div>
+                                </div>
+                            </div>
+                            <div class="nav-cell nav-span-2">
+                                 <span class="nav-label"><i class="fa-solid fa-arrow-up-right-dots"></i> Vertical Speed</span>
+                                 <span class="nav-value large highlight" id="ac-vs">--- <span class="nav-unit">fpm</span></span>
+                            </div>
+
+                            <div class="nav-cell nav-span-2">
+                                <span class="nav-label"><i class="fa-solid fa-location-arrow"></i> Next Waypoint</span>
+                                <div class="nav-row">
+                                    <span class="nav-value accent" id="ac-next-wp">---</span>
+                                    <span class="nav-value" id="ac-next-wp-dist">--.- <span class="nav-unit">NM</span></span>
+                                </div>
+                            </div>
+                            <div class="nav-cell nav-span-2">
+                                <span class="nav-label"><i class="fa-solid fa-flag-checkered"></i> Destination</span>
+                                <div class="nav-row">
+                                    <div><span class="nav-unit">DIST</span> <span class="nav-value" id="ac-dist">---</span></div>
+                                    <div><span class="nav-unit">ETE</span> <span class="nav-value" id="ac-ete">--:--</span></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tech-card">
+                    <div class="tech-card-header">
+                        <div>
+                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                                <div class="tech-badge">
+                                    <span class="tech-ping">
+                                      <span class="animate"></span>
+                                      <span></span>
+                                    </span>
+                                    Active
+                                </div>
+                                <span style="font-size: 10px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em;">Flight Data</span>
+                            </div>
+                            <h1 class="tech-model" id="tech-model-name">---</h1>
+                            <p class="tech-airline">
+                                <i class="fa-solid fa-plane" style="font-size: 12px;"></i>
+                                <span id="tech-airline-name">---</span>
+                            </p>
+                        </div>
+                        <button style="padding: 8px; color: #94a3b8; background: transparent; border: none; cursor: pointer;">
+                            <i class="fa-solid fa-ellipsis" style="font-size: 16px;"></i>
+                        </button>
+                    </div>
+
+                    <div class="tech-content">
+                        <div class="tech-image-container">
+                            <img src="/CommunityPlanes/default.png" id="tech-card-img" class="tech-image" alt="Aircraft">
+                            <div class="tech-image-overlay"></div>
+                            
+                            <div class="tech-image-info">
+                                <div class="tech-photographer">
+                                    <span class="tech-photo-label">Contributor</span>
+                                    <div class="tech-photo-name">
+                                        <i class="fa-solid fa-camera" style="color: #38bdf8; font-size: 12px;"></i>
+                                        <span id="tech-photo-credit">IF Community</span>
+                                    </div>
+                                </div>
+                                <a href="#" style="padding: 8px; background: rgba(255,255,255,0.1); border-radius: 8px; color: #fff; border: 1px solid rgba(255,255,255,0.1); display: flex;">
+                                    <i class="fa-solid fa-arrow-up-right-from-square" style="font-size: 14px;"></i>
+                                </a>
+                            </div>
+                        </div>
+
+                        <div class="tech-grid">
+                            <div class="tech-stat-card">
+                                <div class="tech-stat-header">
+                                    <span class="tech-stat-label">Registration</span>
+                                    <i class="fa-solid fa-hashtag" style="font-size: 12px; color: #475569;"></i>
+                                </div>
+                                <span class="tech-stat-value" id="tech-reg">---</span>
+                            </div>
+
+                            <div class="tech-stat-card">
+                                <div class="tech-stat-header">
+                                    <span class="tech-stat-label">Callsign</span>
+                                    <i class="fa-solid fa-tag" style="font-size: 12px; color: #475569;"></i>
+                                </div>
+                                <span class="tech-stat-value" id="tech-callsign">---</span>
+                            </div>
+
+                            <div class="tech-country-card">
+                                <div class="tech-country-left">
+                                    <div class="tech-country-icon">
+                                        <i class="fa-solid fa-plane-up" style="font-size: 14px;"></i>
+                                    </div>
+                                    <div style="display: flex; flex-direction: column;">
+                                        <span class="tech-stat-label" style="font-size: 9px; margin-bottom: 2px;">Category</span>
+                                        <span style="font-size: 13px; font-weight: 600; color: #fff; text-transform: capitalize;" id="tech-category">Standard</span>
+                                    </div>
+                                </div>
+                                <div style="padding: 4px 8px; background: rgba(51, 65, 85, 0.5); border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.05);">
+                                    <span style="font-family: monospace; font-size: 10px; color: #cbd5e1;">CLASS</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="tech-bottom-bar"></div>
+                </div>
+
+                <div class="tech-module vsd-module-container">
+                    <div class="tech-module-header">
+                        <span class="tech-module-title"><i class="fa-solid fa-chart-area"></i> VERTICAL SITUATION DISPLAY</span>
+                        <span class="fms-page-count">VSD</span>
+                    </div>
+                    
+                    <div id="vsd-panel" class="vsd-panel active" data-plan-id="" data-profile-built="false">
+                        <div id="vsd-graph-window" class="vsd-graph-window">
+                            <div id="vsd-y-axis"></div>
+                            <div id="vsd-aircraft-icon"></div>
+                            <div id="vsd-graph-content">
+                                <svg id="vsd-profile-svg" xmlns="http://www.w3.org/2000/svg">
+                                    <path id="vsd-flown-path" d="" />
+                                    <path id="vsd-profile-path" d="" />
+                                </svg>
+                                <div id="vsd-waypoint-labels"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="vsd-footer">
+                        <div class="vsd-legend-item"><div class="dot-plan"></div> PLANNED</div>
+                        <div class="vsd-legend-item"><div class="dot-flown"></div> FLOWN</div>
+                        <div>ALTITUDE PROFILE</div>
+                    </div>
+                </div>
+            </div> 
+            
+            <div id="ac-tab-pilot-report" class="ac-tab-pane">
+                <div id="pilot-stats-display"></div>
+            </div>
+        </div> 
+    </div>
+
+    <script>
+        // Placeholder for future logic integration
+        window.addEventListener('message', (event) => {
+            console.log("Standard Flight Info received message:", event.data);
+        });
+    </script>
+</body>
+</html>

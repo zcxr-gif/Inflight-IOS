@@ -4,88 +4,113 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Privacy Policy - InFlight</title>
-    <!-- Load Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        /* Using a common font-family */
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.6;
         }
+        .section-title { @apply text-2xl font-semibold text-white mt-8 mb-4 border-b border-gray-700 pb-2; }
+        .legal-text { @apply text-gray-400 text-base leading-relaxed mb-4; }
+        .emphasis { @apply text-gray-200 font-medium; }
     </style>
 </head>
 <body class="bg-gray-900 text-gray-300 p-4 md:p-8">
 
-    <div class="max-w-3xl mx-auto bg-gray-800 rounded-lg shadow-lg p-6 md:p-10">
-        <!-- Header -->
-        <header class="mb-8">
-            <h1 class="text-3xl font-bold text-white mb-2">Privacy Policy</h1>
-            <p class="text-sm text-gray-400">Last Updated: November 15, 2025</p>
+    <div class="max-w-4xl mx-auto bg-gray-800 rounded-lg shadow-xl p-6 md:p-12 border border-gray-700">
+        <header class="mb-10">
+            <h1 class="text-4xl font-extrabold text-white mb-3">Privacy Policy</h1>
+            <p class="text-sm text-gray-500 font-medium">Last Updated: April 25, 2026</p>
+            <div class="mt-6 p-4 bg-blue-900/20 border-l-4 border-blue-500 text-blue-100 text-sm rounded-r-md">
+                Your privacy is important to us. This Privacy Policy explains how InFlight ("we," "us," or "our") collects, uses, discloses, and protects your information when you use our website and live flight tracking application (the "Service"). Please read this policy carefully.
+            </div>
         </header>
 
-        <!-- Main Content -->
-        <div class="space-y-6 text-gray-300">
-            <p class="text-lg">Your privacy is important to us. This Privacy Policy explains how InFlight ("we," "us," or "our") collects, uses, and protects your information when you use our website (the "Service").</p>
-
-            <!-- Section 1: Information We Collect -->
-            <section class="space-y-2">
-                <h2 class="text-2xl font-semibold text-white">1. Information We Collect</h2>
-                <ul class="list-disc list-inside ml-4 space-y-2 text-gray-400">
-                    <li><strong>Public Flight & Pilot Data:</strong> The Service functions by fetching publicly available data from flight simulation networks. This includes your User ID, Username, Callsign, flight plan, live position, and pilot statistics. This information is, by its nature, public within the simulation community.</li>
-                    <li><strong>Usage Data:</strong> We may automatically collect information about how you access and use the Service, such as your IP address, browser type, device information, and pages visited. This is used for analytics and to improve service stability.</li>
-                    <li><strong>Cookies:</strong> We may use cookies or similar technologies to store your preferences (like map settings) and for analytics. You can instruct your browser to refuse cookies, but some parts of the Service may not function properly.</li>
-                    <li><strong class="text-white">Payment Information:</strong> If you choose to purchase a "Pro" subscription (when available), our third-party payment processor (e.g., Stripe, PayPal) will collect your payment information. We do not store your full credit card details on our servers. We only receive confirmation of your payment and subscription status.</li>
+        <div class="space-y-4">
+            
+            <section>
+                <h2 class="section-title">1. Information We Collect</h2>
+                <p class="legal-text">We collect information that you voluntarily provide to us, information automatically collected through your use of the Service, and public data fetched from third-party networks.</p>
+                <ul class="list-disc list-outside ml-6 space-y-3 legal-text">
+                    <li><span class="emphasis">Public Flight & Pilot Data:</span> The Service functions by fetching publicly available data from flight simulation networks. This includes your User ID, Username, Callsign, flight plan, live position, altitude, heading, and pilot statistics. This information is inherently public within the simulation community and is necessary to provide the core tracking functionality.</li>
+                    <li><span class="emphasis">Account Information:</span> If you create an account to save preferences or access premium features, we collect your email address and authentication credentials.</li>
+                    <li><span class="emphasis">Payment Information:</span> If you choose to purchase a "Pro" subscription, our third-party payment processors (e.g., Stripe, PayPal) will collect your payment information. We do not store your full credit card details on our servers; we only receive secure tokens and confirmation of your subscription status.</li>
+                    <li><span class="emphasis">Usage Data & Device Information:</span> We automatically collect information about how you access and use the Service. This includes your IP address, browser type, operating system, device information, pages visited, and timestamps. This is used for diagnostic analytics and to improve service stability.</li>
+                    <li><span class="emphasis">Cookies & Tracking Technologies:</span> We use cookies and similar local storage technologies to store your preferences (such as custom map settings and UI themes) and to maintain your session. You can instruct your browser to refuse cookies, but some parts of the Service may become degraded or non-functional.</li>
                 </ul>
             </section>
 
-            <!-- Section 2: How We Use Your Information -->
-            <section class="space-y-2">
-                <h2 class="text-2xl font-semibold text-white">2. How We Use Your Information</h2>
-                <p>We use the information we collect for the following purposes:</p>
-                <ul class="list-disc list-inside ml-4 space-y-1 text-gray-400">
-                    <li>To provide and operate the Service (e.g., display your flight on the map).</li>
-                    <li>To personalize your experience (e.g., display your pilot report).</li>
-                    <li>To process transactions and manage your "Pro" subscription (when available).</li>
-                    <li>To monitor and analyze usage and trends to improve the Service.</li>
-                    <li>To ensure the security and stability of the Service.</li>
+            <section>
+                <h2 class="section-title">2. How We Use Your Information</h2>
+                <p class="legal-text">We process your information for purposes based on legitimate business interests, the fulfillment of our contract with you, compliance with our legal obligations, and/or your consent. Specifically, we use your data to:</p>
+                <ul class="list-disc list-outside ml-6 space-y-2 legal-text">
+                    <li>Operate, maintain, and render the live tracking Service (e.g., displaying your active flight on the map interface).</li>
+                    <li>Personalize your experience by remembering your map preferences and displaying your specific pilot reports.</li>
+                    <li>Process transactions, manage your "Pro" subscription, and send related administrative or billing communications.</li>
+                    <li>Monitor, analyze, and diagnose usage trends to improve the infrastructure and user experience of the Service.</li>
+                    <li>Detect, prevent, and address technical issues, fraudulent activity, or security breaches.</li>
                 </ul>
             </section>
 
-            <!-- Section 3: Data Sharing and Disclosure -->
-            <section class="space-y-2">
-                <h2 class="text-2xl font-semibold text-white">3. Data Sharing and Disclosure</h2>
-                <p>Your live flight data (callsign, username, position) is publicly visible on our Service by default, as this is the core function of a live flight tracker.</p>
-                <p>We do not sell, trade, or rent your personal information to third parties. We may share data with:</p>
-                <ul class="list-disc list-inside ml-4 space-y-1 text-gray-400">
-                    <li><strong class="text-white">Third-Party Service Providers:</strong> Such as Mapbox (for maps), OpenWeatherMap (for weather data), and our payment processor (for handling subscriptions). These providers have their own privacy policies governing their use of data.</li>
-                    <li><strong>Legal Requirements:</strong> If required by law or in response to valid requests by public authorities.</li>
+            <section>
+                <h2 class="section-title">3. Data Sharing and Disclosure</h2>
+                <p class="legal-text">By design, your live flight data (including callsign, username, and position) is publicly visible on our Service to all other users, as this is the fundamental purpose of a live flight tracker.</p>
+                <p class="legal-text">We do not sell, trade, or rent your personal information to third parties. We only share data under the following circumstances:</p>
+                <ul class="list-disc list-outside ml-6 space-y-3 legal-text">
+                    <li><span class="emphasis">Third-Party Service Providers:</span> We employ trusted third-party companies to facilitate our Service. This includes Mapbox (for rendering mapping data and tiles), OpenWeatherMap (for fetching live meteorological data overlays), and Stripe/PayPal (for handling subscription payments). These providers have access to your data only to perform these tasks on our behalf and are obligated not to disclose or use it for any other purpose.</li>
+                    <li><span class="emphasis">Business Transfers:</span> If we are involved in a merger, acquisition, or asset sale, your personal information may be transferred as a business asset. We will provide notice before your personal information is transferred and becomes subject to a different Privacy Policy.</li>
+                    <li><span class="emphasis">Legal Requirements:</span> We may disclose your information if required to do so by law or in response to valid requests by public authorities (e.g., a court or a government agency).</li>
                 </ul>
             </section>
 
-            <!-- Section 4: Data Security -->
-            <section class="space-y-2">
-                <h2 class="text-2xl font-semibold text-white">4. Data Security</h2>
-                <p>We use reasonable administrative and technical measures to protect your information. When you enter payment information, that data is encrypted and transmitted directly to our third-party payment processor.</p>
+            <section>
+                <h2 class="section-title">4. Data Retention</h2>
+                <p class="legal-text">We will retain your personal information only for as long as is necessary for the purposes set out in this Privacy Policy. We will retain and use your information to the extent necessary to comply with our legal obligations, resolve disputes, and enforce our legal agreements and policies. Public flight telemetry data is generally cached temporarily to render the live map and is routinely overwritten as your simulation progresses.</p>
             </section>
 
-            <!-- Section 5: Children's Privacy -->
-            <section class="space-y-2">
-                <h2 class="text-2xl font-semibold text-white">5. Children's Privacy</h2>
-                <p>Our Service is not directed to individuals under the age of 13. We do not knowingly collect personal information from children under 13. If we become aware that we have, we will take steps to delete such information.</p>
+            <section>
+                <h2 class="section-title">5. Data Security</h2>
+                <p class="legal-text">The security of your data is paramount to us. We use commercially reasonable administrative, technical, and physical security measures to protect your personal information from unauthorized access, alteration, disclosure, or destruction. When you enter payment information, that data is transmitted securely via standard encryption protocols (SSL/TLS) directly to our payment processors. However, please be aware that no method of transmission over the Internet or method of electronic storage is 100% secure, and we cannot guarantee its absolute security.</p>
             </section>
 
-            <!-- Section 6: Changes to This Policy -->
-            <section class="space-y-2">
-                <h2 class="text-2xl font-semibold text-white">6. Changes to This Privacy Policy</h2>
-                <p>We may update this Privacy Policy from time to time. We will notify you of any changes by posting the new policy on this page and updating the "Last Updated" date. Your continued use of the Service after any changes constitutes your acceptance of the new policy.</p>
+            <section>
+                <h2 class="section-title">6. User Privacy Rights (GDPR & CCPA)</h2>
+                <p class="legal-text">Depending on your geographic location, you may have specific rights regarding your personal data, including:</p>
+                <ul class="list-disc list-outside ml-6 space-y-2 legal-text mb-4">
+                    <li><span class="emphasis">The right to access:</span> You can request copies of your personal data that we hold.</li>
+                    <li><span class="emphasis">The right to rectification:</span> You can request that we correct any information you believe is inaccurate or complete information you believe is incomplete.</li>
+                    <li><span class="emphasis">The right to erasure ("Right to be Forgotten"):</span> You can request that we erase your personal data, under certain conditions.</li>
+                    <li><span class="emphasis">The right to restrict processing:</span> You can request that we restrict the processing of your personal data, under certain conditions.</li>
+                </ul>
+                <p class="legal-text">To exercise any of these rights, please contact us using the information provided in the Contact section below. We will respond to your request within the timeframe required by applicable law.</p>
             </section>
 
-            <!-- Section 7: Contact -->
-            <section class="space-y-2">
-                <h2 class="text-2xl font-semibold text-white">7. Contact Us</h2>
-                <p>If you have any questions about this Privacy Policy, please contact us at <a href="mailto:hrantony2230@gmail.com" class="text-blue-400 hover:underline">hrantony2230@gmail.com</a>.</p>
+            <section>
+                <h2 class="section-title">7. International Data Transfers</h2>
+                <p class="legal-text">Your information, including personal data, may be transferred to—and maintained on—computers located outside of your state, province, country, or other governmental jurisdiction where the data protection laws may differ from those from your jurisdiction. By consenting to this Privacy Policy and submitting your information, you represent your agreement to that transfer.</p>
+            </section>
+
+            <section>
+                <h2 class="section-title">8. Children's Privacy</h2>
+                <p class="legal-text">Our Service is strictly not directed to individuals under the age of 13. We do not knowingly collect personal identifiable information from children under 13. If you are a parent or guardian and you are aware that your child has provided us with personal data, please contact us. If we become aware that we have collected personal data from a child under age 13 without verification of parental consent, we will take immediate steps to remove that information from our servers.</p>
+            </section>
+
+            <section>
+                <h2 class="section-title">9. Changes to This Privacy Policy</h2>
+                <p class="legal-text">We may update our Privacy Policy from time to time. We will notify you of any changes by posting the new Privacy Policy on this page and updating the "Last Updated" date at the top of this document. You are advised to review this Privacy Policy periodically for any changes. Changes to this Privacy Policy are effective when they are posted on this page.</p>
+            </section>
+
+            <section class="pt-8 border-t border-gray-700 mt-10">
+                <h2 class="text-xl font-bold text-white mb-2">10. Contact Us</h2>
+                <p class="legal-text">If you have any questions about this Privacy Policy, your data rights, or our data practices, please contact our Data Protection Officer at: <br>
+                <a href="inflightCustomer@gmail.com" class="text-blue-400 hover:text-blue-300 hover:underline font-medium transition-colors">inflightCustomer@gmail.com</a></p>
             </section>
 
         </div>
+    </div>
+
+    <div class="max-w-4xl mx-auto mt-6 text-center text-gray-500 text-xs pb-8">
+        &copy; 2026 InFlight. All Rights Reserved.
     </div>
 
 </body>

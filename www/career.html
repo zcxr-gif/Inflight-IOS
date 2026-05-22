@@ -1,0 +1,1496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SkyOps — Virtual Airline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Figtree:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body,#root{height:100%;overflow:hidden}
+body{background:#07090e;background-image:radial-gradient(rgba(79,142,247,0.025) 1px,transparent 1px);background-size:28px 28px}
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(148,163,184,0.12);border-radius:4px}
+::-webkit-scrollbar-thumb:hover{background:rgba(148,163,184,0.22)}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+@keyframes slidein{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+.fade{animation:fadeUp .28s cubic-bezier(.2,.8,.2,1) both}
+.blink{animation:blink 2.4s infinite}
+.nav-item{cursor:pointer;transition:all .14s;border:none;background:transparent;width:100%;
+  text-align:left;padding:8px 12px;display:flex;align-items:center;font-family:'Figtree',sans-serif;
+  font-size:13px;font-weight:400;color:#64748b;border-radius:8px;margin-bottom:1px}
+.nav-item:hover{background:rgba(79,142,247,0.07);color:#c4d0e8}
+.nav-item.on{background:rgba(79,142,247,0.12);color:#4f8ef7;font-weight:600}
+.btn{cursor:pointer;transition:all .12s cubic-bezier(.2,.8,.2,1);border:none;font-family:'Figtree',sans-serif}
+.btn:hover:not(:disabled){opacity:.84;transform:translateY(-1px)}
+.btn:active:not(:disabled){transform:translateY(0);opacity:.92}
+.card-h{transition:border-color .2s,box-shadow .2s}
+.card-h:hover{border-color:rgba(148,163,184,0.15)!important}
+.tr:hover>td{background:rgba(255,255,255,0.02)}
+.clickable{cursor:pointer;transition:all .12s}
+.clickable:hover{border-color:rgba(79,142,247,0.4)!important}
+input,select,textarea{outline:none;font-family:'Figtree',sans-serif;transition:border-color .15s,box-shadow .15s}
+input:focus,select:focus{border-color:rgba(79,142,247,0.45)!important;box-shadow:0 0 0 3px rgba(79,142,247,0.08)}
+input[type="range"]{cursor:pointer}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+/* ─────────────────────────── THEME ─── */
+const C = {
+  bg:'#07090e', sur:'#0d1117', card:'#12181f', card2:'#171f29',
+  bor:'rgba(148,163,184,0.08)', bor2:'rgba(148,163,184,0.14)',
+  acc:'#4f8ef7',
+  txt:'#dde6f4', mut:'#566b84', dim:'rgba(148,163,184,0.05)',
+  ok:'#34d399', err:'#f87171', wrn:'#fbbf24',
+  teal:'#22d3ee', blue:'#60a5fa', purp:'#a78bfa', pink:'#f472b6',
+};
+const HEAD = "'Syne', sans-serif";
+const MONO = "'IBM Plex Mono', monospace";
+const BODY = "'Figtree', sans-serif";
+
+/* ─────────────────────────── DATA ─── */
+const INIT = {
+  airline:{name:"SkyEmpire Airways",iata:"SE",callsign:"SKYEMP",hub:"KJFK",
+    balance:4250000,creditScore:"A+",reputation:87,isPublic:true,
+    stockPrice:42.50,totalShares:1000000,ownedShares:250000,
+    primaryColor:"#1e4d8c",accentColor:"#e8a020",day:142},
+  pilot:{name:"Capt. Alex Morgan",rank:"Captain",hours:12450,
+    ratings:["B737","B777","A320"],fatigue:25,license:"ATPL"},
+  fleet:[
+    {id:1,type:"Boeing 737-800",reg:"N-SE001",age:8,hours:22000,cond:78,status:"Active",config:"Economy 162",hub:"JFK",maint:"Aug 15",engines:"CFM56",tires:65,brakes:72},
+    {id:2,type:"Boeing 737-800",reg:"N-SE002",age:5,hours:14200,cond:91,status:"Active",config:"Mixed 148",hub:"LAX",maint:"Oct 02",engines:"CFM56",tires:88,brakes:91},
+    {id:3,type:"Airbus A320neo",reg:"N-SE003",age:3,hours:8400,cond:96,status:"Active",config:"Economy 180",hub:"JFK",maint:"Dec 01",engines:"CFM LEAP",tires:94,brakes:96},
+    {id:4,type:"Boeing 777-300ER",reg:"N-SE004",age:6,hours:31000,cond:82,status:"Active",config:"3-Class 396",hub:"JFK",maint:"Sep 20",engines:"GE90",tires:74,brakes:79},
+    {id:5,type:"Boeing 737 MAX 8",reg:"N-SE005",age:1,hours:2100,cond:99,status:"Maintenance",config:"Economy 178",hub:"ORD",maint:"Jul 30",engines:"CFM LEAP",tires:99,brakes:99},
+    {id:6,type:"Embraer E195-E2",reg:"N-SE006",age:7,hours:18900,cond:71,status:"Active",config:"Economy 120",hub:"BOS",maint:"Aug 05",engines:"PW1900G",tires:58,brakes:65},
+  ],
+  routes:[
+    {id:1,from:"JFK",to:"LHR",dist:3459,ac:"N-SE004",freq:"Daily",load:87,rev:48200,cost:31000},
+    {id:2,from:"JFK",to:"LAX",dist:2475,ac:"N-SE001",freq:"2x Daily",load:92,rev:18400,cost:11200},
+    {id:3,from:"LAX",to:"NRT",dist:5478,ac:"N-SE004",freq:"Daily",load:79,rev:52100,cost:38700},
+    {id:4,from:"JFK",to:"ORD",dist:740,ac:"N-SE003",freq:"3x Daily",load:88,rev:9800,cost:6400},
+    {id:5,from:"BOS",to:"MIA",dist:1258,ac:"N-SE006",freq:"Daily",load:74,rev:8200,cost:5900},
+  ],
+  staff:[
+    {id:1,name:"James Wilson",role:"Sr. Captain",rating:"B777",exp:18000,morale:91,fatigue:20,salary:220000,status:"Available"},
+    {id:2,name:"Sarah Chen",role:"Captain",rating:"A320",exp:9200,morale:88,fatigue:35,salary:185000,status:"On Duty"},
+    {id:3,name:"Mike Torres",role:"First Officer",rating:"B737",exp:4500,morale:75,fatigue:60,salary:95000,status:"On Duty"},
+    {id:4,name:"Emma Davis",role:"Cabin Supervisor",rating:"—",exp:3200,morale:82,fatigue:45,salary:68000,status:"On Duty"},
+    {id:5,name:"Raj Patel",role:"Lead Mechanic",rating:"—",exp:7800,morale:70,fatigue:30,salary:78000,status:"Available"},
+    {id:6,name:"Lisa Park",role:"First Officer",rating:"B777",exp:6100,morale:64,fatigue:72,salary:110000,status:"Rest"},
+    {id:7,name:"Carlos Ruiz",role:"Capt. (Trainee)",rating:"B737",exp:1200,morale:95,fatigue:15,salary:72000,status:"Training"},
+  ],
+  loans:[
+    {id:1,desc:"B777-300ER Purchase",principal:12000000,remaining:8400000,rate:4.2,weekly:45000,collateral:"N-SE004"},
+    {id:2,desc:"A320neo Acquisition",principal:6000000,remaining:4200000,rate:3.8,weekly:28000,collateral:"N-SE003"},
+  ],
+  savings:{balance:500000,rate:0.5},
+  transactions:[
+    {id:1,type:"credit",desc:"JFK→LHR Revenue",amount:48200,date:"Day 142"},
+    {id:2,type:"debit",desc:"Loan Payment — B777",amount:45000,date:"Day 142"},
+    {id:3,type:"debit",desc:"Fuel — N-SE004",amount:18200,date:"Day 141"},
+    {id:4,type:"credit",desc:"FBO Revenue — KJFK",amount:18400,date:"Day 141"},
+    {id:5,type:"credit",desc:"JFK→LAX Revenue x2",amount:36800,date:"Day 141"},
+    {id:6,type:"debit",desc:"Crew Salaries (weekly)",amount:182000,date:"Day 140"},
+    {id:7,type:"credit",desc:"Savings Interest",amount:250,date:"Day 140"},
+    {id:8,type:"debit",desc:"Maintenance — N-SE001",amount:14500,date:"Day 139"},
+  ],
+  contracts:[
+    {id:1,type:"VIP Charter",client:"Summit Corp",from:"TEB",to:"LCY",ac:"Citation X",pay:85000,deadline:"48h",rep:5,diff:"Hard",accepted:false},
+    {id:2,type:"Heavy Cargo",client:"GlobalFreight",from:"ANC",to:"ICN",ac:"B777F",pay:120000,deadline:"72h",rep:3,diff:"Medium",accepted:false},
+    {id:3,type:"Humanitarian",client:"UN Relief",from:"ADD",to:"BXO",ac:"Any Wide",pay:0,deadline:"24h",rep:25,diff:"Hard",accepted:false},
+    {id:4,type:"Cargo Run",client:"FastShip Inc",from:"MEM",to:"SEA",ac:"MD-11F",pay:62000,deadline:"48h",rep:2,diff:"Easy",accepted:false},
+    {id:5,type:"VIP Charter",client:"TechBillionaire",from:"SJC",to:"CDG",ac:"G700",pay:210000,deadline:"24h",rep:8,diff:"Expert",accepted:false},
+    {id:6,type:"Cargo Run",client:"Pacific Logistics",from:"LAX",to:"NRT",ac:"B747F",pay:95000,deadline:"60h",rep:4,diff:"Medium",accepted:false},
+  ],
+  fbos:[
+    {id:1,airport:"KJFK",name:"Empire FBO",fuelPrice:3.10,hangars:3,lounges:2,dailyRev:18400,level:4},
+    {id:2,airport:"KLAX",name:"Pacific Base",fuelPrice:3.25,hangars:1,lounges:1,dailyRev:9200,level:2},
+    {id:3,airport:"KORD",name:"Midwest Ops",fuelPrice:2.95,hangars:2,lounges:1,dailyRev:7800,level:3},
+  ],
+  alliance:{name:"Star Pacific Alliance",type:"Founding Member",members:["SkyEmpire","Pacific Air","Trans-Asian","Nordic Wings","Aegean Sky"],hubs:12,routes:340,pax:"42M/yr",codeShares:["Pacific Air","Trans-Asian"]},
+  market:[
+    {id:1,type:"Boeing 737-800",year:2015,hours:28000,price:18500000,seller:"Atlas Airlines",cond:72,note:"C-Check Due",delivery:"Immediate"},
+    {id:2,type:"Airbus A321neo",year:2024,hours:0,price:44000000,seller:"Airbus (New)",cond:100,note:"Brand New",delivery:"3 days"},
+    {id:3,type:"Boeing 777F",year:2018,hours:19500,price:78000000,seller:"FreightKing",cond:81,note:"Good",delivery:"Immediate"},
+    {id:4,type:"Embraer E175",year:2017,hours:22100,price:12000000,seller:"RegionAir",cond:76,note:"B-Check Due",delivery:"Immediate"},
+    {id:5,type:"Airbus A380-800",year:2014,hours:48200,price:85000000,seller:"GlobalAir",cond:65,note:"D-Check Due",delivery:"Immediate"},
+    {id:6,type:"Boeing 787-9",year:2022,hours:6200,price:68000000,seller:"SkyBridge",cond:97,note:"Excellent",delivery:"5 days"},
+  ],
+  leases:[
+    {type:"Boeing 737-800",source:"AerCap",weekly:95000,avail:3,min:"6 months"},
+    {type:"Airbus A320neo",source:"GECAS",weekly:85000,avail:5,min:"3 months"},
+    {type:"Boeing 777-200LR",source:"Air Lease Corp",weekly:210000,avail:1,min:"12 months"},
+    {type:"Embraer E190",source:"Nordic Capital",weekly:48000,avail:4,min:"6 months"},
+    {type:"ATR 72-600",source:"Regional Sky",weekly:22000,avail:6,min:"3 months"},
+  ],
+  stockMarket:[
+    {ticker:"SKYE",name:"SkyEmpire Airways",price:42.50,chg:1.25,vol:125000,mine:250000},
+    {ticker:"PACA",name:"Pacific Air",price:31.80,chg:-0.45,vol:89000,mine:0},
+    {ticker:"NRDW",name:"Nordic Wings",price:18.20,chg:0.10,vol:42000,mine:0},
+    {ticker:"GLBX",name:"GlobalFreight Air",price:67.40,chg:2.10,vol:201000,mine:0},
+    {ticker:"TXAS",name:"Trans-Asian",price:24.60,chg:-1.30,vol:67000,mine:0},
+    {ticker:"AGES",name:"Aegean Sky",price:11.85,chg:0.55,vol:28000,mine:0},
+  ],
+  news:[
+    "Fuel prices up 4.2% — OPEC+ reduces output amid geopolitical tensions",
+    "SkyEmpire (SKYE) hits 52-week high at $42.50 on strong Q3 results",
+    "Hurricane advisory: Caribbean routes may face 12hr disruption — monitor JFK→SJU",
+    "Star Pacific Alliance adds Aegean Sky as new founding member",
+    "Boeing: MAX 8 deliveries delayed 3 weeks due to production line rework",
+    "Transatlantic demand forecast +12% YoY — analysts: best season in 5 years",
+    "Global Aviation Bank cuts prime lending rate to 3.5% — good time to refinance",
+    "Oktoberfest demand spike: Munich routes up 38% — consider adding MUC service",
+  ],
+  fuelPrice:2.85,
+  globalMorale:77,
+  events:[
+    {type:"weather",title:"Storm Front — KJFK",desc:"Expect 2–4hr delays. Divert buffer recommended.",color:"#fbbf24"},
+    {type:"demand",title:"Peak Season Alert",desc:"Caribbean routes up 22% this week.",color:"#34d399"},
+    {type:"alert",title:"Union Morale Warning",desc:"Staff morale at 77% — below 70% triggers strike risk.",color:"#f87171"},
+  ],
+};
+
+/* ─────────────────────────── UTILS ─── */
+const M = n => n>=1000000?`$${(n/1000000).toFixed(2)}M`:n>=1000?`$${(n/1000).toFixed(0)}K`:`$${n.toLocaleString()}`;
+const crdC = s=>({AAA:C.ok,'AA+':C.ok,AA:'#86efac','A+':'#86efac',A:'#86efac',BBB:C.wrn,BB:C.wrn,B:'#fb923c',C:C.err}[s]||C.mut);
+const condC = c=>c>=90?C.ok:c>=70?C.wrn:C.err;
+const fatC  = f=>f<40?C.ok:f<70?C.wrn:C.err;
+const morC  = m=>m>=80?C.ok:m>=60?C.wrn:C.err;
+const diffC = d=>({Easy:C.ok,Medium:C.wrn,Hard:'#fb923c',Expert:C.err}[d]||C.mut);
+const typeC = t=>({'VIP Charter':C.purp,'Heavy Cargo':C.wrn,'Humanitarian':C.teal,'Cargo Run':'#fb923c'}[t]||C.mut);
+const statC = s=>({Active:C.ok,Maintenance:C.wrn,Rest:C.blue,'On Duty':C.teal,Available:C.ok,Training:C.purp}[s]||C.mut);
+const rng   = (mn,mx)=>Math.floor(Math.random()*(mx-mn+1))+mn;
+
+/* ─────────────────────────── PRIMITIVES ─── */
+const Card = ({children,style={},onClick,hover=true})=>(
+  <div className={hover?"card-h":""} onClick={onClick}
+    style={{background:C.card,border:`1px solid ${C.bor}`,borderRadius:12,padding:20,
+      transition:'border-color .2s',...style}}>
+    {children}
+  </div>
+);
+
+const Btn = ({children,onClick,color,outline,small,disabled,full,style={}})=>(
+  <button className="btn" onClick={disabled?undefined:onClick} disabled={disabled}
+    style={{background:outline?'transparent':(color||C.acc),
+      color:outline?(color||C.acc):'#fff',
+      border:`1px solid ${outline?(color||C.acc):(color||C.acc)}`,
+      borderRadius:8,padding:small?'4px 12px':'7px 18px',
+      fontSize:small?11:13,fontWeight:500,fontFamily:BODY,
+      letterSpacing:'0.01em',cursor:disabled?'not-allowed':'pointer',
+      opacity:disabled?.4:1,width:full?'100%':'auto',...style}}>
+    {children}
+  </button>
+);
+
+const Bar = ({val,max=100,color,h=4})=>(
+  <div style={{background:'rgba(148,163,184,0.08)',borderRadius:99,height:h,overflow:'hidden'}}>
+    <div style={{width:`${Math.min((val/max)*100,100)}%`,height:'100%',
+      background:color||C.acc,borderRadius:99,transition:'width .5s ease'}}/>
+  </div>
+);
+
+const Badge = ({label,color})=>(
+  <span style={{fontSize:10,fontWeight:600,color,background:`${color}18`,
+    borderRadius:5,padding:'2px 8px',letterSpacing:'0.02em',whiteSpace:'nowrap',display:'inline-block'}}>
+    {label}
+  </span>
+);
+
+const Stat = ({label,value,color,sub,mono})=>(
+  <div style={{display:'flex',flexDirection:'column',gap:3}}>
+    <span style={{fontSize:10,color:C.mut,textTransform:'uppercase',letterSpacing:'0.08em',fontWeight:500}}>{label}</span>
+    <span style={{fontSize:28,fontWeight:700,color:color||C.txt,fontFamily:mono?MONO:HEAD,
+      letterSpacing:'-0.02em',lineHeight:1}}>
+      {value}
+    </span>
+    {sub&&<span style={{fontSize:11,color:C.mut,marginTop:1}}>{sub}</span>}
+  </div>
+);
+
+const TabBar = ({tabs,active,set})=>(
+  <div style={{display:'flex',borderBottom:`1px solid ${C.bor}`,marginBottom:24}}>
+    {tabs.map(t=>(
+      <button key={t} className="btn" onClick={()=>set(t)}
+        style={{background:'transparent',color:active===t?C.acc:C.mut,
+          border:'none',borderBottom:active===t?`2px solid ${C.acc}`:'2px solid transparent',
+          padding:'8px 20px',fontSize:13,fontWeight:active===t?600:400,
+          fontFamily:BODY,cursor:'pointer',marginBottom:-1,borderRadius:0}}>
+        {t}
+      </button>
+    ))}
+  </div>
+);
+
+const SH = ({title,sub})=>(
+  <div style={{marginBottom:28}}>
+    <h2 style={{fontFamily:HEAD,fontSize:26,fontWeight:700,color:C.txt,
+      letterSpacing:'-0.02em',margin:0,lineHeight:1.1}}>{title}</h2>
+    {sub&&<p style={{color:C.mut,fontSize:13,marginTop:5}}>{sub}</p>}
+  </div>
+);
+
+const CardLabel = ({children})=>(
+  <div style={{fontSize:11,fontWeight:600,color:C.mut,textTransform:'uppercase',
+    letterSpacing:'0.07em',marginBottom:14}}>{children}</div>
+);
+
+const TH = ({children,style={}})=>(
+  <th style={{textAlign:'left',padding:'9px 16px',fontSize:10,fontWeight:600,color:C.mut,
+    textTransform:'uppercase',letterSpacing:'0.08em',borderBottom:`1px solid ${C.bor}`,
+    whiteSpace:'nowrap',...style}}>
+    {children}
+  </th>
+);
+const TD = ({children,style={}})=>(
+  <td style={{padding:'11px 16px',fontSize:13,color:C.txt,...style}}>
+    {children}
+  </td>
+);
+
+const Notif = ({msg,ok})=>(
+  <div style={{position:'fixed',top:22,right:22,zIndex:9999,
+    background:C.card2,border:`1px solid ${ok?`${C.ok}40`:`${C.err}40`}`,
+    color:C.txt,borderRadius:10,padding:'12px 18px',fontSize:13,fontWeight:500,
+    animation:'slidein .22s ease',fontFamily:BODY,
+    boxShadow:`0 20px 60px rgba(0,0,0,0.7), 0 0 0 1px ${ok?`${C.ok}20`:`${C.err}20`}`,
+    display:'flex',alignItems:'center',gap:10,maxWidth:320}}>
+    <span style={{color:ok?C.ok:C.err,fontSize:15,flexShrink:0}}>{ok?'✓':'⚠'}</span>
+    <span>{msg}</span>
+  </div>
+);
+
+/* ─────────────────────────── SIDEBAR ─── */
+const NAV = [
+  {id:'dashboard',label:'Dashboard'},
+  {id:'dispatch',label:'Flight Dispatch'},
+  {id:'finance',label:'Finance'},
+  {id:'hangar',label:'Fleet & Market'},
+  {id:'crew',label:'Crew & HR'},
+  {id:'contracts',label:'Contracts'},
+  {id:'alliances',label:'Alliances'},
+  {id:'fbo',label:'FBO Management'},
+  {id:'maintenance',label:'Maintenance'},
+  {id:'map',label:'World Map'},
+  {id:'settings',label:'Settings'},
+];
+
+function Sidebar({nav,setNav,d}){
+  return(
+    <div style={{width:214,background:C.sur,borderRight:`1px solid ${C.bor}`,
+      display:'flex',flexDirection:'column',flexShrink:0,overflow:'hidden'}}>
+      {/* Airline brand */}
+      <div style={{padding:'18px 16px 16px',borderBottom:`1px solid ${C.bor}`}}>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <div style={{width:36,height:36,borderRadius:9,background:d.airline.primaryColor,
+            display:'flex',alignItems:'center',justifyContent:'center',
+            fontSize:12,fontWeight:700,color:d.airline.accentColor,fontFamily:HEAD,flexShrink:0}}>
+            {d.airline.iata}
+          </div>
+          <div style={{overflow:'hidden',flex:1}}>
+            <div style={{fontSize:12,fontWeight:600,color:C.txt,fontFamily:HEAD,
+              whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
+              {d.airline.name}
+            </div>
+            <div style={{fontSize:10,color:C.mut,marginTop:2}}>Day {d.airline.day} · {d.pilot.rank}</div>
+          </div>
+        </div>
+      </div>
+      {/* Nav */}
+      <nav style={{flex:1,overflow:'auto',padding:'8px 8px'}}>
+        {NAV.map(n=>(
+          <button key={n.id} className={`nav-item${nav===n.id?' on':''}`} onClick={()=>setNav(n.id)}>
+            {n.label}
+          </button>
+        ))}
+      </nav>
+      {/* Pilot status */}
+      <div style={{padding:'12px 14px',borderTop:`1px solid ${C.bor}`}}>
+        <div style={{fontSize:12,fontWeight:600,color:C.txt}}>{d.pilot.name}</div>
+        <div style={{fontSize:11,color:C.mut,marginBottom:8}}>{d.pilot.hours.toLocaleString()} hrs · {d.pilot.license}</div>
+        <div style={{display:'flex',justifyContent:'space-between',fontSize:10,color:C.mut,marginBottom:4}}>
+          <span>Pilot fatigue</span>
+          <span style={{color:fatC(d.pilot.fatigue)}}>{d.pilot.fatigue}%</span>
+        </div>
+        <Bar val={d.pilot.fatigue} color={fatC(d.pilot.fatigue)} h={3}/>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────── HEADER ─── */
+function Header({d}){
+  return(
+    <div style={{background:C.sur,borderBottom:`1px solid ${C.bor}`,padding:'0 24px',
+      display:'flex',alignItems:'center',height:52,flexShrink:0,gap:32}}>
+      <div style={{fontFamily:HEAD,fontSize:17,fontWeight:700,color:C.acc,letterSpacing:'0.1em'}}>
+        Inflight
+      </div>
+      <div style={{flex:1}}/>
+      {[
+        {label:'Balance',val:M(d.airline.balance),c:C.ok,m:true},
+        {label:'Credit',val:d.airline.creditScore,c:crdC(d.airline.creditScore)},
+        {label:'Reputation',val:`${d.airline.reputation}`,c:morC(d.airline.reputation)},
+        {label:'Fuel',val:`$${d.fuelPrice}/gal`,c:C.mut},
+      ].map(({label,val,c,m})=>(
+        <div key={label} style={{display:'flex',flexDirection:'column',gap:1,alignItems:'flex-end'}}>
+          <span style={{fontSize:9,color:C.mut,letterSpacing:'0.09em',textTransform:'uppercase'}}>{label}</span>
+          <span style={{fontSize:13,fontWeight:600,color:c,fontFamily:m?MONO:BODY}}>{val}</span>
+        </div>
+      ))}
+      <div style={{display:'flex',alignItems:'center',gap:6,padding:'4px 10px',
+        background:'rgba(52,211,153,0.07)',borderRadius:6,border:`1px solid rgba(52,211,153,0.14)`}}>
+        <div className="blink" style={{width:5,height:5,borderRadius:'50%',background:C.ok,flexShrink:0}}/>
+        <span style={{fontSize:10,color:C.ok,fontWeight:600,letterSpacing:'0.05em'}}>LIVE</span>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────── APP ─── */
+function App(){
+  const [nav,setNav]   = useState('dashboard');
+  const [d,setD]       = useState(INIT);
+  const [notif,setNotif] = useState(null);
+  const [tickN,setTickN] = useState(0);
+
+  const [finTab,setFinTab]   = useState('Bank');
+  const [hanTab,setHanTab]   = useState('Fleet');
+  const [cFilter,setCFilter] = useState('All');
+  const [dispAc,setDispAc]   = useState('');
+  const [dispFrom,setDispFrom] = useState('');
+  const [dispTo,setDispTo]   = useState('');
+  const [dispResult,setDispResult] = useState(null);
+  const [loanAmt,setLoanAmt] = useState(1000000);
+  const [selectedAc,setSelectedAc] = useState(null);
+  const [fuelEdit,setFuelEdit] = useState({});
+  const [settingsForm,setSettingsForm] = useState({
+    name:INIT.airline.name,iata:INIT.airline.iata,hub:INIT.airline.hub,
+    primary:INIT.airline.primaryColor,accent:INIT.airline.accentColor
+  });
+
+  useEffect(()=>{
+    const t=setInterval(()=>setTickN(i=>(i+1)%d.news.length),5000);
+    return()=>clearInterval(t);
+  },[d.news.length]);
+
+  const notify=(msg,ok=true)=>{setNotif({msg,ok});setTimeout(()=>setNotif(null),3200)};
+  const upd=(u)=>setD(p=>({...p,...u}));
+  const updAirline=(u)=>setD(p=>({...p,airline:{...p.airline,...u}}));
+
+  /* ── HANDLERS ── */
+  const fileFlightReport = ()=>{
+    const ac=d.fleet.find(f=>f.reg===dispAc);
+    const crew=d.staff.find(s=>s.status==='Available'&&s.rating.includes('B'))||d.staff[0];
+    if(!ac||!dispFrom||!dispTo){notify('Select aircraft and route first',false);return;}
+    const success=ac.cond>50&&crew.fatigue<80;
+    const profit=success?rng(8000,52000):rng(-5000,2000);
+    const outcome=success
+      ?{title:'Flight Completed',msg:`${dispFrom}→${dispTo} completed. Revenue: ${M(profit)}`,ok:true}
+      :{title:'Flight Incident',msg:`Rough flight due to crew fatigue. Passenger refunds issued.`,ok:false};
+    setDispResult(outcome);
+    updAirline({balance:d.airline.balance+profit});
+    setD(p=>({...p,transactions:[
+      {id:Date.now(),type:profit>0?'credit':'debit',desc:`${dispFrom}→${dispTo} Flight`,amount:Math.abs(profit),date:`Day ${p.airline.day}`},
+      ...p.transactions.slice(0,19)
+    ]}));
+    notify(outcome.ok?`+${M(profit)} earned!`:'Incident filed — check report',outcome.ok);
+  };
+
+  const takeLoan=()=>{
+    if(loanAmt<100000){notify('Minimum loan: $100K',false);return;}
+    const nl={id:Date.now(),desc:"Working Capital",principal:loanAmt,remaining:loanAmt,rate:5.5,weekly:Math.round(loanAmt/52),collateral:"Cash"};
+    setD(p=>({...p,loans:[...p.loans,nl],airline:{...p.airline,balance:p.airline.balance+loanAmt}}));
+    notify(`Loan of ${M(loanAmt)} approved!`);
+  };
+  const repayLoan=(loan)=>{
+    if(d.airline.balance<loan.weekly){notify('Insufficient funds',false);return;}
+    setD(p=>({...p,
+      loans:p.loans.map(l=>l.id===loan.id?{...l,remaining:Math.max(0,l.remaining-l.weekly*4)}:l).filter(l=>l.remaining>0),
+      airline:{...p.airline,balance:p.airline.balance-loan.weekly*4}}));
+    notify(`Payment of ${M(loan.weekly*4)} processed`);
+  };
+  const acceptContract=(cid)=>{
+    setD(p=>({...p,contracts:p.contracts.map(c=>c.id===cid?{...c,accepted:true}:c)}));
+    notify('Contract accepted — assign aircraft to complete');
+  };
+  const completeContract=(c)=>{
+    setD(p=>({...p,
+      contracts:p.contracts.filter(x=>x.id!==c.id),
+      airline:{...p.airline,balance:p.airline.balance+c.pay,reputation:Math.min(100,p.airline.reputation+1)}}));
+    notify(`Contract completed — +${M(c.pay)} earned`);
+  };
+  const saveSettings=()=>{
+    setD(p=>({...p,airline:{...p.airline,
+      name:settingsForm.name,iata:settingsForm.iata.toUpperCase().slice(0,2),
+      hub:settingsForm.hub.toUpperCase(),primaryColor:settingsForm.primary,accentColor:settingsForm.accent}}));
+    notify('Airline settings saved');
+  };
+  const saveFuelPrice=(fboId,price)=>{
+    setD(p=>({...p,fbos:p.fbos.map(f=>f.id===fboId?{...f,fuelPrice:parseFloat(price)||f.fuelPrice}:f)}));
+    notify('Fuel price updated');
+  };
+
+  /* ═══════════════════════════════════════════════
+     RENDER SECTIONS
+  ═══════════════════════════════════════════════ */
+
+  /* ── DASHBOARD ── */
+  const renderDashboard=()=>(
+    <div className="fade">
+      <SH title="Operations Dashboard" sub={`${d.airline.name} · Day ${d.airline.day}`}/>
+      {/* Hero stats */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:14,marginBottom:24}}>
+        <Card>
+          <Stat label="Cash Balance" value={M(d.airline.balance)} color={C.ok} mono sub="Available capital"/>
+        </Card>
+        <Card>
+          <Stat label="Daily Revenue" value={M(d.routes.reduce((a,r)=>a+r.rev,0))} color={C.acc} mono sub="All routes combined"/>
+        </Card>
+        <Card>
+          <Stat label="Reputation" value={`${d.airline.reputation}`} color={morC(d.airline.reputation)} sub="Global score"/>
+          <div style={{marginTop:12}}><Bar val={d.airline.reputation} color={morC(d.airline.reputation)}/></div>
+        </Card>
+        <Card>
+          <Stat label="Fleet" value={String(d.fleet.length)} sub={`${d.fleet.filter(f=>f.status==='Active').length} active · ${d.fleet.filter(f=>f.status==='Maintenance').length} in maintenance`}/>
+        </Card>
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 300px',gap:16}}>
+        {/* Routes table */}
+        <Card style={{padding:0}}>
+          <div style={{padding:'14px 20px',borderBottom:`1px solid ${C.bor}`,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+            <span style={{fontSize:13,fontWeight:600,color:C.txt}}>Active Routes</span>
+            <span style={{fontSize:11,color:C.mut}}>{d.routes.length} routes</span>
+          </div>
+          <table style={{width:'100%',borderCollapse:'collapse'}}>
+            <thead><tr>{['Route','Aircraft','Load factor','Revenue','Profit / day'].map(h=><TH key={h}>{h}</TH>)}</tr></thead>
+            <tbody>{d.routes.map(r=>{
+              const profit=r.rev-r.cost;
+              return(
+                <tr key={r.id} className="tr" style={{cursor:'default'}}>
+                  <TD>
+                    <div style={{fontFamily:MONO,fontWeight:600,color:C.txt,fontSize:14}}>{r.from} → {r.to}</div>
+                    <div style={{fontSize:11,color:C.mut,marginTop:2}}>{r.freq} · {r.dist.toLocaleString()} nm</div>
+                  </TD>
+                  <TD><span style={{fontFamily:MONO,fontSize:11,color:C.mut}}>{r.ac}</span></TD>
+                  <TD>
+                    <div style={{display:'flex',alignItems:'center',gap:10}}>
+                      <div style={{flex:1,minWidth:60}}><Bar val={r.load} color={r.load>85?C.ok:C.wrn}/></div>
+                      <span style={{fontSize:12,fontFamily:MONO,color:r.load>85?C.ok:C.wrn,width:34,textAlign:'right'}}>{r.load}%</span>
+                    </div>
+                  </TD>
+                  <TD><span style={{fontFamily:MONO,color:C.txt}}>{M(r.rev)}</span></TD>
+                  <TD><span style={{fontFamily:MONO,color:profit>0?C.ok:C.err}}>{profit>0?'+':''}{M(profit)}</span></TD>
+                </tr>
+              );
+            })}</tbody>
+          </table>
+        </Card>
+
+        {/* Right panel */}
+        <div style={{display:'flex',flexDirection:'column',gap:14}}>
+          <Card>
+            <CardLabel>World Events</CardLabel>
+            {d.events.map((ev,i)=>(
+              <div key={i} style={{paddingLeft:12,borderLeft:`2px solid ${ev.color}`,marginBottom:i<d.events.length-1?14:0}}>
+                <div style={{fontSize:13,fontWeight:600,color:C.txt}}>{ev.title}</div>
+                <div style={{fontSize:12,color:C.mut,marginTop:3,lineHeight:1.5}}>{ev.desc}</div>
+              </div>
+            ))}
+          </Card>
+          <Card>
+            <CardLabel>Active Loans</CardLabel>
+            {d.loans.map((l,i)=>(
+              <div key={l.id} style={{marginBottom:i<d.loans.length-1?14:0}}>
+                <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
+                  <span style={{fontSize:12,color:C.txt}}>{l.desc}</span>
+                  <span style={{fontSize:12,fontFamily:MONO,color:C.err}}>{M(l.remaining)}</span>
+                </div>
+                <Bar val={l.remaining} max={l.principal} color={C.err}/>
+                <div style={{fontSize:10,color:C.mut,marginTop:4}}>{l.rate}% APR · {M(l.weekly)}/week</div>
+              </div>
+            ))}
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+
+  /* ── FLIGHT DISPATCH ── */
+  const renderDispatch=()=>(
+    <div className="fade">
+      <SH title="Flight Dispatch" sub="Plan, crew, fuel, and file your flight report"/>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:20}}>
+        {/* Left */}
+        <div style={{display:'flex',flexDirection:'column',gap:14}}>
+          <Card>
+            <CardLabel>Select Aircraft</CardLabel>
+            {d.fleet.filter(ac=>ac.status==='Active').map(ac=>(
+              <div key={ac.id} className="clickable"
+                onClick={()=>setDispAc(ac.reg)}
+                style={{display:'flex',alignItems:'center',gap:12,padding:'10px 12px',borderRadius:8,
+                  border:`1px solid ${dispAc===ac.reg?`${C.acc}50`:C.bor}`,
+                  background:dispAc===ac.reg?`${C.acc}0d`:C.card2,marginBottom:6,cursor:'pointer'}}>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:13,fontWeight:600,color:C.txt}}>{ac.type}</div>
+                  <div style={{fontSize:11,color:C.mut,fontFamily:MONO,marginTop:2}}>{ac.reg} · {ac.hub} · {ac.config}</div>
+                </div>
+                <Badge label={`${ac.cond}%`} color={condC(ac.cond)}/>
+              </div>
+            ))}
+          </Card>
+
+          <Card>
+            <CardLabel>Route Planner</CardLabel>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:14}}>
+              {[{label:'Origin (ICAO)',val:dispFrom,set:setDispFrom,ph:'KJFK'},{label:'Destination (ICAO)',val:dispTo,set:setDispTo,ph:'EGLL'}].map(f=>(
+                <div key={f.label}>
+                  <div style={{fontSize:11,color:C.mut,marginBottom:5}}>{f.label}</div>
+                  <input value={f.val} onChange={e=>f.set(e.target.value.toUpperCase().slice(0,4))}
+                    placeholder={f.ph} maxLength={4}
+                    style={{width:'100%',background:C.card2,border:`1px solid ${C.bor}`,borderRadius:8,
+                      padding:'9px 12px',color:C.txt,fontSize:16,fontFamily:MONO,letterSpacing:'0.12em'}}/>
+                </div>
+              ))}
+            </div>
+            <div style={{fontSize:10,color:C.mut,marginBottom:8,textTransform:'uppercase',letterSpacing:'0.07em'}}>Quick select</div>
+            <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+              {d.routes.map(r=>(
+                <button key={r.id} className="btn"
+                  onClick={()=>{setDispFrom(r.from);setDispTo(r.to);}}
+                  style={{background:C.card2,border:`1px solid ${C.bor}`,borderRadius:6,
+                    padding:'4px 12px',fontSize:11,fontFamily:MONO,color:C.teal,cursor:'pointer'}}>
+                  {r.from}→{r.to}
+                </button>
+              ))}
+            </div>
+          </Card>
+
+          <Card>
+            <CardLabel>Crew Assignment</CardLabel>
+            {d.staff.filter(s=>['Captain','Sr. Captain','First Officer'].includes(s.role)).map(s=>(
+              <div key={s.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',
+                padding:'8px 0',borderBottom:`1px solid ${C.bor}`}}>
+                <div>
+                  <span style={{fontSize:13,color:C.txt,fontWeight:500}}>{s.name}</span>
+                  <span style={{fontSize:11,color:C.mut,marginLeft:8}}>{s.role} · {s.rating}</span>
+                </div>
+                <div style={{display:'flex',alignItems:'center',gap:10}}>
+                  <div style={{width:56}}><Bar val={s.fatigue} color={fatC(s.fatigue)} h={3}/></div>
+                  <Badge label={s.status} color={statC(s.status)}/>
+                </div>
+              </div>
+            ))}
+          </Card>
+        </div>
+
+        {/* Right */}
+        <div style={{display:'flex',flexDirection:'column',gap:14}}>
+          <Card>
+            <CardLabel>Fuel Calculation</CardLabel>
+            {[
+              {label:'Global fuel price',val:`$${d.fuelPrice}/gal`,c:C.wrn},
+              {label:'KJFK FBO price (owned)',val:'$3.10/gal',c:C.ok},
+              {label:'Est. fuel required',val:'42,000 gal',c:C.txt},
+              {label:'Est. fuel cost',val:'$119,700',c:C.err},
+              {label:'Reserve buffer (5%)',val:'$5,985',c:C.mut},
+            ].map(r=>(
+              <div key={r.label} style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:`1px solid ${C.bor}`}}>
+                <span style={{fontSize:12,color:C.mut}}>{r.label}</span>
+                <span style={{fontSize:12,fontFamily:MONO,color:r.c}}>{r.val}</span>
+              </div>
+            ))}
+            <div style={{marginTop:10,padding:'9px 12px',background:C.card2,borderRadius:7,fontSize:11,color:C.mut}}>
+              Tip — buy fuel at KJFK (your FBO) to save $0.25/gal vs market price
+            </div>
+          </Card>
+
+          <Card>
+            <CardLabel>Passenger & Cargo Load</CardLabel>
+            {[{label:'Passengers',max:396,val:344},{label:'Cargo (lbs)',max:50000,val:32100},{label:'Baggage',max:100,val:87}].map(l=>(
+              <div key={l.label} style={{marginBottom:14}}>
+                <div style={{display:'flex',justifyContent:'space-between',fontSize:12,marginBottom:6}}>
+                  <span style={{color:C.mut}}>{l.label}</span>
+                  <span style={{fontFamily:MONO,color:C.txt}}>{l.val.toLocaleString()} / {l.max.toLocaleString()}</span>
+                </div>
+                <Bar val={l.val} max={l.max} color={l.val/l.max>0.85?C.ok:C.wrn} h={6}/>
+              </div>
+            ))}
+          </Card>
+
+          <Card>
+            <CardLabel>Flight Brief</CardLabel>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:16}}>
+              {[
+                {label:'Aircraft',val:dispAc||'Not selected'},
+                {label:'Route',val:dispFrom&&dispTo?`${dispFrom}→${dispTo}`:'Not set'},
+                {label:'Cabin config',val:d.fleet.find(f=>f.reg===dispAc)?.config||'—'},
+                {label:'Est. flight time',val:'8h 32m'},
+                {label:'Weather (origin)',val:'VFR · Clear'},
+                {label:'Weather (dest)',val:'IFR · Mist'},
+              ].map(r=>(
+                <div key={r.label}>
+                  <div style={{fontSize:10,color:C.mut,marginBottom:2}}>{r.label}</div>
+                  <div style={{fontSize:13,color:r.val.includes('Not')?C.err:C.txt,fontFamily:MONO}}>{r.val}</div>
+                </div>
+              ))}
+            </div>
+            <Btn onClick={fileFlightReport} full disabled={!dispAc||!dispFrom||!dispTo}
+              style={{padding:'12px 0',fontSize:14,letterSpacing:'0.04em'}}>
+              File Flight Report
+            </Btn>
+          </Card>
+
+          {dispResult&&(
+            <Card style={{borderColor:dispResult.ok?`${C.ok}30`:`${C.err}30`,
+              background:dispResult.ok?'rgba(52,211,153,0.04)':'rgba(248,113,113,0.04)'}}>
+              <div style={{fontSize:14,fontWeight:600,color:dispResult.ok?C.ok:C.err,marginBottom:6}}>
+                {dispResult.ok?'✓':' ⚠'} {dispResult.title}
+              </div>
+              <div style={{fontSize:12,color:C.txt}}>{dispResult.msg}</div>
+              <button className="btn" onClick={()=>setDispResult(null)}
+                style={{marginTop:10,fontSize:11,color:C.mut,background:'transparent',border:'none',cursor:'pointer',padding:0}}>
+                Dismiss
+              </button>
+            </Card>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  /* ── FINANCE ── */
+  const renderFinance=()=>(
+    <div className="fade">
+      <SH title="Financial Center" sub="Banking, loans, investments, and transaction history"/>
+      <TabBar tabs={['Bank','Stocks','History']} active={finTab} set={setFinTab}/>
+
+      {finTab==='Bank'&&(
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+          <div style={{display:'flex',flexDirection:'column',gap:14}}>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+              <Card><Stat label="Checking Balance" value={M(d.airline.balance)} color={C.ok} mono sub="Available immediately"/></Card>
+              <Card><Stat label="Savings Account" value={M(d.savings.balance)} color={C.blue} mono sub={`${d.savings.rate}% APY`}/></Card>
+            </div>
+            <Card style={{padding:0}}>
+              <div style={{padding:'14px 20px',borderBottom:`1px solid ${C.bor}`,fontSize:13,fontWeight:600,color:C.txt}}>Active Loans</div>
+              {d.loans.map(l=>(
+                <div key={l.id} style={{padding:'14px 20px',borderBottom:`1px solid ${C.bor}`}}>
+                  <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}>
+                    <div>
+                      <div style={{fontSize:13,color:C.txt,fontWeight:600}}>{l.desc}</div>
+                      <div style={{fontSize:11,color:C.mut,marginTop:2}}>Collateral: {l.collateral} · {l.rate}% APR</div>
+                    </div>
+                    <div style={{textAlign:'right'}}>
+                      <div style={{fontSize:16,fontFamily:MONO,color:C.err}}>{M(l.remaining)}</div>
+                      <div style={{fontSize:10,color:C.mut}}>remaining</div>
+                    </div>
+                  </div>
+                  <Bar val={l.remaining} max={l.principal} color={C.err} h={4}/>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:8}}>
+                    <span style={{fontSize:11,color:C.mut}}>{M(l.weekly)}/week · {Math.round((l.remaining/l.principal)*100)}% outstanding</span>
+                    <Btn small onClick={()=>repayLoan(l)} outline color={C.ok}>Make Payment</Btn>
+                  </div>
+                </div>
+              ))}
+              {d.loans.length===0&&<div style={{padding:20,color:C.mut,fontSize:12,textAlign:'center'}}>No active loans</div>}
+            </Card>
+          </div>
+          <Card>
+            <CardLabel>Apply for Loan</CardLabel>
+            <div style={{marginBottom:16}}>
+              <div style={{fontSize:10,color:C.mut,marginBottom:6}}>Credit Rating</div>
+              <div style={{display:'flex',alignItems:'center',gap:12}}>
+                <span style={{fontSize:32,fontWeight:700,fontFamily:HEAD,color:crdC(d.airline.creditScore)}}>{d.airline.creditScore}</span>
+                <div>
+                  <div style={{fontSize:12,color:C.txt}}>Global Aviation Bank</div>
+                  <div style={{fontSize:11,color:C.mut}}>Rate: 4.2% APR at this rating</div>
+                </div>
+              </div>
+            </div>
+            <div style={{marginBottom:16}}>
+              <div style={{fontSize:10,color:C.mut,marginBottom:8}}>Loan Amount</div>
+              <div style={{fontSize:28,fontFamily:MONO,color:C.txt,marginBottom:10}}>{M(loanAmt)}</div>
+              <input type="range" min={100000} max={50000000} step={100000}
+                value={loanAmt} onChange={e=>setLoanAmt(Number(e.target.value))}
+                style={{width:'100%',accentColor:C.acc}}/>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:10,color:C.mut,marginTop:4}}>
+                <span>$100K</span><span>$50M</span>
+              </div>
+            </div>
+            <div style={{background:C.card2,border:`1px solid ${C.bor}`,borderRadius:8,padding:12,marginBottom:16}}>
+              {[
+                {label:'Loan amount',val:M(loanAmt)},
+                {label:'Interest rate',val:'4.2% APR'},
+                {label:'Weekly payment',val:M(Math.round(loanAmt/52))},
+                {label:'Term',val:'52 weeks'},
+                {label:'Collateral required',val:loanAmt>10000000?'Aircraft':'Cash'},
+              ].map(r=>(
+                <div key={r.label} style={{display:'flex',justifyContent:'space-between',padding:'4px 0'}}>
+                  <span style={{fontSize:12,color:C.mut}}>{r.label}</span>
+                  <span style={{fontSize:12,fontFamily:MONO,color:C.txt}}>{r.val}</span>
+                </div>
+              ))}
+            </div>
+            <Btn onClick={takeLoan} full>Apply for Loan</Btn>
+            <div style={{fontSize:10,color:C.mut,marginTop:8,textAlign:'center'}}>
+              Improving your credit score unlocks lower rates (down to 2.8% at AAA)
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {finTab==='Stocks'&&(
+        <div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12,marginBottom:20}}>
+            <Card><Stat label="Portfolio Value" value={M(d.airline.ownedShares*d.airline.stockPrice)} mono color={C.ok}/></Card>
+            <Card><Stat label="SKYE Price" value={`$${d.airline.stockPrice.toFixed(2)}`} mono color={C.teal} sub="+$1.25 today (+3.03%)"/></Card>
+            <Card><Stat label="Shares Owned" value={d.airline.ownedShares.toLocaleString()} sub={`${((d.airline.ownedShares/d.airline.totalShares)*100).toFixed(1)}% stake`}/></Card>
+          </div>
+          <Card style={{padding:0}}>
+            <div style={{padding:'14px 20px',borderBottom:`1px solid ${C.bor}`,fontSize:13,fontWeight:600,color:C.txt}}>Market — Virtual Airlines</div>
+            <table style={{width:'100%',borderCollapse:'collapse'}}>
+              <thead><tr>{['Ticker','Airline','Price','Change','Volume','Action'].map(h=><TH key={h}>{h}</TH>)}</tr></thead>
+              <tbody>{d.stockMarket.map(s=>(
+                <tr key={s.ticker} className="tr">
+                  <TD><span style={{fontFamily:MONO,fontWeight:600,color:C.acc}}>{s.ticker}</span></TD>
+                  <TD><span style={{fontSize:13}}>{s.name}</span></TD>
+                  <TD><span style={{fontFamily:MONO}}>${s.price.toFixed(2)}</span></TD>
+                  <TD><span style={{fontFamily:MONO,color:s.chg>=0?C.ok:C.err}}>{s.chg>=0?'+':''}{s.chg.toFixed(2)} ({s.chg>=0?'+':''}{((s.chg/s.price)*100).toFixed(2)}%)</span></TD>
+                  <TD><span style={{fontFamily:MONO,fontSize:12,color:C.mut}}>{s.vol.toLocaleString()}</span></TD>
+                  <TD>
+                    <div style={{display:'flex',gap:6}}>
+                      <Btn small color={C.ok} onClick={()=>notify(`Bought 100 shares of ${s.ticker}`)}>Buy</Btn>
+                      {s.mine>0&&<Btn small color={C.err} outline onClick={()=>notify(`Sold 100 shares of ${s.ticker}`)}>Sell</Btn>}
+                    </div>
+                  </TD>
+                </tr>
+              ))}</tbody>
+            </table>
+          </Card>
+        </div>
+      )}
+
+      {finTab==='History'&&(
+        <Card style={{padding:0}}>
+          <div style={{padding:'14px 20px',borderBottom:`1px solid ${C.bor}`,fontSize:13,fontWeight:600,color:C.txt}}>Transaction History</div>
+          <table style={{width:'100%',borderCollapse:'collapse'}}>
+            <thead><tr>{['Date','Description','Type','Amount'].map(h=><TH key={h}>{h}</TH>)}</tr></thead>
+            <tbody>{d.transactions.map(t=>(
+              <tr key={t.id} className="tr">
+                <TD><span style={{fontFamily:MONO,fontSize:11,color:C.mut}}>{t.date}</span></TD>
+                <TD><span style={{fontSize:13}}>{t.desc}</span></TD>
+                <TD><Badge label={t.type} color={t.type==='credit'?C.ok:C.err}/></TD>
+                <TD><span style={{fontFamily:MONO,color:t.type==='credit'?C.ok:C.err,fontWeight:600}}>
+                  {t.type==='credit'?'+':'-'}{M(t.amount)}
+                </span></TD>
+              </tr>
+            ))}</tbody>
+          </table>
+        </Card>
+      )}
+    </div>
+  );
+
+  /* ── HANGAR & MARKET ── */
+  const renderHangar=()=>(
+    <div className="fade">
+      <SH title="Fleet & Aircraft Market" sub="Manage your fleet, buy new aircraft, or lease from agencies"/>
+      <TabBar tabs={['Fleet','Buy','Lease']} active={hanTab} set={setHanTab}/>
+
+      {hanTab==='Fleet'&&(
+        <div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12,marginBottom:16}}>
+            <Card><Stat label="Total Aircraft" value={String(d.fleet.length)}/></Card>
+            <Card><Stat label="Active" value={String(d.fleet.filter(f=>f.status==='Active').length)} color={C.ok}/></Card>
+            <Card><Stat label="In Maintenance" value={String(d.fleet.filter(f=>f.status==='Maintenance').length)} color={C.wrn}/></Card>
+          </div>
+          {d.fleet.map(ac=>(
+            <Card key={ac.id} style={{marginBottom:10}} onClick={()=>setSelectedAc(selectedAc===ac.id?null:ac.id)}>
+              <div style={{display:'flex',alignItems:'center',gap:16}}>
+                <div style={{flex:1}}>
+                  <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:5}}>
+                    <span style={{fontFamily:MONO,fontSize:12,color:C.acc,fontWeight:600}}>{ac.reg}</span>
+                    <Badge label={ac.status} color={statC(ac.status)}/>
+                    <Badge label={ac.hub} color={C.blue}/>
+                  </div>
+                  <div style={{fontSize:15,fontWeight:600,color:C.txt,fontFamily:HEAD}}>{ac.type}</div>
+                  <div style={{fontSize:11,color:C.mut,marginTop:3}}>{ac.config} · {ac.hours.toLocaleString()} hrs · Age: {ac.age}yr · Next check: {ac.maint}</div>
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(3,80px)',gap:14}}>
+                  {[{l:'Airframe',v:ac.cond,c:condC(ac.cond)},{l:'Engines',v:Math.max(0,ac.cond-5),c:condC(ac.cond-5)},{l:'Tires',v:ac.tires,c:condC(ac.tires)}].map(s=>(
+                    <div key={s.l}>
+                      <div style={{fontSize:10,color:C.mut,marginBottom:3}}>{s.l}</div>
+                      <div style={{fontSize:15,fontWeight:700,color:s.c,fontFamily:MONO}}>{s.v}%</div>
+                      <div style={{marginTop:4}}><Bar val={s.v} color={s.c}/></div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{display:'flex',gap:6,flexShrink:0}}>
+                  <Btn small outline onClick={()=>notify(`Maintenance scheduled for ${ac.reg}`)}>Maintenance</Btn>
+                  <Btn small color={C.err} outline onClick={()=>notify(`${ac.reg} listed for sale`)}>Sell</Btn>
+                </div>
+              </div>
+              {selectedAc===ac.id&&(
+                <div style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${C.bor}`,display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10}}>
+                  {[{label:'Engine Type',val:ac.engines},{label:'Brake Condition',val:`${ac.brakes}%`},{label:'Tire Condition',val:`${ac.tires}%`},{label:'Flight Hours',val:ac.hours.toLocaleString()}].map(r=>(
+                    <div key={r.label}>
+                      <div style={{fontSize:10,color:C.mut,marginBottom:3}}>{r.label}</div>
+                      <div style={{fontSize:14,color:C.txt,fontFamily:MONO}}>{r.val}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {hanTab==='Buy'&&(
+        <div>
+          <div style={{fontSize:12,color:C.mut,marginBottom:16,lineHeight:1.7}}>
+            New aircraft from manufacturer have a delivery window. Used aircraft are available immediately. Your credit rating ({d.airline.creditScore}) may unlock favorable financing.
+          </div>
+          {d.market.map(ac=>(
+            <Card key={ac.id} style={{marginBottom:10}}>
+              <div style={{display:'flex',alignItems:'center',gap:16}}>
+                <div style={{flex:1}}>
+                  <div style={{display:'flex',gap:10,alignItems:'center',marginBottom:5}}>
+                    <span style={{fontSize:16,fontWeight:700,color:C.txt,fontFamily:HEAD}}>{ac.type}</span>
+                    <Badge label={ac.note} color={ac.cond>90?C.ok:ac.cond>70?C.wrn:C.err}/>
+                    <Badge label={String(ac.year)} color={C.blue}/>
+                  </div>
+                  <div style={{fontSize:11,color:C.mut}}>Seller: {ac.seller} · {ac.hours.toLocaleString()} hrs · Delivery: {ac.delivery}</div>
+                </div>
+                <div style={{textAlign:'right',marginRight:16}}>
+                  <div style={{fontSize:22,fontWeight:700,fontFamily:MONO,color:C.txt}}>{M(ac.price)}</div>
+                  <div style={{fontSize:10,color:C.mut}}>list price</div>
+                </div>
+                <div style={{width:72}}>
+                  <div style={{fontSize:10,color:C.mut,marginBottom:4}}>Condition</div>
+                  <Bar val={ac.cond} color={condC(ac.cond)}/>
+                  <div style={{fontSize:12,fontFamily:MONO,color:condC(ac.cond),marginTop:3}}>{ac.cond}%</div>
+                </div>
+                <div style={{display:'flex',flexDirection:'column',gap:6,flexShrink:0}}>
+                  <Btn small onClick={()=>{
+                    if(d.airline.balance<ac.price){notify('Insufficient funds — consider a loan',false);return;}
+                    updAirline({balance:d.airline.balance-ac.price});
+                    notify(`${ac.type} purchased! Delivery: ${ac.delivery}`);
+                  }}>Buy Now</Btn>
+                  <Btn small outline onClick={()=>notify('Loan application submitted for review')}>Finance</Btn>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {hanTab==='Lease'&&(
+        <div>
+          <div style={{fontSize:12,color:C.mut,marginBottom:16,lineHeight:1.7}}>
+            Dry-lease aircraft for rapid expansion without the capital cost. Lease fees are deducted weekly. Failure to pay returns aircraft immediately to the agency.
+          </div>
+          {d.leases.map((l,i)=>(
+            <Card key={i} style={{marginBottom:10}}>
+              <div style={{display:'flex',alignItems:'center',gap:16}}>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:15,fontWeight:700,color:C.txt,fontFamily:HEAD,marginBottom:4}}>{l.type}</div>
+                  <div style={{fontSize:11,color:C.mut}}>Provider: {l.source} · Min term: {l.min} · {l.avail} units available</div>
+                </div>
+                <div style={{textAlign:'right',marginRight:16}}>
+                  <div style={{fontSize:20,fontWeight:700,fontFamily:MONO,color:C.wrn}}>{M(l.weekly)}<span style={{fontSize:12,fontWeight:400,color:C.mut}}>/week</span></div>
+                  <div style={{fontSize:10,color:C.mut}}>{M(l.weekly*52)}/year</div>
+                </div>
+                <Btn small onClick={()=>notify(`Lease initiated for ${l.type}. ${l.min} minimum term.`)}>Start Lease</Btn>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  /* ── CREW & HR ── */
+  const renderCrew=()=>(
+    <div className="fade">
+      <SH title="Crew & HR Management" sub="Staff performance, fatigue, morale, and training"/>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:20}}>
+        <Card><Stat label="Total Staff" value={String(d.staff.length)} sub="Across all roles"/></Card>
+        <Card>
+          <Stat label="Union Morale" value={`${d.globalMorale}%`} color={morC(d.globalMorale)}/>
+          <div style={{marginTop:12}}><Bar val={d.globalMorale} color={morC(d.globalMorale)}/></div>
+          {d.globalMorale<70&&<div style={{fontSize:10,color:C.err,marginTop:6}}>Strike risk below 70%</div>}
+        </Card>
+        <Card><Stat label="Weekly Payroll" value={M(d.staff.reduce((a,s)=>a+s.salary/52,0))} mono color={C.err} sub="Auto-deducted"/></Card>
+        <Card><Stat label="Training Academy" value="ACTIVE" color={C.teal} sub="3 trainees enrolled"/></Card>
+      </div>
+
+      <Card style={{padding:0,marginBottom:16}}>
+        <div style={{padding:'14px 20px',borderBottom:`1px solid ${C.bor}`,fontSize:13,fontWeight:600,color:C.txt}}>Staff Roster</div>
+        <table style={{width:'100%',borderCollapse:'collapse'}}>
+          <thead><tr>{['Name','Role','Rating','Morale','Fatigue','Status','Salary','Actions'].map(h=><TH key={h}>{h}</TH>)}</tr></thead>
+          <tbody>{d.staff.map(s=>(
+            <tr key={s.id} className="tr">
+              <TD><span style={{fontWeight:600}}>{s.name}</span></TD>
+              <TD><span style={{fontSize:12,color:C.mut}}>{s.role}</span></TD>
+              <TD><Badge label={s.rating} color={C.blue}/></TD>
+              <TD>
+                <div style={{display:'flex',alignItems:'center',gap:8}}>
+                  <div style={{width:56}}><Bar val={s.morale} color={morC(s.morale)}/></div>
+                  <span style={{fontSize:12,fontFamily:MONO,color:morC(s.morale)}}>{s.morale}%</span>
+                </div>
+              </TD>
+              <TD>
+                <div style={{display:'flex',alignItems:'center',gap:8}}>
+                  <div style={{width:56}}><Bar val={s.fatigue} color={fatC(s.fatigue)}/></div>
+                  <span style={{fontSize:12,fontFamily:MONO,color:fatC(s.fatigue)}}>{s.fatigue}%</span>
+                </div>
+              </TD>
+              <TD><Badge label={s.status} color={statC(s.status)}/></TD>
+              <TD><span style={{fontFamily:MONO,fontSize:12,color:C.mut}}>{M(s.salary)}/yr</span></TD>
+              <TD>
+                <div style={{display:'flex',gap:6}}>
+                  <Btn small outline color={C.ok} onClick={()=>notify(`${s.name} sent on rest`)}>Rest</Btn>
+                  <Btn small outline color={C.purp} onClick={()=>notify(`${s.name} enrolled in training`)}>Train</Btn>
+                </div>
+              </TD>
+            </tr>
+          ))}</tbody>
+        </table>
+      </Card>
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+        <Card>
+          <CardLabel>Labor Union</CardLabel>
+          <div style={{marginBottom:14}}>
+            <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
+              <span style={{fontSize:13,color:C.txt}}>Overall Union Morale</span>
+              <span style={{fontFamily:MONO,color:morC(d.globalMorale),fontWeight:600}}>{d.globalMorale}%</span>
+            </div>
+            <Bar val={d.globalMorale} color={morC(d.globalMorale)} h={6}/>
+          </div>
+          <div style={{fontSize:12,color:C.mut,lineHeight:1.7,marginBottom:14}}>
+            If morale falls below <span style={{color:C.err}}>70%</span>, the union may call a strike, grounding your fleet for 24–48 hours. Keep morale high by paying salaries on time, enforcing rest periods, and giving periodic raises.
+          </div>
+          <Btn outline onClick={()=>notify('Salary increase granted! Morale +5%')}>
+            Grant 5% Raise ({M(d.staff.reduce((a,s)=>a+s.salary*.05/52,0))}/week)
+          </Btn>
+        </Card>
+        <Card>
+          <CardLabel>Training Academy</CardLabel>
+          <div style={{fontSize:12,color:C.mut,marginBottom:14,lineHeight:1.7}}>
+            Upgrade rookie pilots to veterans. Training takes 30 in-game days and costs $25,000 per trainee.
+          </div>
+          {d.staff.filter(s=>s.status==='Training').map(s=>(
+            <div key={s.id} style={{borderLeft:`2px solid ${C.purp}`,paddingLeft:12,marginBottom:12}}>
+              <div style={{fontSize:13,fontWeight:600,color:C.txt}}>{s.name}</div>
+              <div style={{fontSize:11,color:C.mut}}>Type rating: B737 → B777 upgrade</div>
+              <div style={{margin:'8px 0 4px'}}><Bar val={40} color={C.purp}/></div>
+              <div style={{fontSize:10,color:C.mut}}>40% complete — est. 18 days remaining</div>
+            </div>
+          ))}
+          <Btn onClick={()=>notify('New pilot hired and enrolled in academy!')} outline style={{marginTop:8}}>
+            Hire & Train Rookie ($25K)
+          </Btn>
+        </Card>
+      </div>
+    </div>
+  );
+
+  /* ── CONTRACTS ── */
+  const renderContracts=()=>{
+    const filters=['All','VIP Charter','Heavy Cargo','Humanitarian','Cargo Run'];
+    const filtered=cFilter==='All'?d.contracts:d.contracts.filter(c=>c.type===cFilter);
+    return(
+      <div className="fade">
+        <SH title="Contracts & Job Board" sub="One-off high-value contracts, refreshed daily"/>
+        <div style={{display:'flex',gap:8,marginBottom:22,alignItems:'center'}}>
+          {filters.map(f=>(
+            <button key={f} className="btn" onClick={()=>setCFilter(f)}
+              style={{background:cFilter===f?C.acc:'transparent',
+                color:cFilter===f?'#fff':C.mut,
+                border:`1px solid ${cFilter===f?C.acc:C.bor}`,borderRadius:7,
+                padding:'5px 14px',fontSize:11,fontWeight:cFilter===f?600:400,fontFamily:BODY}}>
+              {f}
+            </button>
+          ))}
+          <div style={{flex:1}}/>
+          <Btn outline small onClick={()=>notify('Contracts refreshed!')}>↻ Refresh Board</Btn>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
+          {filtered.map(c=>(
+            <Card key={c.id} style={{borderLeft:`2px solid ${typeC(c.type)}`}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12}}>
+                <div>
+                  <Badge label={c.type} color={typeC(c.type)}/>
+                  <div style={{fontSize:15,fontWeight:600,color:C.txt,fontFamily:HEAD,marginTop:8}}>{c.client}</div>
+                  <div style={{fontSize:14,fontFamily:MONO,color:C.acc,marginTop:3}}>{c.from} → {c.to}</div>
+                </div>
+                <div style={{textAlign:'right'}}>
+                  {c.pay>0
+                    ?<div style={{fontSize:22,fontWeight:700,fontFamily:MONO,color:C.ok}}>{M(c.pay)}</div>
+                    :<div style={{fontSize:15,fontWeight:700,color:C.teal}}>+{c.rep} Reputation</div>}
+                  <div style={{fontSize:10,color:C.mut,marginTop:2}}>Deadline: {c.deadline}</div>
+                </div>
+              </div>
+              <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:14}}>
+                <Badge label={c.diff} color={diffC(c.diff)}/>
+                <span style={{fontSize:11,color:C.mut}}>Req: {c.ac}</span>
+                {c.rep>0&&<span style={{fontSize:11,color:C.teal}}>+{c.rep} rep</span>}
+              </div>
+              {c.accepted?(
+                <div style={{display:'flex',gap:8}}>
+                  <div style={{flex:1,padding:'6px 10px',background:`${C.ok}10`,border:`1px solid ${C.ok}30`,
+                    borderRadius:6,fontSize:11,color:C.ok,fontWeight:600}}>✓ Contract Accepted</div>
+                  <Btn small color={C.teal} onClick={()=>completeContract(c)}>Mark Complete</Btn>
+                </div>
+              ):(
+                <Btn full onClick={()=>acceptContract(c.id)}>Accept Contract</Btn>
+              )}
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  /* ── ALLIANCES ── */
+  const renderAlliances=()=>(
+    <div className="fade">
+      <SH title="Alliance Hub" sub="Global partnerships, code-sharing, and shared infrastructure"/>
+      <Card style={{marginBottom:20,background:`linear-gradient(135deg, #12181f 0%, #15202e 100%)`,
+        border:`1px solid rgba(79,142,247,0.2)`}}>
+        <div style={{display:'flex',alignItems:'center',gap:20}}>
+          <div style={{width:56,height:56,borderRadius:12,background:C.acc,
+            display:'flex',alignItems:'center',justifyContent:'center',
+            fontSize:20,fontFamily:HEAD,fontWeight:700,color:'#fff',flexShrink:0}}>SP</div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:20,fontWeight:700,fontFamily:HEAD,color:C.txt}}>{d.alliance.name}</div>
+            <div style={{fontSize:12,color:C.acc,marginTop:2}}>{d.alliance.type}</div>
+            <div style={{fontSize:11,color:C.mut,marginTop:4}}>Members: {d.alliance.members.join(' · ')}</div>
+          </div>
+          <div style={{display:'flex',gap:28}}>
+            {[{l:'Shared Hubs',v:d.alliance.hubs},{l:'Combined Routes',v:d.alliance.routes},{l:'Annual Pax',v:d.alliance.pax}].map(s=>(
+              <div key={s.l} style={{textAlign:'center'}}>
+                <div style={{fontSize:24,fontWeight:700,fontFamily:HEAD,color:C.txt}}>{s.v}</div>
+                <div style={{fontSize:10,color:C.mut,marginTop:2}}>{s.l}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </Card>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+        <Card>
+          <CardLabel>Code-Share Partners</CardLabel>
+          {d.alliance.members.filter(m=>m!=='SkyEmpire').map(m=>(
+            <div key={m} style={{display:'flex',alignItems:'center',justifyContent:'space-between',
+              padding:'10px 0',borderBottom:`1px solid ${C.bor}`}}>
+              <div style={{display:'flex',alignItems:'center',gap:10}}>
+                <div style={{width:32,height:32,borderRadius:7,background:C.card2,border:`1px solid ${C.bor}`,
+                  display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:700,color:C.mut}}>
+                  {m.split(' ').map(w=>w[0]).join('').slice(0,2)}
+                </div>
+                <div>
+                  <div style={{fontSize:13,color:C.txt,fontWeight:500}}>{m}</div>
+                  <div style={{fontSize:10,color:C.mut}}>{d.alliance.codeShares.includes(m)?'Active code-share':'Alliance member'}</div>
+                </div>
+              </div>
+              {d.alliance.codeShares.includes(m)
+                ?<Badge label="Code-Share Active" color={C.teal}/>
+                :<Btn small outline onClick={()=>notify(`Code-share request sent to ${m}`)}>Request</Btn>}
+            </div>
+          ))}
+        </Card>
+        <Card>
+          <CardLabel>Alliance Benefits</CardLabel>
+          {[
+            {title:'FBO Fuel Discount',desc:'8% off fuel at any alliance-owned FBO airport',active:true},
+            {title:'Landing Fee Reduction',desc:'15% off landing fees at shared hub airports',active:true},
+            {title:'Shared Passenger Pool',desc:'+18% demand boost on codeshare routes',active:true},
+            {title:'Ground Handling Sharing',desc:'Split ground crew costs at shared terminals',active:false},
+            {title:'Joint Purchasing',desc:'Group orders unlock manufacturer discounts',active:false},
+          ].map(b=>(
+            <div key={b.title} style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',padding:'9px 0',borderBottom:`1px solid ${C.bor}`}}>
+              <div>
+                <div style={{fontSize:13,fontWeight:500,color:b.active?C.txt:C.mut}}>{b.title}</div>
+                <div style={{fontSize:11,color:C.mut,marginTop:2}}>{b.desc}</div>
+              </div>
+              <Badge label={b.active?'Active':'Locked'} color={b.active?C.ok:C.mut}/>
+            </div>
+          ))}
+        </Card>
+      </div>
+    </div>
+  );
+
+  /* ── FBO MANAGEMENT ── */
+  const renderFBO=()=>(
+    <div className="fade">
+      <SH title="FBO Management" sub="Fixed Base Operators — own and monetize airport infrastructure"/>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12,marginBottom:20}}>
+        <Card><Stat label="Owned FBOs" value={String(d.fbos.length)} sub="Active locations"/></Card>
+        <Card><Stat label="Daily Revenue" value={M(d.fbos.reduce((a,f)=>a+f.dailyRev,0))} color={C.ok} mono sub="All FBOs combined"/></Card>
+        <Card><Stat label="Global Fuel Price" value={`$${d.fuelPrice}/gal`} color={C.wrn} sub="Market rate"/></Card>
+      </div>
+      {d.fbos.map(fbo=>(
+        <Card key={fbo.id} style={{marginBottom:14}}>
+          <div style={{display:'flex',gap:16,alignItems:'flex-start'}}>
+            <div style={{flex:1}}>
+              <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:5}}>
+                <span style={{fontFamily:MONO,fontSize:15,fontWeight:700,color:C.acc}}>{fbo.airport}</span>
+                <span style={{fontSize:15,fontWeight:600,color:C.txt}}>{fbo.name}</span>
+                <Badge label={`Level ${fbo.level}`} color={C.teal}/>
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:14,marginTop:12}}>
+                {[
+                  {l:'Daily Revenue',v:M(fbo.dailyRev),c:C.ok,m:true},
+                  {l:'Hangars',v:`${fbo.hangars} bays`},
+                  {l:'Lounges',v:`${fbo.lounges} units`},
+                  {l:'Fuel Price',v:`$${fbo.fuelPrice}/gal`},
+                ].map(s=>(
+                  <div key={s.l}>
+                    <div style={{fontSize:10,color:C.mut,marginBottom:3}}>{s.l}</div>
+                    <div style={{fontSize:15,fontWeight:600,color:s.c||C.txt,fontFamily:s.m?MONO:BODY}}>{s.v}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={{width:200,flexShrink:0}}>
+              <div style={{fontSize:10,color:C.mut,marginBottom:6,textTransform:'uppercase',letterSpacing:'0.07em'}}>Set Fuel Price ($/gal)</div>
+              <div style={{display:'flex',gap:8}}>
+                <input type="number" step="0.01" min="1.50" max="6.00"
+                  defaultValue={fbo.fuelPrice}
+                  onChange={e=>setFuelEdit(p=>({...p,[fbo.id]:e.target.value}))}
+                  style={{width:90,background:C.card2,border:`1px solid ${C.bor}`,borderRadius:7,
+                    padding:'6px 10px',color:C.txt,fontSize:14,fontFamily:MONO}}/>
+                <Btn small onClick={()=>saveFuelPrice(fbo.id,fuelEdit[fbo.id]||fbo.fuelPrice)}>Set</Btn>
+              </div>
+              <div style={{fontSize:10,color:C.mut,marginTop:6}}>
+                Market: ${d.fuelPrice} · Yours: ${fbo.fuelPrice}
+              </div>
+              <div style={{fontSize:10,color:fbo.fuelPrice<d.fuelPrice?C.ok:C.mut,marginTop:2}}>
+                {fbo.fuelPrice<d.fuelPrice?`▼ Undercut by $${(d.fuelPrice-fbo.fuelPrice).toFixed(2)}`:'At or above market'}
+              </div>
+            </div>
+          </div>
+          <div style={{borderTop:`1px solid ${C.bor}`,marginTop:14,paddingTop:14,display:'flex',gap:8}}>
+            {fbo.level<5&&<Btn small onClick={()=>notify(`Upgrading ${fbo.name} to Level ${fbo.level+1}`)} color={C.teal}>
+              Upgrade to L{fbo.level+1} ({M(fbo.level*250000)})
+            </Btn>}
+            <Btn small outline onClick={()=>notify('Maintenance hangar added')}>Add Hangar ({M(150000)})</Btn>
+            <Btn small outline onClick={()=>notify('Passenger lounge added')}>Add Lounge ({M(80000)})</Btn>
+          </div>
+        </Card>
+      ))}
+      <Card style={{border:`1px dashed ${C.bor2}`,background:'transparent',textAlign:'center',padding:28}}>
+        <div style={{fontSize:13,color:C.mut,marginBottom:12}}>Expand your ground network — bid for FBO rights at new airports</div>
+        <Btn onClick={()=>notify('FBO auction browser opened. Bidding opens in 2 days.')}>Browse Available Airports</Btn>
+      </Card>
+    </div>
+  );
+
+  /* ── MAINTENANCE ── */
+  const renderMaintenance=()=>(
+    <div className="fade">
+      <SH title="Maintenance & Salvage" sub="Component wear tracking, scheduled checks, and the boneyard"/>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12,marginBottom:20}}>
+        <Card><Stat label="In Maintenance" value={String(d.fleet.filter(f=>f.status==='Maintenance').length)} color={C.wrn}/></Card>
+        <Card><Stat label="Next Scheduled Check" value="Jul 30" sub="N-SE005 — C-Check"/></Card>
+        <Card><Stat label="Maintenance Reserve" value={M(320000)} mono color={C.ok} sub="Escrowed funds"/></Card>
+      </div>
+
+      <Card style={{padding:0,marginBottom:16}}>
+        <div style={{padding:'14px 20px',borderBottom:`1px solid ${C.bor}`,fontSize:13,fontWeight:600,color:C.txt}}>Component Wear by Aircraft</div>
+        <table style={{width:'100%',borderCollapse:'collapse'}}>
+          <thead><tr>{['Aircraft','Type','Engines','Tires','Brakes','Airframe','Next Check','Action'].map(h=><TH key={h}>{h}</TH>)}</tr></thead>
+          <tbody>{d.fleet.map(ac=>(
+            <tr key={ac.id} className="tr">
+              <TD><span style={{fontFamily:MONO,color:C.acc,fontWeight:600}}>{ac.reg}</span></TD>
+              <TD><span style={{fontSize:12,color:C.mut}}>{ac.type.split(' ').slice(0,2).join(' ')}</span></TD>
+              {[{v:Math.max(0,ac.cond-5)},{v:ac.tires},{v:ac.brakes},{v:ac.cond}].map((comp,i)=>(
+                <TD key={i}>
+                  <div style={{display:'flex',alignItems:'center',gap:8}}>
+                    <div style={{width:48}}><Bar val={comp.v} color={condC(comp.v)}/></div>
+                    <span style={{fontSize:11,fontFamily:MONO,color:condC(comp.v)}}>{comp.v}%</span>
+                  </div>
+                </TD>
+              ))}
+              <TD><span style={{fontSize:11,color:C.wrn,fontFamily:MONO}}>{ac.maint}</span></TD>
+              <TD>
+                <Btn small color={ac.status==='Maintenance'?C.wrn:C.acc}
+                  onClick={()=>notify(`Maintenance scheduled for ${ac.reg}. Est: ${M(rng(15000,80000))}. 2–5 days downtime.`)}>
+                  {ac.status==='Maintenance'?'In Shop':'Schedule'}
+                </Btn>
+              </TD>
+            </tr>
+          ))}</tbody>
+        </table>
+      </Card>
+
+      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:16}}>
+        {[
+          {type:'A-Check',freq:'Every 400–600 hrs',cost:'$5K–25K',time:'1 day',color:C.ok},
+          {type:'B-Check',freq:'Every 6–8 months',cost:'$50K–150K',time:'3–5 days',color:C.wrn},
+          {type:'C-Check',freq:'Every 18–24 months',cost:'$150K–500K',time:'1–2 weeks',color:'#fb923c'},
+          {type:'D-Check',freq:'Every 6–10 years',cost:'$1M–5M',time:'2 months',color:C.err},
+        ].map(c=>(
+          <Card key={c.type} style={{borderTop:`2px solid ${c.color}`}}>
+            <div style={{fontSize:15,fontWeight:700,color:c.color,fontFamily:HEAD,marginBottom:4}}>{c.type}</div>
+            <div style={{fontSize:11,color:C.mut}}>{c.freq}</div>
+            <div style={{fontSize:14,fontFamily:MONO,color:C.txt,marginTop:8}}>{c.cost}</div>
+            <div style={{fontSize:10,color:C.mut,marginTop:2}}>Downtime: {c.time}</div>
+          </Card>
+        ))}
+      </div>
+
+      <Card style={{borderColor:`${C.err}25`}}>
+        <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:12}}>
+          <div style={{fontSize:15,fontWeight:700,color:C.txt}}>Boneyard — Victorville, CA</div>
+          <Badge label="Storage Facility" color={C.mut}/>
+        </div>
+        <div style={{fontSize:12,color:C.mut,marginBottom:14,lineHeight:1.7}}>
+          Retire aging aircraft to the boneyard. Scrap for immediate cash payout, or strip for valuable spare parts to maintain your active fleet at lower cost.
+        </div>
+        <div style={{display:'flex',gap:10}}>
+          {d.fleet.filter(f=>f.cond<75||f.age>15).map(ac=>(
+            <Card key={ac.id} style={{padding:12,flex:1}}>
+              <div style={{fontSize:11,fontFamily:MONO,color:C.acc}}>{ac.reg}</div>
+              <div style={{fontSize:12,color:C.txt,marginTop:2}}>{ac.type.split(' ').slice(0,2).join(' ')}</div>
+              <div style={{fontSize:10,color:C.err,marginTop:4}}>Cond: {ac.cond}% · Age: {ac.age}yr</div>
+              <div style={{display:'flex',gap:6,marginTop:8}}>
+                <Btn small color={C.wrn} onClick={()=>notify(`${ac.reg} scrapped for ${M(rng(200000,800000))}`)}>Scrap</Btn>
+                <Btn small outline onClick={()=>notify(`${ac.reg} stripped — saves 30% on future maintenance`)}>Parts</Btn>
+              </div>
+            </Card>
+          ))}
+          {d.fleet.filter(f=>f.cond<75||f.age>15).length===0&&(
+            <div style={{color:C.mut,fontSize:12}}>No aircraft currently qualify for the boneyard.</div>
+          )}
+        </div>
+      </Card>
+    </div>
+  );
+
+  /* ── WORLD MAP ── */
+  const renderWorldMap=()=>{
+    const W=820,H=400;
+    const toXY=(lat,lon)=>[(((lon+180)/360)*W),(((90-lat)/180)*H)];
+    const AP={
+      JFK:toXY(40.6,-73.8),LHR:toXY(51.5,-0.1),LAX:toXY(33.9,-118.4),
+      NRT:toXY(35.7,140.4),ORD:toXY(41.9,-87.9),BOS:toXY(42.4,-71.0),
+      MIA:toXY(25.8,-80.3),CDG:toXY(49.0,2.5),DXB:toXY(25.3,55.4),
+      ICN:toXY(37.5,126.5),ANC:toXY(61.2,-149.9),ADD:toXY(8.9,38.8),
+      SEA:toXY(47.5,-122.3),MEM:toXY(35.0,-89.9),SJC:toXY(37.3,-121.9),
+    };
+    const FBOS=['JFK','LAX','ORD'];
+    const ROUTES=d.routes.map(r=>({from:r.from,to:r.to}));
+    return(
+      <div className="fade">
+        <SH title="World Map" sub="Active routes, owned FBOs, and high-demand airports"/>
+        <div style={{display:'flex',gap:20,marginBottom:12}}>
+          {[{color:C.acc,label:'Your hub'},{color:C.ok,label:'FBO owned'},{color:C.teal,label:'Active route'},{color:C.mut,label:'Other airport'}].map(l=>(
+            <div key={l.label} style={{display:'flex',alignItems:'center',gap:6}}>
+              <div style={{width:8,height:8,borderRadius:'50%',background:l.color}}/>
+              <span style={{fontSize:11,color:C.mut}}>{l.label}</span>
+            </div>
+          ))}
+        </div>
+        <Card style={{padding:8,marginBottom:14}}>
+          <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{display:'block',background:'#0a0f1a',borderRadius:8}}>
+            {[...Array(13)].map((_,i)=>(
+              <line key={`v${i}`} x1={i*(W/12)} y1={0} x2={i*(W/12)} y2={H} stroke="rgba(148,163,184,0.07)" strokeWidth={0.5}/>
+            ))}
+            {[...Array(7)].map((_,i)=>(
+              <line key={`h${i}`} x1={0} y1={i*(H/6)} x2={W} y2={i*(H/6)} stroke="rgba(148,163,184,0.07)" strokeWidth={0.5}/>
+            ))}
+            <path d="M 55,40 L 250,38 L 300,68 L 315,115 L 290,200 L 255,248 L 205,255 L 152,225 L 98,185 L 60,138 Z" fill="rgba(148,163,184,0.06)" stroke="rgba(148,163,184,0.12)" strokeWidth={0.7}/>
+            <path d="M 178,248 L 268,248 L 295,318 L 275,388 L 222,398 L 178,358 L 158,295 Z" fill="rgba(148,163,184,0.06)" stroke="rgba(148,163,184,0.12)" strokeWidth={0.7}/>
+            <path d="M 348,35 L 462,35 L 478,90 L 448,122 L 385,122 L 348,90 Z" fill="rgba(148,163,184,0.06)" stroke="rgba(148,163,184,0.12)" strokeWidth={0.7}/>
+            <path d="M 382,122 L 498,122 L 516,222 L 495,328 L 442,348 L 382,308 L 358,222 Z" fill="rgba(148,163,184,0.06)" stroke="rgba(148,163,184,0.12)" strokeWidth={0.7}/>
+            <path d="M 452,28 L 762,28 L 778,122 L 758,205 L 688,225 L 582,205 L 502,172 L 452,122 Z" fill="rgba(148,163,184,0.06)" stroke="rgba(148,163,184,0.12)" strokeWidth={0.7}/>
+            <path d="M 682,265 L 788,265 L 798,325 L 748,358 L 692,338 Z" fill="rgba(148,163,184,0.06)" stroke="rgba(148,163,184,0.12)" strokeWidth={0.7}/>
+            {ROUTES.map((r,i)=>{
+              const a=AP[r.from],b=AP[r.to];
+              if(!a||!b)return null;
+              const mx=(a[0]+b[0])/2,my=Math.min(a[1],b[1])-32;
+              return(
+                <path key={i} d={`M${a[0]},${a[1]} Q${mx},${my} ${b[0]},${b[1]}`}
+                  fill="none" stroke={C.teal} strokeWidth={1.2} strokeDasharray="5 4" opacity={0.6}/>
+              );
+            })}
+            {Object.entries(AP).map(([code,[x,y]])=>{
+              const isFBO=FBOS.includes(code);
+              const isHub=d.airline.hub.replace('K','')===code;
+              const isRoute=ROUTES.some(r=>r.from===code||r.to===code);
+              return(
+                <g key={code}>
+                  {isFBO&&<circle cx={x} cy={y} r={9} fill="none" stroke={C.ok} strokeWidth={1} opacity={0.4}/>}
+                  <circle cx={x} cy={y} r={isHub?6:isFBO?5:isRoute?4:2.5}
+                    fill={isHub?C.acc:isFBO?C.ok:isRoute?C.teal:C.mut} opacity={isRoute||isHub?1:0.6}/>
+                  <text x={x+7} y={y+4} fontSize={8} fill={C.mut} fontFamily={MONO} fontWeight={500}>{code}</text>
+                </g>
+              );
+            })}
+          </svg>
+        </Card>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12}}>
+          {d.fbos.map(f=>(
+            <Card key={f.id} style={{padding:12}}>
+              <div style={{display:'flex',alignItems:'center',gap:8}}>
+                <div style={{width:8,height:8,borderRadius:'50%',background:C.ok,flexShrink:0}}/>
+                <div>
+                  <div style={{fontSize:12,fontWeight:600,color:C.txt}}>{f.name} <span style={{color:C.mut,fontFamily:MONO,fontSize:10}}>({f.airport})</span></div>
+                  <div style={{fontSize:10,color:C.mut}}>Level {f.level} FBO · ${f.dailyRev.toLocaleString()}/day</div>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  /* ── SETTINGS ── */
+  const renderSettings=()=>(
+    <div className="fade">
+      <SH title="Airline Settings" sub="Customize your airline identity and livery"/>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:20}}>
+        <div>
+          <Card style={{marginBottom:16}}>
+            <CardLabel>Airline Identity</CardLabel>
+            {[
+              {label:'Airline Name',key:'name',type:'text',placeholder:'e.g. SkyEmpire Airways'},
+              {label:'IATA Code (2 letters)',key:'iata',type:'text',placeholder:'SE',max:2},
+              {label:'ICAO Hub Airport',key:'hub',type:'text',placeholder:'KJFK',max:4},
+            ].map(f=>(
+              <div key={f.key} style={{marginBottom:14}}>
+                <div style={{fontSize:11,color:C.mut,marginBottom:5}}>{f.label}</div>
+                <input type={f.type} value={settingsForm[f.key]} maxLength={f.max}
+                  onChange={e=>setSettingsForm(p=>({...p,[f.key]:e.target.value}))}
+                  placeholder={f.placeholder}
+                  style={{width:'100%',background:C.card2,border:`1px solid ${C.bor}`,borderRadius:8,
+                    padding:'9px 12px',color:C.txt,fontSize:14,fontFamily:f.key==='iata'||f.key==='hub'?MONO:BODY}}/>
+              </div>
+            ))}
+          </Card>
+          <Card>
+            <CardLabel>Livery Colors</CardLabel>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
+              {[{label:'Primary (Fuselage)',key:'primary'},{label:'Accent (Tailfin)',key:'accent'}].map(f=>(
+                <div key={f.key}>
+                  <div style={{fontSize:11,color:C.mut,marginBottom:6}}>{f.label}</div>
+                  <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                    <div style={{width:40,height:40,borderRadius:8,background:settingsForm[f.key],border:`1px solid ${C.bor}`,flexShrink:0}}/>
+                    <input type="color" value={settingsForm[f.key]}
+                      onChange={e=>setSettingsForm(p=>({...p,[f.key]:e.target.value}))}
+                      style={{width:80,height:40,background:'none',border:`1px solid ${C.bor}`,borderRadius:8,cursor:'pointer',padding:2}}/>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{fontSize:10,color:C.mut,marginTop:12}}>Colors apply to your airline logo and fleet livery simulation</div>
+          </Card>
+        </div>
+
+        <div>
+          <Card style={{marginBottom:16}}>
+            <CardLabel>Preview</CardLabel>
+            <div style={{background:C.card2,borderRadius:10,padding:20,textAlign:'center',marginBottom:16}}>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:12,marginBottom:16}}>
+                <div style={{width:56,height:56,borderRadius:10,background:settingsForm.primary,
+                  display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,
+                  fontWeight:700,fontFamily:HEAD,letterSpacing:'0.04em',color:settingsForm.accent}}>
+                  {settingsForm.iata.toUpperCase().slice(0,2)||'??'}
+                </div>
+                <div style={{textAlign:'left'}}>
+                  <div style={{fontSize:18,fontWeight:700,fontFamily:HEAD,color:settingsForm.primary}}>{settingsForm.name||'Airline Name'}</div>
+                  <div style={{fontSize:11,color:C.mut,marginTop:2}}>Hub: {settingsForm.hub.toUpperCase()||'????'}</div>
+                </div>
+              </div>
+              <svg viewBox="0 0 200 80" width={200} height={80}>
+                <rect x={20} y={35} width={160} height={12} rx={6} fill={settingsForm.primary}/>
+                <polygon points="155,35 185,25 185,35" fill={settingsForm.accent}/>
+                <rect x={60} y={22} width={80} height={13} rx={4} fill={settingsForm.primary}/>
+                <rect x={80} y={47} width={40} height={6} rx={3} fill={settingsForm.accent}/>
+                <circle cx={30} cy={47} r={5} fill={C.card} stroke={settingsForm.primary} strokeWidth={2}/>
+                <circle cx={170} cy={47} r={5} fill={C.card} stroke={settingsForm.primary} strokeWidth={2}/>
+                <text x={100} y={42} textAnchor="middle" fontSize={8} fill={settingsForm.accent} fontFamily={HEAD} fontWeight={700}>{settingsForm.iata.toUpperCase().slice(0,2)||'  '}</text>
+              </svg>
+            </div>
+            <Btn onClick={saveSettings} full>Save Settings</Btn>
+          </Card>
+          <Card>
+            <CardLabel>Airline Stats</CardLabel>
+            {[
+              {label:'IATA Code',val:d.airline.iata},
+              {label:'Callsign',val:d.airline.callsign},
+              {label:'Fleet size',val:`${d.fleet.length} aircraft`},
+              {label:'Active routes',val:`${d.routes.length} routes`},
+              {label:'Total staff',val:`${d.staff.length} employees`},
+              {label:'Public / Private',val:d.airline.isPublic?`Public — SKYE ($${d.airline.stockPrice})`:'Private'},
+              {label:'Market cap',val:d.airline.isPublic?M(d.airline.stockPrice*d.airline.totalShares):'N/A'},
+            ].map(r=>(
+              <div key={r.label} style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:`1px solid ${C.bor}`}}>
+                <span style={{fontSize:12,color:C.mut}}>{r.label}</span>
+                <span style={{fontSize:12,fontFamily:MONO,color:C.txt}}>{r.val}</span>
+              </div>
+            ))}
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+
+  /* ── SECTION ROUTER ── */
+  const SECTIONS={
+    dashboard:renderDashboard,dispatch:renderDispatch,finance:renderFinance,
+    hangar:renderHangar,crew:renderCrew,contracts:renderContracts,
+    alliances:renderAlliances,fbo:renderFBO,maintenance:renderMaintenance,
+    map:renderWorldMap,settings:renderSettings,
+  };
+
+  return(
+    <div style={{fontFamily:BODY,background:C.bg,color:C.txt,height:'100vh',display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      {notif&&<Notif msg={notif.msg} ok={notif.ok}/>}
+      <Header d={d}/>
+      <div style={{flex:1,display:'flex',overflow:'hidden'}}>
+        <Sidebar nav={nav} setNav={setNav} d={d}/>
+        <main style={{flex:1,overflow:'auto',padding:'28px 32px',background:C.bg}}>
+          {(SECTIONS[nav]||renderDashboard)()}
+        </main>
+      </div>
+      {/* News feed */}
+      <div style={{background:C.sur,borderTop:`1px solid ${C.bor}`,padding:'0 20px',
+        display:'flex',alignItems:'center',gap:14,flexShrink:0,height:34,overflow:'hidden'}}>
+        <span style={{fontSize:9,fontWeight:600,color:C.acc,letterSpacing:'0.1em',whiteSpace:'nowrap',flexShrink:0,textTransform:'uppercase'}}>News</span>
+        <div style={{width:1,height:14,background:C.bor2,flexShrink:0}}/>
+        <div style={{flex:1,overflow:'hidden'}}>
+          <div style={{fontSize:11,color:C.mut,whiteSpace:'nowrap',transition:'opacity .4s',padding:'0 4px'}}>
+            {d.news[tickN]}
+          </div>
+        </div>
+        <div style={{width:1,height:14,background:C.bor2,flexShrink:0}}/>
+        <span style={{fontSize:10,color:C.mut,whiteSpace:'nowrap',flexShrink:0,fontFamily:MONO}}>
+          Day {d.airline.day} · ${d.fuelPrice}/gal
+        </span>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
