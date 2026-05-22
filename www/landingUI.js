@@ -1641,7 +1641,7 @@ export const LandingUI = {
                     right: 0 !important;
                     width: 100% !important;
                     height: auto !important;
-                    padding: calc(env(safe-area-inset-top, 0px) + 8px) 64px 8px 12px !important;
+                    padding: calc(env(safe-area-inset-top, 0px) + 10px) 68px 10px 12px !important;
                     background: var(--lui-glass-bg) !important;
                     -webkit-backdrop-filter: blur(20px) !important;
                     backdrop-filter: blur(20px) !important;
@@ -1665,14 +1665,15 @@ export const LandingUI = {
                 .search-blade {
                     width: 100% !important;
                     height: 44px !important;
-                    padding: 0 14px !important;
+                    padding: 0 16px !important;
                     background: var(--lui-bg-input) !important;
                     border: 1px solid var(--lui-border-base) !important;
-                    border-radius: 14px !important;
+                    border-radius: 22px !important;
                     display: flex !important;
                     align-items: center !important;
                     gap: 10px !important;
-                    box-shadow: 0 4px 14px rgba(0,0,0,0.25) !important;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.2) !important;
+                    transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
                 }
                 .search-blade .search-icon { color: var(--lui-text-gray-1) !important; font-size: 0.95rem !important; }
                 #blade-search-input { font-size: 15px !important; flex: 1 1 auto !important; }
@@ -1685,9 +1686,11 @@ export const LandingUI = {
                     width: auto !important;
                     max-width: none !important;
                     height: 44px !important;
+                    border-radius: 22px !important;
                     z-index: 1600 !important;
                     background: var(--lui-bg-card) !important;
                     border-color: var(--lui-accent) !important;
+                    box-shadow: 0 6px 20px rgba(0,0,0,0.4), 0 0 0 3px var(--lui-accent-hover) !important;
                 }
                 .search-results-dropdown {
                     top: calc(env(safe-area-inset-top, 0px) + 60px) !important;
@@ -1698,7 +1701,7 @@ export const LandingUI = {
                 /* ---------- TOP-RIGHT: profile button ---------- */
                 .auth-nexus {
                     position: fixed !important;
-                    top: calc(env(safe-area-inset-top, 0px) + 8px) !important;
+                    top: calc(env(safe-area-inset-top, 0px) + 10px) !important;
                     right: 12px !important;
                     left: auto !important;
                     bottom: auto !important;
@@ -1709,6 +1712,14 @@ export const LandingUI = {
                     height: 44px !important;
                     border-radius: 50% !important;
                     font-size: 1rem !important;
+                    background: var(--lui-bg-input) !important;
+                    border: 1px solid var(--lui-border-base) !important;
+                    color: var(--lui-text-main) !important;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.2) !important;
+                }
+                .auth-nexus .orb-btn:active {
+                    transform: scale(0.94) !important;
+                    background: var(--lui-bg-card) !important;
                 }
 
                 /* ---------- BOTTOM: floating tab bar ---------- */
