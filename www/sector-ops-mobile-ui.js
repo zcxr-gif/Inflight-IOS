@@ -977,7 +977,11 @@ disableHudControls() {
 
             /* --- Header / Image / Route Bar Overrides --- */
             .mobile-legacy-sheet .aircraft-overview-panel {
-                /* The handle will wrap this */
+                /* Show the whole aircraft (nose to tail) instead of cropping
+                   the sides like a cover background does. */
+                background-size: contain;
+                background-repeat: no-repeat;
+                background-position: center;
             }
             .mobile-legacy-sheet .route-summary-overlay {
                 /* The handle will wrap this */
