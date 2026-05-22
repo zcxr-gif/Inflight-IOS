@@ -348,6 +348,13 @@ export const LandingUI = {
 
                 <div class="utility-nexus">
                     <div class="orb-row">
+                        <div class="nexus-orb-wrapper mobile-only-tab">
+                            <button class="orb-btn" id="mobile-server-tab" aria-label="Server">
+                                <i class="fa-solid fa-server"></i>
+                                <span class="tab-label">Server</span>
+                            </button>
+                        </div>
+
                         <div class="weather-nexus-container" id="weather-menu-wrapper">
                             <div class="weather-spread">
                                 <button class="spread-opt" data-weather="precip"><i class="fa-solid fa-satellite-dish"></i><span class="spread-label">Radar</span></button>
@@ -355,13 +362,14 @@ export const LandingUI = {
                                 <button class="spread-opt" data-weather="clouds"><i class="fa-solid fa-cloud"></i><span class="spread-label">Clouds</span></button>
                                 <button class="spread-opt" data-weather="wind"><i class="fa-solid fa-wind"></i><span class="spread-label">Wind</span></button>
                             </div>
-                            <button class="orb-btn" id="tile-weather" aria-label="Weather"><i class="fa-solid fa-cloud-sun-rain"></i></button>
+                            <button class="orb-btn" id="tile-weather" aria-label="Weather"><i class="fa-solid fa-cloud-sun-rain"></i><span class="tab-label">Weather</span></button>
                         </div>
 
                         <div class="nexus-orb-wrapper">
                             <div class="nexus-preview-tooltip" id="filters-preview-tooltip"></div>
                             <button class="orb-btn nexus-trigger" id="toggle-filter-modal" aria-label="Filters">
                                 <i class="fa-solid fa-filter"></i>
+                                <span class="tab-label">Filters</span>
                                 <div id="filter-active-dot" class="active-pulse-dot"></div>
                             </button>
                         </div>
@@ -370,6 +378,7 @@ export const LandingUI = {
                             <div class="nexus-preview-tooltip" id="settings-preview-tooltip"></div>
                             <button class="orb-btn" id="tile-settings" aria-label="Settings">
                                 <i class="fa-solid fa-gear"></i>
+                                <span class="tab-label">Settings</span>
                             </button>
                         </div>
                     </div>
@@ -480,6 +489,16 @@ export const LandingUI = {
         serverSelector?.addEventListener('click', (e) => {
             e.stopPropagation();
             serverSelector.classList.toggle('open');
+        });
+
+        // Mobile bottom-bar Server tab → reuse the polished server bottom sheet
+        document.getElementById('mobile-server-tab')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (window.MobileUIHandler && typeof window.MobileUIHandler.openServerSheet === 'function') {
+                window.MobileUIHandler.openServerSheet();
+            } else {
+                serverSelector?.classList.toggle('open');
+            }
         });
 
         document.querySelectorAll('.server-option').forEach(opt => {
@@ -1085,6 +1104,9 @@ export const LandingUI = {
             }
 
             .nexus-orb-wrapper { position: relative; }
+            /* Tab labels + Server tab are mobile-only (FR24 bottom bar) */
+            .tab-label { display: none; }
+            .mobile-only-tab { display: none; }
             .nexus-preview-tooltip {
                 position: absolute;
                 bottom: calc(100% + 20px);
@@ -1604,6 +1626,165 @@ export const LandingUI = {
                 }
                 .spread-opt i {
                     font-size: 0.8rem !important;
+                }
+            }
+
+            /* ============================================================
+               FR24-style mobile chrome (authoritative overrides — kept last
+               so they win over the legacy mobile rules above)
+               ============================================================ */
+            @media (max-width: 768px) {
+                /* ---------- TOP: full-width search bar ---------- */
+                .tactical-header {
+                    top: 0 !important;
+                    left: 0 !important;
+                    right: 0 !important;
+                    width: 100% !important;
+                    height: auto !important;
+                    padding: calc(env(safe-area-inset-top, 0px) + 8px) 64px 8px 12px !important;
+                    background: var(--lui-glass-bg) !important;
+                    -webkit-backdrop-filter: blur(20px) !important;
+                    backdrop-filter: blur(20px) !important;
+                    border-bottom: 1px solid var(--lui-border-base) !important;
+                    display: flex !important;
+                    align-items: center !important;
+                    gap: 10px !important;
+                    pointer-events: none !important;
+                    z-index: 1500 !important;
+                }
+                /* Server moved to the bottom bar — hide it from the top */
+                .tactical-header .top-branding.dropdown { display: none !important; }
+
+                .top-right-actions {
+                    flex: 1 1 auto !important;
+                    width: auto !important;
+                    max-width: none !important;
+                    display: flex !important;
+                    pointer-events: auto !important;
+                }
+                .search-blade {
+                    width: 100% !important;
+                    height: 44px !important;
+                    padding: 0 14px !important;
+                    background: var(--lui-bg-input) !important;
+                    border: 1px solid var(--lui-border-base) !important;
+                    border-radius: 14px !important;
+                    display: flex !important;
+                    align-items: center !important;
+                    gap: 10px !important;
+                    box-shadow: 0 4px 14px rgba(0,0,0,0.25) !important;
+                }
+                .search-blade .search-icon { color: var(--lui-text-gray-1) !important; font-size: 0.95rem !important; }
+                #blade-search-input { font-size: 15px !important; flex: 1 1 auto !important; }
+
+                .search-blade:focus-within {
+                    position: fixed !important;
+                    left: 10px !important;
+                    right: 10px !important;
+                    top: calc(env(safe-area-inset-top, 0px) + 8px) !important;
+                    width: auto !important;
+                    max-width: none !important;
+                    height: 44px !important;
+                    z-index: 1600 !important;
+                    background: var(--lui-bg-card) !important;
+                    border-color: var(--lui-accent) !important;
+                }
+                .search-results-dropdown {
+                    top: calc(env(safe-area-inset-top, 0px) + 60px) !important;
+                    height: calc(100vh - env(safe-area-inset-top, 0px) - 60px) !important;
+                    height: calc(100dvh - env(safe-area-inset-top, 0px) - 60px) !important;
+                }
+
+                /* ---------- TOP-RIGHT: profile button ---------- */
+                .auth-nexus {
+                    position: fixed !important;
+                    top: calc(env(safe-area-inset-top, 0px) + 8px) !important;
+                    right: 12px !important;
+                    left: auto !important;
+                    bottom: auto !important;
+                    z-index: 1600 !important;
+                }
+                .auth-nexus .orb-btn {
+                    width: 44px !important;
+                    height: 44px !important;
+                    border-radius: 50% !important;
+                    font-size: 1rem !important;
+                }
+
+                /* ---------- BOTTOM: floating tab bar ---------- */
+                .utility-nexus {
+                    position: fixed !important;
+                    left: 50% !important;
+                    right: auto !important;
+                    bottom: calc(env(safe-area-inset-bottom, 0px) + 10px) !important;
+                    transform: translateX(-50%) !important;
+                    pointer-events: none !important;
+                    z-index: 1500 !important;
+                    transition: transform 0.3s cubic-bezier(0.16,1,0.3,1), opacity 0.3s !important;
+                }
+                .orb-row {
+                    gap: 2px !important;
+                    align-items: stretch !important;
+                    background: var(--lui-glass-bg) !important;
+                    -webkit-backdrop-filter: blur(22px) !important;
+                    backdrop-filter: blur(22px) !important;
+                    border: 1px solid var(--lui-border-base) !important;
+                    border-radius: 22px !important;
+                    padding: 6px !important;
+                    box-shadow: 0 12px 30px rgba(0,0,0,0.45) !important;
+                    pointer-events: auto !important;
+                }
+                .mobile-only-tab { display: block !important; }
+
+                .orb-row .orb-btn {
+                    width: 64px !important;
+                    height: auto !important;
+                    min-height: 48px !important;
+                    border-radius: 14px !important;
+                    background: transparent !important;
+                    border: none !important;
+                    box-shadow: none !important;
+                    display: flex !important;
+                    flex-direction: column !important;
+                    align-items: center !important;
+                    justify-content: center !important;
+                    gap: 4px !important;
+                    color: var(--lui-text-gray-1) !important;
+                    font-size: 1.05rem !important;
+                    transform: none !important;
+                }
+                .orb-row .orb-btn:hover,
+                .orb-row .orb-btn:active {
+                    transform: none !important;
+                    background: var(--lui-active-bg) !important;
+                    color: var(--lui-accent) !important;
+                }
+                .orb-row .tab-label {
+                    display: block !important;
+                    font-size: 0.62rem !important;
+                    font-weight: 700 !important;
+                    letter-spacing: 0.2px !important;
+                    line-height: 1 !important;
+                }
+                .orb-row .active-pulse-dot {
+                    position: absolute !important;
+                    top: 6px !important;
+                    right: 14px !important;
+                    bottom: auto !important;
+                }
+                .weather-nexus-container { flex-direction: column !important; gap: 0 !important; }
+
+                /* Slide the tab bar away while searching or when a detail sheet is open */
+                body:has(.search-blade:focus-within) .utility-nexus,
+                #sector-ops-map-fullscreen:has(.mobile-island-bottom.island-active) .utility-nexus {
+                    opacity: 0 !important;
+                    transform: translateX(-50%) translateY(140%) !important;
+                    pointer-events: none !important;
+                }
+                /* Hide the profile button while the full-width search is open */
+                body:has(.search-blade:focus-within) .auth-nexus {
+                    opacity: 0 !important;
+                    pointer-events: none !important;
                 }
             }
         `;

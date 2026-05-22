@@ -298,15 +298,20 @@ disableHudControls() {
         // Selection Event
         sheet.querySelectorAll('.server-opt-btn').forEach(btn => {
             btn.addEventListener('click', () => {
-                const newServer = btn.dataset.server;
-                
-                // Update Pill Text
-                const pillText = document.getElementById('mobile-server-name');
-                if (pillText) pillText.textContent = newServer.split(' ')[0];
+                const newServer = btn.dataset.server;       // e.g. "Expert Server"
+                const shortName = newServer.split(' ')[0];   // e.g. "Expert"
 
-                // Trigger Desktop Logic
-                const desktopBtn = document.querySelector(`.server-btn[data-server="${newServer}"]`);
-                if (desktopBtn) desktopBtn.click();
+                // Keep any legacy pill text in sync (no-op if absent)
+                const pillText = document.getElementById('mobile-server-name');
+                if (pillText) pillText.textContent = shortName;
+
+                // Update LandingUI's top-bar label + internal state
+                const landingName = document.getElementById('landing-server-name');
+                if (landingName) landingName.textContent = `${shortName.toUpperCase()} SERVER`;
+                if (window.LandingUI) window.LandingUI._currentServer = shortName;
+
+                // Drive the canonical server switch (mapped + switchServer in flight.js)
+                window.dispatchEvent(new CustomEvent('serverChange', { detail: { server: shortName } }));
 
                 overlay.click(); // Close
             });
