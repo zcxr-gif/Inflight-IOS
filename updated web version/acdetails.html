@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>InFlight UI Overlay</title>
+    
+    <script src="[https://unpkg.com/@phosphor-icons/web](https://unpkg.com/@phosphor-icons/web)"></script>
+    <link href="[https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap](https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap)" rel="stylesheet">
+
+    <style>
+        /* --- DESIGN SYSTEM: NEON GLASS --- */
+        :root {
+            --glass-surface: rgba(20, 20, 20, 0.75);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --glass-blur: 24px;
+            --glass-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+            
+            --text-primary: #F0F0F0;
+            --text-secondary: #909090;
+            --text-tertiary: #505050;
+
+            /* Functional Neon Colors */
+            --neon-cyan: #00F0FF;    /* Primary Action */
+            --neon-red: #FF2E55;     /* Emergency / 7700 */
+            --neon-amber: #FFAA00;   /* Warnings / 7600 */
+            --neon-purple: #BD00FF;  /* High Alt / Special */
+            
+            --ease-elastic: cubic-bezier(0.34, 1.56, 0.64, 1);
+            --ease-smooth: cubic-bezier(0.2, 0, 0.2, 1);
+        }
+
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        
+        body {
+            margin: 0; padding: 0;
+            font-family: 'Inter', sans-serif;
+            color: var(--text-primary);
+            overflow: hidden;
+            /* Transparent body to allow your existing map to show through */
+            background: transparent; 
+        }
+
+        /* --- UI LAYER WRAPPER --- */
+        /* This ensures UI sits above your existing map div */
+        #ui-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; /* Let clicks pass to map where there is no UI */
+            z-index: 9999;
+            display: flex; flex-direction: column; justify-content: space-between;
+        }
+
+        /* --- COMPONENT: DYNAMIC ISLAND HEADER --- */
+       .header-zone {
+            width: 100%; display: flex; justify-content: center;
+            padding-top: 16px; pointer-events: none;
+        }
+
+       .dynamic-island {
+            pointer-events: auto;
+            background: var(--glass-surface);
+            backdrop-filter: blur(var(--glass-blur));
+            -webkit-backdrop-filter: blur(var(--glass-blur));
+            border: 1px solid var(--glass-border);
+            height: 54px;
+            border-radius: 27px;
+            display: flex; align-items: center;
+            padding: 4px 6px;
+            box-shadow: var(--glass-shadow);
+            transition: all 0.4s var(--ease-elastic);
+            width: auto; min-width: 260px; max-width: 90%;
+            gap: 12px;
+        }
+
+       .di-icon-btn {
+            width: 44px; height: 44px;
+            border-radius: 50%;
+            border: none; background: transparent;
+            color: var(--text-secondary);
+            font-size: 20px;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer;
+            transition: color 0.2s, background 0.2s;
+        }
+       .di-icon-btn:hover { color: var(--text-primary); background: rgba(255,255,255,0.05); }
+       .di-icon-btn.active { color: var(--neon-cyan); background: rgba(0, 240, 255, 0.1); }
+
+       .di-search {
+            flex: 1; height: 100%;
+            background: transparent; border: none; outline: none;
+            color: var(--text-primary); font-size: 15px; font-weight: 500;
+            min-width: 120px;
+        }
+       .di-search::placeholder { color: var(--text-tertiary); }
+
+        /* --- COMPONENT: FLOATING ACTION STACK (Right Side) --- */
+       .fab-stack {
+            position: absolute; right: 20px; bottom: 140px; /* Above bottom sheet */
+            display: flex; flex-direction: column; gap: 16px;
+            pointer-events: auto;
+        }
+
+       .fab {
+            width: 50px; height: 50px;
+            border-radius: 18px; /* Squircle */
+            background: var(--glass-surface);
+            backdrop-filter: blur(var(--glass-blur));
+            border: 1px solid var(--glass-border);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 22px; color: var(--text-primary);
+            cursor: pointer;
+            box-shadow: var(--glass-shadow);
+            transition: transform 0.2s var(--ease-elastic);
+        }
+       .fab:active { transform: scale(0.9); }
+       .fab.toggle-active { 
+            background: rgba(0, 240, 255, 0.15); 
+            border-color: var(--neon-cyan); 
+            color: var(--neon-cyan); 
+        }
+
+        /* --- COMPONENT: THE "COMPLETE" FILTER SHEET --- */
+       .bottom-sheet {
+            position: absolute; bottom: 0; left: 0; right: 0;
+            background: #121212; /* Opaque base for performance/readability */
+            border-top: 1px solid var(--glass-border);
+            border-radius: 24px 24px 0 0;
+            transform: translateY(85%); /* Collapsed state */
+            transition: transform 0.5s var(--ease-elastic);
+            pointer-events: auto;
+            max-height: 85vh;
+            display: flex; flex-direction: column;
+            z-index: 10000;
+        }
+
+       .bottom-sheet.expanded { transform: translateY(0); }
+
+        /* Handle & Quick Chips */
+       .sheet-handle-area {
+            width: 100%; padding: 12px 0 0 0;
+            display: flex; flex-direction: column; align-items: center;
+            cursor: grab;
+            background: rgba(255,255,255,0.02);
+            border-radius: 24px 24px 0 0;
+        }
+       .sheet-pill { width: 36px; height: 4px; background: var(--text-tertiary); border-radius: 2px; margin-bottom: 12px; }
+
+       .quick-chips {
+            width: 100%; display: flex; gap: 10px;
+            padding: 0 20px 16px 20px;
+            overflow-x: auto;
+            scrollbar-width: none;
+        }
+       .quick-chips::-webkit-scrollbar { display: none; }
+
+       .chip {
+            padding: 8px 14px;
+            border-radius: 100px;
+            font-size: 13px; font-weight: 500;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid transparent;
+            color: var(--text-secondary);
+            white-space: nowrap; cursor: pointer;
+            transition: all 0.2s;
+            display: flex; align-items: center; gap: 6px;
+        }
+       .chip.active {
+            background: rgba(0, 240, 255, 0.15);
+            border-color: rgba(0, 240, 255, 0.3);
+            color: var(--neon-cyan);
+        }
+       .chip.emergency.active {
+            background: rgba(255, 46, 85, 0.2);
+            border-color: var(--neon-red);
+            color: var(--neon-red);
+        }
+
+        /* Full Filter Controls */
+       .sheet-content {
+            flex: 1; overflow-y: auto;
+            padding: 20px 24px 40px 24px;
+            opacity: 0.3; transition: opacity 0.3s;
+        }
+       .bottom-sheet.expanded.sheet-content { opacity: 1; }
+
+       .section-title {
+            font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+            color: var(--text-tertiary); margin-top: 24px; margin-bottom: 12px;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+
+        /* Custom Sliders */
+       .slider-group { margin-bottom: 20px; }
+       .slider-label { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 8px; }
+       .slider-val { font-family: 'JetBrains Mono', monospace; color: var(--neon-cyan); }
+        
+        input[type=range] {
+            width: 100%; -webkit-appearance: none; background: transparent;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none; height: 18px; width: 18px;
+            border-radius: 50%; background: var(--text-primary);
+            margin-top: -7px; box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+        }
+
+        /* Source Grid (ADSB/UAT/MLAT) */
+       .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+       .toggle-box {
+            background: rgba(255,255,255,0.03);
+            border-radius: 12px; padding: 12px;
+            text-align: center; cursor: pointer;
+            border: 1px solid transparent;
+            transition: all 0.2s;
+        }
+       .toggle-box.active {
+            background: rgba(0, 240, 255, 0.05);
+            border-color: var(--neon-cyan);
+            color: var(--neon-cyan);
+        }
+       .toggle-box div:first-child { font-size: 16px; margin-bottom: 4px; }
+       .toggle-box div:last-child { font-size: 10px; opacity: 0.6; }
+
+        /* --- COMPONENT: SETTINGS MODAL (Custom Options) --- */
+       .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.6); backdrop-filter: blur(10px);
+            z-index: 11000;
+            display: none; align-items: center; justify-content: center;
+            opacity: 0; transition: opacity 0.3s;
+        }
+       .modal-overlay.open { display: flex; opacity: 1; }
+
+       .settings-card {
+            width: 90%; max-width: 360px;
+            background: #1A1A1A; border: 1px solid var(--glass-border);
+            border-radius: 24px; padding: 24px;
+            transform: scale(0.9); transition: transform 0.3s var(--ease-elastic);
+        }
+       .modal-overlay.open.settings-card { transform: scale(1); }
+
+       .switch-row {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+       .toggle-switch {
+            width: 44px; height: 24px; background: rgba(255,255,255,0.1);
+            border-radius: 12px; position: relative; cursor: pointer;
+            transition: background 0.3s;
+        }
+       .toggle-switch::after {
+            content: ''; position: absolute; top: 2px; left: 2px;
+            width: 20px; height: 20px; background: #fff;
+            border-radius: 50%; transition: transform 0.3s var(--ease-elastic);
+        }
+       .toggle-switch.on { background: var(--neon-cyan); }
+       .toggle-switch.on::after { transform: translateX(20px); }
+
+    </style>
+</head>
+<body>
+
+    <div id="ui-layer">
+        
+        <div class="header-zone">
+            <div class="dynamic-island" id="dynamicIsland">
+                <button class="di-icon-btn" id="menuBtn"><i class="ph ph-list"></i></button>
+                <input type="text" class="di-search" placeholder="Search flight, airport...">
+                <button class="di-icon-btn" onclick="toggleSettings()"><i class="ph ph-gear"></i></button>
+            </div>
+        </div>
+
+        <div class="fab-stack">
+            <div class="fab" id="fab-weather" onclick="toggleFab(this)" title="Weather Radar">
+                <i class="ph ph-cloud-rain"></i>
+            </div>
+            <div class="fab" id="fab-3d" onclick="toggleFab(this)" title="3D View">
+                <i class="ph ph-cube"></i>
+            </div>
+            <div class="fab" onclick="alert('Trigger Map Pan Logic')" title="Locate Me">
+                <i class="ph ph-navigation-arrow"></i>
+            </div>
+        </div>
+
+        <div class="bottom-sheet" id="filterSheet">
+            <div class="sheet-handle-area" id="sheetDragHandle">
+                <div class="sheet-pill"></div>
+                
+                <div class="quick-chips">
+                    <div class="chip" onclick="toggleChip(this)">On Ground</div>
+                    <div class="chip" onclick="toggleChip(this)">Military</div>
+                    <div class="chip emergency" onclick="toggleChip(this)"><i class="ph ph-warning-circle"></i> 7700</div>
+                    <div class="chip" onclick="toggleChip(this)">Blocked (LADD)</div>
+                    <div class="chip" onclick="toggleChip(this)">UAT Only</div>
+                </div>
+            </div>
+
+            <div class="sheet-content">
+                
+                <div class="section-title">PHYSICS FILTERS <span style="color:var(--neon-cyan)">Active: 0</span></div>
+                
+                <div class="slider-group">
+                    <div class="slider-label"><span>Altitude</span> <span class="slider-val" id="altVal">Any</span></div>
+                    <input type="range" min="0" max="60000" step="1000" oninput="updateVal('altVal', this.value, ' ft')">
+                </div>
+
+                <div class="slider-group">
+                    <div class="slider-label"><span>Speed (Ground)</span> <span class="slider-val" id="spdVal">Any</span></div>
+                    <input type="range" min="0" max="800" step="10" oninput="updateVal('spdVal', this.value, ' kts')">
+                </div>
+
+                <div class="section-title">DATA SOURCE INTEGRITY</div>
+                <div class="grid-3">
+                    <div class="toggle-box active" onclick="toggleBox(this)">
+                        <div><i class="ph ph-broadcast"></i></div>
+                        <div>ADS-B</div>
+                    </div>
+                    <div class="toggle-box active" onclick="toggleBox(this)">
+                        <div><i class="ph ph-airplane-tilt"></i></div>
+                        <div>MLAT</div>
+                    </div>
+                    <div class="toggle-box" onclick="toggleBox(this)">
+                        <div><i class="ph ph-planet"></i></div>
+                        <div>SAT</div>
+                    </div>
+                </div>
+
+                <div class="section-title">ADVANCED IDENTITY</div>
+                <div class="slider-group">
+                    <div class="slider-label"><span>Aircraft Age</span> <span class="slider-val" id="ageVal">Any</span></div>
+                    <input type="range" min="1950" max="2024" value="1950" oninput="updateVal('ageVal', '> ' + this.value, '')">
+                </div>
+                
+                <div style="margin-top: 12px; display: flex; gap: 10px;">
+                    <input type="text" placeholder="Squawk (e.g. 7600)" style="flex:1; background: rgba(255,255,255,0.06); border: none; padding: 12px; border-radius: 8px; color: white;">
+                    <input type="text" placeholder="ICAO Type" style="flex:1; background: rgba(255,255,255,0.06); border: none; padding: 12px; border-radius: 8px; color: white;">
+                </div>
+
+                <div style="height: 40px;"></div> </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="settingsModal" onclick="if(event.target === this) toggleSettings()">
+        <div class="settings-card">
+            <h2 style="margin: 0 0 20px 0; font-size: 18px;">Display Options</h2>
+            
+            <div class="switch-row">
+                <span>Dark Mode</span>
+                <div class="toggle-switch on" onclick="this.classList.toggle('on')"></div>
+            </div>
+            <div class="switch-row">
+                <span>Show Aircraft Labels</span>
+                <div class="toggle-switch on" onclick="this.classList.toggle('on')"></div>
+            </div>
+            <div class="switch-row">
+                <span>Show Trails (History)</span>
+                <div class="toggle-switch" onclick="this.classList.toggle('on')"></div>
+            </div>
+            <div class="switch-row">
+                <span>Group Ground Traffic</span>
+                <div class="toggle-switch on" onclick="this.classList.toggle('on')"></div>
+            </div>
+            
+            <div class="section-title">UNITS</div>
+            <div class="grid-3">
+                <div class="toggle-box active" onclick="toggleBox(this)">Knots</div>
+                <div class="toggle-box" onclick="toggleBox(this)">KM/H</div>
+                <div class="toggle-box" onclick="toggleBox(this)">MPH</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /* --- UI LOGIC CONTROLLER --- */
+        
+        // 1. Bottom Sheet Expansion Logic
+        const sheet = document.getElementById('filterSheet');
+        const handle = document.getElementById('sheetDragHandle');
+        let isExpanded = false;
+
+        handle.addEventListener('click', () => {
+            isExpanded =!isExpanded;
+            if(isExpanded) {
+                sheet.classList.add('expanded');
+                // Haptic feedback pattern
+                if(navigator.vibrate) navigator.vibrate(10);
+            } else {
+                sheet.classList.remove('expanded');
+            }
+        });
+
+        // 2. Chip & Toggle Logic
+        function toggleChip(el) {
+            el.classList.toggle('active');
+            // Connect to your map filter logic here
+            console.log(`Filter ${el.innerText} toggled: ${el.classList.contains('active')}`);
+        }
+
+        function toggleBox(el) {
+            el.classList.toggle('active');
+        }
+
+        function toggleFab(el) {
+            el.classList.toggle('toggle-active');
+            // Connect to your existing weather/3D logic
+            const id = el.id;
+            console.log(`Global Feature ${id} toggled`);
+        }
+
+        // 3. Slider Value Updates
+        function updateVal(id, val, unit) {
+            document.getElementById(id).innerText = val + unit;
+        }
+
+        // 4. Modal Logic
+        function toggleSettings() {
+            const modal = document.getElementById('settingsModal');
+            modal.classList.toggle('open');
+        }
+
+        // 5. Dynamic Island Collapse on Scroll (Optional)
+        // If your map has scroll events, you can shrink the island
+        // document.getElementById('map').addEventListener('wheel', () => {... });
+
+    </script>
+</body>
+</html>

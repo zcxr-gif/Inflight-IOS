@@ -1,0 +1,1135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flight Avionics Interface - Carbon</title>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+    /* --- DESIGN TOKENS (Theme: Carbon & Titanium) --- */
+    :root {
+        /* Palette */
+        --bg-glass: rgba(24, 24, 27, 0.90); /* Zinc-900 base */
+        --bg-panel: rgba(63, 63, 70, 0.35); /* Zinc-700 lighter gray */
+
+        /* Dynamic Theme Variables (Updated via JS) */
+        --theme-bg-start: rgba(24, 24, 27, 0.90);
+        --theme-bg-end: rgba(24, 24, 27, 0.90);
+        
+        --border-glass: rgba(255, 255, 255, 0.08);
+        --border-highlight: rgba(255, 255, 255, 0.12);
+        
+        /* Typography Colors */
+        --text-primary: #fafafa; /* Zinc-50 */
+        --text-secondary: #a1a1aa; /* Zinc-400 */
+        --text-dim: #52525b; /* Zinc-600 */
+        
+        /* Functional Colors */
+        --color-accent: #e4e4e7; /* Zinc-200 */
+        --color-success: #10b981; 
+        --color-warning: #f59e0b;
+        --color-danger: #ef4444;
+
+        /* Dimensions */
+        --radius-sm: 8px;
+        --radius-lg: 20px;
+        
+        /* Fonts */
+        --font-ui: 'Inter', -apple-system, sans-serif;
+        --font-data: 'JetBrains Mono', monospace;
+
+        /* Motion */
+        --ease-out: cubic-bezier(0.215, 0.61, 0.355, 1);
+    }
+
+    /* --- RESET & BASE --- */
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    
+    body {
+        background: transparent;
+        height: 100vh;
+        font-family: var(--font-ui);
+        overflow: hidden;
+        color: var(--text-primary);
+        perspective: 1000px;
+    }
+
+    /* --- MAIN CONTAINER --- */
+    .avionics-window {
+        width: 100%;
+        height: 100%;
+        /* Use the dynamic variables here */
+        background: linear-gradient(135deg, var(--theme-bg-start), var(--theme-bg-end));
+        backdrop-filter: blur(40px) saturate(140%);
+        -webkit-backdrop-filter: blur(40px) saturate(140%);
+        display: flex;
+        flex-direction: column;
+        position: relative;
+        /* Noise texture */
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.04'/%3E%3C/svg%3E");
+    }
+
+    /* --- HEADER: INTEGRATED STYLE --- */
+    .header-section {
+        padding: 24px 20px 12px 20px;
+        flex-shrink: 0;
+        z-index: 20;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        /* UPDATED: Use dynamic variable for seamless blend */
+        background: linear-gradient(180deg, var(--theme-bg-start) 0%, rgba(0,0,0,0) 100%);
+    }
+
+    .identity-group {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .main-callsign {
+        font-family: var(--font-ui);
+        font-weight: 800;
+        font-size: 32px;
+        line-height: 1;
+        letter-spacing: -1px;
+        color: #fff;
+        background: linear-gradient(180deg, #ffffff, #d4d4d8);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+    }
+
+    .pilot-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 11px;
+        color: var(--text-secondary);
+        font-weight: 500;
+        margin-top: 4px;
+        cursor: pointer;
+        transition: color 0.2s;
+    }
+    .pilot-row:hover { color: #fff; }
+    .pilot-row i { font-size: 10px; color: var(--text-dim); }
+
+    /* New Mini Label for Seat Text */
+    .seat-mini-label {
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+        padding: 2px 6px;
+        border-radius: 4px;
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.05);
+        color: var(--text-dim);
+        transition: all 0.3s ease;
+    }
+    
+    /* Text Colors for Mini Label */
+    .text-active { color: #4ade80; background: rgba(74, 222, 128, 0.1); border-color: rgba(74, 222, 128, 0.15); }
+    .text-auto   { color: #facc15; background: rgba(250, 204, 21, 0.1); border-color: rgba(250, 204, 21, 0.15); }
+    .text-parked { color: #f87171; background: rgba(248, 113, 113, 0.1); border-color: rgba(248, 113, 113, 0.15); }
+    .text-ap-plus { color: #818cf8; background: rgba(129, 140, 248, 0.1); border-color: rgba(129, 140, 248, 0.15); }
+
+    /* Modern Status Pill (Dot Indicator for Flight Phase) */
+    .flight-state-badge {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 14px;
+        border-radius: 99px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        backdrop-filter: blur(8px);
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--text-secondary);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        transition: all 0.3s ease;
+    }
+    
+    .state-indicator-dot {
+        width: 6px;
+        height: 6px; border-radius: 50%;
+        box-shadow: 0 0 8px currentColor;
+        background: currentColor;
+    }
+    
+    /* Dynamic State Colors (Applied to Badge Parent) */
+    .state-climb { color: #34d399; border-color: rgba(52, 211, 153, 0.2); background: rgba(52, 211, 153, 0.05); }
+    .state-descend { color: #fbbf24; border-color: rgba(251, 191, 36, 0.2); background: rgba(251, 191, 36, 0.05); }
+    .state-cruise { color: #38bdf8; border-color: rgba(56, 189, 248, 0.2); background: rgba(56, 189, 248, 0.05); }
+    .state-ground { color: #a1a1aa; border-color: rgba(161, 161, 170, 0.2); background: rgba(161, 161, 170, 0.05); }
+
+    /* --- SCROLL AREA --- */
+    .scroll-viewport {
+        flex: 1;
+        overflow-y: auto;
+        overflow-x: hidden;
+        padding: 0 8px 20px 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        mask-image: linear-gradient(to bottom, transparent 0%, black 20px, black 100%);
+    }
+    .scroll-viewport::-webkit-scrollbar { width: 0px; } 
+
+    /* --- UNIFIED MISSION CARD --- */
+    .unified-mission-card {
+        border-radius: var(--radius-lg);
+        border: 1px solid var(--border-glass);
+        box-shadow: 0 20px 40px -10px rgba(0,0,0,0.6);
+        display: flex;
+        flex-direction: column;
+        background: var(--bg-panel);
+        margin-top: 10px;
+        position: relative;
+    }
+
+    .mission-visual-section {
+        position: relative;
+        width: 100%;
+        height: 320px; 
+        flex: 0 0 auto;
+        background: #0f172a;
+        overflow: hidden;
+        z-index: 1; 
+    }
+
+    .hero-img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: center;
+        transition: transform 8s ease;
+        transform: scale(1.02);
+        z-index: 1;
+        position: relative;
+        display: block; 
+    }
+
+    .unified-mission-card:hover .hero-img { 
+        transform: scale(1.1); 
+    }
+
+    .hero-overlay {
+        position: absolute; 
+        bottom: 0; left: 0; right: 0;
+        background: linear-gradient(to top, rgba(15,23,42,1) 0%, rgba(15,23,42,0.8) 30%, transparent 100%);
+        padding: 60px 20px 16px;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+        z-index: 10;
+        gap: 16px;
+    }
+
+    .photo-credit {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        font-size: 9px;
+        color: rgba(255, 255, 255, 0.7);
+        background: rgba(0, 0, 0, 0.5);
+        padding: 3px 8px;
+        border-radius: 6px;
+        backdrop-filter: blur(4px);
+        pointer-events: none;
+        font-weight: 500;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        text-transform: uppercase;
+        z-index: 10;
+    }
+
+    .ac-info {
+        flex: 1;
+        min-width: 0;
+        z-index: 11;
+    }
+
+    .ac-info h2 { 
+        font-size: 18px;
+        font-weight: 700; 
+        color: #fff; 
+        margin-bottom: 4px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        text-shadow: 0 2px 10px rgba(0,0,0,0.5);
+    }
+    
+    .ac-info span { 
+        font-size: 13px; 
+        color: var(--text-secondary); 
+        display: block; 
+        font-weight: 500; 
+    }
+
+    .ac-reg-badge {
+        font-family: var(--font-data);
+        font-size: 12px;
+        background: rgba(255,255,255,0.1);
+        padding: 6px 12px;
+        border-radius: 8px;
+        border: 1px solid var(--border-glass);
+        backdrop-filter: blur(4px);
+        color: #fff;
+        font-weight: 600;
+        z-index: 11;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+
+    /* --- ROUTE SECTION --- */
+    .mission-route-section {
+        border-top: 1px solid rgba(255,255,255,0.05);
+        background: rgba(24, 24, 27, 0.9);
+        position: relative;
+        z-index: 20; 
+        box-shadow: 0 -5px 20px rgba(0,0,0,0.5);
+    }
+
+    .route-visual-header {
+        padding: 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        cursor: pointer;
+        position: relative;
+    }
+    .route-visual-header:hover { background: rgba(255,255,255,0.02); }
+    
+    .route-toggle-icon {
+        position: absolute;
+        top: 8px; right: 8px;
+        font-size: 10px; color: var(--text-dim);
+        transition: transform 0.3s;
+    }
+    .mission-route-section.expanded .route-toggle-icon { 
+        transform: rotate(180deg); color: var(--text-primary); 
+    }
+    
+    .route-airport { text-align: center; min-width: 50px; }
+    .route-airport-row { display: flex; align-items: center; justify-content: center; gap: 8px; }
+    
+    .country-flag {
+        height: 14px; width: auto; border-radius: 2px;
+        opacity: 0.8; box-shadow: 0 1px 2px rgba(0,0,0,0.5); display: none;
+    }
+    
+    .route-icao { 
+        display: block;
+        font-family: var(--font-data); 
+        font-size: 24px; font-weight: 700; color: #fff; line-height: 1;
+    }
+    .route-time { 
+        display: block; font-size: 11px; color: var(--text-dim);
+        margin-top: 4px; font-weight: 600;
+    }
+
+    .route-graphic {
+        flex: 1; margin: 0 24px; position: relative; height: 30px; display: flex; align-items: center;
+    }
+    .track-line {
+        width: 100%; height: 2px; background: rgba(255,255,255,0.08); border-radius: 2px;
+    }
+    .track-progress {
+        position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+        height: 2px; background: #fff; width: 0%;
+        box-shadow: 0 0 12px rgba(255, 255, 255, 0.4);
+        transition: width 0.5s linear;
+    }
+    .track-plane {
+        position: absolute; top: 50%; left: 0%;
+        transform: translate(-50%, -50%); 
+        color: #fff; font-size: 16px;
+        transition: left 0.5s linear;
+        filter: drop-shadow(0 0 8px rgba(255,255,255,0.6));
+    }
+
+    /* --- DROPDOWN --- */
+    .waypoint-dropdown-wrapper {
+        max-height: 0;
+        overflow: hidden;
+        transition: max-height 0.4s var(--ease-out);
+        border-top: 1px solid transparent;
+        background: rgba(0,0,0,0.2);
+    }
+    .mission-route-section.expanded .waypoint-dropdown-wrapper {
+        max-height: 400px;
+        border-top: 1px solid var(--border-glass);
+    }
+    .waypoint-list { padding: 0; max-height: 400px; overflow-y: auto; }
+    .waypoint-list::-webkit-scrollbar { width: 4px; }
+    .waypoint-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px;}
+
+    .wp-group-header {
+        position: sticky; top: 0;
+        padding: 8px 20px;
+        background: rgba(24, 24, 27, 0.95);
+        color: var(--text-secondary); font-size: 10px; font-weight: 700;
+        text-transform: uppercase; letter-spacing: 1px;
+        border-bottom: 1px solid var(--border-glass);
+        z-index: 5; backdrop-filter: blur(4px);
+    }
+
+    .wp-row {
+        display: flex; align-items: center; padding: 12px 20px; position: relative;
+    }
+    .wp-row:not(:last-child)::after {
+        content: ''; position: absolute; bottom: 0; left: 50px; right: 0;
+        height: 1px; background: rgba(255,255,255,0.03);
+    }
+
+    .wp-status {
+        width: 8px; height: 8px; border-radius: 50%;
+        background: var(--text-dim); margin-right: 20px;
+        z-index: 2; border: 2px solid rgba(24, 24, 27, 0.8);
+    }
+    .wp-row.passed .wp-status { background: var(--color-success); opacity: 0.6; }
+    
+    .wp-row.active { background: rgba(255, 255, 255, 0.03); }
+    .wp-row.active .wp-status { 
+        background: #fff;
+        box-shadow: 0 0 10px rgba(255,255,255,0.5);
+    }
+
+    .wp-line-connect {
+        position: absolute; left: 23px; top: -50%; bottom: -50%;
+        width: 2px; background: rgba(255,255,255,0.05); z-index: 1;
+    }
+    .wp-row:first-child .wp-line-connect { top: 50%; }
+    .wp-row:last-child .wp-line-connect { bottom: 50%; }
+
+    .wp-data { flex: 1; }
+    .wp-ident { font-size: 14px; font-weight: 600; color: var(--text-primary); display: block; }
+    .wp-name { font-size: 11px; color: var(--text-secondary); display: block; margin-top: 2px; }
+    .wp-ete { font-family: var(--font-data); font-size: 12px; color: var(--text-dim); margin-left: auto; }
+    .wp-row.active .wp-ete { color: var(--text-primary); font-weight: 600; }
+
+    /* --- BENTO GRID (Telemetry) --- */
+    .grid-section-label {
+        font-size: 10px; text-transform: uppercase; color: var(--text-dim);
+        letter-spacing: 1px; margin: 16px 0 8px 4px; font-weight: 700;
+    }
+
+    .telemetry-bento {
+        display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;
+    }
+
+    .bento-cell {
+        background: var(--bg-panel);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-sm);
+        padding: 16px;
+        display: flex; flex-direction: column; justify-content: space-between;
+        min-height: 90px;
+        transition: border-color 0.2s, background 0.2s;
+    }
+    .bento-cell:hover { border-color: var(--border-highlight); background: rgba(255,255,255,0.06); }
+
+    .cell-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+    .cell-label { font-size: 10px; text-transform: uppercase; color: var(--text-secondary); font-weight: 700; letter-spacing: 0.5px; }
+    .cell-icon { font-size: 12px; color: var(--text-dim); }
+    
+    .cell-data { 
+        font-family: var(--font-data); font-size: 24px;
+        font-weight: 600; color: #fff; letter-spacing: -1px; 
+        display: flex; align-items: baseline; gap: 4px; 
+    }
+    .cell-unit { font-size: 12px; color: var(--text-dim); font-weight: 500; letter-spacing: 0; }
+
+    .cell-vs-graphic { display: flex; align-items: center; gap: 8px; font-size: 18px; }
+    .vs-arrow { transition: transform 0.3s; color: var(--text-dim); font-size: 14px; }
+    .vs-arrow.climbing { color: var(--color-success); transform: rotate(-45deg); }
+    .vs-arrow.descending { color: var(--color-warning); transform: rotate(45deg); }
+
+    /* --- PROFILE SECTION --- */
+    .profile-card {
+        background: var(--bg-panel);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        margin-bottom: 20px; /* spacing at bottom */
+    }
+
+    .profile-header-row {
+        padding: 20px;
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        background: rgba(255,255,255,0.02);
+    }
+
+    .grade-badge-group {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.1);
+        padding: 10px 16px;
+        border-radius: 12px;
+        min-width: 80px;
+    }
+    .grade-label { font-size: 8px; color: var(--text-dim); font-weight: 700; letter-spacing: 1px; margin-bottom: 2px; }
+    .grade-val { font-family: var(--font-data); font-size: 28px; font-weight: 700; color: #fff; line-height: 1; }
+
+    .profile-identity-meta { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+    .p-meta-row { display: flex; justify-content: space-between; align-items: center; }
+    .p-label { font-size: 10px; color: var(--text-secondary); text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px; }
+    .p-val { font-family: var(--font-ui); font-size: 13px; font-weight: 600; color: var(--text-primary); }
+    .text-highlight { color: #fff; text-shadow: 0 0 10px rgba(255,255,255,0.3); }
+
+    .profile-divider { border: 0; height: 1px; background: var(--border-glass); margin: 0; }
+
+    .profile-stats-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 1px;
+        background: var(--border-glass); /* Creates grid lines */
+        border-bottom: 1px solid var(--border-glass);
+    }
+    .p-stat-item {
+        background: var(--bg-panel); /* Restore bg */
+        padding: 12px 20px;
+        display: flex; flex-direction: column; gap: 4px;
+    }
+    .p-stat-label { font-size: 9px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+    .p-stat-val { font-family: var(--font-data); font-size: 15px; font-weight: 600; color: var(--text-primary); }
+    .text-danger { color: var(--color-danger); }
+    .text-dim { color: var(--text-dim); }
+
+    .profile-details-wrapper { display: flex; }
+    .p-col { flex: 1; padding: 20px; }
+    .p-col.border-left { border-left: 1px solid var(--border-glass); }
+    .p-col-header { 
+        font-size: 10px; color: var(--text-secondary); 
+        text-transform: uppercase; font-weight: 700; letter-spacing: 1px; margin-bottom: 12px; 
+    }
+
+    /* Progression Bars */
+    .prog-item { margin-bottom: 12px; }
+    .prog-label-row { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 11px; }
+    .prog-name { color: var(--text-secondary); font-weight: 500; }
+    .prog-nums { font-family: var(--font-data); font-size: 10px; color: var(--text-dim); }
+    
+    .prog-track { width: 100%; height: 4px; background: rgba(255,255,255,0.05); border-radius: 2px; overflow: hidden; }
+    .prog-fill { height: 100%; background: var(--text-secondary); border-radius: 2px; width: 0%; transition: width 0.5s ease; }
+    
+    .prog-item.failed .prog-fill { background: var(--color-danger); }
+    .prog-item.failed .prog-nums { color: var(--color-danger); }
+    .prog-item.success .prog-fill { background: var(--color-success); }
+
+    /* Violation List */
+    .violation-list { display: flex; flex-direction: column; gap: 8px; }
+    .vio-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-secondary); font-weight: 500; }
+    .vio-count { font-family: var(--font-data); color: #fff; }
+    .vio-date { font-family: var(--font-data); color: var(--text-primary); font-size: 11px; }
+    .mt-sm { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.05); }
+
+    /* --- FOOTER --- */
+    .footer-bar {
+        margin-top: auto; padding: 16px;
+        /* UPDATED: Use dynamic variable */
+        background: var(--theme-bg-end);
+        border-top: 1px solid var(--border-glass);
+        display: flex; justify-content: space-between;
+        backdrop-filter: blur(20px);
+        z-index: 50;
+    }
+    .footer-stat { display: flex; flex-direction: column; align-items: center; width: 33%; }
+    .footer-stat:not(:last-child) { border-right: 1px solid rgba(255,255,255,0.05); }
+    
+    .f-label { font-size: 9px; text-transform: uppercase; color: var(--text-dim); letter-spacing: 1px; margin-bottom: 4px; }
+    .f-value { font-family: var(--font-data); font-size: 15px; font-weight: 700; color: var(--text-primary); }
+
+    /* --- SKELETON --- */
+    .skeleton {
+        background: rgba(255,255,255,0.03); border-radius: 4px;
+        color: transparent !important; animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+        0% { opacity: 0.4; } 50% { opacity: 0.7; } 100% { opacity: 0.4; }
+    }
+    </style>
+</head>
+<body>
+
+    <div class="avionics-window">
+        
+        <header class="header-section">
+            <div class="identity-group">
+                <div class="main-callsign skeleton" id="callsign">WAITING</div>
+                <div class="pilot-row" onclick="scrollToProfile()">
+                    <i class="fa-solid fa-user-astronaut"></i>
+                    <span id="username">PILOT</span>
+                    
+                    <span id="seat-status-label" class="seat-mini-label" style="display: none;">---</span>
+                </div>
+            </div>
+            
+            <div style="display: flex;">
+                <div class="flight-state-badge" id="state-badge">
+                    <div class="state-indicator-dot" id="state-dot"></div>
+                    <span class="state-text" id="status-text">Standby</span>
+                </div>
+            </div>
+        </header>
+
+        <div class="scroll-viewport">
+            
+            <div class="unified-mission-card">
+                
+                <div class="mission-visual-section skeleton" id="hero-container">
+                    <img id="ac-photo" class="hero-img" src="" style="display:none;" onload="this.style.display='block'; this.parentElement.classList.remove('skeleton');">
+                    <div id="ac-credit" class="photo-credit" style="display: none;"></div>
+                    
+                    <div class="hero-overlay">
+                        <div class="ac-info">
+                            <h2 id="ac-name">---</h2>
+                            <span id="ac-livery">---</span>
+                        </div>
+                        <div class="ac-reg-badge" id="ac-reg">---</div>
+                    </div>
+                </div>
+
+                <div class="mission-route-section" id="route-card-container">
+                    <div class="route-visual-header" id="route-toggle-btn">
+                        <i class="fa-solid fa-chevron-down route-toggle-icon"></i>
+                        
+                        <div class="route-airport">
+                            <div class="route-airport-row">
+                                <img id="dep-flag" class="country-flag" src="" alt="Origin Flag">
+                                <span class="route-icao" id="dep-icao">---</span>
+                            </div>
+                            <span class="route-time" id="dep-time">--:--</span>
+                        </div>
+                        
+                        <div class="route-graphic">
+                            <div class="track-line"></div>
+                            <div class="track-progress" id="route-progress"></div>
+                            <i class="fa-solid fa-plane track-plane" id="route-plane"></i>
+                        </div>
+
+                        <div class="route-airport">
+                            <div class="route-airport-row">
+                                <span class="route-icao" id="arr-icao">---</span>
+                                <img id="arr-flag" class="country-flag" src="" alt="Dest Flag">
+                            </div>
+                            <span class="route-time" id="arr-time">--:--</span>
+                        </div>
+                    </div>
+                    
+                    <div class="waypoint-dropdown-wrapper">
+                        <div class="waypoint-list" id="wp-list">
+                            <div style="padding: 24px; text-align: center; color: var(--text-dim); font-size: 12px; font-style: italic;">
+                                Route data unavailable
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <div>
+                <div class="grid-section-label">Live Telemetry</div>
+                <div class="telemetry-bento">
+                    
+                    <div class="bento-cell">
+                        <div class="cell-header">
+                            <span class="cell-label">Altitude</span>
+                            <i class="fa-solid fa-cloud cell-icon"></i>
+                        </div>
+                        <div class="cell-data">
+                            <span id="val-alt">---</span>
+                            <span class="cell-unit">ft</span>
+                        </div>
+                    </div>
+
+                    <div class="bento-cell">
+                        <div class="cell-header">
+                            <span class="cell-label">GND Speed</span>
+                            <i class="fa-solid fa-gauge-high cell-icon"></i>
+                        </div>
+                        <div class="cell-data">
+                            <span id="val-spd">---</span>
+                            <span class="cell-unit">kts</span>
+                        </div>
+                    </div>
+
+                    <div class="bento-cell">
+                        <div class="cell-header">
+                            <span class="cell-label">Vertical</span>
+                            <i class="fa-solid fa-elevator cell-icon"></i>
+                        </div>
+                        <div class="cell-data cell-vs-graphic">
+                            <i id="val-vs-arrow" class="fa-solid fa-minus vs-arrow"></i>
+                            <span id="val-vs">0</span>
+                            <span class="cell-unit">fpm</span>
+                        </div>
+                    </div>
+
+                    <div class="bento-cell">
+                        <div class="cell-header">
+                            <span class="cell-label">Heading</span>
+                            <i class="fa-regular fa-compass cell-icon"></i>
+                        </div>
+                        <div class="cell-data">
+                            <span id="val-hdg">---</span>
+                            <span class="cell-unit">°</span>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <div id="profile-anchor">
+                <div class="grid-section-label">Pilot Manifest</div>
+                <div class="profile-card">
+                    
+                    <div class="profile-header-row">
+                        <div class="grade-badge-group">
+                            <span class="grade-label">GRADE</span>
+                            <span class="grade-val" id="prof-grade">--</span>
+                        </div>
+                        <div class="profile-identity-meta">
+                            <div class="p-meta-row">
+                                <span class="p-label">Virtual Airline</span>
+                                <span class="p-val text-highlight" id="prof-va">---</span>
+                            </div>
+                            <div class="p-meta-row">
+                                <span class="p-label">ATC Rank</span>
+                                <span class="p-val" id="prof-atc">---</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <hr class="profile-divider">
+
+                    <div class="profile-stats-grid">
+                        <div class="p-stat-item">
+                            <span class="p-stat-label">Total XP</span>
+                            <span class="p-stat-val" id="prof-xp">---</span>
+                        </div>
+                        <div class="p-stat-item">
+                            <span class="p-stat-label">Total Violations</span>
+                            <span class="p-stat-val text-danger" id="prof-total-vio">---</span>
+                        </div>
+                        <div class="p-stat-item">
+                            <span class="p-stat-label">Flight Time (90d)</span>
+                            <span class="p-stat-val" id="prof-time-90">---</span>
+                        </div>
+                        <div class="p-stat-item">
+                            <span class="p-stat-label">Landings (90d)</span>
+                            <span class="p-stat-val" id="prof-land-90">---</span>
+                        </div>
+                    </div>
+
+                    <div class="profile-details-wrapper">
+                        
+                        <div class="p-col">
+                            <div class="p-col-header">Grade Progression</div>
+                            <div id="progression-list" class="progression-list">
+                                </div>
+                        </div>
+
+                        <div class="p-col border-left">
+                            <div class="p-col-header">Violation History</div>
+                            <div class="violation-list">
+                                <div class="vio-row">
+                                    <span>Level 1</span>
+                                    <span class="vio-count" id="prof-v1">0</span>
+                                </div>
+                                <div class="vio-row">
+                                    <span>Level 2</span>
+                                    <span class="vio-count" id="prof-v2">0</span>
+                                </div>
+                                <div class="vio-row">
+                                    <span>Level 3</span>
+                                    <span class="vio-count" id="prof-v3">0</span>
+                                </div>
+                                <div class="vio-row mt-sm">
+                                    <span class="text-dim">Last Violation</span>
+                                    <span class="vio-date" id="prof-last-vio">---</span>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+
+                </div>
+            </div>
+            </div>
+
+        <footer class="footer-bar">
+            <div class="footer-stat">
+                <div class="f-label">Elapsed</div>
+                <div class="f-value" id="val-ete">--:--</div>
+            </div>
+            <div class="footer-stat">
+                <div class="f-label">Estimate</div>
+                <div class="f-value" id="val-eta">--:--</div>
+            </div>
+            <div class="footer-stat">
+                <div class="f-label">Remaining</div>
+                <div class="f-value" id="val-rem">--:--</div>
+            </div>
+        </footer>
+
+    </div>
+
+    <script>
+        // --- UI LOGIC ---
+        const scrollViewport = document.querySelector('.scroll-viewport');
+        const mainWindow = document.querySelector('.avionics-window');
+
+        // Scroll Shadow
+        scrollViewport.addEventListener('scroll', () => {
+            if (scrollViewport.scrollTop > 10) {
+                mainWindow.classList.add('scrolled');
+            } else {
+                mainWindow.classList.remove('scrolled');
+            }
+        });
+
+        const routeToggleBtn = document.getElementById('route-toggle-btn');
+        const routeCardContainer = document.getElementById('route-card-container');
+        
+        routeToggleBtn.addEventListener('click', () => {
+            routeCardContainer.classList.toggle('expanded');
+        });
+
+        // --- SCROLL FUNCTION ---
+        window.scrollToProfile = function() {
+            const el = document.getElementById('profile-anchor');
+            if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        };
+
+        // --- DATA UPDATE HANDLER ---
+        // This handles the generic flight data update
+        window.updateFlightInterface = function(data) {
+            if (!data) return;
+
+            // 1. Identity & State
+            updateText('username', (data.username || 'Pilot').toUpperCase());
+            updateText('callsign', data.callsign || 'N/A');
+            document.getElementById('callsign').classList.remove('skeleton');
+
+            // Flight Phase Status Badge (Right side)
+            const phase = data.phase ? data.phase.toUpperCase() : 'STANDBY';
+            updateText('status-text', phase);
+            
+            const badge = document.getElementById('state-badge');
+            badge.className = 'flight-state-badge'; 
+
+            if (phase.includes('CLIMB') || phase.includes('TAKEOFF')) {
+                badge.classList.add('state-climb');
+            } else if (phase.includes('DESCENT') || phase.includes('APPROACH')) {
+                badge.classList.add('state-descend');
+            } else if (phase.includes('CRUISE')) {
+                badge.classList.add('state-cruise');
+            } else {
+                badge.classList.add('state-ground');
+            }
+
+            // 3. SEAT STATUS LOGIC
+            const seatLabel = document.getElementById('seat-status-label');
+            if (data.pilotState !== undefined) {
+                seatLabel.style.display = 'inline-block';
+                seatLabel.className = 'seat-mini-label';
+                switch(data.pilotState) {
+                    case 0: // Active
+                        seatLabel.classList.add('text-active');
+                        seatLabel.textContent = 'ACTIVE';
+                        break;
+                    case 1: // AwayInFlight (Auto)
+                        seatLabel.classList.add('text-auto');
+                        seatLabel.textContent = 'AUTO';
+                        break;
+                    case 2: // AwayParked (PARKED, NOT AP+)
+                        seatLabel.classList.add('text-parked');
+                        seatLabel.textContent = 'PARKED';
+                        break;
+                    case 3: // InBackground (AP+)
+                        seatLabel.classList.add('text-ap-plus');
+                        seatLabel.textContent = 'AP+';
+                        break;
+                    default:
+                        seatLabel.style.display = 'none';
+                }
+            } else {
+                seatLabel.style.display = 'none';
+            }
+
+            // 4. Aircraft
+            if (data.aircraft) {
+                updateText('ac-name', data.aircraft.aircraftName || 'Unknown Aircraft');
+                updateText('ac-livery', data.aircraft.liveryName || 'Unknown Livery');
+                updateText('ac-reg', data.aircraft.registration || '---');
+            }
+            if (data.images) {
+                if (data.images.url) {
+                    const img = document.getElementById('ac-photo');
+                    if (img.src !== data.images.url) {
+                        img.src = data.images.url;
+                    }
+                }
+                const creditEl = document.getElementById('ac-credit');
+                if (creditEl) {
+                    if (data.images.credit) {
+                        creditEl.textContent = '© ' + data.images.credit;
+                        creditEl.style.display = 'block';
+                    } else {
+                        creditEl.style.display = 'none';
+                    }
+                }
+            }
+
+            // 5. Telemetry
+            if (data.telemetry) {
+                updateText('val-alt', formatNumber(data.telemetry.altitude));
+                updateText('val-spd', Math.round(data.telemetry.groundSpeed || 0));
+                
+                const vs = Math.round(data.telemetry.verticalSpeed || 0);
+                updateText('val-vs', Math.abs(vs));
+                
+                const vsArrow = document.getElementById('val-vs-arrow');
+                vsArrow.className = 'fa-solid fa-arrow-right vs-arrow';
+                if (vs > 50) vsArrow.classList.add('climbing');
+                else if (vs < -50) vsArrow.classList.add('descending');
+                else vsArrow.className = 'fa-solid fa-minus vs-arrow';
+
+                const hdg = Math.round(data.telemetry.heading || 0);
+                updateText('val-hdg', String(hdg).padStart(3, '0'));
+            }
+
+            // 6. Route
+            if (data.route) {
+                updateText('dep-icao', data.route.originIcao || '---');
+                updateText('dep-time', data.route.originTime || '--:--');
+                updateText('arr-icao', data.route.destIcao || '---');
+                updateText('arr-time', data.route.destTime || '--:--');
+
+                updateFlag('dep-flag', data.route.originCountry);
+                updateFlag('arr-flag', data.route.destCountry);
+
+                const pct = Math.min(100, Math.max(0, data.route.progress || 0));
+                document.getElementById('route-progress').style.width = `${pct}%`;
+                document.getElementById('route-plane').style.left = `${pct}%`;
+
+                updateText('val-ete', data.route.elapsed || '--:--');
+                updateText('val-eta', data.route.eta || '--:--');
+                updateText('val-rem', data.route.ete || '--:--');
+            }
+
+            // 7. Waypoints
+            if (data.waypoints && Array.isArray(data.waypoints)) {
+                renderWaypoints(data.waypoints);
+            }
+        };
+
+
+
+        // --- NEW: PROFILE UPDATE HANDLER ---
+        // Specifically handles the asynchronous user statistics
+        window.updatePilotProfile = function(profile) {
+            if (!profile) return;
+
+            updateText('prof-grade', profile.grade || 'N/A');
+            updateText('prof-atc', profile.atcRank || 'Observer');
+            updateText('prof-va', profile.virtualAirline || 'N/A');
+            
+            updateText('prof-xp', typeof profile.xp === 'number' ? profile.xp.toLocaleString() : '---');
+            updateText('prof-total-vio', profile.totalViolations || '0');
+            
+            // Detailed Stats
+            if (profile.violationDetails) {
+                updateText('prof-v1', profile.violationDetails.level1 || 0);
+                updateText('prof-v2', profile.violationDetails.level2 || 0);
+                updateText('prof-v3', profile.violationDetails.level3 || 0);
+            }
+            updateText('prof-last-vio', profile.lastViolationDate || 'None');
+            
+            // These come from the progression logic now
+            updateText('prof-time-90', '---'); 
+            updateText('prof-land-90', '---');
+
+            // Render Progression Bars
+            const progContainer = document.getElementById('progression-list');
+            if (profile.progression && progContainer) {
+                let html = '';
+                
+                profile.progression.forEach(item => {
+                    let pct = 0;
+                    if(item.target > 0) {
+                        pct = (item.current / item.target) * 100;
+                    }
+                    if (pct > 100) pct = 100;
+
+                    // Fill in 90 day stats into the grid if available in progression
+                    if (item.label.includes('Flight Time')) updateText('prof-time-90', item.current + ' hrs');
+                    if (item.label.includes('Landings')) updateText('prof-land-90', item.current);
+
+                    // Visual Logic
+                    let statusClass = 'neutral';
+                    if (item.type === 'MAX_LIMIT') {
+                        if (item.current > item.target) statusClass = 'failed';
+                        else statusClass = 'success';
+                    } else {
+                        if (item.current >= item.target) statusClass = 'success';
+                    }
+
+                    html += `
+                    <div class="prog-item ${statusClass}">
+                        <div class="prog-label-row">
+                            <span class="prog-name">${item.label}</span>
+                            <span class="prog-nums">${item.current.toLocaleString()} / ${item.target.toLocaleString()}</span>
+                        </div>
+                        <div class="prog-track">
+                            <div class="prog-fill" style="width: ${pct}%"></div>
+                        </div>
+                    </div>`;
+                });
+                progContainer.innerHTML = html;
+            }
+        };
+
+        function renderWaypoints(waypoints) {
+            const container = document.getElementById('wp-list');
+            if (!waypoints.length) return;
+
+            // Only redraw if significant change to prevent flicker, 
+            // but for simplicity we redraw here as list isn't huge.
+            let html = '';
+            let lastGroup = null;
+
+            waypoints.forEach((wp) => {
+                if (wp.group && wp.group !== lastGroup) {
+                    html += `<div class="wp-group-header">${wp.group}</div>`;
+                    lastGroup = wp.group;
+                }
+                const isPassed = wp.passed ? 'passed' : '';
+                const isActive = wp.active ? 'active' : '';
+                const displayInfo = isPassed ? 'PASSED' : (wp.time || '--:--');
+
+                html += `
+                <div class="wp-row ${isPassed} ${isActive}">
+                    <div class="wp-line-connect"></div>
+                    <div class="wp-status"></div>
+                    <div class="wp-data">
+                        <span class="wp-ident">${wp.ident}</span>
+                        <span class="wp-name">${wp.name || ''}</span>
+                    </div>
+                    <span class="wp-ete">${displayInfo}</span>
+                </div>`;
+            });
+            container.innerHTML = html;
+            
+            // Auto scroll to active leg
+            if (container.dataset.scrolled !== 'true') {
+                const activeEl = container.querySelector('.active');
+                if (activeEl) {
+                    setTimeout(() => {
+                        const containerRect = container.getBoundingClientRect();
+                        const activeRect = activeEl.getBoundingClientRect();
+                        const relativeTop = activeRect.top - containerRect.top;
+                        const targetScroll = container.scrollTop + relativeTop - (container.clientHeight / 2) + (activeEl.clientHeight / 2);
+
+                        container.scrollTo({
+                            top: targetScroll,
+                            behavior: 'smooth'
+                        });
+
+                        container.dataset.scrolled = 'true';
+                    }, 500);
+                }
+            }
+        }
+
+        // --- NEW HELPER: HEX TO RGBA ---
+        function hexToRgba(hex, alpha) {
+            const r = parseInt(hex.slice(1, 3), 16);
+            const g = parseInt(hex.slice(3, 5), 16);
+            const b = parseInt(hex.slice(5, 7), 16);
+            // Convert 0-100 opacity to 0.0-1.0
+            const a = alpha / 100;
+            return `rgba(${r}, ${g}, ${b}, ${a})`;
+        }
+
+        // --- NEW HELPER: APPLY THEME ---
+        function applyTheme(startHex, endHex, opacity) {
+            const root = document.documentElement;
+            const startRgba = hexToRgba(startHex, opacity);
+            const endRgba = hexToRgba(endHex, opacity);
+            
+            root.style.setProperty('--theme-bg-start', startRgba);
+            root.style.setProperty('--theme-bg-end', endRgba);
+        }
+
+        // --- MESSAGE LISTENER ---
+        window.addEventListener('message', (event) => {
+            // 1. Regular Flight Data (Existing)
+            if (event.data && event.data.type === 'FLIGHT_DATA_UPDATE') {
+                window.updateFlightInterface(event.data.payload);
+                
+                // NEW: Apply theme if sent in payload (Initial Load)
+                if (event.data.payload.theme) {
+                    const t = event.data.payload.theme;
+                    applyTheme(t.start, t.end, t.opacity);
+                }
+            }
+            
+            // 2. Pilot Profile Data (Existing)
+            if (event.data && event.data.type === 'PILOT_STATS_DATA') {
+                window.updatePilotProfile(event.data.payload.profile);
+            }
+
+            // 3. NEW: Real-time Theme Update
+            if (event.data && event.data.type === 'THEME_UPDATE') {
+                const t = event.data.payload;
+                applyTheme(t.start, t.end, t.opacity);
+            }
+        });
+        
+        function updateText(id, text) {
+            const el = document.getElementById(id);
+            if (el) el.textContent = text;
+        }
+        function formatNumber(num) {
+            return num ? Math.round(num).toLocaleString() : '---';
+        }
+        function updateFlag(id, countryCode) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            if (countryCode) {
+                el.src = `https://flagcdn.com/w40/${countryCode.toLowerCase()}.png`;
+                el.style.display = 'block';
+            } else {
+                el.style.display = 'none';
+            }
+        }
+
+        // --- ON LOAD: REQUEST STATS ---
+        window.addEventListener('load', () => {
+            // Ask parent to fetch user stats immediately
+            window.parent.postMessage({ type: 'REQUEST_PILOT_STATS' }, '*');
+        });
+
+    </script>
+</body>
+</html>

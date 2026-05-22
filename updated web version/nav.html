@@ -1,0 +1,974 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Airbus A320 Navigation Display Simulation</title>
+    <style>
+        /* --- Imports & Variables --- */
+        @import url('https://fonts.googleapis.com/css2?family=Inconsolata:wght@400;700&display=swap');
+        
+        :root {
+            --bg-body: transparent;
+            --bg-panel: #111827;   /* gray-900 */
+            --bg-bezel: #1f2937;   /* gray-800 */
+            --border-main: #374151; /* gray-700 */
+            --border-dark: #111827; /* gray-900 */
+            --screw-color: #4b5563; /* gray-600 */
+            
+            --text-main: #e5e7eb;   /* gray-200 */
+            --text-muted: #9ca3af;  /* gray-400 */
+            --text-dim: #6b7280;    /* gray-500 */
+            
+            --accent-green: #4ade80;
+            --accent-cyan: #22d3ee;
+            
+            --font-mono: 'Inconsolata', monospace;
+        }
+
+        /* --- Reset & Base --- */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-body);
+            font-family: var(--font-mono);
+            color: var(--text-main);
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* --- Layout Components --- */
+        .cockpit-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* --- Display Unit (The Monitor Bezel) --- */
+        .display-bezel {
+            position: relative;
+            background-color: var(--bg-bezel);
+            padding: 12px; 
+            border-radius: 1rem;
+            border: 4px solid var(--border-main);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); 
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            transition: all 0.3s ease;
+        }
+
+        /* Decorative Screws */
+        .screw {
+            position: absolute;
+            width: 0.5rem; 
+            height: 0.5rem;
+            background-color: var(--screw-color);
+            border-radius: 50%;
+            box-shadow: inset 1px 1px 2px rgba(0,0,0,0.5);
+            z-index: 20;
+        }
+        .screw.tl { top: 0.35rem; left: 0.35rem; }
+        .screw.tr { top: 0.35rem; right: 0.35rem; }
+        .screw.bl { bottom: 0.35rem; left: 0.35rem; }
+        .screw.br { bottom: 0.35rem; right: 0.35rem; }
+
+        /* --- CRT Screen Area --- */
+        .crt-container {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            border: 2px solid var(--border-dark);
+            background: #000;
+            border-radius: 12px; 
+            overflow: hidden;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+        }
+
+        canvas {
+            display: block; 
+            width: 100%;
+            height: 100%;
+        }
+
+        .scanlines::before {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), 
+                        linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            z-index: 10;
+            background-size: 100% 2px, 3px 100%;
+            pointer-events: none;
+        }
+
+        /* --- Control Panel (Default / Standalone) --- */
+        .control-panel {
+            width: 300px;
+            background-color: var(--bg-panel);
+            padding: 1rem;
+            border-radius: 0.75rem;
+            border: 1px solid var(--border-main);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+            display: flex;
+            flex-direction: column; 
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+            width: 100%;
+        }
+
+        .label-text {
+            font-size: 0.7rem;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .input-row {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .value-display {
+            font-size: 1rem; 
+            width: 2.5rem;
+            font-family: var(--font-mono);
+        }
+        .value-display.green { color: var(--accent-green); }
+        .value-display.cyan { color: var(--accent-cyan); }
+
+        .button-group {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.25rem;
+            background-color: var(--bg-bezel);
+            border-radius: 0.25rem;
+            padding: 0.25rem;
+        }
+        
+        .mode-group {
+            display: flex;
+            justify-content: space-between;
+            background-color: var(--bg-bezel);
+            border-radius: 0.25rem;
+            padding: 0.25rem;
+            gap: 0.25rem;
+        }
+
+        .range-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            font-weight: 700;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            color: var(--text-dim);
+            transition: all 0.2s;
+            text-align: center;
+        }
+
+        .range-btn:hover {
+            color: #fff;
+            background: rgba(255,255,255,0.05);
+        }
+
+        .btn-active { color: var(--bg-panel); background: var(--accent-green) !important; }
+        .btn-inactive { color: var(--text-dim); }
+
+        .footer-text {
+            font-size: 0.65rem;
+            color: var(--text-dim);
+            margin-top: 0.25rem;
+            text-align: center;
+        }
+
+        input[type=range] { -webkit-appearance: none; appearance: none; background: transparent; width: 100%; }
+        input[type=range]:focus { outline: none; }
+        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 14px; width: 14px; border-radius: 50%; background: var(--accent-green); margin-top: -5px; cursor: pointer; box-shadow: 0 0 5px rgba(74, 222, 128, 0.5); }
+        input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; cursor: pointer; background: #4b5563; border-radius: 2px; }
+
+        /* ================================================= */
+        /* === TRANSFORMED LAYOUT FOR EMBEDDED MODE === */
+        /* ================================================= */
+        
+        body.embedded .cockpit-container {
+            height: 100%; 
+            justify-content: flex-start;
+        }
+
+        body.embedded .display-bezel {
+            flex: 1;
+            min-height: 0; 
+            width: 100%;
+            border-radius: 0; 
+            border: none;     
+            border-bottom: 1px solid #000;
+            padding: 0;       
+        }
+        
+        body.embedded .crt-container {
+            border-radius: 0;
+            border: none;
+        }
+        
+        body.embedded .screw { display: none; }
+
+        body.embedded .control-panel {
+            display: grid !important;
+            width: 100%;
+            height: auto; 
+            margin: 0;
+            border-radius: 0;
+            box-shadow: none;
+            border: none;
+            border-top: 2px solid var(--border-main);
+            background: #111; 
+            grid-template-columns: 1fr 2.5fr; 
+            gap: 8px;
+            padding: 12px;
+        }
+
+        body.embedded .label-text,
+        body.embedded .footer-text,
+        body.embedded #manual-controls-hdg,
+        body.embedded #manual-controls-spd {
+            display: none !important;
+        }
+
+        body.embedded .control-group {
+            gap: 0; 
+            height: 100%;
+        }
+        
+        body.embedded .mode-group,
+        body.embedded .button-group {
+            height: 100%;
+            background: transparent;
+            padding: 0;
+            gap: 4px;
+        }
+        
+        body.embedded .mode-group {
+            flex-direction: column; 
+        }
+
+        body.embedded .button-group {
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(2, 1fr);
+        }
+
+        body.embedded .range-btn {
+            background: #1f2937;
+            border: 1px solid #374151;
+            color: #9ca3af;
+            font-size: 0.9rem; 
+            font-weight: 700;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 36px; 
+        }
+
+        body.embedded .range-btn:hover {
+            background: #374151;
+            color: #fff;
+        }
+
+        body.embedded .btn-active {
+            background: var(--accent-green) !important;
+            color: #000 !important;
+            border-color: var(--accent-green);
+            box-shadow: 0 0 10px rgba(74, 222, 128, 0.3);
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="cockpit-container">
+        
+        <div class="display-bezel">
+            <div class="screw tl"></div>
+            <div class="screw tr"></div>
+            <div class="screw bl"></div>
+            <div class="screw br"></div>
+            <div class="crt-container scanlines">
+                <canvas id="ndCanvas"></canvas>
+            </div>
+        </div>
+
+        <div class="control-panel">
+            
+            <div class="control-group">
+                <label class="label-text">Mode</label>
+                <div class="mode-group">
+                    <button onclick="setMode('ROSE')" class="range-btn btn-inactive" id="mode-ROSE">ROSE</button>
+                    <button onclick="setMode('ARC')" class="range-btn btn-active" id="mode-ARC">ARC</button>
+                </div>
+            </div>
+
+            <div class="control-group" id="manual-controls-hdg">
+                <label class="label-text">Heading</label>
+                <div class="input-row">
+                    <span class="value-display green" id="hdgVal">270°</span>
+                    <input type="range" id="hdgInput" min="0" max="359" value="270">
+                </div>
+            </div>
+            <div class="control-group" id="manual-controls-spd">
+                <label class="label-text">Speed</label>
+                <div class="input-row">
+                    <span class="value-display cyan" id="tasVal">0</span>
+                    <input type="range" id="tasInput" min="0" max="450" value="0">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="label-text">Range</label>
+                <div class="button-group">
+                    <button onclick="setRange(10)" class="range-btn btn-inactive" id="btn-10">10</button>
+                    <button onclick="setRange(20)" class="range-btn btn-inactive" id="btn-20">20</button>
+                    <button onclick="setRange(40)" class="range-btn btn-active" id="btn-40">40</button>
+                    <button onclick="setRange(80)" class="range-btn btn-inactive" id="btn-80">80</button>
+                    <button onclick="setRange(160)" class="range-btn btn-inactive" id="btn-160">160</button>
+                    <button onclick="setRange(320)" class="range-btn btn-inactive" id="btn-320">320</button>
+                </div>
+            </div>
+            
+        </div>
+        
+        <p class="footer-text">Use controls to simulate.</p>
+    </div>
+
+    <script>
+        // --- Configuration & State ---
+        const canvas = document.getElementById('ndCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        const GLOBAL_SCALE = window.self !== window.top ? 0.95 : 0.85; 
+        
+        // CONSTANTS FOR ARC GEOMETRY
+        // Updated to match the wide Airbus display (Corner-to-corner)
+        // Center is 270 degrees (1.5 PI). 
+        // We span approx +/- 81 degrees (0.45 PI) to fill the corners.
+        // Start = 1.5 - 0.45 = 1.05 PI
+        // End = 1.5 + 0.45 = 1.95 PI
+        const ARC_START_ANGLE = Math.PI * 1.05;
+        const ARC_END_ANGLE = Math.PI * 1.95;
+        const ARC_FOV_DEGREES = 81; // Used for tick clipping logic
+
+        let state = {
+            mode: 'ARC',
+            heading: 270,
+            tas: 0, 
+            gs: 0,  
+            range: 40,
+            windDir: 0,
+            windSpd: 0,
+            track: 270, 
+            time: "00:00",
+            simTime: new Date(),
+            flightPlan: [],
+            nextWp: "WYPT",
+            nextWpDist: 0,
+            nextWpEte: "00:00"
+        };
+
+        // Check if embedded
+        if (window.self !== window.top) {
+            document.body.classList.add('embedded');
+        } else {
+            state.flightPlan = [
+                { name: "WPT01", x: -12, y: 0, alt: "FL120" },   
+                { name: "WPT02", x: -30, y: -10, alt: "2500" }, 
+                { name: "WPT03", x: -55, y: 5 }    
+            ];
+        }
+
+        let traffic = []; 
+
+        // Colors
+        const COLORS = {
+            bg: '#000000',
+            white: '#e6e6e6',
+            green: '#00ff00',
+            cyan: '#00ffff',
+            yellow: '#ffff00',
+            magenta: '#ff00ff',
+            amber: '#ff9900',
+            grey: '#666666'
+        };
+
+        function resize() {
+            const rect = canvas.getBoundingClientRect();
+            const width = rect.width;
+            const height = rect.height;
+            canvas.width = width * 2;
+            canvas.height = height * 2;
+        }
+        window.addEventListener('resize', resize);
+        setTimeout(resize, 0);
+
+        function updatePhysics() {
+            const now = new Date();
+            state.time = now.getUTCHours().toString().padStart(2, '0') + ":" + 
+                         now.getUTCMinutes().toString().padStart(2, '0');
+        }
+
+        function draw() {
+            const w = canvas.width;
+            const h = canvas.height;
+            
+            ctx.fillStyle = COLORS.bg;
+            ctx.fillRect(0, 0, w, h);
+
+            ctx.save();
+            ctx.translate(w/2, h/2); 
+            ctx.scale(GLOBAL_SCALE, GLOBAL_SCALE);
+
+            const scaledH = h / GLOBAL_SCALE;
+            const scaledW = w / GLOBAL_SCALE;
+            
+            const isRoseMode = (state.mode === 'ROSE');
+
+            let arcCenterY, arcCenterX, arcRadius;
+
+            if (isRoseMode) {
+                arcCenterX = 0;
+                arcCenterY = 0; 
+                arcRadius = Math.min(scaledW, scaledH) * 0.42; 
+            } else {
+                arcCenterX = 0;
+                // Push aircraft symbol slightly down to maximize arc area
+                arcCenterY = (scaledH / 2) - 85; 
+                arcRadius = Math.min(scaledW, scaledH) * 0.70; 
+            }
+
+            // Rotating Map Area
+            ctx.save();
+            ctx.translate(arcCenterX, arcCenterY);
+            ctx.rotate(-state.heading * Math.PI / 180);
+            
+            drawCompassRose(arcRadius, isRoseMode); 
+            drawFlightPlan(arcRadius, isRoseMode);
+            drawTraffic(arcRadius);
+            
+            ctx.restore();
+
+            // Static Overlays
+            drawCompassArcBoundary(arcCenterX, arcCenterY, arcRadius, isRoseMode);
+            drawRangeRings(arcCenterX, arcCenterY, arcRadius, isRoseMode);
+            drawAircraftSymbol(arcCenterX, arcCenterY);
+            drawHeadingPointers(arcCenterX, arcCenterY, arcRadius);
+            
+            drawOverlays(scaledW, scaledH); 
+            
+            ctx.restore();
+        }
+
+        function drawFlightPlan(radius, isRoseMode) {
+            if (!state.flightPlan || state.flightPlan.length === 0) return;
+
+            const pxPerNM = radius / state.range;
+            const clipRadius = radius * 0.92; 
+
+            ctx.save(); 
+            
+            // Create specific clipping region
+            ctx.beginPath();
+            if (isRoseMode) {
+                ctx.arc(0, 0, clipRadius, 0, 2 * Math.PI);
+            } else {
+                // [FIXED] Counter-rotate the clipping region so it stays fixed to the "Screen" (Up)
+                // while the map rotates underneath it.
+                ctx.rotate(state.heading * Math.PI / 180);
+
+                // Clip to the fan shape in ARC mode
+                ctx.moveTo(0, 0);
+                ctx.arc(0, 0, clipRadius, ARC_START_ANGLE, ARC_END_ANGLE);
+                ctx.closePath();
+
+                // Rotate back to map coordinates to draw the actual lines
+                ctx.rotate(-state.heading * Math.PI / 180);
+            }
+            ctx.clip();
+
+            ctx.strokeStyle = COLORS.green;
+            ctx.lineWidth = 3;
+            ctx.lineJoin = 'round';
+            ctx.beginPath();
+
+            state.flightPlan.forEach((wpt, index) => {
+                const px = wpt.x * pxPerNM;
+                const py = -wpt.y * pxPerNM; 
+                
+                if (index === 0) {
+                    ctx.moveTo(px, py);
+                } else {
+                    ctx.lineTo(px, py); 
+                }
+            });
+            ctx.stroke();
+
+            state.flightPlan.forEach(wpt => {
+                const px = wpt.x * pxPerNM;
+                const py = -wpt.y * pxPerNM; 
+
+                const dist = Math.sqrt(wpt.x*wpt.x + wpt.y*wpt.y);
+                if (dist > state.range + 80) return; 
+
+                const dSize = 5;
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = COLORS.green;
+                
+                ctx.beginPath();
+                ctx.moveTo(px, py - dSize);
+                ctx.lineTo(px + dSize, py);
+                ctx.lineTo(px, py + dSize);
+                ctx.lineTo(px - dSize, py);
+                ctx.closePath();
+                ctx.stroke(); 
+                
+                ctx.fillStyle = COLORS.green; 
+                const fontSize = radius * 0.055;
+                ctx.font = `bold ${fontSize}px 'Inconsolata'`;
+                
+                ctx.save();
+                ctx.translate(px, py);
+                ctx.rotate(state.heading * Math.PI / 180);
+                ctx.textAlign = "left"; 
+                ctx.textBaseline = "middle"; 
+
+                const textOffset = 15; 
+                
+                if (wpt.alt) {
+                    const halfLine = fontSize * 0.6; 
+                    ctx.fillText(wpt.name, textOffset, -halfLine); 
+                    ctx.fillText(wpt.alt, textOffset, halfLine);
+                } else {
+                    ctx.fillText(wpt.name, textOffset, 0); 
+                }
+                
+                ctx.restore();
+            });
+
+            ctx.restore();
+        }
+
+        function drawCompassRose(outerRadius, isRoseMode) {
+            const tickLenLong = outerRadius * 0.08;
+            const tickLenShort = outerRadius * 0.04;
+            const innerRadius = outerRadius - tickLenLong;
+
+            ctx.strokeStyle = COLORS.white;
+            ctx.fillStyle = COLORS.white;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.lineWidth = 2; 
+            ctx.font = `bold ${outerRadius * 0.09}px 'Inconsolata', monospace`;
+
+            for (let d = 0; d < 360; d += 5) {
+                if (!isRoseMode) {
+                    let rel = Math.abs(d - state.heading);
+                    if (rel > 180) rel = 360 - rel;
+                    // Clip strictly to the new wider FOV angle
+                    if (rel > ARC_FOV_DEGREES + 1) continue; 
+                }
+
+                const rad = d * Math.PI / 180;
+                const isMajor = (d % 10 === 0);
+                const currentTickLen = isMajor ? tickLenLong : tickLenShort;
+                
+                const x1 = Math.sin(rad) * innerRadius;
+                const y1 = -Math.cos(rad) * innerRadius;
+                const x2 = Math.sin(rad) * (innerRadius + currentTickLen);
+                const y2 = -Math.cos(rad) * (innerRadius + currentTickLen);
+
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.stroke();
+
+                if (d % 30 === 0) {
+                    const textPadding = 18; 
+                    const textRadius = outerRadius + textPadding;
+                    const tx = Math.sin(rad) * textRadius;
+                    const ty = -Math.cos(rad) * textRadius;
+                    
+                    ctx.save();
+                    ctx.translate(tx, ty);
+                    ctx.rotate(state.heading * Math.PI / 180); 
+                    
+                    let label = (d / 10).toString().padStart(2, '0');
+                    if (d === 0) label = "N"; 
+                    ctx.fillText(label, 0, 0);
+                    ctx.restore();
+                }
+            }
+        }
+
+        function drawCompassArcBoundary(cx, cy, radius, isRoseMode) {
+            const tickLenLong = radius * 0.08;
+            const innerRadius = radius - tickLenLong;
+            
+            ctx.strokeStyle = COLORS.white;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+
+            if (isRoseMode) {
+                ctx.arc(cx, cy, innerRadius, 0, 2 * Math.PI);
+            } else {
+                // Use standardized angles
+                ctx.arc(cx, cy, innerRadius, ARC_START_ANGLE, ARC_END_ANGLE);
+            }
+            ctx.stroke();
+        }
+
+        function drawRangeRings(cx, cy, radius, isRoseMode) {
+            ctx.strokeStyle = COLORS.white;
+            ctx.setLineDash([5, 5]); 
+            ctx.lineWidth = 1; 
+            ctx.fillStyle = COLORS.cyan;
+            ctx.font = `${radius * 0.06}px 'Inconsolata'`;
+            
+            if (isRoseMode) {
+                ctx.beginPath();
+                ctx.arc(cx, cy, radius * 0.5, 0, Math.PI * 2);
+                ctx.stroke();
+                
+                const midVal = state.range / 2;
+                ctx.textAlign = "right";
+                ctx.fillText(midVal.toString(), cx - (radius*0.5) - 5, cy - 5); 
+
+            } else {
+                // --- ARC MODE RINGS ---
+                // Use the EXACT same angles as the Compass Arc for consistency (Corner to Corner)
+                
+                const midRadius = radius * 0.5;
+                const threeQuartersRadius = radius * 0.75;
+                
+                // 1. Middle Ring (Half Range)
+                ctx.beginPath();
+                ctx.arc(cx, cy, midRadius, ARC_START_ANGLE, ARC_END_ANGLE);
+                ctx.stroke();
+                
+                // 2. Outer Ring (3/4 Range)
+                ctx.beginPath();
+                ctx.arc(cx, cy, threeQuartersRadius, ARC_START_ANGLE, ARC_END_ANGLE);
+                ctx.stroke();
+                
+                // --- TEXT PLACEMENT ---
+                // Calculate exact coordinates at the END of the arcs to place text like the real aircraft
+                
+                ctx.setLineDash([]); // Reset for text
+                ctx.textAlign = "right";
+                ctx.textBaseline = "middle";
+
+                const midVal = state.range / 2;
+                const threeQuarterVal = state.range * 0.75;
+                
+                // Helper to get position on the arc
+                const getArcPos = (r, angle) => {
+                    return {
+                        x: cx + r * Math.cos(angle),
+                        y: cy + r * Math.sin(angle)
+                    };
+                };
+
+                // Left side labels (at ARC_START_ANGLE)
+                const pMidLeft = getArcPos(midRadius, ARC_START_ANGLE);
+                const pOuterLeft = getArcPos(threeQuartersRadius, ARC_START_ANGLE);
+                
+                ctx.fillText(midVal.toString(), pMidLeft.x - 8, pMidLeft.y);
+                ctx.fillText(threeQuarterVal.toString(), pOuterLeft.x - 8, pOuterLeft.y);
+
+                // Right side labels (at ARC_END_ANGLE)
+                ctx.textAlign = "left";
+                const pMidRight = getArcPos(midRadius, ARC_END_ANGLE);
+                const pOuterRight = getArcPos(threeQuartersRadius, ARC_END_ANGLE);
+                
+                ctx.fillText(midVal.toString(), pMidRight.x + 8, pMidRight.y);
+                ctx.fillText(threeQuarterVal.toString(), pOuterRight.x + 8, pOuterRight.y);
+            }
+            
+            ctx.setLineDash([]); 
+        }
+
+        function drawAircraftSymbol(cx, cy) {
+            ctx.strokeStyle = COLORS.yellow;
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            
+            const scale = (state.mode === 'ARC') ? 2.3 : 1.0;
+
+            const size = 15 * scale;
+            const tailOffset = 12 * scale;
+            const tailWidth = 6 * scale;
+            const centerDot = 2 * scale;
+
+            ctx.moveTo(cx, cy - size); ctx.lineTo(cx, cy + size);
+            ctx.moveTo(cx - size, cy); ctx.lineTo(cx + size, cy);
+            ctx.moveTo(cx - tailWidth, cy + tailOffset); ctx.lineTo(cx + tailWidth, cy + tailOffset);
+            ctx.stroke();
+            
+            ctx.fillStyle = '#000';
+            ctx.beginPath(); ctx.arc(cx, cy, centerDot, 0, Math.PI*2); ctx.fill();
+        }
+
+        function drawHeadingPointers(cx, cy, radius) {
+            ctx.fillStyle = COLORS.yellow;
+            ctx.beginPath();
+            const pointerRadius = radius + 15; 
+            const arrowHeight = radius * 0.08;
+            const arrowWidth = radius * 0.04;
+            const topY = cy - pointerRadius; 
+            
+            ctx.moveTo(cx, topY);
+            ctx.lineTo(cx - arrowWidth, topY - arrowHeight);
+            ctx.lineTo(cx + arrowWidth, topY - arrowHeight);
+            ctx.fill();
+            
+            const tickLenLong = radius * 0.08;
+            const innerRadius = radius - tickLenLong;
+            const drift = state.track - state.heading;
+            const driftRad = drift * Math.PI / 180;
+            
+            ctx.strokeStyle = COLORS.green;
+            ctx.lineWidth = 3;
+            
+            const startX = cx + (innerRadius - 8) * Math.sin(driftRad);
+            const startY = cy - (innerRadius - 8) * Math.cos(driftRad);
+            const endX = cx + (innerRadius + 8) * Math.sin(driftRad);
+            const endY = cy - (innerRadius + 8) * Math.cos(driftRad);
+
+            ctx.beginPath();
+            ctx.moveTo(startX, startY);
+            ctx.lineTo(endX, endY);
+            ctx.stroke();
+        }
+
+        function drawTraffic(radius) {
+            if (!traffic || traffic.length === 0) return;
+            const pxPerNM = radius / state.range;
+
+            traffic.forEach(t => {
+                if (t.dist > state.range + 5) return;
+
+                const tX = Math.sin(t.bearing * Math.PI / 180) * (t.dist * pxPerNM);
+                const tY = -Math.cos(t.bearing * Math.PI / 180) * (t.dist * pxPerNM);
+                
+                ctx.fillStyle = COLORS.white;
+                ctx.strokeStyle = COLORS.white;
+                ctx.lineWidth = 2;
+                
+                const dSize = 6;
+                ctx.beginPath();
+                ctx.moveTo(tX, tY - dSize);
+                ctx.lineTo(tX + dSize, tY);
+                ctx.lineTo(tX, tY + dSize);
+                ctx.lineTo(tX - dSize, tY);
+                ctx.closePath();
+                ctx.stroke();
+                
+                ctx.font = `bold ${radius * 0.07}px Arial`;
+                const altDiff = t.altDiff;
+                const sign = altDiff >= 0 ? "+" : "";
+                
+                const xOffset = 15;
+                const yOffset = 5;
+
+                ctx.fillText(sign + altDiff, tX + xOffset, tY - yOffset);
+                
+                if (t.vs > 500) ctx.fillText("↑", tX + (xOffset + 20), tY - yOffset);
+                else if (t.vs < -500) ctx.fillText("↓", tX + (xOffset + 20), tY - yOffset);
+            });
+        }
+
+        function drawOverlays(w, h) {
+            const fontSize = h * 0.045; 
+            ctx.font = `bold ${fontSize}px 'Inconsolata', monospace`;
+            
+            const leftM = -w / 2 + 20;
+            const topM = -h / 2 + 35;
+            const rightM = w / 2 - 20;
+            
+            const lineSpacing = fontSize * 1.2;
+            const labelOffset = fontSize * 2.5;
+
+            // --- LEFT SIDE (GS, TAS, Wind) ---
+            ctx.fillStyle = COLORS.green;
+            ctx.textAlign = "left";
+            
+            // GS
+            ctx.fillText("GS", leftM, topM);
+            const gsText = Math.round(state.gs).toString().padStart(3, '0');
+            ctx.fillText(gsText, leftM + labelOffset, topM);
+            
+            // TAS
+            ctx.fillText("TAS", leftM, topM + lineSpacing);
+            const tasText = Math.round(state.tas).toString().padStart(3, '0');
+            ctx.fillText(tasText, leftM + labelOffset, topM + lineSpacing);
+
+            // Wind Arrow
+            if (state.windSpd > 0) {
+                    ctx.fillText(`${state.windDir}°/${state.windSpd}`, leftM, topM + lineSpacing * 2.5);
+                    
+                    const arrowX = leftM + (fontSize * 4);
+                    const arrowY = topM + lineSpacing * 2.2;
+                    ctx.save();
+                    ctx.translate(arrowX, arrowY);
+                    
+                    const windRelAngle = (state.windDir - state.heading + 180) * Math.PI / 180;
+                    ctx.rotate(windRelAngle);
+                    ctx.strokeStyle = COLORS.green;
+                    ctx.lineWidth = 2;
+                    
+                    const halfLine = 10; 
+                    const headSize = 5;
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(0, -halfLine); ctx.lineTo(0, halfLine);
+                    ctx.moveTo(0, halfLine); ctx.lineTo(-headSize, halfLine - headSize);
+                    ctx.moveTo(0, halfLine); ctx.lineTo(headSize, halfLine - headSize);
+                    ctx.stroke();
+                    ctx.restore();
+            }
+
+            // --- RIGHT SIDE (Waypoint Info) ---
+            ctx.textAlign = "right";
+            
+            const hasNextWp = (state.nextWp && state.nextWp !== "PPOS");
+
+            // 1. Top Line: Waypoint Name (Green)
+            ctx.fillStyle = COLORS.green;
+            ctx.fillText(state.nextWp, rightM, topM);
+            
+            // 2. Middle Line: ETE (White)
+            ctx.fillStyle = COLORS.white;
+            const middleText = hasNextWp ? state.nextWpEte : state.time;
+            ctx.fillText(middleText, rightM, topM + lineSpacing);
+
+            // 3. Bottom Line: Distance (Cyan)
+            ctx.fillStyle = COLORS.cyan; 
+            const bottomText = hasNextWp ? state.nextWpDist : state.range;
+            ctx.fillText(bottomText + " NM", rightM, topM + lineSpacing * 2); 
+
+            // --- BOTTOM CENTER ---
+            ctx.textAlign = "center";
+            ctx.fillStyle = COLORS.green;
+            ctx.font = `bold ${fontSize * 0.9}px 'Inconsolata', monospace`;
+            ctx.fillText("", 0, h / 2 - 20); 
+        }
+        
+        document.getElementById('hdgInput').addEventListener('input', (e) => {
+            state.heading = parseInt(e.target.value);
+            state.track = parseInt(e.target.value);
+            document.getElementById('hdgVal').innerText = state.heading.toString().padStart(3, '0') + "°";
+        });
+
+        document.getElementById('tasInput').addEventListener('input', (e) => {
+            state.tas = parseInt(e.target.value);
+            state.gs = state.tas; 
+            document.getElementById('tasVal').innerText = state.tas;
+        });
+        
+        window.setMode = function(mode) {
+            state.mode = mode;
+            const btnRose = document.getElementById('mode-ROSE');
+            const btnArc = document.getElementById('mode-ARC');
+            
+            if (mode === 'ROSE') {
+                btnRose.classList.add('btn-active');
+                btnRose.classList.remove('btn-inactive');
+                btnArc.classList.add('btn-inactive');
+                btnArc.classList.remove('btn-active');
+            } else {
+                btnArc.classList.add('btn-active');
+                btnArc.classList.remove('btn-inactive');
+                btnRose.classList.add('btn-inactive');
+                btnRose.classList.remove('btn-active');
+            }
+        }
+
+        window.setRange = function(r) {
+            state.range = r;
+            [10, 20, 40, 80, 160, 320].forEach(val => {
+                const btn = document.getElementById(`btn-${val}`);
+                if(btn) {
+                    if (val === r) {
+                        btn.classList.remove('btn-inactive');
+                        btn.classList.add('btn-active');
+                    } else {
+                        btn.classList.add('btn-inactive');
+                        btn.classList.remove('btn-active');
+                    }
+                }
+            });
+        };
+
+        window.setRange(40);
+        document.getElementById('hdgVal').innerText = state.heading.toString().padStart(3, '0') + "°";
+        document.getElementById('tasVal').innerText = state.tas;
+
+        function animate() {
+            if (window.self === window.top) {
+                updatePhysics();
+            }
+            draw();
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+
+        window.addEventListener('message', (event) => {
+            const data = event.data;
+            if (data.heading !== undefined) state.heading = data.heading;
+            if (data.track !== undefined) state.track = data.track;
+            if (data.tas !== undefined) state.tas = data.tas;
+            if (data.gs !== undefined) state.gs = data.gs;
+            if (data.windDir !== undefined) state.windDir = data.windDir;
+            if (data.windSpd !== undefined) state.windSpd = data.windSpd;
+            
+            if (data.nextWp !== undefined) state.nextWp = data.nextWp;
+            if (data.nextWpDist !== undefined) state.nextWpDist = data.nextWpDist;
+            if (data.nextWpEte !== undefined) state.nextWpEte = data.nextWpEte;
+            
+            if (data.traffic && Array.isArray(data.traffic)) {
+                traffic = data.traffic;
+            }
+            if (data.flightPlan && Array.isArray(data.flightPlan)) {
+                state.flightPlan = data.flightPlan;
+            }
+        });
+
+        // --- NEW: SIGNAL READY TO PARENT ---
+        // This notifies the parent that the iframe is loaded and ready for data.
+        if (window.parent) {
+            window.parent.postMessage({ type: 'ND_READY' }, '*');
+        }
+    </script>
+</body>
+</html>

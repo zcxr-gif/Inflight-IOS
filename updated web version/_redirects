@@ -1,0 +1,5 @@
+# Pretty share URLs proxy to the share serverless function.
+# Status 200 = rewrite (URL stays /share/<id>); the function returns
+# HTML containing Open Graph meta tags plus a meta-refresh redirect
+# to /?flight=<id> so the live app picks up the flight on landing.
+/share/*  /.netlify/functions/share?flight=:splat  200
