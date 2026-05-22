@@ -941,7 +941,7 @@
             position: fixed;
             /* [NEW] Position middle-right */
             top: 50%;
-            right: 20px;
+            right: calc(env(safe-area-inset-right, 0px) + 20px);
             transform: translateY(-50%);
             /* [REMOVED] Old positioning */
             /* bottom: 20px; */
@@ -1518,9 +1518,10 @@
         */
         .sector-ops-search {
             position: absolute;
-            top: 20px;
+            /* Offset by the safe-area so the search bar clears the notch */
+            top: calc(env(safe-area-inset-top, 0px) + 20px);
             /* [NEW] Position top-right */
-            right: 20px; 
+            right: calc(env(safe-area-inset-right, 0px) + 20px);
             /* [REMOVED] Old relative positioning */
             /* right: 580px; */ 
 
@@ -1760,8 +1761,8 @@
             .sector-ops-search {
                 top: 70px;
                 /* [NEW] Position top-right */
-                right: 15px; 
-                left: auto; 
+                right: calc(env(safe-area-inset-right, 0px) + 15px);
+                left: auto;
                 /* [NEW] Set a max-width, not a fixed width */
                 width: 300px;
                 max-width: calc(100vw - 30px);
@@ -1815,6 +1816,8 @@
             left: 0;
             top: 0;
             bottom: 0;
+            /* Respect the notch in landscape so the panel edge isn't clipped */
+            padding-left: env(safe-area-inset-left, 0px);
             width: 360px;
             max-width: 90vw;
             background: rgba(18, 20, 38, 0.85);
@@ -1854,6 +1857,8 @@
         .panel-tabs {
             display: flex;
             flex-shrink: 0;
+            /* Push tabs below the status bar / notch */
+            padding-top: env(safe-area-inset-top, 0px);
             border-bottom: 1px solid rgba(255, 255, 255, 0.1);
         }
         .tab-link {
@@ -1912,7 +1917,10 @@
         .panel-scroll-content {
             flex-grow: 1;
             overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
             padding: 16px;
+            /* Clear the home indicator at the bottom of the list */
+            padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
             display: flex;
             flex-direction: column;
             gap: 12px;
