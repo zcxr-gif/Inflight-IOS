@@ -64,27 +64,17 @@ const MobileUIHandler = {
         this.boundLegacyTouchMove = this.handleLegacyTouchMove.bind(this);
         this.boundLegacyTouchEnd = this.handleLegacyTouchEnd.bind(this);
         
-        // [NEW] Inject Mobile Controls if on mobile
-        if (this.isMobile()) {
-            this.injectMobileHudControls();
+
+window.addEventListener('resize', () => {
+    if (this.isMobile()) {
+        // Keep this empty or only handle logic NOT related to the HUD buttons
+    } else {
+        if (this.activeWindow) {
+            this.closeActiveWindow(true); 
         }
-
-        // Listen for resize to toggle controls
-        window.addEventListener('resize', () => {
-            if (this.isMobile()) {
-                if (!document.getElementById('mobile-hud-controls')) this.injectMobileHudControls();
-            } else {
-                // [CRITICAL FIX] Ensure content is returned to original window if we switch to desktop
-                // preventing "empty window" bug on resize/rotation
-                if (this.activeWindow) {
-                    this.closeActiveWindow(true); 
-                }
-
-                const hud = document.getElementById('mobile-hud-controls');
-                if (hud) hud.remove();
-                this.restoreMapControls();
-            }
-        });
+        this.restoreMapControls();
+    }
+});
         
         // Listen for clicks outside search to close it (if active)
         document.addEventListener('click', (e) => {
@@ -105,6 +95,31 @@ const MobileUIHandler = {
 
         console.log("Mobile UI Handler (HUD Rehaul v9.8 - Airport Fixes) Initialized.");
     },
+
+    /**
+ * Completely disables and removes all Mobile HUD controls.
+ * This prevents the Server Pill, Search, Weather, and Filter buttons from appearing.
+ */
+disableHudControls() {
+    // 1. Remove the container from DOM if it exists
+    const hud = document.getElementById('mobile-hud-controls');
+    if (hud) hud.remove();
+
+    // 2. Clear out the injection function so it can't be called again
+    this.injectMobileHudControls = () => {
+        console.log("Mobile UI: HUD Controls are disabled and will not be injected.");
+    };
+
+    // 3. Ensure map container classes are cleaned up
+    const mapContainer = document.getElementById('sector-ops-map-fullscreen');
+    if (mapContainer) {
+        mapContainer.classList.remove('mobile-search-open');
+    }
+
+    // 4. Re-enable Desktop Server Pill (optional: only if you want it back on mobile)
+    const desktopServerPill = document.getElementById('server-selector-container');
+    if (desktopServerPill) desktopServerPill.style.display = '';
+},
 
     /**
      * [NEW] Injects the floating Server Pill (Top-Left) and Action Stack (Top-Right)
@@ -180,21 +195,26 @@ const MobileUIHandler = {
     },
 
     /**
-     * [NEW] Toggles the visibility of the search bar on mobile
+     * [NEW] Focuses the canonical blade-search input. The search overlay
+     * itself lives in the tactical header (landingUI.js) — this method
+     * just acts as a programmatic shortcut from the HUD button.
      */
     toggleMobileSearch(show) {
-        const mapContainer = document.getElementById('sector-ops-map-fullscreen');
-        const searchInput = document.getElementById('sector-ops-search-input');
-        
-        if (!mapContainer) return;
-
+        const bladeInput = document.getElementById('blade-search-input');
         if (show) {
-            mapContainer.classList.add('mobile-search-open');
-            // Focus the input automatically
-            if (searchInput) setTimeout(() => searchInput.focus(), 100);
+            if (bladeInput) {
+                bladeInput.focus();
+                // iOS: scroll the input into view above the keyboard.
+                try { bladeInput.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (_) {}
+            }
         } else {
-            mapContainer.classList.remove('mobile-search-open');
-            if (searchInput) searchInput.blur();
+            if (bladeInput) {
+                bladeInput.value = '';
+                bladeInput.blur();
+            }
+            if (window.LandingUI && typeof window.LandingUI._closeBladeSearch === 'function') {
+                window.LandingUI._closeBladeSearch();
+            }
         }
     },
 
@@ -351,7 +371,11 @@ const MobileUIHandler = {
 
                 /* --- [NEW] Legacy Sheet Config --- */
                 --legacy-peek-height: ${this.CONFIG.legacyPeekHeight}px;
-                --legacy-top-offset: env(safe-area-inset-top, 15px);
+                /* Give the drag handle clearance below the device status bar / notch
+                   even on devices that report no safe-area-inset (most Android),
+                   so the handle never ends up jammed under the URL bar when the
+                   sheet is fully expanded. */
+                --legacy-top-offset: calc(env(safe-area-inset-top, 0px) + 40px);
             }
             
             /* --- [FIX] Target the map container instead of 'view-rosters' --- */
@@ -363,21 +387,25 @@ const MobileUIHandler = {
             /* --- [CRITICAL FIX] Hide Clutter when Mobile Window (or Search) is Open --- */
             /* This effectively clears the "other icons" the user complained about */
             
-            #sector-ops-map-fullscreen.mobile-window-open .mapboxgl-control-container,
-            #sector-ops-map-fullscreen.mobile-window-open .mobile-action-stack,
-            #sector-ops-map-fullscreen.mobile-window-open #mobile-server-pill,
-            #sector-ops-map-fullscreen.mobile-window-open #mobile-sidebar-toggle,
-            #sector-ops-map-fullscreen.mobile-window-open #server-selector-container {
+            /* Update this block in your injectMobileStyles function */
+#sector-ops-map-fullscreen.mobile-window-open > *:not(.landing-ui-container):not(.mobile-aircraft-view):not(.mobile-island-bottom) {
+    /* Only hide things that aren't the window or your landing UI */
+}
                 display: none !important;
                 opacity: 0 !important;
                 pointer-events: none !important;
             }
 
             /* Also hide controls when SEARCH is open */
-            #sector-ops-map-fullscreen.mobile-search-open .mobile-action-stack,
-            #sector-ops-map-fullscreen.mobile-search-open #mobile-server-pill,
-            #sector-ops-map-fullscreen.mobile-search-open #mobile-sidebar-toggle,
-            #sector-ops-map-fullscreen.mobile-search-open .mapboxgl-control-container {
+            /* Update this block in your injectMobileStyles function */
+#sector-ops-map-fullscreen.mobile-window-open > *:not(.la/* Find this in your code and ensure your UI class isn't targeted */
+#sector-ops-map-fullscreen.mobile-search-open .your-landing-ui-class {
+    display: flex !important; /* Force visibility */
+    opacity: 1 !important;
+    pointer-events: auto !important;
+}nding-ui-container):not(.mobile-aircraft-view):not(.mobile-island-bottom) {
+    /* Only hide things that aren't the window or your landing UI */
+}
                 display: none !important;
             }
 
@@ -546,145 +574,9 @@ const MobileUIHandler = {
             .s-name { font-weight: 600; font-size: 1rem; }
             .s-desc { font-size: 0.8rem; color: #94a3b8; }
 
-            /* ====================================================================
-            --- [UPDATED] Search Bar Mobile Positioning (Hidden by default) ---
-            ==================================================================== */
-            @media (max-width: ${this.CONFIG.breakpoint}px) {
-                #sector-ops-search-container {
-                    /* Hide by default on mobile */
-                    display: none !important; 
-                    
-                    position: absolute !important;
-                    top: calc(env(safe-area-inset-top, 20px) + 15px) !important; 
-                    left: 15px !important;
-                    right: 15px !important;
-                    width: auto !important; /* Full width minus margins */
-                    max-width: none !important;
-                    z-index: 1030 !important;
-                    pointer-events: auto !important;
-                    
-                    /* Animation */
-                    opacity: 0;
-                    transform: translateY(-20px);
-                    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
-                }
-
-                /* Show when parent map has 'mobile-search-open' class */
-                #sector-ops-map-fullscreen.mobile-search-open #sector-ops-search-container {
-                    display: flex !important;
-                    opacity: 1;
-                    transform: translateY(0);
-                }
-
-                #sector-ops-search-container .search-bar-container {
-                    display: flex !important;
-                    align-items: center !important;
-                    background: rgba(15, 20, 35, 0.95) !important;
-                    backdrop-filter: blur(25px) !important;
-                    -webkit-backdrop-filter: blur(25px) !important;
-                    border: 1px solid var(--hud-accent) !important; /* Blue border when active */
-                    border-radius: 12px !important; /* Rectangle vs Pill */
-                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6) !important;
-                    padding: 0 6px !important;
-                    height: 50px !important; /* Slightly taller */
-                    transition: all 0.3s ease !important;
-                }
-                
-                /* Search Icon */
-                #sector-ops-search-container .search-icon-label {
-                    display: flex !important;
-                    align-items: center !important;
-                    justify-content: center !important;
-                    width: 40px !important;
-                    height: 100% !important;
-                    margin: 0 !important;
-                    color: var(--hud-accent) !important;
-                    opacity: 1;
-                }
-
-                /* Input Field */
-                #sector-ops-search-input {
-                    flex-grow: 1 !important;
-                    height: 100% !important;
-                    background: transparent !important;
-                    border: none !important;
-                    color: #fff !important;
-                    font-family: 'Segoe UI', sans-serif !important;
-                    font-weight: 500 !important;
-                    font-size: 16px !important; /* Prevents iOS zoom */
-                    padding: 0 8px !important;
-                    outline: none !important;
-                    border-radius: 0 !important;
-                    -webkit-appearance: none !important;
-                }
-                
-                #sector-ops-search-input::placeholder {
-                    color: rgba(255, 255, 255, 0.4) !important;
-                }
-
-                /* Clear Button */
-                #sector-ops-search-clear {
-                    background: rgba(255, 255, 255, 0.1) !important;
-                    color: #fff !important;
-                    border: none !important;
-                    border-radius: 50% !important;
-                    width: 32px !important;
-                    height: 32px !important;
-                    display: flex !important;
-                    align-items: center !important;
-                    justify-content: center !important;
-                    margin-right: 6px !important;
-                    cursor: pointer !important;
-                    font-size: 1rem !important;
-                }
-                
-                /* Results Dropdown - Floating Card Style */
-                #search-results-dropdown {
-                    margin-top: 8px !important; 
-                    width: 100% !important;
-                    background: rgba(15, 20, 35, 0.95) !important;
-                    backdrop-filter: blur(25px) !important;
-                    -webkit-backdrop-filter: blur(25px) !important;
-                    border: 1px solid rgba(255, 255, 255, 0.08) !important;
-                    border-radius: 12px !important;
-                    overflow: hidden !important;
-                    box-shadow: 0 15px 50px rgba(0, 0, 0, 0.6) !important;
-                    max-height: 60vh !important;
-                    overflow-y: auto !important;
-                }
-                
-                /* Result Items */
-                .search-result-item {
-                    padding: 14px 20px !important;
-                    border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
-                    display: flex !important;
-                    align-items: center !important;
-                    gap: 15px !important;
-                }
-                
-                .search-result-item i {
-                    color: var(--hud-accent) !important;
-                    font-size: 1.1rem !important;
-                    opacity: 0.8;
-                }
-                
-                .search-result-info strong {
-                    font-size: 1rem !important;
-                    color: #fff !important;
-                }
-                
-                .search-result-info small {
-                    font-size: 0.85rem !important;
-                    color: #9fa8da !important;
-                }
-                
-                .search-result-item:active {
-                    background: rgba(0, 168, 255, 0.15) !important;
-                }
-            }
-            /* ====================================================================
-            --- [END] Search Bar Mobile Positioning ---
-            ==================================================================== */
+            /* The canonical mobile search bar lives in the tactical header
+               (landingUI.js .search-blade). The HUD search button just
+               focuses it programmatically — no separate overlay needed. */
 
             /* --- [MODIFIED] Overlay (now shared) --- */
             #mobile-window-overlay {
@@ -986,7 +878,12 @@ const MobileUIHandler = {
                 right: 0 !important;
                 width: 100% !important;
                 max-width: 100% !important;
+                /* Use dynamic viewport height so the sheet doesn't extend
+                   behind iOS Safari's URL bar when expanded — that was
+                   pushing the drag handle off-screen. vh fallback first
+                   for browsers without dvh support. */
                 max-height: calc(100vh - var(--legacy-top-offset)) !important;
+                max-height: calc(100dvh - var(--legacy-top-offset)) !important;
                 z-index: 1045 !important;
                 border-radius: 16px 16px 0 0 !important;
                 box-shadow: 0 -5px 30px rgba(0,0,0,0.4) !important;
@@ -1003,9 +900,9 @@ const MobileUIHandler = {
                 transform: translateY(calc(100% - var(--legacy-peek-height)));
             }
 
-            /* "Expanded" State */
+/* "Expanded" State */
             .mobile-legacy-sheet.visible:not(.peek) {
-                transform: translateY(var(--hud-top-window-height));
+                transform: translateY(0) !important; 
             }
             
             /* --- [NEW] Drag Handle for Legacy Sheet --- */
@@ -1277,55 +1174,32 @@ const MobileUIHandler = {
         });
     },
 
-    /**
-     * [MODIFIED] Wires up interactions for the "Legacy Sheet" mode.
-     * Now handles STANDARD, SIMPLE, and AIRPORT modes.
-     */
-    populateLegacySheet(sourceWindow) {
-        // --- 1. Check for Simple Mode (Iframe) or Airport Window ---
-        const simpleIframe = sourceWindow.querySelector('#simple-flight-window-frame');
-        const isAirport = sourceWindow.id === 'airport-info-window';
-        
+populateLegacySheet(sourceWindow) {
+        // ALWAYS inject a dedicated, absolute-positioned handle overlay.
         const handleWrapper = document.createElement('div');
-        handleWrapper.className = 'legacy-sheet-handle';
-
-        if (simpleIframe || isAirport) {
-            // --- SIMPLE / AIRPORT MODE LOGIC ---
-            // For Airports and Iframe windows, we do NOT want to try and "wrap" internal content
-            // because the structure varies too much. 
-            // We use the "Floating Handle" approach (Same as Simple Mode).
-            
-            handleWrapper.classList.add('simple-mode'); 
-            
-            // Insert handle at the top of the window
-            sourceWindow.prepend(handleWrapper);
-            
-            // Ensure source window is relative so absolute handle positions correctly
-            sourceWindow.style.position = 'relative'; 
-            
-        } else {
-            // --- STANDARD AIRCRAFT MODE LOGIC ---
-            // Only try to wrap if we find the specific Aircraft headers
-            const overviewPanel = sourceWindow.querySelector('.aircraft-overview-panel');
-            const routeSummaryBar = sourceWindow.querySelector('.route-summary-overlay');
-
-            if (overviewPanel && routeSummaryBar) {
-                // Wrap the existing header elements with the handle
-                sourceWindow.prepend(handleWrapper);
-                handleWrapper.appendChild(overviewPanel);
-                handleWrapper.appendChild(routeSummaryBar);
-            } else {
-                console.warn("Legacy Sheet UI: Could not find Standard Aircraft headers. Fallback to floating handle.");
-                
-                // Fallback: If we expected standard but didn't find it, use floating handle
-                // to prevent an invisible/unusable drag handle.
-                handleWrapper.classList.add('simple-mode'); 
-                sourceWindow.prepend(handleWrapper);
-                sourceWindow.style.position = 'relative';
-            }
-        }
+        handleWrapper.className = 'legacy-sheet-handle simple-mode universal-handle'; 
         
-        // Wire up interactions
+        // [THE FIX]: Override the 100% CSS width. Shrink the grab zone strictly to the middle 50%.
+        // This leaves a 25% gap on the left and right, completely uncovering the top-right 
+        // buttons so they can be clicked normally without the drag handle intercepting them.
+        handleWrapper.style.setProperty('width', '50%', 'important');
+        handleWrapper.style.setProperty('left', '25%', 'important');
+        // Bigger grab zone so the handle stays draggable even when the sheet
+        // is fully expanded and the very top of the sheet hugs the device chrome.
+        handleWrapper.style.setProperty('height', '55px', 'important');
+        handleWrapper.style.setProperty('padding-bottom', '0', 'important');
+        handleWrapper.style.setProperty('background', 'transparent', 'important');
+        
+        sourceWindow.prepend(handleWrapper);
+        sourceWindow.style.position = 'relative'; 
+        
+        // Push the original content down just enough so the visual pill doesn't overlap text,
+        // but keeps the buttons nicely aligned.
+        const overviewPanel = sourceWindow.querySelector('.aircraft-overview-panel');
+        if (overviewPanel) {
+            overviewPanel.style.paddingTop = '25px';
+        }
+
         this.wireUpLegacySheetInteractions(sourceWindow, handleWrapper);
     },
 
@@ -1400,19 +1274,13 @@ const MobileUIHandler = {
         this.wireUpHudInteractions();
     },
 
-    /**
-     * [NEW] Wires up all interactions for the "Legacy Sheet" mode.
-     */
-    wireUpLegacySheetInteractions(sheetElement, handleElement) {
-        
+wireUpLegacySheetInteractions(sheetElement, handleElement) {
         handleElement.addEventListener('touchstart', this.handleLegacyTouchStart.bind(this), { passive: false });
         
-        // [MODIFIED] Use document-level listeners for move and end
         document.addEventListener('touchmove', this.boundLegacyTouchMove, { passive: false });
         document.addEventListener('touchend', this.boundLegacyTouchEnd);
         document.addEventListener('touchcancel', this.boundLegacyTouchEnd);
         
-        // --- Close Handlers ---
         if (this.overlayEl) {
             this.overlayEl.addEventListener('click', () => {
                 if (this.legacySheetState.currentState === 'expanded') {
@@ -1423,30 +1291,27 @@ const MobileUIHandler = {
             });
         }
         
-        // --- [NEW] Stop drag from starting on button tap (in Standard Mode) ---
-        const buttonContainer = sheetElement.querySelector('.overview-actions');
-        if (buttonContainer) {
-            buttonContainer.addEventListener('touchstart', (e) => {
-                e.stopPropagation();
-            }, { passive: true });
-        }
+        // --- Intercept Takeover Buttons to clear the sheet gracefully ---
+        const interceptTakeovers = (e) => {
+            const actionBtn = e.target.closest('.aircraft-window-share-btn, .aircraft-window-replay-btn');
+            if (actionBtn && this.activeWindow) {
+                this.closeActiveWindow(); // Move the UI out of the way natively
+            }
+        };
+        sheetElement.addEventListener('click', interceptTakeovers, { capture: true });
         
-        // Find desktop buttons (Standard Mode only usually)
-        // [FIX] broadened search to find ANY close button (Airports often differ)
         const closeBtn = sheetElement.querySelector('.aircraft-window-close-btn, .close-btn, button[class*="close"]');
         const hideBtn = sheetElement.querySelector('.aircraft-window-hide-btn');
         
         if(closeBtn) {
             closeBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
+                e.preventDefault(); e.stopPropagation();
                 this.closeActiveWindow();
             });
         }
         if(hideBtn) {
             hideBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
+                e.preventDefault(); e.stopPropagation();
                 this.closeActiveWindow(); 
                 
                 const recallBtn = document.getElementById('aircraft-recall-btn');
@@ -1497,12 +1362,40 @@ const MobileUIHandler = {
         
         document.addEventListener('touchend', this.boundHudTouchEnd);
 
+        // --- [NEW] Proxy missing desktop buttons ---
+        // Since elements were moved from the activeWindow to the HUD DOM, their native click
+        // handlers attached via event delegation to activeWindow will no longer fire.
+        const handleDesktopProxyClick = (e) => {
+            const actionBtn = e.target.closest('.aircraft-window-pin-btn, .aircraft-window-share-btn, .aircraft-window-replay-btn, #plan-this-flight-btn, .profile-toggle-btn');
+            
+            if (actionBtn && this.activeWindow) {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                // If opening Trip Card or Replay, temporarily hide HUD so it doesn't overlap
+                if (actionBtn.classList.contains('aircraft-window-share-btn') || actionBtn.classList.contains('aircraft-window-replay-btn')) {
+                    this.closeActiveWindow(); 
+                }
+
+                // Trigger the desktop event listener by cloning the button into the original window
+                const clone = actionBtn.cloneNode(true);
+                clone.style.display = 'none';
+                this.activeWindow.appendChild(clone);
+                clone.click();
+                clone.remove();
+            }
+        };
+
         // --- Re-wire desktop buttons ---
         this.topWindowEl.addEventListener('click', (e) => {
             const closeBtn = e.target.closest('.aircraft-window-close-btn');
             const hideBtn = e.target.closest('.aircraft-window-hide-btn');
 
-            if (closeBtn) this.closeActiveWindow();
+            if (closeBtn) {
+                this.closeActiveWindow();
+                return;
+            }
+            
             if (hideBtn) {
                 this.topWindowEl.classList.remove('visible');
                 this.setDrawerState(0);
@@ -1516,9 +1409,18 @@ const MobileUIHandler = {
                     recallBtn.classList.add('visible', 'palpitate');
                     setTimeout(() => recallBtn.classList.remove('palpitate'), 1000);
                 }
+                return;
             }
+            
+            // If it wasn't a standard UI close/hide action, push the click to the proxy
+            handleDesktopProxyClick(e);
         });
         
+        // Also capture proxy clicks originating from deep inside the expanded HUD layout
+        this.expandedIslandEl.addEventListener('click', (e) => {
+            handleDesktopProxyClick(e);
+        });
+
         // --- Dedicated Tab Switching Logic ---
         tabsInSlot.addEventListener('click', async (e) => {
             const tabBtn = e.target.closest('.ac-info-tab-btn');
@@ -1623,9 +1525,15 @@ const MobileUIHandler = {
         }
     },
 
-    // --- [HUD] Swipe Gesture Handlers ---
+// --- [HUD] Swipe Gesture Handlers ---
     handleHudTouchStart(e) {
         if (this.activeMode !== 'hud') return;
+        
+        // --- [CRITICAL FIX] Do not start dragging if the user is touching an action button ---
+        if (e.target.closest('button, a, .aircraft-window-pin-btn, .aircraft-window-share-btn, .aircraft-window-replay-btn, .close-btn, .overview-actions, [role="button"]')) {
+            return; // Let the click event fire naturally
+        }
+
         const handle = e.target.closest('.route-summary-wrapper-mobile');
         if (!handle) {
              this.swipeState.isDragging = false;
@@ -1661,50 +1569,63 @@ const MobileUIHandler = {
         this.setDrawerState(newState);
     },
 
-    // --- [NEW] Legacy Sheet Swipe Handlers ---
+// --- [NEW] Legacy Sheet Swipe Handlers ---
     handleLegacyTouchStart(e) {
         if (this.activeMode !== 'legacy' || !this.activeWindow) return;
         
-        const handle = e.target.closest('.legacy-sheet-handle');
-        if (!handle) {
-             this.legacySheetState.isDragging = false;
-             return;
+        // Prevent drag if touching a button so clicks work perfectly
+        const interactiveSelectors = [
+            '.overview-actions', '.close-btn', 'button', 'a', '[role="button"]', 
+            '.aircraft-window-pin-btn', '.aircraft-window-share-btn', '.aircraft-window-replay-btn',
+            '.ac-info-tab-btn'
+        ];
+        if (e.target.closest(interactiveSelectors.join(', '))) {
+             return; 
         }
         
-        e.preventDefault();
+        const handle = e.target.closest('.legacy-sheet-handle');
+        if (!handle) return;
         
         this.legacySheetState.isDragging = true;
         this.legacySheetState.touchStartY = e.touches[0].clientY;
         
-        // Get the current computed Y position
+        // [THE NEW FIX]: WebKitCSSMatrix fails on mobile when reading `calc()` percentages.
+        // Instead, we mathematically calculate the exact starting pixel translation using the element's actual rendered height.
         const rect = this.activeWindow.getBoundingClientRect();
-        this.legacySheetState.currentSheetY = rect.top;
-        this.legacySheetState.startSheetY = rect.top;
+        if (this.legacySheetState.currentState === 'peek') {
+            // Translate Y is exactly the total height minus the visible peek area
+            this.legacySheetState.startTranslateY = rect.height - this.CONFIG.legacyPeekHeight;
+        } else {
+            // Expanded is always at 0 translation
+            this.legacySheetState.startTranslateY = 0;
+        }
         
-        this.activeWindow.style.transition = 'none'; // Allow live dragging
+        // Initialize current state to prevent NaN errors on pure taps
+        this.legacySheetState.currentTranslateY = this.legacySheetState.startTranslateY;
+        
+        // Stop CSS transitions so it follows your finger instantly without jumping
+        this.activeWindow.style.transition = 'none'; 
     },
 
     handleLegacyTouchMove(e) {
         if (this.activeMode !== 'legacy' || !this.legacySheetState.isDragging || !this.activeWindow) return;
         
-        e.preventDefault();
-        const touchCurrentY = e.touches[0].clientY;
-        let deltaY = touchCurrentY - this.legacySheetState.touchStartY;
-
-        // Calculate new Y, but don't let it be dragged higher than the top stop
-        const topStop = parseInt(getComputedStyle(document.documentElement)
-        .getPropertyValue('--hud-top-window-height')) || 50;
-
-        let newY = this.legacySheetState.startSheetY + deltaY;
+        e.preventDefault(); // Stop the whole page from scrolling
         
-        // Add resistance when dragging *above* the top stop
-        if (newY < topStop) {
-            const overdrag = topStop - newY;
-            newY = topStop - (overdrag * 0.3); // Resistance
+        const touchCurrentY = e.touches[0].clientY;
+        const deltaY = touchCurrentY - this.legacySheetState.touchStartY;
+
+        // Calculate live drag position
+        let newTranslateY = this.legacySheetState.startTranslateY + deltaY;
+        
+        // Add resistance if they try to drag it higher than fully expanded (translateY: 0)
+        if (newTranslateY < 0) {
+            newTranslateY = newTranslateY * 0.2; // Rubber band effect
         }
         
-        this.activeWindow.style.transform = `translateY(${newY}px)`;
-        this.legacySheetState.currentSheetY = newY; // Store last position
+        // Apply live tracking
+        this.activeWindow.style.transform = `translateY(${newTranslateY}px)`;
+        this.legacySheetState.currentTranslateY = newTranslateY; 
     },
 
     handleLegacyTouchEnd(e) {
@@ -1712,28 +1633,37 @@ const MobileUIHandler = {
         
         this.legacySheetState.isDragging = false;
         
-        const deltaY = this.legacySheetState.currentSheetY - this.legacySheetState.startSheetY;
+        // Clear the live drag styles so CSS can handle the smooth snap animation
+        this.activeWindow.style.transition = '';
+        this.activeWindow.style.transform = ''; 
+        
+        // Determine how far the user physically dragged it
+        const deltaY = this.legacySheetState.currentTranslateY - this.legacySheetState.startTranslateY;
 
-        // Snap logic
+        // --- SNAPPING LOGIC ---
         if (this.legacySheetState.currentState === 'peek') {
-            if (deltaY < -100) { // Swiped up
+            if (deltaY < -40) { 
+                // Swiped UP more than 40px -> Expand to full page
                 this.setLegacySheetState('expanded');
-            } else if (deltaY > 100) { // Swiped down to close
+            } else if (deltaY > 80) { 
+                // Swiped DOWN more than 80px -> Close the window entirely
                 this.closeActiveWindow();
-            } else { // Snap back
+            } else { 
+                // Didn't swipe far enough -> Snap back to peek
                 this.setLegacySheetState('peek');
             }
-        } else { // Was 'expanded'
-            if (deltaY > 100) { // Swiped down
+        } else { // Was in 'expanded' state
+            if (deltaY > 150) { 
+                // [NEW] Large swipe DOWN more than 150px -> Close entirely ("close it nearly the same")
+                this.closeActiveWindow();
+            } else if (deltaY > 60) { 
+                // Moderate swipe DOWN -> Shrink back to peek
                 this.setLegacySheetState('peek');
-            } else { // Snap back
+            } else { 
+                // Didn't swipe far enough -> Snap back to expanded
                 this.setLegacySheetState('expanded');
             }
         }
-        
-        // Clear inline styles
-        this.activeWindow.style.transition = '';
-        this.activeWindow.style.transform = '';
     },
 
 
@@ -1767,10 +1697,7 @@ const MobileUIHandler = {
         }
     },
 
-    /**
-     * [NEW] Teardown logic for Legacy Sheet mode.
-     */
-    teardownLegacySheetView(force, duration) {
+teardownLegacySheetView(force, duration) {
         const overlayToRemove = this.overlayEl;
         const sheetToClose = this.activeWindow;
         
@@ -1791,28 +1718,15 @@ const MobileUIHandler = {
                 sheetToClose.style.display = 'none';
                 sheetToClose.classList.remove('mobile-legacy-sheet', 'visible', 'peek');
                 
-                // [CRITICAL FIX] Handle cleanup with safety checks
                 try {
-                    const handle = sheetToClose.querySelector('.legacy-sheet-handle');
-                    if (handle) {
-                        if (handle.classList.contains('simple-mode')) {
-                            // Simple Mode / Airport Mode: Just remove the bar
-                            handle.remove();
-                        } else {
-                            // Standard Mode: Un-wrap content SAFELY
-                            const overview = sheetToClose.querySelector('.aircraft-overview-panel');
-                            const routeBar = sheetToClose.querySelector('.route-summary-overlay');
-                            
-                            // [FIX] Use conditionals to prevent crash if elements are missing/null
-                            if (overview) {
-                                sheetToClose.prepend(overview);
-                                if (routeBar) sheetToClose.insertBefore(routeBar, overview.nextSibling);
-                            } else if (routeBar) {
-                                sheetToClose.prepend(routeBar);
-                            }
-                            
-                            handle.remove();
-                        }
+                    // 1. Remove the universal floating handle
+                    const universalHandle = sheetToClose.querySelector('.universal-handle');
+                    if (universalHandle) universalHandle.remove();
+                    
+                    // 2. Remove the padding we added to the overview panel
+                    const overviewPanel = sheetToClose.querySelector('.aircraft-overview-panel');
+                    if (overviewPanel) {
+                        overviewPanel.style.paddingTop = '';
                     }
                 } catch (e) {
                     console.warn("Mobile UI: Error cleaning up legacy sheet DOM", e);

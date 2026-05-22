@@ -1,8 +1,119 @@
 <div class="panel-main-container">
 
+    <style>
+        /* Menu Card Styles */
+        .menu-card {
+            background: linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.7) 100%);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 24px;
+            position: relative;
+            overflow: hidden;
+            transition: transform 0.2s ease, border-color 0.2s ease;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+        }
+        .menu-card:hover {
+            border-color: rgba(56, 189, 248, 0.3);
+            transform: translateY(-2px);
+        }
+        .menu-card-title {
+            color: #fff;
+            font-size: 1.1rem;
+            margin: 0 0 8px 0;
+            font-weight: 700;
+        }
+        .menu-card-text {
+            color: #94a3b8;
+            font-size: 0.85rem;
+            line-height: 1.4;
+            margin-bottom: 16px;
+            max-width: 85%;
+        }
+        .menu-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: #38bdf8;
+            color: #0f172a;
+            padding: 8px 16px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 0.85rem;
+            transition: background 0.2s;
+        }
+        .menu-btn:hover {
+            background: #7dd3fc;
+        }
+
+        /* Leaderboard Specific Styles */
+        .leaderboard-section {
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .leaderboard-header {
+            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.03);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #94a3b8;
+            font-size: 0.85rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        /* These classes match exactly what flight.js generates */
+        .leaderboard-item {
+            display: flex;
+            align-items: center;
+            padding: 12px 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            transition: background 0.2s;
+        }
+        .leaderboard-item:last-child {
+            border-bottom: none;
+        }
+        .leaderboard-item:hover {
+            background: rgba(255, 255, 255, 0.03);
+        }
+        .lb-rank {
+            font-size: 1.2rem;
+            width: 35px;
+            text-align: center;
+            margin-right: 12px;
+        }
+        .lb-name {
+            flex-grow: 1;
+            font-weight: 600;
+            color: #e2e8f0;
+            font-size: 0.95rem;
+        }
+        .lb-views {
+            font-size: 0.75rem;
+            color: #94a3b8;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 4px 8px;
+            border-radius: 4px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .leaderboard-empty {
+            padding: 24px;
+            text-align: center;
+            color: #64748b;
+            font-style: italic;
+            font-size: 0.9rem;
+        }
+    </style>
+
     <div class="panel-tabs">
         <button class="panel-tab-btn active" data-tab="tab-welcome">
-            <i class="fa-solid fa-circle-info"></i> Welcome
+            <i class="fa-solid fa-bars"></i> Menu
         </button>
         <button class="panel-tab-btn" data-tab="tab-flightplan">
             <i class="fa-solid fa-file-invoice"></i> Flight Plan
@@ -12,51 +123,51 @@
     <div class="panel-content-wrapper">
 
         <div id="tab-welcome" class="tab-content active">
-            <div class="info-panel-content">
-                <div class="info-panel-header">
-                    <h3>Welcome to InFlight</h3>
-                    <span class="beta-badge">BETA</span>
-                </div>
-                <p class="welcome-text">
-                    Thank you for participating in the open beta for InFlight. 
-                    We are actively developing new features and appreciate your feedback.
-                </p>
-
-                <h4>Key Features</h4>
-                <ul class="features-list">
-                    <li><i class="fa-solid fa-satellite-dish"></i> Live Global Aircraft Tracking</li>
-                    <li><i class="fa-solid fa-tower-broadcast"></i> Real-Time ATC & NOTAMs</li>
-                    <li><i class="fa-solid fa-gauge-high"></i> In-Depth Aircraft PFD & VSD</li>
-                    <li><i class="fa-solid fa-chart-line"></i> Live Pilot Grade & Stat Reporting</li>
-                    <li><i class="fa-solid fa-magnifying-glass"></i> Aircraft Search & Map Filtering</li>
-                </ul>
-
-                <h4 style="margin-top: 28px;">Coming Soon: 'Pro' Features</h4>
-                <p class="pro-feature-note">
-                    We plan to introduce an optional "Pro" subscription (approx. $1.99/mo) to support 
-                    development, as mentioned in our Terms.
-                </p>
-                <ul class="features-list">
-                    <li><i class="fa-solid fa-cloud-sun-rain pro-icon"></i> Advanced OWM Weather Overlays</li>
-                    <li><i class="fa-solid fa-plus-circle pro-icon"></i> Other Premium Functionalities</li>
-                </ul>
+            <div class="info-panel-content" style="padding: 20px;">
                 
-                <p class="beta-note" style="margin-top: 28px;">
-                    <i class="fa-solid fa-bug"></i>
-                    As this is a beta, you may encounter bugs or incomplete features. Please report any 
-                    issues to our development team.
+                <div style="margin-bottom: 24px;">
+                    <h3 style="margin: 0; font-size: 1.6rem; color: #fff;">InFlight Menu</h3>
+                    <p style="margin: 4px 0 0 0; color: #64748b; font-size: 0.9rem;">Select an option below.</p>
+                </div>
+
+                <div class="menu-card">
+                    <div style="position: relative; z-index: 2;">
+                        <h4 class="menu-card-title">InFlight Premium</h4>
+                        <p class="menu-card-text">
+                            Visit our home page to see our latest products, subscription tiers, and advanced tracking features.
+                        </p>
+                        <a href="home.html" class="menu-btn">
+                            <i class="fa-solid fa-rocket"></i> Go to Home Page
+                        </a>
+                    </div>
+                    <i class="fa-solid fa-earth-americas" style="position: absolute; right: -10px; bottom: -25px; font-size: 7rem; color: rgba(255,255,255,0.03); transform: rotate(-15deg); pointer-events: none;"></i>
+                </div>
+
+                <div class="leaderboard-section">
+                    <div class="leaderboard-header">
+                        <i class="fa-solid fa-fire" style="color: #fbbf24;"></i> Most Tracked Today
+                    </div>
+                    
+                    <div id="leaderboard-list">
+                        <div style="padding: 30px; display: flex; justify-content: center;">
+                            <div class="spinner-small"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <p style="margin-top: 12px; font-size: 0.75rem; color: #64748b; text-align: center;">
+                    Refreshes automatically every 60 seconds.
                 </p>
 
-                <div class="panel-footer-links">
-                    <a href="terms.html" target="_blank" rel="noopener noreferrer">Terms & Conditions</a>
+                <div class="panel-footer-links" style="margin-top: 40px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 20px;">
+                    <a href="terms.html" target="_blank">Terms</a>
                     <span>&bull;</span>
-                    <a href="privacy.html" target="_blank" rel="noopener noreferrer">Privacy Policy</a>
+                    <a href="privacy.html" target="_blank">Privacy</a>
                 </div>
             </div>
-            </div>
+        </div>
 
         <div id="tab-flightplan" class="tab-content">
-            
             <div id="manual-dispatch-container" class="flight-plan-content">
                 <div class="info-panel-header">
                     <h3>Simbrief Flight Plan</h3>
@@ -83,7 +194,8 @@
                     </div>
                     <div class="form-group">
                         <label for="fp-aircraft">Aircraft Type</label>
-                        <select id="fp-aircraft" name="fp-aircraft" class="form-control"> <option value="" disabled selected>Select an aircraft...</option>
+                        <select id="fp-aircraft" name="fp-aircraft" class="form-control"> 
+                            <option value="" disabled selected>Select an aircraft...</option>
                         </select>
                     </div>
 
@@ -100,11 +212,9 @@
                     <input type="text" id="sb-fltnum" name="fltnum" value="" title="Flight number" placeholder="Flight number, e.g., AAL123" aria-label="Flight number">
                     <input type="text" id="sb-return_url" name="return_url" value="" title="Return URL" placeholder="Return URL for form response" aria-label="Return URL">
                 </form>
-
             </div> 
             
-            <div id="dispatch-pass-display" class="hidden">
-                </div>
+            <div id="dispatch-pass-display" class="hidden"></div>
 
             <div id="saved-flights-container" class="flight-plan-content" style="padding-top: 0;">
                 <div class="info-panel-header" style="border-top: 1px solid rgba(255, 255, 255, 0.1); margin: 0; padding-top: 20px;">
@@ -118,9 +228,8 @@
                     You have no flight plans saved in your browser.
                 </p>
 
-                <ul id="saved-flights-list" class="saved-flights-list">
-                    </ul>
+                <ul id="saved-flights-list" class="saved-flights-list"></ul>
             </div>
-            </div> 
+        </div> 
     </div> 
 </div>
