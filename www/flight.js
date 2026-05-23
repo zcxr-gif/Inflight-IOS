@@ -11954,6 +11954,10 @@ async function setupMapLayersAndFog() {
  */
 let _sectorOpsMapLoaderSafetyTimer = null;
 function showSectorOpsMapLoader() {
+    // Suppress while the branded launch splash is still on screen — otherwise
+    // the user sees this spinner stack underneath the splash and become visible
+    // during the splash's fade-out (two loaders back-to-back).
+    if (document.getElementById('inflight-pro-loader-overlay')) return;
     const el = document.getElementById('sector-ops-map-loader');
     if (!el) return;
     el.classList.remove('is-hidden');

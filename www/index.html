@@ -12,8 +12,10 @@
 
     <link rel="icon" type="image/x-icon" href="Images/inflightIcon.ico">
 
-    <link href="https://api.mapbox.com/mapbox-gl-js/v3.16.0/mapbox-gl.css" rel="stylesheet">
-    <script src="https://api.mapbox.com/mapbox-gl-js/v3.16.0/mapbox-gl.js"></script>
+    <!-- Native MapKit shim (replaces the Mapbox GL JS CDN bundle). -->
+    <!-- The shim exposes a window.mapboxgl-compatible surface that routes calls to -->
+    <!-- the InflightMapkit Capacitor plugin (MKMapView) on iOS. See MIGRATION.md. -->
+    <script src="mapkit-shim.js"></script>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
 
@@ -2067,7 +2069,12 @@
     <div class="main-content">
         <div id="standalone-map-view" class="content-view active">
             <div id="sector-ops-map-fullscreen"></div>
-            <div id="sector-ops-map-loader" aria-hidden="true">
+            <!-- Starts hidden: the branded launch splash (#inflight-pro-loader-overlay)
+                 already covers the app on cold start, so this scoped loader would
+                 stack a second spinner on top during the splash fade-out. It is
+                 only revealed by showSectorOpsMapLoader() after the splash is gone
+                 (e.g. on a mid-session style swap). -->
+            <div id="sector-ops-map-loader" class="is-hidden" aria-hidden="true">
                 <div class="sector-ops-map-loader__inner">
                     <div class="sector-ops-map-loader__ring"></div>
                     <div class="sector-ops-map-loader__label">Loading map</div>
