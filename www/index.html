@@ -12,8 +12,10 @@
 
     <link rel="icon" type="image/x-icon" href="Images/inflightIcon.ico">
 
-    <link href="https://api.mapbox.com/mapbox-gl-js/v3.16.0/mapbox-gl.css" rel="stylesheet">
-    <script src="https://api.mapbox.com/mapbox-gl-js/v3.16.0/mapbox-gl.js"></script>
+    <!-- Native MapKit shim (replaces the Mapbox GL JS CDN bundle). -->
+    <!-- The shim exposes a window.mapboxgl-compatible surface that routes calls to -->
+    <!-- the InflightMapkit Capacitor plugin (MKMapView) on iOS. See MIGRATION.md. -->
+    <script src="mapkit-shim.js"></script>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
 

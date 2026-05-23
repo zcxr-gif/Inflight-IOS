@@ -30,12 +30,17 @@ workflows:
           rm -f package-lock.json
           npm install
           npm install @capacitor/cli @capacitor/core @capacitor/ios
-      
+          # Local Capacitor plugin that wraps Apple MapKit (MKMapView).
+          # Installed via file: path so `npx cap sync` registers it.
+          npm install ./inflight-mapkit
+
       - name: Initialize iOS Platform
         script: |
           # Clean restart of ios folder
           rm -rf ios
           npx cap add ios
+          # cap sync picks up the local inflight-mapkit plugin and writes it
+          # into the generated iOS Podfile.
           npx cap sync
           
           # Check for Podfile to decide on Pods vs SPM

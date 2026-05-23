@@ -1,0 +1,24 @@
+{
+  "name": "inflight-mapkit",
+  "version": "0.1.0",
+  "description": "Capacitor plugin wrapping Apple MapKit (MKMapView) for the Inflight iOS app.",
+  "main": "dist/plugin.cjs.js",
+  "module": "dist/esm/index.js",
+  "types": "dist/esm/index.d.ts",
+  "unpkg": "dist/plugin.js",
+  "files": [
+    "dist/",
+    "ios/",
+    "InflightMapkit.podspec"
+  ],
+  "author": "Inflight",
+  "license": "UNLICENSED",
+  "capacitor": {
+    "ios": {
+      "src": "ios"
+    }
+  },
+  "peerDependencies": {
+    "@capacitor/core": "^8.0.0"
+  }
+}
