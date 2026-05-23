@@ -16537,16 +16537,25 @@ if (urlParams.get('auth') === 'signup') {
 
 /**
  * ============================================================================
- * INFLIGHT PRO: V3.2 - INSTANT DEPLOYMENT & HOME INTEGRATION
- * Optimized for maximum execution speed, luxury UX, and frictionless entry.
+ * INFLIGHT — BRANDED LAUNCH SPLASH
+ *
+ * Lightweight, ad-free loading screen shown while the app initializes.
+ * No Pro upsell, no carousels, no CTAs — just a polished branded splash
+ * that auto-dismisses once the window has finished loading (or after a
+ * safety timeout, whichever comes first).
+ *
+ * The overlay element id and style id are kept stable so other modules
+ * (e.g. the share-link consumer that calls
+ *  document.getElementById('inflight-pro-loader-overlay').remove()) keep
+ * working without changes.
  * ============================================================================
  */
 (function() {
     const styleId = 'inflight-pro-loader-styles';
     const overlayId = 'inflight-pro-loader-overlay';
 
-    // Skip the Pro upsell when arriving from a share link — those users came
-    // to look at one specific flight, so dump them straight into it.
+    // Don't cover the screen when the user is arriving via a share link —
+    // they came to look at one specific flight and should land directly on it.
     function arrivedFromShare() {
         try {
             if (typeof window === 'undefined') return false;
@@ -16561,279 +16570,277 @@ if (urlParams.get('auth') === 'signup') {
         return false;
     }
 
-    function initInflightPro() {
+    function initInflightSplash() {
         if (arrivedFromShare()) return;
         if (document.getElementById(styleId) || document.getElementById(overlayId)) return;
 
-        // Inject Styles immediately
         const style = document.createElement('style');
         style.id = styleId;
-        style.innerHTML = `
-            #inflight-pro-loader-overlay {
+        style.textContent = `
+            #${overlayId} {
                 position: fixed;
                 inset: 0;
-                background: rgba(7, 9, 15, 0.8);
-                backdrop-filter: blur(24px);
-                -webkit-backdrop-filter: blur(24px);
+                z-index: 2147483647;
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                z-index: 2147483647; /* Maximum possible z-index */
-                font-family: 'Inter', -apple-system, sans-serif;
-                padding: 20px;
+                padding: 24px;
+                font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                color: #e8eaf6;
+                background:
+                    radial-gradient(ellipse at 50% 35%, rgba(56, 189, 248, 0.18) 0%, transparent 55%),
+                    radial-gradient(ellipse at 50% 80%, rgba(124, 58, 237, 0.14) 0%, transparent 60%),
+                    linear-gradient(180deg, #0a0f1c 0%, #06080e 100%);
                 opacity: 0;
-                animation: proFadeIn 0.5s ease-out forwards;
-            }
-
-            .pro-modal-card {
-                background: #ffffff;
-                width: 440px;
-                max-width: 100%;
-                border-radius: 32px;
-                position: relative;
-                box-shadow: 0 40px 100px -20px rgba(0,0,0,0.5);
+                animation: inflight-splash-fade-in 320ms ease-out forwards;
                 overflow: hidden;
-                transform: translateY(20px);
-                animation: proSlideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-                display: flex;
-                flex-direction: column;
+            }
+            #${overlayId}.is-dismissing {
+                animation: inflight-splash-fade-out 420ms ease-in forwards;
             }
 
-            @keyframes proFadeIn { to { opacity: 1; } }
-            @keyframes proSlideUp { to { transform: translateY(0); } }
-
-            .pro-premium-accent {
-                height: 5px;
-                width: 100%;
-                background: linear-gradient(90deg, #2563eb, #7c3aed, #2563eb);
-                background-size: 200% auto;
-                animation: proShine 3s linear infinite;
-            }
-
-            @keyframes proShine { to { background-position: 200% center; } }
-
-            /* Premium Close Button - Now immediately visible */
-            .pro-close-btn {
-                position: absolute;
-                top: 20px;
-                right: 20px;
-                width: 34px;
-                height: 34px;
-                border-radius: 50%;
-                background: #f8fafc;
-                border: 1px solid #e2e8f0;
-                color: #64748b;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                cursor: pointer;
-                z-index: 10;
-                transition: all 0.3s ease;
-            }
-            .pro-close-btn:hover {
-                background: #e2e8f0;
-                color: #0f172a;
-                transform: scale(1.08);
-            }
-
-            .pro-header-section { padding: 40px 32px 10px; text-align: center; }
-            .pro-brand-logo { height: 50px; margin: 0 auto 16px; display: block; }
-            .pro-subtitle { color: #64748b; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 2.5px; }
-
-            .pro-carousel-viewport { position: relative; height: 160px; margin-top: 15px; }
-            .pro-feature-slide {
+            /* Subtle starfield — tiny radial dots layered as a single background image */
+            #${overlayId}::before {
+                content: '';
                 position: absolute;
                 inset: 0;
-                padding: 0 40px;
-                opacity: 0;
-                transition: 0.5s ease;
+                background-image:
+                    radial-gradient(1px 1px at 12% 22%, rgba(255,255,255,0.55), transparent 60%),
+                    radial-gradient(1px 1px at 78% 16%, rgba(255,255,255,0.45), transparent 60%),
+                    radial-gradient(1.2px 1.2px at 32% 78%, rgba(255,255,255,0.4), transparent 60%),
+                    radial-gradient(1px 1px at 88% 64%, rgba(255,255,255,0.35), transparent 60%),
+                    radial-gradient(1px 1px at 55% 42%, rgba(255,255,255,0.3), transparent 60%),
+                    radial-gradient(1.4px 1.4px at 18% 58%, rgba(255,255,255,0.45), transparent 60%),
+                    radial-gradient(1px 1px at 65% 88%, rgba(255,255,255,0.3), transparent 60%);
+                opacity: 0.7;
+                animation: inflight-splash-twinkle 6s ease-in-out infinite;
+                pointer-events: none;
+            }
+
+            /* Soft sweeping aurora behind the logo for depth */
+            #${overlayId}::after {
+                content: '';
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                width: 520px;
+                height: 520px;
+                max-width: 90vw;
+                max-height: 90vw;
+                transform: translate(-50%, -55%);
+                background:
+                    conic-gradient(from 0deg, rgba(56, 189, 248, 0.18), rgba(124, 58, 237, 0.18), rgba(56, 189, 248, 0.18));
+                filter: blur(60px);
+                opacity: 0.55;
+                animation: inflight-splash-aurora 14s linear infinite;
+                pointer-events: none;
+                border-radius: 50%;
+            }
+
+            .inflight-splash-stack {
+                position: relative;
+                z-index: 1;
                 display: flex;
                 flex-direction: column;
                 align-items: center;
                 text-align: center;
+                gap: 28px;
+                max-width: 380px;
+                width: 100%;
+            }
+
+            .inflight-splash-logo-wrap {
+                position: relative;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 120px;
+                height: 120px;
+            }
+            .inflight-splash-logo-wrap::before {
+                content: '';
+                position: absolute;
+                inset: -18px;
+                border-radius: 50%;
+                background: radial-gradient(circle, rgba(56, 189, 248, 0.35) 0%, transparent 70%);
+                animation: inflight-splash-pulse 2.4s ease-in-out infinite;
+            }
+            .inflight-splash-logo {
+                position: relative;
+                height: 96px;
+                width: auto;
+                filter: drop-shadow(0 6px 24px rgba(56, 189, 248, 0.35));
+                animation: inflight-splash-logo-in 700ms cubic-bezier(0.16, 1, 0.3, 1) both;
+            }
+
+            /* Twin orbiting rings around the logo */
+            .inflight-splash-orbit {
+                position: absolute;
+                inset: 0;
+                border-radius: 50%;
                 pointer-events: none;
             }
-            .pro-feature-slide.active { opacity: 1; pointer-events: auto; }
-
-            .pro-icon-ring {
-                width: 55px; height: 55px; border-radius: 18px;
-                display: flex; align-items: center; justify-content: center;
-                margin-bottom: 15px; font-size: 1.5rem;
+            .inflight-splash-orbit::before,
+            .inflight-splash-orbit::after {
+                content: '';
+                position: absolute;
+                inset: 0;
+                border-radius: 50%;
+                border: 1.5px solid transparent;
+            }
+            .inflight-splash-orbit::before {
+                border-top-color: rgba(56, 189, 248, 0.9);
+                border-right-color: rgba(56, 189, 248, 0.25);
+                animation: inflight-splash-spin 1.6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+            }
+            .inflight-splash-orbit::after {
+                inset: 10px;
+                border-top-color: rgba(167, 139, 250, 0.85);
+                border-left-color: rgba(167, 139, 250, 0.2);
+                animation: inflight-splash-spin 2.4s cubic-bezier(0.45, 0, 0.55, 1) infinite reverse;
             }
 
-            .pro-feature-title { font-size: 1.25rem; font-weight: 800; color: #0f172a; margin-bottom: 6px; }
-            .pro-feature-desc { font-size: 0.95rem; color: #64748b; line-height: 1.5; }
-
-            /* Action Buttons - Redesigned Hierarchy */
-            .pro-action-footer { 
-                padding: 10px 40px 40px; 
-                display: flex; 
-                flex-direction: column; 
-                gap: 12px; 
-            }
-
-            /* Primary CTA is now focused on entering the app seamlessly */
-            .pro-cta-primary {
-                background: #0f172a;
-                color: white;
-                border: none;
-                border-radius: 16px;
-                padding: 18px;
+            .inflight-splash-wordmark {
+                font-size: 1.6rem;
                 font-weight: 700;
-                cursor: pointer;
-                transition: 0.3s;
-                display: flex; align-items: center; justify-content: center; gap: 10px;
+                letter-spacing: 0.02em;
+                color: #ffffff;
+                margin: 0;
+                background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 100%);
+                -webkit-background-clip: text;
+                background-clip: text;
+                -webkit-text-fill-color: transparent;
             }
-            .pro-cta-primary:hover { background: #1e293b; transform: translateY(-2px); box-shadow: 0 10px 20px -10px rgba(15, 23, 42, 0.5); }
 
-            /* Secondary CTA is now the unobtrusive Pro upsell */
-            .pro-cta-secondary {
-                background: #f8fafc;
-                color: #2563eb;
-                border: 1px solid #bfdbfe;
-                border-radius: 16px;
-                padding: 14px;
+            .inflight-splash-tagline {
+                font-size: 0.72rem;
                 font-weight: 600;
-                font-size: 0.9rem;
-                cursor: pointer;
-                transition: 0.3s;
-                display: flex; align-items: center; justify-content: center; gap: 8px;
+                letter-spacing: 0.32em;
+                text-transform: uppercase;
+                color: rgba(148, 163, 184, 0.85);
+                margin: -18px 0 0;
             }
-            .pro-cta-secondary:hover { background: #eff6ff; border-color: #93c5fd; }
 
-            .pro-pagination { display: flex; justify-content: center; gap: 6px; margin: 20px 0; padding: 0 40px; }
-            .pro-segment { height: 4px; flex: 1; background: #f1f5f9; border-radius: 10px; overflow: hidden; }
-            .pro-segment-fill { height: 100%; width: 0%; background: #2563eb; }
+            .inflight-splash-progress {
+                width: 220px;
+                max-width: 70vw;
+                height: 3px;
+                border-radius: 999px;
+                background: rgba(148, 163, 184, 0.15);
+                overflow: hidden;
+                position: relative;
+            }
+            .inflight-splash-progress::after {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: -40%;
+                width: 40%;
+                height: 100%;
+                background: linear-gradient(90deg, transparent, #38bdf8, #a78bfa, transparent);
+                border-radius: 999px;
+                animation: inflight-splash-progress-slide 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+            }
+
+            .inflight-splash-status {
+                font-size: 0.7rem;
+                font-weight: 500;
+                letter-spacing: 0.18em;
+                text-transform: uppercase;
+                color: rgba(148, 163, 184, 0.7);
+                margin: -16px 0 0;
+            }
+
+            @keyframes inflight-splash-fade-in { to { opacity: 1; } }
+            @keyframes inflight-splash-fade-out { to { opacity: 0; } }
+            @keyframes inflight-splash-spin { to { transform: rotate(360deg); } }
+            @keyframes inflight-splash-aurora { to { transform: translate(-50%, -55%) rotate(360deg); } }
+            @keyframes inflight-splash-twinkle {
+                0%, 100% { opacity: 0.55; }
+                50% { opacity: 0.9; }
+            }
+            @keyframes inflight-splash-pulse {
+                0%, 100% { transform: scale(1); opacity: 0.7; }
+                50% { transform: scale(1.08); opacity: 1; }
+            }
+            @keyframes inflight-splash-logo-in {
+                from { opacity: 0; transform: scale(0.85); }
+                to   { opacity: 1; transform: scale(1); }
+            }
+            @keyframes inflight-splash-progress-slide {
+                0%   { left: -40%; }
+                100% { left: 100%; }
+            }
+
+            @media (prefers-reduced-motion: reduce) {
+                #${overlayId}, #${overlayId}::before, #${overlayId}::after,
+                .inflight-splash-logo, .inflight-splash-logo-wrap::before,
+                .inflight-splash-orbit::before, .inflight-splash-orbit::after,
+                .inflight-splash-progress::after {
+                    animation-duration: 0.001s !important;
+                    animation-iteration-count: 1 !important;
+                }
+            }
         `;
         document.head.appendChild(style);
 
         const overlay = document.createElement('div');
         overlay.id = overlayId;
-
-        // Render the modal
-        renderModal(overlay);
-    }
-
-    async function renderModal(overlay) {
-        // Fetch session - Note: This is the only async bottleneck
-        const { data } = await supabase.auth.getSession();
-        if (data?.session) {
-            // Minimal splash for logged in / pro users
-            overlay.innerHTML = `<img src="Images/InflightPro.png" style="height:60px; animation: proFadeIn 1s infinite alternate;">`;
-            document.body.appendChild(overlay);
-            setTimeout(() => overlay.remove(), 2500);
-            return;
-        }
-
-        const features = [
-            { icon: 'fa-gauge-high', color: '#2563eb', bg: '#eff6ff', title: 'Live Ops Dashboard', desc: 'Real-time telemetry and smart dispatching.' },
-            { icon: 'fa-satellite-dish', color: '#8b5cf6', bg: '#f5f3ff', title: 'Airspace Intel', desc: '4-hour saturation heatmaps and multi-node tracking.' },
-            { icon: 'fa-file-invoice', color: '#10b981', bg: '#ecfdf5', title: 'Premium Dispatch', desc: 'Digital boarding passes and gate filing.' }
-        ];
-
-        let slidesHtml = features.map((f, i) => `
-            <div class="pro-feature-slide ${i === 0 ? 'active' : ''}">
-                <div class="pro-icon-ring" style="background:${f.bg}; color:${f.color};">
-                    <i class="fa-solid ${f.icon}"></i>
-                </div>
-                <div class="pro-feature-title">${f.title}</div>
-                <div class="pro-feature-desc">${f.desc}</div>
-            </div>
-        `).join('');
-
+        overlay.setAttribute('role', 'status');
+        overlay.setAttribute('aria-live', 'polite');
+        overlay.setAttribute('aria-label', 'Inflight is loading');
         overlay.innerHTML = `
-            <div class="pro-modal-card">
-                <div class="pro-premium-accent"></div>
-                <button class="pro-close-btn" id="pro-close-trigger" aria-label="Close">
-                    <i class="fa-solid fa-xmark"></i>
-                </button>
-                <div class="pro-header-section">
-                    <img src="Images/InflightPro.png" alt="Logo" class="pro-brand-logo">
-                    <p class="pro-subtitle">Workspace Initializing...</p>
+            <div class="inflight-splash-stack">
+                <div class="inflight-splash-logo-wrap">
+                    <div class="inflight-splash-orbit"></div>
+                    <img src="Images/InflightPro.png" alt="Inflight" class="inflight-splash-logo">
                 </div>
-                <div class="pro-carousel-viewport">${slidesHtml}</div>
-                <div class="pro-pagination">
-                    ${features.map((_, i) => `<div class="pro-segment"><div class="pro-segment-fill" id="pro-fill-${i}"></div></div>`).join('')}
-                </div>
-                <div class="pro-action-footer">
-                    <button class="pro-cta-primary" id="pro-continue-trigger">
-                        Enter Tracker <i class="fa-solid fa-arrow-right"></i>
-                    </button>
-                    <button class="pro-cta-secondary" id="pro-signup-trigger">
-                        <i class="fa-solid fa-bolt"></i> Unlock Pro Features
-                    </button>
-                </div>
+                <h1 class="inflight-splash-wordmark">Inflight</h1>
+                <p class="inflight-splash-tagline">Real-time aviation tracking</p>
+                <div class="inflight-splash-progress" aria-hidden="true"></div>
+                <p class="inflight-splash-status">Preparing your flight deck</p>
             </div>
         `;
 
         document.body.appendChild(overlay);
-        startLogic(overlay, features.length);
+        scheduleDismiss(overlay);
     }
 
-    function startLogic(overlay, count) {
-        let current = 0;
-        let start = Date.now();
-        const duration = 4000;
-        let animationId;
+    function scheduleDismiss(overlay) {
+        let dismissed = false;
+        const minVisibleMs = 900;   // Let the brand splash breathe for a moment
+        const maxVisibleMs = 5000;  // Safety net if `load` never fires
+        const start = Date.now();
 
-        function step() {
-            const progress = Math.min(((Date.now() - start) / duration) * 100, 100);
-            const fill = document.getElementById(`pro-fill-${current}`);
-            if (fill) fill.style.width = progress + '%';
-
-            if (progress >= 100) {
-                const slides = overlay.querySelectorAll('.pro-feature-slide');
-                if (slides.length > 0) {
-                    slides[current].classList.remove('active');
-                    current = (current + 1) % count;
-                    slides[current].classList.add('active');
-                    start = Date.now();
-                    // Reset all fills
-                    for(let i = 0; i < count; i++) {
-                        const segment = document.getElementById(`pro-fill-${i}`);
-                        if (segment) segment.style.width = i < current ? '100%' : '0%';
-                    }
-                }
-            }
-            animationId = requestAnimationFrame(step);
-        }
-        animationId = requestAnimationFrame(step);
-
-        // Utility to handle clean destruction of the modal
-        const cleanupAndClose = () => {
-            cancelAnimationFrame(animationId);
-            overlay.style.opacity = '0';
-            overlay.style.transition = 'opacity 0.3s ease';
-            setTimeout(() => overlay.remove(), 300);
+        const dismiss = () => {
+            if (dismissed) return;
+            dismissed = true;
+            const elapsed = Date.now() - start;
+            const remaining = Math.max(0, minVisibleMs - elapsed);
+            setTimeout(() => {
+                overlay.classList.add('is-dismissing');
+                setTimeout(() => {
+                    overlay.remove();
+                    const styleEl = document.getElementById(styleId);
+                    if (styleEl) styleEl.remove();
+                }, 420);
+            }, remaining);
         };
 
-        // 1. Immediate Close Button Event
-        const closeBtn = document.getElementById('pro-close-trigger');
-        if (closeBtn) closeBtn.onclick = cleanupAndClose;
-
-        // 2. Primary Action: Enter App Seamlessly
-        const continueBtn = document.getElementById('pro-continue-trigger');
-        if (continueBtn) continueBtn.onclick = cleanupAndClose;
-
-        // 3. Secondary Action: Open Auth Modal
-        const signupBtn = document.getElementById('pro-signup-trigger');
-        if (signupBtn) {
-            signupBtn.onclick = () => {
-                cleanupAndClose();
-                const btn = document.querySelector('.auth-toggle-btn[data-mode="signup"]');
-                if (btn) btn.click();
-                else if (window.AuthUI) window.AuthUI.open('signup');
-            };
+        if (document.readyState === 'complete') {
+            dismiss();
+        } else {
+            window.addEventListener('load', dismiss, { once: true });
         }
+        setTimeout(dismiss, maxVisibleMs);
     }
 
-    // --- CRITICAL SPEED INJECTION ---
     if (document.body) {
-        initInflightPro();
+        initInflightSplash();
     } else {
         const observer = new MutationObserver((mutations, obs) => {
             if (document.body) {
-                initInflightPro();
+                initInflightSplash();
                 obs.disconnect();
             }
         });
