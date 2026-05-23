@@ -222,8 +222,10 @@
         .aircraft-overview-panel {
             position: relative;
             height: 200px;
-            background-size: cover;
+            background-size: contain;
+            background-repeat: no-repeat;
             background-position: center;
+            background-color: #0b1220;
             border-bottom-left-radius: 0;
             border-bottom-right-radius: 0;
             color: #fff;
@@ -232,7 +234,7 @@
             justify-content: space-between;
             -webkit-mask-image: linear-gradient(180deg, black 65%, rgba(0,0,0,0.7) 80%, transparent 100%);
             mask-image: linear-gradient(180deg, black 65%, rgba(0,0,0,0.7) 80%, transparent 100%);
-            margin-bottom: -40px; 
+            margin-bottom: -40px;
         }
         
         .aircraft-overview-panel::before {

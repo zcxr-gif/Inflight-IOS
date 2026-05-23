@@ -2640,17 +2640,19 @@ function injectCustomStyles() {
             }
         }
         
-        .aircraft-overview-panel { 
+        .aircraft-overview-panel {
             position: relative;
-            height: 200px; 
-            background-size: cover; 
-            background-position: center; 
-            border-bottom-left-radius: 0; 
-            border-bottom-right-radius: 0; 
-            color: #fff; 
-            display: flex; 
-            flex-direction: column; 
-            justify-content: space-between; 
+            height: 200px;
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+            background-color: #0b1220;
+            border-bottom-left-radius: 0;
+            border-bottom-right-radius: 0;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
             margin-bottom: 0px;
         }
         
