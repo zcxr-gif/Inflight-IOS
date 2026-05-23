@@ -11930,42 +11930,13 @@ async function setupMapLayersAndFog() {
 }
 
 /**
- * Map-loader gate: keeps a scoped overlay over the map container until
- * Mapbox reports `idle` (all visible tiles at the current zoom loaded
- * and no pending transitions). Industry-standard pattern — users never
- * see a half-loaded globe. Subsequent zooms rely on the constructor's
- * `prefetchZoomDelta` + default crossfade to mask tile transitions, so
- * the loader is NOT re-shown on user-driven zoom.
- */
-let _sectorOpsMapLoaderSafetyTimer = null;
-function showSectorOpsMapLoader() {
-    const el = document.getElementById('sector-ops-map-loader');
-    if (!el) return;
-    el.classList.remove('is-hidden');
-}
-function hideSectorOpsMapLoader() {
-    const el = document.getElementById('sector-ops-map-loader');
-    if (!el || el.classList.contains('is-hidden')) return;
-    el.classList.add('is-hidden');
-    if (_sectorOpsMapLoaderSafetyTimer) {
-        clearTimeout(_sectorOpsMapLoaderSafetyTimer);
-        _sectorOpsMapLoaderSafetyTimer = null;
-    }
-}
-
-/**
  * [UPDATED] Initializes the Sector Ops map with high-performance configurations.
  */
 function initializeSectorOpsMap(centerICAO) {
     if (!MAPBOX_ACCESS_TOKEN) {
-        hideSectorOpsMapLoader();
         document.getElementById('sector-ops-map-fullscreen').innerHTML = '<p class="map-error-msg">Map service not available.</p>';
         return;
     }
-
-    // Reveal the loader before the map starts initializing so the user never
-    // sees the empty container or a half-rendered globe.
-    showSectorOpsMapLoader();
 
     if (sectorOpsMap) {
         sectorOpsMap.remove();
@@ -12001,28 +11972,8 @@ function initializeSectorOpsMap(centerICAO) {
         // map.getCanvas().toDataURL().
     });
 
-    // --- Loader gate: hide the overlay only once the map is truly ready ---
-    // `idle` fires when every tile in the viewport is loaded, the style is
-    // applied, and there are no pending transitions. This is the canonical
-    // Mapbox readiness signal — used by FlightRadar24 and similar apps.
-    sectorOpsMap.once('idle', () => {
-        hideSectorOpsMapLoader();
-    });
-    // Safety net: if the network stalls or `idle` never fires, reveal the
-    // map anyway after 12s rather than leaving the user staring at a spinner.
-    if (_sectorOpsMapLoaderSafetyTimer) clearTimeout(_sectorOpsMapLoaderSafetyTimer);
-    _sectorOpsMapLoaderSafetyTimer = setTimeout(() => {
-        console.warn('Sector Ops map: idle event never fired within 12s — revealing map anyway.');
-        hideSectorOpsMapLoader();
-    }, 12000);
-
     sectorOpsMap.on('style.load', async () => {
     console.log("Map style reloading. Rebuilding layers...");
-    // Re-cover the map while layers rebuild after a style swap, then drop
-    // the loader on the next idle. Without this, switching between dark/
-    // satellite/etc. exposes a half-themed map for ~300 ms.
-    showSectorOpsMapLoader();
-    sectorOpsMap.once('idle', () => hideSectorOpsMapLoader());
 
     await setupMapLayersAndFog();
 
@@ -16524,15 +16475,14 @@ if (urlParams.get('auth') === 'signup') {
  * ============================================================================
  * INFLIGHT — BRANDED LAUNCH SPLASH
  *
- * The single source of truth for the cold-launch loading screen. Designed
- * to read as an aviation operations console at first glance: radar sweep,
- * lat/long grid, a small aircraft tracing a great-circle arc above the
- * logo, and a cycling status line that names the boot stages.
- *
- * The overlay element id and style id are kept stable so other modules
- * (e.g. the share-link consumer that calls
- *  document.getElementById('inflight-pro-loader-overlay').remove()) keep
- * working without changes.
+ * The single source of truth for the cold-launch loading screen. Quiet,
+ * brand-forward, no theatrics: the InflightPro logo on a deep blue
+ * gradient with a soft glow, the Inflight wordmark, and a thin
+ * indeterminate progress line. Dismisses on `window.load` (or a safety
+ * timeout). The overlay element id and style id are kept stable so the
+ * share-link consumer that calls
+ *   document.getElementById('inflight-pro-loader-overlay').remove()
+ * keeps working without changes.
  * ============================================================================
  */
 (function() {
@@ -16555,15 +16505,6 @@ if (urlParams.get('auth') === 'signup') {
         return false;
     }
 
-    const STATUS_MESSAGES = [
-        'Establishing telemetry link',
-        'Loading global airspace',
-        'Syncing live aircraft',
-        'Tuning ATC sectors',
-        'Calibrating instruments',
-        'Cleared for departure'
-    ];
-
     function initInflightSplash() {
         if (arrivedFromShare()) return;
         if (document.getElementById(styleId) || document.getElementById(overlayId)) return;
@@ -16582,347 +16523,119 @@ if (urlParams.get('auth') === 'signup') {
                 font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
                 color: #e8eaf6;
                 background:
-                    radial-gradient(ellipse at 50% 30%, rgba(56, 189, 248, 0.16) 0%, transparent 55%),
-                    radial-gradient(ellipse at 50% 85%, rgba(99, 102, 241, 0.12) 0%, transparent 60%),
-                    linear-gradient(180deg, #060b18 0%, #03060d 100%);
+                    radial-gradient(ellipse at 50% 38%, rgba(56, 189, 248, 0.18) 0%, transparent 60%),
+                    linear-gradient(180deg, #0b1530 0%, #050a18 100%);
                 opacity: 0;
-                animation: inflight-splash-fade-in 360ms ease-out forwards;
+                animation: inflight-splash-fade-in 320ms ease-out forwards;
                 overflow: hidden;
                 -webkit-font-smoothing: antialiased;
             }
             #${overlayId}.is-dismissing {
-                animation: inflight-splash-fade-out 480ms ease-in forwards;
-            }
-
-            /* Lat/long nav grid — gives the canvas a chart/console feel */
-            #${overlayId}::before {
-                content: '';
-                position: absolute;
-                inset: -10%;
-                background-image:
-                    linear-gradient(rgba(148, 163, 184, 0.07) 1px, transparent 1px),
-                    linear-gradient(90deg, rgba(148, 163, 184, 0.07) 1px, transparent 1px);
-                background-size: 64px 64px, 64px 64px;
-                mask-image: radial-gradient(ellipse at 50% 50%, #000 30%, transparent 75%);
-                -webkit-mask-image: radial-gradient(ellipse at 50% 50%, #000 30%, transparent 75%);
-                opacity: 0.55;
-                animation: inflight-splash-grid-drift 28s linear infinite;
-                pointer-events: none;
-            }
-
-            /* Starfield twinkle layer */
-            #${overlayId}::after {
-                content: '';
-                position: absolute;
-                inset: 0;
-                background-image:
-                    radial-gradient(1px 1px at 12% 22%, rgba(255,255,255,0.55), transparent 60%),
-                    radial-gradient(1px 1px at 78% 16%, rgba(255,255,255,0.4), transparent 60%),
-                    radial-gradient(1.2px 1.2px at 32% 78%, rgba(255,255,255,0.4), transparent 60%),
-                    radial-gradient(1px 1px at 88% 64%, rgba(255,255,255,0.32), transparent 60%),
-                    radial-gradient(1px 1px at 55% 42%, rgba(255,255,255,0.28), transparent 60%),
-                    radial-gradient(1.4px 1.4px at 18% 58%, rgba(255,255,255,0.4), transparent 60%),
-                    radial-gradient(1px 1px at 65% 88%, rgba(255,255,255,0.3), transparent 60%),
-                    radial-gradient(1px 1px at 8% 86%, rgba(255,255,255,0.32), transparent 60%),
-                    radial-gradient(1px 1px at 92% 38%, rgba(255,255,255,0.3), transparent 60%);
-                opacity: 0.65;
-                animation: inflight-splash-twinkle 7s ease-in-out infinite;
-                pointer-events: none;
+                animation: inflight-splash-fade-out 420ms ease-in forwards;
             }
 
             .inflight-splash-stack {
                 position: relative;
-                z-index: 2;
                 display: flex;
                 flex-direction: column;
                 align-items: center;
                 text-align: center;
-                gap: 26px;
-                max-width: 420px;
+                gap: 30px;
                 width: 100%;
-            }
-
-            /* ---------- Radar disc + logo ---------- */
-            .inflight-splash-radar {
-                position: relative;
-                width: 220px;
-                height: 220px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                animation: inflight-splash-radar-in 800ms cubic-bezier(0.16, 1, 0.3, 1) both;
-            }
-            /* Rotating sweep cone */
-            .inflight-splash-radar::before {
-                content: '';
-                position: absolute;
-                inset: 0;
-                border-radius: 50%;
-                background: conic-gradient(
-                    from 0deg,
-                    rgba(56, 189, 248, 0.55) 0deg,
-                    rgba(56, 189, 248, 0.18) 22deg,
-                    rgba(56, 189, 248, 0) 70deg,
-                    rgba(56, 189, 248, 0) 360deg
-                );
-                filter: blur(2px);
-                mask-image: radial-gradient(circle, transparent 38%, #000 39%, #000 96%, transparent 100%);
-                -webkit-mask-image: radial-gradient(circle, transparent 38%, #000 39%, #000 96%, transparent 100%);
-                animation: inflight-splash-spin 3.6s linear infinite;
-                pointer-events: none;
-            }
-            /* Concentric radar rings */
-            .inflight-splash-radar::after {
-                content: '';
-                position: absolute;
-                inset: 0;
-                border-radius: 50%;
-                background:
-                    radial-gradient(circle, transparent 38%, rgba(56, 189, 248, 0.18) 39%, transparent 40%),
-                    radial-gradient(circle, transparent 58%, rgba(56, 189, 248, 0.14) 59%, transparent 60%),
-                    radial-gradient(circle, transparent 78%, rgba(56, 189, 248, 0.10) 79%, transparent 80%),
-                    radial-gradient(circle, transparent 95%, rgba(56, 189, 248, 0.18) 96%, transparent 97%);
-                pointer-events: none;
-            }
-            /* Crosshair tick marks */
-            .inflight-splash-radar-ticks {
-                position: absolute;
-                inset: 0;
-                pointer-events: none;
-            }
-            .inflight-splash-radar-ticks::before,
-            .inflight-splash-radar-ticks::after {
-                content: '';
-                position: absolute;
-                background: linear-gradient(180deg, transparent, rgba(148, 163, 184, 0.18), transparent);
-            }
-            .inflight-splash-radar-ticks::before {
-                top: 4%; bottom: 4%; left: 50%;
-                width: 1px;
-                transform: translateX(-50%);
-            }
-            .inflight-splash-radar-ticks::after {
-                left: 4%; right: 4%; top: 50%;
-                height: 1px;
-                background: linear-gradient(90deg, transparent, rgba(148, 163, 184, 0.18), transparent);
+                max-width: 360px;
             }
 
             .inflight-splash-logo-wrap {
                 position: relative;
-                width: 96px;
-                height: 96px;
+                width: 112px;
+                height: 112px;
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                z-index: 2;
             }
             .inflight-splash-logo-wrap::before {
                 content: '';
                 position: absolute;
-                inset: -14px;
+                inset: -28px;
                 border-radius: 50%;
-                background: radial-gradient(circle, rgba(56, 189, 248, 0.45) 0%, transparent 70%);
-                animation: inflight-splash-pulse 2.6s ease-in-out infinite;
-                filter: blur(4px);
+                background: radial-gradient(circle, rgba(56, 189, 248, 0.32) 0%, transparent 70%);
+                animation: inflight-splash-glow 4.2s ease-in-out infinite;
+                filter: blur(6px);
+                pointer-events: none;
             }
             .inflight-splash-logo {
                 position: relative;
-                height: 84px;
+                height: 96px;
                 width: auto;
-                filter: drop-shadow(0 6px 24px rgba(56, 189, 248, 0.45));
-                animation: inflight-splash-logo-in 800ms cubic-bezier(0.16, 1, 0.3, 1) both;
+                filter: drop-shadow(0 8px 28px rgba(56, 189, 248, 0.35));
+                animation: inflight-splash-logo-in 600ms cubic-bezier(0.16, 1, 0.3, 1) both;
             }
 
-            /* ---------- Flight-path arc above the logo ---------- */
-            .inflight-splash-arc {
-                position: relative;
-                width: 280px;
-                max-width: 80vw;
-                height: 56px;
-                margin-top: -8px;
-            }
-            .inflight-splash-arc svg {
-                position: absolute;
-                inset: 0;
-                width: 100%;
-                height: 100%;
-                overflow: visible;
-            }
-            .inflight-splash-arc-track {
-                fill: none;
-                stroke: rgba(148, 163, 184, 0.32);
-                stroke-width: 1;
-                stroke-dasharray: 3 5;
-            }
-            .inflight-splash-arc-glow {
-                fill: none;
-                stroke: rgba(56, 189, 248, 0.85);
-                stroke-width: 1.5;
-                stroke-linecap: round;
-                stroke-dasharray: 0 1000;
-                animation: inflight-splash-arc-draw 3.2s cubic-bezier(0.45, 0, 0.2, 1) infinite;
-            }
-            .inflight-splash-arc-plane {
-                fill: #ffffff;
-                filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.9));
-            }
-            .inflight-splash-arc-endpoint {
-                fill: rgba(56, 189, 248, 0.95);
-                filter: drop-shadow(0 0 4px rgba(56, 189, 248, 0.7));
-            }
-
-            /* ---------- Wordmark ---------- */
             .inflight-splash-wordmark {
-                font-size: 2rem;
-                font-weight: 800;
-                letter-spacing: 0.02em;
+                font-size: 1.75rem;
+                font-weight: 700;
+                letter-spacing: 0.01em;
                 color: #ffffff;
                 margin: 0;
-                background: linear-gradient(135deg, #ffffff 0%, #93c5fd 55%, #cbd5e1 100%);
+                background: linear-gradient(180deg, #ffffff 0%, #c7d2fe 100%);
                 -webkit-background-clip: text;
                 background-clip: text;
                 -webkit-text-fill-color: transparent;
-                animation: inflight-splash-rise 700ms 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
-            }
-            .inflight-splash-tagline {
-                font-size: 0.72rem;
-                font-weight: 600;
-                letter-spacing: 0.36em;
-                text-transform: uppercase;
-                color: rgba(148, 163, 184, 0.85);
-                margin: -16px 0 0;
-                animation: inflight-splash-rise 700ms 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+                animation: inflight-splash-rise 600ms 160ms cubic-bezier(0.16, 1, 0.3, 1) both;
             }
 
-            /* ---------- Determinate progress + status ---------- */
             .inflight-splash-progress {
-                width: 260px;
-                max-width: 75vw;
-                height: 3px;
+                width: 180px;
+                max-width: 60vw;
+                height: 2px;
                 border-radius: 999px;
-                background: rgba(148, 163, 184, 0.14);
+                background: rgba(148, 163, 184, 0.16);
                 overflow: hidden;
                 position: relative;
-                box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.06);
+                animation: inflight-splash-rise 600ms 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
             }
-            .inflight-splash-progress-fill {
-                position: absolute;
-                top: 0;
-                left: 0;
-                height: 100%;
-                width: 0%;
-                background: linear-gradient(90deg, #38bdf8 0%, #a78bfa 100%);
-                border-radius: 999px;
-                box-shadow: 0 0 12px rgba(56, 189, 248, 0.6);
-                transition: width 220ms cubic-bezier(0.4, 0, 0.2, 1);
-            }
-            .inflight-splash-progress-fill::after {
+            .inflight-splash-progress::after {
                 content: '';
                 position: absolute;
-                inset: 0;
-                background: linear-gradient(90deg, transparent, rgba(255,255,255,0.55), transparent);
-                animation: inflight-splash-progress-shine 1.4s ease-in-out infinite;
-            }
-
-            .inflight-splash-status {
-                font-size: 0.72rem;
-                font-weight: 600;
-                letter-spacing: 0.22em;
-                text-transform: uppercase;
-                color: rgba(186, 200, 224, 0.85);
-                margin: -14px 0 0;
-                min-height: 14px;
-                transition: opacity 240ms ease-in-out, transform 240ms ease-in-out;
-            }
-            .inflight-splash-status.is-swapping {
-                opacity: 0;
-                transform: translateY(4px);
-            }
-
-            /* ---------- ICAO-style footer chip ---------- */
-            .inflight-splash-footer {
-                position: absolute;
-                left: 50%;
-                bottom: max(28px, env(safe-area-inset-bottom, 0px));
-                transform: translateX(-50%);
-                display: flex;
-                align-items: center;
-                gap: 10px;
-                font-size: 0.62rem;
-                font-weight: 600;
-                letter-spacing: 0.3em;
-                text-transform: uppercase;
-                color: rgba(148, 163, 184, 0.65);
-                z-index: 2;
-                animation: inflight-splash-rise 700ms 480ms cubic-bezier(0.16, 1, 0.3, 1) both;
-            }
-            .inflight-splash-footer-dot {
-                width: 7px;
-                height: 7px;
-                border-radius: 50%;
-                background: #22c55e;
-                box-shadow: 0 0 8px rgba(34, 197, 94, 0.7);
-                animation: inflight-splash-pulse-dot 1.6s ease-in-out infinite;
+                top: 0;
+                left: -40%;
+                width: 40%;
+                height: 100%;
+                background: linear-gradient(90deg, transparent, rgba(56, 189, 248, 0.9), transparent);
+                border-radius: 999px;
+                animation: inflight-splash-progress-slide 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
             }
 
             @keyframes inflight-splash-fade-in { to { opacity: 1; } }
             @keyframes inflight-splash-fade-out { to { opacity: 0; } }
-            @keyframes inflight-splash-spin { to { transform: rotate(360deg); } }
-            @keyframes inflight-splash-twinkle {
-                0%, 100% { opacity: 0.55; }
-                50% { opacity: 0.95; }
-            }
-            @keyframes inflight-splash-grid-drift {
-                0%   { transform: translate(0, 0); }
-                100% { transform: translate(64px, 64px); }
-            }
-            @keyframes inflight-splash-pulse {
-                0%, 100% { transform: scale(1); opacity: 0.7; }
-                50% { transform: scale(1.08); opacity: 1; }
-            }
-            @keyframes inflight-splash-pulse-dot {
-                0%, 100% { opacity: 1; transform: scale(1); }
-                50% { opacity: 0.55; transform: scale(0.85); }
-            }
             @keyframes inflight-splash-logo-in {
-                from { opacity: 0; transform: scale(0.82); }
-                to   { opacity: 1; transform: scale(1); }
-            }
-            @keyframes inflight-splash-radar-in {
-                from { opacity: 0; transform: scale(0.9); }
+                from { opacity: 0; transform: scale(0.92); }
                 to   { opacity: 1; transform: scale(1); }
             }
             @keyframes inflight-splash-rise {
-                from { opacity: 0; transform: translateY(8px); }
+                from { opacity: 0; transform: translateY(6px); }
                 to   { opacity: 1; transform: translateY(0); }
             }
-            @keyframes inflight-splash-progress-shine {
-                0%   { transform: translateX(-100%); }
-                100% { transform: translateX(100%); }
+            @keyframes inflight-splash-glow {
+                0%, 100% { opacity: 0.75; }
+                50%      { opacity: 1; }
             }
-            @keyframes inflight-splash-arc-draw {
-                0%   { stroke-dasharray: 0 1000; }
-                60%  { stroke-dasharray: 600 1000; }
-                100% { stroke-dasharray: 0 1000; stroke-dashoffset: -600; }
+            @keyframes inflight-splash-progress-slide {
+                0%   { left: -40%; }
+                100% { left: 100%; }
             }
 
             @media (max-width: 480px) {
-                .inflight-splash-radar { width: 180px; height: 180px; }
-                .inflight-splash-logo { height: 70px; }
-                .inflight-splash-wordmark { font-size: 1.7rem; }
-                .inflight-splash-arc { width: 240px; height: 48px; }
+                .inflight-splash-logo-wrap { width: 96px; height: 96px; }
+                .inflight-splash-logo { height: 82px; }
+                .inflight-splash-wordmark { font-size: 1.55rem; }
             }
 
             @media (prefers-reduced-motion: reduce) {
                 #${overlayId},
-                #${overlayId}::before, #${overlayId}::after,
-                .inflight-splash-radar::before,
                 .inflight-splash-logo, .inflight-splash-logo-wrap::before,
-                .inflight-splash-arc-glow,
-                .inflight-splash-progress-fill::after,
-                .inflight-splash-footer-dot,
-                .inflight-splash-wordmark, .inflight-splash-tagline,
-                .inflight-splash-footer {
+                .inflight-splash-wordmark, .inflight-splash-progress,
+                .inflight-splash-progress::after {
                     animation-duration: 0.001s !important;
                     animation-iteration-count: 1 !important;
                 }
@@ -16937,125 +16650,36 @@ if (urlParams.get('auth') === 'signup') {
         overlay.setAttribute('aria-label', 'Inflight is loading');
         overlay.innerHTML = `
             <div class="inflight-splash-stack">
-                <div class="inflight-splash-arc" aria-hidden="true">
-                    <svg viewBox="0 0 280 56" preserveAspectRatio="xMidYMid meet">
-                        <path id="inflight-splash-arc-path" d="M 12,52 Q 140,-8 268,52" fill="none"/>
-                        <path class="inflight-splash-arc-track" d="M 12,52 Q 140,-8 268,52"/>
-                        <path class="inflight-splash-arc-glow"  d="M 12,52 Q 140,-8 268,52"/>
-                        <circle class="inflight-splash-arc-endpoint" cx="12"  cy="52" r="2.5"/>
-                        <circle class="inflight-splash-arc-endpoint" cx="268" cy="52" r="2.5"/>
-                        <g class="inflight-splash-arc-plane">
-                            <path d="M -7,-2 L 6,0 L -7,2 L -5,0 Z"/>
-                            <animateMotion dur="3.2s" repeatCount="indefinite"
-                                           rotate="auto"
-                                           keyTimes="0;1"
-                                           keySplines="0.45 0 0.2 1"
-                                           calcMode="spline">
-                                <mpath href="#inflight-splash-arc-path"/>
-                            </animateMotion>
-                        </g>
-                    </svg>
-                </div>
-                <div class="inflight-splash-radar">
-                    <div class="inflight-splash-radar-ticks"></div>
-                    <div class="inflight-splash-logo-wrap">
-                        <img src="Images/InflightPro.png" alt="Inflight" class="inflight-splash-logo">
-                    </div>
+                <div class="inflight-splash-logo-wrap">
+                    <img src="Images/InflightPro.png" alt="Inflight" class="inflight-splash-logo">
                 </div>
                 <h1 class="inflight-splash-wordmark">Inflight</h1>
-                <p class="inflight-splash-tagline">Live Aviation Operations</p>
-                <div class="inflight-splash-progress" aria-hidden="true">
-                    <div class="inflight-splash-progress-fill"></div>
-                </div>
-                <p class="inflight-splash-status" data-status>${STATUS_MESSAGES[0]}</p>
-            </div>
-            <div class="inflight-splash-footer" aria-hidden="true">
-                <span class="inflight-splash-footer-dot"></span>
-                <span>Live Telemetry · Secure Feed</span>
+                <div class="inflight-splash-progress" aria-hidden="true"></div>
             </div>
         `;
 
         document.body.appendChild(overlay);
-        startStatusCycle(overlay);
-        startProgressDrive(overlay);
         scheduleDismiss(overlay);
-    }
-
-    /* Rotates through the boot-stage labels so the wait feels intentional
-       instead of an indeterminate spinner. */
-    function startStatusCycle(overlay) {
-        const statusEl = overlay.querySelector('[data-status]');
-        if (!statusEl) return;
-        let i = 0;
-        const handle = setInterval(() => {
-            i = (i + 1) % STATUS_MESSAGES.length;
-            statusEl.classList.add('is-swapping');
-            setTimeout(() => {
-                statusEl.textContent = STATUS_MESSAGES[i];
-                statusEl.classList.remove('is-swapping');
-            }, 240);
-        }, 1100);
-        overlay.__inflightStatusHandle = handle;
-    }
-
-    /* Drives the progress bar toward ~92% on an ease-out curve, so the user
-       perceives forward motion. The final snap to 100% happens when `load`
-       fires inside scheduleDismiss(). */
-    function startProgressDrive(overlay) {
-        const fill = overlay.querySelector('.inflight-splash-progress-fill');
-        if (!fill) return;
-        const start = Date.now();
-        const ceiling = 92;
-        const approachMs = 4200;
-        const tick = () => {
-            const t = Math.min(1, (Date.now() - start) / approachMs);
-            const eased = 1 - Math.pow(1 - t, 2.4);
-            fill.style.width = (eased * ceiling).toFixed(2) + '%';
-            if (t < 1 && !overlay.__inflightDismissed) {
-                overlay.__inflightProgressRaf = requestAnimationFrame(tick);
-            }
-        };
-        overlay.__inflightProgressRaf = requestAnimationFrame(tick);
     }
 
     function scheduleDismiss(overlay) {
         let dismissed = false;
-        const minVisibleMs = 1100;  // Let the brand splash breathe for a moment
-        const maxVisibleMs = 6000;  // Safety net if `load` never fires
+        const minVisibleMs = 700;   // Brief breath so the logo doesn't flash off
+        const maxVisibleMs = 5000;  // Safety net if `load` never fires
         const start = Date.now();
-
-        const cleanup = () => {
-            if (overlay.__inflightStatusHandle) clearInterval(overlay.__inflightStatusHandle);
-            if (overlay.__inflightProgressRaf) cancelAnimationFrame(overlay.__inflightProgressRaf);
-        };
 
         const dismiss = () => {
             if (dismissed) return;
             dismissed = true;
-            overlay.__inflightDismissed = true;
-
-            // Snap progress to 100% so the last moment reads as "ready"
-            const fill = overlay.querySelector('.inflight-splash-progress-fill');
-            if (fill) fill.style.width = '100%';
-            const statusEl = overlay.querySelector('[data-status]');
-            if (statusEl) {
-                statusEl.classList.add('is-swapping');
-                setTimeout(() => {
-                    statusEl.textContent = 'Cleared for departure';
-                    statusEl.classList.remove('is-swapping');
-                }, 240);
-            }
-
             const elapsed = Date.now() - start;
             const remaining = Math.max(0, minVisibleMs - elapsed);
             setTimeout(() => {
                 overlay.classList.add('is-dismissing');
                 setTimeout(() => {
-                    cleanup();
                     overlay.remove();
                     const styleEl = document.getElementById(styleId);
                     if (styleEl) styleEl.remove();
-                }, 480);
+                }, 420);
             }, remaining);
         };
 

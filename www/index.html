@@ -58,90 +58,6 @@
             grid-row: 1 / -1;
         }
 
-        /* --- Scoped Map Loader (gated on Mapbox `idle` event) ---
-           Covers the map container until every tile at the current zoom
-           is fully loaded — so the user never sees a half-rendered globe
-           on cold start or after a style swap. Fades out via opacity
-           transition; pointer-events block interaction while visible. */
-        #sector-ops-map-loader {
-            grid-column: 1 / -1;
-            grid-row: 1 / -1;
-            background:
-                radial-gradient(ellipse at 50% 35%, rgba(56, 189, 248, 0.18) 0%, transparent 55%),
-                radial-gradient(ellipse at 50% 80%, rgba(124, 58, 237, 0.14) 0%, transparent 60%),
-                linear-gradient(180deg, #0a0f1c 0%, #06080e 100%);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 10;
-            opacity: 1;
-            pointer-events: auto;
-            transition: opacity 450ms ease-out;
-            overflow: hidden;
-        }
-        #sector-ops-map-loader.is-hidden {
-            opacity: 0;
-            pointer-events: none;
-        }
-        .sector-ops-map-loader__inner {
-            position: relative;
-            z-index: 1;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 22px;
-        }
-        .sector-ops-map-loader__ring {
-            position: relative;
-            width: 76px;
-            height: 76px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .sector-ops-map-loader__ring::before,
-        .sector-ops-map-loader__ring::after {
-            content: '';
-            position: absolute;
-            inset: 0;
-            border-radius: 50%;
-            border: 2.5px solid transparent;
-        }
-        .sector-ops-map-loader__ring::before {
-            border-top-color: #38bdf8;
-            border-right-color: rgba(56, 189, 248, 0.3);
-            animation: sector-ops-loader-spin 1.4s cubic-bezier(0.45, 0, 0.55, 1) infinite;
-        }
-        .sector-ops-map-loader__ring::after {
-            inset: 10px;
-            border-top-color: rgba(167, 139, 250, 0.85);
-            border-left-color: rgba(167, 139, 250, 0.2);
-            animation: sector-ops-loader-spin 2.1s cubic-bezier(0.45, 0, 0.55, 1) infinite reverse;
-        }
-        .sector-ops-map-loader__label {
-            font-size: 12px;
-            letter-spacing: 0.22em;
-            text-transform: uppercase;
-            color: rgba(232, 234, 246, 0.82);
-            font-weight: 600;
-        }
-        .sector-ops-map-loader__sub {
-            font-size: 10.5px;
-            letter-spacing: 0.16em;
-            text-transform: uppercase;
-            color: rgba(148, 163, 184, 0.65);
-            font-weight: 500;
-        }
-        @keyframes sector-ops-loader-spin {
-            to { transform: rotate(360deg); }
-        }
-        @media (prefers-reduced-motion: reduce) {
-            .sector-ops-map-loader__ring::before,
-            .sector-ops-map-loader__ring::after {
-                animation-duration: 3s;
-            }
-        }
-        
         /* This rule makes the main content area fill the entire viewport */
         .main-content {
             padding: 0; 
@@ -2039,13 +1955,6 @@
     <div class="main-content">
         <div id="standalone-map-view" class="content-view active">
             <div id="sector-ops-map-fullscreen"></div>
-            <div id="sector-ops-map-loader" aria-hidden="true">
-                <div class="sector-ops-map-loader__inner">
-                    <div class="sector-ops-map-loader__ring"></div>
-                    <div class="sector-ops-map-loader__label">Loading map</div>
-                    <div class="sector-ops-map-loader__sub">Streaming tiles &amp; live traffic</div>
-                </div>
-            </div>
         </div>
     </div>
 
