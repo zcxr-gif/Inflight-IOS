@@ -37,34 +37,6 @@
             overflow: hidden; /* Important for fullscreen map */
         }
 
-        /* Main Loader */
-        .main-loader-overlay {
-            position: fixed;
-            inset: 0;
-            background: rgba(13, 17, 23, 0.9);
-            display: none; /* Changed to none */
-            align-items: center;
-            justify-content: center;
-            z-index: 9999;
-        }
-        .main-loader-overlay.active {
-            display: flex; /* Show when active */
-        }
-        .spinner-large {
-            width: 56px;
-            height: 56px;
-            border: 6px solid #484f58;
-            border-bottom-color: #00a8ff;
-            border-radius: 50%;
-            display: inline-block;
-            box-sizing: border-box;
-            animation: rotation 1s linear infinite;
-        }
-        @keyframes rotation {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
         /* --- [FIX] Standalone Map View Layout --- */
         #standalone-map-view.active {
             position: absolute;
