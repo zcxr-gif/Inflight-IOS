@@ -13330,6 +13330,7 @@ let totalDistanceNM = 0;
             </div>
         </div>
 
+        <div class="ac-route-bar-backdrop" style="background: #3a3a3a; position: relative;">
         <div class="ac-route-info-bar" style=" background: #3a3a3a; backdrop-filter: blur(16px); margin: -32px 16px 0 16px; border-radius: 12px; padding: 14px 24px; border: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0; position: relative; z-index: 5; box-shadow: 0 8px 32px rgba(0,0,0,0.4);">
             <div class="route-node">
         <span class="city-name" style="color: #94a3b8; font-size: 9px; font-weight: 600; text-transform: uppercase;">${depCity}</span>
@@ -13363,8 +13364,9 @@ let totalDistanceNM = 0;
                 <span class="time-source-label" id="ac-bar-eta-label" style="color: ${arrTimeInfo.color}; opacity: 0.75; font-size: 8px; font-weight: 700; letter-spacing: 0.6px; margin-top: 1px; text-transform: uppercase;">${arrTimeInfo.label}</span>
             </div>
         </div>
+        </div>
 
-    <div class="ac-info-window-tabs" style="padding: 16px 16px 8px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0;">
+    <div class="ac-info-window-tabs" style="background: #3a3a3a; padding: 16px 16px 8px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0;">
             <div class="modern-view-switcher" id="main-data-switcher" style="flex: 1; background: rgba(15, 23, 42, 0.4); border-radius: 12px; padding: 4px; display: flex; position: relative; border: 1px solid rgba(255,255,255,0.05); height: 44px;">
                  <button class="ac-info-tab-btn ${flightDataActiveClass}" data-tab="ac-tab-flight-data" style="flex: 1; border: none; background: transparent; color: #fff; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
                     <i class="fa-solid fa-gauge-high"></i> Flight Display
