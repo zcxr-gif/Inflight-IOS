@@ -323,7 +323,7 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
 
         if (!isSignedIn) {
             if (typeof showNotification === 'function') {
-                showNotification("Multi-Track is a Pro feature — sign in to pin flights.", "error");
+                showNotification((typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) ? "Multi-flight pinning isn't available on this account." : "Multi-Track is a Pro feature — sign in to pin flights.", "error");
             }
             // Surface the signup modal so the user can convert immediately
             if (window.AuthUI && typeof window.AuthUI.open === 'function') {
@@ -349,7 +349,7 @@ window.pinFlight = function(flightId) {
     const isSignedIn = !!(typeof ProfileUI !== 'undefined' && ProfileUI?._currentUser);
     if (!isSignedIn) {
         if (typeof showNotification === 'function') {
-            showNotification("Multi-Track is a Pro feature — sign in to pin flights.", "error");
+            showNotification((typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) ? "Multi-flight pinning isn't available on this account." : "Multi-Track is a Pro feature — sign in to pin flights.", "error");
         }
         if (window.AuthUI && typeof window.AuthUI.open === 'function') {
             window.AuthUI.open('signup');
@@ -10653,7 +10653,7 @@ const SettingsUI = {
     categories: {
         airspace: { label: "Filters", icon: "fa-tower-broadcast" },
         visuals: { label: "Visuals", icon: "fa-eye" },
-        pro_layers: { label: "Pro Layers", icon: "fa-layer-group" },
+        pro_layers: { label: (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) ? "Layers" : "Pro Layers", icon: "fa-layer-group" },
         interface: { label: "Interface", icon: "fa-tablet-screen-button" },
         theme: { label: "Theme", icon: "fa-palette" }
     },
@@ -11139,7 +11139,7 @@ renderCategory(catId) {
 
                             <div class="settings-row pro-feature-row" style="border-left: 3px solid #38bdf8; background: rgba(56, 189, 248, 0.05); ${!isSignedIn ? 'opacity: 0.5; pointer-events: none;' : ''}">
                                 <div class="row-label">
-                                    <i class="fa-solid fa-wand-magic-sparkles" style="color: #38bdf8;"></i> Custom Plane Color <span style="background: #38bdf8; color: #000; font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; margin-left: 8px; font-weight: 800;">PRO</span>
+                                    <i class="fa-solid fa-wand-magic-sparkles" style="color: #38bdf8;"></i> Custom Plane Color <span class="ios-hide" style="background: #38bdf8; color: #000; font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; margin-left: 8px; font-weight: 800;">PRO</span>
                                 </div>
                                 <input type="color" id="set-pro-color" class="settings-color-input" value="${mapFilters.proCustomColor || '#38bdf8'}" ${!isSignedIn ? 'disabled' : ''}>
                             </div>
@@ -11255,7 +11255,7 @@ renderCategory(catId) {
                         <div class="settings-section">
                             <div class="pro-feature-banner" style="background: linear-gradient(90deg, rgba(56, 189, 248, 0.1), transparent); padding: 12px; border-left: 3px solid #38bdf8; margin-bottom: 20px; border-radius: 0 8px 8px 0;">
                                 <h4 style="margin: 0; color: #38bdf8; display: flex; align-items: center; gap: 8px;">
-                                    <i class="fa-solid fa-star"></i> PRO MAP CONTROL
+                                    <i class="fa-solid fa-star"></i> <span class="ios-hide">PRO </span>MAP CONTROL
                                 </h4>
                                 <p style="margin: 4px 0 0 0; font-size: 0.75rem; color: #94a3b8;">
                                     High-fidelity map layers and 3D visualization tools.
@@ -15912,7 +15912,7 @@ if (flatMapToggle) {
             const isSignedIn = !!(typeof ProfileUI !== 'undefined' && ProfileUI?._currentUser);
             
             if (proModes.includes(mode) && !isSignedIn) {
-                showNotification("This map style requires a Pro account.", "error");
+                showNotification((typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) ? "This map style isn't available on this account." : "This map style requires a Pro account.", "error");
                 // Revert the radio UI to current state
                 const currentRadio = document.querySelector(`input[name="map-style-mode"][value="${mapFilters.mapStyle || 'dark'}"]`);
                 if (currentRadio) currentRadio.checked = true;
