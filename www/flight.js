@@ -12924,9 +12924,37 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         }
 
         const flownLayerId = `flown-path-${flightProps.flightId}`;
-        
+
+        // Sync the initial flown-path render to whatever the live marker is
+        // actually showing on the map. Two failure modes used to produce a
+        // path that visibly extended past the aircraft icon on first open:
+        //   1. `flightProps.position` is the snapshot from click time, often
+        //      a few hundred ms (sometimes seconds) stale by the time the
+        //      history fetch resolves — using it would anchor the path to
+        //      an older spot than the icon.
+        //   2. The history endpoint can return GPS samples that are newer
+        //      than the latest socket frame the marker has consumed;
+        //      appending them stretches the line past the icon until the
+        //      next socket tick catches the marker up.
+        // Reading the live feature from currentMapFeatures + filtering
+        // trail points to <= marker last_update fixes both.
+        const liveFeature = (typeof currentMapFeatures !== 'undefined')
+            ? currentMapFeatures[flightProps.flightId] : null;
+        const liveLastUpdateMs = liveFeature?.properties?.last_update
+            ? new Date(liveFeature.properties.last_update).getTime() : null;
+        const livePosition = liveFeature?.geometry?.coordinates
+            ? {
+                lat: liveFeature.geometry.coordinates[1],
+                lon: liveFeature.geometry.coordinates[0],
+                alt_ft: liveFeature.properties?.altitude ?? flightProps.position?.alt_ft ?? 0
+              }
+            : flightProps.position;
+        const trailUpToMarker = (liveLastUpdateMs != null)
+            ? sortedRoutePoints.filter(p => !p.date || new Date(p.date).getTime() <= liveLastUpdateMs)
+            : sortedRoutePoints;
+
         // Generate the segmented FeatureCollection using our new function
-        const initialRouteData = generateAltitudeColoredRoute(sortedRoutePoints, flightProps.position, plan);
+        const initialRouteData = generateAltitudeColoredRoute(trailUpToMarker, livePosition, plan);
 
         if (!sectorOpsMap.getSource(flownLayerId)) {
             sectorOpsMap.addSource(flownLayerId, {
