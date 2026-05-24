@@ -2968,6 +2968,19 @@ if (this._activeTab === 'flight-plan') {
                             </div>
                         </div>
 
+                        <div class="pui-card" style="border-color: rgba(239, 68, 68, 0.25);">
+                            <div class="pui-card-header"><h3 style="color: #ef4444;">Danger Zone</h3></div>
+                            <div class="pui-card-body">
+                                <p style="margin: 0 0 14px 0; font-size: 0.88rem; color: var(--pui-text-secondary); line-height: 1.55;">
+                                    Permanently delete your InFlight account and all associated data. This cannot be undone.
+                                </p>
+                                <div id="pui-delete-msg" class="pui-alert" style="display:none; margin: 0 0 14px 0;"></div>
+                                <button class="pui-btn-danger-outline" id="pui-delete-account-btn" style="border-color: rgba(239, 68, 68, 0.5); color: #ef4444;">
+                                    <i class="fa-solid fa-trash"></i> Delete Account
+                                </button>
+                            </div>
+                        </div>
+
                     </div>
                 </div>
             `;
@@ -3042,6 +3055,106 @@ if (this._activeTab === 'flight-plan') {
                 }
             };
             document.addEventListener('keydown', escHandler);
+        });
+    },
+
+    // ─── Delete Account (Apple 5.1.1(v) compliance) ──────────────────────────
+    _showDeleteAccountModal() {
+        const existing = document.getElementById('pui-delete-confirm');
+        if (existing) existing.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'pui-delete-confirm';
+        overlay.className = 'pui-wrapper-layer';
+        overlay.setAttribute('data-theme', this._theme);
+        overlay.setAttribute('data-density', this._density);
+        overlay.style.zIndex = '10010';
+
+        overlay.innerHTML = `
+            <div class="pui-confirm-box pui-fade-in" style="max-width: 460px;">
+                <div class="pui-confirm-header" style="padding-bottom: 8px;">
+                    <div class="pui-confirm-icon" style="background: rgba(239, 68, 68, 0.15); color: #ef4444;"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                    <h3>Delete Account?</h3>
+                </div>
+                <div class="pui-confirm-body">
+                    <p style="margin: 0 0 14px 0;">
+                        This will <strong>permanently delete</strong> your InFlight account, profile, saved preferences, pinned flights, pilot history, and any other data tied to it.
+                    </p>
+                    <p style="margin: 0 0 14px 0; font-size: 0.85rem; color: var(--pui-text-tertiary);">
+                        If you have an active Pro subscription, cancel it first at <a href="https://inflight.info" target="_blank" style="color: var(--pui-accent);">inflight.info</a> — deleting your account here does not stop a recurring payment.
+                    </p>
+                    <p style="margin: 0 0 8px 0; font-size: 0.85rem;">
+                        Type <strong>DELETE</strong> below to confirm:
+                    </p>
+                    <input type="text" id="pui-delete-confirm-input" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="DELETE" class="pui-input" style="letter-spacing: 0.1em;">
+                    <div id="pui-delete-error" class="pui-alert pui-alert-error" style="display:none; margin: 12px 0 0;"></div>
+                </div>
+                <div class="pui-confirm-actions" style="display: flex; gap: 10px;">
+                    <button class="pui-btn-ghost" id="pui-delete-cancel" style="flex: 1;">Keep My Account</button>
+                    <button class="pui-btn-danger-outline" id="pui-delete-submit" style="flex: 1; border-color: rgba(239, 68, 68, 0.5); color: #ef4444;" disabled>
+                        <i class="fa-solid fa-trash"></i> Delete Forever
+                    </button>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(overlay);
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => overlay.classList.add('pui-open'));
+        });
+
+        const cleanup = () => {
+            overlay.classList.remove('pui-open');
+            setTimeout(() => overlay.remove(), 240);
+            document.removeEventListener('keydown', escHandler);
+        };
+        const escHandler = (e) => { if (e.key === 'Escape') cleanup(); };
+        document.addEventListener('keydown', escHandler);
+
+        const input = document.getElementById('pui-delete-confirm-input');
+        const submitBtn = document.getElementById('pui-delete-submit');
+        const errorBox = document.getElementById('pui-delete-error');
+
+        input.addEventListener('input', () => {
+            submitBtn.disabled = input.value.trim().toUpperCase() !== 'DELETE';
+        });
+        input.focus();
+
+        document.getElementById('pui-delete-cancel').addEventListener('click', cleanup);
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(); });
+
+        submitBtn.addEventListener('click', async () => {
+            if (input.value.trim().toUpperCase() !== 'DELETE') return;
+            errorBox.style.display = 'none';
+            submitBtn.disabled = true;
+            const originalHtml = submitBtn.innerHTML;
+            submitBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Deleting…';
+
+            try {
+                if (!this._supabase) throw new Error("Auth client unavailable.");
+                const { data, error } = await this._supabase.functions.invoke('delete-user-account', { body: {} });
+                if (error || data?.error) {
+                    throw new Error(error?.message || data?.error || "Failed to delete account.");
+                }
+
+                await this._supabase.auth.signOut();
+                cleanup();
+                if (typeof this.close === 'function') this.close();
+                if (window.Toastify) {
+                    window.Toastify({
+                        text: "Your account has been deleted.",
+                        duration: 5000,
+                        gravity: "top",
+                        position: "center",
+                        style: { background: "#ef4444" }
+                    }).showToast();
+                }
+            } catch (err) {
+                submitBtn.innerHTML = originalHtml;
+                submitBtn.disabled = false;
+                errorBox.textContent = (err.message || "Failed to delete account.") + " Email inflightCustomer@gmail.com if this keeps failing.";
+                errorBox.style.display = 'flex';
+            }
         });
     },
 
@@ -3585,6 +3698,10 @@ const contentRoot = document.getElementById('pui-content');
 
             document.getElementById('pui-billing-cancel-btn')?.addEventListener('click', () => {
                 this._showCancellationModal();
+            });
+
+            document.getElementById('pui-delete-account-btn')?.addEventListener('click', () => {
+                this._showDeleteAccountModal();
             });
         }
 

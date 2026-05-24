@@ -1793,6 +1793,19 @@ _tabCareer() {
                         <i class="fa-solid fa-right-from-bracket"></i> Sign Out
                     </button>
                 </div>
+
+                <div class="mdui-card mdui-fade-up" style="animation-delay:0.18s; margin-top: 16px; border-color: rgba(239, 68, 68, 0.25);">
+                    <div class="mdui-card-header"><h3 style="color: #ef4444;">Danger Zone</h3></div>
+                    <div class="mdui-card-body">
+                        <p style="margin: 0 0 12px 0; font-size: 0.85rem; color: var(--mdui-muted); line-height: 1.5;">
+                            Permanently delete your InFlight account and all associated data. This cannot be undone.
+                        </p>
+                        <div id="mdui-delete-msg" class="mdui-alert" style="display:none; margin:0 0 12px 0;"></div>
+                        <button class="mdui-btn-danger-outline" id="mdui-delete-account" style="width:100%; border-color: rgba(239, 68, 68, 0.5); color: #ef4444;">
+                            <i class="fa-solid fa-trash"></i> Delete Account
+                        </button>
+                    </div>
+                </div>
             </div>
         `;
     },
@@ -2547,7 +2560,105 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             document.getElementById('mdui-signout')?.addEventListener('click', async () => {
                 if (this._supabase) { await this._supabase.auth.signOut(); this.close(); }
             });
+
+            document.getElementById('mdui-delete-account')?.addEventListener('click', () => {
+                this._showDeleteAccountModal();
+            });
         }
+    },
+
+    // ─── Delete Account (Apple 5.1.1(v) compliance) ──────────────────────────
+    _showDeleteAccountModal() {
+        const existing = document.getElementById('mdui-delete-confirm');
+        if (existing) existing.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'mdui-delete-confirm';
+        overlay.className = 'mdui-wrapper-layer mdui-open';
+        overlay.style.zIndex = '10010';
+        overlay.innerHTML = `
+            <div class="mdui-confirm-box mdui-fade-up" style="max-width: 460px; padding: 0; overflow: hidden; text-align: left;">
+                <div style="padding: 24px 20px 8px; text-align: center;">
+                    <div class="mdui-confirm-icon" style="margin-bottom: 12px; background: rgba(239, 68, 68, 0.15); color: #ef4444;">
+                        <i class="fa-solid fa-triangle-exclamation"></i>
+                    </div>
+                    <h3 style="margin: 0; font-size: 1.25rem;">Delete Account?</h3>
+                </div>
+                <div style="padding: 0 20px 20px;">
+                    <p style="margin: 0 0 14px 0; font-size: 0.88rem; color: var(--mdui-muted); line-height: 1.55;">
+                        This will <strong>permanently delete</strong> your InFlight account, profile, saved preferences, pinned flights, pilot history, and any other data tied to it.
+                    </p>
+                    <p style="margin: 0 0 14px 0; font-size: 0.82rem; color: var(--mdui-tertiary); line-height: 1.5;">
+                        If you have an active Pro subscription, cancel it first at <a href="https://inflight.info" target="_blank" style="color: #38bdf8;">inflight.info</a> — deleting your account here does not stop a recurring payment.
+                    </p>
+                    <p style="margin: 0 0 8px 0; font-size: 0.82rem; color: var(--mdui-text);">
+                        Type <strong>DELETE</strong> below to confirm:
+                    </p>
+                    <input type="text" id="mdui-delete-confirm-input" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="DELETE" style="width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--mdui-border-strong); background: var(--mdui-surface); color: var(--mdui-text); font-size: 0.95rem; letter-spacing: 0.1em;">
+                    <div id="mdui-delete-error" class="mdui-alert mdui-alert-error" style="display:none; margin: 12px 0 0;"></div>
+                </div>
+                <div style="padding: 16px 20px; background: var(--mdui-surface); border-top: 1px solid var(--mdui-border-light); display: flex; gap: 10px;">
+                    <button class="mdui-btn-ghost" id="mdui-delete-cancel" style="flex: 1;">Keep My Account</button>
+                    <button class="mdui-btn-danger-outline" id="mdui-delete-submit" style="flex: 1; border-color: rgba(239, 68, 68, 0.5); color: #ef4444;" disabled>
+                        <i class="fa-solid fa-trash"></i> Delete Forever
+                    </button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+
+        const cleanup = () => {
+            overlay.remove();
+            document.removeEventListener('keydown', escHandler);
+        };
+        const escHandler = (e) => { if (e.key === 'Escape') cleanup(); };
+        document.addEventListener('keydown', escHandler);
+
+        const input = document.getElementById('mdui-delete-confirm-input');
+        const submitBtn = document.getElementById('mdui-delete-submit');
+        const errorBox = document.getElementById('mdui-delete-error');
+
+        input.addEventListener('input', () => {
+            submitBtn.disabled = input.value.trim().toUpperCase() !== 'DELETE';
+        });
+        input.focus();
+
+        document.getElementById('mdui-delete-cancel').addEventListener('click', cleanup);
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(); });
+
+        submitBtn.addEventListener('click', async () => {
+            if (input.value.trim().toUpperCase() !== 'DELETE') return;
+            errorBox.style.display = 'none';
+            submitBtn.disabled = true;
+            const originalHtml = submitBtn.innerHTML;
+            submitBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Deleting…';
+
+            try {
+                if (!this._supabase) throw new Error("Auth client unavailable.");
+                const { data, error } = await this._supabase.functions.invoke('delete-user-account', { body: {} });
+                if (error || data?.error) {
+                    throw new Error(error?.message || data?.error || "Failed to delete account.");
+                }
+
+                await this._supabase.auth.signOut();
+                cleanup();
+                this.close();
+                if (window.Toastify) {
+                    window.Toastify({
+                        text: "Your account has been deleted.",
+                        duration: 5000,
+                        gravity: "top",
+                        position: "center",
+                        style: { background: "#ef4444" }
+                    }).showToast();
+                }
+            } catch (err) {
+                submitBtn.innerHTML = originalHtml;
+                submitBtn.disabled = false;
+                errorBox.textContent = err.message + " You can email inflightCustomer@gmail.com if this keeps failing.";
+                errorBox.style.display = 'flex';
+            }
+        });
     },
 
     // ─── Styles ───────────────────────────────────────────────────────────────
