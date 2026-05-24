@@ -1016,9 +1016,11 @@ disableHudControls() {
                underneath and reads as navy through any transparent
                child. .ac-info-window-tabs has no background of its own,
                so the blurred window shows through that strip. Plug it
-               with a solid low gray to kill the tint. */
+               with the AC bar's own gray so the strip between the bar
+               and the tab buttons continues the bar visually instead of
+               stepping down to a darker zinc. */
             .mobile-legacy-sheet .ac-info-window-tabs {
-                background: #1c1c1f !important;
+                background: #3a3a3a !important;
             }
             .mobile-legacy-sheet .route-summary-overlay {
                 /* The handle will wrap this */
