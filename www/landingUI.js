@@ -1696,24 +1696,24 @@ export const LandingUI = {
                ============================================================ */
             @media (max-width: 768px) {
                 /* ---------- TOP: native-iOS search bar ---------- *
-                   One frosted bar pinned under the status bar. It holds the
-                   search field; the profile avatar floats at the trailing
-                   edge while idle and is swapped for a "Cancel" button while
-                   searching (the standard iOS search pattern). */
+                   Floating frosted pill under the status bar. Holds the
+                   pill-shaped search field; profile avatar sits at the
+                   trailing edge while idle and is swapped for a "Cancel"
+                   button while searching (standard iOS search pattern). */
                 .tactical-header {
                     top: 0 !important;
                     left: 0 !important;
                     right: 0 !important;
                     width: 100% !important;
                     height: auto !important;
-                    padding: calc(env(safe-area-inset-top, 0px) + 8px) 64px 8px 12px !important;
-                    background: var(--lui-glass-bg) !important;
-                    -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
-                    backdrop-filter: blur(24px) saturate(180%) !important;
-                    border-bottom: 1px solid var(--lui-border-base) !important;
+                    padding: calc(env(safe-area-inset-top, 0px) + 10px) 64px 12px 14px !important;
+                    background: transparent !important;
+                    -webkit-backdrop-filter: none !important;
+                    backdrop-filter: none !important;
+                    border-bottom: none !important;
                     display: flex !important;
                     align-items: center !important;
-                    gap: 8px !important;
+                    gap: 10px !important;
                     pointer-events: none !important;
                     z-index: 1500 !important;
                     transition: padding 0.25s cubic-bezier(0.16,1,0.3,1) !important;
@@ -1730,67 +1730,77 @@ export const LandingUI = {
                 }
                 .search-blade {
                     width: 100% !important;
-                    height: 40px !important;
-                    padding: 0 14px !important;
-                    background: var(--lui-bg-input) !important;
+                    height: 44px !important;
+                    padding: 0 16px !important;
+                    background: var(--lui-glass-bg) !important;
+                    -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
+                    backdrop-filter: blur(24px) saturate(180%) !important;
                     border: 1px solid var(--lui-border-base) !important;
-                    border-radius: 12px !important;
+                    border-radius: 999px !important;
                     display: flex !important;
                     align-items: center !important;
-                    gap: 8px !important;
-                    box-shadow: none !important;
+                    gap: 10px !important;
+                    box-shadow: 0 6px 18px rgba(0,0,0,0.32) !important;
                     transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
                 }
-                .search-blade .search-icon { color: var(--lui-text-gray-1) !important; font-size: 0.9rem !important; }
+                .search-blade .search-icon { color: var(--lui-text-gray-1) !important; font-size: 0.95rem !important; }
                 #blade-search-input {
                     font-size: 16px !important; /* >=16px stops iOS auto-zoom on focus */
                     flex: 1 1 auto !important;
                     min-width: 0 !important;
                     -webkit-appearance: none !important;
+                    background: transparent !important;
+                    color: var(--lui-text-main) !important;
+                    letter-spacing: 0.1px !important;
                 }
-                #blade-search-input::placeholder { color: var(--lui-text-muted) !important; }
+                #blade-search-input::placeholder { color: var(--lui-text-muted) !important; font-weight: 500 !important; }
 
                 /* Inline clear (✕) — only once there's text */
                 .search-clear-btn {
                     display: none;
-                    background: none !important;
+                    background: var(--lui-active-bg) !important;
                     border: none !important;
-                    padding: 0 2px !important;
+                    padding: 0 !important;
                     margin: 0 !important;
-                    color: var(--lui-text-gray-2) !important;
-                    font-size: 1rem !important;
+                    width: 22px !important;
+                    height: 22px !important;
+                    border-radius: 50% !important;
+                    color: var(--lui-text-gray-1) !important;
+                    font-size: 0.85rem !important;
                     line-height: 1 !important;
                     cursor: pointer;
                     flex: 0 0 auto !important;
+                    align-items: center !important;
+                    justify-content: center !important;
                 }
-                .search-blade.has-text .search-clear-btn { display: block !important; }
+                .search-blade.has-text .search-clear-btn { display: flex !important; }
 
                 /* Focus / active: the bar pins to the top, full width,
                    leaving room for the trailing Cancel button. */
                 .mobile-search-active .search-blade,
                 .search-blade:focus-within {
                     position: fixed !important;
-                    left: 12px !important;
+                    left: 14px !important;
                     right: 72px !important;
-                    top: calc(env(safe-area-inset-top, 0px) + 8px) !important;
+                    top: calc(env(safe-area-inset-top, 0px) + 10px) !important;
                     width: auto !important;
                     max-width: none !important;
-                    height: 40px !important;
-                    border-radius: 12px !important;
+                    height: 44px !important;
+                    border-radius: 999px !important;
                     z-index: 1600 !important;
-                    background: var(--lui-bg-card) !important;
-                    border-color: var(--lui-border-base) !important;
-                    box-shadow: 0 4px 16px rgba(0,0,0,0.35) !important;
+                    background: var(--lui-glass-heavy) !important;
+                    border-color: var(--lui-border-strong) !important;
+                    box-shadow: 0 8px 24px rgba(0,0,0,0.45) !important;
                 }
 
                 /* Full-screen results sheet under the search bar. */
                 .search-results-dropdown {
                     position: fixed !important;
-                    top: calc(env(safe-area-inset-top, 0px) + 56px) !important;
+                    top: calc(env(safe-area-inset-top, 0px) + 64px) !important;
                     left: 0 !important;
                     width: 100vw !important;
-                    height: calc(100vh - env(safe-area-inset-top, 0px) - 56px) !important;
-                    height: calc(100dvh - env(safe-area-inset-top, 0px) - 56px) !important;
+                    height: calc(100vh - env(safe-area-inset-top, 0px) - 64px) !important;
+                    height: calc(100dvh - env(safe-area-inset-top, 0px) - 64px) !important;
                     max-height: none !important;
                     border-radius: 0 !important;
                     border: none !important;
@@ -1823,36 +1833,38 @@ export const LandingUI = {
                 /* ---------- TRAILING: profile avatar (idle) ---------- */
                 .auth-nexus {
                     position: fixed !important;
-                    top: calc(env(safe-area-inset-top, 0px) + 8px) !important;
-                    right: 12px !important;
+                    top: calc(env(safe-area-inset-top, 0px) + 10px) !important;
+                    right: 14px !important;
                     left: auto !important;
                     bottom: auto !important;
                     z-index: 1600 !important;
                     transition: opacity 0.2s ease !important;
                 }
                 .auth-nexus .orb-btn {
-                    width: 40px !important;
-                    height: 40px !important;
+                    width: 44px !important;
+                    height: 44px !important;
                     border-radius: 50% !important;
-                    font-size: 0.95rem !important;
-                    background: var(--lui-bg-input) !important;
+                    font-size: 1rem !important;
+                    background: var(--lui-glass-bg) !important;
+                    -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
+                    backdrop-filter: blur(24px) saturate(180%) !important;
                     border: 1px solid var(--lui-border-base) !important;
                     color: var(--lui-text-main) !important;
-                    box-shadow: none !important;
+                    box-shadow: 0 6px 18px rgba(0,0,0,0.32) !important;
                 }
                 .auth-nexus .orb-btn:active {
-                    transform: scale(0.94) !important;
-                    background: var(--lui-bg-card) !important;
+                    transform: scale(0.92) !important;
+                    background: var(--lui-glass-heavy) !important;
                 }
 
                 /* ---------- TRAILING: Cancel button (searching) ---------- */
                 .search-cancel-btn {
                     display: block !important;
                     position: fixed !important;
-                    top: calc(env(safe-area-inset-top, 0px) + 8px) !important;
-                    right: 12px !important;
-                    height: 40px !important;
-                    padding: 0 4px !important;
+                    top: calc(env(safe-area-inset-top, 0px) + 10px) !important;
+                    right: 14px !important;
+                    height: 44px !important;
+                    padding: 0 6px !important;
                     background: none !important;
                     border: none !important;
                     color: var(--lui-accent) !important;
@@ -1875,33 +1887,47 @@ export const LandingUI = {
                 /* ---------- BOTTOM: floating tab bar ---------- */
                 .utility-nexus {
                     position: fixed !important;
-                    left: 50% !important;
-                    right: auto !important;
-                    bottom: calc(env(safe-area-inset-bottom, 0px) + 10px) !important;
-                    transform: translateX(-50%) !important;
+                    left: 14px !important;
+                    right: 14px !important;
+                    bottom: calc(env(safe-area-inset-bottom, 0px) + 12px) !important;
+                    transform: none !important;
                     pointer-events: none !important;
                     z-index: 1500 !important;
+                    display: flex !important;
+                    justify-content: center !important;
                     transition: transform 0.3s cubic-bezier(0.16,1,0.3,1), opacity 0.3s !important;
                 }
                 .orb-row {
-                    gap: 2px !important;
+                    width: 100% !important;
+                    max-width: 460px !important;
+                    gap: 0 !important;
                     align-items: stretch !important;
+                    justify-content: space-around !important;
                     background: var(--lui-glass-bg) !important;
-                    -webkit-backdrop-filter: blur(22px) !important;
-                    backdrop-filter: blur(22px) !important;
+                    -webkit-backdrop-filter: blur(28px) saturate(180%) !important;
+                    backdrop-filter: blur(28px) saturate(180%) !important;
                     border: 1px solid var(--lui-border-base) !important;
-                    border-radius: 22px !important;
-                    padding: 6px !important;
-                    box-shadow: 0 12px 30px rgba(0,0,0,0.45) !important;
+                    border-radius: 26px !important;
+                    padding: 8px 6px !important;
+                    box-shadow: 0 12px 32px rgba(0,0,0,0.5) !important;
                     pointer-events: auto !important;
                 }
                 .mobile-only-tab { display: block !important; }
+                .orb-row .nexus-orb-wrapper,
+                .orb-row .weather-nexus-container {
+                    flex: 1 1 0 !important;
+                    min-width: 0 !important;
+                    display: flex !important;
+                    justify-content: center !important;
+                }
 
                 .orb-row .orb-btn {
-                    width: 64px !important;
+                    position: relative !important;
+                    width: 100% !important;
                     height: auto !important;
-                    min-height: 48px !important;
-                    border-radius: 14px !important;
+                    min-height: 50px !important;
+                    padding: 6px 4px !important;
+                    border-radius: 16px !important;
                     background: transparent !important;
                     border: none !important;
                     box-shadow: none !important;
@@ -1911,27 +1937,37 @@ export const LandingUI = {
                     justify-content: center !important;
                     gap: 4px !important;
                     color: var(--lui-text-gray-1) !important;
-                    font-size: 1.05rem !important;
+                    font-size: 1.1rem !important;
                     transform: none !important;
+                    transition: color 0.18s ease, background-color 0.18s ease, transform 0.12s ease !important;
                 }
-                .orb-row .orb-btn:hover,
                 .orb-row .orb-btn:active {
-                    transform: none !important;
+                    transform: scale(0.94) !important;
                     background: var(--lui-active-bg) !important;
                     color: var(--lui-accent) !important;
                 }
+                .orb-row .orb-btn.is-active,
+                .orb-row .nexus-orb-wrapper.is-active .orb-btn,
+                .orb-row .weather-nexus-container.expanded .orb-btn {
+                    color: var(--lui-accent) !important;
+                    background: var(--lui-accent-active) !important;
+                }
                 .orb-row .tab-label {
                     display: block !important;
-                    font-size: 0.62rem !important;
-                    font-weight: 700 !important;
-                    letter-spacing: 0.2px !important;
+                    font-size: 0.65rem !important;
+                    font-weight: 600 !important;
+                    letter-spacing: 0.15px !important;
                     line-height: 1 !important;
+                    color: inherit !important;
                 }
                 .orb-row .active-pulse-dot {
                     position: absolute !important;
-                    top: 6px !important;
-                    right: 14px !important;
+                    top: 4px !important;
+                    right: 50% !important;
+                    margin-right: -14px !important;
                     bottom: auto !important;
+                    width: 6px !important;
+                    height: 6px !important;
                 }
                 .weather-nexus-container { flex-direction: column !important; gap: 0 !important; }
 
@@ -1939,7 +1975,7 @@ export const LandingUI = {
                 .mobile-search-active .utility-nexus,
                 #sector-ops-map-fullscreen:has(.mobile-island-bottom.island-active) .utility-nexus {
                     opacity: 0 !important;
-                    transform: translateX(-50%) translateY(140%) !important;
+                    transform: translateY(140%) !important;
                     pointer-events: none !important;
                 }
                 /* Hide the profile avatar while searching (Cancel takes its slot) */
