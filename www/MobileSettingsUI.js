@@ -35,7 +35,7 @@ renderMobileContainer() {
                             <button class="m-setting-pill" data-setting="mapStyle" data-value="satellite">Satellite</button>
                         </div>
 
-                        <div class="mobile-section-header pro-accent"><i class="fa-solid fa-star"></i> PRO Map Styles</div>
+                        <div class="mobile-section-header pro-accent"><i class="fa-solid fa-star"></i> <span class="ios-hide">PRO </span>Map Styles</div>
                         <div class="settings-mobile-grid is-pro-feature">
                             <button class="m-setting-pill" data-setting="mapStyle" data-value="outdoors" data-pro="true">Outdoors</button>
                             <button class="m-setting-pill" data-setting="mapStyle" data-value="nav-dark" data-pro="true">Nav Night</button>
@@ -44,14 +44,14 @@ renderMobileContainer() {
                             <button class="m-setting-pill" data-setting="mapStyle" data-value="traffic-day" data-pro="true">Trfc Day</button>
                         </div>
 
-                        <div class="mobile-section-header pro-accent"><i class="fa-solid fa-star"></i> PRO 3D Environment</div>
+                        <div class="mobile-section-header pro-accent"><i class="fa-solid fa-star"></i> <span class="ios-hide">PRO </span>3D Environment</div>
                         <div class="m-settings-list">
                             ${this.renderToggle('showTerrain', '3D Terrain (Elevation)', 'fa-mountain', true)}
                             ${this.renderToggle('showBuildings', '3D Buildings', 'fa-city', true)}
                             ${this.renderToggle('showDayNight', 'Day/Night Terminator', 'fa-moon', true)}
                         </div>
 
-                        <div class="mobile-section-header pro-accent"><i class="fa-solid fa-star"></i> PRO Base Map Elements</div>
+                        <div class="mobile-section-header pro-accent"><i class="fa-solid fa-star"></i> <span class="ios-hide">PRO </span>Base Map Elements</div>
                         <div class="m-settings-list">
                             ${this.renderToggle('showBorders', 'Political Borders', 'fa-earth-americas', true)}
                             ${this.renderToggle('showRoads', 'Roads & Highways', 'fa-road', true)}
@@ -62,7 +62,7 @@ renderMobileContainer() {
                             ${this.renderToggle('showLandUse', 'Parks & Forests', 'fa-tree', true)}
                         </div>
 
-                        <div class="mobile-section-header pro-accent"><i class="fa-solid fa-star"></i> Pro Aircraft Colors</div>
+                        <div class="mobile-section-header pro-accent"><i class="fa-solid fa-star"></i> <span class="ios-hide">Pro </span>Aircraft Colors</div>
                         <div class="m-settings-list">
                             <div class="m-setting-row is-pro-feature">
                                 <div class="m-row-left">
@@ -226,14 +226,21 @@ refreshProLocks() {
         document.getElementById('mobile-settings-close').addEventListener('click', closeUI);
 
         // --- Pro Feature Intercept Logic ---
+        const iosNative = (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative());
         sheet.querySelectorAll('.is-pro-feature').forEach(row => {
             row.addEventListener('click', (e) => {
                 if (row.classList.contains('locked')) {
                     e.preventDefault();
                     e.stopPropagation();
-                    
+
+                    if (iosNative) {
+                        // App Store compliance: no in-app upgrade path. The lock
+                        // remains visible but the click is a no-op.
+                        return;
+                    }
+
                     closeUI(); // Smoothly dismiss the settings sheet
-                    
+
                     setTimeout(() => {
                         if (window.initInflightPro) {
                             window.initInflightPro();
@@ -407,6 +414,11 @@ refreshProLocks() {
                 }
                 .is-pro-feature.locked .pro-lock-badge {
                     display: flex; align-items: center;
+                }
+                /* App Store compliance: never surface PRO tier labels in iOS. */
+                html.ios-native .pro-lock-badge,
+                html.ios-native .is-pro-feature.locked .pro-lock-badge {
+                    display: none !important;
                 }
                 .is-pro-feature.locked .m-switch,
                 .is-pro-feature.locked .m-color-picker {

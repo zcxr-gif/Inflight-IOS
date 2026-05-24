@@ -323,7 +323,7 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
 
         if (!isSignedIn) {
             if (typeof showNotification === 'function') {
-                showNotification("Multi-Track is a Pro feature — sign in to pin flights.", "error");
+                showNotification((typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) ? "Multi-flight pinning isn't available on this account." : "Multi-Track is a Pro feature — sign in to pin flights.", "error");
             }
             // Surface the signup modal so the user can convert immediately
             if (window.AuthUI && typeof window.AuthUI.open === 'function') {
@@ -349,7 +349,7 @@ window.pinFlight = function(flightId) {
     const isSignedIn = !!(typeof ProfileUI !== 'undefined' && ProfileUI?._currentUser);
     if (!isSignedIn) {
         if (typeof showNotification === 'function') {
-            showNotification("Multi-Track is a Pro feature — sign in to pin flights.", "error");
+            showNotification((typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) ? "Multi-flight pinning isn't available on this account." : "Multi-Track is a Pro feature — sign in to pin flights.", "error");
         }
         if (window.AuthUI && typeof window.AuthUI.open === 'function') {
             window.AuthUI.open('signup');
@@ -10653,7 +10653,7 @@ const SettingsUI = {
     categories: {
         airspace: { label: "Filters", icon: "fa-tower-broadcast" },
         visuals: { label: "Visuals", icon: "fa-eye" },
-        pro_layers: { label: "Pro Layers", icon: "fa-layer-group" },
+        pro_layers: { label: (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) ? "Layers" : "Pro Layers", icon: "fa-layer-group" },
         interface: { label: "Interface", icon: "fa-tablet-screen-button" },
         theme: { label: "Theme", icon: "fa-palette" }
     },
@@ -11029,9 +11029,10 @@ renderCategory(catId) {
                     break;
                 case 'visuals':
                     html = '';
-                    
-                    // Only show the ad banner if the user is NOT signed in
-                    if (!isSignedIn) {
+
+                    // Only show the upsell banner if the user is NOT signed in,
+                    // and never on iOS native (App Store rule 3.1.3(b)).
+                    if (!isSignedIn && !(typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative())) {
                         html += `
                             <div class="pro-upsell-card" style="
                                 position: relative;
@@ -11138,7 +11139,7 @@ renderCategory(catId) {
 
                             <div class="settings-row pro-feature-row" style="border-left: 3px solid #38bdf8; background: rgba(56, 189, 248, 0.05); ${!isSignedIn ? 'opacity: 0.5; pointer-events: none;' : ''}">
                                 <div class="row-label">
-                                    <i class="fa-solid fa-wand-magic-sparkles" style="color: #38bdf8;"></i> Custom Plane Color <span style="background: #38bdf8; color: #000; font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; margin-left: 8px; font-weight: 800;">PRO</span>
+                                    <i class="fa-solid fa-wand-magic-sparkles" style="color: #38bdf8;"></i> Custom Plane Color <span class="ios-hide" style="background: #38bdf8; color: #000; font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; margin-left: 8px; font-weight: 800;">PRO</span>
                                 </div>
                                 <input type="color" id="set-pro-color" class="settings-color-input" value="${mapFilters.proCustomColor || '#38bdf8'}" ${!isSignedIn ? 'disabled' : ''}>
                             </div>
@@ -11254,7 +11255,7 @@ renderCategory(catId) {
                         <div class="settings-section">
                             <div class="pro-feature-banner" style="background: linear-gradient(90deg, rgba(56, 189, 248, 0.1), transparent); padding: 12px; border-left: 3px solid #38bdf8; margin-bottom: 20px; border-radius: 0 8px 8px 0;">
                                 <h4 style="margin: 0; color: #38bdf8; display: flex; align-items: center; gap: 8px;">
-                                    <i class="fa-solid fa-star"></i> PRO MAP CONTROL
+                                    <i class="fa-solid fa-star"></i> <span class="ios-hide">PRO </span>MAP CONTROL
                                 </h4>
                                 <p style="margin: 4px 0 0 0; font-size: 0.75rem; color: #94a3b8;">
                                     High-fidelity map layers and 3D visualization tools.
@@ -13330,6 +13331,7 @@ let totalDistanceNM = 0;
             </div>
         </div>
 
+        <div class="ac-route-bar-backdrop" style="background: #3a3a3a; position: relative;">
         <div class="ac-route-info-bar" style=" background: #3a3a3a; backdrop-filter: blur(16px); margin: -32px 16px 0 16px; border-radius: 12px; padding: 14px 24px; border: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0; position: relative; z-index: 5; box-shadow: 0 8px 32px rgba(0,0,0,0.4);">
             <div class="route-node">
         <span class="city-name" style="color: #94a3b8; font-size: 9px; font-weight: 600; text-transform: uppercase;">${depCity}</span>
@@ -13363,14 +13365,17 @@ let totalDistanceNM = 0;
                 <span class="time-source-label" id="ac-bar-eta-label" style="color: ${arrTimeInfo.color}; opacity: 0.75; font-size: 8px; font-weight: 700; letter-spacing: 0.6px; margin-top: 1px; text-transform: uppercase;">${arrTimeInfo.label}</span>
             </div>
         </div>
+        </div>
 
-    <div class="ac-info-window-tabs" style="padding: 16px 16px 8px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0;">
-            <div class="modern-view-switcher" id="main-data-switcher" style="flex: 1; background: rgba(15, 23, 42, 0.4); border-radius: 12px; padding: 4px; display: flex; position: relative; border: 1px solid rgba(255,255,255,0.05); height: 44px;">
-                 <button class="ac-info-tab-btn ${flightDataActiveClass}" data-tab="ac-tab-flight-data" style="flex: 1; border: none; background: transparent; color: #fff; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
-                    <i class="fa-solid fa-gauge-high"></i> Flight Display
+    <div class="ac-info-window-tabs" style="background: #3a3a3a; padding: 16px 16px 8px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0;">
+            <div class="modern-view-switcher" id="main-data-switcher" style="flex: 1; min-width: 0; background: rgba(15, 23, 42, 0.4); border-radius: 12px; padding: 4px; display: flex; position: relative; border: 1px solid rgba(255,255,255,0.05); height: 44px;">
+                 <button class="ac-info-tab-btn ${flightDataActiveClass}" data-tab="ac-tab-flight-data" style="flex: 1; min-width: 0; overflow: hidden; border: none; background: transparent; color: #fff; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                    <i class="fa-solid fa-gauge-high" style="flex-shrink: 0;"></i>
+                    <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Flight Display</span>
                  </button>
-                 <button class="ac-info-tab-btn pilot-tab-btn ${pilotReportActiveClass}" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${pilotUsername}" style="flex: 1; border: none; background: transparent; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
-                    <i class="fa-solid fa-chart-simple"></i> ${pilotReportTabText}
+                 <button class="ac-info-tab-btn pilot-tab-btn ${pilotReportActiveClass}" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${pilotUsername}" title="${pilotReportTabText}" style="flex: 1; min-width: 0; overflow: hidden; border: none; background: transparent; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                    <i class="fa-solid fa-chart-simple" style="flex-shrink: 0;"></i>
+                    <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${pilotReportTabText}</span>
                  </button>
                  <div class="switcher-highlight" id="main-switcher-highlight" style="position: absolute; top: 4px; left: 4px; width: calc(50% - 4px); height: calc(100% - 8px); background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); transform: translateX(${highlightX});"></div>
             </div>
@@ -15907,7 +15912,7 @@ if (flatMapToggle) {
             const isSignedIn = !!(typeof ProfileUI !== 'undefined' && ProfileUI?._currentUser);
             
             if (proModes.includes(mode) && !isSignedIn) {
-                showNotification("This map style requires a Pro account.", "error");
+                showNotification((typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) ? "This map style isn't available on this account." : "This map style requires a Pro account.", "error");
                 // Revert the radio UI to current state
                 const currentRadio = document.querySelector(`input[name="map-style-mode"][value="${mapFilters.mapStyle || 'dark'}"]`);
                 if (currentRadio) currentRadio.checked = true;

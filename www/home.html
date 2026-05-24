@@ -9,6 +9,30 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="InFlight">
     <link rel="apple-touch-icon" href="Images/inflight.png">
+
+    <script>
+        // App Store compliance gate — see index.html for the canonical version.
+        // home.html is the marketing site and is normally not reachable from
+        // inside the iOS app, but this is a defensive copy in case it ever is.
+        (function () {
+            var platform = (window.Capacitor && typeof window.Capacitor.getPlatform === 'function')
+                ? window.Capacitor.getPlatform()
+                : null;
+            var isCapacitorProtocol = window.location && (
+                window.location.protocol === 'capacitor:' ||
+                window.location.protocol === 'ionic:'
+            );
+            var ua = (navigator.userAgent || '') + ' ' + (navigator.platform || '');
+            var looksLikeIOS = /iPhone|iPad|iPod/i.test(ua) ||
+                (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+            var ios = platform === 'ios' || (isCapacitorProtocol && looksLikeIOS);
+            window.isIOSNative = function () { return ios; };
+            if (ios) document.documentElement.classList.add('ios-native');
+        })();
+    </script>
+    <style>
+        html.ios-native .ios-hide { display: none !important; }
+    </style>
     
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -330,7 +354,7 @@
             </button>
             <nav class="flex flex-col gap-2 text-lg">
                 <a href="#features" class="mobile-nav-link">Capabilities</a>
-                <a href="#pro" class="mobile-nav-link text-pro">InFlight Pro</a>
+                <a href="#pro" class="mobile-nav-link text-pro ios-hide">InFlight Pro</a>
                 <a href="events.html" class="mobile-nav-link">Events</a>
                 <a href="va-apply.html" class="mobile-nav-link">VA Partners</a>
                 <a href="gallery.html" class="mobile-nav-link">Gallery</a>
@@ -352,7 +376,7 @@
 
             <div class="hidden md:flex items-center gap-8">
                 <a href="#features" class="text-sm font-medium text-neutral-400 hover:text-white transition-colors">Capabilities</a>
-                <a href="#pro" class="text-sm font-bold text-pro hover:brightness-110 transition-all flex items-center gap-2">
+                <a href="#pro" class="text-sm font-bold text-pro hover:brightness-110 transition-all flex items-center gap-2 ios-hide">
                     <img src="Images/InflightPro.png" alt="Pro" class="h-4" onerror="this.style.display='none'">
                     Pro
                 </a>
@@ -401,7 +425,7 @@
                 <a href="index.html" class="px-10 py-4 rounded-2xl bg-white text-background font-bold text-lg transition-all hover:bg-neutral-200 hover:scale-105 active:scale-95 shadow-[0_0_50px_-10px_rgba(255,255,255,0.3)]">
                     Start Tracking
                 </a>
-                <a href="#pro" class="px-10 py-4 rounded-2xl bg-white/5 border border-white/10 text-white font-medium hover:bg-white/10 transition-all flex items-center gap-2">
+                <a href="#pro" class="px-10 py-4 rounded-2xl bg-white/5 border border-white/10 text-white font-medium hover:bg-white/10 transition-all flex items-center gap-2 ios-hide">
                     Upgrade to Pro <img src="Images/InflightPro.png" alt="Pro" class="h-4" onerror="this.style.display='none'">
                 </a>
             </div>
@@ -495,7 +519,7 @@
     </section>
 
     <!-- InFlight Pro Section -->
-    <section id="pro" class="py-40 relative overflow-hidden">
+    <section id="pro" class="py-40 relative overflow-hidden ios-hide">
         <div class="max-w-7xl mx-auto px-6 relative z-10">
             <div class="grid lg:grid-cols-12 gap-12 items-center">
                 <div class="lg:col-span-5 space-y-8 section-animate">
