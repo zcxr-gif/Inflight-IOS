@@ -37,34 +37,6 @@
             overflow: hidden; /* Important for fullscreen map */
         }
 
-        /* Main Loader */
-        .main-loader-overlay {
-            position: fixed;
-            inset: 0;
-            background: rgba(13, 17, 23, 0.9);
-            display: none; /* Changed to none */
-            align-items: center;
-            justify-content: center;
-            z-index: 9999;
-        }
-        .main-loader-overlay.active {
-            display: flex; /* Show when active */
-        }
-        .spinner-large {
-            width: 56px;
-            height: 56px;
-            border: 6px solid #484f58;
-            border-bottom-color: #00a8ff;
-            border-radius: 50%;
-            display: inline-block;
-            box-sizing: border-box;
-            animation: rotation 1s linear infinite;
-        }
-        @keyframes rotation {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
         /* --- [FIX] Standalone Map View Layout --- */
         #standalone-map-view.active {
             position: absolute;
@@ -86,90 +58,6 @@
             grid-row: 1 / -1;
         }
 
-        /* --- Scoped Map Loader (gated on Mapbox `idle` event) ---
-           Covers the map container until every tile at the current zoom
-           is fully loaded — so the user never sees a half-rendered globe
-           on cold start or after a style swap. Fades out via opacity
-           transition; pointer-events block interaction while visible. */
-        #sector-ops-map-loader {
-            grid-column: 1 / -1;
-            grid-row: 1 / -1;
-            background:
-                radial-gradient(ellipse at 50% 35%, rgba(56, 189, 248, 0.18) 0%, transparent 55%),
-                radial-gradient(ellipse at 50% 80%, rgba(124, 58, 237, 0.14) 0%, transparent 60%),
-                linear-gradient(180deg, #0a0f1c 0%, #06080e 100%);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 10;
-            opacity: 1;
-            pointer-events: auto;
-            transition: opacity 450ms ease-out;
-            overflow: hidden;
-        }
-        #sector-ops-map-loader.is-hidden {
-            opacity: 0;
-            pointer-events: none;
-        }
-        .sector-ops-map-loader__inner {
-            position: relative;
-            z-index: 1;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 22px;
-        }
-        .sector-ops-map-loader__ring {
-            position: relative;
-            width: 76px;
-            height: 76px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .sector-ops-map-loader__ring::before,
-        .sector-ops-map-loader__ring::after {
-            content: '';
-            position: absolute;
-            inset: 0;
-            border-radius: 50%;
-            border: 2.5px solid transparent;
-        }
-        .sector-ops-map-loader__ring::before {
-            border-top-color: #38bdf8;
-            border-right-color: rgba(56, 189, 248, 0.3);
-            animation: sector-ops-loader-spin 1.4s cubic-bezier(0.45, 0, 0.55, 1) infinite;
-        }
-        .sector-ops-map-loader__ring::after {
-            inset: 10px;
-            border-top-color: rgba(167, 139, 250, 0.85);
-            border-left-color: rgba(167, 139, 250, 0.2);
-            animation: sector-ops-loader-spin 2.1s cubic-bezier(0.45, 0, 0.55, 1) infinite reverse;
-        }
-        .sector-ops-map-loader__label {
-            font-size: 12px;
-            letter-spacing: 0.22em;
-            text-transform: uppercase;
-            color: rgba(232, 234, 246, 0.82);
-            font-weight: 600;
-        }
-        .sector-ops-map-loader__sub {
-            font-size: 10.5px;
-            letter-spacing: 0.16em;
-            text-transform: uppercase;
-            color: rgba(148, 163, 184, 0.65);
-            font-weight: 500;
-        }
-        @keyframes sector-ops-loader-spin {
-            to { transform: rotate(360deg); }
-        }
-        @media (prefers-reduced-motion: reduce) {
-            .sector-ops-map-loader__ring::before,
-            .sector-ops-map-loader__ring::after {
-                animation-duration: 3s;
-            }
-        }
-        
         /* This rule makes the main content area fill the entire viewport */
         .main-content {
             padding: 0; 
@@ -334,8 +222,10 @@
         .aircraft-overview-panel {
             position: relative;
             height: 200px;
-            background-size: cover;
+            background-size: contain;
+            background-repeat: no-repeat;
             background-position: center;
+            background-color: #0b1220;
             border-bottom-left-radius: 0;
             border-bottom-right-radius: 0;
             color: #fff;
@@ -344,7 +234,7 @@
             justify-content: space-between;
             -webkit-mask-image: linear-gradient(180deg, black 65%, rgba(0,0,0,0.7) 80%, transparent 100%);
             mask-image: linear-gradient(180deg, black 65%, rgba(0,0,0,0.7) 80%, transparent 100%);
-            margin-bottom: -40px; 
+            margin-bottom: -40px;
         }
         
         .aircraft-overview-panel::before {
@@ -2061,19 +1951,215 @@
             width: 24px;
         }
     </style>
+
+    <!-- ============================================================
+         INFLIGHT LAUNCH SPLASH — inlined here (not injected by JS)
+         so it paints on first HTML parse instead of after flight.js
+         downloads and runs. Without this, the user briefly saw the
+         underlying UI flash before the splash appeared. The DOM,
+         the dismiss script (further down in <body>), and the
+         element id `inflight-pro-loader-overlay` are kept in sync
+         with the share-link consumer in flight.js that removes the
+         overlay manually.
+         ============================================================ -->
+    <style id="inflight-pro-loader-styles">
+        #inflight-pro-loader-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 2147483647;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            color: #e8eaf6;
+            background:
+                radial-gradient(ellipse at 50% 38%, rgba(56, 189, 248, 0.18) 0%, transparent 60%),
+                linear-gradient(180deg, #0b1530 0%, #050a18 100%);
+            /* opacity: 1 from the start — no fade-in. The whole point of
+               inlining is no FOUC, so we can't have the splash arrive
+               semi-transparent and let the body show through it. */
+            opacity: 1;
+            overflow: hidden;
+            -webkit-font-smoothing: antialiased;
+        }
+        #inflight-pro-loader-overlay.is-dismissing {
+            animation: inflight-splash-fade-out 420ms ease-in forwards;
+        }
+
+        .inflight-splash-stack {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            gap: 30px;
+            width: 100%;
+            max-width: 360px;
+        }
+
+        .inflight-splash-logo-wrap {
+            position: relative;
+            width: 112px;
+            height: 112px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .inflight-splash-logo-wrap::before {
+            content: '';
+            position: absolute;
+            inset: -28px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(56, 189, 248, 0.32) 0%, transparent 70%);
+            animation: inflight-splash-glow 4.2s ease-in-out infinite;
+            filter: blur(6px);
+            pointer-events: none;
+        }
+        .inflight-splash-logo {
+            position: relative;
+            height: 96px;
+            width: auto;
+            filter: drop-shadow(0 8px 28px rgba(56, 189, 248, 0.35));
+            animation: inflight-splash-logo-in 600ms cubic-bezier(0.16, 1, 0.3, 1) both;
+        }
+
+        .inflight-splash-wordmark {
+            font-size: 1.75rem;
+            font-weight: 700;
+            letter-spacing: 0.01em;
+            color: #ffffff;
+            margin: 0;
+            background: linear-gradient(180deg, #ffffff 0%, #c7d2fe 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: inflight-splash-rise 600ms 160ms cubic-bezier(0.16, 1, 0.3, 1) both;
+        }
+
+        .inflight-splash-progress {
+            width: 180px;
+            max-width: 60vw;
+            height: 2px;
+            border-radius: 999px;
+            background: rgba(148, 163, 184, 0.16);
+            overflow: hidden;
+            position: relative;
+            animation: inflight-splash-rise 600ms 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+        }
+        .inflight-splash-progress::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -40%;
+            width: 40%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(56, 189, 248, 0.9), transparent);
+            border-radius: 999px;
+            animation: inflight-splash-progress-slide 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+        }
+
+        @keyframes inflight-splash-fade-out { to { opacity: 0; } }
+        @keyframes inflight-splash-logo-in {
+            from { opacity: 0; transform: scale(0.92); }
+            to   { opacity: 1; transform: scale(1); }
+        }
+        @keyframes inflight-splash-rise {
+            from { opacity: 0; transform: translateY(6px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes inflight-splash-glow {
+            0%, 100% { opacity: 0.75; }
+            50%      { opacity: 1; }
+        }
+        @keyframes inflight-splash-progress-slide {
+            0%   { left: -40%; }
+            100% { left: 100%; }
+        }
+
+        @media (max-width: 480px) {
+            .inflight-splash-logo-wrap { width: 96px; height: 96px; }
+            .inflight-splash-logo { height: 82px; }
+            .inflight-splash-wordmark { font-size: 1.55rem; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            #inflight-pro-loader-overlay,
+            .inflight-splash-logo, .inflight-splash-logo-wrap::before,
+            .inflight-splash-wordmark, .inflight-splash-progress,
+            .inflight-splash-progress::after {
+                animation-duration: 0.001s !important;
+                animation-iteration-count: 1 !important;
+            }
+        }
+    </style>
 </head>
 <body>
+
+    <!-- Splash must be the first body child so it paints before any
+         downstream UI is parsed. The script below handles share-link
+         skip + dismiss; keeping it inline (rather than in flight.js)
+         is what makes the splash appear immediately on launch. -->
+    <div id="inflight-pro-loader-overlay" role="status" aria-live="polite" aria-label="Inflight is loading">
+        <div class="inflight-splash-stack">
+            <div class="inflight-splash-logo-wrap">
+                <img src="Images/InflightPro.png" alt="Inflight" class="inflight-splash-logo">
+            </div>
+            <h1 class="inflight-splash-wordmark">Inflight</h1>
+            <div class="inflight-splash-progress" aria-hidden="true"></div>
+        </div>
+    </div>
+    <script>
+        (function() {
+            var overlayId = 'inflight-pro-loader-overlay';
+            var styleId   = 'inflight-pro-loader-styles';
+            var overlay   = document.getElementById(overlayId);
+            if (!overlay) return;
+
+            function removeNow() {
+                if (overlay && overlay.parentNode) overlay.remove();
+                var s = document.getElementById(styleId);
+                if (s && s.parentNode) s.remove();
+            }
+
+            // Share-link arrivals (?flight=... or a queued share payload)
+            // should land the user directly on the flight info window —
+            // no splash in the way.
+            try {
+                var p = new URLSearchParams(window.location.search || '');
+                var fromShare = !!p.get('flight') ||
+                    (typeof sessionStorage !== 'undefined' && !!sessionStorage.getItem('inflight_share_payload'));
+                if (fromShare) { removeNow(); return; }
+            } catch (_) { /* non-fatal */ }
+
+            var dismissed     = false;
+            var minVisibleMs  = 700;   // Brief breath so the logo doesn't flash off
+            var maxVisibleMs  = 5000;  // Safety net if `load` never fires
+            var start         = Date.now();
+
+            function dismiss() {
+                if (dismissed) return;
+                dismissed = true;
+                var elapsed   = Date.now() - start;
+                var remaining = Math.max(0, minVisibleMs - elapsed);
+                setTimeout(function() {
+                    overlay.classList.add('is-dismissing');
+                    setTimeout(removeNow, 420);
+                }, remaining);
+            }
+
+            if (document.readyState === 'complete') {
+                dismiss();
+            } else {
+                window.addEventListener('load', dismiss, { once: true });
+            }
+            setTimeout(dismiss, maxVisibleMs);
+        })();
+    </script>
 
     <div class="main-content">
         <div id="standalone-map-view" class="content-view active">
             <div id="sector-ops-map-fullscreen"></div>
-            <div id="sector-ops-map-loader" aria-hidden="true">
-                <div class="sector-ops-map-loader__inner">
-                    <div class="sector-ops-map-loader__ring"></div>
-                    <div class="sector-ops-map-loader__label">Loading map</div>
-                    <div class="sector-ops-map-loader__sub">Streaming tiles &amp; live traffic</div>
-                </div>
-            </div>
         </div>
     </div>
 

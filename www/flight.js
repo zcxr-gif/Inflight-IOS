@@ -2640,17 +2640,19 @@ function injectCustomStyles() {
             }
         }
         
-        .aircraft-overview-panel { 
+        .aircraft-overview-panel {
             position: relative;
-            height: 200px; 
-            background-size: cover; 
-            background-position: center; 
-            border-bottom-left-radius: 0; 
-            border-bottom-right-radius: 0; 
-            color: #fff; 
-            display: flex; 
-            flex-direction: column; 
-            justify-content: space-between; 
+            height: 200px;
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+            background-color: #0b1220;
+            border-bottom-left-radius: 0;
+            border-bottom-right-radius: 0;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
             margin-bottom: 0px;
         }
         
@@ -11900,21 +11902,6 @@ window.globalNatTracks = natTracks;
             panelContentWrapper.innerHTML = `<p class="error-text" style="padding: 20px;">${error.message}</p>`;
         }
     } finally {
-        // [PERF FIX] Removed the 8-second artificial minimum loader.
-        // The loader now hides as soon as the app is actually ready.
-        //
-        // NOTE: The `mainContentLoader` variable that used to live here was
-        // never declared in this file — referencing it threw a ReferenceError
-        // from inside a `finally` block, which crashed initializeSectorOpsView
-        // on every load and halted the rest of initializeApp (including
-        // SettingsUI.init), making the gear button do nothing.
-        // The actual current loader is `#inflight-pro-loader-overlay`, which
-        // is dismissed elsewhere; we look it up defensively here just in case
-        // a `#main-content-loader` element exists in some build of index.html.
-        const mainContentLoader = document.getElementById('main-content-loader');
-        if (mainContentLoader) {
-            mainContentLoader.classList.remove('active');
-        }
         console.log(`Loading complete in ${Date.now() - window.loadingStartTime}ms.`);
     }
 }
@@ -11945,42 +11932,13 @@ async function setupMapLayersAndFog() {
 }
 
 /**
- * Map-loader gate: keeps a scoped overlay over the map container until
- * Mapbox reports `idle` (all visible tiles at the current zoom loaded
- * and no pending transitions). Industry-standard pattern — users never
- * see a half-loaded globe. Subsequent zooms rely on the constructor's
- * `prefetchZoomDelta` + default crossfade to mask tile transitions, so
- * the loader is NOT re-shown on user-driven zoom.
- */
-let _sectorOpsMapLoaderSafetyTimer = null;
-function showSectorOpsMapLoader() {
-    const el = document.getElementById('sector-ops-map-loader');
-    if (!el) return;
-    el.classList.remove('is-hidden');
-}
-function hideSectorOpsMapLoader() {
-    const el = document.getElementById('sector-ops-map-loader');
-    if (!el || el.classList.contains('is-hidden')) return;
-    el.classList.add('is-hidden');
-    if (_sectorOpsMapLoaderSafetyTimer) {
-        clearTimeout(_sectorOpsMapLoaderSafetyTimer);
-        _sectorOpsMapLoaderSafetyTimer = null;
-    }
-}
-
-/**
  * [UPDATED] Initializes the Sector Ops map with high-performance configurations.
  */
 function initializeSectorOpsMap(centerICAO) {
     if (!MAPBOX_ACCESS_TOKEN) {
-        hideSectorOpsMapLoader();
         document.getElementById('sector-ops-map-fullscreen').innerHTML = '<p class="map-error-msg">Map service not available.</p>';
         return;
     }
-
-    // Reveal the loader before the map starts initializing so the user never
-    // sees the empty container or a half-rendered globe.
-    showSectorOpsMapLoader();
 
     if (sectorOpsMap) {
         sectorOpsMap.remove();
@@ -12016,28 +11974,8 @@ function initializeSectorOpsMap(centerICAO) {
         // map.getCanvas().toDataURL().
     });
 
-    // --- Loader gate: hide the overlay only once the map is truly ready ---
-    // `idle` fires when every tile in the viewport is loaded, the style is
-    // applied, and there are no pending transitions. This is the canonical
-    // Mapbox readiness signal — used by FlightRadar24 and similar apps.
-    sectorOpsMap.once('idle', () => {
-        hideSectorOpsMapLoader();
-    });
-    // Safety net: if the network stalls or `idle` never fires, reveal the
-    // map anyway after 12s rather than leaving the user staring at a spinner.
-    if (_sectorOpsMapLoaderSafetyTimer) clearTimeout(_sectorOpsMapLoaderSafetyTimer);
-    _sectorOpsMapLoaderSafetyTimer = setTimeout(() => {
-        console.warn('Sector Ops map: idle event never fired within 12s — revealing map anyway.');
-        hideSectorOpsMapLoader();
-    }, 12000);
-
     sectorOpsMap.on('style.load', async () => {
     console.log("Map style reloading. Rebuilding layers...");
-    // Re-cover the map while layers rebuild after a style swap, then drop
-    // the loader on the next idle. Without this, switching between dark/
-    // satellite/etc. exposes a half-themed map for ~300 ms.
-    showSectorOpsMapLoader();
-    sectorOpsMap.once('idle', () => hideSectorOpsMapLoader());
 
     await setupMapLayersAndFog();
 
@@ -12986,9 +12924,37 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         }
 
         const flownLayerId = `flown-path-${flightProps.flightId}`;
-        
+
+        // Sync the initial flown-path render to whatever the live marker is
+        // actually showing on the map. Two failure modes used to produce a
+        // path that visibly extended past the aircraft icon on first open:
+        //   1. `flightProps.position` is the snapshot from click time, often
+        //      a few hundred ms (sometimes seconds) stale by the time the
+        //      history fetch resolves — using it would anchor the path to
+        //      an older spot than the icon.
+        //   2. The history endpoint can return GPS samples that are newer
+        //      than the latest socket frame the marker has consumed;
+        //      appending them stretches the line past the icon until the
+        //      next socket tick catches the marker up.
+        // Reading the live feature from currentMapFeatures + filtering
+        // trail points to <= marker last_update fixes both.
+        const liveFeature = (typeof currentMapFeatures !== 'undefined')
+            ? currentMapFeatures[flightProps.flightId] : null;
+        const liveLastUpdateMs = liveFeature?.properties?.last_update
+            ? new Date(liveFeature.properties.last_update).getTime() : null;
+        const livePosition = liveFeature?.geometry?.coordinates
+            ? {
+                lat: liveFeature.geometry.coordinates[1],
+                lon: liveFeature.geometry.coordinates[0],
+                alt_ft: liveFeature.properties?.altitude ?? flightProps.position?.alt_ft ?? 0
+              }
+            : flightProps.position;
+        const trailUpToMarker = (liveLastUpdateMs != null)
+            ? sortedRoutePoints.filter(p => !p.date || new Date(p.date).getTime() <= liveLastUpdateMs)
+            : sortedRoutePoints;
+
         // Generate the segmented FeatureCollection using our new function
-        const initialRouteData = generateAltitudeColoredRoute(sortedRoutePoints, flightProps.position, plan);
+        const initialRouteData = generateAltitudeColoredRoute(trailUpToMarker, livePosition, plan);
 
         if (!sectorOpsMap.getSource(flownLayerId)) {
             sectorOpsMap.addSource(flownLayerId, {
@@ -16534,316 +16500,3 @@ if (urlParams.get('auth') === 'signup') {
 
     initializeApp();
 });
-
-/**
- * ============================================================================
- * INFLIGHT — BRANDED LAUNCH SPLASH
- *
- * Lightweight, ad-free loading screen shown while the app initializes.
- * No Pro upsell, no carousels, no CTAs — just a polished branded splash
- * that auto-dismisses once the window has finished loading (or after a
- * safety timeout, whichever comes first).
- *
- * The overlay element id and style id are kept stable so other modules
- * (e.g. the share-link consumer that calls
- *  document.getElementById('inflight-pro-loader-overlay').remove()) keep
- * working without changes.
- * ============================================================================
- */
-(function() {
-    const styleId = 'inflight-pro-loader-styles';
-    const overlayId = 'inflight-pro-loader-overlay';
-
-    // Don't cover the screen when the user is arriving via a share link —
-    // they came to look at one specific flight and should land directly on it.
-    function arrivedFromShare() {
-        try {
-            if (typeof window === 'undefined') return false;
-            if (window.location && window.location.search) {
-                const params = new URLSearchParams(window.location.search);
-                if (params.get('flight')) return true;
-            }
-            if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('inflight_share_payload')) {
-                return true;
-            }
-        } catch (_) { /* non-fatal */ }
-        return false;
-    }
-
-    function initInflightSplash() {
-        if (arrivedFromShare()) return;
-        if (document.getElementById(styleId) || document.getElementById(overlayId)) return;
-
-        const style = document.createElement('style');
-        style.id = styleId;
-        style.textContent = `
-            #${overlayId} {
-                position: fixed;
-                inset: 0;
-                z-index: 2147483647;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                padding: 24px;
-                font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                color: #e8eaf6;
-                background:
-                    radial-gradient(ellipse at 50% 35%, rgba(56, 189, 248, 0.18) 0%, transparent 55%),
-                    radial-gradient(ellipse at 50% 80%, rgba(124, 58, 237, 0.14) 0%, transparent 60%),
-                    linear-gradient(180deg, #0a0f1c 0%, #06080e 100%);
-                opacity: 0;
-                animation: inflight-splash-fade-in 320ms ease-out forwards;
-                overflow: hidden;
-            }
-            #${overlayId}.is-dismissing {
-                animation: inflight-splash-fade-out 420ms ease-in forwards;
-            }
-
-            /* Subtle starfield — tiny radial dots layered as a single background image */
-            #${overlayId}::before {
-                content: '';
-                position: absolute;
-                inset: 0;
-                background-image:
-                    radial-gradient(1px 1px at 12% 22%, rgba(255,255,255,0.55), transparent 60%),
-                    radial-gradient(1px 1px at 78% 16%, rgba(255,255,255,0.45), transparent 60%),
-                    radial-gradient(1.2px 1.2px at 32% 78%, rgba(255,255,255,0.4), transparent 60%),
-                    radial-gradient(1px 1px at 88% 64%, rgba(255,255,255,0.35), transparent 60%),
-                    radial-gradient(1px 1px at 55% 42%, rgba(255,255,255,0.3), transparent 60%),
-                    radial-gradient(1.4px 1.4px at 18% 58%, rgba(255,255,255,0.45), transparent 60%),
-                    radial-gradient(1px 1px at 65% 88%, rgba(255,255,255,0.3), transparent 60%);
-                opacity: 0.7;
-                animation: inflight-splash-twinkle 6s ease-in-out infinite;
-                pointer-events: none;
-            }
-
-            /* Soft sweeping aurora behind the logo for depth */
-            #${overlayId}::after {
-                content: '';
-                position: absolute;
-                top: 50%;
-                left: 50%;
-                width: 520px;
-                height: 520px;
-                max-width: 90vw;
-                max-height: 90vw;
-                transform: translate(-50%, -55%);
-                background:
-                    conic-gradient(from 0deg, rgba(56, 189, 248, 0.18), rgba(124, 58, 237, 0.18), rgba(56, 189, 248, 0.18));
-                filter: blur(60px);
-                opacity: 0.55;
-                animation: inflight-splash-aurora 14s linear infinite;
-                pointer-events: none;
-                border-radius: 50%;
-            }
-
-            .inflight-splash-stack {
-                position: relative;
-                z-index: 1;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                text-align: center;
-                gap: 28px;
-                max-width: 380px;
-                width: 100%;
-            }
-
-            .inflight-splash-logo-wrap {
-                position: relative;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                width: 120px;
-                height: 120px;
-            }
-            .inflight-splash-logo-wrap::before {
-                content: '';
-                position: absolute;
-                inset: -18px;
-                border-radius: 50%;
-                background: radial-gradient(circle, rgba(56, 189, 248, 0.35) 0%, transparent 70%);
-                animation: inflight-splash-pulse 2.4s ease-in-out infinite;
-            }
-            .inflight-splash-logo {
-                position: relative;
-                height: 96px;
-                width: auto;
-                filter: drop-shadow(0 6px 24px rgba(56, 189, 248, 0.35));
-                animation: inflight-splash-logo-in 700ms cubic-bezier(0.16, 1, 0.3, 1) both;
-            }
-
-            /* Twin orbiting rings around the logo */
-            .inflight-splash-orbit {
-                position: absolute;
-                inset: 0;
-                border-radius: 50%;
-                pointer-events: none;
-            }
-            .inflight-splash-orbit::before,
-            .inflight-splash-orbit::after {
-                content: '';
-                position: absolute;
-                inset: 0;
-                border-radius: 50%;
-                border: 1.5px solid transparent;
-            }
-            .inflight-splash-orbit::before {
-                border-top-color: rgba(56, 189, 248, 0.9);
-                border-right-color: rgba(56, 189, 248, 0.25);
-                animation: inflight-splash-spin 1.6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
-            }
-            .inflight-splash-orbit::after {
-                inset: 10px;
-                border-top-color: rgba(167, 139, 250, 0.85);
-                border-left-color: rgba(167, 139, 250, 0.2);
-                animation: inflight-splash-spin 2.4s cubic-bezier(0.45, 0, 0.55, 1) infinite reverse;
-            }
-
-            .inflight-splash-wordmark {
-                font-size: 1.6rem;
-                font-weight: 700;
-                letter-spacing: 0.02em;
-                color: #ffffff;
-                margin: 0;
-                background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 100%);
-                -webkit-background-clip: text;
-                background-clip: text;
-                -webkit-text-fill-color: transparent;
-            }
-
-            .inflight-splash-tagline {
-                font-size: 0.72rem;
-                font-weight: 600;
-                letter-spacing: 0.32em;
-                text-transform: uppercase;
-                color: rgba(148, 163, 184, 0.85);
-                margin: -18px 0 0;
-            }
-
-            .inflight-splash-progress {
-                width: 220px;
-                max-width: 70vw;
-                height: 3px;
-                border-radius: 999px;
-                background: rgba(148, 163, 184, 0.15);
-                overflow: hidden;
-                position: relative;
-            }
-            .inflight-splash-progress::after {
-                content: '';
-                position: absolute;
-                top: 0;
-                left: -40%;
-                width: 40%;
-                height: 100%;
-                background: linear-gradient(90deg, transparent, #38bdf8, #a78bfa, transparent);
-                border-radius: 999px;
-                animation: inflight-splash-progress-slide 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
-            }
-
-            .inflight-splash-status {
-                font-size: 0.7rem;
-                font-weight: 500;
-                letter-spacing: 0.18em;
-                text-transform: uppercase;
-                color: rgba(148, 163, 184, 0.7);
-                margin: -16px 0 0;
-            }
-
-            @keyframes inflight-splash-fade-in { to { opacity: 1; } }
-            @keyframes inflight-splash-fade-out { to { opacity: 0; } }
-            @keyframes inflight-splash-spin { to { transform: rotate(360deg); } }
-            @keyframes inflight-splash-aurora { to { transform: translate(-50%, -55%) rotate(360deg); } }
-            @keyframes inflight-splash-twinkle {
-                0%, 100% { opacity: 0.55; }
-                50% { opacity: 0.9; }
-            }
-            @keyframes inflight-splash-pulse {
-                0%, 100% { transform: scale(1); opacity: 0.7; }
-                50% { transform: scale(1.08); opacity: 1; }
-            }
-            @keyframes inflight-splash-logo-in {
-                from { opacity: 0; transform: scale(0.85); }
-                to   { opacity: 1; transform: scale(1); }
-            }
-            @keyframes inflight-splash-progress-slide {
-                0%   { left: -40%; }
-                100% { left: 100%; }
-            }
-
-            @media (prefers-reduced-motion: reduce) {
-                #${overlayId}, #${overlayId}::before, #${overlayId}::after,
-                .inflight-splash-logo, .inflight-splash-logo-wrap::before,
-                .inflight-splash-orbit::before, .inflight-splash-orbit::after,
-                .inflight-splash-progress::after {
-                    animation-duration: 0.001s !important;
-                    animation-iteration-count: 1 !important;
-                }
-            }
-        `;
-        document.head.appendChild(style);
-
-        const overlay = document.createElement('div');
-        overlay.id = overlayId;
-        overlay.setAttribute('role', 'status');
-        overlay.setAttribute('aria-live', 'polite');
-        overlay.setAttribute('aria-label', 'Inflight is loading');
-        overlay.innerHTML = `
-            <div class="inflight-splash-stack">
-                <div class="inflight-splash-logo-wrap">
-                    <div class="inflight-splash-orbit"></div>
-                    <img src="Images/InflightPro.png" alt="Inflight" class="inflight-splash-logo">
-                </div>
-                <h1 class="inflight-splash-wordmark">Inflight</h1>
-                <p class="inflight-splash-tagline">Real-time aviation tracking</p>
-                <div class="inflight-splash-progress" aria-hidden="true"></div>
-                <p class="inflight-splash-status">Preparing your flight deck</p>
-            </div>
-        `;
-
-        document.body.appendChild(overlay);
-        scheduleDismiss(overlay);
-    }
-
-    function scheduleDismiss(overlay) {
-        let dismissed = false;
-        const minVisibleMs = 900;   // Let the brand splash breathe for a moment
-        const maxVisibleMs = 5000;  // Safety net if `load` never fires
-        const start = Date.now();
-
-        const dismiss = () => {
-            if (dismissed) return;
-            dismissed = true;
-            const elapsed = Date.now() - start;
-            const remaining = Math.max(0, minVisibleMs - elapsed);
-            setTimeout(() => {
-                overlay.classList.add('is-dismissing');
-                setTimeout(() => {
-                    overlay.remove();
-                    const styleEl = document.getElementById(styleId);
-                    if (styleEl) styleEl.remove();
-                }, 420);
-            }, remaining);
-        };
-
-        if (document.readyState === 'complete') {
-            dismiss();
-        } else {
-            window.addEventListener('load', dismiss, { once: true });
-        }
-        setTimeout(dismiss, maxVisibleMs);
-    }
-
-    if (document.body) {
-        initInflightSplash();
-    } else {
-        const observer = new MutationObserver((mutations, obs) => {
-            if (document.body) {
-                initInflightSplash();
-                obs.disconnect();
-            }
-        });
-        observer.observe(document.documentElement, { childList: true });
-    }
-})();
