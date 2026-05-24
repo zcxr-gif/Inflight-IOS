@@ -3,7 +3,7 @@ const MobileUIHandler = {
     CONFIG: {
         breakpoint: 992, // The max-width in pixels to trigger mobile view
         defaultMode: 'legacy', // Default is 'legacy' sheet
-        legacyPeekHeight: 280, // Height of the "peek" state for legacy sheet
+        legacyPeekHeight: 320, // Height of the "peek" state for legacy sheet
     },
 
     // --- STATE ---
@@ -934,6 +934,28 @@ disableHudControls() {
                 z-index: 10; /* Above content */
             }
 
+            /* --- Simple-mode iframe: stretch the sheet + iframe fully ---
+               The default .mobile-legacy-sheet has max-height but no
+               explicit height, so it sizes to its content. The simple
+               window's only child is an iframe with no height attribute
+               or style, which collapses to the browser's ~150px default.
+               Force the sheet to claim the full available viewport and
+               the iframe to fill it, otherwise peek/expanded never
+               stretch out. */
+            .mobile-legacy-sheet:has(> #simple-flight-window-frame) {
+                height: calc(100vh - var(--legacy-top-offset)) !important;
+                height: calc(100dvh - var(--legacy-top-offset)) !important;
+            }
+            .mobile-legacy-sheet > #simple-flight-window-frame {
+                width: 100% !important;
+                height: 100% !important;
+                flex: 1 1 0% !important;
+                min-height: 0 !important;
+                display: block !important;
+                border: none !important;
+                border-radius: 16px 16px 0 0 !important;
+            }
+
             /* --- [UPDATED] Specific styling for SIMPLE MODE handle (Seamless Overlay) --- */
             /* We also use this for AIRPORTS now, as a floating handle */
             .legacy-sheet-handle.simple-mode {
@@ -1016,9 +1038,11 @@ disableHudControls() {
                underneath and reads as navy through any transparent
                child. .ac-info-window-tabs has no background of its own,
                so the blurred window shows through that strip. Plug it
-               with a solid low gray to kill the tint. */
+               with the AC bar's own gray so the strip between the bar
+               and the tab buttons continues the bar visually instead of
+               stepping down to a darker zinc. */
             .mobile-legacy-sheet .ac-info-window-tabs {
-                background: #1c1c1f !important;
+                background: #3a3a3a !important;
             }
             .mobile-legacy-sheet .route-summary-overlay {
                 /* The handle will wrap this */

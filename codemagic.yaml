@@ -36,8 +36,15 @@ workflows:
           # Clean restart of ios folder
           rm -rf ios
           npx cap add ios
+
+          # Generate iOS app icons from assets/icon-only.png into the freshly
+          # created ios/ project. Must run after `cap add ios` so the
+          # Assets.xcassets target exists, and before `cap sync` so the
+          # generated icons get bundled into the final web sync.
+          npx @capacitor/assets generate --ios
+
           npx cap sync
-          
+
           # Check for Podfile to decide on Pods vs SPM
           cd ios/App
           if [ -f "Podfile" ]; then
