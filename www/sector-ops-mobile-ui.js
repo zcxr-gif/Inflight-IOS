@@ -976,12 +976,20 @@ disableHudControls() {
             }
 
             /* --- Header / Image / Route Bar Overrides --- */
-            .mobile-legacy-sheet .aircraft-overview-panel {
-                /* Show the whole aircraft (nose to tail) instead of cropping
-                   the sides like a cover background does. */
-                background-size: contain;
-                background-repeat: no-repeat;
-                background-position: center;
+            /* Show the whole aircraft (nose to tail) on the mobile legacy
+               sheet — the inline style on .ac-header-modern in flight.js
+               sets background-size: cover, which over-scales typical
+               16:9 photos in a wider 200 px-tall hero and crops the tail
+               and the back of the plane. !important is required to beat
+               that inline declaration. The dark fill blends the small
+               letterboxed margins with the panel chrome, and the
+               existing gradient overlays already darken those edges. */
+            .mobile-legacy-sheet .aircraft-overview-panel,
+            .mobile-legacy-sheet .ac-header-modern {
+                background-size: contain !important;
+                background-repeat: no-repeat !important;
+                background-position: center !important;
+                background-color: #0b1220 !important;
             }
             .mobile-legacy-sheet .route-summary-overlay {
                 /* The handle will wrap this */
