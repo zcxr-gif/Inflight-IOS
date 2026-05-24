@@ -981,15 +981,44 @@ disableHudControls() {
                sets background-size: cover, which over-scales typical
                16:9 photos in a wider 200 px-tall hero and crops the tail
                and the back of the plane. !important is required to beat
-               that inline declaration. The dark fill blends the small
-               letterboxed margins with the panel chrome, and the
-               existing gradient overlays already darken those edges. */
+               that inline declaration. The image is also anchored to the
+               TOP of the panel so the letterboxed dead space lives at the
+               bottom only — that's where the AC bar sits, so the dead
+               space can fade into the bar instead of being split top/
+               bottom around the photo. */
             .mobile-legacy-sheet .aircraft-overview-panel,
             .mobile-legacy-sheet .ac-header-modern {
                 background-size: contain !important;
                 background-repeat: no-repeat !important;
-                background-position: center !important;
-                background-color: #0b1220 !important;
+                background-position: top center !important;
+                background-color: #1c1c1f !important;
+            }
+
+            /* Replace the hero's bottom gradient overlay. The inline
+               default fades to rgba(15,23,42,0.85) (dark navy), which
+               leaves a visible navy band right above the AC bar. Fade
+               instead transparent → gray → AC-bar gray (#3a3a3a) so the
+               bottom of the hero merges into the bar as one continuous
+               low-gray band. */
+            .mobile-legacy-sheet .ac-header-overlay {
+                background: linear-gradient(
+                    to bottom,
+                    transparent 0%,
+                    transparent 45%,
+                    rgba(58, 58, 58, 0.55) 72%,
+                    rgba(58, 58, 58, 0.95) 100%
+                ) !important;
+            }
+
+            /* The blue/navy seam directly under the AC bar is the window
+               itself: .info-window uses rgba(45,45,45,0.9) + a 40 px
+               backdrop blur, which picks up the blue tint of the map
+               underneath and reads as navy through any transparent
+               child. .ac-info-window-tabs has no background of its own,
+               so the blurred window shows through that strip. Plug it
+               with a solid low gray to kill the tint. */
+            .mobile-legacy-sheet .ac-info-window-tabs {
+                background: #1c1c1f !important;
             }
             .mobile-legacy-sheet .route-summary-overlay {
                 /* The handle will wrap this */
