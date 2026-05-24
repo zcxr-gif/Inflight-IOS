@@ -291,42 +291,25 @@ export const LandingUI = {
                         </div>
                     </div>
 
-                    <div class="mobile-header-row">
-                        <button type="button" id="mobile-recents-btn" class="mobile-circle-btn" aria-label="Recents">
-                            <i class="fa-solid fa-clock-rotate-left"></i>
-                        </button>
-                        <div class="top-right-actions">
-                            <div class="search-blade">
-                                <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                                <input type="text" id="blade-search-input" placeholder="Search flights, airports, airlines"
-                                       autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
-                                       inputmode="search" enterkeyhint="search">
-                                <button type="button" id="blade-search-clear" class="search-clear-btn" aria-label="Clear search"><i class="fa-solid fa-circle-xmark"></i></button>
-                                <div class="search-shortcut"></div>
-                                <div id="blade-search-results" class="search-results-dropdown custom-scroll"></div>
-                            </div>
-                        </div>
-                    </div>
+                    <button type="button" id="mobile-status-tile" class="mobile-status-tile" aria-label="Server status">
+                        <span class="mst-pulse"></span>
+                        <span class="mst-text">
+                            <span class="mst-line1" id="mst-server-name">${this._currentServer.toUpperCase()}</span>
+                            <span class="mst-line2"><span id="mst-count">— </span>LIVE</span>
+                        </span>
+                        <i class="fa-solid fa-chevron-down mst-chev"></i>
+                    </button>
 
-                    <div class="mobile-chips-strip" id="mobile-chips-strip">
-                        <button class="mchip is-active" data-chip="all" type="button">
-                            <i class="fa-solid fa-check chip-check"></i><span>All Traffic</span>
-                        </button>
-                        <button class="mchip" data-chip="Heavy" type="button">
-                            <i class="fa-solid fa-plane"></i><span>Heavy</span>
-                        </button>
-                        <button class="mchip" data-chip="Widebody" type="button">
-                            <i class="fa-solid fa-plane-up"></i><span>Widebody</span>
-                        </button>
-                        <button class="mchip" data-chip="GA" type="button">
-                            <i class="fa-solid fa-helicopter"></i><span>GA</span>
-                        </button>
-                        <button class="mchip" data-chip="Military" type="button">
-                            <i class="fa-solid fa-shield-halved"></i><span>Military</span>
-                        </button>
-                        <button class="mchip" data-chip="Fighter" type="button">
-                            <i class="fa-solid fa-jet-fighter"></i><span>Fighter</span>
-                        </button>
+                    <div class="top-right-actions">
+                        <div class="search-blade">
+                            <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                            <input type="text" id="blade-search-input" placeholder="Search flights, airports, airlines"
+                                   autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                                   inputmode="search" enterkeyhint="search">
+                            <button type="button" id="blade-search-clear" class="search-clear-btn" aria-label="Clear search"><i class="fa-solid fa-circle-xmark"></i></button>
+                            <div class="search-shortcut"></div>
+                            <div id="blade-search-results" class="search-results-dropdown custom-scroll"></div>
+                        </div>
                     </div>
 
                     <button type="button" id="mobile-search-cancel" class="search-cancel-btn">Cancel</button>
@@ -615,35 +598,44 @@ export const LandingUI = {
             item.addEventListener('click', () => this.activateFilter(item.dataset.filterId));
         });
 
-        // Mobile leading "Recents" button — opens the search with focus so
-        // the keyboard's recent suggestions show. Acts like FR24's history pill.
-        document.getElementById('mobile-recents-btn')?.addEventListener('click', (e) => {
+        // Mobile status tile — opens the polished server sheet and stays
+        // in sync with server changes / live aircraft count.
+        const statusTile = document.getElementById('mobile-status-tile');
+        statusTile?.addEventListener('click', (e) => {
             e.stopPropagation();
-            const input = document.getElementById('blade-search-input');
-            if (input) {
-                input.focus();
-                try { input.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (_) {}
+            if (window.MobileUIHandler && typeof window.MobileUIHandler.openServerSheet === 'function') {
+                window.MobileUIHandler.openServerSheet();
+            } else {
+                serverSelector?.classList.toggle('open');
             }
         });
-
-        // Mobile filter chips — drive the existing 'category' filter.
-        // The "all" chip clears category; the rest set a single category.
-        const chipStrip = document.getElementById('mobile-chips-strip');
-        chipStrip?.querySelectorAll('.mchip').forEach(chip => {
-            chip.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const value = chip.dataset.chip;
-                chipStrip.querySelectorAll('.mchip').forEach(c => c.classList.remove('is-active'));
-                chip.classList.add('is-active');
-                if (value === 'all') {
-                    delete this._activeFilters['category'];
-                } else {
-                    this._activeFilters['category'] = value;
-                }
-                this.refreshUI();
-                this.dispatchFilterUpdate();
-            });
+        window.addEventListener('serverChange', (e) => {
+            const name = e.detail?.server;
+            const tileName = document.getElementById('mst-server-name');
+            if (name && tileName) tileName.textContent = name.toUpperCase();
         });
+        const refreshLiveCount = () => {
+            const el = document.getElementById('mst-count');
+            if (!el) return;
+            const flights = (typeof window.getLiveFlightData === 'function')
+                ? window.getLiveFlightData()
+                : null;
+            if (!Array.isArray(flights)) return;
+            const n = flights.length;
+            el.textContent = (n >= 1000 ? (n / 1000).toFixed(1) + 'k ' : n + ' ');
+        };
+        refreshLiveCount();
+        setInterval(refreshLiveCount, 8000);
+
+        // Sync active state on the bottom dock (accent underline + color)
+        // when the user opens/closes things via these primary controls.
+        const markActive = (id) => {
+            document.querySelectorAll('.orb-row .orb-btn').forEach(b => b.classList.remove('is-active'));
+            if (id) document.getElementById(id)?.classList.add('is-active');
+        };
+        document.getElementById('toggle-filter-modal')?.addEventListener('click', () => markActive('toggle-filter-modal'));
+        document.getElementById('tile-settings')?.addEventListener('click', () => markActive('tile-settings'));
+        document.getElementById('mobile-server-tab')?.addEventListener('click', () => markActive('mobile-server-tab'));
     },
 
     showPreview(type) {
@@ -967,9 +959,7 @@ export const LandingUI = {
             }
 
             /* Mobile-only chrome: hidden on desktop. */
-            .mobile-header-row { display: contents; }
-            .mobile-circle-btn,
-            .mobile-chips-strip { display: none; }
+            .mobile-status-tile { display: none; }
 
             .tactical-header {
                 position: absolute;
@@ -1752,16 +1742,14 @@ export const LandingUI = {
             }
 
             /* ============================================================
-               FR24-style mobile chrome (authoritative overrides — kept last
-               so they win over the legacy mobile rules above)
+               Inflight Console — distinctive mobile chrome.
+               Asymmetric top: 2-line status tile (left) · pill search (center)
+                              · profile orb (right). All float over the map.
+               Bottom: a dock where the active tab is signaled by a glowing
+                       accent underline at the TOP edge of the tab — not a
+                       background fill (that would be the FR24/PF pattern).
                ============================================================ */
             @media (max-width: 768px) {
-                /* ---------- TOP: Plane Finder-style chrome ---------- *
-                   Two stacked rows that float over the map:
-                     1) leading round button · pill search · trailing avatar
-                     2) horizontally-scrolling filter chips strip
-                   Nothing has an opaque header strip; everything is its own
-                   frosted glass element. */
                 .tactical-header {
                     top: 0 !important;
                     left: 0 !important;
@@ -1774,65 +1762,102 @@ export const LandingUI = {
                     backdrop-filter: none !important;
                     border-bottom: none !important;
                     display: flex !important;
-                    flex-direction: column !important;
-                    align-items: stretch !important;
+                    flex-direction: row !important;
+                    align-items: center !important;
                     gap: 10px !important;
                     pointer-events: none !important;
                     z-index: 1500 !important;
                     transition: padding 0.25s cubic-bezier(0.16,1,0.3,1) !important;
                 }
-                /* Server moved to the bottom bar — hide it from the top */
                 .tactical-header .top-branding.dropdown { display: none !important; }
 
-                /* The "search row" inside the header. */
-                .mobile-header-row {
-                    display: flex !important;
+                /* ---------- LEFT: 2-line status tile ---------- *
+                   Live pulse + server name on top, live aircraft count on
+                   bottom. Opens the server bottom sheet on tap. */
+                .mobile-status-tile {
+                    display: inline-flex !important;
                     align-items: center !important;
                     gap: 10px !important;
-                    /* Leave room for the fixed-position trailing avatar (44 + 14). */
-                    padding-right: 58px !important;
-                    pointer-events: auto !important;
-                }
-
-                /* Leading circular icon button (Recents / history). */
-                .mobile-circle-btn {
-                    width: 44px !important;
-                    height: 44px !important;
-                    flex: 0 0 44px !important;
-                    border-radius: 50% !important;
+                    flex: 0 0 auto !important;
+                    height: 48px !important;
+                    padding: 0 12px 0 14px !important;
                     background: var(--lui-glass-bg) !important;
                     -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
                     backdrop-filter: blur(24px) saturate(180%) !important;
                     border: 1px solid var(--lui-border-base) !important;
+                    border-radius: 16px !important;
                     color: var(--lui-text-main) !important;
                     box-shadow: 0 6px 18px rgba(0,0,0,0.32) !important;
-                    display: grid !important;
-                    place-items: center !important;
-                    font-size: 1rem !important;
                     cursor: pointer;
+                    pointer-events: auto !important;
                     transition: transform 0.12s ease, background-color 0.18s ease !important;
                 }
-                .mobile-circle-btn:active {
-                    transform: scale(0.92) !important;
+                .mobile-status-tile:active {
+                    transform: scale(0.97) !important;
                     background: var(--lui-glass-heavy) !important;
+                }
+                .mst-pulse {
+                    width: 8px !important;
+                    height: 8px !important;
+                    border-radius: 50% !important;
+                    background: #22c55e !important;
+                    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.55) !important;
+                    animation: mst-pulse 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite !important;
+                    flex: 0 0 8px !important;
+                }
+                @keyframes mst-pulse {
+                    0%   { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.55); }
+                    70%  { box-shadow: 0 0 0 9px rgba(34, 197, 94, 0); }
+                    100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+                }
+                .mst-text {
+                    display: flex !important;
+                    flex-direction: column !important;
+                    align-items: flex-start !important;
+                    justify-content: center !important;
+                    line-height: 1.05 !important;
+                    gap: 2px !important;
+                }
+                .mst-line1 {
+                    font-family: 'Inter', sans-serif !important;
+                    font-size: 12px !important;
+                    font-weight: 800 !important;
+                    letter-spacing: 0.6px !important;
+                    color: var(--lui-text-main) !important;
+                }
+                .mst-line2 {
+                    font-family: 'Inter', sans-serif !important;
+                    font-size: 10px !important;
+                    font-weight: 700 !important;
+                    letter-spacing: 1.2px !important;
+                    color: var(--lui-text-gray-2) !important;
+                    text-transform: uppercase !important;
+                }
+                .mst-line2 #mst-count { color: var(--lui-accent) !important; font-weight: 800 !important; letter-spacing: 0.4px !important; }
+                .mst-chev {
+                    font-size: 9px !important;
+                    opacity: 0.5 !important;
+                    margin-left: 2px !important;
                 }
 
                 .top-right-actions {
                     flex: 1 1 auto !important;
                     width: auto !important;
                     max-width: none !important;
+                    /* Leave room for the fixed-position trailing avatar (44 + 14). */
+                    margin-right: 58px !important;
                     display: flex !important;
                     pointer-events: auto !important;
                 }
                 .search-blade {
                     width: 100% !important;
-                    height: 44px !important;
+                    height: 48px !important;
                     padding: 0 16px !important;
                     background: var(--lui-glass-bg) !important;
                     -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
                     backdrop-filter: blur(24px) saturate(180%) !important;
                     border: 1px solid var(--lui-border-base) !important;
-                    border-radius: 999px !important;
+                    border-radius: 16px !important;
                     display: flex !important;
                     align-items: center !important;
                     gap: 10px !important;
@@ -1881,22 +1906,22 @@ export const LandingUI = {
                     top: calc(env(safe-area-inset-top, 0px) + 10px) !important;
                     width: auto !important;
                     max-width: none !important;
-                    height: 44px !important;
-                    border-radius: 999px !important;
+                    height: 48px !important;
+                    border-radius: 16px !important;
                     z-index: 1600 !important;
                     background: var(--lui-glass-heavy) !important;
                     border-color: var(--lui-border-strong) !important;
-                    box-shadow: 0 8px 24px rgba(0,0,0,0.45) !important;
+                    box-shadow: 0 10px 28px rgba(0,0,0,0.5) !important;
                 }
 
                 /* Full-screen results sheet under the search bar. */
                 .search-results-dropdown {
                     position: fixed !important;
-                    top: calc(env(safe-area-inset-top, 0px) + 64px) !important;
+                    top: calc(env(safe-area-inset-top, 0px) + 68px) !important;
                     left: 0 !important;
                     width: 100vw !important;
-                    height: calc(100vh - env(safe-area-inset-top, 0px) - 64px) !important;
-                    height: calc(100dvh - env(safe-area-inset-top, 0px) - 64px) !important;
+                    height: calc(100vh - env(safe-area-inset-top, 0px) - 68px) !important;
+                    height: calc(100dvh - env(safe-area-inset-top, 0px) - 68px) !important;
                     max-height: none !important;
                     border-radius: 0 !important;
                     border: none !important;
@@ -1907,62 +1932,13 @@ export const LandingUI = {
                     overscroll-behavior: contain !important;
                 }
 
-                /* ---------- Filter chips strip ---------- */
-                .mobile-chips-strip {
-                    display: flex !important;
-                    flex-wrap: nowrap !important;
-                    gap: 8px !important;
-                    overflow-x: auto !important;
-                    overflow-y: hidden !important;
-                    -webkit-overflow-scrolling: touch !important;
-                    padding: 2px 0 4px 0 !important;
-                    margin: 0 -14px !important;
-                    padding-left: 14px !important;
-                    padding-right: 14px !important;
-                    scrollbar-width: none !important;
-                    pointer-events: auto !important;
-                    transition: opacity 0.2s ease, transform 0.25s cubic-bezier(0.16,1,0.3,1) !important;
-                }
-                .mobile-chips-strip::-webkit-scrollbar { display: none !important; }
-                .mchip {
-                    flex: 0 0 auto !important;
-                    display: inline-flex !important;
-                    align-items: center !important;
-                    gap: 6px !important;
-                    height: 32px !important;
-                    padding: 0 14px !important;
-                    border-radius: 999px !important;
-                    background: var(--lui-glass-bg) !important;
-                    -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
-                    backdrop-filter: blur(20px) saturate(180%) !important;
-                    border: 1px solid var(--lui-border-base) !important;
-                    color: var(--lui-text-gray-1) !important;
-                    font-family: 'Inter', sans-serif !important;
-                    font-size: 13px !important;
-                    font-weight: 600 !important;
-                    letter-spacing: 0.1px !important;
-                    cursor: pointer;
-                    white-space: nowrap !important;
-                    box-shadow: 0 4px 12px rgba(0,0,0,0.25) !important;
-                    transition: color 0.18s ease, background-color 0.18s ease, border-color 0.18s ease, transform 0.12s ease !important;
-                }
-                .mchip i { font-size: 11px !important; }
-                .mchip .chip-check { display: none !important; }
-                .mchip:active { transform: scale(0.96) !important; }
-                .mchip.is-active {
-                    color: var(--lui-text-main) !important;
-                    background: var(--lui-glass-heavy) !important;
-                    border-color: var(--lui-border-strong) !important;
-                }
-                .mchip.is-active .chip-check { display: inline-block !important; color: var(--lui-accent) !important; }
-
-                /* Hide leading button + chips while the search is active so
-                   only the search bar + Cancel remain (standard iOS pattern). */
-                .mobile-search-active .mobile-circle-btn,
-                .mobile-search-active .mobile-chips-strip {
+                /* When searching, slide the status tile away to give the
+                   search bar full breathing room. */
+                .mobile-search-active .mobile-status-tile {
                     opacity: 0 !important;
                     pointer-events: none !important;
-                    transform: translateY(-8px) !important;
+                    transform: translateX(-12px) !important;
+                    transition: opacity 0.2s ease, transform 0.25s cubic-bezier(0.16,1,0.3,1) !important;
                 }
 
                 /* ---------- Touch-sized result rows ---------- */
@@ -1995,9 +1971,9 @@ export const LandingUI = {
                     transition: opacity 0.2s ease !important;
                 }
                 .auth-nexus .orb-btn {
-                    width: 44px !important;
-                    height: 44px !important;
-                    border-radius: 50% !important;
+                    width: 48px !important;
+                    height: 48px !important;
+                    border-radius: 16px !important;
                     font-size: 1rem !important;
                     background: var(--lui-glass-bg) !important;
                     -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
@@ -2007,7 +1983,7 @@ export const LandingUI = {
                     box-shadow: 0 6px 18px rgba(0,0,0,0.32) !important;
                 }
                 .auth-nexus .orb-btn:active {
-                    transform: scale(0.92) !important;
+                    transform: scale(0.94) !important;
                     background: var(--lui-glass-heavy) !important;
                 }
 
@@ -2017,7 +1993,7 @@ export const LandingUI = {
                     position: fixed !important;
                     top: calc(env(safe-area-inset-top, 0px) + 10px) !important;
                     right: 14px !important;
-                    height: 44px !important;
+                    height: 48px !important;
                     padding: 0 6px !important;
                     background: none !important;
                     border: none !important;
@@ -2038,10 +2014,12 @@ export const LandingUI = {
                     transform: translateX(0) !important;
                 }
 
-                /* ---------- BOTTOM: Plane Finder-style tab bar ---------- *
-                   Wide frosted bar that hugs the screen edges, tabs evenly
-                   distributed, each tab has a tall icon + small label and
-                   a clear accent-tinted active pill behind it. */
+                /* ---------- BOTTOM: Inflight Console Dock ---------- *
+                   Distinctive active state: a glowing accent BAR at the TOP
+                   edge of the active tab (not a background fill). The tab
+                   container has a notched-look (rounded square corners and
+                   an inset highlight strip), and the active icon picks up
+                   the accent color with a subtle glow. */
                 .utility-nexus {
                     position: fixed !important;
                     left: 10px !important;
@@ -2055,6 +2033,7 @@ export const LandingUI = {
                     transition: transform 0.3s cubic-bezier(0.16,1,0.3,1), opacity 0.3s !important;
                 }
                 .orb-row {
+                    position: relative !important;
                     width: 100% !important;
                     max-width: 520px !important;
                     gap: 0 !important;
@@ -2064,10 +2043,22 @@ export const LandingUI = {
                     -webkit-backdrop-filter: blur(32px) saturate(200%) !important;
                     backdrop-filter: blur(32px) saturate(200%) !important;
                     border: 1px solid var(--lui-border-base) !important;
-                    border-radius: 28px !important;
-                    padding: 10px 8px !important;
-                    box-shadow: 0 16px 40px rgba(0,0,0,0.55), 0 2px 0 rgba(255,255,255,0.04) inset !important;
+                    border-radius: 22px !important;
+                    padding: 6px 6px 8px !important;
+                    box-shadow: 0 16px 40px rgba(0,0,0,0.55), 0 1px 0 rgba(255,255,255,0.06) inset !important;
                     pointer-events: auto !important;
+                    overflow: hidden !important;
+                }
+                /* Top hairline highlight — gives the dock a "console" feel. */
+                .orb-row::before {
+                    content: "" !important;
+                    position: absolute !important;
+                    top: 0 !important;
+                    left: 16% !important;
+                    right: 16% !important;
+                    height: 1px !important;
+                    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent) !important;
+                    pointer-events: none !important;
                 }
                 .mobile-only-tab { display: block !important; }
                 .orb-row .nexus-orb-wrapper,
@@ -2082,9 +2073,9 @@ export const LandingUI = {
                     position: relative !important;
                     width: 100% !important;
                     height: auto !important;
-                    min-height: 56px !important;
-                    padding: 8px 4px 6px !important;
-                    border-radius: 18px !important;
+                    min-height: 58px !important;
+                    padding: 12px 4px 8px !important;
+                    border-radius: 14px !important;
                     background: transparent !important;
                     border: none !important;
                     box-shadow: none !important;
@@ -2094,38 +2085,66 @@ export const LandingUI = {
                     justify-content: center !important;
                     gap: 6px !important;
                     color: var(--lui-text-gray-1) !important;
-                    font-size: 1.35rem !important;
+                    font-size: 1.3rem !important;
                     transform: none !important;
-                    transition: color 0.18s ease, background-color 0.18s ease, transform 0.12s ease !important;
+                    transition: color 0.22s cubic-bezier(0.16,1,0.3,1), transform 0.12s ease !important;
                 }
                 .orb-row .orb-btn > i {
-                    font-size: 1.25rem !important;
+                    font-size: 1.2rem !important;
                     line-height: 1 !important;
+                    transition: text-shadow 0.22s ease, transform 0.22s cubic-bezier(0.16,1,0.3,1) !important;
+                }
+                /* Top-edge accent underline = our active indicator. */
+                .orb-row .orb-btn::before {
+                    content: "" !important;
+                    position: absolute !important;
+                    top: 0 !important;
+                    left: 50% !important;
+                    transform: translateX(-50%) scaleX(0) !important;
+                    width: 28px !important;
+                    height: 3px !important;
+                    border-radius: 0 0 4px 4px !important;
+                    background: var(--lui-accent) !important;
+                    box-shadow: 0 0 12px var(--lui-accent), 0 0 4px var(--lui-accent) !important;
+                    transition: transform 0.28s cubic-bezier(0.16,1,0.3,1), opacity 0.22s ease !important;
+                    opacity: 0 !important;
                 }
                 .orb-row .orb-btn:active {
-                    transform: scale(0.94) !important;
-                    background: var(--lui-active-bg) !important;
+                    transform: scale(0.96) !important;
                     color: var(--lui-accent) !important;
                 }
                 .orb-row .orb-btn.is-active,
                 .orb-row .nexus-orb-wrapper.is-active .orb-btn,
                 .orb-row .weather-nexus-container.expanded .orb-btn {
                     color: var(--lui-accent) !important;
-                    background: var(--lui-accent-active) !important;
+                }
+                .orb-row .orb-btn.is-active::before,
+                .orb-row .nexus-orb-wrapper.is-active .orb-btn::before,
+                .orb-row .weather-nexus-container.expanded .orb-btn::before {
+                    transform: translateX(-50%) scaleX(1) !important;
+                    opacity: 1 !important;
+                }
+                .orb-row .orb-btn.is-active > i,
+                .orb-row .nexus-orb-wrapper.is-active .orb-btn > i,
+                .orb-row .weather-nexus-container.expanded .orb-btn > i {
+                    text-shadow: 0 0 14px rgba(56, 189, 248, 0.55) !important;
+                    transform: translateY(-1px) !important;
                 }
                 .orb-row .tab-label {
                     display: block !important;
-                    font-size: 0.68rem !important;
-                    font-weight: 600 !important;
-                    letter-spacing: 0.15px !important;
+                    font-family: 'Inter', sans-serif !important;
+                    font-size: 0.62rem !important;
+                    font-weight: 700 !important;
+                    letter-spacing: 0.6px !important;
+                    text-transform: uppercase !important;
                     line-height: 1 !important;
                     color: inherit !important;
                 }
                 .orb-row .active-pulse-dot {
                     position: absolute !important;
-                    top: 8px !important;
+                    top: 10px !important;
                     right: 50% !important;
-                    margin-right: -16px !important;
+                    margin-right: -18px !important;
                     bottom: auto !important;
                     width: 6px !important;
                     height: 6px !important;
