@@ -291,16 +291,42 @@ export const LandingUI = {
                         </div>
                     </div>
 
-                    <div class="top-right-actions">
-                        <div class="search-blade">
-                            <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                            <input type="text" id="blade-search-input" placeholder="Search flights, airports, airlines"
-                                   autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
-                                   inputmode="search" enterkeyhint="search">
-                            <button type="button" id="blade-search-clear" class="search-clear-btn" aria-label="Clear search"><i class="fa-solid fa-circle-xmark"></i></button>
-                            <div class="search-shortcut"></div>
-                            <div id="blade-search-results" class="search-results-dropdown custom-scroll"></div>
+                    <div class="mobile-header-row">
+                        <button type="button" id="mobile-recents-btn" class="mobile-circle-btn" aria-label="Recents">
+                            <i class="fa-solid fa-clock-rotate-left"></i>
+                        </button>
+                        <div class="top-right-actions">
+                            <div class="search-blade">
+                                <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                                <input type="text" id="blade-search-input" placeholder="Search flights, airports, airlines"
+                                       autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                                       inputmode="search" enterkeyhint="search">
+                                <button type="button" id="blade-search-clear" class="search-clear-btn" aria-label="Clear search"><i class="fa-solid fa-circle-xmark"></i></button>
+                                <div class="search-shortcut"></div>
+                                <div id="blade-search-results" class="search-results-dropdown custom-scroll"></div>
+                            </div>
                         </div>
+                    </div>
+
+                    <div class="mobile-chips-strip" id="mobile-chips-strip">
+                        <button class="mchip is-active" data-chip="all" type="button">
+                            <i class="fa-solid fa-check chip-check"></i><span>All Traffic</span>
+                        </button>
+                        <button class="mchip" data-chip="Heavy" type="button">
+                            <i class="fa-solid fa-plane"></i><span>Heavy</span>
+                        </button>
+                        <button class="mchip" data-chip="Widebody" type="button">
+                            <i class="fa-solid fa-plane-up"></i><span>Widebody</span>
+                        </button>
+                        <button class="mchip" data-chip="GA" type="button">
+                            <i class="fa-solid fa-helicopter"></i><span>GA</span>
+                        </button>
+                        <button class="mchip" data-chip="Military" type="button">
+                            <i class="fa-solid fa-shield-halved"></i><span>Military</span>
+                        </button>
+                        <button class="mchip" data-chip="Fighter" type="button">
+                            <i class="fa-solid fa-jet-fighter"></i><span>Fighter</span>
+                        </button>
                     </div>
 
                     <button type="button" id="mobile-search-cancel" class="search-cancel-btn">Cancel</button>
@@ -587,6 +613,36 @@ export const LandingUI = {
         modalOverlay?.addEventListener('click', (e) => { if (e.target === modalOverlay) toggleModal(false); });
         document.querySelectorAll('.nexus-item').forEach(item => {
             item.addEventListener('click', () => this.activateFilter(item.dataset.filterId));
+        });
+
+        // Mobile leading "Recents" button — opens the search with focus so
+        // the keyboard's recent suggestions show. Acts like FR24's history pill.
+        document.getElementById('mobile-recents-btn')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const input = document.getElementById('blade-search-input');
+            if (input) {
+                input.focus();
+                try { input.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (_) {}
+            }
+        });
+
+        // Mobile filter chips — drive the existing 'category' filter.
+        // The "all" chip clears category; the rest set a single category.
+        const chipStrip = document.getElementById('mobile-chips-strip');
+        chipStrip?.querySelectorAll('.mchip').forEach(chip => {
+            chip.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const value = chip.dataset.chip;
+                chipStrip.querySelectorAll('.mchip').forEach(c => c.classList.remove('is-active'));
+                chip.classList.add('is-active');
+                if (value === 'all') {
+                    delete this._activeFilters['category'];
+                } else {
+                    this._activeFilters['category'] = value;
+                }
+                this.refreshUI();
+                this.dispatchFilterUpdate();
+            });
         });
     },
 
@@ -909,6 +965,11 @@ export const LandingUI = {
                 right: 40px;
                 pointer-events: none;
             }
+
+            /* Mobile-only chrome: hidden on desktop. */
+            .mobile-header-row { display: contents; }
+            .mobile-circle-btn,
+            .mobile-chips-strip { display: none; }
 
             .tactical-header {
                 position: absolute;
@@ -1695,24 +1756,26 @@ export const LandingUI = {
                so they win over the legacy mobile rules above)
                ============================================================ */
             @media (max-width: 768px) {
-                /* ---------- TOP: native-iOS search bar ---------- *
-                   Floating frosted pill under the status bar. Holds the
-                   pill-shaped search field; profile avatar sits at the
-                   trailing edge while idle and is swapped for a "Cancel"
-                   button while searching (standard iOS search pattern). */
+                /* ---------- TOP: Plane Finder-style chrome ---------- *
+                   Two stacked rows that float over the map:
+                     1) leading round button · pill search · trailing avatar
+                     2) horizontally-scrolling filter chips strip
+                   Nothing has an opaque header strip; everything is its own
+                   frosted glass element. */
                 .tactical-header {
                     top: 0 !important;
                     left: 0 !important;
                     right: 0 !important;
                     width: 100% !important;
                     height: auto !important;
-                    padding: calc(env(safe-area-inset-top, 0px) + 10px) 64px 12px 14px !important;
+                    padding: calc(env(safe-area-inset-top, 0px) + 10px) 14px 0 14px !important;
                     background: transparent !important;
                     -webkit-backdrop-filter: none !important;
                     backdrop-filter: none !important;
                     border-bottom: none !important;
                     display: flex !important;
-                    align-items: center !important;
+                    flex-direction: column !important;
+                    align-items: stretch !important;
                     gap: 10px !important;
                     pointer-events: none !important;
                     z-index: 1500 !important;
@@ -1720,6 +1783,39 @@ export const LandingUI = {
                 }
                 /* Server moved to the bottom bar — hide it from the top */
                 .tactical-header .top-branding.dropdown { display: none !important; }
+
+                /* The "search row" inside the header. */
+                .mobile-header-row {
+                    display: flex !important;
+                    align-items: center !important;
+                    gap: 10px !important;
+                    /* Leave room for the fixed-position trailing avatar (44 + 14). */
+                    padding-right: 58px !important;
+                    pointer-events: auto !important;
+                }
+
+                /* Leading circular icon button (Recents / history). */
+                .mobile-circle-btn {
+                    width: 44px !important;
+                    height: 44px !important;
+                    flex: 0 0 44px !important;
+                    border-radius: 50% !important;
+                    background: var(--lui-glass-bg) !important;
+                    -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
+                    backdrop-filter: blur(24px) saturate(180%) !important;
+                    border: 1px solid var(--lui-border-base) !important;
+                    color: var(--lui-text-main) !important;
+                    box-shadow: 0 6px 18px rgba(0,0,0,0.32) !important;
+                    display: grid !important;
+                    place-items: center !important;
+                    font-size: 1rem !important;
+                    cursor: pointer;
+                    transition: transform 0.12s ease, background-color 0.18s ease !important;
+                }
+                .mobile-circle-btn:active {
+                    transform: scale(0.92) !important;
+                    background: var(--lui-glass-heavy) !important;
+                }
 
                 .top-right-actions {
                     flex: 1 1 auto !important;
@@ -1811,6 +1907,64 @@ export const LandingUI = {
                     overscroll-behavior: contain !important;
                 }
 
+                /* ---------- Filter chips strip ---------- */
+                .mobile-chips-strip {
+                    display: flex !important;
+                    flex-wrap: nowrap !important;
+                    gap: 8px !important;
+                    overflow-x: auto !important;
+                    overflow-y: hidden !important;
+                    -webkit-overflow-scrolling: touch !important;
+                    padding: 2px 0 4px 0 !important;
+                    margin: 0 -14px !important;
+                    padding-left: 14px !important;
+                    padding-right: 14px !important;
+                    scrollbar-width: none !important;
+                    pointer-events: auto !important;
+                    transition: opacity 0.2s ease, transform 0.25s cubic-bezier(0.16,1,0.3,1) !important;
+                }
+                .mobile-chips-strip::-webkit-scrollbar { display: none !important; }
+                .mchip {
+                    flex: 0 0 auto !important;
+                    display: inline-flex !important;
+                    align-items: center !important;
+                    gap: 6px !important;
+                    height: 32px !important;
+                    padding: 0 14px !important;
+                    border-radius: 999px !important;
+                    background: var(--lui-glass-bg) !important;
+                    -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+                    backdrop-filter: blur(20px) saturate(180%) !important;
+                    border: 1px solid var(--lui-border-base) !important;
+                    color: var(--lui-text-gray-1) !important;
+                    font-family: 'Inter', sans-serif !important;
+                    font-size: 13px !important;
+                    font-weight: 600 !important;
+                    letter-spacing: 0.1px !important;
+                    cursor: pointer;
+                    white-space: nowrap !important;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.25) !important;
+                    transition: color 0.18s ease, background-color 0.18s ease, border-color 0.18s ease, transform 0.12s ease !important;
+                }
+                .mchip i { font-size: 11px !important; }
+                .mchip .chip-check { display: none !important; }
+                .mchip:active { transform: scale(0.96) !important; }
+                .mchip.is-active {
+                    color: var(--lui-text-main) !important;
+                    background: var(--lui-glass-heavy) !important;
+                    border-color: var(--lui-border-strong) !important;
+                }
+                .mchip.is-active .chip-check { display: inline-block !important; color: var(--lui-accent) !important; }
+
+                /* Hide leading button + chips while the search is active so
+                   only the search bar + Cancel remain (standard iOS pattern). */
+                .mobile-search-active .mobile-circle-btn,
+                .mobile-search-active .mobile-chips-strip {
+                    opacity: 0 !important;
+                    pointer-events: none !important;
+                    transform: translateY(-8px) !important;
+                }
+
                 /* ---------- Touch-sized result rows ---------- */
                 .premium-result-item {
                     min-height: 60px !important;
@@ -1884,12 +2038,15 @@ export const LandingUI = {
                     transform: translateX(0) !important;
                 }
 
-                /* ---------- BOTTOM: floating tab bar ---------- */
+                /* ---------- BOTTOM: Plane Finder-style tab bar ---------- *
+                   Wide frosted bar that hugs the screen edges, tabs evenly
+                   distributed, each tab has a tall icon + small label and
+                   a clear accent-tinted active pill behind it. */
                 .utility-nexus {
                     position: fixed !important;
-                    left: 14px !important;
-                    right: 14px !important;
-                    bottom: calc(env(safe-area-inset-bottom, 0px) + 12px) !important;
+                    left: 10px !important;
+                    right: 10px !important;
+                    bottom: calc(env(safe-area-inset-bottom, 0px) + 8px) !important;
                     transform: none !important;
                     pointer-events: none !important;
                     z-index: 1500 !important;
@@ -1899,17 +2056,17 @@ export const LandingUI = {
                 }
                 .orb-row {
                     width: 100% !important;
-                    max-width: 460px !important;
+                    max-width: 520px !important;
                     gap: 0 !important;
                     align-items: stretch !important;
                     justify-content: space-around !important;
                     background: var(--lui-glass-bg) !important;
-                    -webkit-backdrop-filter: blur(28px) saturate(180%) !important;
-                    backdrop-filter: blur(28px) saturate(180%) !important;
+                    -webkit-backdrop-filter: blur(32px) saturate(200%) !important;
+                    backdrop-filter: blur(32px) saturate(200%) !important;
                     border: 1px solid var(--lui-border-base) !important;
-                    border-radius: 26px !important;
-                    padding: 8px 6px !important;
-                    box-shadow: 0 12px 32px rgba(0,0,0,0.5) !important;
+                    border-radius: 28px !important;
+                    padding: 10px 8px !important;
+                    box-shadow: 0 16px 40px rgba(0,0,0,0.55), 0 2px 0 rgba(255,255,255,0.04) inset !important;
                     pointer-events: auto !important;
                 }
                 .mobile-only-tab { display: block !important; }
@@ -1925,9 +2082,9 @@ export const LandingUI = {
                     position: relative !important;
                     width: 100% !important;
                     height: auto !important;
-                    min-height: 50px !important;
-                    padding: 6px 4px !important;
-                    border-radius: 16px !important;
+                    min-height: 56px !important;
+                    padding: 8px 4px 6px !important;
+                    border-radius: 18px !important;
                     background: transparent !important;
                     border: none !important;
                     box-shadow: none !important;
@@ -1935,11 +2092,15 @@ export const LandingUI = {
                     flex-direction: column !important;
                     align-items: center !important;
                     justify-content: center !important;
-                    gap: 4px !important;
+                    gap: 6px !important;
                     color: var(--lui-text-gray-1) !important;
-                    font-size: 1.1rem !important;
+                    font-size: 1.35rem !important;
                     transform: none !important;
                     transition: color 0.18s ease, background-color 0.18s ease, transform 0.12s ease !important;
+                }
+                .orb-row .orb-btn > i {
+                    font-size: 1.25rem !important;
+                    line-height: 1 !important;
                 }
                 .orb-row .orb-btn:active {
                     transform: scale(0.94) !important;
@@ -1954,7 +2115,7 @@ export const LandingUI = {
                 }
                 .orb-row .tab-label {
                     display: block !important;
-                    font-size: 0.65rem !important;
+                    font-size: 0.68rem !important;
                     font-weight: 600 !important;
                     letter-spacing: 0.15px !important;
                     line-height: 1 !important;
@@ -1962,9 +2123,9 @@ export const LandingUI = {
                 }
                 .orb-row .active-pulse-dot {
                     position: absolute !important;
-                    top: 4px !important;
+                    top: 8px !important;
                     right: 50% !important;
-                    margin-right: -14px !important;
+                    margin-right: -16px !important;
                     bottom: auto !important;
                     width: 6px !important;
                     height: 6px !important;
