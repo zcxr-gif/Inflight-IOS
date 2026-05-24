@@ -293,11 +293,8 @@ export const LandingUI = {
 
                     <button type="button" id="mobile-status-tile" class="mobile-status-tile" aria-label="Server status">
                         <span class="mst-pulse"></span>
-                        <span class="mst-text">
-                            <span class="mst-line1" id="mst-server-name">${this._currentServer.toUpperCase()}</span>
-                            <span class="mst-line2"><span id="mst-count">— </span>LIVE</span>
-                        </span>
-                        <i class="fa-solid fa-chevron-down mst-chev"></i>
+                        <span class="mst-line1" id="mst-server-name">${this._currentServer.toUpperCase()}</span>
+                        <span class="mst-count" id="mst-count">—</span>
                     </button>
 
                     <div class="top-right-actions">
@@ -622,7 +619,7 @@ export const LandingUI = {
                 : null;
             if (!Array.isArray(flights)) return;
             const n = flights.length;
-            el.textContent = (n >= 1000 ? (n / 1000).toFixed(1) + 'k ' : n + ' ');
+            el.textContent = (n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n));
         };
         refreshLiveCount();
         setInterval(refreshLiveCount, 8000);
@@ -1742,12 +1739,18 @@ export const LandingUI = {
             }
 
             /* ============================================================
-               Inflight Console — distinctive mobile chrome.
-               Asymmetric top: 2-line status tile (left) · pill search (center)
-                              · profile orb (right). All float over the map.
-               Bottom: a dock where the active tab is signaled by a glowing
-                       accent underline at the TOP edge of the tab — not a
-                       background fill (that would be the FR24/PF pattern).
+               Inflight Ops Console — bottom-anchored mobile chrome.
+
+               TOP is intentionally near-empty so the map breathes: just a
+               compact pulse + server abbreviation + flight count in the
+               leading corner, and the profile orb in the trailing corner.
+
+               BOTTOM is the entire control surface — a single frosted
+               console block that stacks the search bar and the tab bar in
+               one container with a hairline divider between them. Putting
+               search at the bottom matches Apple/Google Maps' modern
+               thumb-first ergonomics and is uncommon among tracker apps,
+               which all clone FR24's top-search layout.
                ============================================================ */
             @media (max-width: 768px) {
                 .tactical-header {
@@ -1761,107 +1764,107 @@ export const LandingUI = {
                     -webkit-backdrop-filter: none !important;
                     backdrop-filter: none !important;
                     border-bottom: none !important;
-                    display: flex !important;
-                    flex-direction: row !important;
-                    align-items: center !important;
-                    gap: 10px !important;
+                    display: block !important;
                     pointer-events: none !important;
                     z-index: 1500 !important;
                     transition: padding 0.25s cubic-bezier(0.16,1,0.3,1) !important;
                 }
                 .tactical-header .top-branding.dropdown { display: none !important; }
 
-                /* ---------- LEFT: 2-line status tile ---------- *
-                   Live pulse + server name on top, live aircraft count on
-                   bottom. Opens the server bottom sheet on tap. */
+                /* ---------- TOP-LEFT: compact server + live count pill ---------- *
+                   Reads "● EXPERT  142" — pulse, server name, live count.
+                   Small (~40px tall) so the map dominates. */
                 .mobile-status-tile {
                     display: inline-flex !important;
                     align-items: center !important;
-                    gap: 10px !important;
-                    flex: 0 0 auto !important;
-                    height: 48px !important;
-                    padding: 0 12px 0 14px !important;
+                    gap: 8px !important;
+                    height: 40px !important;
+                    padding: 0 12px !important;
                     background: var(--lui-glass-bg) !important;
                     -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
                     backdrop-filter: blur(24px) saturate(180%) !important;
                     border: 1px solid var(--lui-border-base) !important;
-                    border-radius: 16px !important;
+                    border-radius: 999px !important;
                     color: var(--lui-text-main) !important;
                     box-shadow: 0 6px 18px rgba(0,0,0,0.32) !important;
                     cursor: pointer;
                     pointer-events: auto !important;
                     transition: transform 0.12s ease, background-color 0.18s ease !important;
+                    font-family: 'Inter', sans-serif !important;
+                    line-height: 1 !important;
                 }
                 .mobile-status-tile:active {
-                    transform: scale(0.97) !important;
+                    transform: scale(0.96) !important;
                     background: var(--lui-glass-heavy) !important;
                 }
                 .mst-pulse {
-                    width: 8px !important;
-                    height: 8px !important;
+                    width: 7px !important;
+                    height: 7px !important;
                     border-radius: 50% !important;
                     background: #22c55e !important;
                     box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.55) !important;
                     animation: mst-pulse 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite !important;
-                    flex: 0 0 8px !important;
+                    flex: 0 0 7px !important;
                 }
                 @keyframes mst-pulse {
                     0%   { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.55); }
-                    70%  { box-shadow: 0 0 0 9px rgba(34, 197, 94, 0); }
+                    70%  { box-shadow: 0 0 0 8px rgba(34, 197, 94, 0); }
                     100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
                 }
-                .mst-text {
-                    display: flex !important;
-                    flex-direction: column !important;
-                    align-items: flex-start !important;
-                    justify-content: center !important;
-                    line-height: 1.05 !important;
-                    gap: 2px !important;
-                }
                 .mst-line1 {
-                    font-family: 'Inter', sans-serif !important;
                     font-size: 12px !important;
                     font-weight: 800 !important;
-                    letter-spacing: 0.6px !important;
+                    letter-spacing: 0.7px !important;
                     color: var(--lui-text-main) !important;
                 }
-                .mst-line2 {
-                    font-family: 'Inter', sans-serif !important;
-                    font-size: 10px !important;
-                    font-weight: 700 !important;
-                    letter-spacing: 1.2px !important;
-                    color: var(--lui-text-gray-2) !important;
-                    text-transform: uppercase !important;
-                }
-                .mst-line2 #mst-count { color: var(--lui-accent) !important; font-weight: 800 !important; letter-spacing: 0.4px !important; }
-                .mst-chev {
-                    font-size: 9px !important;
-                    opacity: 0.5 !important;
+                .mst-count {
+                    font-size: 12px !important;
+                    font-weight: 800 !important;
+                    color: var(--lui-accent) !important;
+                    padding-left: 8px !important;
                     margin-left: 2px !important;
+                    border-left: 1px solid var(--lui-border-strong) !important;
+                    letter-spacing: 0.3px !important;
                 }
 
+                /* ---------- BOTTOM Ops Console: SEARCH section ---------- *
+                   Position-fixed at the bottom, sits inside the console
+                   visually right above the tab row. The search-results
+                   dropdown stretches up to fill the screen above. */
                 .top-right-actions {
-                    flex: 1 1 auto !important;
+                    position: fixed !important;
+                    left: 10px !important;
+                    right: 10px !important;
+                    /* Sit directly on top of the tab bar — no visual gap so
+                       the two pieces read as one console block. Tab bar is
+                       safe + 8 from bottom, and ~72px tall, so the search
+                       row's bottom must be at safe + 80px to be flush. */
+                    bottom: calc(env(safe-area-inset-bottom, 0px) + 80px) !important;
+                    top: auto !important;
                     width: auto !important;
-                    max-width: none !important;
-                    /* Leave room for the fixed-position trailing avatar (44 + 14). */
-                    margin-right: 58px !important;
+                    max-width: 520px !important;
+                    margin: 0 auto !important;
                     display: flex !important;
                     pointer-events: auto !important;
+                    z-index: 1500 !important;
+                    transition: transform 0.3s cubic-bezier(0.16,1,0.3,1), opacity 0.3s !important;
                 }
                 .search-blade {
                     width: 100% !important;
                     height: 48px !important;
                     padding: 0 16px !important;
                     background: var(--lui-glass-bg) !important;
-                    -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
-                    backdrop-filter: blur(24px) saturate(180%) !important;
+                    -webkit-backdrop-filter: blur(32px) saturate(200%) !important;
+                    backdrop-filter: blur(32px) saturate(200%) !important;
                     border: 1px solid var(--lui-border-base) !important;
-                    border-radius: 16px !important;
+                    /* Square the bottom edge so it visually merges with the
+                       tab bar pill underneath. */
+                    border-radius: 22px 22px 6px 6px !important;
+                    border-bottom: 1px solid var(--lui-border-light) !important;
                     display: flex !important;
                     align-items: center !important;
                     gap: 10px !important;
-                    box-shadow: 0 6px 18px rgba(0,0,0,0.32) !important;
+                    box-shadow: 0 -8px 24px rgba(0,0,0,0.35) !important;
                     transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
                 }
                 .search-blade .search-icon { color: var(--lui-text-gray-1) !important; font-size: 0.95rem !important; }
@@ -1896,25 +1899,31 @@ export const LandingUI = {
                 }
                 .search-blade.has-text .search-clear-btn { display: flex !important; }
 
-                /* Focus / active: the bar pins to the top, full width,
-                   leaving room for the trailing Cancel button. */
-                .mobile-search-active .search-blade,
-                .search-blade:focus-within {
+                /* Focus / active: the search pops to the TOP of the screen
+                   (so results read top-down above the keyboard, not above
+                   the search field). Tab bar slides off-screen. */
+                .mobile-search-active .top-right-actions,
+                .top-right-actions:focus-within {
                     position: fixed !important;
                     left: 14px !important;
                     right: 72px !important;
                     top: calc(env(safe-area-inset-top, 0px) + 10px) !important;
-                    width: auto !important;
+                    bottom: auto !important;
                     max-width: none !important;
+                    margin: 0 !important;
+                    z-index: 1600 !important;
+                }
+                .mobile-search-active .search-blade,
+                .search-blade:focus-within {
                     height: 48px !important;
                     border-radius: 16px !important;
-                    z-index: 1600 !important;
+                    border-bottom: 1px solid var(--lui-border-strong) !important;
                     background: var(--lui-glass-heavy) !important;
                     border-color: var(--lui-border-strong) !important;
-                    box-shadow: 0 10px 28px rgba(0,0,0,0.5) !important;
+                    box-shadow: 0 8px 24px rgba(0,0,0,0.45) !important;
                 }
 
-                /* Full-screen results sheet under the search bar. */
+                /* Full-screen results sheet under the (now top) search. */
                 .search-results-dropdown {
                     position: fixed !important;
                     top: calc(env(safe-area-inset-top, 0px) + 68px) !important;
@@ -1930,15 +1939,6 @@ export const LandingUI = {
                     box-shadow: none !important;
                     -webkit-overflow-scrolling: touch !important;
                     overscroll-behavior: contain !important;
-                }
-
-                /* When searching, slide the status tile away to give the
-                   search bar full breathing room. */
-                .mobile-search-active .mobile-status-tile {
-                    opacity: 0 !important;
-                    pointer-events: none !important;
-                    transform: translateX(-12px) !important;
-                    transition: opacity 0.2s ease, transform 0.25s cubic-bezier(0.16,1,0.3,1) !important;
                 }
 
                 /* ---------- Touch-sized result rows ---------- */
@@ -2014,12 +2014,11 @@ export const LandingUI = {
                     transform: translateX(0) !important;
                 }
 
-                /* ---------- BOTTOM: Inflight Console Dock ---------- *
-                   Distinctive active state: a glowing accent BAR at the TOP
-                   edge of the active tab (not a background fill). The tab
-                   container has a notched-look (rounded square corners and
-                   an inset highlight strip), and the active icon picks up
-                   the accent color with a subtle glow. */
+                /* ---------- BOTTOM Ops Console: TABS section ---------- *
+                   Sits directly under the search bar with squared top
+                   corners so the two pieces read as one unified console
+                   block. Active tab shows a glowing accent underline at
+                   the TOP edge of the tab (not a filled pill). */
                 .utility-nexus {
                     position: fixed !important;
                     left: 10px !important;
@@ -2043,22 +2042,14 @@ export const LandingUI = {
                     -webkit-backdrop-filter: blur(32px) saturate(200%) !important;
                     backdrop-filter: blur(32px) saturate(200%) !important;
                     border: 1px solid var(--lui-border-base) !important;
-                    border-radius: 22px !important;
+                    border-top: none !important;
+                    /* Squared top corners visually merge with the search
+                       above; bottom corners stay heavily rounded. */
+                    border-radius: 6px 6px 22px 22px !important;
                     padding: 6px 6px 8px !important;
-                    box-shadow: 0 16px 40px rgba(0,0,0,0.55), 0 1px 0 rgba(255,255,255,0.06) inset !important;
+                    box-shadow: 0 16px 40px rgba(0,0,0,0.55) !important;
                     pointer-events: auto !important;
                     overflow: hidden !important;
-                }
-                /* Top hairline highlight — gives the dock a "console" feel. */
-                .orb-row::before {
-                    content: "" !important;
-                    position: absolute !important;
-                    top: 0 !important;
-                    left: 16% !important;
-                    right: 16% !important;
-                    height: 1px !important;
-                    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent) !important;
-                    pointer-events: none !important;
                 }
                 .mobile-only-tab { display: block !important; }
                 .orb-row .nexus-orb-wrapper,
@@ -2151,17 +2142,28 @@ export const LandingUI = {
                 }
                 .weather-nexus-container { flex-direction: column !important; gap: 0 !important; }
 
-                /* Slide the tab bar away while searching or when a detail sheet is open */
-                .mobile-search-active .utility-nexus,
-                #sector-ops-map-fullscreen:has(.mobile-island-bottom.island-active) .utility-nexus {
+                /* Slide the tab bar away while a detail sheet is open. */
+                #sector-ops-map-fullscreen:has(.mobile-island-bottom.island-active) .utility-nexus,
+                #sector-ops-map-fullscreen:has(.mobile-island-bottom.island-active) .top-right-actions {
                     opacity: 0 !important;
                     transform: translateY(140%) !important;
                     pointer-events: none !important;
                 }
-                /* Hide the profile avatar while searching (Cancel takes its slot) */
-                .mobile-search-active .auth-nexus {
+                /* While searching, only the tab bar drops off — the search
+                   row pops to the top instead. */
+                .mobile-search-active .utility-nexus {
+                    opacity: 0 !important;
+                    transform: translateY(140%) !important;
+                    pointer-events: none !important;
+                }
+                /* Hide the profile avatar + status tile while searching
+                   (the search bar pops up to the top, Cancel takes the
+                   avatar's slot, and the status tile would collide). */
+                .mobile-search-active .auth-nexus,
+                .mobile-search-active .mobile-status-tile {
                     opacity: 0 !important;
                     pointer-events: none !important;
+                    transition: opacity 0.18s ease !important;
                 }
             }
         `;
