@@ -1215,10 +1215,10 @@ function injectCustomStyles() {
 .ac-header-overlay {
     position: absolute;
     inset: 0;
-    background: linear-gradient(180deg, 
-        rgba(0,0,0,0.2) 0%, 
-        rgba(0,0,0,0.1) 40%, 
-        rgba(15, 23, 42, 0.8) 100%
+    background: linear-gradient(180deg,
+        rgba(0,0,0,0.2) 0%,
+        rgba(0,0,0,0.1) 40%,
+        var(--iw-bg-end) 100%
     );
     z-index: 1;
 }
@@ -13298,7 +13298,7 @@ let totalDistanceNM = 0;
     // --- HTML Construction ---
     windowEl.innerHTML = `
     <div class="ac-header-modern" id="ac-overview-panel" style=" background-image: url('${techCardImagePath}'), url('/CommunityPlanes/default.png'); position: relative; display: flex; flex-direction: column; flex-shrink: 0; min-height: 200px; background-size: cover; background-position: center; transition: background-image 0.5s ease-in-out;">
-            <div class="ac-header-overlay" style="position: absolute; inset: 0; background: linear-gradient(to bottom, transparent 0%, transparent 50%, rgba(15,23,42,0.85) 100%); z-index: 0; pointer-events: none;"></div>
+            <div class="ac-header-overlay" style="position: absolute; inset: 0; background: linear-gradient(to bottom, transparent 0%, transparent 50%, var(--iw-bg-end) 100%); z-index: 0; pointer-events: none;"></div>
             <div class="ac-header-top" style=" position: relative; z-index: 1; padding: 20px 24px; display: flex; justify-content: space-between; align-items: flex-start;">
                 <div class="ac-identity-group" style="max-width: calc(100% - 120px);">
                     <h1 style="font-size: 24px; font-weight: 800; color: #fff; margin: 0; line-height: 1.1; text-shadow: 0 2px 4px rgba(0,0,0,0.8);">${logoHtml} ${baseProps.callsign}</h1>
