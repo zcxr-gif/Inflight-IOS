@@ -3,7 +3,7 @@ const MobileUIHandler = {
     CONFIG: {
         breakpoint: 992, // The max-width in pixels to trigger mobile view
         defaultMode: 'legacy', // Default is 'legacy' sheet
-        legacyPeekHeight: 280, // Height of the "peek" state for legacy sheet
+        legacyPeekHeight: 320, // Height of the "peek" state for legacy sheet
     },
 
     // --- STATE ---
