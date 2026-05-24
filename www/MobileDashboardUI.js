@@ -1449,6 +1449,8 @@ _tabCareer() {
      * Mirrors Desktop logic: Stripe/PayPal selection -> Edge Function -> Mailto Fallback
      */
     _showCancellationModal() {
+        // App Store compliance: never surface external payment portals in iOS.
+        if (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) return;
         const existing = document.getElementById('mdui-custom-confirm');
         if (existing) existing.remove();
 
@@ -1737,7 +1739,7 @@ _tabCareer() {
                 <div id="mdui-settings-msg" class="mdui-alert" style="display:none;"></div>
                 <button class="mdui-btn-primary mdui-btn-block mdui-fade-up" id="mdui-save-btn" style="animation-delay:0.1s;">Save Changes</button>
 
-                <div class="mdui-card mdui-fade-up" style="animation-delay:0.12s; margin-top: 16px;">
+                <div class="mdui-card mdui-fade-up ios-hide" style="animation-delay:0.12s; margin-top: 16px;">
                     <div class="mdui-card-header"><h3>Billing</h3></div>
                     <div class="mdui-card-body">
                         <div class="mdui-plan-box">

@@ -126,12 +126,15 @@ export const AuthUI = {
                 .eq('id', data.session.user.id)
                 .single();
 
-            if (profile && profile.is_pro === false) {
-                // Subscription is inactive, force them to the premium renewal flow
+            if (profile && profile.is_pro === false && !(typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative())) {
+                // Subscription is inactive, force them to the premium renewal flow.
+                // Skipped on iOS native: App Store policy forbids surfacing the
+                // external Stripe/PayPal renewal flow inside the app. Free users
+                // simply enter the app with Pro features locked.
                 this._mode = 'renew';
-                this._tempSignUpData = { 
+                this._tempSignUpData = {
                     email: data.session.user.email,
-                    is_renew: true 
+                    is_renew: true
                 };
             } else {
                 // Active Pro User -> Launch App
@@ -330,13 +333,16 @@ export const AuthUI = {
             let formFields = '';
             
             if (isSignUp) {
+                const showPricingNotice = !(typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative());
                 formFields += `
+                    ${showPricingNotice ? `
                     <div class="auth-premium-notice">
                         <i class="fa-solid fa-gem auth-premium-icon"></i>
                         <div class="auth-premium-text">
                             <strong>InFlight Pro</strong> is $1.99/mo after your <strong>7-day free trial</strong>.
                         </div>
                     </div>
+                    ` : ''}
                     <div class="auth-input-group">
                         <label>Full Name</label>
                         <div class="auth-field-wrapper">
@@ -391,7 +397,9 @@ export const AuthUI = {
                 `;
             }
 
-            const submitText = isSignIn ? "Sign In" : "Start 7-Day Free Trial";
+            const iosNative = (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative());
+            const signupSubmitText = iosNative ? "Create Account" : "Start 7-Day Free Trial";
+            const submitText = isSignIn ? "Sign In" : signupSubmitText;
 
             html += `
                 ${formFields}
@@ -461,6 +469,7 @@ export const AuthUI = {
     },
 
     async loadPayPalAndRender() {
+        if (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) return;
         if (!window.paypal) {
             const script = document.createElement('script');
             script.src = "https://www.paypal.com/sdk/js?client-id=AXjiYt3mjJBEkP4DnnXQLbx_YGlEoJgvtA_Yj-1MSIZFKT91tuFN9NL6HVmlThqqE7ZlazkquLkKleix&currency=USD&vault=true&intent=subscription&enable-funding=applepay";
@@ -548,6 +557,7 @@ export const AuthUI = {
     },
 
     async loadStripeAndRender() {
+        if (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) return;
         if (!window.Stripe) {
             const script = document.createElement('script');
             script.src = 'https://js.stripe.com/v3/';
@@ -658,8 +668,35 @@ export const AuthUI = {
                 }
                 
                 this._tempSignUpData = { email, password, name, is_renew: false };
-                this.switchMode('payment');
-                
+
+                if (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) {
+                    // App Store compliance: no in-app trial/checkout step.
+                    // Create the Supabase account directly as a free user;
+                    // they can subscribe later on the website if they want Pro.
+                    this.setLoading('auth-submit-btn', true, 'Create Account');
+                    try {
+                        const { data: signUpData, error: signUpError } = await this._supabase.auth.signUp({
+                            email,
+                            password,
+                            options: { data: { full_name: name } }
+                        });
+                        this.setLoading('auth-submit-btn', false, 'Create Account');
+                        if (signUpError) {
+                            this.showError(signUpError.message);
+                        } else if (signUpData?.user && !signUpData?.session) {
+                            this.showSuccess("Account created. Check your email to confirm, then sign in.");
+                        } else {
+                            this.close();
+                            this.open();
+                        }
+                    } catch (err) {
+                        this.setLoading('auth-submit-btn', false, 'Create Account');
+                        this.showError(err?.message || "Failed to create account.");
+                    }
+                } else {
+                    this.switchMode('payment');
+                }
+
             } else if (this._mode === 'signin') {
                 this.setLoading('auth-submit-btn', true, 'Sign In');
                 

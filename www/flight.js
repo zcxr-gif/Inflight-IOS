@@ -11029,9 +11029,10 @@ renderCategory(catId) {
                     break;
                 case 'visuals':
                     html = '';
-                    
-                    // Only show the ad banner if the user is NOT signed in
-                    if (!isSignedIn) {
+
+                    // Only show the upsell banner if the user is NOT signed in,
+                    // and never on iOS native (App Store rule 3.1.3(b)).
+                    if (!isSignedIn && !(typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative())) {
                         html += `
                             <div class="pro-upsell-card" style="
                                 position: relative;

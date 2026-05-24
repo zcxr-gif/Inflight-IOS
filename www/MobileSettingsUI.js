@@ -226,14 +226,21 @@ refreshProLocks() {
         document.getElementById('mobile-settings-close').addEventListener('click', closeUI);
 
         // --- Pro Feature Intercept Logic ---
+        const iosNative = (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative());
         sheet.querySelectorAll('.is-pro-feature').forEach(row => {
             row.addEventListener('click', (e) => {
                 if (row.classList.contains('locked')) {
                     e.preventDefault();
                     e.stopPropagation();
-                    
+
+                    if (iosNative) {
+                        // App Store compliance: no in-app upgrade path. The lock
+                        // remains visible but the click is a no-op.
+                        return;
+                    }
+
                     closeUI(); // Smoothly dismiss the settings sheet
-                    
+
                     setTimeout(() => {
                         if (window.initInflightPro) {
                             window.initInflightPro();

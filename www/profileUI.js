@@ -2917,7 +2917,7 @@ if (this._activeTab === 'flight-plan') {
                             </div>
                         </div>
 
-                        <div class="pui-card">
+                        <div class="pui-card ios-hide">
                             <div class="pui-card-header"><h3>${this.t('set.billing')}</h3></div>
                             <div class="pui-card-body">
                                 <div class="pui-plan-box">
@@ -3046,6 +3046,8 @@ if (this._activeTab === 'flight-plan') {
     },
 
 _showCancellationModal() {
+        // App Store compliance: never surface external payment portals in iOS.
+        if (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) return;
         const existing = document.getElementById('pui-custom-confirm');
         if (existing) existing.remove();
 
