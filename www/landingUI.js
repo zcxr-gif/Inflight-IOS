@@ -55,11 +55,12 @@ export const LandingUI = {
         // Fetch theme again just in case it loaded late
         this._theme = localStorage.getItem('pui-theme') || 'dark';
 
-        await this.loadPrefixData(); 
+        await this.loadPrefixData();
         this.injectStyles();
         this.applyMobileOptimizations();
         this.render();
         this.attachListeners();
+        this.applyMobileChrome();
     },
 
     applyMobileOptimizations() {
@@ -67,11 +68,16 @@ export const LandingUI = {
             import('./MobileLandingUI.js').then(m => {
                 m.MobileLandingUI.init(this);
             }).catch(err => console.error("Failed to load Mobile UI:", err));
+        }
+    },
 
-            // iOS-native styling for the top header + bottom tab bar.
-            // Lives in its own file so the web build stays untouched.
+    applyMobileChrome() {
+        if (window.innerWidth <= 768) {
+            // Full rehaul of the LandingUI top header + bottom tab bar with
+            // native iOS chrome. Runs AFTER render() so it can re-host the
+            // already-wired search input + results dropdown.
             import('./MobileLandingChromeUI.js').then(m => {
-                m.MobileLandingChromeUI.init();
+                m.MobileLandingChromeUI.init(this);
             }).catch(err => console.error("Failed to load Mobile Chrome UI:", err));
         }
     },
