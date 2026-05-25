@@ -358,105 +358,333 @@ refreshProLocks() {
         if (document.getElementById('mobile-settings-styles')) return;
         const css = `
             @media (max-width: 768px) {
+                #mobile-settings-nexus {
+                    --ms-bg:        #f7f4ee;
+                    --ms-surface:   #ffffff;
+                    --ms-card:      #ffffff;
+                    --ms-card-soft: rgba(26,22,18,0.04);
+                    --ms-border:    rgba(26,22,18,0.08);
+                    --ms-divider:   rgba(26,22,18,0.06);
+                    --ms-text:      #1a1612;
+                    --ms-muted:     #6b6258;
+                    --ms-tertiary:  #9a9088;
+                    --ms-accent:    #b88553;
+                    --ms-accent-soft: rgba(184,133,83,0.12);
+                    --ms-on-accent: #fffbf3;
+                    --ms-pro:       #c8893d;
+                    --ms-pro-grad:  linear-gradient(135deg, #d5a059 0%, #b27a28 100%);
+                    --ms-shadow:    0 -20px 50px rgba(0,0,0,0.10);
+                    --ms-radius:    16px;
+                    --ms-font:      'DM Sans', system-ui, -apple-system, sans-serif;
+                }
+                @media (prefers-color-scheme: dark) {
+                    #mobile-settings-nexus {
+                        --ms-bg:        #1a1612;
+                        --ms-surface:   #221d17;
+                        --ms-card:      #2a241d;
+                        --ms-card-soft: rgba(255,248,235,0.04);
+                        --ms-border:    rgba(255,248,235,0.08);
+                        --ms-divider:   rgba(255,248,235,0.06);
+                        --ms-text:      #f0e9dd;
+                        --ms-muted:     #9a8e7e;
+                        --ms-tertiary:  #6e6457;
+                        --ms-accent:    #d4a574;
+                        --ms-accent-soft: rgba(212,165,116,0.16);
+                        --ms-on-accent: #1a1612;
+                        --ms-pro:       #d9a563;
+                        --ms-shadow:    0 -20px 50px rgba(0,0,0,0.45);
+                    }
+                }
+                html[data-app-theme="dark"] #mobile-settings-nexus,
+                html[data-theme="dark"] #mobile-settings-nexus,
+                .tactical-ui-root[data-theme="dark"] ~ #mobile-settings-nexus {
+                    --ms-bg:        #1a1612;
+                    --ms-surface:   #221d17;
+                    --ms-card:      #2a241d;
+                    --ms-card-soft: rgba(255,248,235,0.04);
+                    --ms-border:    rgba(255,248,235,0.08);
+                    --ms-divider:   rgba(255,248,235,0.06);
+                    --ms-text:      #f0e9dd;
+                    --ms-muted:     #9a8e7e;
+                    --ms-tertiary:  #6e6457;
+                    --ms-accent:    #d4a574;
+                    --ms-accent-soft: rgba(212,165,116,0.16);
+                    --ms-on-accent: #1a1612;
+                    --ms-pro:       #d9a563;
+                    --ms-shadow:    0 -20px 50px rgba(0,0,0,0.45);
+                }
+
                 #mobile-settings-nexus .mobile-sheet-overlay {
-                    position: fixed; inset: 0; background: rgba(0,0,0,0.7); 
-                    backdrop-filter: blur(4px); opacity: 0; visibility: hidden; transition: 0.3s; z-index: 6000;
+                    position: fixed; inset: 0;
+                    background: rgba(0,0,0,0.42);
+                    -webkit-backdrop-filter: blur(10px);
+                    backdrop-filter: blur(10px);
+                    opacity: 0; visibility: hidden;
+                    transition: opacity 0.3s ease, visibility 0.3s ease;
+                    z-index: 6000;
                 }
                 #mobile-settings-nexus .mobile-sheet-overlay.visible { opacity: 1; visibility: visible; }
-                
-                #mobile-settings-nexus .mobile-bottom-sheet {
-                    position: fixed; bottom: -100%; left: 0; width: 100%; height: 75vh;
-                    background: #0a0a0b; border-top: 1px solid rgba(255,255,255,0.1);
-                    border-radius: 24px 24px 0 0; z-index: 6001; transition: 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-                    display: flex; flex-direction: column; color: white; padding-bottom: env(safe-area-inset-bottom);
-                }
-                #mobile-settings-nexus .mobile-bottom-sheet.open { bottom: 0; }
-                
-                .sheet-handle { width: 40px; height: 5px; background: rgba(255,255,255,0.2); border-radius: 10px; margin: 12px auto; }
-                .mobile-title { padding: 0 20px 15px; font-size: 1.2rem; font-weight: 800; display: flex; align-items: center; gap: 12px; }
-                
-                .mobile-section-header { padding: 15px 20px 8px; font-size: 0.7rem; font-weight: 900; color: #71717a; text-transform: uppercase; letter-spacing: 1px; }
-                .mobile-section-header.pro-accent { color: #fbbf24; display: flex; align-items: center; gap: 6px; }
-                
-                .settings-mobile-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 0 20px; }
-                .m-setting-pill { 
-                    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); 
-                    color: #a1a1aa; padding: 10px; border-radius: 12px; font-weight: 600; font-size: 0.8rem;
-                }
-                .m-setting-pill.active { background: #38bdf8; color: black; border-color: #38bdf8; }
-                
-                .m-settings-list { padding: 0 20px; display: flex; flex-direction: column; gap: 8px; }
-                .m-setting-row { 
-                    display: flex; justify-content: space-between; align-items: center; 
-                    background: rgba(255,255,255,0.03); padding: 14px; border-radius: 14px; transition: 0.2s;
-                }
-                .m-row-left { display: flex; align-items: center; gap: 12px; font-size: 0.9rem; }
-                .m-row-left i { color: #38bdf8; width: 16px; text-align: center; }
-                
-                .m-row-right { display: flex; align-items: center; gap: 10px; }
 
-                /* Premium Pro Lock Styles */
-                .pro-lock-badge {
+                #mobile-settings-nexus .mobile-bottom-sheet {
+                    position: fixed;
+                    bottom: 0; left: 0; right: 0;
+                    width: 100%;
+                    height: 86vh;
+                    height: 86dvh;
+                    max-height: 92vh;
+                    background: var(--ms-bg);
+                    color: var(--ms-text);
+                    border: none;
+                    border-radius: 22px 22px 0 0;
+                    z-index: 6001;
+                    transform: translateY(100%);
+                    transition: transform 0.42s cubic-bezier(0.22, 1, 0.36, 1);
+                    display: flex; flex-direction: column;
+                    padding-bottom: env(safe-area-inset-bottom);
+                    box-shadow: var(--ms-shadow);
+                    font-family: var(--ms-font);
+                }
+                #mobile-settings-nexus .mobile-bottom-sheet.open { transform: translateY(0); }
+
+                #mobile-settings-nexus .sheet-handle {
+                    width: 38px; height: 4px;
+                    background: var(--ms-border);
+                    border-radius: 999px;
+                    margin: 10px auto 6px;
+                    opacity: 0.85;
+                }
+
+                #mobile-settings-nexus .mobile-title {
+                    padding: 8px 20px 16px;
+                    font-size: 1.18rem;
+                    font-weight: 700;
+                    letter-spacing: -0.02em;
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    color: var(--ms-text);
+                    border-bottom: 1px solid var(--ms-divider);
+                }
+                #mobile-settings-nexus .mobile-title i {
+                    width: 32px; height: 32px;
+                    display: grid; place-items: center;
+                    background: var(--ms-accent-soft);
+                    color: var(--ms-accent);
+                    border-radius: 10px;
+                    font-size: 0.9rem;
+                }
+
+                #mobile-settings-nexus .mobile-section-header {
+                    padding: 20px 20px 8px;
+                    font-size: 0.62rem;
+                    font-weight: 700;
+                    color: var(--ms-tertiary);
+                    text-transform: uppercase;
+                    letter-spacing: 0.12em;
+                }
+                #mobile-settings-nexus .mobile-section-header.pro-accent {
+                    color: var(--ms-pro);
+                    display: flex; align-items: center; gap: 6px;
+                }
+                #mobile-settings-nexus .mobile-section-header.pro-accent i { font-size: 0.65rem; }
+
+                #mobile-settings-nexus .settings-mobile-grid {
+                    display: grid;
+                    grid-template-columns: repeat(3, 1fr);
+                    gap: 8px;
+                    padding: 0 16px;
+                }
+                #mobile-settings-nexus .m-setting-pill {
+                    background: var(--ms-card);
+                    border: 1px solid var(--ms-border);
+                    color: var(--ms-muted);
+                    padding: 12px 8px;
+                    border-radius: 12px;
+                    font-family: var(--ms-font);
+                    font-weight: 600;
+                    font-size: 0.8rem;
+                    letter-spacing: -0.005em;
+                    cursor: pointer;
+                    transition:
+                        background 0.16s ease,
+                        color 0.16s ease,
+                        border-color 0.16s ease,
+                        transform 0.1s ease;
+                    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--ms-text) 4%, transparent);
+                }
+                #mobile-settings-nexus .m-setting-pill:active { transform: scale(0.96); }
+                #mobile-settings-nexus .m-setting-pill.active {
+                    background: var(--ms-accent-soft);
+                    color: var(--ms-accent);
+                    border-color: color-mix(in srgb, var(--ms-accent) 35%, transparent);
+                    box-shadow: 0 0 0 1px color-mix(in srgb, var(--ms-accent) 25%, transparent);
+                }
+
+                #mobile-settings-nexus .m-settings-list {
+                    padding: 4px 16px 0;
+                    display: flex; flex-direction: column;
+                    gap: 1px;
+                    background: var(--ms-card);
+                    margin: 4px 16px 0;
+                    padding: 0;
+                    border: 1px solid var(--ms-border);
+                    border-radius: var(--ms-radius);
+                    overflow: hidden;
+                }
+                #mobile-settings-nexus .m-setting-row {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    background: var(--ms-card);
+                    padding: 14px 16px;
+                    border-radius: 0;
+                    border-bottom: 1px solid var(--ms-divider);
+                    transition: background 0.14s ease;
+                }
+                #mobile-settings-nexus .m-setting-row:last-child { border-bottom: none; }
+                #mobile-settings-nexus .m-setting-row:active { background: var(--ms-card-soft); }
+                #mobile-settings-nexus .m-row-left {
+                    display: flex; align-items: center; gap: 12px;
+                    font-size: 0.92rem;
+                    font-weight: 500;
+                    color: var(--ms-text);
+                    letter-spacing: -0.005em;
+                }
+                #mobile-settings-nexus .m-row-left i {
+                    width: 28px; height: 28px;
+                    display: grid; place-items: center;
+                    background: var(--ms-accent-soft);
+                    color: var(--ms-accent) !important;
+                    border-radius: 8px;
+                    font-size: 0.82rem;
+                }
+                #mobile-settings-nexus .m-row-right { display: flex; align-items: center; gap: 10px; }
+
+                /* PRO badges */
+                #mobile-settings-nexus .pro-lock-badge {
                     display: none;
-                    background: linear-gradient(135deg, #fbbf24 0%, #d97706 100%);
-                    color: #000;
-                    font-size: 0.65rem;
+                    background: var(--ms-pro-grad);
+                    color: #fff;
+                    font-size: 0.6rem;
                     font-weight: 800;
                     padding: 4px 8px;
-                    border-radius: 6px;
-                    letter-spacing: 0.5px;
+                    border-radius: 999px;
+                    letter-spacing: 0.06em;
                     text-transform: uppercase;
-                    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+                    box-shadow: 0 1px 2px rgba(0,0,0,0.12);
                 }
-                .is-pro-feature.locked {
-                    opacity: 0.75;
-                    cursor: pointer;
-                }
-                .is-pro-feature.locked .pro-lock-badge {
-                    display: flex; align-items: center;
-                }
-                /* App Store compliance: never surface PRO tier labels in iOS. */
-                html.ios-native .pro-lock-badge,
-                html.ios-native .is-pro-feature.locked .pro-lock-badge {
+                #mobile-settings-nexus .is-pro-feature.locked { opacity: 0.85; cursor: pointer; }
+                #mobile-settings-nexus .is-pro-feature.locked .pro-lock-badge { display: inline-flex; align-items: center; }
+                html.ios-native #mobile-settings-nexus .pro-lock-badge,
+                html.ios-native #mobile-settings-nexus .is-pro-feature.locked .pro-lock-badge {
                     display: none !important;
                 }
-                .is-pro-feature.locked .m-switch,
-                .is-pro-feature.locked .m-color-picker {
-                    opacity: 0.3;
+                #mobile-settings-nexus .is-pro-feature.locked .m-switch,
+                #mobile-settings-nexus .is-pro-feature.locked .m-color-picker {
+                    opacity: 0.35;
                     pointer-events: none;
                     filter: grayscale(100%);
                 }
 
-                /* Custom Color Picker Styles */
-                .m-color-picker {
+                /* Color picker */
+                #mobile-settings-nexus .m-color-picker {
                     -webkit-appearance: none;
                     border: none;
-                    width: 36px;
-                    height: 36px;
+                    width: 32px; height: 32px;
                     border-radius: 10px;
                     cursor: pointer;
                     padding: 0;
                     background: transparent;
                 }
-                .m-color-picker::-webkit-color-swatch-wrapper { padding: 0; }
-                .m-color-picker::-webkit-color-swatch { border: 2px solid rgba(255,255,255,0.2); border-radius: 10px; }
+                #mobile-settings-nexus .m-color-picker::-webkit-color-swatch-wrapper { padding: 0; }
+                #mobile-settings-nexus .m-color-picker::-webkit-color-swatch {
+                    border: 2px solid var(--ms-border);
+                    border-radius: 10px;
+                }
 
-                .m-switch { position: relative; display: inline-block; width: 46px; height: 24px; }
-                .m-switch input { opacity: 0; width: 0; height: 0; }
-                .m-slider { position: absolute; cursor: pointer; inset: 0; background-color: #27272a; transition: .4s; border-radius: 34px; }
-                .m-slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; }
-                input:checked + .m-slider { background-color: #38bdf8; }
-                input:checked + .m-slider:before { transform: translateX(22px); }
+                /* Switch */
+                #mobile-settings-nexus .m-switch { position: relative; display: inline-block; width: 44px; height: 26px; }
+                #mobile-settings-nexus .m-switch input { opacity: 0; width: 0; height: 0; }
+                #mobile-settings-nexus .m-slider {
+                    position: absolute; cursor: pointer; inset: 0;
+                    background: var(--ms-border);
+                    transition: background 0.24s cubic-bezier(0.16,1,0.3,1);
+                    border-radius: 999px;
+                }
+                #mobile-settings-nexus .m-slider:before {
+                    position: absolute; content: "";
+                    height: 22px; width: 22px;
+                    left: 2px; bottom: 2px;
+                    background: #fff;
+                    transition: transform 0.24s cubic-bezier(0.16,1,0.3,1);
+                    border-radius: 50%;
+                    box-shadow: 0 1px 3px rgba(0,0,0,0.18), 0 1px 1px rgba(0,0,0,0.04);
+                }
+                #mobile-settings-nexus input:checked + .m-slider { background: var(--ms-accent); }
+                #mobile-settings-nexus input:checked + .m-slider:before { transform: translateX(18px); }
 
-                .m-setting-range-card { margin: 0 20px; background: rgba(255,255,255,0.03); padding: 16px; border-radius: 14px; }
-                .range-header { display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 12px; }
-                .m-range-input { width: 100%; accent-color: #38bdf8; }
-                
-                .sheet-footer { padding: 20px; border-top: 1px solid rgba(255,255,255,0.05); }
-                .m-btn { width: 100%; padding: 16px; border-radius: 14px; font-weight: 700; border: none; font-size: 1rem; }
-                .m-primary { background: #38bdf8; color: #000; }
-                
-                .custom-scroll { overflow-y: auto; flex: 1; }
+                /* Range card */
+                #mobile-settings-nexus .m-setting-range-card {
+                    margin: 4px 16px 0;
+                    background: var(--ms-card);
+                    border: 1px solid var(--ms-border);
+                    padding: 14px 16px;
+                    border-radius: var(--ms-radius);
+                }
+                #mobile-settings-nexus .range-header {
+                    display: flex;
+                    justify-content: space-between;
+                    font-size: 0.86rem;
+                    font-weight: 500;
+                    color: var(--ms-text);
+                    margin-bottom: 12px;
+                }
+                #mobile-settings-nexus .range-header span:last-child {
+                    font-family: 'JetBrains Mono', ui-monospace, monospace;
+                    color: var(--ms-muted);
+                    font-weight: 600;
+                    font-size: 0.8rem;
+                }
+                #mobile-settings-nexus .m-range-input {
+                    width: 100%;
+                    accent-color: var(--ms-accent);
+                }
+
+                /* Footer */
+                #mobile-settings-nexus .sheet-footer {
+                    padding: 14px 16px calc(env(safe-area-inset-bottom, 0px) + 14px);
+                    border-top: 1px solid var(--ms-divider);
+                    background: color-mix(in srgb, var(--ms-bg) 92%, transparent);
+                    -webkit-backdrop-filter: blur(18px);
+                    backdrop-filter: blur(18px);
+                }
+                #mobile-settings-nexus .m-btn {
+                    width: 100%;
+                    padding: 15px;
+                    border-radius: 14px;
+                    font-family: var(--ms-font);
+                    font-weight: 700;
+                    border: none;
+                    font-size: 0.98rem;
+                    letter-spacing: -0.005em;
+                    cursor: pointer;
+                    transition: transform 0.1s ease, box-shadow 0.18s ease;
+                }
+                #mobile-settings-nexus .m-btn:active { transform: scale(0.98); }
+                #mobile-settings-nexus .m-primary {
+                    background: var(--ms-accent);
+                    color: var(--ms-on-accent);
+                    box-shadow: 0 6px 18px var(--ms-accent-soft);
+                }
+
+                #mobile-settings-nexus .custom-scroll {
+                    overflow-y: auto;
+                    flex: 1;
+                    padding: 0 0 10px;
+                    -webkit-overflow-scrolling: touch;
+                    scrollbar-width: none;
+                }
+                #mobile-settings-nexus .custom-scroll::-webkit-scrollbar { display: none; }
             }
         `;
         const style = document.createElement('style');

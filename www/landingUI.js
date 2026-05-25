@@ -645,7 +645,12 @@ export const LandingUI = {
 
         const activeEntries = Object.entries(this._activeFilters);
         if (badge) badge.textContent = `${activeEntries.length} Active Rule${activeEntries.length !== 1 ? 's' : ''}`;
-        if (activeDot) activeDot.style.opacity = activeEntries.length > 0 ? '1' : '0';
+        if (activeDot) {
+            activeDot.style.opacity = activeEntries.length > 0 ? '1' : '0';
+            activeDot.classList.toggle('visible', activeEntries.length > 0);
+            const filterBtn = document.getElementById('toggle-filter-modal');
+            if (filterBtn) filterBtn.classList.toggle('dock-active', activeEntries.length > 0);
+        }
 
         document.querySelectorAll('.nexus-item').forEach(item => item.classList.toggle('active', !!this._activeFilters[item.dataset.filterId]));
 
@@ -1528,94 +1533,169 @@ export const LandingUI = {
             }
             .slide-in { animation: slideIn 0.35s forwards; }
 
+            /* ============================================================
+               PREMIUM MOBILE CHROME
+               A refined, calm mobile UI for the map view. Focused on
+               restraint: subtle materials, accent-tinted active states,
+               press-only micro-interactions, no chrome that screams.
+               ============================================================ */
             @media (max-width: 768px) {
+
+                /* ---------- TOP: refined frosted header ---------- */
                 .tactical-header {
-                    position: fixed;
-                    top: 0;
-                    height: 60px;
-                    background: var(--lui-bg-main);
-                    backdrop-filter: blur(20px);
-                    border-bottom: 1px solid var(--lui-border-base);
+                    position: fixed !important;
+                    top: 0 !important;
+                    left: 0 !important;
+                    right: 0 !important;
+                    width: 100% !important;
+                    height: auto !important;
+                    padding: calc(env(safe-area-inset-top, 0px) + 10px) 60px 10px 14px !important;
+                    background: linear-gradient(
+                        to bottom,
+                        var(--lui-glass-bg) 0%,
+                        color-mix(in srgb, var(--lui-glass-bg) 92%, transparent) 70%,
+                        color-mix(in srgb, var(--lui-glass-bg) 70%, transparent) 100%
+                    ) !important;
+                    -webkit-backdrop-filter: blur(28px) saturate(160%) !important;
+                    backdrop-filter: blur(28px) saturate(160%) !important;
+                    border-bottom: 1px solid var(--lui-border-light) !important;
                     display: flex !important;
                     align-items: center !important;
-                    justify-content: space-between !important;
-                    padding: 0 15px !important;
+                    gap: 10px !important;
                     pointer-events: none !important;
+                    z-index: 1500 !important;
+                    transition: padding 0.28s cubic-bezier(0.16,1,0.3,1) !important;
                 }
 
-                .top-branding.dropdown, 
+                /* Server selector lives in the bottom dock on mobile */
+                .tactical-header .top-branding.dropdown { display: none !important; }
+
                 .top-right-actions {
                     position: static !important;
-                    transform: none !important;
+                    flex: 1 1 auto !important;
+                    width: auto !important;
+                    max-width: none !important;
+                    display: flex !important;
+                    pointer-events: auto !important;
+                    background: transparent !important;
+                    border: none !important;
                     box-shadow: none !important;
                     padding: 0 !important;
                     margin: 0 !important;
-                    background: transparent !important;
-                    border: none !important;
                     backdrop-filter: none !important;
                 }
 
-                .top-branding.dropdown {
-                    flex-shrink: 0;
-                    margin-right: 15px !important;
-                }
-
-                #landing-server-name {
-                    font-size: 0.7rem !important;
-                    font-weight: 800;
-                }
-
-                .top-right-actions {
-                    flex: 1;
-                    max-width: 200px; 
-                    display: flex;
-                    justify-content: flex-end;
-                }
-
+                /* ---------- Search field ---------- */
                 .search-blade {
+                    position: relative !important;
                     width: 100% !important;
-                    height: 36px !important;
-                    padding: 0 12px !important;
-                    background: var(--lui-border-base) !important;
-                    border-radius: 8px !important;
-                }
-
-                .search-blade:focus-within {
-                    position: absolute !important;
-                    left: 10px !important;
-                    right: 10px !important;
-                    top: 10px !important;
-                    width: calc(100% - 20px) !important;
-                    height: 40px !important;
-                    z-index: 100 !important;
                     max-width: none !important;
-                    background: var(--lui-bg-card) !important;
+                    height: 42px !important;
+                    padding: 0 14px !important;
+                    background: var(--lui-bg-input) !important;
+                    border: 1px solid var(--lui-border-base) !important;
+                    border-radius: 14px !important;
+                    display: flex !important;
+                    align-items: center !important;
+                    gap: 10px !important;
+                    box-shadow:
+                        inset 0 1px 0 color-mix(in srgb, var(--lui-text-main) 4%, transparent),
+                        0 1px 2px rgba(0,0,0,0.04) !important;
+                    transition:
+                        background 0.2s ease,
+                        border-color 0.2s ease,
+                        box-shadow 0.2s ease !important;
                 }
-
+                .search-blade .search-icon {
+                    color: var(--lui-text-gray-2) !important;
+                    font-size: 0.92rem !important;
+                    flex: 0 0 auto !important;
+                }
+                #blade-search-input {
+                    flex: 1 1 auto !important;
+                    min-width: 0 !important;
+                    background: none !important;
+                    border: none !important;
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    color: var(--lui-text-main) !important;
+                    font-size: 16px !important; /* prevent iOS zoom on focus */
+                    font-weight: 500 !important;
+                    letter-spacing: -0.005em !important;
+                    -webkit-appearance: none !important;
+                    outline: none !important;
+                }
+                #blade-search-input::placeholder {
+                    color: var(--lui-text-gray-2) !important;
+                    font-weight: 500 !important;
+                    opacity: 0.85 !important;
+                }
                 .search-shortcut { display: none !important; }
 
-                .utility-nexus { bottom: 20px !important; right: 20px !important; }
-                
-                .auth-nexus {
-                    bottom: 20px !important;
-                    left: 20px !important;
+                /* Inline clear (✕) */
+                .search-clear-btn {
+                    display: none;
+                    background: var(--lui-hover-bg) !important;
+                    border: none !important;
+                    width: 20px !important;
+                    height: 20px !important;
+                    border-radius: 50% !important;
+                    padding: 0 !important;
+                    margin: 0 !important;
+                    color: var(--lui-text-gray-1) !important;
+                    font-size: 0.86rem !important;
+                    line-height: 1 !important;
+                    cursor: pointer;
+                    flex: 0 0 auto !important;
+                    align-items: center !important;
+                    justify-content: center !important;
+                    transition: background 0.15s ease !important;
+                }
+                .search-blade.has-text .search-clear-btn { display: flex !important; }
+                .search-clear-btn:active { background: var(--lui-active-bg) !important; }
+
+                /* Focus / active: pin to top, leave room for Cancel */
+                .mobile-search-active .search-blade,
+                .search-blade:focus-within {
+                    position: fixed !important;
+                    left: 14px !important;
+                    right: 78px !important;
+                    top: calc(env(safe-area-inset-top, 0px) + 10px) !important;
+                    width: auto !important;
+                    max-width: none !important;
+                    height: 42px !important;
+                    border-radius: 14px !important;
+                    z-index: 1600 !important;
+                    background: var(--lui-bg-card) !important;
+                    border-color: var(--lui-border-base) !important;
+                    box-shadow:
+                        0 1px 0 rgba(0,0,0,0.02),
+                        0 12px 28px -8px rgba(0,0,0,0.30),
+                        0 0 0 4px var(--lui-accent-hover) !important;
+                }
+                .search-blade.has-results {
+                    border-bottom-left-radius: 14px !important;
+                    border-bottom-right-radius: 14px !important;
+                    border-top-left-radius: 14px !important;
+                    border-top-right-radius: 14px !important;
                 }
 
-                .orb-btn { width: 44px !important; height: 44px !important; }
-                
+                /* ---------- Full-screen results sheet ---------- */
                 .search-results-dropdown {
                     position: fixed !important;
-                    top: 60px !important;
+                    top: calc(env(safe-area-inset-top, 0px) + 62px) !important;
                     left: 0 !important;
                     width: 100vw !important;
-                    /* dvh accounts for mobile browser chrome (URL bar / safe area)
-                       so the bottom of the dropdown is never clipped. vh stays as
-                       a fallback for browsers without dvh support. */
-                    height: calc(100vh - 60px) !important;
-                    height: calc(100dvh - 60px) !important;
+                    height: calc(100vh - env(safe-area-inset-top, 0px) - 62px) !important;
+                    height: calc(100dvh - env(safe-area-inset-top, 0px) - 62px) !important;
                     max-height: none !important;
                     border-radius: 0 !important;
-                    padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+                    border: none !important;
+                    padding: 4px 0 calc(env(safe-area-inset-bottom, 0px) + 16px) !important;
+                    background: var(--lui-bg-main) !important;
+                    box-shadow: none !important;
+                    -webkit-overflow-scrolling: touch !important;
+                    overscroll-behavior: contain !important;
                 }
                 .blade-results-section + .blade-results-section {
                     margin-top: 0 !important;
@@ -1624,221 +1704,52 @@ export const LandingUI = {
                 .blade-results-header {
                     position: sticky;
                     top: 0;
-                    background: var(--lui-bg-main);
+                    background: color-mix(in srgb, var(--lui-bg-main) 92%, transparent) !important;
+                    -webkit-backdrop-filter: blur(12px) !important;
+                    backdrop-filter: blur(12px) !important;
                     z-index: 1;
-                    padding: 12px 16px 6px !important;
-                }
-
-                .top-branding.dropdown {
-                    top: 15px !important;
-                    left: 15px !important;
-                    padding: 8px 14px !important;
-                    gap: 8px !important;
-                }
-                #landing-server-name {
-                    font-size: 0.7rem !important; 
-                }
-                .status-dot {
-                    width: 6px !important;
-                    height: 6px !important;
-                }
-
-                .top-right-actions {
-                    position: static !important;
-                    flex: 1;
-                    display: flex;
-                    justify-content: flex-end; 
-                    pointer-events: auto;
-                }
-
-                .search-blade {
-                    width: 150px !important; 
-                    height: 38px !important;
-                    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
-                    position: relative !important; 
-                }
-
-                .search-blade:focus-within {
-                    width: calc(100vw - 120px) !important; 
-                    z-index: 100 !important;
-                }
-                #blade-search-input {
-                    font-size: 13px !important;
-                }
-                .search-shortcut {
-                    display: none; 
-                }
-
-                .utility-nexus {
-                    bottom: 20px !important;
-                    right: 20px !important;
-                }
-                .orb-row {
-                    gap: 10px !important;
-                }
-                .orb-btn {
-                    width: 42px !important;
-                    height: 42px !important;
-                    font-size: 0.9rem !important; 
-                }
-
-                .spread-opt {
-                    padding: 8px 15px !important;
-                }
-                .spread-opt i {
-                    font-size: 0.8rem !important;
-                }
-            }
-
-            /* ============================================================
-               FR24-style mobile chrome (authoritative overrides — kept last
-               so they win over the legacy mobile rules above)
-               ============================================================ */
-            @media (max-width: 768px) {
-                /* ---------- TOP: native-iOS search bar ---------- *
-                   One frosted bar pinned under the status bar. It holds the
-                   search field; the profile avatar floats at the trailing
-                   edge while idle and is swapped for a "Cancel" button while
-                   searching (the standard iOS search pattern). */
-                .tactical-header {
-                    top: 0 !important;
-                    left: 0 !important;
-                    right: 0 !important;
-                    width: 100% !important;
-                    height: auto !important;
-                    padding: calc(env(safe-area-inset-top, 0px) + 8px) 64px 8px 12px !important;
-                    background: var(--lui-glass-bg) !important;
-                    -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
-                    backdrop-filter: blur(24px) saturate(180%) !important;
-                    border-bottom: 1px solid var(--lui-border-base) !important;
-                    display: flex !important;
-                    align-items: center !important;
-                    gap: 8px !important;
-                    pointer-events: none !important;
-                    z-index: 1500 !important;
-                    transition: padding 0.25s cubic-bezier(0.16,1,0.3,1) !important;
-                }
-                /* Server moved to the bottom bar — hide it from the top */
-                .tactical-header .top-branding.dropdown { display: none !important; }
-
-                .top-right-actions {
-                    flex: 1 1 auto !important;
-                    width: auto !important;
-                    max-width: none !important;
-                    display: flex !important;
-                    pointer-events: auto !important;
-                }
-                .search-blade {
-                    width: 100% !important;
-                    height: 40px !important;
-                    padding: 0 14px !important;
-                    background: var(--lui-bg-input) !important;
-                    border: 1px solid var(--lui-border-base) !important;
-                    border-radius: 12px !important;
-                    display: flex !important;
-                    align-items: center !important;
-                    gap: 8px !important;
-                    box-shadow: none !important;
-                    transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
-                }
-                .search-blade .search-icon { color: var(--lui-text-gray-1) !important; font-size: 0.9rem !important; }
-                #blade-search-input {
-                    font-size: 16px !important; /* >=16px stops iOS auto-zoom on focus */
-                    flex: 1 1 auto !important;
-                    min-width: 0 !important;
-                    -webkit-appearance: none !important;
-                }
-                #blade-search-input::placeholder { color: var(--lui-text-muted) !important; }
-
-                /* Inline clear (✕) — only once there's text */
-                .search-clear-btn {
-                    display: none;
-                    background: none !important;
-                    border: none !important;
-                    padding: 0 2px !important;
-                    margin: 0 !important;
+                    padding: 16px 18px 6px !important;
+                    font-size: 0.66rem !important;
+                    letter-spacing: 0.14em !important;
                     color: var(--lui-text-gray-2) !important;
-                    font-size: 1rem !important;
-                    line-height: 1 !important;
-                    cursor: pointer;
-                    flex: 0 0 auto !important;
+                    font-weight: 700 !important;
                 }
-                .search-blade.has-text .search-clear-btn { display: block !important; }
-
-                /* Focus / active: the bar pins to the top, full width,
-                   leaving room for the trailing Cancel button. */
-                .mobile-search-active .search-blade,
-                .search-blade:focus-within {
-                    position: fixed !important;
-                    left: 12px !important;
-                    right: 72px !important;
-                    top: calc(env(safe-area-inset-top, 0px) + 8px) !important;
-                    width: auto !important;
-                    max-width: none !important;
-                    height: 40px !important;
-                    border-radius: 12px !important;
-                    z-index: 1600 !important;
-                    background: var(--lui-bg-card) !important;
-                    border-color: var(--lui-border-base) !important;
-                    box-shadow: 0 4px 16px rgba(0,0,0,0.35) !important;
-                }
-
-                /* Full-screen results sheet under the search bar. */
-                .search-results-dropdown {
-                    position: fixed !important;
-                    top: calc(env(safe-area-inset-top, 0px) + 56px) !important;
-                    left: 0 !important;
-                    width: 100vw !important;
-                    height: calc(100vh - env(safe-area-inset-top, 0px) - 56px) !important;
-                    height: calc(100dvh - env(safe-area-inset-top, 0px) - 56px) !important;
-                    max-height: none !important;
-                    border-radius: 0 !important;
-                    border: none !important;
-                    padding: 8px 0 calc(env(safe-area-inset-bottom, 0px) + 16px) !important;
-                    background: var(--lui-bg-main) !important;
-                    box-shadow: none !important;
-                    -webkit-overflow-scrolling: touch !important;
-                    overscroll-behavior: contain !important;
-                }
-
-                /* ---------- Touch-sized result rows ---------- */
                 .premium-result-item {
-                    min-height: 60px !important;
-                    padding: 10px 16px !important;
+                    min-height: 62px !important;
+                    padding: 12px 18px !important;
                     gap: 14px !important;
                     margin-bottom: 0 !important;
                     border-radius: 0 !important;
                     border-bottom: 1px solid var(--lui-border-light) !important;
+                    transition: background 0.12s ease !important;
                 }
                 .premium-result-item:active { background: var(--lui-active-bg) !important; }
-                .res-callsign { font-size: 15px !important; }
+                .res-callsign { font-size: 15px !important; font-weight: 600 !important; letter-spacing: -0.01em !important; }
                 .res-secondary-row { font-size: 13px !important; }
-                .res-meta-icon { font-size: 8px !important; }
-                .blade-results-header {
-                    background: var(--lui-bg-main) !important;
-                    padding: 14px 16px 6px !important;
-                    font-size: 0.62rem !important;
-                }
+                .res-meta-icon { font-size: 6px !important; }
 
                 /* ---------- TRAILING: profile avatar (idle) ---------- */
                 .auth-nexus {
                     position: fixed !important;
-                    top: calc(env(safe-area-inset-top, 0px) + 8px) !important;
-                    right: 12px !important;
+                    top: calc(env(safe-area-inset-top, 0px) + 10px) !important;
+                    right: 14px !important;
                     left: auto !important;
                     bottom: auto !important;
                     z-index: 1600 !important;
-                    transition: opacity 0.2s ease !important;
+                    transition: opacity 0.2s ease, transform 0.2s ease !important;
                 }
                 .auth-nexus .orb-btn {
-                    width: 40px !important;
-                    height: 40px !important;
+                    width: 42px !important;
+                    height: 42px !important;
                     border-radius: 50% !important;
                     font-size: 0.95rem !important;
                     background: var(--lui-bg-input) !important;
                     border: 1px solid var(--lui-border-base) !important;
                     color: var(--lui-text-main) !important;
-                    box-shadow: none !important;
+                    box-shadow:
+                        inset 0 1px 0 color-mix(in srgb, var(--lui-text-main) 4%, transparent),
+                        0 1px 2px rgba(0,0,0,0.04) !important;
+                    transition: transform 0.12s ease, background 0.15s ease !important;
                 }
                 .auth-nexus .orb-btn:active {
                     transform: scale(0.94) !important;
@@ -1849,9 +1760,9 @@ export const LandingUI = {
                 .search-cancel-btn {
                     display: block !important;
                     position: fixed !important;
-                    top: calc(env(safe-area-inset-top, 0px) + 8px) !important;
-                    right: 12px !important;
-                    height: 40px !important;
+                    top: calc(env(safe-area-inset-top, 0px) + 10px) !important;
+                    right: 14px !important;
+                    height: 42px !important;
                     padding: 0 4px !important;
                     background: none !important;
                     border: none !important;
@@ -1859,11 +1770,12 @@ export const LandingUI = {
                     font-family: 'Inter', sans-serif !important;
                     font-size: 16px !important;
                     font-weight: 600 !important;
+                    letter-spacing: -0.01em !important;
                     cursor: pointer;
                     opacity: 0 !important;
                     pointer-events: none !important;
                     transform: translateX(6px) !important;
-                    transition: opacity 0.2s ease, transform 0.2s ease !important;
+                    transition: opacity 0.22s ease, transform 0.22s cubic-bezier(0.16,1,0.3,1) !important;
                     z-index: 1601 !important;
                 }
                 .mobile-search-active .search-cancel-btn {
@@ -1871,36 +1783,47 @@ export const LandingUI = {
                     pointer-events: auto !important;
                     transform: translateX(0) !important;
                 }
+                .mobile-search-active .auth-nexus {
+                    opacity: 0 !important;
+                    pointer-events: none !important;
+                    transform: translateX(6px) !important;
+                }
 
-                /* ---------- BOTTOM: floating tab bar ---------- */
+                /* ---------- BOTTOM: floating dock ---------- */
                 .utility-nexus {
                     position: fixed !important;
                     left: 50% !important;
                     right: auto !important;
-                    bottom: calc(env(safe-area-inset-bottom, 0px) + 10px) !important;
+                    bottom: calc(env(safe-area-inset-bottom, 0px) + 14px) !important;
                     transform: translateX(-50%) !important;
                     pointer-events: none !important;
                     z-index: 1500 !important;
-                    transition: transform 0.3s cubic-bezier(0.16,1,0.3,1), opacity 0.3s !important;
+                    transition:
+                        transform 0.34s cubic-bezier(0.16,1,0.3,1),
+                        opacity 0.28s ease !important;
                 }
                 .orb-row {
                     gap: 2px !important;
                     align-items: stretch !important;
                     background: var(--lui-glass-bg) !important;
-                    -webkit-backdrop-filter: blur(22px) !important;
-                    backdrop-filter: blur(22px) !important;
-                    border: 1px solid var(--lui-border-base) !important;
+                    -webkit-backdrop-filter: blur(28px) saturate(160%) !important;
+                    backdrop-filter: blur(28px) saturate(160%) !important;
+                    border: 1px solid var(--lui-border-light) !important;
                     border-radius: 22px !important;
                     padding: 6px !important;
-                    box-shadow: 0 12px 30px rgba(0,0,0,0.45) !important;
+                    box-shadow:
+                        inset 0 1px 0 color-mix(in srgb, var(--lui-text-main) 6%, transparent),
+                        0 1px 3px rgba(0,0,0,0.06),
+                        0 18px 38px -10px rgba(0,0,0,0.35) !important;
                     pointer-events: auto !important;
                 }
                 .mobile-only-tab { display: block !important; }
 
                 .orb-row .orb-btn {
+                    position: relative !important;
                     width: 64px !important;
                     height: auto !important;
-                    min-height: 48px !important;
+                    min-height: 50px !important;
                     border-radius: 14px !important;
                     background: transparent !important;
                     border: none !important;
@@ -1911,42 +1834,198 @@ export const LandingUI = {
                     justify-content: center !important;
                     gap: 4px !important;
                     color: var(--lui-text-gray-1) !important;
-                    font-size: 1.05rem !important;
+                    font-size: 1.02rem !important;
+                    padding: 6px 0 !important;
                     transform: none !important;
+                    transition:
+                        color 0.18s ease,
+                        background 0.18s ease,
+                        transform 0.12s ease !important;
                 }
-                .orb-row .orb-btn:hover,
-                .orb-row .orb-btn:active {
+                .orb-row .orb-btn i {
+                    transition: transform 0.18s cubic-bezier(0.16,1,0.3,1) !important;
+                }
+                .orb-row .orb-btn:hover {
+                    background: transparent !important;
+                    color: var(--lui-text-main) !important;
                     transform: none !important;
-                    background: var(--lui-active-bg) !important;
+                    border-color: transparent !important;
+                }
+                .orb-row .orb-btn:active {
+                    transform: scale(0.94) !important;
+                    background: var(--lui-hover-bg) !important;
                     color: var(--lui-accent) !important;
+                    border-color: transparent !important;
+                }
+                .orb-row .orb-btn.dock-active,
+                .orb-row .weather-nexus-container.expanded .orb-btn,
+                .orb-row #server-selector.open .orb-btn {
+                    background: var(--lui-accent-hover) !important;
+                    color: var(--lui-accent) !important;
+                }
+                .orb-row .orb-btn.dock-active i,
+                .orb-row .weather-nexus-container.expanded .orb-btn i {
+                    transform: translateY(-1px) !important;
                 }
                 .orb-row .tab-label {
                     display: block !important;
-                    font-size: 0.62rem !important;
+                    font-size: 0.6rem !important;
                     font-weight: 700 !important;
-                    letter-spacing: 0.2px !important;
+                    letter-spacing: 0.06em !important;
                     line-height: 1 !important;
+                    text-transform: uppercase !important;
                 }
                 .orb-row .active-pulse-dot {
                     position: absolute !important;
-                    top: 6px !important;
-                    right: 14px !important;
+                    top: 5px !important;
+                    right: 12px !important;
                     bottom: auto !important;
+                    width: 6px !important;
+                    height: 6px !important;
+                    background: var(--lui-accent) !important;
+                    box-shadow: none !important;
+                    border: 1.5px solid var(--lui-bg-card) !important;
                 }
-                .weather-nexus-container { flex-direction: column !important; gap: 0 !important; }
 
-                /* Slide the tab bar away while searching or when a detail sheet is open */
+                /* Server pill living inside the dock */
+                .orb-row .mobile-only-tab .orb-btn { padding-top: 6px !important; }
+
+                /* Weather spread stays vertical, sits above the dock */
+                .weather-nexus-container { flex-direction: column !important; gap: 0 !important; }
+                .weather-spread { gap: 8px !important; bottom: calc(100% + 14px) !important; }
+                .spread-opt {
+                    padding: 10px 16px !important;
+                    border-radius: 999px !important;
+                    background: var(--lui-glass-bg) !important;
+                    -webkit-backdrop-filter: blur(22px) saturate(160%) !important;
+                    backdrop-filter: blur(22px) saturate(160%) !important;
+                    border: 1px solid var(--lui-border-light) !important;
+                    color: var(--lui-text-main) !important;
+                    box-shadow: 0 8px 22px rgba(0,0,0,0.22) !important;
+                    gap: 10px !important;
+                }
+                .spread-opt i { font-size: 0.82rem !important; }
+                .spread-label { font-size: 0.76rem !important; font-weight: 600 !important; letter-spacing: -0.005em !important; }
+                .spread-opt.active {
+                    background: var(--lui-accent-hover) !important;
+                    color: var(--lui-accent) !important;
+                    border-color: color-mix(in srgb, var(--lui-accent) 35%, transparent) !important;
+                }
+
+                /* Server dropdown menu — bottom-anchored sheet */
+                #server-selector .server-menu {
+                    position: fixed !important;
+                    left: 14px !important;
+                    right: 14px !important;
+                    bottom: calc(env(safe-area-inset-bottom, 0px) + 86px) !important;
+                    top: auto !important;
+                    width: auto !important;
+                    background: var(--lui-bg-card) !important;
+                    border: 1px solid var(--lui-border-base) !important;
+                    border-radius: 18px !important;
+                    padding: 6px !important;
+                    box-shadow:
+                        0 20px 50px rgba(0,0,0,0.45),
+                        0 0 0 1px var(--lui-border-light) !important;
+                    z-index: 5000 !important;
+                }
+                #server-selector .server-option {
+                    padding: 14px 18px !important;
+                    border-radius: 12px !important;
+                    font-size: 0.95rem !important;
+                    font-weight: 600 !important;
+                }
+                #server-selector .server-option:active { background: var(--lui-active-bg) !important; }
+
+                /* Slide dock away while searching or when a detail sheet is open */
                 .mobile-search-active .utility-nexus,
                 #sector-ops-map-fullscreen:has(.mobile-island-bottom.island-active) .utility-nexus {
                     opacity: 0 !important;
-                    transform: translateX(-50%) translateY(140%) !important;
+                    transform: translateX(-50%) translateY(160%) !important;
                     pointer-events: none !important;
                 }
-                /* Hide the profile avatar while searching (Cancel takes its slot) */
-                .mobile-search-active .auth-nexus {
-                    opacity: 0 !important;
-                    pointer-events: none !important;
+
+                /* ---------- Filter sheet — mobile bottom-sheet ---------- */
+                .modal-overlay {
+                    align-items: flex-end !important;
+                    background: rgba(0,0,0,0.45) !important;
+                    backdrop-filter: blur(8px) !important;
+                    -webkit-backdrop-filter: blur(8px) !important;
                 }
+                .filter-modal {
+                    width: 100% !important;
+                    height: 88vh !important;
+                    height: 88dvh !important;
+                    max-width: none !important;
+                    max-height: 92vh !important;
+                    border-radius: 22px 22px 0 0 !important;
+                    transform: translateY(100%) !important;
+                    transition: transform 0.42s cubic-bezier(0.22,1,0.36,1) !important;
+                    box-shadow: 0 -20px 50px rgba(0,0,0,0.45) !important;
+                    background: var(--lui-bg-card) !important;
+                    border: none !important;
+                }
+                .modal-overlay.open .filter-modal { transform: translateY(0) !important; }
+                .filter-modal::before {
+                    content: '';
+                    position: absolute;
+                    top: 8px; left: 50%;
+                    width: 38px; height: 4px;
+                    background: var(--lui-border-strong);
+                    border-radius: 999px;
+                    transform: translateX(-50%);
+                    opacity: 0.6;
+                }
+                .modal-header {
+                    height: auto !important;
+                    padding: 26px 20px 14px !important;
+                    background: transparent !important;
+                    border-bottom: 1px solid var(--lui-border-light) !important;
+                }
+                .header-icon-box { width: 38px !important; height: 38px !important; border-radius: 11px !important; font-size: 1rem !important; }
+                .header-text h2 { font-size: 1.1rem !important; font-weight: 700 !important; letter-spacing: -0.01em !important; }
+                .header-text span { font-size: 0.78rem !important; }
+                .close-modal { font-size: 1.7rem !important; line-height: 1 !important; }
+
+                .modal-body { flex-direction: column !important; }
+                .filter-selection-pane {
+                    width: 100% !important;
+                    background: transparent !important;
+                    border-right: none !important;
+                    border-bottom: 1px solid var(--lui-border-light) !important;
+                    padding: 16px 18px !important;
+                    max-height: 38% !important;
+                }
+                .filter-group-header {
+                    font-size: 0.62rem !important;
+                    letter-spacing: 0.14em !important;
+                    margin: 16px 0 10px !important;
+                }
+                .filter-group-header:first-child { margin-top: 4px !important; }
+                .nexus-item {
+                    padding: 12px 14px !important;
+                    border-radius: 12px !important;
+                    gap: 12px !important;
+                    margin-bottom: 4px !important;
+                    font-size: 0.92rem !important;
+                    font-weight: 600 !important;
+                }
+                .nexus-item:active { background: var(--lui-active-bg) !important; }
+                .filter-config-pane {
+                    flex: 1 !important;
+                    padding: 18px !important;
+                    background: var(--lui-bg-main) !important;
+                }
+                .modal-active-list { padding-bottom: 110px !important; gap: 12px !important; }
+                .modal-footer-embedded {
+                    padding: 14px 18px calc(env(safe-area-inset-bottom, 0px) + 14px) !important;
+                    background: color-mix(in srgb, var(--lui-bg-card) 88%, transparent) !important;
+                    -webkit-backdrop-filter: blur(20px) !important;
+                    backdrop-filter: blur(20px) !important;
+                    gap: 10px !important;
+                }
+                .modal-btn { padding: 14px 20px !important; font-size: 0.92rem !important; border-radius: 12px !important; flex: 1 !important; }
+                .modal-btn.primary:hover { transform: none !important; box-shadow: none !important; }
             }
         `;
         

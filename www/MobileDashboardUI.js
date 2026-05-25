@@ -485,12 +485,12 @@ init(supabaseClient) {
 
     _tabDef() {
         return [
-            { id: 'dashboard',        icon: 'fa-solid fa-house',             label: 'Home'     },
-            { id: 'career-deep-dive', icon: 'fa-solid fa-id-card',           label: 'Dossier'  },
-            { id: 'airspace-intel',   icon: 'fa-solid fa-tower-broadcast',   label: 'Traffic'  },
-            { id: 'flight-plan',      icon: 'fa-solid fa-route',             label: 'Dispatch' },
-            { id: 'watchlist',        icon: 'fa-solid fa-binoculars',        label: 'Watchlist'},
-            { id: 'settings',         icon: 'fa-solid fa-sliders',           label: 'Settings' },
+            { id: 'dashboard',        icon: 'fa-solid fa-house',             label: 'Home'    },
+            { id: 'career-deep-dive', icon: 'fa-solid fa-id-card',           label: 'Career'  },
+            { id: 'airspace-intel',   icon: 'fa-solid fa-tower-broadcast',   label: 'Traffic' },
+            { id: 'flight-plan',      icon: 'fa-solid fa-route',             label: 'Plan'    },
+            { id: 'watchlist',        icon: 'fa-solid fa-binoculars',        label: 'Watch'   },
+            { id: 'settings',         icon: 'fa-solid fa-sliders',           label: 'Prefs'   },
         ];
     },
 
@@ -524,23 +524,32 @@ init(supabaseClient) {
 
     _renderTopBar() {
         if (this._activeTab === 'onboarding') {
-            return `<span class="mdui-top-title">Welcome Aboard</span>`;
+            return `
+                <div class="mdui-top-title-wrap">
+                    <span class="mdui-top-eyebrow">Getting started</span>
+                    <span class="mdui-top-title">Welcome Aboard</span>
+                </div>
+            `;
         }
-        const titles = {
-            dashboard:        'Command Center',
-            'career-deep-dive': 'Pilot Dossier',
-            'airspace-intel': 'Airspace Radar',
-            'flight-plan':    'Flight Dispatch',
-            watchlist:        'Pilot Watchlist',
-            settings:         'Settings',
+        const sections = {
+            dashboard:          { eyebrow: 'Home',      title: 'Command Center'  },
+            'career-deep-dive': { eyebrow: 'Career',    title: 'Pilot Dossier'   },
+            'airspace-intel':   { eyebrow: 'Live',      title: 'Airspace Radar'  },
+            'flight-plan':      { eyebrow: 'Plan',      title: 'Flight Dispatch' },
+            watchlist:          { eyebrow: 'Network',   title: 'Pilot Watchlist' },
+            settings:           { eyebrow: 'Preferences', title: 'Settings'      },
         };
+        const sec     = sections[this._activeTab] || { eyebrow: '', title: '' };
         const user    = this._currentUser;
         const name    = user?.user_metadata?.full_name || user?.user_metadata?.name || 'Captain';
         const initials = name.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
 
         return `
             <div class="mdui-avatar">${initials}</div>
-            <span class="mdui-top-title">${titles[this._activeTab] || ''}</span>
+            <div class="mdui-top-title-wrap">
+                <span class="mdui-top-eyebrow">${sec.eyebrow}</span>
+                <span class="mdui-top-title">${sec.title}</span>
+            </div>
             <button class="mdui-close-btn" id="mdui-close" aria-label="Close">
                 <i class="fa-solid fa-xmark"></i>
             </button>
@@ -2760,8 +2769,8 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
                 --mdui-info:      #5a82c8;
                 --mdui-info-soft: rgba(90, 130, 200, 0.10);
 
-                --mdui-tab-h:     68px;
-                --mdui-top-h:     60px;
+                --mdui-tab-h:     76px;
+                --mdui-top-h:     56px;
                 --mdui-radius:    16px;
                 --mdui-font-sans: 'DM Sans', system-ui, -apple-system, sans-serif;
                 --mdui-font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
@@ -2805,21 +2814,184 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             .mdui-eyebrow { font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--mdui-tertiary); }
             .mdui-mono-meta { font-family: var(--mdui-font-mono); font-size: 0.74rem; color: var(--mdui-muted); font-weight: 600; }
 
-            .mdui-top-bar { height: var(--mdui-top-h); min-height: var(--mdui-top-h); display: flex; align-items: center; padding: 0 20px; gap: 12px; flex-shrink: 0; z-index: 10; background: var(--mdui-bg); }
-            .mdui-avatar { width: 32px; height: 32px; background: var(--mdui-accent); color: var(--mdui-on-accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.02em; flex-shrink: 0; }
-            .mdui-top-title { font-weight: 700; font-size: 1.05rem; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mdui-text); }
-            .mdui-close-btn { width: 36px; height: 36px; border: 1px solid var(--mdui-border); border-radius: 10px; background: var(--mdui-card); color: var(--mdui-muted); display: flex; align-items: center; justify-content: center; font-size: 0.85rem; cursor: pointer; flex-shrink: 0; transition: 0.14s; }
-            .mdui-close-btn:hover { background: var(--mdui-danger-soft); color: var(--mdui-danger); border-color: transparent; }
+            /* ── PREMIUM TOP BAR ── */
+            .mdui-top-bar {
+                position: relative;
+                min-height: var(--mdui-top-h);
+                height: auto;
+                display: flex;
+                align-items: center;
+                padding: calc(env(safe-area-inset-top, 0px) + 10px) 16px 12px;
+                gap: 12px;
+                flex-shrink: 0;
+                z-index: 10;
+                background: linear-gradient(
+                    to bottom,
+                    var(--mdui-bg) 0%,
+                    color-mix(in srgb, var(--mdui-bg) 96%, transparent) 70%,
+                    color-mix(in srgb, var(--mdui-bg) 78%, transparent) 100%
+                );
+                -webkit-backdrop-filter: saturate(150%);
+                backdrop-filter: saturate(150%);
+            }
+            .mdui-avatar {
+                width: 38px; height: 38px;
+                background: linear-gradient(135deg, var(--mdui-accent) 0%, var(--mdui-accent-hover) 100%);
+                color: var(--mdui-on-accent);
+                border-radius: 50%;
+                display: grid;
+                place-items: center;
+                font-size: 0.8rem;
+                font-weight: 700;
+                letter-spacing: 0.01em;
+                flex-shrink: 0;
+                box-shadow:
+                    inset 0 1px 0 rgba(255,255,255,0.15),
+                    0 2px 8px var(--mdui-accent-glow);
+                position: relative;
+            }
+            .mdui-avatar::after {
+                content: '';
+                position: absolute;
+                inset: -3px;
+                border-radius: 50%;
+                border: 1.5px solid var(--mdui-accent-soft);
+                pointer-events: none;
+            }
+            .mdui-top-title-wrap {
+                flex: 1;
+                min-width: 0;
+                display: flex;
+                flex-direction: column;
+                gap: 2px;
+                line-height: 1;
+            }
+            .mdui-top-eyebrow {
+                font-size: 0.6rem;
+                font-weight: 700;
+                letter-spacing: 0.12em;
+                text-transform: uppercase;
+                color: var(--mdui-tertiary);
+            }
+            .mdui-top-title {
+                font-weight: 700;
+                font-size: 1.18rem;
+                letter-spacing: -0.02em;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                color: var(--mdui-text);
+                line-height: 1.15;
+            }
+            .mdui-close-btn {
+                width: 38px; height: 38px;
+                border: 1px solid var(--mdui-border);
+                border-radius: 12px;
+                background: var(--mdui-card);
+                color: var(--mdui-muted);
+                display: grid; place-items: center;
+                font-size: 0.92rem;
+                cursor: pointer;
+                flex-shrink: 0;
+                box-shadow:
+                    inset 0 1px 0 color-mix(in srgb, var(--mdui-text) 4%, transparent),
+                    0 1px 2px rgba(0,0,0,0.04);
+                transition:
+                    transform 0.12s ease,
+                    background 0.15s ease,
+                    color 0.15s ease,
+                    border-color 0.15s ease;
+            }
+            .mdui-close-btn:hover { background: var(--mdui-hover); color: var(--mdui-text); }
+            .mdui-close-btn:active { transform: scale(0.94); }
 
-            .mdui-content { flex: 1; overflow-y: auto; min-height: 0; padding: 10px 20px calc(var(--mdui-tab-h) + env(safe-area-inset-bottom) + 20px); -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+            .mdui-content {
+                flex: 1;
+                overflow-y: auto;
+                min-height: 0;
+                padding: 10px 20px calc(var(--mdui-tab-h) + env(safe-area-inset-bottom) + 32px);
+                -webkit-overflow-scrolling: touch;
+                scrollbar-width: none;
+            }
             .mdui-content::-webkit-scrollbar { display: none; }
 
-            #mdui-tabbar { position: absolute; bottom: 0; left: 0; right: 0; height: calc(var(--mdui-tab-h) + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom); background: var(--mdui-card); border-top: 1px solid var(--mdui-border); display: flex; z-index: 9999; box-shadow: 0 -4px 24px rgba(0,0,0,0.03); }
-            .mdui-tab-btn { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; border: none; background: none; color: var(--mdui-muted); font-size: 0.65rem; font-weight: 600; cursor: pointer; transition: color 0.14s; }
-            .mdui-tab-btn i { font-size: 1.1rem; transition: transform 0.14s; }
-            .mdui-tab-btn.active { color: var(--mdui-accent); }
+            /* ── PREMIUM FLOATING TAB DOCK ── */
+            #mdui-tabbar {
+                position: absolute;
+                bottom: calc(env(safe-area-inset-bottom, 0px) + 10px);
+                left: 10px;
+                right: 10px;
+                height: var(--mdui-tab-h);
+                padding: 5px;
+                background: color-mix(in srgb, var(--mdui-card) 86%, transparent);
+                -webkit-backdrop-filter: blur(28px) saturate(160%);
+                backdrop-filter: blur(28px) saturate(160%);
+                border: 1px solid var(--mdui-border-light, var(--mdui-border));
+                border-radius: 22px;
+                display: flex;
+                z-index: 9999;
+                box-shadow:
+                    inset 0 1px 0 color-mix(in srgb, var(--mdui-text) 5%, transparent),
+                    0 1px 3px rgba(0,0,0,0.05),
+                    0 18px 38px -12px rgba(20,16,12,0.22);
+                gap: 0;
+            }
+            #mdui-shell[data-theme="dark"] #mdui-tabbar {
+                background: color-mix(in srgb, var(--mdui-card-elev) 82%, transparent);
+                box-shadow:
+                    inset 0 1px 0 color-mix(in srgb, var(--mdui-text) 6%, transparent),
+                    0 1px 3px rgba(0,0,0,0.45),
+                    0 20px 42px -14px rgba(0,0,0,0.55);
+            }
+            .mdui-tab-btn {
+                position: relative;
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: 4px;
+                padding: 8px 4px;
+                border: none;
+                background: transparent;
+                color: var(--mdui-muted);
+                font-size: 0.6rem;
+                font-weight: 700;
+                letter-spacing: 0.04em;
+                text-transform: uppercase;
+                cursor: pointer;
+                border-radius: 16px;
+                transition:
+                    color 0.18s ease,
+                    background 0.18s ease,
+                    transform 0.12s ease;
+            }
+            .mdui-tab-btn i {
+                font-size: 1.08rem;
+                line-height: 1;
+                transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+            }
+            .mdui-tab-btn span { line-height: 1; }
+            .mdui-tab-btn:active { transform: scale(0.94); }
+            .mdui-tab-btn.active {
+                color: var(--mdui-accent);
+                background: var(--mdui-accent-soft);
+            }
             .mdui-tab-btn.active i { transform: translateY(-1px); }
-            .mdui-tab-badge { position: absolute; top: -4px; right: -8px; min-width: 16px; height: 16px; padding: 0 4px; background: var(--mdui-success); color: #fff; font-size: 0.6rem; font-weight: 800; border-radius: 999px; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 2px var(--mdui-card); }
+            .mdui-tab-badge {
+                position: absolute;
+                top: -5px; right: -8px;
+                min-width: 16px; height: 16px;
+                padding: 0 4px;
+                background: var(--mdui-success);
+                color: #fff;
+                font-size: 0.58rem;
+                font-weight: 800;
+                border-radius: 999px;
+                display: grid;
+                place-items: center;
+                box-shadow: 0 0 0 2px var(--mdui-card);
+            }
 
             .mdui-tab-header { margin-bottom: 24px; }
             .mdui-tab-header h2 { margin: 0 0 4px 0; font-size: 1.6rem; font-weight: 700; color: var(--mdui-text); letter-spacing: -0.02em; }
