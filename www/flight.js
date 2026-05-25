@@ -9233,6 +9233,55 @@ async function createAirportInfoWindowHTML(icao) {
 
     window.showGlobalNotification = showNotification;
 
+    // Build the Live Activity start payload from whatever state we currently have on the
+    // open aircraft info window. Returns null if we don't have enough to fire yet.
+    function buildLiveActivityPayload(flightId) {
+        if (!flightId) return null;
+        const feature = currentMapFeatures[flightId];
+        if (!feature || !feature.properties) return null;
+        const props = feature.properties;
+        const windowEl = document.getElementById('aircraft-info-window');
+        const depIcao = windowEl?.dataset.depIcao || props.depIcao || '';
+        const arrIcao = windowEl?.dataset.arrIcao || props.arrIcao || '';
+        if (!depIcao || !arrIcao || depIcao === 'N/A' || arrIcao === 'N/A') {
+            return null;
+        }
+
+        const filedDepTime = windowEl?.dataset.filedDepTime || '';
+        const filedDuration = parseFloat(windowEl?.dataset.filedDuration || '0');
+        const schedDepMs = filedDepTime ? Date.parse(filedDepTime) : null;
+        const schedArrMs = (schedDepMs && filedDuration > 0)
+            ? schedDepMs + (filedDuration * 60 * 1000)
+            : null;
+
+        // ETA: prefer ground-speed-based estimate, fall back to scheduled.
+        const gs = props.position?.gs_kt || 0;
+        let distanceNm = 0;
+        const destLat = airportsData[arrIcao]?.lat;
+        const destLon = airportsData[arrIcao]?.lon;
+        if (destLat != null && destLon != null && props.position?.lat != null) {
+            distanceNm = getDistanceKm(props.position.lat, props.position.lon, destLat, destLon) / 1.852;
+        }
+        const etaMs = (distanceNm > 0 && gs > 50)
+            ? Date.now() + (distanceNm / gs) * 3600 * 1000
+            : (schedArrMs || (Date.now() + 60 * 60 * 1000));
+
+        return {
+            flightId,
+            callsign: props.callsign || flightId,
+            airlineName: props.liveryName || props.aircraftName || '',
+            departureIcao: depIcao,
+            arrivalIcao: arrIcao,
+            scheduledDeparture: schedDepMs || Date.now(),
+            scheduledArrival: schedArrMs || etaMs,
+            currentEta: etaMs,
+            currentAtd: schedDepMs || undefined,
+            distanceToDestinationNm: distanceNm,
+            isLanded: false
+        };
+    }
+    window.buildLiveActivityPayload = buildLiveActivityPayload;
+
     // --- DOM elements ---
     const pilotNameElem = document.getElementById('pilot-name');
     const pilotCallsignElem = document.getElementById('pilot-callsign');
@@ -9897,9 +9946,48 @@ function setupAircraftWindowEvents() {
             const pinBtn = e.target.closest('.aircraft-window-pin-btn');
             const shareBtn = e.target.closest('.aircraft-window-share-btn');
             const replayBtn = e.target.closest('.aircraft-window-replay-btn');
+            const trackMeBtn = e.target.closest('.aircraft-window-trackme-btn');
             const tabBtn = e.target.closest('.ac-info-tab-btn');
             const planBtn = e.target.closest('#plan-this-flight-btn');
             const profileToggleBtn = e.target.closest('.profile-toggle-btn');
+
+            if (trackMeBtn) {
+                e.preventDefault();
+                const flightId = trackMeBtn.dataset.flightId || currentFlightInWindow;
+                if (!flightId) return;
+                if (window.InflightLiveActivity?.isTrackingFlight(flightId)) {
+                    await window.InflightLiveActivity.end({ flightId });
+                    showNotification?.('Live Activity stopped.', 'info');
+                } else {
+                    // End any other active Live Activity first — we only ever track one "my flight" at a time.
+                    const prior = window.InflightLiveActivity?.getTrackedFlightId();
+                    if (prior && prior !== flightId) {
+                        await window.InflightLiveActivity.end({ flightId: prior });
+                    }
+                    const payload = (typeof buildLiveActivityPayload === 'function')
+                        ? buildLiveActivityPayload(flightId)
+                        : null;
+                    if (!payload) {
+                        showNotification?.('Could not read flight data yet — try again in a moment.', 'error');
+                        return;
+                    }
+                    const res = await window.InflightLiveActivity.start(payload);
+                    if (res?.ok) {
+                        showNotification?.('Tracking on Lock Screen.', 'success');
+                    } else if (res?.reason === 'unsupported') {
+                        showNotification?.('Live Activities not available on this device.', 'error');
+                    } else {
+                        showNotification?.('Could not start Live Activity. Check Settings > Inflight > Live Activities.', 'error');
+                    }
+                }
+                // Swap the icon
+                const icon = trackMeBtn.querySelector('i');
+                if (icon) {
+                    icon.classList.toggle('fa-bell');
+                    icon.classList.toggle('fa-bell-slash');
+                }
+                return;
+            }
 
             if (shareBtn) {
                 e.preventDefault();
@@ -13316,6 +13404,11 @@ let totalDistanceNM = 0;
         <i class="fa-solid fa-thumbtack"></i>
     </button>
 
+    ${(typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative() && window.InflightLiveActivity && window.InflightLiveActivity.isSupported()) ? `
+    <button class="hero-btn aircraft-window-trackme-btn" id="trackme-btn-${baseProps.flightId}" data-flight-id="${baseProps.flightId}" title="This is my flight">
+        <i class="fa-solid ${window.InflightLiveActivity.isTrackingFlight(baseProps.flightId) ? 'fa-bell-slash' : 'fa-bell'}"></i>
+    </button>` : ''}
+
     <button class="hero-btn aircraft-window-replay-btn" title="Replay Flight">
         <i class="fa-solid fa-circle-play"></i>
     </button>
@@ -14381,6 +14474,33 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     updateAll('#ac-next-wp-dist', `${nextWpDistNM === '---' ? '--.-' : nextWpDistNM}`, false);
     updateAll('#ac-dist', `${Math.round(distanceToDestNM)}<span class="unit">NM</span>`, true);
     updateAll('#ac-ete', ete);
+
+    // --- Live Activity push (iOS Lock Screen / Dynamic Island) ---
+    // Fires only when the user has marked this flight as "mine" via the bell button.
+    try {
+        if (window.InflightLiveActivity?.isTrackingFlight(baseProps.flightId)) {
+            const gs = baseProps.position.gs_kt || 0;
+            const etaMs = (distanceToDestNM > 0 && gs > 50)
+                ? Date.now() + (distanceToDestNM / gs) * 3600 * 1000
+                : (filedPlanData?.arrivalTime ? Date.parse(filedPlanData.arrivalTime) : Date.now() + 3600 * 1000);
+            const isLanded = !!(baseProps.position.alt_ft != null && baseProps.position.alt_ft < 100
+                                && gs < 40 && distanceToDestNM < 5);
+            window.InflightLiveActivity.update({
+                flightId: baseProps.flightId,
+                currentEta: etaMs,
+                currentAtd: filedPlanData?.departureTime ? Date.parse(filedPlanData.departureTime) : undefined,
+                distanceToDestinationNm: distanceToDestNM,
+                isLanded
+            });
+            if (isLanded) {
+                setTimeout(() => {
+                    window.InflightLiveActivity?.end({ flightId: baseProps.flightId, immediate: false });
+                }, 30000);
+            }
+        }
+    } catch (laErr) {
+        console.warn('[LiveActivity] update tick failed:', laErr);
+    }
 
     // --- New nav-card live readouts (heading / G·S / TAS / ALT / ALT Δ) ---
     {
