@@ -45,6 +45,13 @@ workflows:
 
           npx cap sync
 
+          # Inject the Live Activity widget extension into the freshly
+          # generated Xcode project. Idempotent. Source of truth for the
+          # Swift / plist files lives in native-ios/ at the repo root.
+          gem list -i xcodeproj > /dev/null 2>&1 || sudo gem install xcodeproj
+          gem list -i plist > /dev/null 2>&1 || sudo gem install plist
+          ruby native-ios/inject_live_activity.rb
+
           # Check for Podfile to decide on Pods vs SPM
           cd ios/App
           if [ -f "Podfile" ]; then
