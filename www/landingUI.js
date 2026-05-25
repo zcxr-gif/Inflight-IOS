@@ -67,6 +67,12 @@ export const LandingUI = {
             import('./MobileLandingUI.js').then(m => {
                 m.MobileLandingUI.init(this);
             }).catch(err => console.error("Failed to load Mobile UI:", err));
+
+            // iOS-native styling for the top header + bottom tab bar.
+            // Lives in its own file so the web build stays untouched.
+            import('./MobileLandingChromeUI.js').then(m => {
+                m.MobileLandingChromeUI.init();
+            }).catch(err => console.error("Failed to load Mobile Chrome UI:", err));
         }
     },
 
