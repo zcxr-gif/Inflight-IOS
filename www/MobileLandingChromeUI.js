@@ -1247,6 +1247,225 @@ export const MobileLandingChromeUI = {
                 transform: scale(0.98) !important;
                 background: var(--ios-fill-strong) !important;
             }
+
+            /* ============================================================
+               FLIGHT INFO WINDOW — iOS reskin
+               Re-skins the HUD island and legacy sheet that wrap the
+               aircraft/airport info content, without touching flight.js
+               or sector-ops-mobile-ui.js.
+               ============================================================ */
+
+            /* Override the HUD CSS tokens defined at :root so every
+               consumer (.mobile-island-bottom, .mobile-glass-pill, the
+               route-summary handles, etc.) inherits the iOS palette. */
+            :root {
+                --hud-bg: rgba(22, 22, 26, 0.52) !important;
+                --hud-blur: 40px !important;
+                --hud-border: rgba(255, 255, 255, 0.12) !important;
+                --hud-accent: #0a84ff !important;
+                --hud-glow: none !important;
+                --hud-text: #ffffff !important;
+            }
+
+            /* The bottom island itself — vibrancy + inner highlight */
+            .mobile-island-bottom {
+                background: var(--hud-bg) !important;
+                -webkit-backdrop-filter: saturate(200%) blur(40px) !important;
+                backdrop-filter: saturate(200%) blur(40px) !important;
+                border: 0.5px solid var(--hud-border) !important;
+                border-radius: 18px !important;
+                box-shadow:
+                    inset 0 0.5px 0 rgba(255, 255, 255, 0.18),
+                    0 12px 36px rgba(0, 0, 0, 0.55) !important;
+                color: #fff !important;
+            }
+
+            /* Drag handle pills — taller, brighter, iOS-spec */
+            .route-summary-wrapper-mobile::before,
+            .legacy-sheet-handle::before {
+                width: 36px !important;
+                height: 5px !important;
+                background: rgba(255, 255, 255, 0.4) !important;
+                border-radius: 3px !important;
+                opacity: 1 !important;
+                top: 8px !important;
+            }
+
+            /* Top-left server glass pill (when present) */
+            .mobile-glass-pill {
+                background: var(--hud-bg) !important;
+                -webkit-backdrop-filter: saturate(200%) blur(40px) !important;
+                backdrop-filter: saturate(200%) blur(40px) !important;
+                border: 0.5px solid var(--hud-border) !important;
+                box-shadow:
+                    inset 0 0.5px 0 rgba(255, 255, 255, 0.18),
+                    0 6px 16px rgba(0, 0, 0, 0.35) !important;
+                color: #fff !important;
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
+            }
+
+            /* Info-window chrome (when shown as the legacy mobile sheet) */
+            #aircraft-info-window.mobile-legacy-sheet,
+            #airport-info-window.mobile-legacy-sheet {
+                background: var(--hud-bg) !important;
+                -webkit-backdrop-filter: saturate(200%) blur(40px) !important;
+                backdrop-filter: saturate(200%) blur(40px) !important;
+                border: none !important;
+                border-top: 0.5px solid var(--hud-border) !important;
+                box-shadow:
+                    inset 0 0.5px 0 rgba(255, 255, 255, 0.18),
+                    0 -10px 40px rgba(0, 0, 0, 0.55) !important;
+                color: #fff !important;
+            }
+
+            /* Header inside the info window */
+            .info-window .info-window-header,
+            .mobile-island-bottom .info-window-header {
+                background: transparent !important;
+                border-bottom: 0.5px solid var(--hud-border) !important;
+                padding: 14px 16px !important;
+            }
+            .info-window .info-window-header h3,
+            .mobile-island-bottom .info-window-header h3 {
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
+                color: #fff !important;
+                font-size: 17px !important;
+                font-weight: 600 !important;
+                letter-spacing: -0.2px !important;
+            }
+            .info-window .info-window-actions button,
+            .mobile-island-bottom .info-window-actions button {
+                background: rgba(120, 120, 128, 0.28) !important;
+                border: none !important;
+                color: rgba(235, 235, 245, 0.85) !important;
+                width: 32px !important;
+                height: 32px !important;
+                border-radius: 50% !important;
+                box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.18) !important;
+                transition: transform 0.12s ease, background-color 0.15s ease !important;
+            }
+            .info-window .info-window-actions button:active,
+            .mobile-island-bottom .info-window-actions button:active {
+                transform: scale(0.92) !important;
+                background: rgba(120, 120, 128, 0.4) !important;
+                color: #fff !important;
+            }
+
+            /* Tab bar inside the info window — iOS-flat (no underline, accent fill) */
+            .info-window .ac-info-window-tabs,
+            .mobile-island-bottom .ac-info-window-tabs {
+                background: transparent !important;
+                border-bottom: 0.5px solid var(--hud-border) !important;
+                padding: 0 12px !important;
+                height: 48px !important;
+            }
+            .info-window .ac-info-tab-btn,
+            .mobile-island-bottom .ac-info-tab-btn {
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
+                font-size: 14px !important;
+                font-weight: 600 !important;
+                letter-spacing: -0.1px !important;
+                color: rgba(235, 235, 245, 0.62) !important;
+                border-bottom: none !important;
+                padding: 0 8px !important;
+                gap: 8px !important;
+                text-shadow: none !important;
+            }
+            .info-window .ac-info-tab-btn i,
+            .mobile-island-bottom .ac-info-tab-btn i {
+                color: inherit !important;
+                font-size: 14px !important;
+            }
+            .info-window .ac-info-tab-btn.active,
+            .mobile-island-bottom .ac-info-tab-btn.active {
+                color: var(--hud-accent) !important;
+                border-bottom-color: transparent !important;
+                text-shadow: none !important;
+            }
+            .info-window .ac-info-tab-btn.active i,
+            .mobile-island-bottom .ac-info-tab-btn.active i {
+                color: var(--hud-accent) !important;
+            }
+            .info-window .ac-info-tab-btn.pilot-tab-btn.active,
+            .mobile-island-bottom .ac-info-tab-btn.pilot-tab-btn.active {
+                color: #ffd60a !important;
+                border-bottom-color: transparent !important;
+            }
+            .info-window .ac-info-tab-btn.pilot-tab-btn.active i,
+            .mobile-island-bottom .ac-info-tab-btn.pilot-tab-btn.active i {
+                color: #ffd60a !important;
+            }
+
+            /* Drawer scrollbars — iOS-thin and white */
+            .drawer-content::-webkit-scrollbar { width: 3px !important; }
+            .drawer-content::-webkit-scrollbar-thumb {
+                background-color: rgba(255, 255, 255, 0.3) !important;
+                border-radius: 3px !important;
+            }
+
+            /* Aircraft overview hero — keep image, brighten the type */
+            .info-window .aircraft-overview-panel,
+            .mobile-island-bottom .aircraft-overview-panel {
+                color: #fff !important;
+            }
+            .info-window .overview-col-left h3,
+            .mobile-island-bottom .overview-col-left h3 {
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', sans-serif !important;
+                font-size: 22px !important;
+                font-weight: 700 !important;
+                letter-spacing: -0.4px !important;
+                text-shadow: 0 4px 12px rgba(0, 0, 0, 0.85) !important;
+            }
+            .info-window .overview-col-left p,
+            .mobile-island-bottom .overview-col-left p {
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
+                color: rgba(255, 255, 255, 0.88) !important;
+                font-size: 15px !important;
+                font-weight: 500 !important;
+            }
+
+            /* Inner data cards (location panel, live data, pilot stats) —
+               trade the harsh dark fill for the iOS grouped-card look. */
+            #mobile-island-peek #location-data-panel,
+            #mobile-island-peek .flight-data-bar,
+            #mobile-island-expanded .live-data-panel,
+            #mobile-island-expanded .pilot-stats-toggle-btn {
+                background: rgba(255, 255, 255, 0.06) !important;
+                border: none !important;
+                border-radius: 14px !important;
+                box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.12) !important;
+                color: #fff !important;
+            }
+            #mobile-island-expanded .pilot-stats-toggle-btn {
+                color: var(--hud-accent) !important;
+            }
+
+            /* Flight-data text inside those cards — brighter labels/values */
+            .info-window .data-label,
+            .mobile-island-bottom .data-label {
+                color: rgba(255, 255, 255, 0.62) !important;
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
+                font-size: 10.5px !important;
+                font-weight: 500 !important;
+                letter-spacing: 0.4px !important;
+                text-transform: uppercase !important;
+            }
+            .info-window .data-value,
+            .mobile-island-bottom .data-value {
+                color: #fff !important;
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
+                font-weight: 600 !important;
+                letter-spacing: -0.2px !important;
+            }
+
+            /* Simple-mode iframe wrapper inherits the glass + iOS handle.
+               Lift the handle hit area a touch on iOS so it's not jammed
+               against the device status bar. */
+            .mobile-legacy-sheet.simple-mode {
+                background: var(--hud-bg) !important;
+                -webkit-backdrop-filter: saturate(200%) blur(40px) !important;
+                backdrop-filter: saturate(200%) blur(40px) !important;
+            }
         }
         `;
 
