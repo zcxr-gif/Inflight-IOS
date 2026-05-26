@@ -62,9 +62,7 @@ export const MobileLandingChromeUI = {
         topBar.innerHTML = `
             <div class="ios-topbar-inner">
                 <button type="button" class="ios-server-pill" id="ios-server-pill" aria-label="Server: ${initialServer}">
-                    <span class="ios-server-ring" id="ios-server-ring"></span>
                     <span class="ios-server-initial" id="ios-server-initial">${initialServer.charAt(0).toUpperCase()}</span>
-                    <span class="ios-server-live" aria-hidden="true"></span>
                 </button>
 
                 <div class="ios-search-shell" id="ios-search-shell">
@@ -80,7 +78,6 @@ export const MobileLandingChromeUI = {
 
                 <button type="button" class="ios-cancel-btn" id="ios-cancel-btn">Cancel</button>
             </div>
-            <div class="ios-topbar-hairline" aria-hidden="true"></div>
         `;
 
         // --- Bottom tab bar ---
@@ -91,28 +88,22 @@ export const MobileLandingChromeUI = {
         bottomBar.innerHTML = `
             <div class="ios-tabbar-inner">
                 <button type="button" class="ios-tab" data-action="server">
-                    <span class="ios-tab-bubble">
-                        <i class="fa-solid fa-server"></i>
-                    </span>
+                    <i class="fa-solid fa-server"></i>
                     <span class="ios-tab-label">Server</span>
                 </button>
                 <button type="button" class="ios-tab" data-action="weather">
-                    <span class="ios-tab-bubble">
-                        <i class="fa-solid fa-cloud-sun-rain"></i>
-                    </span>
+                    <i class="fa-solid fa-cloud-sun-rain"></i>
                     <span class="ios-tab-label">Weather</span>
                 </button>
                 <button type="button" class="ios-tab" data-action="filters">
-                    <span class="ios-tab-bubble">
+                    <span class="ios-tab-iconwrap">
                         <i class="fa-solid fa-sliders"></i>
                         <span class="ios-tab-badge" id="ios-tab-filter-dot">0</span>
                     </span>
                     <span class="ios-tab-label">Filters</span>
                 </button>
                 <button type="button" class="ios-tab" data-action="settings">
-                    <span class="ios-tab-bubble">
-                        <i class="fa-solid fa-gear"></i>
-                    </span>
+                    <i class="fa-solid fa-gear"></i>
                     <span class="ios-tab-label">Settings</span>
                 </button>
             </div>
@@ -477,54 +468,32 @@ export const MobileLandingChromeUI = {
                 --ios-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
             }
 
-            /* ============ TOP BAR ============ */
+            /* ============ TOP BAR — floating glass card ============ */
             #ios-landing-topbar {
                 position: fixed;
-                top: 0;
-                left: 0;
-                right: 0;
+                top: calc(env(safe-area-inset-top, 0px) + 10px);
+                left: 10px;
+                right: 10px;
                 z-index: 1500;
-                background:
-                    linear-gradient(to bottom, rgba(0,0,0,0.10), rgba(0,0,0,0) 100%),
-                    var(--ios-bg);
+                background: var(--ios-bg);
                 -webkit-backdrop-filter: var(--ios-blur);
                 backdrop-filter: var(--ios-blur);
-                border-bottom: 0.5px solid var(--ios-stroke);
-                box-shadow: var(--ios-inner-hi);
-                padding: calc(env(safe-area-inset-top, 0px) + 9px) 12px 11px 12px;
+                border: 0.5px solid var(--ios-stroke);
+                border-radius: 20px;
+                box-shadow:
+                    var(--ios-inner-hi),
+                    0 8px 24px rgba(0, 0, 0, 0.32),
+                    0 2px 6px rgba(0, 0, 0, 0.18);
+                padding: 7px 8px 7px 8px;
                 pointer-events: auto;
                 visibility: visible;
+                transition: opacity 0.22s ease, transform 0.28s cubic-bezier(0.16,1,0.3,1);
             }
             #ios-landing-topbar[data-theme="light"] {
-                background:
-                    linear-gradient(to bottom, rgba(255,255,255,0.12), rgba(255,255,255,0) 100%),
-                    var(--ios-bg);
-            }
-            .ios-topbar-hairline {
-                position: absolute;
-                left: 0; right: 0; bottom: 0;
-                height: 1px;
-                background: linear-gradient(
-                    90deg,
-                    transparent 0%,
-                    rgba(255,255,255,0.18) 20%,
-                    rgba(255,255,255,0.32) 50%,
-                    rgba(255,255,255,0.18) 80%,
-                    transparent 100%
-                );
-                opacity: 0.6;
-                pointer-events: none;
-            }
-            #ios-landing-topbar[data-theme="light"] .ios-topbar-hairline {
-                background: linear-gradient(
-                    90deg,
-                    transparent 0%,
-                    rgba(0,0,0,0.10) 20%,
-                    rgba(0,0,0,0.18) 50%,
-                    rgba(0,0,0,0.10) 80%,
-                    transparent 100%
-                );
-                opacity: 0.5;
+                box-shadow:
+                    var(--ios-inner-hi),
+                    0 8px 24px rgba(0, 0, 0, 0.12),
+                    0 2px 6px rgba(0, 0, 0, 0.06);
             }
             /* Tactical-ui root starts hidden/inactive; reveal our chrome
                only once it's been activated by flight.js. */
@@ -538,108 +507,60 @@ export const MobileLandingChromeUI = {
                 position: relative;
                 display: flex;
                 align-items: center;
-                gap: 10px;
+                gap: 8px;
                 width: 100%;
-                height: 38px;
+                height: 36px;
             }
 
-            /* Server pill — circular badge with color status ring + live dot */
+            /* Server pill — clean glass circle showing initial */
             .ios-server-pill {
                 flex: 0 0 auto;
                 position: relative;
                 display: grid;
                 place-items: center;
-                width: 38px;
-                height: 38px;
+                width: 36px;
+                height: 36px;
                 padding: 0;
                 border: none;
-                background: radial-gradient(
-                    circle at 30% 30%,
-                    color-mix(in srgb, var(--server-tint, #0a84ff) 28%, transparent) 0%,
-                    var(--ios-fill) 68%
-                );
-                color: var(--ios-text);
+                background: var(--ios-fill);
+                color: var(--server-tint, var(--ios-text));
                 border-radius: 50%;
                 cursor: pointer;
-                box-shadow:
-                    var(--ios-inner-hi),
-                    0 2px 8px color-mix(in srgb, var(--server-tint, #0a84ff) 32%, transparent);
-                transition: transform 0.18s cubic-bezier(0.16,1,0.3,1), background 0.25s ease, box-shadow 0.25s ease;
+                box-shadow: var(--ios-inner-hi);
+                transition:
+                    transform 0.18s cubic-bezier(0.16,1,0.3,1),
+                    background-color 0.2s ease,
+                    color 0.25s ease;
                 -webkit-tap-highlight-color: transparent;
-                overflow: visible;
             }
-            .ios-server-pill::before {
-                /* fallback for browsers without color-mix() */
-                content: "";
-                position: absolute; inset: 0;
-                border-radius: 50%;
-                pointer-events: none;
+            .ios-server-pill:active {
+                transform: scale(0.9);
+                background: var(--ios-fill-strong);
             }
-            @supports not (background: color-mix(in srgb, red 50%, transparent)) {
-                .ios-server-pill { background: var(--ios-fill); box-shadow: var(--ios-inner-hi); }
-            }
-            .ios-server-pill:active { transform: scale(0.9); }
-            .ios-server-ring {
-                position: absolute;
-                inset: -2px;
-                border-radius: 50%;
-                border: 1.5px solid var(--server-tint, #0a84ff);
-                opacity: 0.55;
-                pointer-events: none;
-                transition: opacity 0.25s ease, transform 0.25s ease;
-            }
-            .ios-server-pill:active .ios-server-ring { opacity: 0.85; transform: scale(1.04); }
             .ios-server-initial {
-                position: relative;
                 font-family: inherit;
-                font-size: 16px;
+                font-size: 15px;
                 font-weight: 700;
                 letter-spacing: 0;
                 line-height: 1;
-                color: var(--ios-text);
-                text-shadow: 0 1px 2px rgba(0,0,0,0.35);
-            }
-            .ios-server-live {
-                position: absolute;
-                bottom: -1px;
-                right: -1px;
-                width: 10px; height: 10px;
-                border-radius: 50%;
-                background: var(--server-tint, #0a84ff);
-                box-shadow:
-                    0 0 0 2px var(--ios-bg, rgba(22,22,26,0.6)),
-                    0 0 6px color-mix(in srgb, var(--server-tint, #0a84ff) 80%, transparent);
-                animation: ios-server-pulse 2.4s ease-in-out infinite;
-            }
-            @keyframes ios-server-pulse {
-                0%, 100% { transform: scale(1); opacity: 1; }
-                50%      { transform: scale(0.82); opacity: 0.7; }
+                color: inherit;
             }
 
-            /* Search shell */
+            /* Search shell — inset capsule */
             .ios-search-shell {
                 flex: 1 1 auto;
                 min-width: 0;
-                height: 38px;
-                padding: 0 11px;
+                height: 36px;
+                padding: 0 12px;
                 display: flex;
                 align-items: center;
                 gap: 8px;
                 background: var(--ios-fill);
-                border-radius: 11px;
-                box-shadow:
-                    var(--ios-inner-hi),
-                    inset 0 -0.5px 0 rgba(0,0,0,0.18);
-                transition: background-color 0.22s ease, box-shadow 0.22s ease;
+                border-radius: 999px;
+                box-shadow: var(--ios-inner-hi);
+                transition: background-color 0.2s ease;
             }
-            .ios-search-shell.is-active {
-                background: var(--ios-fill-strong);
-                box-shadow:
-                    var(--ios-inner-hi),
-                    inset 0 -0.5px 0 rgba(0,0,0,0.18),
-                    0 0 0 2px color-mix(in srgb, var(--ios-accent) 28%, transparent);
-            }
-            .ios-search-shell.is-active .ios-search-glyph { color: var(--ios-accent); }
+            .ios-search-shell.is-active { background: var(--ios-fill-strong); }
             .ios-search-glyph {
                 color: var(--ios-text-2);
                 font-size: 14px;
@@ -691,43 +612,37 @@ export const MobileLandingChromeUI = {
             #ios-landing-topbar #blade-search-input:not(:placeholder-shown) ~ #blade-search-clear,
             #ios-landing-topbar .has-text #blade-search-clear { display: inline-flex; align-items: center; justify-content: center; }
 
-            /* Profile orb */
+            /* Profile orb — clean glass circle */
             .ios-profile-btn {
                 flex: 0 0 auto;
                 position: relative;
-                width: 38px; height: 38px;
+                width: 36px; height: 36px;
                 border: none;
                 border-radius: 50%;
-                background: linear-gradient(135deg, rgba(94, 92, 230, 0.32), rgba(10, 132, 255, 0.18));
+                background: var(--ios-fill);
                 color: var(--ios-text);
-                font-size: 15px;
+                font-size: 14px;
                 display: grid;
                 place-items: center;
                 cursor: pointer;
-                box-shadow:
-                    var(--ios-inner-hi),
-                    0 2px 8px rgba(94, 92, 230, 0.28);
-                transition: transform 0.18s cubic-bezier(0.16,1,0.3,1), background 0.2s ease, opacity 0.2s ease;
+                box-shadow: var(--ios-inner-hi);
+                transition: transform 0.18s cubic-bezier(0.16,1,0.3,1), background-color 0.2s ease, opacity 0.2s ease;
                 -webkit-tap-highlight-color: transparent;
             }
-            #ios-landing-topbar[data-theme="light"] .ios-profile-btn {
-                background: linear-gradient(135deg, rgba(94, 92, 230, 0.18), rgba(10, 132, 255, 0.10));
-                box-shadow: var(--ios-inner-hi), 0 2px 8px rgba(94, 92, 230, 0.18);
-            }
-            .ios-profile-btn:active { transform: scale(0.9); }
+            .ios-profile-btn:active { transform: scale(0.9); background: var(--ios-fill-strong); }
 
             /* Cancel button — slides in over the profile orb */
             .ios-cancel-btn {
                 position: absolute;
-                top: 0; right: 0;
-                height: 38px;
+                top: 0; right: 4px;
+                height: 36px;
                 padding: 0 2px 0 8px;
                 border: none;
                 background: transparent;
                 color: var(--ios-accent);
                 font-family: inherit;
-                font-size: 17px;
-                font-weight: 400;
+                font-size: 16px;
+                font-weight: 500;
                 letter-spacing: -0.2px;
                 cursor: pointer;
                 opacity: 0;
@@ -746,19 +661,19 @@ export const MobileLandingChromeUI = {
             /* During search, the search field stretches across the bar */
             #inflight-tactical-ui.mobile-search-active .ios-search-shell {
                 position: absolute;
-                left: 0; right: 60px; top: 0;
+                left: 0; right: 64px; top: 0;
                 width: auto;
-                height: 38px;
+                height: 36px;
             }
 
-            /* Search results — full-bleed sheet below the nav bar */
+            /* Search results — full-bleed sheet below the floating nav bar */
             #inflight-tactical-ui #blade-search-results {
                 position: fixed !important;
-                top: calc(env(safe-area-inset-top, 0px) + 56px) !important;
+                top: calc(env(safe-area-inset-top, 0px) + 62px) !important;
                 left: 0 !important;
                 right: 0 !important;
                 width: 100vw !important;
-                height: calc(100dvh - env(safe-area-inset-top, 0px) - 56px) !important;
+                height: calc(100dvh - env(safe-area-inset-top, 0px) - 62px) !important;
                 max-height: none !important;
                 margin: 0 !important;
                 padding: 0 0 calc(env(safe-area-inset-bottom, 0px) + 16px) !important;
@@ -802,35 +717,41 @@ export const MobileLandingChromeUI = {
                 background: rgba(255,255,255,0.06) !important;
             }
 
-            /* ============ BOTTOM TAB BAR ============ */
+            /* ============ BOTTOM TAB BAR — floating stadium ============ */
             #ios-landing-tabbar {
                 position: fixed;
-                left: 0; right: 0; bottom: 0;
+                left: 10px;
+                right: 10px;
+                bottom: calc(env(safe-area-inset-bottom, 0px) + 8px);
                 z-index: 1500;
-                background:
-                    linear-gradient(to top, rgba(0,0,0,0.10), rgba(0,0,0,0) 100%),
-                    var(--ios-bg);
+                background: var(--ios-bg);
                 -webkit-backdrop-filter: var(--ios-blur);
                 backdrop-filter: var(--ios-blur);
-                border-top: 0.5px solid var(--ios-stroke);
-                box-shadow: var(--ios-inner-hi);
-                padding-bottom: env(safe-area-inset-bottom, 0px);
+                border: 0.5px solid var(--ios-stroke);
+                border-radius: 28px;
+                box-shadow:
+                    var(--ios-inner-hi),
+                    0 10px 30px rgba(0, 0, 0, 0.38),
+                    0 3px 8px rgba(0, 0, 0, 0.20);
+                padding: 0;
                 pointer-events: auto;
                 visibility: visible;
+                overflow: hidden;
                 transition: transform 0.32s cubic-bezier(0.16,1,0.3,1), opacity 0.2s ease;
             }
             #ios-landing-tabbar[data-theme="light"] {
-                background:
-                    linear-gradient(to top, rgba(255,255,255,0.18), rgba(255,255,255,0) 100%),
-                    var(--ios-bg);
+                box-shadow:
+                    var(--ios-inner-hi),
+                    0 10px 30px rgba(0, 0, 0, 0.14),
+                    0 3px 8px rgba(0, 0, 0, 0.06);
             }
             .ios-tabbar-inner {
                 display: flex;
                 align-items: stretch;
                 justify-content: space-around;
                 width: 100%;
-                height: 60px;
-                padding: 6px 6px 4px;
+                height: 56px;
+                padding: 4px 4px;
             }
             .ios-tab {
                 position: relative;
@@ -839,31 +760,23 @@ export const MobileLandingChromeUI = {
                 display: flex;
                 flex-direction: column;
                 align-items: center;
-                justify-content: flex-start;
-                gap: 2px;
+                justify-content: center;
+                gap: 3px;
                 padding: 0;
                 background: transparent;
                 border: none;
-                color: var(--ios-text-3);
+                color: var(--ios-text-2);
                 font-family: inherit;
                 cursor: pointer;
-                transition: color 0.2s ease;
+                border-radius: 22px;
+                transition:
+                    color 0.2s ease,
+                    background-color 0.2s ease,
+                    transform 0.18s cubic-bezier(0.16,1,0.3,1);
                 -webkit-tap-highlight-color: transparent;
             }
-            .ios-tab-bubble {
-                position: relative;
-                display: grid;
-                place-items: center;
-                width: 56px;
-                height: 30px;
-                border-radius: 999px;
-                background: transparent;
-                transition:
-                    background-color 0.25s ease,
-                    transform 0.22s cubic-bezier(0.16,1,0.3,1);
-            }
             .ios-tab i {
-                font-size: 21px;
+                font-size: 20px;
                 line-height: 1;
                 color: inherit;
                 transition: transform 0.22s cubic-bezier(0.16,1,0.3,1);
@@ -871,26 +784,34 @@ export const MobileLandingChromeUI = {
             .ios-tab .ios-tab-label {
                 font-size: 10.5px;
                 font-weight: 600;
-                letter-spacing: 0.1px;
+                letter-spacing: 0.05px;
                 line-height: 1.1;
                 color: inherit;
-                margin-top: 1px;
             }
-            .ios-tab:active .ios-tab-bubble {
+            .ios-tab:active {
                 background: var(--ios-fill);
-                transform: scale(0.92);
+                transform: scale(0.96);
             }
             .ios-tab.is-pressed { color: var(--ios-accent); }
-            .ios-tab.is-pressed .ios-tab-bubble {
-                background: color-mix(in srgb, var(--ios-accent) 22%, transparent);
-            }
-            .ios-tab.is-pressed i { transform: scale(1.08); }
+            .ios-tab.is-pressed i { transform: scale(1.06); }
 
-            /* Filter count badge — replaces simple dot */
+            /* Filter icon wrapper so the badge can anchor relative to the icon */
+            .ios-tab-iconwrap {
+                position: relative;
+                display: grid;
+                place-items: center;
+                line-height: 0;
+            }
+            .ios-tab-iconwrap i {
+                font-size: 20px;
+                line-height: 1;
+            }
+
+            /* Filter count badge */
             .ios-tab-badge {
                 position: absolute;
-                top: -2px;
-                right: -2px;
+                top: -6px;
+                right: -10px;
                 min-width: 16px;
                 height: 16px;
                 padding: 0 4px;
@@ -902,12 +823,12 @@ export const MobileLandingChromeUI = {
                 font-weight: 700;
                 line-height: 16px;
                 text-align: center;
-                box-shadow:
-                    0 0 0 1.5px var(--ios-bg, rgba(22,22,26,0.6)),
-                    0 1px 3px rgba(255, 69, 58, 0.5);
+                box-shadow: 0 1px 3px rgba(255, 69, 58, 0.45);
                 opacity: 0;
                 transform: scale(0.4);
-                transition: opacity 0.22s ease, transform 0.28s cubic-bezier(0.16,1,0.3,1);
+                transition:
+                    opacity 0.22s ease,
+                    transform 0.28s cubic-bezier(0.16,1,0.3,1);
                 pointer-events: none;
             }
             .ios-tab-badge.is-on { opacity: 1; transform: scale(1); }
@@ -915,7 +836,7 @@ export const MobileLandingChromeUI = {
             /* Hide tab bar when searching or a detail sheet is up */
             #inflight-tactical-ui.mobile-search-active #ios-landing-tabbar,
             #sector-ops-map-fullscreen:has(.mobile-island-bottom.island-active) #inflight-tactical-ui #ios-landing-tabbar {
-                transform: translateY(120%);
+                transform: translateY(140%);
                 opacity: 0;
                 pointer-events: none;
             }
@@ -1073,7 +994,7 @@ export const MobileLandingChromeUI = {
                 position: absolute;
                 left: 12px;
                 right: 12px;
-                bottom: calc(env(safe-area-inset-bottom, 0px) + 78px);
+                bottom: calc(env(safe-area-inset-bottom, 0px) + 86px);
                 max-width: 340px;
                 margin: 0 auto;
                 padding: 6px;
