@@ -471,9 +471,9 @@ export const MobileLandingChromeUI = {
             /* ============ TOP BAR — floating glass card ============ */
             #ios-landing-topbar {
                 position: fixed;
-                top: calc(env(safe-area-inset-top, 0px) + 10px);
-                left: 10px;
-                right: 10px;
+                top: calc(env(safe-area-inset-top, 0px) + 2px);
+                left: 8px;
+                right: 8px;
                 z-index: 1500;
                 background: var(--ios-bg);
                 -webkit-backdrop-filter: var(--ios-blur);
@@ -669,7 +669,7 @@ export const MobileLandingChromeUI = {
             /* Search results — full-bleed sheet below the floating nav bar */
             #inflight-tactical-ui #blade-search-results {
                 position: fixed !important;
-                top: calc(env(safe-area-inset-top, 0px) + 62px) !important;
+                top: calc(env(safe-area-inset-top, 0px) + 56px) !important;
                 left: 0 !important;
                 right: 0 !important;
                 width: 100vw !important;
@@ -720,9 +720,9 @@ export const MobileLandingChromeUI = {
             /* ============ BOTTOM TAB BAR — floating stadium ============ */
             #ios-landing-tabbar {
                 position: fixed;
-                left: 10px;
-                right: 10px;
-                bottom: calc(env(safe-area-inset-bottom, 0px) + 8px);
+                left: 8px;
+                right: 8px;
+                bottom: max(env(safe-area-inset-bottom, 0px), 4px);
                 z-index: 1500;
                 background: var(--ios-bg);
                 -webkit-backdrop-filter: var(--ios-blur);
@@ -994,7 +994,7 @@ export const MobileLandingChromeUI = {
                 position: absolute;
                 left: 12px;
                 right: 12px;
-                bottom: calc(env(safe-area-inset-bottom, 0px) + 86px);
+                bottom: calc(max(env(safe-area-inset-bottom, 0px), 4px) + 70px);
                 max-width: 340px;
                 margin: 0 auto;
                 padding: 6px;
