@@ -3,7 +3,7 @@ workflows:
     name: iOS Build
     
     integrations:
-      app_store_connect: Personal
+      app_store_connect: Codemagic CI/CD
 
     environment:
       xcode: latest
@@ -33,6 +33,8 @@ workflows:
       
       - name: Initialize iOS Platform
         script: |
+          set -euo pipefail
+
           # Clean restart of ios folder
           rm -rf ios
           npx cap add ios
@@ -48,9 +50,27 @@ workflows:
           # Inject the Live Activity widget extension into the freshly
           # generated Xcode project. Idempotent. Source of truth for the
           # Swift / plist files lives in native-ios/ at the repo root.
+          # CRITICAL: this script must succeed or the LiveActivity plugin
+          # (custom Capacitor bridge) won't be compiled into the App
+          # binary, and JS->native calls will silently fail at runtime.
           gem list -i xcodeproj > /dev/null 2>&1 || sudo gem install xcodeproj
           gem list -i plist > /dev/null 2>&1 || sudo gem install plist
           ruby native-ios/inject_live_activity.rb
+
+          # Post-injection sanity check: grep the saved xcodeproj for the
+          # plugin file references. If they're missing the build is broken
+          # before xcodebuild ever runs — fail loudly here instead of
+          # producing a silently-broken IPA.
+          echo "==> Verifying LiveActivityPlugin is wired into App target"
+          if ! grep -q 'LiveActivityPlugin.m' ios/App/App.xcodeproj/project.pbxproj; then
+            echo "FATAL: LiveActivityPlugin.m missing from project.pbxproj after injection."
+            exit 1
+          fi
+          if ! grep -q 'LiveActivityPlugin.swift' ios/App/App.xcodeproj/project.pbxproj; then
+            echo "FATAL: LiveActivityPlugin.swift missing from project.pbxproj after injection."
+            exit 1
+          fi
+          echo "==> Plugin references found in project.pbxproj"
 
           # Check for Podfile to decide on Pods vs SPM
           cd ios/App
@@ -71,22 +91,38 @@ workflows:
 
       - name: iOS Code Signing
         script: |
-          # The `ios_signing` block above only fetches a profile for the main
-          # app's bundle id. The Live Activity widget extension has its own
-          # bundle id (com.tracker.Inflight.LiveActivity) and needs its own
-          # profile. `--create` lets Codemagic create both the App ID and
-          # the profile via the App Store Connect API if they don't exist,
-          # so there's nothing to click in App Store Connect by hand.
-          app-store-connect fetch-signing-files com.tracker.Inflight.LiveActivity \
-            --platform IOS \
+          set -e
+
+          # The `ios_signing` block above fetches the distribution certificate
+          # and the profile for the main app's bundle id. The Live Activity
+          # widget extension reuses that same distribution cert but needs its
+          # own provisioning profile. We download just the profile (not the
+          # cert — that would require the private key, which the integration
+          # does not expose to scripts).
+          echo "==> Downloading App Store provisioning profiles"
+          app-store-connect profiles list \
             --type IOS_APP_STORE \
-            --create
+            --save
+
+          echo "==> Profiles available on the runner:"
+          ls -la ~/Library/MobileDevice/Provisioning\ Profiles/ 2>/dev/null || true
 
           cd ios/App
-          # Initialize the keychain with all profiles fetched so far (main
-          # app + widget extension) and write PROVISIONING_PROFILE_SPECIFIER
-          # into each target's build settings.
-          xcode-project use-profiles
+          echo "==> Widget target signing settings:"
+          xcodebuild -project App.xcodeproj -target InflightLiveActivity -showBuildSettings \
+            -configuration Release 2>/dev/null \
+            | grep -Ei 'CODE_SIGN|PROVISIONING_PROFILE|DEVELOPMENT_TEAM|PRODUCT_BUNDLE_IDENTIFIER' \
+            || true
+
+          # Apply the downloaded provisioning profiles to every target in the
+          # freshly generated Xcode project and write the export options plist
+          # to $HOME/export_options.plist, which is where `xcode-project
+          # build-ipa` looks for it by default. Without this, build-ipa fails
+          # with "Path /Users/builder/export_options.plist does not exist".
+          echo "==> Applying profiles and generating export options"
+          xcode-project use-profiles \
+            --project App.xcodeproj \
+            --export-options-plist "$HOME/export_options.plist"
 
       - name: Build IPA (Signed)
         script: |

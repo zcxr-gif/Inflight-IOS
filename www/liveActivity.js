@@ -14,21 +14,125 @@
 (function () {
     const trackedFlights = new Set();
     let lastUpdateByFlight = new Map();
+    let pluginRef = null;
+    let notificationPermissionRequested = false;
+
+    function detectIOS() {
+        // Be liberal: any of (Capacitor reports ios) OR (UA looks like iOS in a
+        // WebView) OR (running under the capacitor:// scheme) is enough. The
+        // worst case if we're wrong is a button that errors when tapped — far
+        // better than a button that silently never renders.
+        try {
+            if (typeof window === 'undefined') return false;
+            const cap = window.Capacitor;
+            if (cap && typeof cap.getPlatform === 'function' && cap.getPlatform() === 'ios') return true;
+            if (typeof window.isIOSNative === 'function' && window.isIOSNative()) return true;
+            const proto = (window.location && window.location.protocol) || '';
+            const ua = (navigator.userAgent || '') + ' ' + (navigator.platform || '');
+            const looksLikeIOS = /iPhone|iPad|iPod/i.test(ua) ||
+                (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+            if ((proto === 'capacitor:' || proto === 'ionic:') && looksLikeIOS) return true;
+            return false;
+        } catch (_) {
+            return false;
+        }
+    }
 
     function getPlugin() {
+        if (pluginRef) return pluginRef;
         try {
             const cap = (typeof window !== 'undefined') ? window.Capacitor : null;
-            if (!cap || !cap.Plugins) return null;
-            return cap.Plugins.LiveActivity || null;
-        } catch (_) {
+            if (!cap) return null;
+            // Try the native-bridge auto-populated Plugins map first — on iOS
+            // the Capacitor runtime populates Capacitor.Plugins.<Name> from
+            // any plugin registered via the CAP_PLUGIN() macro at launch.
+            if (cap.Plugins && cap.Plugins.LiveActivity) {
+                pluginRef = cap.Plugins.LiveActivity;
+                return pluginRef;
+            }
+            // Then fall back to explicit registration. registerPlugin
+            // returns a Proxy in Capacitor 5+; only cache if it's actually
+            // an object so a transient null doesn't poison the session.
+            if (typeof cap.registerPlugin === 'function') {
+                const proxy = cap.registerPlugin('LiveActivity');
+                if (proxy && typeof proxy === 'object') {
+                    pluginRef = proxy;
+                    return pluginRef;
+                }
+            }
+            return null;
+        } catch (e) {
+            console.error('[LiveActivity] getPlugin threw:', e);
             return null;
         }
     }
 
+    // Small human-readable dump of what's actually on window.Capacitor,
+    // so a toast or PR comment can carry enough info to diagnose missing
+    // native plugin registration without a USB-attached Safari debugger.
+    function describeCapacitor() {
+        try {
+            const cap = window.Capacitor;
+            if (!cap) return 'window.Capacitor=missing';
+            const platform = (typeof cap.getPlatform === 'function') ? cap.getPlatform() : 'unknown';
+            const hasReg = (typeof cap.registerPlugin === 'function');
+            const pluginKeys = (cap.Plugins && typeof cap.Plugins === 'object')
+                ? Object.keys(cap.Plugins).slice(0, 12).join(',')
+                : 'none';
+            return `platform=${platform}, registerPlugin=${hasReg}, Plugins={${pluginKeys}}`;
+        } catch (e) {
+            return 'describe_failed:' + (e && e.message || e);
+        }
+    }
+
     function isSupported() {
-        if (typeof window === 'undefined') return false;
-        if (typeof window.isIOSNative !== 'function' || !window.isIOSNative()) return false;
-        return !!getPlugin();
+        if (!detectIOS()) return false;
+        // On iOS we return true even if the plugin proxy isn't ready yet — the
+        // proxy will materialize once Capacitor finishes booting, and the
+        // actual call will surface a real error if the native side is missing.
+        // This prevents the bell from being permanently hidden on a race.
+        getPlugin();
+        return true;
+    }
+
+    async function getNotificationPermissionStatus() {
+        if (!detectIOS()) return { status: 'unsupported', granted: false };
+        const plugin = getPlugin();
+        if (!plugin) return { status: 'unknown', granted: false };
+        try {
+            if (typeof plugin.getNotificationPermissionStatus === 'function') {
+                const res = await plugin.getNotificationPermissionStatus();
+                return { status: res.status || 'unknown', granted: !!res.granted };
+            }
+        } catch (err) {
+            console.warn('[LiveActivity] getNotificationPermissionStatus failed:', err);
+        }
+        return { status: 'unknown', granted: false };
+    }
+
+    async function requestNotificationPermission(opts) {
+        if (!detectIOS()) return { ok: false, reason: 'unsupported' };
+        const plugin = getPlugin();
+        if (!plugin || typeof plugin.requestNotificationPermission !== 'function') {
+            return {
+                ok: false,
+                reason: 'native bridge unreachable (' + describeCapacitor() + ')'
+            };
+        }
+        const force = !!(opts && opts.force);
+        if (notificationPermissionRequested && !force) {
+            return { ok: true, reason: 'already_requested' };
+        }
+        notificationPermissionRequested = true;
+        try {
+            const res = await plugin.requestNotificationPermission();
+            return { ok: true, ...res };
+        } catch (err) {
+            console.warn('[LiveActivity] requestNotificationPermission failed:', err);
+            // Allow a retry next time if the call genuinely failed.
+            notificationPermissionRequested = false;
+            return { ok: false, reason: String(err && err.message || err) };
+        }
     }
 
     function toMs(value) {
@@ -42,6 +146,12 @@
     async function start(payload) {
         if (!isSupported()) return { ok: false, reason: 'unsupported' };
         const plugin = getPlugin();
+        if (!plugin || typeof plugin.start !== 'function') {
+            return {
+                ok: false,
+                reason: 'native bridge unreachable (' + describeCapacitor() + ')'
+            };
+        }
         const args = {
             flightId: String(payload.flightId),
             callsign: payload.callsign || '',
@@ -119,12 +229,71 @@
         return trackedFlights.values().next().value || null;
     }
 
+    async function openSystemSettings() {
+        if (!detectIOS()) return { ok: false, reason: 'unsupported' };
+        const plugin = getPlugin();
+        if (!plugin || typeof plugin.openSystemSettings !== 'function') {
+            return { ok: false, reason: 'unavailable' };
+        }
+        try {
+            const res = await plugin.openSystemSettings();
+            return { ok: true, ...res };
+        } catch (err) {
+            return { ok: false, reason: String(err && err.message || err) };
+        }
+    }
+
     window.InflightLiveActivity = {
         isSupported,
         start,
         update,
         end,
         isTrackingFlight,
-        getTrackedFlightId
+        getTrackedFlightId,
+        requestNotificationPermission,
+        getNotificationPermissionStatus,
+        openSystemSettings,
+        describeCapacitor,
+        // Diagnostic: returns everything we know about the bridge state.
+        diagnose() {
+            return {
+                detectIOS: detectIOS(),
+                capacitor: describeCapacitor(),
+                plugin: !!getPlugin(),
+                pluginMethods: (() => {
+                    const p = getPlugin();
+                    if (!p) return null;
+                    return ['start', 'update', 'end', 'requestNotificationPermission',
+                            'getNotificationPermissionStatus', 'openSystemSettings',
+                            'areActivitiesEnabled']
+                        .map(n => `${n}=${typeof p[n]}`).join(', ');
+                })()
+            };
+        }
     };
+
+    // Fire the iOS notification permission prompt on first launch (once).
+    // We poll briefly because the Capacitor runtime is injected after our
+    // IIFE on cold start — a single setTimeout misses the window.
+    function maybePromptOnLaunch() {
+        if (!detectIOS()) return;
+        let attempts = 0;
+        const tick = () => {
+            attempts++;
+            const plugin = getPlugin();
+            if (plugin) {
+                requestNotificationPermission();
+                return;
+            }
+            if (attempts < 20) setTimeout(tick, 500);
+        };
+        setTimeout(tick, 800);
+    }
+    if (typeof document !== 'undefined') {
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', maybePromptOnLaunch);
+        } else {
+            maybePromptOnLaunch();
+        }
+    }
 })();

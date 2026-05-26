@@ -1,11 +1,89 @@
 import Foundation
 import Capacitor
 import ActivityKit
+import UserNotifications
+import UIKit
 
 @objc(LiveActivityPlugin)
 public class LiveActivityPlugin: CAPPlugin {
 
     private var activeActivityIdByFlight: [String: String] = [:]
+
+    @objc func openSystemSettings(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard let url = URL(string: UIApplication.openSettingsURLString) else {
+                call.reject("Settings URL unavailable")
+                return
+            }
+            if UIApplication.shared.canOpenURL(url) {
+                UIApplication.shared.open(url, options: [:]) { success in
+                    call.resolve(["opened": success])
+                }
+            } else {
+                call.reject("Cannot open Settings")
+            }
+        }
+    }
+
+    @objc func getNotificationPermissionStatus(_ call: CAPPluginCall) {
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            let statusString: String
+            let granted: Bool
+            switch settings.authorizationStatus {
+            case .authorized:
+                statusString = "authorized"; granted = true
+            case .provisional:
+                statusString = "provisional"; granted = true
+            case .ephemeral:
+                statusString = "ephemeral"; granted = true
+            case .denied:
+                statusString = "denied"; granted = false
+            case .notDetermined:
+                statusString = "notDetermined"; granted = false
+            @unknown default:
+                statusString = "unknown"; granted = false
+            }
+            call.resolve([
+                "status": statusString,
+                "granted": granted
+            ])
+        }
+    }
+
+    @objc func requestNotificationPermission(_ call: CAPPluginCall) {
+        let center = UNUserNotificationCenter.current()
+        center.getNotificationSettings { settings in
+            if settings.authorizationStatus == .authorized ||
+               settings.authorizationStatus == .provisional ||
+               settings.authorizationStatus == .ephemeral {
+                call.resolve([
+                    "granted": true,
+                    "status": "authorized",
+                    "prompted": false
+                ])
+                return
+            }
+            if settings.authorizationStatus == .denied {
+                call.resolve([
+                    "granted": false,
+                    "status": "denied",
+                    "prompted": false
+                ])
+                return
+            }
+            center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+                if let error = error {
+                    call.reject("Failed to request notification permission: \(error.localizedDescription)")
+                    return
+                }
+                call.resolve([
+                    "granted": granted,
+                    "status": granted ? "authorized" : "denied",
+                    "prompted": true
+                ])
+            }
+        }
+    }
 
     @objc func areActivitiesEnabled(_ call: CAPPluginCall) {
         if #available(iOS 16.1, *) {
