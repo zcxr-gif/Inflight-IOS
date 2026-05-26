@@ -99,6 +99,11 @@ app_bundle_id = app_target.build_configurations.first.build_settings['PRODUCT_BU
 
 widget_target.build_configurations.each do |config|
   s = config.build_settings
+  # PRODUCT_NAME / EXECUTABLE_NAME are required — without them the linker
+  # emits "<empty>.appex" and the archive fails with a misleading
+  # "Multiple commands produce '/.../iphoneos/.appex'" error.
+  s['PRODUCT_NAME']                     = '$(TARGET_NAME)'
+  s['EXECUTABLE_NAME']                  = '$(PRODUCT_NAME)'
   s['PRODUCT_BUNDLE_IDENTIFIER']        = "#{app_bundle_id}.LiveActivity"
   s['IPHONEOS_DEPLOYMENT_TARGET']       = '16.1'
   s['SWIFT_VERSION']                    = '5.0'
@@ -111,6 +116,8 @@ widget_target.build_configurations.each do |config|
   s['SKIP_INSTALL']                     = 'YES'
   s['TARGETED_DEVICE_FAMILY']           = '1,2'
   s['INFOPLIST_KEY_CFBundleDisplayName'] = 'Inflight Live Activity'
+  s['SDKROOT']                          = 'iphoneos'
+  s['DEBUG_INFORMATION_FORMAT']         = config.name == 'Release' ? 'dwarf-with-dsym' : 'dwarf'
   # Inherit the team from the main app at sign time on the Codemagic runner.
   team_id = app_target.build_configurations.first.build_settings['DEVELOPMENT_TEAM']
   s['DEVELOPMENT_TEAM'] = team_id if team_id && !team_id.empty?
