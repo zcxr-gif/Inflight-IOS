@@ -79,9 +79,9 @@ workflows:
           # own provisioning profile. We download just the profile (not the
           # cert — that would require the private key, which the integration
           # does not expose to scripts).
-          echo "==> Downloading widget provisioning profile"
-          app-store-connect list-profiles \
-            --profile-name InflightLiveActivity_Distribution \
+          echo "==> Downloading App Store provisioning profiles"
+          app-store-connect profiles list \
+            --profile-type IOS_APP_STORE \
             --save
 
           echo "==> Profiles available on the runner:"
