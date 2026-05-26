@@ -73,28 +73,22 @@ workflows:
         script: |
           set -e
 
-          # The `ios_signing` block above only fetches a profile for the main
-          # app's bundle id. The Live Activity widget extension has its own
-          # bundle id (com.tracker.Inflight.LiveActivity) and needs its own
-          # profile. `--create` lets Codemagic create both the App ID and
-          # the profile via the App Store Connect API if they don't exist.
-          echo "==> Fetching signing files for widget bundle id"
-          app-store-connect fetch-signing-files com.tracker.Inflight.LiveActivity \
-            --platform IOS \
-            --type IOS_APP_STORE \
-            --create
-
-          echo "==> Adding any fetched certificates to keychain"
-          keychain add-certificates
+          # The `ios_signing` block above fetches the distribution certificate
+          # and the profile for the main app's bundle id. The Live Activity
+          # widget extension reuses that same distribution cert but needs its
+          # own provisioning profile. We download just the profile (not the
+          # cert — that would require the private key, which the integration
+          # does not expose to scripts).
+          echo "==> Downloading widget provisioning profile"
+          app-store-connect list-profiles \
+            --profile-name InflightLiveActivity_Distribution \
+            --save
 
           echo "==> Profiles available on the runner:"
           ls -la ~/Library/MobileDevice/Provisioning\ Profiles/ 2>/dev/null || true
 
           cd ios/App
-          echo "==> Running xcode-project use-profiles"
-          xcode-project use-profiles --warnings-only
-
-          echo "==> Widget target signing settings after use-profiles:"
+          echo "==> Widget target signing settings:"
           xcodebuild -project App.xcodeproj -target InflightLiveActivity -showBuildSettings \
             -configuration Release 2>/dev/null \
             | grep -Ei 'CODE_SIGN|PROVISIONING_PROFILE|DEVELOPMENT_TEAM|PRODUCT_BUNDLE_IDENTIFIER' \
