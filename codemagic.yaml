@@ -33,6 +33,8 @@ workflows:
       
       - name: Initialize iOS Platform
         script: |
+          set -euo pipefail
+
           # Clean restart of ios folder
           rm -rf ios
           npx cap add ios
@@ -48,9 +50,27 @@ workflows:
           # Inject the Live Activity widget extension into the freshly
           # generated Xcode project. Idempotent. Source of truth for the
           # Swift / plist files lives in native-ios/ at the repo root.
+          # CRITICAL: this script must succeed or the LiveActivity plugin
+          # (custom Capacitor bridge) won't be compiled into the App
+          # binary, and JS->native calls will silently fail at runtime.
           gem list -i xcodeproj > /dev/null 2>&1 || sudo gem install xcodeproj
           gem list -i plist > /dev/null 2>&1 || sudo gem install plist
           ruby native-ios/inject_live_activity.rb
+
+          # Post-injection sanity check: grep the saved xcodeproj for the
+          # plugin file references. If they're missing the build is broken
+          # before xcodebuild ever runs — fail loudly here instead of
+          # producing a silently-broken IPA.
+          echo "==> Verifying LiveActivityPlugin is wired into App target"
+          if ! grep -q 'LiveActivityPlugin.m' ios/App/App.xcodeproj/project.pbxproj; then
+            echo "FATAL: LiveActivityPlugin.m missing from project.pbxproj after injection."
+            exit 1
+          fi
+          if ! grep -q 'LiveActivityPlugin.swift' ios/App/App.xcodeproj/project.pbxproj; then
+            echo "FATAL: LiveActivityPlugin.swift missing from project.pbxproj after injection."
+            exit 1
+          fi
+          echo "==> Plugin references found in project.pbxproj"
 
           # Check for Podfile to decide on Pods vs SPM
           cd ios/App

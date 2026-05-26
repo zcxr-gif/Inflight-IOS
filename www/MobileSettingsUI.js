@@ -163,7 +163,7 @@ renderMobileContainer() {
         // non-iOS (handled in the click listener) but the section header
         // serves as a visible build-stamp.
         return `
-            <div class="mobile-section-header">Notifications <span class="m-build-tag">v4</span></div>
+            <div class="mobile-section-header">Notifications <span class="m-build-tag">v5</span></div>
             <div class="m-settings-list">
                 <div class="m-setting-row" id="m-notif-row">
                     <div class="m-row-left">
