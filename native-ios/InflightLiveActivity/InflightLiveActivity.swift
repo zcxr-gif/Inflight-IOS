@@ -7,7 +7,7 @@ struct InflightLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: InflightActivityAttributes.self) { context in
             LockScreenView(context: context)
-                .activityBackgroundTint(Color.black)
+                .activityBackgroundTint(Color.black.opacity(0.55))
                 .activitySystemActionForegroundColor(Color.white)
         } dynamicIsland: { context in
             DynamicIsland {
@@ -214,8 +214,7 @@ struct StatusPill: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(Color(red: 0.45, green: 0.18, blue: 0.10).opacity(0.55))
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }
 
