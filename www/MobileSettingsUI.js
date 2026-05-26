@@ -28,6 +28,8 @@ renderMobileContainer() {
                     </div>
 
                     <div class="sheet-content custom-scroll">
+                        ${this.renderNotificationsSection()}
+
                         <div class="mobile-section-header">Map Style</div>
                         <div class="settings-mobile-grid">
                             <button class="m-setting-pill" data-setting="mapStyle" data-value="dark">Dark</button>
@@ -155,6 +157,29 @@ renderMobileContainer() {
         document.body.insertAdjacentHTML('beforeend', html);
     },
 
+    renderNotificationsSection() {
+        // Always show the section on iOS — the row tells the user the current
+        // permission state and lets them re-trigger the prompt.
+        const isIOS = !!(window.InflightLiveActivity && window.InflightLiveActivity.isSupported && window.InflightLiveActivity.isSupported());
+        if (!isIOS) return '';
+        return `
+            <div class="mobile-section-header">Notifications</div>
+            <div class="m-settings-list">
+                <div class="m-setting-row" id="m-notif-row">
+                    <div class="m-row-left">
+                        <i class="fa-solid fa-bell" style="color:#38bdf8;"></i>
+                        <span>Push & Live Activity Alerts</span>
+                    </div>
+                    <div class="m-row-right">
+                        <span id="m-notif-status" class="m-notif-status" data-status="loading">Checking…</span>
+                        <button id="m-notif-enable" class="m-btn m-primary m-notif-cta" type="button">Enable</button>
+                    </div>
+                </div>
+                <p class="m-notif-help">Required for lock-screen flight tracking ("this is my flight") and push alerts.</p>
+            </div>
+        `;
+    },
+
     renderToggle(id, label, icon, isPro = false) {
         return `
             <div class="m-setting-row ${isPro ? 'is-pro-feature' : ''}">
@@ -209,11 +234,38 @@ refreshProLocks() {
 
         window.addEventListener('openMobileSettings', () => {
             this._isOpen = true;
-            this.refreshProLocks(); 
+            this.refreshProLocks();
             this.syncUIWithState();
+            this.refreshNotificationStatus();
             sheet.classList.add('open');
             overlay.classList.add('visible');
         });
+
+        const notifBtn = document.getElementById('m-notif-enable');
+        if (notifBtn) {
+            notifBtn.addEventListener('click', async () => {
+                const pill = document.getElementById('m-notif-status');
+                const isBlocked = pill && pill.dataset.status === 'denied';
+                notifBtn.disabled = true;
+                const prevLabel = notifBtn.textContent;
+                notifBtn.textContent = '…';
+                try {
+                    if (isBlocked) {
+                        await window.InflightLiveActivity?.openSystemSettings?.();
+                    } else {
+                        const res = await window.InflightLiveActivity?.requestNotificationPermission?.({ force: true });
+                        // If the OS will no longer show the dialog (already denied
+                        // previously), deep-link to iOS Settings on this same tap.
+                        if (res && res.granted === false && res.prompted === false && res.status === 'denied') {
+                            await window.InflightLiveActivity?.openSystemSettings?.();
+                        }
+                    }
+                } catch (_) { /* surfaced via status pill */ }
+                await this.refreshNotificationStatus();
+                notifBtn.disabled = false;
+                if (notifBtn.textContent === '…') notifBtn.textContent = prevLabel;
+            });
+        }
 
         const closeUI = () => {
             this._isOpen = false;
@@ -315,6 +367,32 @@ refreshProLocks() {
                 if (window.updateMapFilters) window.updateMapFilters();
             });
         });
+    },
+
+    async refreshNotificationStatus() {
+        const pill = document.getElementById('m-notif-status');
+        const btn = document.getElementById('m-notif-enable');
+        if (!pill || !btn) return;
+        let status = 'unknown';
+        let granted = false;
+        try {
+            const res = await window.InflightLiveActivity?.getNotificationPermissionStatus?.();
+            if (res) { status = res.status; granted = !!res.granted; }
+        } catch (_) {}
+        pill.dataset.status = status;
+        if (granted) {
+            pill.textContent = 'Allowed';
+            btn.textContent = 'Re-prompt';
+        } else if (status === 'denied') {
+            pill.textContent = 'Blocked in iOS';
+            btn.textContent = 'Open Settings';
+        } else if (status === 'notDetermined' || status === 'unknown') {
+            pill.textContent = 'Not enabled';
+            btn.textContent = 'Enable';
+        } else {
+            pill.textContent = status;
+            btn.textContent = 'Enable';
+        }
     },
 
     syncUIWithState() {
@@ -455,7 +533,27 @@ refreshProLocks() {
                 .sheet-footer { padding: 20px; border-top: 1px solid rgba(255,255,255,0.05); }
                 .m-btn { width: 100%; padding: 16px; border-radius: 14px; font-weight: 700; border: none; font-size: 1rem; }
                 .m-primary { background: #38bdf8; color: #000; }
-                
+
+                .m-notif-cta { width: auto; padding: 8px 14px; font-size: 0.85rem; border-radius: 999px; }
+                .m-notif-cta[disabled] { opacity: 0.6; }
+                .m-notif-status {
+                    font-size: 0.75rem; font-weight: 600; padding: 4px 10px;
+                    border-radius: 999px; margin-right: 8px; letter-spacing: 0.02em;
+                    background: rgba(148,163,184,0.18); color: #cbd5e1;
+                }
+                .m-notif-status[data-status="authorized"],
+                .m-notif-status[data-status="provisional"],
+                .m-notif-status[data-status="ephemeral"] {
+                    background: rgba(34,197,94,0.18); color: #4ade80;
+                }
+                .m-notif-status[data-status="denied"] {
+                    background: rgba(239,68,68,0.18); color: #f87171;
+                }
+                .m-notif-help {
+                    font-size: 0.78rem; color: #94a3b8;
+                    margin: 6px 4px 14px; line-height: 1.4;
+                }
+
                 .custom-scroll { overflow-y: auto; flex: 1; }
             }
         `;

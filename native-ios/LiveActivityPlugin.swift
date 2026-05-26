@@ -2,11 +2,53 @@ import Foundation
 import Capacitor
 import ActivityKit
 import UserNotifications
+import UIKit
 
 @objc(LiveActivityPlugin)
 public class LiveActivityPlugin: CAPPlugin {
 
     private var activeActivityIdByFlight: [String: String] = [:]
+
+    @objc func openSystemSettings(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard let url = URL(string: UIApplication.openSettingsURLString) else {
+                call.reject("Settings URL unavailable")
+                return
+            }
+            if UIApplication.shared.canOpenURL(url) {
+                UIApplication.shared.open(url, options: [:]) { success in
+                    call.resolve(["opened": success])
+                }
+            } else {
+                call.reject("Cannot open Settings")
+            }
+        }
+    }
+
+    @objc func getNotificationPermissionStatus(_ call: CAPPluginCall) {
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            let statusString: String
+            let granted: Bool
+            switch settings.authorizationStatus {
+            case .authorized:
+                statusString = "authorized"; granted = true
+            case .provisional:
+                statusString = "provisional"; granted = true
+            case .ephemeral:
+                statusString = "ephemeral"; granted = true
+            case .denied:
+                statusString = "denied"; granted = false
+            case .notDetermined:
+                statusString = "notDetermined"; granted = false
+            @unknown default:
+                statusString = "unknown"; granted = false
+            }
+            call.resolve([
+                "status": statusString,
+                "granted": granted
+            ])
+        }
+    }
 
     @objc func requestNotificationPermission(_ call: CAPPluginCall) {
         let center = UNUserNotificationCenter.current()

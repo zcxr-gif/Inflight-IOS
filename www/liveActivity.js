@@ -17,6 +17,27 @@
     let pluginRef = null;
     let notificationPermissionRequested = false;
 
+    function detectIOS() {
+        // Be liberal: any of (Capacitor reports ios) OR (UA looks like iOS in a
+        // WebView) OR (running under the capacitor:// scheme) is enough. The
+        // worst case if we're wrong is a button that errors when tapped — far
+        // better than a button that silently never renders.
+        try {
+            if (typeof window === 'undefined') return false;
+            const cap = window.Capacitor;
+            if (cap && typeof cap.getPlatform === 'function' && cap.getPlatform() === 'ios') return true;
+            if (typeof window.isIOSNative === 'function' && window.isIOSNative()) return true;
+            const proto = (window.location && window.location.protocol) || '';
+            const ua = (navigator.userAgent || '') + ' ' + (navigator.platform || '');
+            const looksLikeIOS = /iPhone|iPad|iPod/i.test(ua) ||
+                (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+            if ((proto === 'capacitor:' || proto === 'ionic:') && looksLikeIOS) return true;
+            return false;
+        } catch (_) {
+            return false;
+        }
+    }
+
     function getPlugin() {
         if (pluginRef) return pluginRef;
         try {
@@ -24,6 +45,9 @@
             if (!cap) return null;
             // Capacitor 5+ requires explicit registration on the JS side for
             // custom native plugins; Capacitor.Plugins.X is not auto-populated.
+            // Importantly: do NOT cache `null` if Capacitor isn't loaded yet —
+            // the runtime is injected after our IIFE on cold start, so a one-
+            // shot lookup would lock isSupported() to false for the session.
             if (typeof cap.registerPlugin === 'function') {
                 pluginRef = cap.registerPlugin('LiveActivity');
                 return pluginRef;
@@ -39,24 +63,46 @@
     }
 
     function isSupported() {
-        if (typeof window === 'undefined') return false;
-        if (typeof window.isIOSNative !== 'function' || !window.isIOSNative()) return false;
-        return !!getPlugin();
+        if (!detectIOS()) return false;
+        // On iOS we return true even if the plugin proxy isn't ready yet — the
+        // proxy will materialize once Capacitor finishes booting, and the
+        // actual call will surface a real error if the native side is missing.
+        // This prevents the bell from being permanently hidden on a race.
+        getPlugin();
+        return true;
+    }
+
+    async function getNotificationPermissionStatus() {
+        if (!detectIOS()) return { status: 'unsupported', granted: false };
+        const plugin = getPlugin();
+        if (!plugin) return { status: 'unknown', granted: false };
+        try {
+            if (typeof plugin.getNotificationPermissionStatus === 'function') {
+                const res = await plugin.getNotificationPermissionStatus();
+                return { status: res.status || 'unknown', granted: !!res.granted };
+            }
+        } catch (err) {
+            console.warn('[LiveActivity] getNotificationPermissionStatus failed:', err);
+        }
+        return { status: 'unknown', granted: false };
     }
 
     async function requestNotificationPermission(opts) {
-        if (!isSupported()) return { ok: false, reason: 'unsupported' };
+        if (!detectIOS()) return { ok: false, reason: 'unsupported' };
+        const plugin = getPlugin();
+        if (!plugin) return { ok: false, reason: 'plugin_unavailable' };
         const force = !!(opts && opts.force);
         if (notificationPermissionRequested && !force) {
             return { ok: true, reason: 'already_requested' };
         }
         notificationPermissionRequested = true;
-        const plugin = getPlugin();
         try {
             const res = await plugin.requestNotificationPermission();
             return { ok: true, ...res };
         } catch (err) {
             console.warn('[LiveActivity] requestNotificationPermission failed:', err);
+            // Allow a retry next time if the call genuinely failed.
+            notificationPermissionRequested = false;
             return { ok: false, reason: String(err && err.message || err) };
         }
     }
@@ -149,6 +195,20 @@
         return trackedFlights.values().next().value || null;
     }
 
+    async function openSystemSettings() {
+        if (!detectIOS()) return { ok: false, reason: 'unsupported' };
+        const plugin = getPlugin();
+        if (!plugin || typeof plugin.openSystemSettings !== 'function') {
+            return { ok: false, reason: 'unavailable' };
+        }
+        try {
+            const res = await plugin.openSystemSettings();
+            return { ok: true, ...res };
+        } catch (err) {
+            return { ok: false, reason: String(err && err.message || err) };
+        }
+    }
+
     window.InflightLiveActivity = {
         isSupported,
         start,
@@ -156,16 +216,27 @@
         end,
         isTrackingFlight,
         getTrackedFlightId,
-        requestNotificationPermission
+        requestNotificationPermission,
+        getNotificationPermissionStatus,
+        openSystemSettings
     };
 
     // Fire the iOS notification permission prompt on first launch (once).
-    // Without this, Live Activities still work but the user never sees the
-    // standard "Allow Notifications" dialog and the OS can't deliver
-    // remote/local notification updates.
+    // We poll briefly because the Capacitor runtime is injected after our
+    // IIFE on cold start — a single setTimeout misses the window.
     function maybePromptOnLaunch() {
-        if (!isSupported()) return;
-        setTimeout(() => { requestNotificationPermission(); }, 1200);
+        if (!detectIOS()) return;
+        let attempts = 0;
+        const tick = () => {
+            attempts++;
+            const plugin = getPlugin();
+            if (plugin) {
+                requestNotificationPermission();
+                return;
+            }
+            if (attempts < 20) setTimeout(tick, 500);
+        };
+        setTimeout(tick, 800);
     }
     if (typeof document !== 'undefined') {
         if (document.readyState === 'loading') {
