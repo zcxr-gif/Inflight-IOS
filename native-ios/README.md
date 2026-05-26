@@ -45,27 +45,26 @@ Mac runners via CocoaPods) to:
 The script is **idempotent** — re-running on a project that already has
 the target is a no-op.
 
-## App Store Connect prerequisite — DO THIS FIRST
+## App Store Connect setup — handled automatically
 
-Before the first Codemagic build will succeed, register the widget
-extension's bundle ID in App Store Connect:
-
-1. App Store Connect → **Certificates, Identifiers & Profiles** → **Identifiers**
-2. **+** → App IDs → App → Continue
-3. Description: `Inflight Live Activity`
-4. Bundle ID: **Explicit** → `com.tracker.Inflight.LiveActivity`
-5. No additional capabilities needed for Phase 1.
-6. Continue → Register
-
-Once that ID exists, Codemagic's `xcode-project use-profiles` will
-auto-create the matching provisioning profile on the next build.
-
-If you skip this step the build fails with:
+The widget extension uses a separate bundle ID
+(`com.tracker.Inflight.LiveActivity`). The "iOS Code Signing" step in
+`codemagic.yaml` runs:
 
 ```
-error: "InflightLiveActivity" requires a provisioning profile.
-Select a provisioning profile in the Signing & Capabilities editor.
+app-store-connect fetch-signing-files com.tracker.Inflight.LiveActivity \
+  --platform IOS --type IOS_APP_STORE --create
 ```
+
+With `--create`, Codemagic uses its App Store Connect API key to create
+the App ID and the provisioning profile if either doesn't exist yet,
+then `xcode-project use-profiles` wires the profile into the widget
+target. No manual App Store Connect steps required.
+
+If signing ever does fail with `"InflightLiveActivity" requires a
+provisioning profile`, the likely cause is the Codemagic App Store
+Connect integration losing its Admin role — re-check the key in
+Codemagic's Team settings.
 
 ## Running locally (optional, requires Mac)
 
