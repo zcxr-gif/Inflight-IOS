@@ -9,11 +9,19 @@ workflows:
       xcode: latest
       node: latest
       cocoapods: default
-      
-      # AUTOMATIC SIGNING CONFIGURATION
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.tracker.Inflight  # Ensure this matches your actual ID
+      # NOTE: the `ios_signing` block is intentionally NOT set here. It
+      # only fetches signing files for a single bundle id, and the way
+      # it manages the distribution certificate's private key is opaque
+      # — when we later run a second `app-store-connect fetch-signing-files`
+      # for the widget extension's bundle id, that call can't find the
+      # key on disk and dies with
+      # "Cannot save Signing Certificates without certificate private key".
+      # Instead we manage the whole signing pipeline manually in the
+      # "iOS Code Signing" script step below: a single `keychain init`,
+      # one `fetch-signing-files` per bundle id (main app + widget),
+      # then `keychain add-certificates` and `xcode-project use-profiles`.
+      # Both fetches share the same on-disk cert+key, so the second one
+      # reuses what the first created.
     
     triggering:
       events:
@@ -71,22 +79,68 @@ workflows:
 
       - name: iOS Code Signing
         script: |
-          # The `ios_signing` block above only fetches a profile for the main
-          # app's bundle id. The Live Activity widget extension has its own
-          # bundle id (com.tracker.Inflight.LiveActivity) and needs its own
-          # profile. `--create` lets Codemagic create both the App ID and
-          # the profile via the App Store Connect API if they don't exist,
-          # so there's nothing to click in App Store Connect by hand.
+          # Fail loud on any error so problems surface here instead of
+          # later inside xcodebuild as a cryptic
+          # "InflightLiveActivity requires a provisioning profile".
+          set -euo pipefail
+
+          # Fresh build keychain. The fetch-signing-files calls below
+          # write the distribution certificate's .p12 (and its private
+          # key) into a default on-disk location; `keychain
+          # add-certificates` afterwards loads them into this keychain.
+          keychain initialize
+
+          # Fetch / create signing files for the main app. The first
+          # fetch creates the distribution certificate + private key
+          # and saves them to disk.
+          app-store-connect fetch-signing-files com.tracker.Inflight \
+            --platform IOS \
+            --type IOS_APP_STORE \
+            --strict-match-identifier \
+            --create \
+            --verbose
+
+          # Fetch / create signing files for the Live Activity widget
+          # extension. This reuses the cert + private key that the
+          # previous call just saved to disk, which is exactly why we
+          # do BOTH fetches manually in one script instead of letting
+          # the `ios_signing` environment block do the first one — that
+          # block hides the private key, and this second call would
+          # then fail with
+          # "Cannot save Signing Certificates without certificate private key".
           app-store-connect fetch-signing-files com.tracker.Inflight.LiveActivity \
             --platform IOS \
             --type IOS_APP_STORE \
-            --create
+            --strict-match-identifier \
+            --create \
+            --verbose
+
+          # Load fetched certs into the build keychain so codesign can
+          # find them during archive.
+          keychain add-certificates
 
           cd ios/App
-          # Initialize the keychain with all profiles fetched so far (main
-          # app + widget extension) and write PROVISIONING_PROFILE_SPECIFIER
-          # into each target's build settings.
-          xcode-project use-profiles
+          # Write PROVISIONING_PROFILE_SPECIFIER into each target's
+          # build settings, matching profiles to targets by bundle id.
+          xcode-project use-profiles --verbose
+
+          # Verify the widget target actually got a profile assigned.
+          # If this is empty, xcodebuild later fails with "requires a
+          # provisioning profile" — surface the root cause here.
+          WIDGET_PROFILE=$(xcodebuild -project App.xcodeproj \
+            -showBuildSettings -target InflightLiveActivity \
+            -configuration Release 2>/dev/null \
+            | awk -F' = ' '/PROVISIONING_PROFILE_SPECIFIER/ {print $2; exit}')
+          if [ -z "$WIDGET_PROFILE" ]; then
+            echo ""
+            echo "ERROR: InflightLiveActivity target has no PROVISIONING_PROFILE_SPECIFIER after use-profiles."
+            echo "This means app-store-connect could not fetch/create a profile for"
+            echo "com.tracker.Inflight.LiveActivity. Most common cause: the Codemagic"
+            echo "App Store Connect API key lost its Admin (or App Manager) role —"
+            echo "re-check the integration under Codemagic Team Settings > Integrations."
+            exit 1
+          fi
+          echo "InflightLiveActivity provisioning profile: $WIDGET_PROFILE"
 
       - name: Build IPA (Signed)
         script: |
