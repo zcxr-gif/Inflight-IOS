@@ -48,20 +48,32 @@ the target is a no-op.
 ## App Store Connect setup — handled automatically
 
 The widget extension uses a separate bundle ID
-(`com.tracker.Inflight.LiveActivity`). The "iOS Code Signing" step in
-`codemagic.yaml` runs:
+(`com.tracker.Inflight.LiveActivity`), and the main app uses
+`com.tracker.Inflight`. The "iOS Code Signing" step in `codemagic.yaml`
+manages both manually in one script:
 
 ```
-app-store-connect fetch-signing-files com.tracker.Inflight.LiveActivity \
-  --platform IOS --type IOS_APP_STORE --create
+keychain initialize
+app-store-connect fetch-signing-files com.tracker.Inflight              --type IOS_APP_STORE --create
+app-store-connect fetch-signing-files com.tracker.Inflight.LiveActivity --type IOS_APP_STORE --create
+keychain add-certificates
+xcode-project use-profiles
 ```
 
 With `--create`, Codemagic uses its App Store Connect API key to create
 the App ID and the provisioning profile if either doesn't exist yet,
-then `xcode-project use-profiles` wires the profile into the widget
+then `xcode-project use-profiles` wires each profile into the matching
 target. No manual App Store Connect steps required.
 
-The "iOS Code Signing" step verifies that the widget target gets a
+We don't use the `ios_signing:` environment block (which is the more
+common Codemagic pattern) because it only fetches one bundle id and
+hides the distribution certificate's private key, which then causes
+the manual widget fetch to fail with
+`Cannot save Signing Certificates without certificate private key`.
+Running both fetches in one script keeps the cert + key on disk between
+calls.
+
+The step also verifies that the widget target gets a
 `PROVISIONING_PROFILE_SPECIFIER` assigned and fails fast with a clear
 message if it didn't, so a misconfigured signing key surfaces here
 instead of later inside xcodebuild as the cryptic
