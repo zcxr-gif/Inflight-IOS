@@ -108,7 +108,7 @@ widget_target.build_configurations.each do |config|
   s['IPHONEOS_DEPLOYMENT_TARGET']       = '16.1'
   s['SWIFT_VERSION']                    = '5.0'
   s['INFOPLIST_FILE']                   = 'InflightLiveActivity/Info.plist'
-  s['CODE_SIGN_STYLE']                  = 'Automatic'
+  s['CODE_SIGN_STYLE']                  = 'Manual'
   s['CURRENT_PROJECT_VERSION']          = '1'
   s['MARKETING_VERSION']                = '1.0'
   s['GENERATE_INFOPLIST_FILE']          = 'NO'
