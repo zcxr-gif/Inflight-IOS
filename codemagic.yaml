@@ -45,6 +45,13 @@ workflows:
 
           npx cap sync
 
+          # Inject the Live Activity widget extension into the freshly
+          # generated Xcode project. Idempotent. Source of truth for the
+          # Swift / plist files lives in native-ios/ at the repo root.
+          gem list -i xcodeproj > /dev/null 2>&1 || sudo gem install xcodeproj
+          gem list -i plist > /dev/null 2>&1 || sudo gem install plist
+          ruby native-ios/inject_live_activity.rb
+
           # Check for Podfile to decide on Pods vs SPM
           cd ios/App
           if [ -f "Podfile" ]; then
@@ -64,8 +71,21 @@ workflows:
 
       - name: iOS Code Signing
         script: |
+          # The `ios_signing` block above only fetches a profile for the main
+          # app's bundle id. The Live Activity widget extension has its own
+          # bundle id (com.tracker.Inflight.LiveActivity) and needs its own
+          # profile. `--create` lets Codemagic create both the App ID and
+          # the profile via the App Store Connect API if they don't exist,
+          # so there's nothing to click in App Store Connect by hand.
+          app-store-connect fetch-signing-files com.tracker.Inflight.LiveActivity \
+            --platform IOS \
+            --type IOS_APP_STORE \
+            --create
+
           cd ios/App
-          # Initialize the keychain with the profiles fetched in the 'environment' step
+          # Initialize the keychain with all profiles fetched so far (main
+          # app + widget extension) and write PROVISIONING_PROFILE_SPECIFIER
+          # into each target's build settings.
           xcode-project use-profiles
 
       - name: Build IPA (Signed)
