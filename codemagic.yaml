@@ -71,6 +71,14 @@ workflows:
 
       - name: iOS Code Signing
         script: |
+          # Fail loud on any error in this step. Without `set -e` an
+          # `app-store-connect fetch-signing-files` failure (e.g. the API
+          # key has lost App Manager / Admin role and can't create the
+          # widget App ID) gets swallowed, and the build only blows up
+          # later inside xcodebuild with the confusing
+          # "InflightLiveActivity requires a provisioning profile" error.
+          set -euo pipefail
+
           # The `ios_signing` block above only fetches a profile for the main
           # app's bundle id. The Live Activity widget extension has its own
           # bundle id (com.tracker.Inflight.LiveActivity) and needs its own
@@ -80,13 +88,33 @@ workflows:
           app-store-connect fetch-signing-files com.tracker.Inflight.LiveActivity \
             --platform IOS \
             --type IOS_APP_STORE \
-            --create
+            --strict-match-identifier \
+            --create \
+            --verbose
 
           cd ios/App
           # Initialize the keychain with all profiles fetched so far (main
           # app + widget extension) and write PROVISIONING_PROFILE_SPECIFIER
           # into each target's build settings.
-          xcode-project use-profiles
+          xcode-project use-profiles --verbose
+
+          # Verify the widget target actually got a profile assigned. If
+          # this is empty, xcodebuild later fails with "requires a
+          # provisioning profile" — surface the root cause here instead.
+          WIDGET_PROFILE=$(xcodebuild -project App.xcodeproj \
+            -showBuildSettings -target InflightLiveActivity \
+            -configuration Release 2>/dev/null \
+            | awk -F' = ' '/PROVISIONING_PROFILE_SPECIFIER/ {print $2; exit}')
+          if [ -z "$WIDGET_PROFILE" ]; then
+            echo ""
+            echo "ERROR: InflightLiveActivity target has no PROVISIONING_PROFILE_SPECIFIER after use-profiles."
+            echo "This means app-store-connect could not fetch/create a profile for"
+            echo "com.tracker.Inflight.LiveActivity. Most common cause: the Codemagic"
+            echo "App Store Connect API key lost its Admin (or App Manager) role —"
+            echo "re-check the integration under Codemagic Team Settings > Integrations."
+            exit 1
+          fi
+          echo "InflightLiveActivity provisioning profile: $WIDGET_PROFILE"
 
       - name: Build IPA (Signed)
         script: |

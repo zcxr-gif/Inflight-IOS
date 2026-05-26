@@ -61,10 +61,14 @@ the App ID and the provisioning profile if either doesn't exist yet,
 then `xcode-project use-profiles` wires the profile into the widget
 target. No manual App Store Connect steps required.
 
-If signing ever does fail with `"InflightLiveActivity" requires a
-provisioning profile`, the likely cause is the Codemagic App Store
-Connect integration losing its Admin role — re-check the key in
-Codemagic's Team settings.
+The "iOS Code Signing" step verifies that the widget target gets a
+`PROVISIONING_PROFILE_SPECIFIER` assigned and fails fast with a clear
+message if it didn't, so a misconfigured signing key surfaces here
+instead of later inside xcodebuild as the cryptic
+`"InflightLiveActivity" requires a provisioning profile` error. When
+that verification trips, the usual culprit is the Codemagic App Store
+Connect integration losing its Admin / App Manager role — re-check the
+API key under Codemagic's Team settings.
 
 ## Running locally (optional, requires Mac)
 
