@@ -3,7 +3,7 @@ workflows:
     name: iOS Build
     
     integrations:
-      app_store_connect: Personal
+      app_store_connect: Codemagic CI/CD
 
     environment:
       xcode: latest
