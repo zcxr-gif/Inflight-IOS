@@ -1,11 +1,47 @@
 import Foundation
 import Capacitor
 import ActivityKit
+import UserNotifications
 
 @objc(LiveActivityPlugin)
 public class LiveActivityPlugin: CAPPlugin {
 
     private var activeActivityIdByFlight: [String: String] = [:]
+
+    @objc func requestNotificationPermission(_ call: CAPPluginCall) {
+        let center = UNUserNotificationCenter.current()
+        center.getNotificationSettings { settings in
+            if settings.authorizationStatus == .authorized ||
+               settings.authorizationStatus == .provisional ||
+               settings.authorizationStatus == .ephemeral {
+                call.resolve([
+                    "granted": true,
+                    "status": "authorized",
+                    "prompted": false
+                ])
+                return
+            }
+            if settings.authorizationStatus == .denied {
+                call.resolve([
+                    "granted": false,
+                    "status": "denied",
+                    "prompted": false
+                ])
+                return
+            }
+            center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+                if let error = error {
+                    call.reject("Failed to request notification permission: \(error.localizedDescription)")
+                    return
+                }
+                call.resolve([
+                    "granted": granted,
+                    "status": granted ? "authorized" : "denied",
+                    "prompted": true
+                ])
+            }
+        }
+    }
 
     @objc func areActivitiesEnabled(_ call: CAPPluginCall) {
         if #available(iOS 16.1, *) {

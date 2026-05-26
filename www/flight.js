@@ -9959,6 +9959,10 @@ function setupAircraftWindowEvents() {
                     await window.InflightLiveActivity.end({ flightId });
                     showNotification?.('Live Activity stopped.', 'info');
                 } else {
+                    // Surface the iOS "Allow Notifications" prompt on first
+                    // bell tap. force:true asks even if we already prompted
+                    // this session; iOS itself only shows the dialog once.
+                    await window.InflightLiveActivity?.requestNotificationPermission?.({ force: true });
                     // End any other active Live Activity first — we only ever track one "my flight" at a time.
                     const prior = window.InflightLiveActivity?.getTrackedFlightId();
                     if (prior && prior !== flightId) {

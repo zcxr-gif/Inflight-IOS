@@ -14,12 +14,25 @@
 (function () {
     const trackedFlights = new Set();
     let lastUpdateByFlight = new Map();
+    let pluginRef = null;
+    let notificationPermissionRequested = false;
 
     function getPlugin() {
+        if (pluginRef) return pluginRef;
         try {
             const cap = (typeof window !== 'undefined') ? window.Capacitor : null;
-            if (!cap || !cap.Plugins) return null;
-            return cap.Plugins.LiveActivity || null;
+            if (!cap) return null;
+            // Capacitor 5+ requires explicit registration on the JS side for
+            // custom native plugins; Capacitor.Plugins.X is not auto-populated.
+            if (typeof cap.registerPlugin === 'function') {
+                pluginRef = cap.registerPlugin('LiveActivity');
+                return pluginRef;
+            }
+            if (cap.Plugins && cap.Plugins.LiveActivity) {
+                pluginRef = cap.Plugins.LiveActivity;
+                return pluginRef;
+            }
+            return null;
         } catch (_) {
             return null;
         }
@@ -29,6 +42,23 @@
         if (typeof window === 'undefined') return false;
         if (typeof window.isIOSNative !== 'function' || !window.isIOSNative()) return false;
         return !!getPlugin();
+    }
+
+    async function requestNotificationPermission(opts) {
+        if (!isSupported()) return { ok: false, reason: 'unsupported' };
+        const force = !!(opts && opts.force);
+        if (notificationPermissionRequested && !force) {
+            return { ok: true, reason: 'already_requested' };
+        }
+        notificationPermissionRequested = true;
+        const plugin = getPlugin();
+        try {
+            const res = await plugin.requestNotificationPermission();
+            return { ok: true, ...res };
+        } catch (err) {
+            console.warn('[LiveActivity] requestNotificationPermission failed:', err);
+            return { ok: false, reason: String(err && err.message || err) };
+        }
     }
 
     function toMs(value) {
@@ -125,6 +155,23 @@
         update,
         end,
         isTrackingFlight,
-        getTrackedFlightId
+        getTrackedFlightId,
+        requestNotificationPermission
     };
+
+    // Fire the iOS notification permission prompt on first launch (once).
+    // Without this, Live Activities still work but the user never sees the
+    // standard "Allow Notifications" dialog and the OS can't deliver
+    // remote/local notification updates.
+    function maybePromptOnLaunch() {
+        if (!isSupported()) return;
+        setTimeout(() => { requestNotificationPermission(); }, 1200);
+    }
+    if (typeof document !== 'undefined') {
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', maybePromptOnLaunch);
+        } else {
+            maybePromptOnLaunch();
+        }
+    }
 })();
