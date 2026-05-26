@@ -24,13 +24,15 @@ require 'xcodeproj'
 require 'fileutils'
 require 'pathname'
 require 'plist'
+require 'json'
 
-REPO_ROOT      = Pathname.new(File.expand_path('..', __dir__))
-SRC_DIR        = REPO_ROOT.join('native-ios')
-PROJECT_PATH   = REPO_ROOT.join('ios/App/App.xcodeproj')
-APP_DIR        = REPO_ROOT.join('ios/App/App')
-WIDGET_DIR     = REPO_ROOT.join('ios/App/InflightLiveActivity')
-APP_INFO_PLIST = APP_DIR.join('Info.plist')
+REPO_ROOT          = Pathname.new(File.expand_path('..', __dir__))
+SRC_DIR            = REPO_ROOT.join('native-ios')
+PROJECT_PATH       = REPO_ROOT.join('ios/App/App.xcodeproj')
+APP_DIR            = REPO_ROOT.join('ios/App/App')
+WIDGET_DIR         = REPO_ROOT.join('ios/App/InflightLiveActivity')
+APP_INFO_PLIST     = APP_DIR.join('Info.plist')
+BUNDLED_CAP_CONFIG = APP_DIR.join('capacitor.config.json')
 
 WIDGET_TARGET_NAME = 'InflightLiveActivity'
 APP_TARGET_NAME    = 'App'
@@ -112,6 +114,43 @@ present = verify_target.source_build_phase.files_references.map { |r| r && r.pat
   die "Phase A verification FAILED: #{fname} not in App target source phase after save. Have: #{present.sort.join(', ')}" unless present.include?(fname)
 end
 log "Phase A verified: plugin files are in App target source phase."
+
+# ---------------------------------------------------------------------------
+# Phase A2: Register the plugin in the bundled capacitor.config.json so the
+# Capacitor 8 iOS bridge actually loads it at runtime.
+#
+# Capacitor 8 removed auto-registration via Objective-C +load. CapacitorBridge.
+# registerPlugins() now reads `packageClassList` from
+# Bundle.main/capacitor.config.json and calls NSClassFromString on each entry.
+# The CAP_PLUGIN() macro still wires up identifier/jsName/pluginMethods (so the
+# .m file above is still required), but without the class name being in this
+# list the bridge never instantiates it, and Capacitor.Plugins.LiveActivity is
+# undefined on the JS side. Symptom: JS sees only the 5 hardcoded core plugins
+# (CapacitorHttp, Console, WebView, CapacitorCookies, SystemBars) and any call
+# into LiveActivity silently no-ops — which in turn means the JS-side
+# `requestNotificationPermission` is never invoked, iOS never prompts, and the
+# app never appears under Settings → Notifications.
+#
+# This file is regenerated on every `cap sync`, so we patch it here (after sync,
+# before xcodebuild) rather than checking it in.
+# ---------------------------------------------------------------------------
+
+if BUNDLED_CAP_CONFIG.exist?
+  cfg = JSON.parse(File.read(BUNDLED_CAP_CONFIG.to_s))
+  pkg_list = cfg['packageClassList'].is_a?(Array) ? cfg['packageClassList'] : []
+  unless pkg_list.include?('LiveActivityPlugin')
+    pkg_list << 'LiveActivityPlugin'
+    cfg['packageClassList'] = pkg_list
+    File.write(BUNDLED_CAP_CONFIG.to_s, JSON.pretty_generate(cfg))
+    log "Added 'LiveActivityPlugin' to packageClassList in #{BUNDLED_CAP_CONFIG}"
+  else
+    log "'LiveActivityPlugin' already present in packageClassList"
+  end
+  log "Final packageClassList: #{cfg['packageClassList'].inspect}"
+else
+  die "#{BUNDLED_CAP_CONFIG} not found — `cap sync` should have produced it. " \
+      "Without this, the Capacitor 8 bridge cannot discover LiveActivityPlugin."
+end
 
 # ---------------------------------------------------------------------------
 # Phase B: Create the widget extension. Best-effort.
