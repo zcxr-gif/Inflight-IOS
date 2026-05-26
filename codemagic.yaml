@@ -71,22 +71,34 @@ workflows:
 
       - name: iOS Code Signing
         script: |
+          set -e
+
           # The `ios_signing` block above only fetches a profile for the main
           # app's bundle id. The Live Activity widget extension has its own
           # bundle id (com.tracker.Inflight.LiveActivity) and needs its own
           # profile. `--create` lets Codemagic create both the App ID and
-          # the profile via the App Store Connect API if they don't exist,
-          # so there's nothing to click in App Store Connect by hand.
+          # the profile via the App Store Connect API if they don't exist.
+          echo "==> Fetching signing files for widget bundle id"
           app-store-connect fetch-signing-files com.tracker.Inflight.LiveActivity \
             --platform IOS \
             --type IOS_APP_STORE \
             --create
 
+          echo "==> Adding any fetched certificates to keychain"
+          keychain add-certificates
+
+          echo "==> Profiles available on the runner:"
+          ls -la ~/Library/MobileDevice/Provisioning\ Profiles/ 2>/dev/null || true
+
           cd ios/App
-          # Initialize the keychain with all profiles fetched so far (main
-          # app + widget extension) and write PROVISIONING_PROFILE_SPECIFIER
-          # into each target's build settings.
-          xcode-project use-profiles
+          echo "==> Running xcode-project use-profiles"
+          xcode-project use-profiles --warnings-only
+
+          echo "==> Widget target signing settings after use-profiles:"
+          xcodebuild -project App.xcodeproj -target InflightLiveActivity -showBuildSettings \
+            -configuration Release 2>/dev/null \
+            | grep -Ei 'CODE_SIGN|PROVISIONING_PROFILE|DEVELOPMENT_TEAM|PRODUCT_BUNDLE_IDENTIFIER' \
+            || true
 
       - name: Build IPA (Signed)
         script: |
