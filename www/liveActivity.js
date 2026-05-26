@@ -43,22 +43,45 @@
         try {
             const cap = (typeof window !== 'undefined') ? window.Capacitor : null;
             if (!cap) return null;
-            // Capacitor 5+ requires explicit registration on the JS side for
-            // custom native plugins; Capacitor.Plugins.X is not auto-populated.
-            // Importantly: do NOT cache `null` if Capacitor isn't loaded yet —
-            // the runtime is injected after our IIFE on cold start, so a one-
-            // shot lookup would lock isSupported() to false for the session.
-            if (typeof cap.registerPlugin === 'function') {
-                pluginRef = cap.registerPlugin('LiveActivity');
-                return pluginRef;
-            }
+            // Try the native-bridge auto-populated Plugins map first — on iOS
+            // the Capacitor runtime populates Capacitor.Plugins.<Name> from
+            // any plugin registered via the CAP_PLUGIN() macro at launch.
             if (cap.Plugins && cap.Plugins.LiveActivity) {
                 pluginRef = cap.Plugins.LiveActivity;
                 return pluginRef;
             }
+            // Then fall back to explicit registration. registerPlugin
+            // returns a Proxy in Capacitor 5+; only cache if it's actually
+            // an object so a transient null doesn't poison the session.
+            if (typeof cap.registerPlugin === 'function') {
+                const proxy = cap.registerPlugin('LiveActivity');
+                if (proxy && typeof proxy === 'object') {
+                    pluginRef = proxy;
+                    return pluginRef;
+                }
+            }
             return null;
-        } catch (_) {
+        } catch (e) {
+            console.error('[LiveActivity] getPlugin threw:', e);
             return null;
+        }
+    }
+
+    // Small human-readable dump of what's actually on window.Capacitor,
+    // so a toast or PR comment can carry enough info to diagnose missing
+    // native plugin registration without a USB-attached Safari debugger.
+    function describeCapacitor() {
+        try {
+            const cap = window.Capacitor;
+            if (!cap) return 'window.Capacitor=missing';
+            const platform = (typeof cap.getPlatform === 'function') ? cap.getPlatform() : 'unknown';
+            const hasReg = (typeof cap.registerPlugin === 'function');
+            const pluginKeys = (cap.Plugins && typeof cap.Plugins === 'object')
+                ? Object.keys(cap.Plugins).slice(0, 12).join(',')
+                : 'none';
+            return `platform=${platform}, registerPlugin=${hasReg}, Plugins={${pluginKeys}}`;
+        } catch (e) {
+            return 'describe_failed:' + (e && e.message || e);
         }
     }
 
@@ -90,7 +113,12 @@
     async function requestNotificationPermission(opts) {
         if (!detectIOS()) return { ok: false, reason: 'unsupported' };
         const plugin = getPlugin();
-        if (!plugin) return { ok: false, reason: 'plugin_unavailable' };
+        if (!plugin || typeof plugin.requestNotificationPermission !== 'function') {
+            return {
+                ok: false,
+                reason: 'native bridge unreachable (' + describeCapacitor() + ')'
+            };
+        }
         const force = !!(opts && opts.force);
         if (notificationPermissionRequested && !force) {
             return { ok: true, reason: 'already_requested' };
@@ -118,6 +146,12 @@
     async function start(payload) {
         if (!isSupported()) return { ok: false, reason: 'unsupported' };
         const plugin = getPlugin();
+        if (!plugin || typeof plugin.start !== 'function') {
+            return {
+                ok: false,
+                reason: 'native bridge unreachable (' + describeCapacitor() + ')'
+            };
+        }
         const args = {
             flightId: String(payload.flightId),
             callsign: payload.callsign || '',
@@ -218,7 +252,24 @@
         getTrackedFlightId,
         requestNotificationPermission,
         getNotificationPermissionStatus,
-        openSystemSettings
+        openSystemSettings,
+        describeCapacitor,
+        // Diagnostic: returns everything we know about the bridge state.
+        diagnose() {
+            return {
+                detectIOS: detectIOS(),
+                capacitor: describeCapacitor(),
+                plugin: !!getPlugin(),
+                pluginMethods: (() => {
+                    const p = getPlugin();
+                    if (!p) return null;
+                    return ['start', 'update', 'end', 'requestNotificationPermission',
+                            'getNotificationPermissionStatus', 'openSystemSettings',
+                            'areActivitiesEnabled']
+                        .map(n => `${n}=${typeof p[n]}`).join(', ');
+                })()
+            };
+        }
     };
 
     // Fire the iOS notification permission prompt on first launch (once).

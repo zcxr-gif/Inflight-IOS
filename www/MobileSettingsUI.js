@@ -163,7 +163,7 @@ renderMobileContainer() {
         // non-iOS (handled in the click listener) but the section header
         // serves as a visible build-stamp.
         return `
-            <div class="mobile-section-header">Notifications <span class="m-build-tag">v3</span></div>
+            <div class="mobile-section-header">Notifications <span class="m-build-tag">v4</span></div>
             <div class="m-settings-list">
                 <div class="m-setting-row" id="m-notif-row">
                     <div class="m-row-left">
@@ -175,7 +175,8 @@ renderMobileContainer() {
                         <button id="m-notif-enable" class="m-btn m-primary m-notif-cta" type="button">Enable</button>
                     </div>
                 </div>
-                <p class="m-notif-help">Required for lock-screen flight tracking ("this is my flight") and push alerts. If tapping Enable does nothing, the build is missing the native bridge — reinstall from the latest TestFlight.</p>
+                <p class="m-notif-help" id="m-notif-help">Required for lock-screen flight tracking ("this is my flight") and push alerts.</p>
+                <div class="m-notif-diag" id="m-notif-diag"></div>
             </div>
         `;
     },
@@ -386,7 +387,20 @@ refreshProLocks() {
     async refreshNotificationStatus() {
         const pill = document.getElementById('m-notif-status');
         const btn = document.getElementById('m-notif-enable');
+        const diag = document.getElementById('m-notif-diag');
         if (!pill || !btn) return;
+
+        // Always render the diagnostic — it's tiny and tells us at a glance
+        // whether the Capacitor bridge is actually wired up.
+        if (diag && window.InflightLiveActivity?.diagnose) {
+            try {
+                const d = window.InflightLiveActivity.diagnose();
+                diag.textContent = `Bridge: ${d.capacitor} • plugin=${d.plugin}` +
+                    (d.pluginMethods ? ` • methods: ${d.pluginMethods}` : '');
+            } catch (e) {
+                diag.textContent = 'Bridge: diagnose threw ' + (e && e.message || e);
+            }
+        }
 
         const hasBridge = !!(window.InflightLiveActivity &&
             typeof window.InflightLiveActivity.getNotificationPermissionStatus === 'function');
@@ -585,6 +599,14 @@ refreshProLocks() {
                     font-size: 0.65rem; padding: 2px 6px; margin-left: 6px;
                     background: rgba(56,189,248,0.18); color: #38bdf8;
                     border-radius: 999px; letter-spacing: 0.04em;
+                }
+                .m-notif-diag {
+                    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                    font-size: 0.65rem; color: #64748b;
+                    background: rgba(148,163,184,0.08);
+                    padding: 8px 10px; margin: 4px 4px 14px;
+                    border-radius: 8px; word-break: break-all;
+                    line-height: 1.4;
                 }
 
                 .custom-scroll { overflow-y: auto; flex: 1; }
