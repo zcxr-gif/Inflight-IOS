@@ -81,7 +81,7 @@ workflows:
           # does not expose to scripts).
           echo "==> Downloading App Store provisioning profiles"
           app-store-connect profiles list \
-            --profile-type IOS_APP_STORE \
+            --type IOS_APP_STORE \
             --save
 
           echo "==> Profiles available on the runner:"
