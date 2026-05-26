@@ -109,6 +109,9 @@ widget_target.build_configurations.each do |config|
   s['SWIFT_VERSION']                    = '5.0'
   s['INFOPLIST_FILE']                   = 'InflightLiveActivity/Info.plist'
   s['CODE_SIGN_STYLE']                  = 'Manual'
+  s['CODE_SIGN_IDENTITY']               = 'iPhone Distribution'
+  s['DEVELOPMENT_TEAM']                 = 'R52YDKDB56'
+  s['PROVISIONING_PROFILE_SPECIFIER']   = 'InflightLiveActivity_Distribution'
   s['CURRENT_PROJECT_VERSION']          = '1'
   s['MARKETING_VERSION']                = '1.0'
   s['GENERATE_INFOPLIST_FILE']          = 'NO'
@@ -118,9 +121,6 @@ widget_target.build_configurations.each do |config|
   s['INFOPLIST_KEY_CFBundleDisplayName'] = 'Inflight Live Activity'
   s['SDKROOT']                          = 'iphoneos'
   s['DEBUG_INFORMATION_FORMAT']         = config.name == 'Release' ? 'dwarf-with-dsym' : 'dwarf'
-  # Inherit the team from the main app at sign time on the Codemagic runner.
-  team_id = app_target.build_configurations.first.build_settings['DEVELOPMENT_TEAM']
-  s['DEVELOPMENT_TEAM'] = team_id if team_id && !team_id.empty?
 end
 
 # ---- 5. Wire source files into the widget target ----
