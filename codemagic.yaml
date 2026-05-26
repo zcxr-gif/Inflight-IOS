@@ -94,6 +94,16 @@ workflows:
             | grep -Ei 'CODE_SIGN|PROVISIONING_PROFILE|DEVELOPMENT_TEAM|PRODUCT_BUNDLE_IDENTIFIER' \
             || true
 
+          # Apply the downloaded provisioning profiles to every target in the
+          # freshly generated Xcode project and write the export options plist
+          # to $HOME/export_options.plist, which is where `xcode-project
+          # build-ipa` looks for it by default. Without this, build-ipa fails
+          # with "Path /Users/builder/export_options.plist does not exist".
+          echo "==> Applying profiles and generating export options"
+          xcode-project use-profiles \
+            --project App.xcodeproj \
+            --export-options-plist "$HOME/export_options.plist"
+
       - name: Build IPA (Signed)
         script: |
           cd ios/App
