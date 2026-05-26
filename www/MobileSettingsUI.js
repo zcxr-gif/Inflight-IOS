@@ -158,12 +158,12 @@ renderMobileContainer() {
     },
 
     renderNotificationsSection() {
-        // Always show the section on iOS — the row tells the user the current
-        // permission state and lets them re-trigger the prompt.
-        const isIOS = !!(window.InflightLiveActivity && window.InflightLiveActivity.isSupported && window.InflightLiveActivity.isSupported());
-        if (!isIOS) return '';
+        // Render unconditionally so we can verify from a screenshot whether
+        // the build picked up these changes. The button is a no-op on
+        // non-iOS (handled in the click listener) but the section header
+        // serves as a visible build-stamp.
         return `
-            <div class="mobile-section-header">Notifications</div>
+            <div class="mobile-section-header">Notifications <span class="m-build-tag">v3</span></div>
             <div class="m-settings-list">
                 <div class="m-setting-row" id="m-notif-row">
                     <div class="m-row-left">
@@ -175,7 +175,7 @@ renderMobileContainer() {
                         <button id="m-notif-enable" class="m-btn m-primary m-notif-cta" type="button">Enable</button>
                     </div>
                 </div>
-                <p class="m-notif-help">Required for lock-screen flight tracking ("this is my flight") and push alerts.</p>
+                <p class="m-notif-help">Required for lock-screen flight tracking ("this is my flight") and push alerts. If tapping Enable does nothing, the build is missing the native bridge — reinstall from the latest TestFlight.</p>
             </div>
         `;
     },
@@ -250,17 +250,31 @@ refreshProLocks() {
                 const prevLabel = notifBtn.textContent;
                 notifBtn.textContent = '…';
                 try {
+                    if (!window.InflightLiveActivity || typeof window.InflightLiveActivity.requestNotificationPermission !== 'function') {
+                        window.showNotification?.('Native bridge missing. Reinstall the latest TestFlight build.', 'error');
+                        return;
+                    }
                     if (isBlocked) {
-                        await window.InflightLiveActivity?.openSystemSettings?.();
+                        await window.InflightLiveActivity.openSystemSettings?.();
                     } else {
-                        const res = await window.InflightLiveActivity?.requestNotificationPermission?.({ force: true });
-                        // If the OS will no longer show the dialog (already denied
-                        // previously), deep-link to iOS Settings on this same tap.
-                        if (res && res.granted === false && res.prompted === false && res.status === 'denied') {
-                            await window.InflightLiveActivity?.openSystemSettings?.();
+                        const res = await window.InflightLiveActivity.requestNotificationPermission({ force: true });
+                        console.log('[Notifications] requestNotificationPermission ->', res);
+                        if (!res || res.ok === false) {
+                            const reason = (res && res.reason) ? String(res.reason) : 'no response';
+                            window.showNotification?.(`Permission request failed: ${reason}`, 'error');
+                        } else if (res.granted === true) {
+                            window.showNotification?.('Notifications enabled.', 'success');
+                        } else if (res.granted === false && res.prompted === false && res.status === 'denied') {
+                            // Already denied — deep-link to Settings on this same tap.
+                            await window.InflightLiveActivity.openSystemSettings?.();
+                        } else if (res.granted === false && res.prompted === true) {
+                            window.showNotification?.('You tapped Don\'t Allow. Re-enable in iOS Settings › Inflight.', 'info');
                         }
                     }
-                } catch (_) { /* surfaced via status pill */ }
+                } catch (err) {
+                    console.error('[Notifications] click handler error:', err);
+                    window.showNotification?.(`Error: ${err && err.message || err}`, 'error');
+                }
                 await this.refreshNotificationStatus();
                 notifBtn.disabled = false;
                 if (notifBtn.textContent === '…') notifBtn.textContent = prevLabel;
@@ -373,12 +387,26 @@ refreshProLocks() {
         const pill = document.getElementById('m-notif-status');
         const btn = document.getElementById('m-notif-enable');
         if (!pill || !btn) return;
+
+        const hasBridge = !!(window.InflightLiveActivity &&
+            typeof window.InflightLiveActivity.getNotificationPermissionStatus === 'function');
+        if (!hasBridge) {
+            pill.dataset.status = 'unsupported';
+            pill.textContent = 'No bridge';
+            btn.textContent = 'Enable';
+            return;
+        }
+
         let status = 'unknown';
         let granted = false;
         try {
-            const res = await window.InflightLiveActivity?.getNotificationPermissionStatus?.();
-            if (res) { status = res.status; granted = !!res.granted; }
-        } catch (_) {}
+            const res = await window.InflightLiveActivity.getNotificationPermissionStatus();
+            console.log('[Notifications] status ->', res);
+            if (res) { status = res.status || 'unknown'; granted = !!res.granted; }
+        } catch (err) {
+            console.warn('[Notifications] status failed:', err);
+            status = 'error';
+        }
         pill.dataset.status = status;
         if (granted) {
             pill.textContent = 'Allowed';
@@ -552,6 +580,11 @@ refreshProLocks() {
                 .m-notif-help {
                     font-size: 0.78rem; color: #94a3b8;
                     margin: 6px 4px 14px; line-height: 1.4;
+                }
+                .m-build-tag {
+                    font-size: 0.65rem; padding: 2px 6px; margin-left: 6px;
+                    background: rgba(56,189,248,0.18); color: #38bdf8;
+                    border-radius: 999px; letter-spacing: 0.04em;
                 }
 
                 .custom-scroll { overflow-y: auto; flex: 1; }

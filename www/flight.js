@@ -9981,7 +9981,12 @@ function setupAircraftWindowEvents() {
                     } else if (res?.reason === 'unsupported') {
                         showNotification?.('Live Activities not available on this device.', 'error');
                     } else {
-                        showNotification?.('Could not start Live Activity. Check Settings > Inflight > Live Activities.', 'error');
+                        // Surface the actual native error so we can diagnose
+                        // ActivityKit failures instead of guessing.
+                        const reason = (res && res.reason) ? String(res.reason) : 'unknown';
+                        const short = reason.length > 140 ? reason.slice(0, 140) + '…' : reason;
+                        console.error('[LiveActivity] start failed:', res);
+                        showNotification?.(`Could not start Live Activity: ${short}`, 'error');
                     }
                 }
                 // Swap the icon
