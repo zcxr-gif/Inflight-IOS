@@ -3570,6 +3570,17 @@ function injectCustomStyles() {
             place-items: center;
             transition: all 0.2s ease;
             backdrop-filter: blur(4px);
+            position: relative;
+        }
+
+        /* Extends the tap area to ~44pt (Apple HIG minimum) without changing
+           the visual size. The 32px circular button alone is a fiddly target
+           in portrait, where the identity h1 can also sit close to it. */
+        .hero-btn::before {
+            content: '';
+            position: absolute;
+            inset: -6px;
+            border-radius: 50%;
         }
 
         .hero-btn:hover {
@@ -13398,7 +13409,7 @@ let totalDistanceNM = 0;
     <div class="ac-header-modern" id="ac-overview-panel" style=" background-image: url('${techCardImagePath}'), url('/CommunityPlanes/default.png'); position: relative; display: flex; flex-direction: column; flex-shrink: 0; min-height: 200px; background-size: cover; background-position: center; transition: background-image 0.5s ease-in-out;">
             <div class="ac-header-overlay" style="position: absolute; inset: 0; background: linear-gradient(to bottom, transparent 0%, transparent 50%, var(--iw-bg-end) 100%); z-index: 0; pointer-events: none;"></div>
             <div class="ac-header-top" style=" position: relative; z-index: 1; padding: 20px 24px; display: flex; justify-content: space-between; align-items: flex-start;">
-                <div class="ac-identity-group" style="max-width: calc(100% - 120px);">
+                <div class="ac-identity-group" style="max-width: calc(100% - 168px);">
                     <h1 style="font-size: 24px; font-weight: 800; color: #fff; margin: 0; line-height: 1.1; text-shadow: 0 2px 4px rgba(0,0,0,0.8);">${logoHtml} ${baseProps.callsign}</h1>
                     <div class="ac-sub-identity" style=" font-size: 11px; font-weight: 500; color: #cbd5e1; margin-top: 6px; text-shadow: 0 1px 2px rgba(0,0,0,0.8); display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                         <span>${aircraftName}</span>

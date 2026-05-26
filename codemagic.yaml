@@ -72,6 +72,20 @@ workflows:
           fi
           echo "==> Plugin references found in project.pbxproj"
 
+          # Capacitor 8 reads packageClassList from the bundled
+          # capacitor.config.json at app launch. If LiveActivityPlugin isn't
+          # in that list the bridge silently skips it, the JS plugin proxy
+          # resolves to null, and notification-permission requests never
+          # reach iOS (so the app doesn't appear in Settings -> Notifications).
+          echo "==> Verifying LiveActivityPlugin is in bundled packageClassList"
+          if ! grep -q 'LiveActivityPlugin' ios/App/App/capacitor.config.json; then
+            echo "FATAL: LiveActivityPlugin missing from ios/App/App/capacitor.config.json packageClassList."
+            echo "       Bridge will not register the plugin; notifications + Live Activities will silently fail."
+            cat ios/App/App/capacitor.config.json || true
+            exit 1
+          fi
+          echo "==> packageClassList contains LiveActivityPlugin"
+
           # Check for Podfile to decide on Pods vs SPM
           cd ios/App
           if [ -f "Podfile" ]; then
