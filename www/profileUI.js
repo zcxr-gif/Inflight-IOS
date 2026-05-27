@@ -606,11 +606,20 @@ init(supabaseClient) {
                                     : '';
                                 this._showToast(`<i class="fa-solid fa-plane-departure" style="margin-right:8px;"></i><strong>${who}</strong> is now airborne${route}`, 'info');
                                 try {
+                                    // iOS notification hierarchy:
+                                    //   title   = friend's name (bold)
+                                    //   subtitle= status verb (semibold)
+                                    //   body    = route + aircraft
+                                    const acft = f?.aircraft?.aircraftName || '';
+                                    const bodyParts = [];
+                                    if (f?.departureIcao && f?.arrivalIcao) {
+                                        bodyParts.push(`${f.departureIcao} → ${f.arrivalIcao}`);
+                                    }
+                                    if (acft) bodyParts.push(acft);
                                     window.InflightLiveActivity?.presentLocalNotification?.({
-                                        title: `${who} is airborne`,
-                                        body:  f?.departureIcao && f?.arrivalIcao
-                                                ? `${f.departureIcao} → ${f.arrivalIcao}`
-                                                : 'Watchlist pilot just took off',
+                                        title: who,
+                                        subtitle: 'Now airborne',
+                                        body:  bodyParts.join(' · ') || 'Watchlist pilot just took off',
                                         identifier: `watchlist-airborne-${un}`,
                                         threadIdentifier: 'inflight-watchlist',
                                         userInfo: { kind: 'watchlist_airborne', username: un }

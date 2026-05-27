@@ -26,18 +26,26 @@ public struct InflightActivityAttributes: ActivityAttributes {
     public var arrivalIcao: String
     public var scheduledDeparture: Date
     public var scheduledArrival: Date
+    /// Total great-circle distance between departure and arrival airports.
+    /// Captured at start so we can render a progress bar that tracks the
+    /// remaining-distance state field without recomputing geography on
+    /// every refresh. Optional for back-compat with older callers --
+    /// falls back to the initial remaining distance.
+    public var totalDistanceNm: Double
 
     public init(callsign: String,
                 airlineName: String,
                 departureIcao: String,
                 arrivalIcao: String,
                 scheduledDeparture: Date,
-                scheduledArrival: Date) {
+                scheduledArrival: Date,
+                totalDistanceNm: Double) {
         self.callsign = callsign
         self.airlineName = airlineName
         self.departureIcao = departureIcao
         self.arrivalIcao = arrivalIcao
         self.scheduledDeparture = scheduledDeparture
         self.scheduledArrival = scheduledArrival
+        self.totalDistanceNm = totalDistanceNm
     }
 }

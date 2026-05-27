@@ -139,16 +139,20 @@ public class LiveActivityPlugin: CAPPlugin, UNUserNotificationCenterDelegate {
             return
         }
         let body            = call.getString("body") ?? ""
+        let subtitle        = call.getString("subtitle") ?? ""
         let identifier      = call.getString("identifier") ?? UUID().uuidString
         let threadId        = call.getString("threadIdentifier") ?? "inflight-watchlist"
+        let categoryId      = call.getString("categoryIdentifier") ?? ""
         let withSound       = call.getBool("sound") ?? true
         let userInfo        = call.getObject("userInfo") ?? [:]
 
         let content = UNMutableNotificationContent()
         content.title = title
+        if !subtitle.isEmpty { content.subtitle = subtitle }
         if !body.isEmpty { content.body = body }
         content.sound = withSound ? .default : nil
         content.threadIdentifier = threadId
+        if !categoryId.isEmpty { content.categoryIdentifier = categoryId }
         content.userInfo = userInfo
         if #available(iOS 15.0, *) {
             content.interruptionLevel = .active
@@ -223,6 +227,11 @@ public class LiveActivityPlugin: CAPPlugin, UNUserNotificationCenterDelegate {
         let currentETA = dateFromMs(call.getDouble("currentEtaMs")) ?? schedArr
         let currentATD = dateFromMs(call.getDouble("currentAtdMs"))
         let distNm = call.getDouble("distanceToDestinationNm") ?? 0
+        // Total airport-to-airport distance for the progress bar. JS may
+        // omit this on old callers -- fall back to the current remaining
+        // distance so the bar starts at 0% progress (visually identical
+        // to "just took off").
+        let totalDistNm = call.getDouble("totalDistanceNm") ?? distNm
         let isLanded = call.getBool("isLanded") ?? false
 
         if let existingId = activeActivityIdByFlight[flightId] {
@@ -241,7 +250,8 @@ public class LiveActivityPlugin: CAPPlugin, UNUserNotificationCenterDelegate {
             departureIcao: departureIcao,
             arrivalIcao: arrivalIcao,
             scheduledDeparture: schedDep,
-            scheduledArrival: schedArr
+            scheduledArrival: schedArr,
+            totalDistanceNm: max(totalDistNm, distNm)
         )
 
         let state = InflightActivityAttributes.ContentState(

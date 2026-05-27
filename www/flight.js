@@ -9273,6 +9273,17 @@ async function createAirportInfoWindowHTML(icao) {
             distanceNm = getDistanceKm(props.position.lat, props.position.lon, destLat, destLon) / 1.852;
         }
 
+        // Total great-circle distance dep → arr. Captured once at start so
+        // the Live Activity progress bar can render distance progress
+        // without recomputing geometry on every refresh.
+        let totalDistanceNm = 0;
+        const depLat = airportsData[depIcao]?.lat;
+        const depLon = airportsData[depIcao]?.lon;
+        if (depLat != null && depLon != null && destLat != null && destLon != null) {
+            totalDistanceNm = getDistanceKm(depLat, depLon, destLat, destLon) / 1.852;
+        }
+        if (totalDistanceNm < distanceNm) totalDistanceNm = distanceNm;
+
         // Hand the same cascade the in-app card uses (SCHEDULED → ACTUAL →
         // ESTIMATED) so the lock screen agrees with what's on screen.
         const cachedTrail = (typeof liveTrailCache !== 'undefined' && liveTrailCache.has(flightId))
@@ -9315,6 +9326,7 @@ async function createAirportInfoWindowHTML(icao) {
             currentEta: etaMs,
             currentAtd: atdMs,
             distanceToDestinationNm: distanceNm,
+            totalDistanceNm,
             isLanded: false
         };
     }

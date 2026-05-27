@@ -142,7 +142,13 @@
      * available — callers should treat this as a best-effort surface
      * and keep their in-app toast as the real source of truth.
      *
-     * args = { title, body, identifier, threadIdentifier, sound, userInfo }
+     * args = { title, subtitle, body, identifier, threadIdentifier,
+     *          categoryIdentifier, sound, userInfo }
+     *
+     * iOS renders title in bold, subtitle in a slightly lighter bold below,
+     * and body in regular weight underneath -- giving us three distinct
+     * lines without HTML. Use subtitle for the "Now airborne" / "Just
+     * landed" status line and body for the route / aircraft.
      */
     async function presentLocalNotification(args) {
         const payload = Object.assign({ sound: true }, args || {});
@@ -164,11 +170,13 @@
 
         // 2) Web Notification API fallback — works on desktop Safari,
         //    Chrome, Firefox. On iOS WKWebView this won't surface
-        //    system banners, but it won't throw either.
+        //    system banners, but it won't throw either. The web API has
+        //    no subtitle, so we fold it into the body.
         try {
             if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+                const composedBody = [payload.subtitle, payload.body].filter(Boolean).join(' · ');
                 const n = new Notification(payload.title, {
-                    body: payload.body || '',
+                    body: composedBody,
                     tag:  payload.identifier || undefined,
                     silent: payload.sound === false
                 });
@@ -207,6 +215,11 @@
             currentEtaMs: toMs(payload.currentEta || payload.scheduledArrival),
             currentAtdMs: toMs(payload.currentAtd),
             distanceToDestinationNm: Number(payload.distanceToDestinationNm) || 0,
+            // Total airport-to-airport distance, captured once at start so
+            // the lock-screen progress bar can render done/total. Falls
+            // back to the live remaining distance if the caller doesn't
+            // know -- the bar will simply start near 0% in that case.
+            totalDistanceNm: Number(payload.totalDistanceNm) || Number(payload.distanceToDestinationNm) || 0,
             isLanded: !!payload.isLanded
         };
         try {
