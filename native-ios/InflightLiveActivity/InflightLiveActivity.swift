@@ -218,41 +218,13 @@ struct LockScreenView: View {
     let context: ActivityViewContext<InflightActivityAttributes>
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            // Aurora wash -- gives the widget a recognizable brand glow
-            // instead of a flat tint, so it reads as an "Inflight" surface
-            // regardless of what wallpaper sits behind it.
-            LinearGradient(
-                colors: [
-                    InflightLA.accent.opacity(0.22),
-                    InflightLA.accent.opacity(0.04),
-                    Color.clear
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .allowsHitTesting(false)
-
-            // Vertical accent rail -- a hairline of brand color along the
-            // leading edge. Subtle but recognisable across notifications.
-            Rectangle()
-                .fill(LinearGradient(
-                    colors: [InflightLA.accent, InflightLA.accent.opacity(0.35)],
-                    startPoint: .top,
-                    endPoint: .bottom))
-                .frame(width: 3)
-                .frame(maxHeight: .infinity, alignment: .center)
-                .allowsHitTesting(false)
-
-            VStack(alignment: .leading, spacing: 11) {
-                HeaderRow(context: context)
-                RouteBlock(context: context)
-                MetricsRow(context: context)
-            }
-            .padding(.leading, 16)
-            .padding(.trailing, 16)
-            .padding(.vertical, 14)
+        VStack(alignment: .leading, spacing: 11) {
+            HeaderRow(context: context)
+            RouteBlock(context: context)
+            MetricsRow(context: context)
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
     }
 }
 
@@ -308,17 +280,16 @@ private struct CallsignPill: View {
 @available(iOS 16.1, *)
 private struct BrandMark: View {
     var body: some View {
-        HStack(spacing: 5) {
-            Image("AppIcon")
-                .resizable()
-                .frame(width: 13, height: 13)
-                .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
+        HStack(spacing: 4) {
+            Image(systemName: "paperplane.fill")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(InflightLA.accent)
             Text("inflight")
                 .font(.system(size: 11, weight: .heavy, design: .rounded))
                 .foregroundColor(InflightLA.text)
                 .tracking(0.3)
         }
-        .padding(.horizontal, 6)
+        .padding(.horizontal, 7)
         .padding(.vertical, 3)
         .background(InflightLA.chipBg, in: Capsule())
         .overlay(Capsule().stroke(InflightLA.stroke, lineWidth: 0.5))
@@ -523,9 +494,9 @@ private struct DIRouteRow: View {
 // MARK: - Progress track with plane glyph and dashed future trail
 // =============================================================================
 
-/// A 4pt rounded track with a glowing plane glyph riding along it. The unflown
-/// segment is rendered as a dashed line — Apple Wallet / Flighty boarding-pass
-/// style — so the visual immediately communicates "how much further to go".
+/// A 4pt rounded track with a plane glyph riding along it. Filled portion uses
+/// a gradient + soft glow so the route reads as "this much done, this much
+/// to go" without any extra text labels.
 @available(iOS 16.1, *)
 struct ProgressTrack: View {
     let progress: Double
@@ -542,18 +513,16 @@ struct ProgressTrack: View {
             let filled = max(glyphBox / 2, w * p)
 
             ZStack(alignment: .leading) {
-                // Background: full-width dashed line for the unflown segment.
-                DashedLine(width: w, height: trackHeight, color: InflightLA.trackBg)
+                Capsule()
+                    .fill(InflightLA.trackBg)
                     .frame(height: trackHeight)
 
-                // Filled gradient with a soft accent glow.
                 Capsule()
                     .fill(LinearGradient(
                         colors: [InflightLA.accent.opacity(0.7), InflightLA.accent],
                         startPoint: .leading,
                         endPoint: .trailing))
                     .frame(width: filled, height: trackHeight)
-                    .shadow(color: InflightLA.accent.opacity(0.55), radius: 4, x: 0, y: 0)
 
                 glyph
                     .frame(width: glyphBox, height: glyphBox)
@@ -570,34 +539,11 @@ struct ProgressTrack: View {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(InflightLA.success)
-                .background(
-                    Circle()
-                        .fill(Color.black.opacity(0.55))
-                        .frame(width: 18, height: 18)
-                )
         } else {
             Image(systemName: "airplane")
                 .font(.system(size: 13, weight: .bold))
                 .foregroundColor(InflightLA.text)
-                .shadow(color: InflightLA.accent.opacity(0.55), radius: 4, x: 0, y: 0)
         }
-    }
-}
-
-@available(iOS 16.1, *)
-private struct DashedLine: View {
-    let width: CGFloat
-    let height: CGFloat
-    let color: Color
-
-    var body: some View {
-        Path { path in
-            path.move(to: CGPoint(x: 0, y: height / 2))
-            path.addLine(to: CGPoint(x: width, y: height / 2))
-        }
-        .stroke(color, style: StrokeStyle(lineWidth: height,
-                                          lineCap: .round,
-                                          dash: [3, 5]))
     }
 }
 
