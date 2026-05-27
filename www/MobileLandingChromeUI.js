@@ -660,55 +660,133 @@ export const MobileLandingChromeUI = {
                 height: 38px;
             }
 
-            /* Search results — full-bleed sheet below the floating nav bar */
+            /* ============ SEARCH RESULTS — floating glass card ============
+               Matches the search capsule above: same margins, hairline,
+               backdrop-filter, and corner radius. Sits as a contained
+               sheet under the search bead, not a full-bleed page. */
             #inflight-tactical-ui #blade-search-results {
                 position: fixed !important;
-                top: calc(env(safe-area-inset-top, 0px) + 56px) !important;
-                left: 0 !important;
-                right: 0 !important;
-                width: 100vw !important;
-                height: calc(100dvh - env(safe-area-inset-top, 0px) - 56px) !important;
-                max-height: none !important;
+                top: calc(env(safe-area-inset-top, 0px) + 54px) !important;
+                left: 8px !important;
+                right: 8px !important;
+                width: auto !important;
+                max-height: calc(100dvh - env(safe-area-inset-top, 0px) - max(env(safe-area-inset-bottom, 0px), 4px) - 80px) !important;
+                height: auto !important;
                 margin: 0 !important;
-                padding: 0 0 calc(env(safe-area-inset-bottom, 0px) + 16px) !important;
-                border: none !important;
-                border-radius: 0 !important;
-                background: rgba(10, 10, 11, 0.97) !important;
-                -webkit-backdrop-filter: blur(20px) !important;
-                backdrop-filter: blur(20px) !important;
-                box-shadow: none !important;
+                padding: 6px !important;
+                border: 0.5px solid var(--ios-stroke) !important;
+                border-radius: 22px !important;
+                background: var(--ios-bg) !important;
+                -webkit-backdrop-filter: var(--ios-blur) !important;
+                backdrop-filter: var(--ios-blur) !important;
+                box-shadow: var(--ios-shadow) !important;
+                overflow-y: auto !important;
+                -webkit-overflow-scrolling: touch !important;
+                overscroll-behavior: contain !important;
                 z-index: 1499 !important;
                 pointer-events: auto !important;
                 visibility: visible !important;
             }
             #inflight-tactical-ui[data-theme="light"] #blade-search-results {
-                background: rgba(248, 248, 250, 0.98) !important;
+                background: var(--ios-bg) !important;
             }
+            /* Hide native scrollbar — iOS aesthetic. */
+            #inflight-tactical-ui #blade-search-results::-webkit-scrollbar {
+                width: 0 !important;
+                background: transparent !important;
+            }
+
+            /* Section divider between result groups — clean hairline, no padding noise. */
+            #inflight-tactical-ui .blade-results-section + .blade-results-section {
+                border-top: 0.5px solid var(--ios-stroke-soft) !important;
+                margin-top: 6px !important;
+                padding-top: 4px !important;
+            }
+            /* Section header — small uppercase label inside the glass card. */
             #inflight-tactical-ui .blade-results-header {
-                position: sticky !important;
-                top: 0 !important;
-                background: inherit !important;
-                padding: 16px 16px 6px !important;
+                position: static !important;
+                background: transparent !important;
+                padding: 10px 12px 4px !important;
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
                 font-size: 11px !important;
                 font-weight: 600 !important;
                 text-transform: uppercase !important;
-                letter-spacing: 0.6px !important;
-                color: var(--ios-text-2, rgba(235,235,245,0.6)) !important;
-                z-index: 1 !important;
+                letter-spacing: 0.5px !important;
+                color: var(--ios-text-3) !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: space-between !important;
             }
+            #inflight-tactical-ui .blade-results-count {
+                font-family: inherit !important;
+                font-size: 11px !important;
+                font-weight: 500 !important;
+                color: var(--ios-text-4) !important;
+                letter-spacing: 0 !important;
+            }
+
+            /* Result rows — flush inside the rounded card, gentle press feedback. */
             #inflight-tactical-ui .premium-result-item {
-                min-height: 60px !important;
-                padding: 12px 16px !important;
-                gap: 14px !important;
+                min-height: 56px !important;
+                padding: 10px 12px !important;
+                gap: 12px !important;
                 margin: 0 !important;
-                border-radius: 0 !important;
-                border-bottom: 0.5px solid rgba(255,255,255,0.08) !important;
+                border: none !important;
+                border-radius: 14px !important;
+                background: transparent !important;
+                transition: background-color 0.15s ease !important;
             }
-            #inflight-tactical-ui[data-theme="light"] .premium-result-item {
-                border-bottom-color: rgba(0,0,0,0.08) !important;
+            #inflight-tactical-ui .premium-result-item + .premium-result-item {
+                margin-top: 1px !important;
             }
-            #inflight-tactical-ui .premium-result-item:active {
-                background: rgba(255,255,255,0.06) !important;
+            #inflight-tactical-ui .premium-result-item:active,
+            #inflight-tactical-ui .premium-result-item.selected {
+                background: var(--ios-fill) !important;
+            }
+
+            /* Result row typography & inner chip — iOS palette */
+            #inflight-tactical-ui .premium-result-item .res-callsign {
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
+                font-size: 15px !important;
+                font-weight: 600 !important;
+                letter-spacing: -0.2px !important;
+                color: var(--ios-text) !important;
+            }
+            #inflight-tactical-ui .premium-result-item .res-secondary-row,
+            #inflight-tactical-ui .premium-result-item .res-pilot {
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
+                font-size: 12.5px !important;
+                font-weight: 400 !important;
+                color: var(--ios-text-3) !important;
+            }
+            #inflight-tactical-ui .premium-result-item .res-pill {
+                background: var(--ios-fill) !important;
+                color: var(--ios-text-2) !important;
+                font-size: 10px !important;
+                font-weight: 600 !important;
+                padding: 2px 7px !important;
+                border-radius: 6px !important;
+                letter-spacing: 0.02em !important;
+            }
+            #inflight-tactical-ui .premium-result-item .res-altitude {
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
+                font-size: 13px !important;
+                font-weight: 600 !important;
+                color: var(--ios-text) !important;
+            }
+            #inflight-tactical-ui .premium-result-item .res-altitude span {
+                color: var(--ios-text-3) !important;
+                font-weight: 400 !important;
+            }
+            #inflight-tactical-ui .premium-highlight {
+                color: var(--ios-accent) !important;
+                font-weight: 700 !important;
+            }
+            #inflight-tactical-ui .premium-empty-state {
+                padding: 28px 16px !important;
+                color: var(--ios-text-3) !important;
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
+                font-size: 14px !important;
             }
 
             /* ============ BOTTOM TAB BAR — native glass stadium ============ */
