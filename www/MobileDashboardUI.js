@@ -1982,12 +1982,16 @@ _updateLiveBanner() {
 
         if (!this._liveFlights || this._liveFlights.length === 0) {
             banner.innerHTML = '';
-            banner.style.display = 'none';
-            this._close3DHUD(); 
+            // Keep the banner in the layout tree but collapse it so the
+            // dashboard doesn't jump 200px when a live flight ends.
+            banner.style.display = '';
+            banner.style.minHeight = '0';
+            this._close3DHUD();
             return;
         }
 
         banner.style.display = 'block';
+        banner.style.minHeight = '';
 
         const existingCarousel = banner.querySelector('.mdui-live-carousel');
         const currentScrollPos = existingCarousel ? existingCarousel.scrollLeft : 0;
@@ -2035,7 +2039,7 @@ const cardsHtmlArray = this._liveFlights.map((f, index) => {
             `;
 
             return `
-                <div class="mdui-live-card mdui-fade-up" style="animation-delay:${index * 0.08}s;">
+                <div class="mdui-live-card">
                     <div class="mdui-live-visual">
                         ${bgHTML}
                         <div class="mdui-live-overlay"></div>
@@ -2074,27 +2078,14 @@ const cardsHtmlArray = this._liveFlights.map((f, index) => {
             `;
         });
 
-        banner.innerHTML = `<div class="mdui-live-carousel" style="cursor: grab;">${cardsHtmlArray.join('')}</div>`;
+        banner.innerHTML = `<div class="mdui-live-carousel">${cardsHtmlArray.join('')}</div>`;
 
+        // Restore scroll position across rebuilds so a live data tick
+        // doesn't yank the user back to card 0. Native iOS momentum
+        // scrolling handles the rest — no custom touch handler.
         const newCarousel = banner.querySelector('.mdui-live-carousel');
         if (newCarousel) {
             newCarousel.scrollLeft = currentScrollPos;
-            
-            let isDown = false, startX, scrollLeft;
-            newCarousel.addEventListener('touchstart', (e) => {
-                if (e.target.closest('button')) return;
-                isDown = true;
-                startX = e.touches[0].pageX;
-                scrollLeft = newCarousel.scrollLeft;
-            }, { passive: true });
-            
-            newCarousel.addEventListener('touchend', () => isDown = false, { passive: true });
-            
-            newCarousel.addEventListener('touchmove', (e) => {
-                if (!isDown) return;
-                const walk = (e.touches[0].pageX - startX);
-                newCarousel.scrollLeft = scrollLeft - walk;
-            }, { passive: true });
         }
 
         banner.querySelectorAll('.mdui-launch-3d-btn').forEach(btn => {
@@ -3799,22 +3790,34 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             .mdui-radio-pill:active { transform: scale(0.97); }
             .mdui-radio-pill:has(input:checked) { border-color: var(--mdui-accent); background: var(--mdui-accent-soft); color: var(--mdui-accent); }
             .mdui-radio-pill input { display: none; }
-            /* ── Carousel Roulette & 3D HUD Support ── */
+            /* ── Live flights carousel ──
+               One full-width card per page, native iOS momentum scroll
+               with proximity snap so a half-flick doesn't catapult you
+               to the next card. No custom touch handler — that fought
+               the native momentum scroller and made the rail feel
+               "elastic". */
         .mdui-live-carousel {
             display: flex;
             overflow-x: auto;
+            overflow-y: hidden;
             scroll-snap-type: x mandatory;
-            gap: 16px;
-            padding: 0 20px;
-            margin: 0 -20px 24px;
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior-x: contain;
             scrollbar-width: none;
+            gap: 10px;
+            padding: 2px 0;
+            margin: 0 0 18px;
+            scroll-padding-inline: 0;
+            touch-action: pan-x;
         }
         .mdui-live-carousel::-webkit-scrollbar {
             display: none;
         }
         .mdui-live-carousel > .mdui-live-card {
-            scroll-snap-align: center;
-            flex: 0 0 calc(100% - 16px);
+            scroll-snap-align: start;
+            scroll-snap-stop: always;
+            flex: 0 0 100%;
+            min-width: 100%;
             margin-bottom: 0;
         }
         .mdui-live-bg-3d {
