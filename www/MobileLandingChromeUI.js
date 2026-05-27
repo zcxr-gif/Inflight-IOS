@@ -676,7 +676,7 @@ export const MobileLandingChromeUI = {
                 padding: 6px !important;
                 border: 0.5px solid var(--ios-stroke) !important;
                 border-radius: 22px !important;
-                background: var(--ios-bg) !important;
+                background: var(--ios-bg-deep) !important;
                 -webkit-backdrop-filter: var(--ios-blur) !important;
                 backdrop-filter: var(--ios-blur) !important;
                 box-shadow: var(--ios-shadow) !important;
@@ -688,7 +688,7 @@ export const MobileLandingChromeUI = {
                 visibility: visible !important;
             }
             #inflight-tactical-ui[data-theme="light"] #blade-search-results {
-                background: var(--ios-bg) !important;
+                background: var(--ios-bg-deep) !important;
             }
             /* Hide native scrollbar — iOS aesthetic. */
             #inflight-tactical-ui #blade-search-results::-webkit-scrollbar {
@@ -1513,8 +1513,10 @@ export const MobileLandingChromeUI = {
                consumer (.mobile-island-bottom, .mobile-glass-pill, the
                route-summary handles, etc.) inherits the iOS palette. */
             :root {
-                --hud-bg: rgba(22, 22, 26, 0.52) !important;
-                --hud-blur: 40px !important;
+                /* Match the native iOS Material.regular opacity (~80%) so
+                   the island reads as a solid surface, not see-through. */
+                --hud-bg: rgba(28, 28, 32, 0.82) !important;
+                --hud-blur: 30px !important;
                 --hud-border: rgba(255, 255, 255, 0.12) !important;
                 --hud-accent: #0a84ff !important;
                 --hud-glow: none !important;
