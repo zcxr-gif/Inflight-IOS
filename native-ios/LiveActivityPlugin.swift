@@ -302,8 +302,14 @@ public class LiveActivityPlugin: CAPPlugin, UNUserNotificationCenterDelegate {
         // root cause of the ETE / arrival time the user reported as
         // wrong. We now only overwrite a field when JS actually
         // provides one.
-        let prior = Activity<InflightActivityAttributes>.activities
-            .first(where: { $0.id == activityId })?.content.state
+        let priorActivity = Activity<InflightActivityAttributes>.activities
+            .first(where: { $0.id == activityId })
+        let prior: InflightActivityAttributes.ContentState?
+        if #available(iOS 16.2, *) {
+            prior = priorActivity?.content.state
+        } else {
+            prior = priorActivity?.contentState
+        }
 
         let distNm: Double
         if let d = call.getDouble("distanceToDestinationNm") {
