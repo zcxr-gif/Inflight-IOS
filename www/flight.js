@@ -9265,17 +9265,55 @@ async function createAirportInfoWindowHTML(icao) {
             ? schedDepMs + (filedDuration * 60 * 1000)
             : null;
 
-        // ETA: prefer ground-speed-based estimate, fall back to scheduled.
-        const gs = props.position?.gs_kt || 0;
+        // Distance to destination (NM) for the live ETA estimate.
         let distanceNm = 0;
         const destLat = airportsData[arrIcao]?.lat;
         const destLon = airportsData[arrIcao]?.lon;
         if (destLat != null && destLon != null && props.position?.lat != null) {
             distanceNm = getDistanceKm(props.position.lat, props.position.lon, destLat, destLon) / 1.852;
         }
-        const etaMs = (distanceNm > 0 && gs > 50)
-            ? Date.now() + (distanceNm / gs) * 3600 * 1000
-            : (schedArrMs || (Date.now() + 60 * 60 * 1000));
+
+        // Total great-circle distance dep → arr. Captured once at start so
+        // the Live Activity progress bar can render distance progress
+        // without recomputing geometry on every refresh.
+        let totalDistanceNm = 0;
+        const depLat = airportsData[depIcao]?.lat;
+        const depLon = airportsData[depIcao]?.lon;
+        if (depLat != null && depLon != null && destLat != null && destLon != null) {
+            totalDistanceNm = getDistanceKm(depLat, depLon, destLat, destLon) / 1.852;
+        }
+        if (totalDistanceNm < distanceNm) totalDistanceNm = distanceNm;
+
+        // Hand the same cascade the in-app card uses (SCHEDULED → ACTUAL →
+        // ESTIMATED) so the lock screen agrees with what's on screen.
+        const cachedTrail = (typeof liveTrailCache !== 'undefined' && liveTrailCache.has(flightId))
+            ? liveTrailCache.get(flightId)
+            : null;
+        const filedPlan = (schedDepMs && filedDuration > 0)
+            ? { dep_time: filedDepTime, duration_minutes: filedDuration }
+            : null;
+        const depInfo = computeDepartureTimeInfo(props, cachedTrail, filedPlan, depIcao);
+        const arrInfo = computeArrivalTimeInfo(props, filedPlan, distanceNm);
+
+        // ETA: prefer the smart cascade's timestamp; fall back to a fresh
+        // gs+distance estimate; finally fall back to scheduled arrival. The
+        // old code's "now + 1h" fallback was producing wildly wrong ETEs
+        // on the lock-screen countdown when the aircraft was slow/taxiing.
+        const gs = props.position?.gs_kt || 0;
+        let etaMs = arrInfo?.timestamp ? arrInfo.timestamp.getTime() : null;
+        if (!etaMs && distanceNm > 0 && gs > 50) {
+            etaMs = Date.now() + (distanceNm / gs) * 3600 * 1000;
+        }
+        if (!etaMs) etaMs = schedArrMs || (Date.now() + 60 * 60 * 1000);
+
+        // ATD: only ACTUAL counts — the scheduled departure is conveyed
+        // separately. If we don't have GPS history yet, leave it
+        // undefined so the widget shows "scheduledDeparture" verbatim
+        // instead of mislabeling the planned time as the actual takeoff.
+        let atdMs;
+        if (depInfo?.timestamp && depInfo.label === 'ACTUAL') {
+            atdMs = depInfo.timestamp.getTime();
+        }
 
         return {
             flightId,
@@ -9283,11 +9321,12 @@ async function createAirportInfoWindowHTML(icao) {
             airlineName: props.liveryName || props.aircraftName || '',
             departureIcao: depIcao,
             arrivalIcao: arrIcao,
-            scheduledDeparture: schedDepMs || Date.now(),
+            scheduledDeparture: schedDepMs || (atdMs || Date.now()),
             scheduledArrival: schedArrMs || etaMs,
             currentEta: etaMs,
-            currentAtd: schedDepMs || undefined,
+            currentAtd: atdMs,
             distanceToDestinationNm: distanceNm,
+            totalDistanceNm,
             isLanded: false
         };
     }
@@ -14497,32 +14536,12 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     updateAll('#ac-dist', `${Math.round(distanceToDestNM)}<span class="unit">NM</span>`, true);
     updateAll('#ac-ete', ete);
 
-    // --- Live Activity push (iOS Lock Screen / Dynamic Island) ---
-    // Fires only when the user has marked this flight as "mine" via the bell button.
-    try {
-        if (window.InflightLiveActivity?.isTrackingFlight(baseProps.flightId)) {
-            const gs = baseProps.position.gs_kt || 0;
-            const etaMs = (distanceToDestNM > 0 && gs > 50)
-                ? Date.now() + (distanceToDestNM / gs) * 3600 * 1000
-                : (filedPlanData?.arrivalTime ? Date.parse(filedPlanData.arrivalTime) : Date.now() + 3600 * 1000);
-            const isLanded = !!(baseProps.position.alt_ft != null && baseProps.position.alt_ft < 100
-                                && gs < 40 && distanceToDestNM < 5);
-            window.InflightLiveActivity.update({
-                flightId: baseProps.flightId,
-                currentEta: etaMs,
-                currentAtd: filedPlanData?.departureTime ? Date.parse(filedPlanData.departureTime) : undefined,
-                distanceToDestinationNm: distanceToDestNM,
-                isLanded
-            });
-            if (isLanded) {
-                setTimeout(() => {
-                    window.InflightLiveActivity?.end({ flightId: baseProps.flightId, immediate: false });
-                }, 30000);
-            }
-        }
-    } catch (laErr) {
-        console.warn('[LiveActivity] update tick failed:', laErr);
-    }
+    // The Live Activity push used to live here, but it was computing
+    // its own ETA / ATD with a broken fallback ("now + 1h" when the
+    // aircraft was slow) and a typo (filedPlanData.departureTime — the
+    // real field is dep_time). It now lives below, after the same
+    // SCHEDULED/ACTUAL/ESTIMATED cascade the in-app card consumes, so
+    // the lock screen and the card always agree.
 
     // --- New nav-card live readouts (heading / G·S / TAS / ALT / ALT Δ) ---
     {
@@ -15070,6 +15089,53 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
 
     const _depInfoLive = computeDepartureTimeInfo(baseProps, sortedRoutePoints, _cachedFiledPlan, _depIcaoLive);
     const _arrInfoLive = computeArrivalTimeInfo(baseProps, _cachedFiledPlan, distanceToDestNM);
+
+    // --- Live Activity push (iOS Lock Screen / Dynamic Island) ---
+    // Fires only when the user has marked this flight as "mine" via the
+    // bell button. We reuse the same SCHEDULED/ACTUAL/ESTIMATED cascade
+    // the in-app card just consumed (_depInfoLive / _arrInfoLive), so
+    // the lock-screen ETE countdown agrees with the card and the
+    // departure time only shows ACTUAL once we have real GPS history.
+    try {
+        if (window.InflightLiveActivity?.isTrackingFlight(baseProps.flightId)) {
+            const _gsLA = baseProps.position?.gs_kt || 0;
+            const etaMs = _arrInfoLive?.timestamp
+                ? _arrInfoLive.timestamp.getTime()
+                : (distanceToDestNM > 0 && _gsLA > 50
+                    ? Date.now() + (distanceToDestNM / _gsLA) * 3600 * 1000
+                    : null);
+            // ATD only counts when we have real GPS history (label
+            // ACTUAL). Otherwise leave it undefined so the widget shows
+            // the scheduled departure verbatim instead of pretending
+            // we know the takeoff time.
+            const atdMs = (_depInfoLive?.timestamp && _depInfoLive.label === 'ACTUAL')
+                ? _depInfoLive.timestamp.getTime()
+                : undefined;
+            const isLanded = !!(baseProps.position?.alt_ft != null && baseProps.position.alt_ft < 100
+                                && _gsLA < 40 && distanceToDestNM < 5);
+            // Bail without an update if we genuinely have no ETA value
+            // to send. The Swift `update` defaults a missing ETA to
+            // Date.now(), which would zero out the lock-screen
+            // countdown ("0 min remaining") -- much worse than just
+            // skipping a tick.
+            if (etaMs) {
+                window.InflightLiveActivity.update({
+                    flightId: baseProps.flightId,
+                    currentEta: etaMs,
+                    currentAtd: atdMs,
+                    distanceToDestinationNm: distanceToDestNM,
+                    isLanded
+                });
+            }
+            if (isLanded) {
+                setTimeout(() => {
+                    window.InflightLiveActivity?.end({ flightId: baseProps.flightId, immediate: false });
+                }, 30000);
+            }
+        }
+    } catch (laErr) {
+        console.warn('[LiveActivity] update tick failed:', laErr);
+    }
 
     const depCountryCode = airportsData[departureIcao]?.country ? airportsData[departureIcao].country.toLowerCase() : '';
     const arrCountryCode = airportsData[arrivalIcao]?.country ? airportsData[arrivalIcao].country.toLowerCase() : '';

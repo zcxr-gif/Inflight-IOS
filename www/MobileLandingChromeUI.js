@@ -204,14 +204,27 @@ export const MobileLandingChromeUI = {
         });
 
         // --- Profile ---
-        profileBtn?.addEventListener('click', () => {
-            if (window.AuthUI) {
-                window.AuthUI.open();
-            } else {
-                import('./authUI.js').then(m => m.AuthUI.open())
-                    .catch(err => console.error('Failed to load AuthUI:', err));
+        // Open via pointerup (fires before click on iOS, avoids the synthetic
+        // delay) and fall back to click for accessibility tooling. Wrapped in
+        // try/catch so a failure surfaces instead of silently dying.
+        const openProfile = (ev) => {
+            ev?.preventDefault?.();
+            ev?.stopPropagation?.();
+            try {
+                if (window.AuthUI && typeof window.AuthUI.open === 'function') {
+                    Promise.resolve(window.AuthUI.open()).catch(err =>
+                        console.error('AuthUI.open failed:', err));
+                } else {
+                    import('./authUI.js')
+                        .then(m => m.AuthUI.open())
+                        .catch(err => console.error('Failed to load AuthUI:', err));
+                }
+            } catch (err) {
+                console.error('Profile button handler error:', err);
             }
-        });
+        };
+        profileBtn?.addEventListener('pointerup', openProfile);
+        profileBtn?.addEventListener('click', openProfile);
 
         // --- Search focus state (drives Cancel + tab-bar hiding) ---
         const enterSearch = () => {
@@ -617,11 +630,24 @@ export const MobileLandingChromeUI = {
                 place-items: center;
                 cursor: pointer;
                 box-shadow: var(--ios-shadow);
+                position: relative;
+                z-index: 2;
+                touch-action: manipulation;
+                -webkit-user-select: none;
+                user-select: none;
                 transition:
                     transform 0.22s cubic-bezier(0.16,1,0.3,1),
                     background-color 0.22s ease,
                     opacity 0.2s ease;
                 -webkit-tap-highlight-color: transparent;
+            }
+            /* Invisible 44pt tap target that overflows the visual bead — meets
+               Apple's HIG minimum hit area without growing the chrome. */
+            .ios-profile-btn::after {
+                content: "";
+                position: absolute;
+                inset: -6px;
+                border-radius: 50%;
             }
             .ios-profile-btn:active { transform: scale(0.9); background: var(--ios-bg-elev); }
 
