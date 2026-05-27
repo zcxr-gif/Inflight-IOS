@@ -171,6 +171,14 @@ begin
                WIDGET_DIR.join('InflightLiveActivity.swift'))
   FileUtils.cp(SRC_DIR.join('InflightLiveActivity/Info.plist'),
                WIDGET_DIR.join('Info.plist'))
+  # Asset catalog with the Inflight brand logo. Bundled per-extension because
+  # widget extensions don't share the host app's asset catalog at runtime.
+  src_assets = SRC_DIR.join('InflightLiveActivity/Assets.xcassets')
+  dst_assets = WIDGET_DIR.join('Assets.xcassets')
+  if src_assets.exist?
+    FileUtils.rm_rf(dst_assets) if dst_assets.exist?
+    FileUtils.cp_r(src_assets, dst_assets)
+  end
   log "Widget sources copied."
 
   widget_group  = main_group.new_group(WIDGET_TARGET_NAME, 'InflightLiveActivity')
@@ -214,6 +222,13 @@ begin
 
   widget_target.source_build_phase.add_file_reference(la_ref)
   widget_target.source_build_phase.add_file_reference(attrs_ref)
+
+  # Register the asset catalog so Image("InflightLogo") resolves at runtime.
+  if dst_assets.exist?
+    assets_ref = widget_group.new_reference('Assets.xcassets')
+    widget_target.resources_build_phase.add_file_reference(assets_ref)
+    log "Added Assets.xcassets to widget target resources."
+  end
 
   # Shared attributes also needed by the App target so the plugin can
   # build/update activities of the same type.
