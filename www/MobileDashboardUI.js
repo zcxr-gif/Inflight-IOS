@@ -1993,19 +1993,24 @@ _updateLiveBanner() {
         banner.style.display = 'block';
         banner.style.minHeight = '';
 
-        const existingCarousel = banner.querySelector('.mdui-live-carousel');
-        const currentScrollPos = existingCarousel ? existingCarousel.scrollLeft : 0;
+        // 3D viewer is gated on ground speed so the camera has something
+        // meaningful to track. Static planes on the ramp would render a
+        // useless still-frame; under ~100 kt the aircraft is at best
+        // taxiing.
+        const MIN_GS_FOR_3D = 100;
 
-const cardsHtmlArray = this._liveFlights.map((f, index) => {
+const cardsHtmlArray = this._liveFlights.map((f) => {
             const props = f.properties || f;
             const flightIdStr = String(f.flightId || props.flightId);
             const altRaw = props.altitude || f.position?.alt_ft || 0;
+            const spdRaw = props.speed    || f.position?.gs_kt  || 0;
+            const hdgRaw = props.heading  || f.position?.heading_deg;
             const alt = altRaw ? Math.round(altRaw).toLocaleString() : '—';
-            const spd = props.speed || f.position?.gs_kt ? Math.round(props.speed || f.position?.gs_kt) : '—';
-            const hdg = props.heading || f.position?.heading_deg ? String(Math.round(props.heading || f.position?.heading_deg)).padStart(3, '0') : '—';
+            const spd = spdRaw ? Math.round(spdRaw) : '—';
+            const hdg = hdgRaw != null ? String(Math.round(hdgRaw)).padStart(3, '0') : '—';
             const dep = props.departureIcao || f.departureIcao || '----';
-            const arr = props.arrivalIcao || f.arrivalIcao || '----';
-            const cs = props.callsign || f.callsign || props.username || f.username || '—';
+            const arr = props.arrivalIcao   || f.arrivalIcao   || '----';
+            const cs   = props.callsign || f.callsign || props.username || f.username || '—';
             const acft = props.aircraft?.aircraftName || f.aircraft?.aircraftName || 'Unknown Aircraft';
 
             let imageUrl = null;
@@ -2017,78 +2022,72 @@ const cardsHtmlArray = this._liveFlights.map((f, index) => {
                 }
             }
 
-            const canLaunch3D = altRaw > 3000;
-            
-            // Dual-layer image technique: Blurred background + contained sharp foreground
-            const bgHTML = imageUrl 
+            const canLaunch3D = spdRaw >= MIN_GS_FOR_3D;
+            const actionLabel = canLaunch3D
+                ? `<i class="fa-solid fa-cube"></i> Enter 3D View`
+                : `Needs ${MIN_GS_FOR_3D} kt ground speed`;
+
+            const bgHTML = imageUrl
                 ? `<div class="mdui-live-bg-blur" style="background-image:url('${imageUrl}')"></div>
-                   <div class="mdui-live-bg" style="background-image:url('${imageUrl}')"></div>` 
+                   <div class="mdui-live-bg" style="background-image:url('${imageUrl}')"></div>`
                 : `<div class="mdui-live-bg mdui-live-bg-fallback"></div>`;
-
-            // Explicit mobile-friendly text swap instead of relying on hover tooltips
-            const actionButtonText = canLaunch3D 
-                ? `<i class="fa-solid fa-vr-cardboard"></i> 3D HUD` 
-                : `<i class="fa-solid fa-ban"></i> No 3D under 3K`;
-
-            const actionButtonColor = canLaunch3D ? '#fff' : 'rgba(255, 255, 255, 0.45)';
-
-            const actionButtonHTML = `
-                <button class="mdui-btn-ghost mdui-launch-3d-btn" style="background: rgba(0,0,0,0.5); color: ${actionButtonColor}; border: 1px solid rgba(255,255,255,0.15); backdrop-filter: blur(6px); padding: 6px 10px; height: 32px; font-size: 0.75rem; font-weight: 600;" data-flight-id="${flightIdStr}" ${!canLaunch3D ? 'disabled' : ''}>
-                    ${actionButtonText}
-                </button>
-            `;
 
             return `
                 <div class="mdui-live-card">
                     <div class="mdui-live-visual">
                         ${bgHTML}
                         <div class="mdui-live-overlay"></div>
-                        <div class="mdui-3d-action-wrap">
-                            ${actionButtonHTML}
+                        <div class="mdui-live-live-pill">
+                            <span class="mdui-live-pulse"></span>
+                            <span>LIVE</span>
+                        </div>
+                        <div class="mdui-live-image-meta">
+                            <span class="mdui-live-image-cs">${cs}</span>
+                            <span class="mdui-live-image-acft">${acft}</span>
                         </div>
                     </div>
                     <div class="mdui-live-content">
-                        <div class="mdui-live-top">
-                            <div class="mdui-live-route-pill">
-                                <span class="mdui-live-icao">${dep}</span>
-                                <i class="fa-solid fa-plane mdui-live-route-icon"></i>
-                                <span class="mdui-live-icao">${arr}</span>
-                            </div>
-                            <div class="mdui-live-ident">
-                                <span class="mdui-live-acft">${acft}</span>
-                                <span class="mdui-live-cs">${cs}</span>
-                            </div>
+                        <div class="mdui-live-route">
+                            <span class="mdui-live-icao">${dep}</span>
+                            <span class="mdui-live-route-arrow"><i class="fa-solid fa-plane"></i></span>
+                            <span class="mdui-live-icao">${arr}</span>
                         </div>
                         <div class="mdui-live-stats">
                             <div class="mdui-live-stat">
-                                <span class="label">ALT</span>
-                                <span class="value">${alt} <em>ft</em></span>
+                                <span class="label">Altitude</span>
+                                <span class="value">${alt}<em>ft</em></span>
                             </div>
                             <div class="mdui-live-stat">
-                                <span class="label">SPD</span>
-                                <span class="value">${spd} <em>kt</em></span>
+                                <span class="label">Ground Speed</span>
+                                <span class="value">${spd}<em>kt</em></span>
                             </div>
                             <div class="mdui-live-stat">
-                                <span class="label">HDG</span>
+                                <span class="label">Heading</span>
                                 <span class="value">${hdg}<em>°</em></span>
                             </div>
                         </div>
+                        <button type="button"
+                                class="mdui-live-action mdui-launch-3d-btn ${canLaunch3D ? '' : 'is-disabled'}"
+                                data-flight-id="${flightIdStr}"
+                                ${canLaunch3D ? '' : 'aria-disabled="true"'}>
+                            ${actionLabel}
+                        </button>
                     </div>
                 </div>
             `;
         });
 
-        banner.innerHTML = `<div class="mdui-live-carousel">${cardsHtmlArray.join('')}</div>`;
-
-        // Restore scroll position across rebuilds so a live data tick
-        // doesn't yank the user back to card 0. Native iOS momentum
-        // scrolling handles the rest — no custom touch handler.
-        const newCarousel = banner.querySelector('.mdui-live-carousel');
-        if (newCarousel) {
-            newCarousel.scrollLeft = currentScrollPos;
-        }
+        // iOS Wallet-style vertical card stack — far easier to glance at
+        // than a horizontal carousel, especially on small phones. Most
+        // pilots only have one live flight at a time, so the carousel
+        // was solving a problem we didn't have.
+        banner.innerHTML = `<div class="mdui-live-stack">${cardsHtmlArray.join('')}</div>`;
 
         banner.querySelectorAll('.mdui-launch-3d-btn').forEach(btn => {
+            // Disabled buttons drop the click before this fires; we still
+            // attach so the hit-test feels responsive (haptic shake on
+            // disabled would belong here later).
+            if (btn.classList.contains('is-disabled')) return;
             btn.addEventListener('click', (e) => {
                 const targetId = e.currentTarget.dataset.flightId;
                 const targetFlight = this._liveFlights.find(f => String(f.flightId || f.properties?.flightId) === targetId);
@@ -2135,13 +2134,12 @@ const cardsHtmlArray = this._liveFlights.map((f, index) => {
         overlay.style.inset = '0';
         overlay.style.zIndex = '10005';
         overlay.style.background = '#0a1628';
-        
-        try {
-            if (document.documentElement.requestFullscreen) {
-                document.documentElement.requestFullscreen().catch(()=>{});
-            }
-        } catch(e) {}
 
+        // No requestFullscreen here. The browser's own fullscreen UI was
+        // showing a second "exit" affordance on top of our in-app one,
+        // which the user (rightly) called out as redundant. We keep the
+        // landscape orientation lock for the HUD content but rely solely
+        // on our Done button to leave the modal.
         try {
             if (screen.orientation && screen.orientation.lock) {
                 screen.orientation.lock('landscape').catch(()=>{});
@@ -2150,15 +2148,15 @@ const cardsHtmlArray = this._liveFlights.map((f, index) => {
 
         overlay.innerHTML = `
             <div class="mdui-3d-landscape-wrapper">
-                <button class="mdui-btn-ghost" id="mdui-3d-close" style="position:absolute; top: 20px; right: 20px; z-index: 9999; background: rgba(0,0,0,0.6); color: #fff; border: 1px solid rgba(255,255,255,0.2); backdrop-filter: blur(4px); box-shadow: 0 4px 12px rgba(0,0,0,0.5);">
-                    <i class="fa-solid fa-xmark"></i> Exit HUD
+                <button type="button" id="mdui-3d-close" class="mdui-3d-close-btn" aria-label="Exit 3D view">
+                    Done
                 </button>
                 <div id="mdui-3d-host-container" style="width: 100%; height: 100%;">
                     ${typeof AircraftViewer3D !== 'undefined' ? AircraftViewer3D.getHTML() : ''}
                 </div>
             </div>
         `;
-        
+
         document.body.appendChild(overlay);
         this._active3DFlightId = String(flight.flightId || flight.properties?.flightId);
 
@@ -2178,20 +2176,19 @@ const cardsHtmlArray = this._liveFlights.map((f, index) => {
         const overlay = document.getElementById('mdui-3d-modal');
         if (overlay) overlay.remove();
         this._active3DFlightId = null;
-        
+
         try {
             if (typeof AircraftViewer3D !== 'undefined') {
                 if (typeof AircraftViewer3D.destroy === 'function') {
                     AircraftViewer3D.destroy();
                 } else if (window.Cesium && window.viewer) {
                     // Fallback cleanup if destroy() wasn't exposed
-                    window.viewer.destroy(); 
+                    window.viewer.destroy();
                 }
             }
         } catch (e) {}
 
         try {
-            if (document.exitFullscreen) document.exitFullscreen().catch(()=>{});
             if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock();
         } catch(e) {}
     },
@@ -2888,6 +2885,29 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             background: #0a1628;
             overflow: hidden;
         }
+        /* iOS-style "Done" exit button — single source of truth for
+           leaving the 3D view. No browser fullscreen UI competing
+           with it now that we dropped requestFullscreen(). */
+        .mdui-3d-close-btn {
+            position: absolute;
+            top: max(env(safe-area-inset-top, 16px), 16px);
+            right: 16px;
+            z-index: 9999;
+            background: rgba(0,0,0,0.45);
+            -webkit-backdrop-filter: blur(14px) saturate(180%);
+            backdrop-filter: blur(14px) saturate(180%);
+            color: #fff;
+            border: 0.5px solid rgba(255,255,255,0.16);
+            border-radius: 999px;
+            padding: 8px 18px;
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif;
+            font-size: 15px; font-weight: 600;
+            letter-spacing: -0.2px;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            transition: transform 0.16s ease, background-color 0.18s ease;
+        }
+        .mdui-3d-close-btn:active { transform: scale(0.94); background: rgba(0,0,0,0.6); }
         @media screen and (orientation: portrait) {
             .mdui-3d-landscape-wrapper {
                 width: 100vh;
@@ -2897,6 +2917,10 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
                 transform: translate(-50%, -50%) rotate(90deg);
                 transform-origin: center center;
             }
+            /* When the wrapper is rotated for portrait phones, the close
+               button rotates with it, so what reads as "top-right" of the
+               landscape canvas is actually bottom-right of the physical
+               viewport. Anchor it accordingly. */
             #mdui-3d-close {
                 top: auto !important;
                 bottom: 20px !important;
@@ -3568,29 +3592,181 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             .mdui-flight-meta { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--mdui-muted); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
             .mdui-flight-time { font-size: 11px; font-weight: 600; color: var(--mdui-tertiary); white-space: nowrap; flex-shrink: 0; }
 
-            .mdui-live-card { background: var(--mdui-card); -webkit-backdrop-filter: var(--mdui-blur); backdrop-filter: var(--mdui-blur); border: 0.5px solid var(--mdui-border); border-radius: var(--mdui-radius); overflow: hidden; box-shadow: var(--mdui-shadow-pop); display: flex; flex-direction: column; margin-bottom: 18px; height: auto; }
-            .mdui-live-visual { position: relative; height: 160px; background: #0a0e14; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+            /* ── Live-flight card (iOS Wallet-style vertical stack) ── */
+            .mdui-live-stack {
+                display: flex; flex-direction: column;
+                gap: 12px;
+                margin-bottom: 18px;
+            }
+            .mdui-live-card {
+                background: var(--mdui-card);
+                -webkit-backdrop-filter: var(--mdui-blur);
+                backdrop-filter: var(--mdui-blur);
+                border: 0.5px solid var(--mdui-border);
+                border-radius: 18px;
+                overflow: hidden;
+                box-shadow: var(--mdui-shadow-pop);
+                display: flex; flex-direction: column;
+                height: auto;
+            }
+            .mdui-live-visual {
+                position: relative;
+                height: 180px;
+                background: #0a0e14;
+                overflow: hidden;
+            }
             .mdui-live-bg { position: absolute; inset: 0; background-size: contain; background-repeat: no-repeat; background-position: center; z-index: 2; }
-            .mdui-live-bg-blur { position: absolute; inset: -20px; background-size: cover; background-position: center; filter: blur(16px) brightness(0.6); z-index: 1; }
+            .mdui-live-bg-blur { position: absolute; inset: -20px; background-size: cover; background-position: center; filter: blur(20px) brightness(0.55); z-index: 1; }
             .mdui-live-bg-fallback { background: linear-gradient(135deg, #2a3445 0%, #1a2030 60%, #14181f 100%); z-index: 1; }
-            .mdui-live-overlay { position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, transparent 40%); z-index: 3; pointer-events: none; }
-            .mdui-3d-action-wrap { position: absolute; top: 10px; right: 10px; z-index: 4; }
+            .mdui-live-overlay {
+                position: absolute; inset: 0;
+                background:
+                    linear-gradient(to top, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0.15) 35%, transparent 60%),
+                    linear-gradient(to bottom, rgba(0,0,0,0.40) 0%, transparent 35%);
+                z-index: 3; pointer-events: none;
+            }
 
-            .mdui-live-content { display: flex; flex-direction: column; padding: 14px 16px; background: transparent; border-top: 0.5px solid var(--mdui-border-light); z-index: 5; }
-            .mdui-live-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; }
-            .mdui-live-route-pill { display: inline-flex; align-items: center; gap: 8px; padding: 5px 11px; background: var(--mdui-input); border: none; border-radius: 999px; }
-            .mdui-live-icao { font-family: var(--mdui-font-mono); font-size: 14px; font-weight: 700; color: var(--mdui-text); letter-spacing: 0.04em; }
-            .mdui-live-route-icon { color: var(--mdui-accent); font-size: 11px; }
-            .mdui-live-ident { display: flex; flex-direction: column; align-items: flex-end; text-align: right; min-width: 0; }
-            .mdui-live-acft { font-size: 14px; font-weight: 600; color: var(--mdui-text); letter-spacing: -0.2px; }
-            .mdui-live-cs { font-family: var(--mdui-font-mono); font-size: 11px; color: var(--mdui-muted); font-weight: 600; margin-top: 2px; }
+            /* Pulsing LIVE pill (top-left of the image) */
+            .mdui-live-live-pill {
+                position: absolute; top: 12px; left: 12px;
+                z-index: 4;
+                display: inline-flex; align-items: center; gap: 6px;
+                padding: 4px 10px;
+                background: rgba(0,0,0,0.5);
+                -webkit-backdrop-filter: blur(8px);
+                backdrop-filter: blur(8px);
+                border-radius: 999px;
+                color: #fff;
+                font-size: 10.5px; font-weight: 700;
+                letter-spacing: 0.08em;
+            }
+            .mdui-live-pulse {
+                width: 7px; height: 7px;
+                border-radius: 50%;
+                background: #ff453a;
+                box-shadow: 0 0 0 0 rgba(255, 69, 58, 0.6);
+                animation: mdui-live-pulse 1.6s ease-out infinite;
+            }
+            @keyframes mdui-live-pulse {
+                0%   { box-shadow: 0 0 0 0   rgba(255, 69, 58, 0.7); }
+                70%  { box-shadow: 0 0 0 10px rgba(255, 69, 58, 0); }
+                100% { box-shadow: 0 0 0 0   rgba(255, 69, 58, 0); }
+            }
 
-            .mdui-live-stats { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--mdui-input); border: none; border-radius: 12px; overflow: hidden; }
-            .mdui-live-stat { display: flex; flex-direction: column; gap: 2px; padding: 9px 6px; border-right: 0.5px solid var(--mdui-border-light); align-items: center; min-width: 0; }
+            /* Callsign + aircraft (bottom-left of the image, on the gradient) */
+            .mdui-live-image-meta {
+                position: absolute; left: 14px; right: 14px; bottom: 12px;
+                z-index: 4;
+                display: flex; flex-direction: column; gap: 1px;
+                color: #fff;
+                text-shadow: 0 1px 3px rgba(0,0,0,0.4);
+            }
+            .mdui-live-image-cs {
+                font-family: var(--mdui-font-mono);
+                font-size: 17px; font-weight: 700;
+                letter-spacing: 0.02em;
+                line-height: 1.1;
+            }
+            .mdui-live-image-acft {
+                font-size: 12.5px; font-weight: 500;
+                opacity: 0.92;
+                letter-spacing: -0.1px;
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            }
+
+            /* Info section under the image */
+            .mdui-live-content {
+                display: flex; flex-direction: column;
+                gap: 14px;
+                padding: 14px 16px 14px;
+                background: transparent;
+                z-index: 5;
+            }
+            .mdui-live-route {
+                display: flex; align-items: center; justify-content: space-between;
+                gap: 12px;
+            }
+            .mdui-live-icao {
+                font-family: var(--mdui-font-mono);
+                font-size: 22px; font-weight: 700;
+                letter-spacing: -0.4px;
+                color: var(--mdui-text);
+                line-height: 1;
+            }
+            .mdui-live-route-arrow {
+                flex: 1; display: flex; align-items: center; justify-content: center;
+                position: relative;
+                color: var(--mdui-accent);
+                font-size: 14px;
+            }
+            .mdui-live-route-arrow::before,
+            .mdui-live-route-arrow::after {
+                content: ""; flex: 1; height: 1px;
+                background: var(--mdui-border);
+                margin: 0 8px;
+            }
+
+            .mdui-live-stats {
+                display: grid; grid-template-columns: repeat(3, 1fr);
+                background: var(--mdui-input);
+                border-radius: 12px;
+                overflow: hidden;
+            }
+            .mdui-live-stat {
+                display: flex; flex-direction: column;
+                gap: 2px;
+                padding: 10px 8px;
+                border-right: 0.5px solid var(--mdui-border-light);
+                align-items: center;
+                min-width: 0;
+            }
             .mdui-live-stat:last-child { border-right: none; }
-            .mdui-live-stat .label { font-size: 9.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--mdui-tertiary); }
-            .mdui-live-stat .value { font-family: var(--mdui-font-mono); font-size: 15px; font-weight: 700; color: var(--mdui-text); display: flex; align-items: baseline; gap: 3px; line-height: 1; }
-            .mdui-live-stat .value em { font-style: normal; font-size: 10px; color: var(--mdui-muted); font-weight: 600; }
+            .mdui-live-stat .label {
+                font-size: 10px; font-weight: 500;
+                letter-spacing: -0.1px;
+                color: var(--mdui-muted);
+                text-transform: none;
+            }
+            .mdui-live-stat .value {
+                font-family: var(--mdui-font-mono);
+                font-size: 16px; font-weight: 700;
+                color: var(--mdui-text);
+                display: flex; align-items: baseline; gap: 2px;
+                line-height: 1;
+                margin-top: 2px;
+            }
+            .mdui-live-stat .value em {
+                font-style: normal;
+                font-size: 10px; font-weight: 500;
+                color: var(--mdui-muted);
+                margin-left: 2px;
+            }
+
+            /* Full-width primary action — Enter 3D View */
+            .mdui-live-action {
+                display: inline-flex; align-items: center; justify-content: center;
+                gap: 8px;
+                width: 100%;
+                padding: 13px 16px;
+                border: none;
+                border-radius: 12px;
+                background: var(--mdui-accent);
+                color: var(--mdui-on-accent);
+                font-family: inherit;
+                font-size: 16px; font-weight: 600;
+                letter-spacing: -0.3px;
+                cursor: pointer;
+                -webkit-tap-highlight-color: transparent;
+                transition: transform 0.16s ease, opacity 0.18s ease, background-color 0.18s ease;
+            }
+            .mdui-live-action:active { transform: scale(0.985); opacity: 0.9; }
+            .mdui-live-action.is-disabled {
+                background: var(--mdui-input);
+                color: var(--mdui-muted);
+                font-weight: 500;
+                cursor: default;
+            }
+            .mdui-live-action.is-disabled:active { transform: none; opacity: 1; }
 
             /* ── CAREER / TRENDS ── */
             .mdui-cover-banner { width: 100%; height: 140px; margin-bottom: 18px; border-radius: var(--mdui-radius); background-size: cover; background-position: center; position: relative; overflow: hidden; border: 0.5px solid var(--mdui-border); }
@@ -3790,36 +3966,9 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             .mdui-radio-pill:active { transform: scale(0.97); }
             .mdui-radio-pill:has(input:checked) { border-color: var(--mdui-accent); background: var(--mdui-accent-soft); color: var(--mdui-accent); }
             .mdui-radio-pill input { display: none; }
-            /* ── Live flights carousel ──
-               One full-width card per page, native iOS momentum scroll
-               with proximity snap so a half-flick doesn't catapult you
-               to the next card. No custom touch handler — that fought
-               the native momentum scroller and made the rail feel
-               "elastic". */
-        .mdui-live-carousel {
-            display: flex;
-            overflow-x: auto;
-            overflow-y: hidden;
-            scroll-snap-type: x mandatory;
-            -webkit-overflow-scrolling: touch;
-            overscroll-behavior-x: contain;
-            scrollbar-width: none;
-            gap: 10px;
-            padding: 2px 0;
-            margin: 0 0 18px;
-            scroll-padding-inline: 0;
-            touch-action: pan-x;
-        }
-        .mdui-live-carousel::-webkit-scrollbar {
-            display: none;
-        }
-        .mdui-live-carousel > .mdui-live-card {
-            scroll-snap-align: start;
-            scroll-snap-stop: always;
-            flex: 0 0 100%;
-            min-width: 100%;
-            margin-bottom: 0;
-        }
+        /* Carousel is gone; the iOS Wallet-style vertical stack lives in
+           .mdui-live-stack defined above. The .mdui-live-bg-3d hook is
+           still used by the 3D HUD host container. */
         .mdui-live-bg-3d {
             background: #0a1628;
             overflow: hidden;
