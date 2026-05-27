@@ -164,8 +164,25 @@ init(supabaseClient) {
                             const prev = this._prevWatchedStatus[un];
                             if (cur.isLive && prev && !prev.isLive) {
                                 const f = cur.flight;
+                                const who   = f?.username || un;
                                 const route = (f?.departureIcao && f?.arrivalIcao) ? ` on ${f.departureIcao} → ${f.arrivalIcao}` : '';
-                                this._showToast(`<i class="fa-solid fa-plane-departure" style="margin-right:8px;"></i><strong>${f?.username || un}</strong> is now airborne${route}`, 'info');
+                                // In-app toast (for users actively looking
+                                // at the app) and an iOS system banner via
+                                // the LiveActivity plugin's notification
+                                // bridge (for users with the app
+                                // backgrounded or another tab open).
+                                this._showToast(`<i class="fa-solid fa-plane-departure" style="margin-right:8px;"></i><strong>${who}</strong> is now airborne${route}`, 'info');
+                                try {
+                                    window.InflightLiveActivity?.presentLocalNotification?.({
+                                        title: `${who} is airborne`,
+                                        body:  f?.departureIcao && f?.arrivalIcao
+                                                ? `${f.departureIcao} → ${f.arrivalIcao}`
+                                                : 'Watchlist pilot just took off',
+                                        identifier: `watchlist-airborne-${un}`,
+                                        threadIdentifier: 'inflight-watchlist',
+                                        userInfo: { kind: 'watchlist_airborne', username: un }
+                                    });
+                                } catch (_) { /* best-effort */ }
                             }
                         }
                     }

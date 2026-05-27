@@ -135,6 +135,50 @@
         }
     }
 
+    /**
+     * Fire an immediate iOS banner notification. Falls back gracefully
+     * to the web Notification API if the native bridge isn't reachable
+     * (desktop browser / non-iOS), and to "no-op" if neither is
+     * available — callers should treat this as a best-effort surface
+     * and keep their in-app toast as the real source of truth.
+     *
+     * args = { title, body, identifier, threadIdentifier, sound, userInfo }
+     */
+    async function presentLocalNotification(args) {
+        const payload = Object.assign({ sound: true }, args || {});
+        if (!payload.title) return { ok: false, reason: 'missing_title' };
+
+        // 1) Native iOS path — real system banner, works backgrounded too.
+        if (detectIOS()) {
+            const plugin = getPlugin();
+            if (plugin && typeof plugin.presentLocalNotification === 'function') {
+                try {
+                    const res = await plugin.presentLocalNotification(payload);
+                    return { ok: true, source: 'native', ...res };
+                } catch (err) {
+                    console.warn('[LiveActivity] presentLocalNotification failed:', err);
+                    // fall through to web API attempt
+                }
+            }
+        }
+
+        // 2) Web Notification API fallback — works on desktop Safari,
+        //    Chrome, Firefox. On iOS WKWebView this won't surface
+        //    system banners, but it won't throw either.
+        try {
+            if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+                const n = new Notification(payload.title, {
+                    body: payload.body || '',
+                    tag:  payload.identifier || undefined,
+                    silent: payload.sound === false
+                });
+                return { ok: true, source: 'web', delivered: true };
+            }
+        } catch (_) {}
+
+        return { ok: false, reason: 'unsupported' };
+    }
+
     function toMs(value) {
         if (value == null) return undefined;
         if (value instanceof Date) return value.getTime();
@@ -252,6 +296,7 @@
         getTrackedFlightId,
         requestNotificationPermission,
         getNotificationPermissionStatus,
+        presentLocalNotification,
         openSystemSettings,
         describeCapacitor,
         // Diagnostic: returns everything we know about the bridge state.

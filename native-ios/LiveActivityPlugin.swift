@@ -5,9 +5,40 @@ import UserNotifications
 import UIKit
 
 @objc(LiveActivityPlugin)
-public class LiveActivityPlugin: CAPPlugin {
+public class LiveActivityPlugin: CAPPlugin, UNUserNotificationCenterDelegate {
 
     private var activeActivityIdByFlight: [String: String] = [:]
+    private var didInstallForegroundDelegate = false
+
+    public override func load() {
+        super.load()
+        installForegroundDelegate()
+    }
+
+    /// Become the UNUserNotificationCenter delegate so local notifications
+    /// surface as banners + sound even when the app is in the foreground.
+    /// Without this iOS silently delivers them to Notification Center,
+    /// which would defeat the purpose of "tell me when my friend goes
+    /// airborne" if the user already has the app open.
+    private func installForegroundDelegate() {
+        guard !didInstallForegroundDelegate else { return }
+        didInstallForegroundDelegate = true
+        DispatchQueue.main.async {
+            UNUserNotificationCenter.current().delegate = self
+        }
+    }
+
+    public func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        if #available(iOS 14.0, *) {
+            completionHandler([.banner, .list, .sound, .badge])
+        } else {
+            completionHandler([.alert, .sound, .badge])
+        }
+    }
 
     @objc func openSystemSettings(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
@@ -80,6 +111,78 @@ public class LiveActivityPlugin: CAPPlugin {
                     "granted": granted,
                     "status": granted ? "authorized" : "denied",
                     "prompted": true
+                ])
+            }
+        }
+    }
+
+    /// Fire an immediate local notification. Used by the watchlist
+    /// trigger to surface "<pilot> is now airborne" as a real iOS banner
+    /// instead of just an in-app toast that the user has to be looking
+    /// at the screen to see.
+    ///
+    /// Args (all strings unless noted):
+    ///   title           — required, big text at the top of the banner
+    ///   body            — optional secondary line
+    ///   identifier      — optional dedupe key (we generate one if missing).
+    ///                     Reusing the same id while a notification is
+    ///                     still pending updates it in place.
+    ///   threadIdentifier— optional. iOS groups banners that share a
+    ///                     thread id; we pass "watchlist" so multiple
+    ///                     "airborne" alerts collapse instead of stacking.
+    ///   sound           — optional bool, defaults to true
+    ///   userInfo        — optional dictionary, surfaced back to JS when
+    ///                     the user taps the banner (future hook).
+    @objc func presentLocalNotification(_ call: CAPPluginCall) {
+        guard let title = call.getString("title"), !title.isEmpty else {
+            call.reject("Missing required field: title")
+            return
+        }
+        let body            = call.getString("body") ?? ""
+        let identifier      = call.getString("identifier") ?? UUID().uuidString
+        let threadId        = call.getString("threadIdentifier") ?? "inflight-watchlist"
+        let withSound       = call.getBool("sound") ?? true
+        let userInfo        = call.getObject("userInfo") ?? [:]
+
+        let content = UNMutableNotificationContent()
+        content.title = title
+        if !body.isEmpty { content.body = body }
+        content.sound = withSound ? .default : nil
+        content.threadIdentifier = threadId
+        content.userInfo = userInfo
+        if #available(iOS 15.0, *) {
+            content.interruptionLevel = .active
+        }
+
+        // Pass nil trigger for "deliver immediately". Using
+        // UNTimeIntervalNotificationTrigger with a 0.1s offset would also
+        // work but adds latency. nil is the documented immediate path.
+        let request = UNNotificationRequest(
+            identifier: identifier,
+            content: content,
+            trigger: nil
+        )
+
+        let center = UNUserNotificationCenter.current()
+        center.getNotificationSettings { settings in
+            guard settings.authorizationStatus == .authorized
+               || settings.authorizationStatus == .provisional
+               || settings.authorizationStatus == .ephemeral else {
+                call.resolve([
+                    "delivered": false,
+                    "reason": "not_authorized",
+                    "status": String(describing: settings.authorizationStatus)
+                ])
+                return
+            }
+            center.add(request) { error in
+                if let error = error {
+                    call.reject("Failed to schedule notification: \(error.localizedDescription)")
+                    return
+                }
+                call.resolve([
+                    "delivered": true,
+                    "identifier": identifier
                 ])
             }
         }
