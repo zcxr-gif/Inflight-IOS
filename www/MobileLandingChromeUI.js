@@ -1605,49 +1605,118 @@ export const MobileLandingChromeUI = {
                 color: #fff !important;
             }
 
-            /* Tab bar inside the info window — iOS-flat (no underline, accent fill) */
+            /* ============ AC INFO TAB BAR — iOS segmented control ============
+               Structure (rendered by flight.js with hardcoded inline styles):
+                 .ac-info-window-tabs
+                   .modern-view-switcher
+                     .ac-info-tab-btn (Flight Display)
+                     .ac-info-tab-btn.pilot-tab-btn (Pilot Report)
+                     .switcher-highlight (sliding indicator)
+                   #ac-dock-toggle-btn
+               We restyle every layer to read as a real iOS segmented control. */
+
+            /* Outer tab container — kill the inline dark fill, give it
+               sensible padding and no bottom underline. */
             .info-window .ac-info-window-tabs,
             .mobile-island-bottom .ac-info-window-tabs {
                 background: transparent !important;
                 border-bottom: 0.5px solid var(--hud-border) !important;
-                padding: 0 12px !important;
-                height: 48px !important;
+                padding: 10px 12px !important;
+                height: auto !important;
+                gap: 10px !important;
             }
+
+            /* Segmented-control track */
+            .info-window .modern-view-switcher,
+            .mobile-island-bottom .modern-view-switcher {
+                background: rgba(118, 118, 128, 0.24) !important;
+                border: 0.5px solid var(--ios-stroke, rgba(255,255,255,0.10)) !important;
+                border-radius: 9px !important;
+                padding: 2px !important;
+                height: 32px !important;
+                box-shadow: inset 0 0.5px 0 rgba(255,255,255,0.10) !important;
+            }
+
+            /* Sliding indicator behind the active segment */
+            .info-window .switcher-highlight,
+            .mobile-island-bottom .switcher-highlight {
+                top: 2px !important;
+                left: 2px !important;
+                width: calc(50% - 2px) !important;
+                height: calc(100% - 4px) !important;
+                background: rgba(255, 255, 255, 0.22) !important;
+                border: 0.5px solid rgba(255, 255, 255, 0.18) !important;
+                border-radius: 7px !important;
+                box-shadow:
+                    0 1px 2px rgba(0, 0, 0, 0.18),
+                    inset 0 0.5px 0 rgba(255, 255, 255, 0.20) !important;
+                transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1) !important;
+            }
+
+            /* Segment buttons — sentence case, SF Pro, no letterspacing */
             .info-window .ac-info-tab-btn,
             .mobile-island-bottom .ac-info-tab-btn {
                 font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
-                font-size: 14px !important;
+                font-size: 13px !important;
                 font-weight: 600 !important;
-                letter-spacing: -0.1px !important;
-                color: rgba(235, 235, 245, 0.62) !important;
+                font-style: normal !important;
+                letter-spacing: -0.08px !important;
+                text-transform: none !important;
+                color: rgba(235, 235, 245, 0.66) !important;
+                background: transparent !important;
+                border: none !important;
                 border-bottom: none !important;
-                padding: 0 8px !important;
-                gap: 8px !important;
+                border-radius: 7px !important;
+                padding: 0 10px !important;
+                gap: 7px !important;
                 text-shadow: none !important;
+                transition: color 0.22s ease !important;
             }
             .info-window .ac-info-tab-btn i,
             .mobile-island-bottom .ac-info-tab-btn i {
                 color: inherit !important;
-                font-size: 14px !important;
+                font-size: 12px !important;
             }
             .info-window .ac-info-tab-btn.active,
             .mobile-island-bottom .ac-info-tab-btn.active {
-                color: var(--hud-accent) !important;
+                color: #ffffff !important;
                 border-bottom-color: transparent !important;
                 text-shadow: none !important;
             }
             .info-window .ac-info-tab-btn.active i,
             .mobile-island-bottom .ac-info-tab-btn.active i {
-                color: var(--hud-accent) !important;
+                color: #ffffff !important;
+            }
+            /* Pilot tab: keep amber accent in the icon for recognizability,
+               but match the segmented look — selected = white text on the
+               slider, idle = dim white. */
+            .info-window .ac-info-tab-btn.pilot-tab-btn,
+            .mobile-island-bottom .ac-info-tab-btn.pilot-tab-btn {
+                color: rgba(235, 235, 245, 0.66) !important;
+                font-weight: 600 !important;
+                letter-spacing: -0.08px !important;
+            }
+            .info-window .ac-info-tab-btn.pilot-tab-btn i,
+            .mobile-island-bottom .ac-info-tab-btn.pilot-tab-btn i {
+                color: #ffd60a !important;
             }
             .info-window .ac-info-tab-btn.pilot-tab-btn.active,
             .mobile-island-bottom .ac-info-tab-btn.pilot-tab-btn.active {
-                color: #ffd60a !important;
+                color: #ffffff !important;
                 border-bottom-color: transparent !important;
             }
             .info-window .ac-info-tab-btn.pilot-tab-btn.active i,
             .mobile-island-bottom .ac-info-tab-btn.pilot-tab-btn.active i {
                 color: #ffd60a !important;
+            }
+
+            /* Hide the desktop "dock" toggle button on mobile — there's no
+               docking on a phone, and it crowds the segmented control. */
+            .info-window #ac-dock-toggle-btn,
+            .mobile-island-bottom #ac-dock-toggle-btn,
+            .info-window .ac-dock-toggle-btn,
+            .mobile-island-bottom .ac-dock-toggle-btn {
+                display: none !important;
             }
 
             /* Drawer scrollbars — iOS-thin and white */
