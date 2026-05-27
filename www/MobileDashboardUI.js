@@ -159,7 +159,9 @@ init(supabaseClient) {
                     }
                     this._watchedPilotStatus = newStatus;
 
-                    if (this._userPrefs.notification_watchlist_enabled) {
+                    // Watchlist notifications are an account-gated feature:
+                    // skip entirely if the user isn't signed in.
+                    if (this._currentUser && this._userPrefs.notification_watchlist_enabled) {
                         for (const [un, cur] of Object.entries(newStatus)) {
                             const prev = this._prevWatchedStatus[un];
                             if (cur.isLive && prev && !prev.isLive) {
@@ -171,7 +173,7 @@ init(supabaseClient) {
                                 // the LiveActivity plugin's notification
                                 // bridge (for users with the app
                                 // backgrounded or another tab open).
-                                this._showToast(`<i class="fa-solid fa-plane-departure" style="margin-right:8px;"></i><strong>${who}</strong> is now airborne${route}`, 'info');
+                                this._showToast(`<i class="fa-solid fa-plane-departure" style="margin-right:8px;"></i><strong>${who}</strong> is now online${route}`, 'info');
                                 try {
                                     // iOS notification hierarchy:
                                     //   title   = friend's name (bold)
@@ -185,11 +187,11 @@ init(supabaseClient) {
                                     if (acft) bodyParts.push(acft);
                                     window.InflightLiveActivity?.presentLocalNotification?.({
                                         title: who,
-                                        subtitle: 'Now airborne',
-                                        body:  bodyParts.join(' · ') || 'Watchlist pilot just took off',
-                                        identifier: `watchlist-airborne-${un}`,
+                                        subtitle: 'Now online',
+                                        body:  bodyParts.join(' · ') || 'Watchlist pilot just connected',
+                                        identifier: `watchlist-online-${un}`,
                                         threadIdentifier: 'inflight-watchlist',
-                                        userInfo: { kind: 'watchlist_airborne', username: un }
+                                        userInfo: { kind: 'watchlist_online', username: un }
                                     });
                                 } catch (_) { /* best-effort */ }
                             }
@@ -1346,7 +1348,7 @@ _tabCareer() {
         const notifChecked = this._userPrefs.notification_watchlist_enabled ? 'checked' : '';
         return `
             <div class="mdui-fade-up">
-                <p class="mdui-large-subtitle" style="padding: 0 2px 14px;">Track specific pilots in real-time. Get notified the moment they go airborne.</p>
+                <p class="mdui-large-subtitle" style="padding: 0 2px 14px;">Track specific pilots in real-time. Get notified the moment they come online.</p>
 
                 <div class="mdui-list-section">
                     <div class="mdui-list-section-header">Add Pilot</div>
@@ -1368,8 +1370,8 @@ _tabCareer() {
                         <div class="mdui-list-row" data-static="true">
                             <span class="mdui-list-row-icon tone-orange"><i class="fa-solid fa-bell"></i></span>
                             <div class="mdui-list-row-text">
-                                <span class="mdui-list-row-label">Notify when airborne</span>
-                                <span class="mdui-list-row-sub">Show a toast the moment any tracked pilot takes off.</span>
+                                <span class="mdui-list-row-label">Notify when online</span>
+                                <span class="mdui-list-row-sub">Send a notification the moment any tracked pilot comes online.</span>
                             </div>
                             <label class="mdui-toggle-label">
                                 <input type="checkbox" id="mdui-watchlist-notif-toggle" ${notifChecked}>
