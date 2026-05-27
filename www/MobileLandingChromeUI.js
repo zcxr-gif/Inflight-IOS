@@ -466,24 +466,22 @@ export const MobileLandingChromeUI = {
                 --ios-shadow: 0 4px 18px rgba(0, 0, 0, 0.10);
             }
 
-            /* ============ TOP BAR — native glass ============ */
+            /* ============ TOP BAR — bare positioning frame ============
+               No wrapper card. Each child below is its own glass bead. */
             #ios-landing-topbar {
                 position: fixed;
                 top: calc(env(safe-area-inset-top, 0px) + 2px);
                 left: 8px;
                 right: 8px;
                 z-index: 1500;
-                background: var(--ios-bg);
-                -webkit-backdrop-filter: var(--ios-blur);
-                backdrop-filter: var(--ios-blur);
-                border: 0.5px solid var(--ios-stroke);
-                border-radius: 22px;
-                box-shadow: var(--ios-shadow);
-                padding: 7px 8px;
-                pointer-events: auto;
+                background: transparent;
+                border: none;
+                box-shadow: none;
+                padding: 7px 0;
+                pointer-events: none; /* let map gestures through the gaps */
                 visibility: visible;
-                transition: opacity 0.22s ease, transform 0.32s cubic-bezier(0.16,1,0.3,1);
             }
+            #ios-landing-topbar .ios-topbar-inner > * { pointer-events: auto; }
             /* Tactical-ui root starts hidden/inactive; reveal our chrome
                only once it's been activated by flight.js. */
             #inflight-tactical-ui:not(.active) #ios-landing-topbar,
@@ -498,22 +496,25 @@ export const MobileLandingChromeUI = {
                 align-items: center;
                 gap: 8px;
                 width: 100%;
-                height: 36px;
+                height: 38px;
             }
 
-            /* Server pill — flat glass bead */
+            /* Server pill — standalone glass bead */
             .ios-server-pill {
                 flex: 0 0 auto;
                 display: grid;
                 place-items: center;
-                width: 36px;
-                height: 36px;
+                width: 38px;
+                height: 38px;
                 padding: 0;
-                border: none;
-                background: var(--ios-fill);
+                border: 0.5px solid var(--ios-stroke);
+                background: var(--ios-bg);
+                -webkit-backdrop-filter: var(--ios-blur);
+                backdrop-filter: var(--ios-blur);
                 color: var(--server-tint, var(--ios-text));
                 border-radius: 50%;
                 cursor: pointer;
+                box-shadow: var(--ios-shadow);
                 transition:
                     transform 0.22s cubic-bezier(0.16,1,0.3,1),
                     background-color 0.22s ease,
@@ -532,20 +533,24 @@ export const MobileLandingChromeUI = {
                 color: inherit;
             }
 
-            /* Search shell — flat capsule */
+            /* Search shell — standalone glass capsule */
             .ios-search-shell {
                 flex: 1 1 auto;
                 min-width: 0;
-                height: 36px;
-                padding: 0 12px;
+                height: 38px;
+                padding: 0 14px;
                 display: flex;
                 align-items: center;
                 gap: 8px;
-                background: var(--ios-fill);
+                background: var(--ios-bg);
+                -webkit-backdrop-filter: var(--ios-blur);
+                backdrop-filter: var(--ios-blur);
+                border: 0.5px solid var(--ios-stroke);
                 border-radius: 999px;
+                box-shadow: var(--ios-shadow);
                 transition: background-color 0.22s ease;
             }
-            .ios-search-shell.is-active { background: var(--ios-fill-strong); }
+            .ios-search-shell.is-active { background: var(--ios-bg-elev); }
             .ios-search-glyph {
                 color: var(--ios-text-2);
                 font-size: 14px;
@@ -597,31 +602,34 @@ export const MobileLandingChromeUI = {
             #ios-landing-topbar #blade-search-input:not(:placeholder-shown) ~ #blade-search-clear,
             #ios-landing-topbar .has-text #blade-search-clear { display: inline-flex; align-items: center; justify-content: center; }
 
-            /* Profile orb — flat glass bead */
+            /* Profile orb — standalone glass bead */
             .ios-profile-btn {
                 flex: 0 0 auto;
-                width: 36px; height: 36px;
-                border: none;
+                width: 38px; height: 38px;
+                border: 0.5px solid var(--ios-stroke);
                 border-radius: 50%;
-                background: var(--ios-fill);
+                background: var(--ios-bg);
+                -webkit-backdrop-filter: var(--ios-blur);
+                backdrop-filter: var(--ios-blur);
                 color: var(--ios-text);
-                font-size: 14px;
+                font-size: 15px;
                 display: grid;
                 place-items: center;
                 cursor: pointer;
+                box-shadow: var(--ios-shadow);
                 transition:
                     transform 0.22s cubic-bezier(0.16,1,0.3,1),
                     background-color 0.22s ease,
                     opacity 0.2s ease;
                 -webkit-tap-highlight-color: transparent;
             }
-            .ios-profile-btn:active { transform: scale(0.9); background: var(--ios-fill-strong); }
+            .ios-profile-btn:active { transform: scale(0.9); background: var(--ios-bg-elev); }
 
             /* Cancel button — slides in over the profile orb */
             .ios-cancel-btn {
                 position: absolute;
                 top: 0; right: 4px;
-                height: 36px;
+                height: 38px;
                 padding: 0 2px 0 8px;
                 border: none;
                 background: transparent;
@@ -649,7 +657,7 @@ export const MobileLandingChromeUI = {
                 position: absolute;
                 left: 0; right: 64px; top: 0;
                 width: auto;
-                height: 36px;
+                height: 38px;
             }
 
             /* Search results — full-bleed sheet below the floating nav bar */
