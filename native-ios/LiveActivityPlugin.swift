@@ -285,10 +285,43 @@ public class LiveActivityPlugin: CAPPlugin, UNUserNotificationCenterDelegate {
             return
         }
 
-        let distNm = call.getDouble("distanceToDestinationNm") ?? 0
-        let currentETA = dateFromMs(call.getDouble("currentEtaMs")) ?? Date()
-        let currentATD = dateFromMs(call.getDouble("currentAtdMs"))
-        let isLanded = call.getBool("isLanded") ?? false
+        // Preserve the previous activity state when the caller omits a
+        // field. The old code defaulted a missing ETA to Date.now(),
+        // which zeroed out the lock-screen countdown ("0 min
+        // remaining") any time the JS bridge dropped a value -- the
+        // root cause of the ETE / arrival time the user reported as
+        // wrong. We now only overwrite a field when JS actually
+        // provides one.
+        let prior = Activity<InflightActivityAttributes>.activities
+            .first(where: { $0.id == activityId })?.content.state
+
+        let distNm: Double
+        if let d = call.getDouble("distanceToDestinationNm") {
+            distNm = d
+        } else {
+            distNm = prior?.distanceToDestinationNm ?? 0
+        }
+
+        let currentETA: Date
+        if let etaMs = call.getDouble("currentEtaMs"), let d = dateFromMs(etaMs) {
+            currentETA = d
+        } else if let p = prior?.currentETA {
+            currentETA = p
+        } else {
+            // Last-ditch fallback so we still have *some* future date
+            // to count down to. Never user-facing in practice because
+            // `start` always seeds an ETA.
+            currentETA = Date().addingTimeInterval(3600)
+        }
+
+        let currentATD: Date?
+        if let atdMs = call.getDouble("currentAtdMs"), let d = dateFromMs(atdMs) {
+            currentATD = d
+        } else {
+            currentATD = prior?.currentATD
+        }
+
+        let isLanded = call.getBool("isLanded") ?? prior?.isLanded ?? false
 
         updateActivity(id: activityId,
                        distNm: distNm,
