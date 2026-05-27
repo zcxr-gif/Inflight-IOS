@@ -419,56 +419,82 @@ export const MobileLandingChromeUI = {
                 display: none !important;
             }
 
-            /* ============ SHARED — iOS GLASS TOKENS ============ */
+            /* ============ SHARED — LIQUID GLASS TOKENS ============ */
             .ios-chrome,
             .ios-sheet-root,
             .ios-popover-root {
                 font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
                 -webkit-font-smoothing: antialiased;
                 color: #fff;
-                /* Lighter, more transparent surfaces — true vibrancy. */
-                --ios-bg: rgba(22, 22, 26, 0.52);
-                --ios-bg-elev: rgba(28, 28, 32, 0.62);
-                --ios-bg-deep: rgba(36, 36, 40, 0.74);
-                --ios-stroke: rgba(255, 255, 255, 0.12);
-                --ios-stroke-soft: rgba(255, 255, 255, 0.06);
-                --ios-fill: rgba(120, 120, 128, 0.28);
-                --ios-fill-strong: rgba(120, 120, 128, 0.4);
-                /* Whiter text + icons — primary near full white, secondary bright. */
+                /* Very translucent — let the map pull through. */
+                --ios-bg: rgba(28, 28, 32, 0.30);
+                --ios-bg-elev: rgba(36, 36, 40, 0.46);
+                --ios-bg-deep: rgba(44, 44, 48, 0.62);
+                --ios-stroke: rgba(255, 255, 255, 0.16);
+                --ios-stroke-soft: rgba(255, 255, 255, 0.08);
+                --ios-fill: rgba(255, 255, 255, 0.10);
+                --ios-fill-strong: rgba(255, 255, 255, 0.18);
                 --ios-text: #ffffff;
-                --ios-text-2: rgba(255, 255, 255, 0.88);
+                --ios-text-2: rgba(255, 255, 255, 0.90);
                 --ios-text-3: rgba(255, 255, 255, 0.62);
                 --ios-text-4: rgba(255, 255, 255, 0.42);
                 --ios-accent: #0a84ff;
                 --ios-success: #30d158;
                 --ios-warning: #ffd60a;
-                /* Glass effect: 40px blur + 200% saturation = vivid vibrancy. */
-                --ios-blur: saturate(200%) blur(40px);
-                /* Inner highlight + outer drop combo for layered depth. */
-                --ios-inner-hi: inset 0 0.5px 0 rgba(255, 255, 255, 0.18);
-                --ios-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+                /* Heavier blur + saturation + brightness = real liquid glass. */
+                --ios-blur: saturate(220%) brightness(1.10) blur(60px);
+                /* Multi-edge inner highlights simulate refractive glass thickness. */
+                --ios-inner-hi:
+                    inset 0 1px 0 rgba(255, 255, 255, 0.42),
+                    inset 0 -1px 0 rgba(0, 0, 0, 0.22),
+                    inset 1px 0 0 rgba(255, 255, 255, 0.12),
+                    inset -1px 0 0 rgba(0, 0, 0, 0.10);
+                --ios-shadow:
+                    0 14px 36px rgba(0, 0, 0, 0.45),
+                    0 2px 8px rgba(0, 0, 0, 0.22);
+                /* A faint diagonal sheen drawn on top of every glass surface. */
+                --ios-sheen: linear-gradient(
+                    180deg,
+                    rgba(255, 255, 255, 0.18) 0%,
+                    rgba(255, 255, 255, 0.06) 18%,
+                    rgba(255, 255, 255, 0.00) 50%,
+                    rgba(0, 0, 0, 0.05) 100%
+                );
             }
             .ios-chrome[data-theme="light"],
             .ios-sheet-root[data-theme="light"],
             .ios-popover-root[data-theme="light"] {
                 color: #000;
-                --ios-bg: rgba(248, 248, 250, 0.58);
-                --ios-bg-elev: rgba(250, 250, 252, 0.7);
-                --ios-bg-deep: rgba(252, 252, 254, 0.82);
-                --ios-stroke: rgba(0, 0, 0, 0.1);
+                --ios-bg: rgba(250, 250, 252, 0.42);
+                --ios-bg-elev: rgba(252, 252, 254, 0.58);
+                --ios-bg-deep: rgba(252, 252, 254, 0.78);
+                --ios-stroke: rgba(0, 0, 0, 0.10);
                 --ios-stroke-soft: rgba(0, 0, 0, 0.05);
-                --ios-fill: rgba(118, 118, 128, 0.14);
-                --ios-fill-strong: rgba(118, 118, 128, 0.24);
+                --ios-fill: rgba(0, 0, 0, 0.06);
+                --ios-fill-strong: rgba(0, 0, 0, 0.10);
                 --ios-text: #000;
                 --ios-text-2: rgba(0, 0, 0, 0.88);
                 --ios-text-3: rgba(60, 60, 67, 0.6);
                 --ios-text-4: rgba(60, 60, 67, 0.4);
                 --ios-accent: #007aff;
-                --ios-inner-hi: inset 0 0.5px 0 rgba(255, 255, 255, 0.6);
-                --ios-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
+                --ios-inner-hi:
+                    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+                    inset 0 -1px 0 rgba(0, 0, 0, 0.06),
+                    inset 1px 0 0 rgba(255, 255, 255, 0.45),
+                    inset -1px 0 0 rgba(0, 0, 0, 0.04);
+                --ios-shadow:
+                    0 14px 36px rgba(0, 0, 0, 0.14),
+                    0 2px 8px rgba(0, 0, 0, 0.08);
+                --ios-sheen: linear-gradient(
+                    180deg,
+                    rgba(255, 255, 255, 0.55) 0%,
+                    rgba(255, 255, 255, 0.18) 24%,
+                    rgba(255, 255, 255, 0.00) 60%,
+                    rgba(0, 0, 0, 0.04) 100%
+                );
             }
 
-            /* ============ TOP BAR — floating glass card ============ */
+            /* ============ TOP BAR — Liquid Glass card ============ */
             #ios-landing-topbar {
                 position: fixed;
                 top: calc(env(safe-area-inset-top, 0px) + 2px);
@@ -479,22 +505,26 @@ export const MobileLandingChromeUI = {
                 -webkit-backdrop-filter: var(--ios-blur);
                 backdrop-filter: var(--ios-blur);
                 border: 0.5px solid var(--ios-stroke);
-                border-radius: 20px;
-                box-shadow:
-                    var(--ios-inner-hi),
-                    0 8px 24px rgba(0, 0, 0, 0.32),
-                    0 2px 6px rgba(0, 0, 0, 0.18);
-                padding: 7px 8px 7px 8px;
+                border-radius: 24px;
+                box-shadow: var(--ios-inner-hi), var(--ios-shadow);
+                padding: 8px 9px;
                 pointer-events: auto;
                 visibility: visible;
-                transition: opacity 0.22s ease, transform 0.28s cubic-bezier(0.16,1,0.3,1);
+                isolation: isolate;
+                overflow: hidden;
+                transition: opacity 0.22s ease, transform 0.32s cubic-bezier(0.16,1,0.3,1);
             }
-            #ios-landing-topbar[data-theme="light"] {
-                box-shadow:
-                    var(--ios-inner-hi),
-                    0 8px 24px rgba(0, 0, 0, 0.12),
-                    0 2px 6px rgba(0, 0, 0, 0.06);
+            /* Diagonal sheen drawn over the glass. */
+            #ios-landing-topbar::before {
+                content: "";
+                position: absolute;
+                inset: 0;
+                border-radius: inherit;
+                background: var(--ios-sheen);
+                pointer-events: none;
+                z-index: 0;
             }
+            #ios-landing-topbar > * { position: relative; z-index: 1; }
             /* Tactical-ui root starts hidden/inactive; reveal our chrome
                only once it's been activated by flight.js. */
             #inflight-tactical-ui:not(.active) #ios-landing-topbar,
@@ -509,57 +539,88 @@ export const MobileLandingChromeUI = {
                 align-items: center;
                 gap: 8px;
                 width: 100%;
-                height: 36px;
+                height: 40px;
             }
 
-            /* Server pill — clean glass circle showing initial */
+            /* Server pill — liquid glass bead */
             .ios-server-pill {
                 flex: 0 0 auto;
                 position: relative;
                 display: grid;
                 place-items: center;
-                width: 36px;
-                height: 36px;
+                width: 40px;
+                height: 40px;
                 padding: 0;
-                border: none;
+                border: 0.5px solid var(--ios-stroke);
                 background: var(--ios-fill);
                 color: var(--server-tint, var(--ios-text));
                 border-radius: 50%;
                 cursor: pointer;
-                box-shadow: var(--ios-inner-hi);
+                box-shadow:
+                    inset 0 1px 0 rgba(255,255,255,0.45),
+                    inset 0 -1px 0 rgba(0,0,0,0.25),
+                    0 1px 2px rgba(0,0,0,0.18);
                 transition:
-                    transform 0.18s cubic-bezier(0.16,1,0.3,1),
-                    background-color 0.2s ease,
-                    color 0.25s ease;
+                    transform 0.22s cubic-bezier(0.16,1,0.3,1),
+                    background-color 0.22s ease,
+                    color 0.25s ease,
+                    box-shadow 0.25s ease;
                 -webkit-tap-highlight-color: transparent;
+                overflow: hidden;
+                isolation: isolate;
+            }
+            .ios-server-pill::before {
+                content: "";
+                position: absolute; inset: 0;
+                border-radius: inherit;
+                background: var(--ios-sheen);
+                pointer-events: none;
             }
             .ios-server-pill:active {
-                transform: scale(0.9);
+                transform: scale(0.88);
                 background: var(--ios-fill-strong);
             }
             .ios-server-initial {
+                position: relative;
+                z-index: 1;
                 font-family: inherit;
-                font-size: 15px;
+                font-size: 16px;
                 font-weight: 700;
                 letter-spacing: 0;
                 line-height: 1;
                 color: inherit;
             }
 
-            /* Search shell — inset capsule */
+            /* Search shell — liquid capsule */
             .ios-search-shell {
+                position: relative;
                 flex: 1 1 auto;
                 min-width: 0;
-                height: 36px;
-                padding: 0 12px;
+                height: 40px;
+                padding: 0 14px;
                 display: flex;
                 align-items: center;
                 gap: 8px;
                 background: var(--ios-fill);
+                border: 0.5px solid var(--ios-stroke);
                 border-radius: 999px;
-                box-shadow: var(--ios-inner-hi);
-                transition: background-color 0.2s ease;
+                box-shadow:
+                    inset 0 1px 0 rgba(255,255,255,0.32),
+                    inset 0 -1px 0 rgba(0,0,0,0.18),
+                    0 1px 2px rgba(0,0,0,0.14);
+                overflow: hidden;
+                isolation: isolate;
+                transition: background-color 0.22s ease, box-shadow 0.25s ease;
             }
+            .ios-search-shell::before {
+                content: "";
+                position: absolute; inset: 0;
+                border-radius: inherit;
+                background: var(--ios-sheen);
+                opacity: 0.7;
+                pointer-events: none;
+            }
+            .ios-search-shell > * { position: relative; z-index: 1; }
             .ios-search-shell.is-active { background: var(--ios-fill-strong); }
             .ios-search-glyph {
                 color: var(--ios-text-2);
@@ -612,36 +673,52 @@ export const MobileLandingChromeUI = {
             #ios-landing-topbar #blade-search-input:not(:placeholder-shown) ~ #blade-search-clear,
             #ios-landing-topbar .has-text #blade-search-clear { display: inline-flex; align-items: center; justify-content: center; }
 
-            /* Profile orb — clean glass circle */
+            /* Profile orb — liquid glass bead */
             .ios-profile-btn {
                 flex: 0 0 auto;
                 position: relative;
-                width: 36px; height: 36px;
-                border: none;
+                width: 40px; height: 40px;
+                border: 0.5px solid var(--ios-stroke);
                 border-radius: 50%;
                 background: var(--ios-fill);
                 color: var(--ios-text);
-                font-size: 14px;
+                font-size: 15px;
                 display: grid;
                 place-items: center;
                 cursor: pointer;
-                box-shadow: var(--ios-inner-hi);
-                transition: transform 0.18s cubic-bezier(0.16,1,0.3,1), background-color 0.2s ease, opacity 0.2s ease;
+                box-shadow:
+                    inset 0 1px 0 rgba(255,255,255,0.45),
+                    inset 0 -1px 0 rgba(0,0,0,0.25),
+                    0 1px 2px rgba(0,0,0,0.18);
+                transition:
+                    transform 0.22s cubic-bezier(0.16,1,0.3,1),
+                    background-color 0.22s ease,
+                    opacity 0.2s ease;
                 -webkit-tap-highlight-color: transparent;
+                overflow: hidden;
+                isolation: isolate;
             }
-            .ios-profile-btn:active { transform: scale(0.9); background: var(--ios-fill-strong); }
+            .ios-profile-btn::before {
+                content: "";
+                position: absolute; inset: 0;
+                border-radius: inherit;
+                background: var(--ios-sheen);
+                pointer-events: none;
+            }
+            .ios-profile-btn > i { position: relative; z-index: 1; }
+            .ios-profile-btn:active { transform: scale(0.88); background: var(--ios-fill-strong); }
 
             /* Cancel button — slides in over the profile orb */
             .ios-cancel-btn {
                 position: absolute;
                 top: 0; right: 4px;
-                height: 36px;
+                height: 40px;
                 padding: 0 2px 0 8px;
                 border: none;
                 background: transparent;
                 color: var(--ios-accent);
                 font-family: inherit;
-                font-size: 16px;
+                font-size: 17px;
                 font-weight: 500;
                 letter-spacing: -0.2px;
                 cursor: pointer;
@@ -661,15 +738,15 @@ export const MobileLandingChromeUI = {
             /* During search, the search field stretches across the bar */
             #inflight-tactical-ui.mobile-search-active .ios-search-shell {
                 position: absolute;
-                left: 0; right: 64px; top: 0;
+                left: 0; right: 70px; top: 0;
                 width: auto;
-                height: 36px;
+                height: 40px;
             }
 
             /* Search results — full-bleed sheet below the floating nav bar */
             #inflight-tactical-ui #blade-search-results {
                 position: fixed !important;
-                top: calc(env(safe-area-inset-top, 0px) + 56px) !important;
+                top: calc(env(safe-area-inset-top, 0px) + 62px) !important;
                 left: 0 !important;
                 right: 0 !important;
                 width: 100vw !important;
@@ -717,7 +794,7 @@ export const MobileLandingChromeUI = {
                 background: rgba(255,255,255,0.06) !important;
             }
 
-            /* ============ BOTTOM TAB BAR — floating stadium ============ */
+            /* ============ BOTTOM TAB BAR — Liquid Glass stadium ============ */
             #ios-landing-tabbar {
                 position: fixed;
                 left: 8px;
@@ -728,30 +805,34 @@ export const MobileLandingChromeUI = {
                 -webkit-backdrop-filter: var(--ios-blur);
                 backdrop-filter: var(--ios-blur);
                 border: 0.5px solid var(--ios-stroke);
-                border-radius: 28px;
-                box-shadow:
-                    var(--ios-inner-hi),
-                    0 10px 30px rgba(0, 0, 0, 0.38),
-                    0 3px 8px rgba(0, 0, 0, 0.20);
+                border-radius: 32px;
+                box-shadow: var(--ios-inner-hi), var(--ios-shadow);
                 padding: 0;
                 pointer-events: auto;
                 visibility: visible;
                 overflow: hidden;
-                transition: transform 0.32s cubic-bezier(0.16,1,0.3,1), opacity 0.2s ease;
+                isolation: isolate;
+                transition: transform 0.34s cubic-bezier(0.16,1,0.3,1), opacity 0.2s ease;
             }
-            #ios-landing-tabbar[data-theme="light"] {
-                box-shadow:
-                    var(--ios-inner-hi),
-                    0 10px 30px rgba(0, 0, 0, 0.14),
-                    0 3px 8px rgba(0, 0, 0, 0.06);
+            /* Diagonal sheen on the glass surface */
+            #ios-landing-tabbar::before {
+                content: "";
+                position: absolute;
+                inset: 0;
+                border-radius: inherit;
+                background: var(--ios-sheen);
+                pointer-events: none;
+                z-index: 0;
             }
             .ios-tabbar-inner {
+                position: relative;
+                z-index: 1;
                 display: flex;
                 align-items: stretch;
                 justify-content: space-around;
                 width: 100%;
-                height: 56px;
-                padding: 4px 4px;
+                height: 60px;
+                padding: 6px 6px;
             }
             .ios-tab {
                 position: relative;
@@ -769,17 +850,42 @@ export const MobileLandingChromeUI = {
                 font-family: inherit;
                 cursor: pointer;
                 border-radius: 22px;
+                isolation: isolate;
                 transition:
-                    color 0.2s ease,
-                    background-color 0.2s ease,
-                    transform 0.18s cubic-bezier(0.16,1,0.3,1);
+                    color 0.22s ease,
+                    transform 0.22s cubic-bezier(0.16,1,0.3,1);
                 -webkit-tap-highlight-color: transparent;
             }
+            /* Morphing glass blob behind the tab — appears on press */
+            .ios-tab::before {
+                content: "";
+                position: absolute;
+                inset: 4px 8px;
+                border-radius: 18px;
+                background: var(--ios-fill);
+                box-shadow:
+                    inset 0 1px 0 rgba(255,255,255,0.30),
+                    inset 0 -1px 0 rgba(0,0,0,0.18);
+                opacity: 0;
+                transform: scale(0.7);
+                transition:
+                    opacity 0.22s ease,
+                    transform 0.36s cubic-bezier(0.16,1,0.3,1),
+                    background-color 0.25s ease;
+                pointer-events: none;
+                z-index: -1;
+            }
+            .ios-tab i,
+            .ios-tab .ios-tab-label,
+            .ios-tab .ios-tab-iconwrap {
+                position: relative;
+                z-index: 1;
+            }
             .ios-tab i {
-                font-size: 20px;
+                font-size: 21px;
                 line-height: 1;
                 color: inherit;
-                transition: transform 0.22s cubic-bezier(0.16,1,0.3,1);
+                transition: transform 0.26s cubic-bezier(0.16,1,0.3,1);
             }
             .ios-tab .ios-tab-label {
                 font-size: 10.5px;
@@ -788,12 +894,18 @@ export const MobileLandingChromeUI = {
                 line-height: 1.1;
                 color: inherit;
             }
-            .ios-tab:active {
-                background: var(--ios-fill);
-                transform: scale(0.96);
+            .ios-tab:active::before {
+                opacity: 1;
+                transform: scale(1);
             }
+            .ios-tab:active i { transform: scale(0.94); }
             .ios-tab.is-pressed { color: var(--ios-accent); }
-            .ios-tab.is-pressed i { transform: scale(1.06); }
+            .ios-tab.is-pressed::before {
+                opacity: 1;
+                transform: scale(1);
+                background: color-mix(in srgb, var(--ios-accent) 22%, var(--ios-fill));
+            }
+            .ios-tab.is-pressed i { transform: scale(1.08); }
 
             /* Filter icon wrapper so the badge can anchor relative to the icon */
             .ios-tab-iconwrap {
@@ -994,7 +1106,7 @@ export const MobileLandingChromeUI = {
                 position: absolute;
                 left: 12px;
                 right: 12px;
-                bottom: calc(max(env(safe-area-inset-bottom, 0px), 4px) + 70px);
+                bottom: calc(max(env(safe-area-inset-bottom, 0px), 4px) + 76px);
                 max-width: 340px;
                 margin: 0 auto;
                 padding: 6px;
