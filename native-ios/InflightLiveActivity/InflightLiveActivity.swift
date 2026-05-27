@@ -8,29 +8,28 @@ import WidgetKit
 
 @available(iOS 16.1, *)
 private enum InflightLA {
-    // Dark-gray surface tint, close to systemGray6 in dark mode. Reads as a
-    // neutral pane on top of any wallpaper instead of biasing blue.
-    static let surface     = Color(red: 0.11, green: 0.11, blue: 0.12).opacity(0.92)
+    // Neutral dark-gray surface, close to systemGray6 in dark mode.
+    static let surface     = Color(red: 0.11, green: 0.11, blue: 0.12).opacity(0.94)
 
-    // Brand blue, slightly cooler than systemBlue so it pops against gray.
-    static let accent      = Color(red: 0.30, green: 0.55, blue: 1.0)
-    static let accentDeep  = Color(red: 0.20, green: 0.40, blue: 0.95)
-    static let accentSoft  = Color(red: 0.30, green: 0.55, blue: 1.0).opacity(0.20)
+    static let accent      = Color(red: 0.30, green: 0.58, blue: 1.0)
+    static let accentDeep  = Color(red: 0.20, green: 0.42, blue: 0.95)
 
     static let success     = Color(red: 0.20, green: 0.84, blue: 0.40)
     static let warn        = Color(red: 1.0, green: 0.39, blue: 0.39)
 
     static let text        = Color.white
-    static let textSecond  = Color.white.opacity(0.75)
-    static let textTert    = Color.white.opacity(0.45)
+    static let textSecond  = Color.white.opacity(0.72)
+    static let textTert    = Color.white.opacity(0.40)
     static let stroke      = Color.white.opacity(0.08)
-    static let trackBg     = Color.white.opacity(0.12)
+    static let trackBg     = Color.white.opacity(0.18)
 
-    static let callsignFont = Font.system(size: 15, weight: .semibold, design: .rounded)
-    static let icaoFont     = Font.system(size: 28, weight: .heavy,  design: .rounded)
-    static let timeFont     = Font.system(size: 22, weight: .semibold, design: .rounded).monospacedDigit()
-    static let statusFont   = Font.system(size: 13, weight: .semibold, design: .rounded)
-    static let footerFont   = Font.system(size: 14, weight: .semibold, design: .rounded).monospacedDigit()
+    static let wordmarkFont = Font.system(size: 12, weight: .semibold, design: .rounded)
+    static let callsignFont = Font.system(size: 14, weight: .semibold, design: .rounded)
+    static let icaoFont     = Font.system(size: 26, weight: .heavy,    design: .rounded)
+    static let timeFont     = Font.system(size: 15, weight: .semibold, design: .rounded).monospacedDigit()
+    static let estLabelFont = Font.system(size: 11, weight: .regular,  design: .rounded)
+    static let estTimeFont  = Font.system(size: 11, weight: .semibold, design: .rounded).monospacedDigit()
+    static let footerFont   = Font.system(size: 13, weight: .semibold, design: .rounded).monospacedDigit()
     static let counterFont  = Font.system(size: 13, weight: .semibold, design: .rounded).monospacedDigit()
 }
 
@@ -62,19 +61,6 @@ private func flightProgress(_ context: ActivityViewContext<InflightActivityAttri
     return min(max(elapsed / span, 0), 1)
 }
 
-/// "On time" / "12m late" / "8m early" derived from actual vs scheduled time.
-/// <1m drift is treated as on time.
-@available(iOS 16.1, *)
-private func statusFor(actual: Date?, scheduled: Date) -> (text: String, color: Color) {
-    guard let actual = actual else {
-        return ("On time", InflightLA.success)
-    }
-    let diffMin = Int(actual.timeIntervalSince(scheduled) / 60)
-    if diffMin >= 1  { return ("\(diffMin)m late",  InflightLA.warn) }
-    if diffMin <= -1 { return ("\(-diffMin)m early", InflightLA.success) }
-    return ("On time", InflightLA.success)
-}
-
 // =============================================================================
 // MARK: - Widget entry
 // =============================================================================
@@ -104,7 +90,7 @@ struct InflightLiveActivity: Widget {
                         .padding(.trailing, 4)
                 }
                 DynamicIslandExpandedRegion(.center) {
-                    RouteProgressView(context: context, compact: true)
+                    DynamicIslandRoute(context: context)
                         .padding(.horizontal, 8)
                         .padding(.top, 4)
                 }
@@ -158,53 +144,43 @@ struct LockScreenView: View {
     let context: ActivityViewContext<InflightActivityAttributes>
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Header: flight number on the left, brand logo on the right.
+        VStack(alignment: .leading, spacing: 10) {
+            // Header: callsign on the left, inflight wordmark on the right.
             HStack(alignment: .center) {
                 Text(context.attributes.callsign)
                     .font(InflightLA.callsignFont)
                     .foregroundColor(InflightLA.text)
                 Spacer()
-                Image("InflightLogo")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 32, height: 32)
-                    .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                Text("inflight")
+                    .font(InflightLA.wordmarkFont)
+                    .foregroundColor(InflightLA.textTert)
+                    .tracking(0.5)
             }
 
-            // ICAO + time pairs, one per side.
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(context.attributes.departureIcao)
-                            .font(InflightLA.icaoFont)
-                            .foregroundColor(InflightLA.text)
-                        Text(timeStringShort(context.state.currentATD ?? context.attributes.scheduledDeparture))
-                            .font(InflightLA.timeFont)
-                            .foregroundColor(InflightLA.text)
-                    }
-                    StatusLine(actual: context.state.currentATD,
-                               scheduled: context.attributes.scheduledDeparture)
-                }
-                Spacer(minLength: 8)
-                VStack(alignment: .trailing, spacing: 4) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(timeStringShort(context.state.currentETA))
-                            .font(InflightLA.timeFont)
-                            .foregroundColor(InflightLA.text)
-                        Text(context.attributes.arrivalIcao)
-                            .font(InflightLA.icaoFont)
-                            .foregroundColor(InflightLA.text)
-                    }
-                    StatusLine(actual: context.state.currentETA,
-                               scheduled: context.attributes.scheduledArrival)
-                }
+            // Route: BCN ─────✈─────▸ LHR
+            HStack(alignment: .center, spacing: 10) {
+                Text(context.attributes.departureIcao)
+                    .font(InflightLA.icaoFont)
+                    .foregroundColor(InflightLA.text)
+                ArrowRoute(progress: flightProgress(context),
+                           isLanded: context.state.isLanded)
+                    .frame(maxWidth: .infinity)
+                Text(context.attributes.arrivalIcao)
+                    .font(InflightLA.icaoFont)
+                    .foregroundColor(InflightLA.text)
             }
 
-            // Centerpiece: tall, rounded progress bar.
-            ProgressTrack(progress: flightProgress(context),
-                          isLanded: context.state.isLanded)
-                .padding(.top, 2)
+            // Times under each ICAO, with an "Estimated" line below if the
+            // estimate / actual shifted from the schedule.
+            HStack(alignment: .top) {
+                TimeBlock(scheduled: context.attributes.scheduledDeparture,
+                          actual: context.state.currentATD,
+                          alignment: .leading)
+                Spacer()
+                TimeBlock(scheduled: context.attributes.scheduledArrival,
+                          actual: context.state.currentETA,
+                          alignment: .trailing)
+            }
 
             // Footer: NM remaining on the left, "Xh Ym left" on the right.
             HStack(alignment: .center) {
@@ -214,7 +190,7 @@ struct LockScreenView: View {
                 } else {
                     HStack(spacing: 5) {
                         Image(systemName: "location.fill")
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(.system(size: 10, weight: .semibold))
                             .foregroundColor(InflightLA.textTert)
                         Text("\(Int(max(0, context.state.distanceToDestinationNm))) NM")
                             .font(InflightLA.footerFont)
@@ -223,7 +199,7 @@ struct LockScreenView: View {
                 }
                 Spacer()
                 if !context.state.isLanded {
-                    HStack(spacing: 5) {
+                    HStack(spacing: 4) {
                         Text(timerInterval: Date()...context.state.currentETA,
                              pauseTime: nil,
                              countsDown: true,
@@ -231,7 +207,7 @@ struct LockScreenView: View {
                             .font(InflightLA.footerFont)
                             .foregroundColor(InflightLA.text)
                             .multilineTextAlignment(.trailing)
-                            .frame(minWidth: 56, alignment: .trailing)
+                            .frame(minWidth: 52, alignment: .trailing)
                         Text("left")
                             .font(InflightLA.footerFont)
                             .foregroundColor(InflightLA.textSecond)
@@ -239,107 +215,133 @@ struct LockScreenView: View {
                 }
             }
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 16)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
     }
 }
 
 // =============================================================================
-// MARK: - Status line ("On time" / "12m late" / "8m early")
+// MARK: - Time block (scheduled + optional estimated)
 // =============================================================================
 
 @available(iOS 16.1, *)
-struct StatusLine: View {
-    let actual: Date?
+struct TimeBlock: View {
     let scheduled: Date
+    let actual: Date?
+    let alignment: HorizontalAlignment
 
     var body: some View {
-        let s = statusFor(actual: actual, scheduled: scheduled)
-        Text(s.text)
-            .font(InflightLA.statusFont)
-            .foregroundColor(s.color)
-    }
-}
+        // Only surface the "Estimated" row when it actually differs from the
+        // schedule -- duplicating the same time on two lines is noise.
+        let drift = actual.map { Int($0.timeIntervalSince(scheduled) / 60) } ?? 0
+        let estimated = (actual != nil && abs(drift) >= 1) ? actual : nil
+        let estimatedColor: Color = drift > 0 ? InflightLA.warn : InflightLA.success
 
-// =============================================================================
-// MARK: - Route + progress (Dynamic Island center)
-// =============================================================================
-
-@available(iOS 16.1, *)
-struct RouteProgressView: View {
-    let context: ActivityViewContext<InflightActivityAttributes>
-    let compact: Bool
-
-    var body: some View {
-        VStack(spacing: compact ? 4 : 8) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(context.attributes.departureIcao)
-                    .font(compact
-                          ? .system(size: 19, weight: .bold, design: .rounded)
-                          : InflightLA.icaoFont)
-                    .foregroundColor(InflightLA.text)
-                Spacer()
-                Text(context.attributes.arrivalIcao)
-                    .font(compact
-                          ? .system(size: 19, weight: .bold, design: .rounded)
-                          : InflightLA.icaoFont)
-                    .foregroundColor(InflightLA.text)
+        VStack(alignment: alignment, spacing: 2) {
+            Text(timeStringShort(scheduled))
+                .font(InflightLA.timeFont)
+                .foregroundColor(InflightLA.text)
+            if let est = estimated {
+                HStack(spacing: 3) {
+                    Text("Estimated")
+                        .font(InflightLA.estLabelFont)
+                        .foregroundColor(InflightLA.textTert)
+                    Text(timeStringShort(est))
+                        .font(InflightLA.estTimeFont)
+                        .foregroundColor(estimatedColor)
+                }
             }
-            ProgressTrack(progress: flightProgress(context),
-                          isLanded: context.state.isLanded,
-                          compact: compact)
         }
     }
 }
 
-/// Thick rounded pill with the plane glyph riding along it. Designed to read
-/// as the lock-screen centerpiece — close to the Flighty / Apple Wallet
-/// boarding-pass progress aesthetic.
+// =============================================================================
+// MARK: - Arrow route (dashed connector with plane + arrowhead)
+// =============================================================================
+
 @available(iOS 16.1, *)
-struct ProgressTrack: View {
+struct ArrowRoute: View {
     let progress: Double
     let isLanded: Bool
-    var compact: Bool = false
 
     var body: some View {
-        let height: CGFloat = compact ? 10 : 18
-        let glyphSize: CGFloat = compact ? 13 : 20
-
         GeometryReader { geo in
             let w = geo.size.width
+            let h = geo.size.height
+            let y = h / 2
             let p = min(max(progress, 0), 1)
-            let filled = max(height, w * p)
+            let leftPad: CGFloat = 2
+            let rightPad: CGFloat = 12          // leaves room for the arrowhead
+            let usable = max(0, w - leftPad - rightPad)
+            let planeX = leftPad + usable * p
+            let glyphSize: CGFloat = 14
 
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(InflightLA.trackBg)
-                    .overlay(
-                        Capsule().stroke(InflightLA.stroke, lineWidth: 0.5)
-                    )
-                    .frame(height: height)
+            ZStack {
+                // Background dashed line spanning the full route.
+                Path { path in
+                    path.move(to: CGPoint(x: leftPad, y: y))
+                    path.addLine(to: CGPoint(x: leftPad + usable, y: y))
+                }
+                .stroke(InflightLA.trackBg,
+                        style: StrokeStyle(lineWidth: 1.5,
+                                           lineCap: .round,
+                                           dash: [2.5, 3.5]))
 
-                Capsule()
-                    .fill(
-                        LinearGradient(
-                            colors: [InflightLA.accent, InflightLA.accentDeep],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                    .frame(width: filled, height: height)
-                    .shadow(color: InflightLA.accent.opacity(0.45),
-                            radius: 6, x: 0, y: 0)
+                // Solid filled portion up to current progress.
+                Path { path in
+                    path.move(to: CGPoint(x: leftPad, y: y))
+                    path.addLine(to: CGPoint(x: planeX, y: y))
+                }
+                .stroke(
+                    LinearGradient(
+                        colors: [InflightLA.accent, InflightLA.accentDeep],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    ),
+                    style: StrokeStyle(lineWidth: 2.5, lineCap: .round)
+                )
 
-                // Plane glyph sits centered on the leading edge of the fill.
+                // Arrowhead on the right end of the route.
+                Image(systemName: "arrowtriangle.right.fill")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(InflightLA.textTert)
+                    .position(x: w - 6, y: y)
+
+                // Plane (or check-mark when landed) riding the line.
                 Image(systemName: isLanded ? "checkmark.circle.fill" : "airplane")
                     .font(.system(size: glyphSize, weight: .bold))
                     .foregroundColor(isLanded ? InflightLA.success : .white)
-                    .shadow(color: .black.opacity(0.35), radius: 2, x: 0, y: 1)
-                    .offset(x: max(0, min(w - glyphSize, w * p - glyphSize / 2)))
+                    .shadow(color: InflightLA.accent.opacity(0.45),
+                            radius: 3, x: 0, y: 0)
+                    .position(x: planeX, y: y)
             }
-            .frame(height: max(height, glyphSize))
         }
-        .frame(height: max((compact ? 10 : 18), (compact ? 13 : 20)))
+        .frame(height: 20)
+    }
+}
+
+// =============================================================================
+// MARK: - Dynamic Island center (compact route view)
+// =============================================================================
+
+@available(iOS 16.1, *)
+struct DynamicIslandRoute: View {
+    let context: ActivityViewContext<InflightActivityAttributes>
+
+    var body: some View {
+        VStack(spacing: 4) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(context.attributes.departureIcao)
+                    .font(.system(size: 19, weight: .bold, design: .rounded))
+                    .foregroundColor(InflightLA.text)
+                Spacer()
+                Text(context.attributes.arrivalIcao)
+                    .font(.system(size: 19, weight: .bold, design: .rounded))
+                    .foregroundColor(InflightLA.text)
+            }
+            ArrowRoute(progress: flightProgress(context),
+                       isLanded: context.state.isLanded)
+        }
     }
 }
 
@@ -353,7 +355,7 @@ struct StatusBadge: View {
     let color: Color
     var body: some View {
         Text(text)
-            .font(InflightLA.statusFont)
+            .font(InflightLA.counterFont)
             .foregroundColor(color)
             .padding(.horizontal, 10)
             .padding(.vertical, 3)
