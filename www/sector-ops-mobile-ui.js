@@ -1436,15 +1436,27 @@ wireUpLegacySheetInteractions(sheetElement, handleElement) {
         // Since elements were moved from the activeWindow to the HUD DOM, their native click
         // handlers attached via event delegation to activeWindow will no longer fire.
         const handleDesktopProxyClick = (e) => {
+            // The bell is special: clone-and-click doesn't work because the
+            // handler swaps the icon class on the clicked node, and a hidden
+            // clone won't reflect that to the user. Call the extracted bell
+            // handler directly against the visible in-island button.
+            const bellBtn = e.target.closest('.aircraft-window-trackme-btn');
+            if (bellBtn && typeof window.handleTrackmeBellClick === 'function') {
+                e.preventDefault();
+                e.stopPropagation();
+                window.handleTrackmeBellClick(bellBtn);
+                return;
+            }
+
             const actionBtn = e.target.closest('.aircraft-window-pin-btn, .aircraft-window-share-btn, .aircraft-window-replay-btn, #plan-this-flight-btn, .profile-toggle-btn');
-            
+
             if (actionBtn && this.activeWindow) {
                 e.preventDefault();
                 e.stopPropagation();
-                
+
                 // If opening Trip Card or Replay, temporarily hide HUD so it doesn't overlap
                 if (actionBtn.classList.contains('aircraft-window-share-btn') || actionBtn.classList.contains('aircraft-window-replay-btn')) {
-                    this.closeActiveWindow(); 
+                    this.closeActiveWindow();
                 }
 
                 // Trigger the desktop event listener by cloning the button into the original window
@@ -1600,7 +1612,7 @@ wireUpLegacySheetInteractions(sheetElement, handleElement) {
         if (this.activeMode !== 'hud') return;
         
         // --- [CRITICAL FIX] Do not start dragging if the user is touching an action button ---
-        if (e.target.closest('button, a, .aircraft-window-pin-btn, .aircraft-window-share-btn, .aircraft-window-replay-btn, .close-btn, .overview-actions, [role="button"]')) {
+        if (e.target.closest('button, a, .aircraft-window-pin-btn, .aircraft-window-share-btn, .aircraft-window-replay-btn, .aircraft-window-trackme-btn, .close-btn, .overview-actions, [role="button"]')) {
             return; // Let the click event fire naturally
         }
 
@@ -1647,6 +1659,7 @@ wireUpLegacySheetInteractions(sheetElement, handleElement) {
         const interactiveSelectors = [
             '.overview-actions', '.close-btn', 'button', 'a', '[role="button"]', 
             '.aircraft-window-pin-btn', '.aircraft-window-share-btn', '.aircraft-window-replay-btn',
+            '.aircraft-window-trackme-btn',
             '.ac-info-tab-btn'
         ];
         if (e.target.closest(interactiveSelectors.join(', '))) {

@@ -11,6 +11,19 @@
  * landingUI.js#applyMobileChrome when the viewport is mobile.
  */
 
+const SERVER_META = {
+    Expert:   { icon: 'fa-shield-halved', color: '#30d158', desc: 'Strict rules, realistic ops' },
+    Training: { icon: 'fa-graduation-cap', color: '#ffd60a', desc: 'Practice with relaxed rules' },
+    Casual:   { icon: 'fa-couch',          color: '#0a84ff', desc: 'Fly freely, no enforcement' },
+};
+
+const WEATHER_LAYERS = [
+    { id: 'precip',  label: 'Precipitation', sub: 'Live radar + intensity', icon: 'fa-satellite-dish' },
+    { id: 'sigmets', label: 'SIGMETs',       sub: 'Significant weather',    icon: 'fa-triangle-exclamation' },
+    { id: 'clouds',  label: 'Clouds',        sub: 'Coverage overlay',       icon: 'fa-cloud' },
+    { id: 'wind',    label: 'Winds Aloft',   sub: 'Direction + speed',      icon: 'fa-wind' },
+];
+
 export const MobileLandingChromeUI = {
     parent: null,
     _initialized: false,
@@ -29,6 +42,7 @@ export const MobileLandingChromeUI = {
         this._renderChrome();
         this._wireEvents();
         this._syncFilterDot();
+        this._applyServerVisual(this.parent?._currentServer || 'Expert');
     },
 
     /* ===========================================================
@@ -82,9 +96,11 @@ export const MobileLandingChromeUI = {
                     <span class="ios-tab-label">Weather</span>
                 </button>
                 <button type="button" class="ios-tab" data-action="filters">
-                    <i class="fa-solid fa-sliders"></i>
+                    <span class="ios-tab-iconwrap">
+                        <i class="fa-solid fa-sliders"></i>
+                        <span class="ios-tab-badge" id="ios-tab-filter-dot">0</span>
+                    </span>
                     <span class="ios-tab-label">Filters</span>
-                    <span class="ios-tab-dot" id="ios-tab-filter-dot"></span>
                 </button>
                 <button type="button" class="ios-tab" data-action="settings">
                     <i class="fa-solid fa-gear"></i>
@@ -101,11 +117,17 @@ export const MobileLandingChromeUI = {
             <div class="ios-sheet-backdrop" data-dismiss="server"></div>
             <div class="ios-sheet-card">
                 <div class="ios-sheet-grip"></div>
-                <div class="ios-sheet-title">Server</div>
+                <div class="ios-sheet-title">Choose Server</div>
                 <div class="ios-sheet-group">
-                    ${['Expert', 'Training', 'Casual'].map(s => `
-                        <button type="button" class="ios-sheet-row" data-server="${s}">
-                            <span class="ios-sheet-row-label">${s}</span>
+                    ${Object.entries(SERVER_META).map(([name, meta]) => `
+                        <button type="button" class="ios-sheet-row" data-server="${name}">
+                            <span class="ios-sheet-row-icon" style="background:${meta.color}1f;color:${meta.color};">
+                                <i class="fa-solid ${meta.icon}"></i>
+                            </span>
+                            <span class="ios-sheet-row-text">
+                                <span class="ios-sheet-row-label">${name}</span>
+                                <span class="ios-sheet-row-sub">${meta.desc}</span>
+                            </span>
                             <i class="fa-solid fa-check ios-sheet-row-check"></i>
                         </button>
                     `).join('')}
@@ -121,19 +143,22 @@ export const MobileLandingChromeUI = {
         weatherPop.innerHTML = `
             <div class="ios-popover-backdrop" data-dismiss="weather"></div>
             <div class="ios-popover-card">
-                <div class="ios-popover-title">Weather Layers</div>
-                ${[
-                    { id: 'precip', label: 'Radar', icon: 'fa-satellite-dish' },
-                    { id: 'sigmets', label: 'SIGMETs', icon: 'fa-triangle-exclamation' },
-                    { id: 'clouds', label: 'Clouds', icon: 'fa-cloud' },
-                    { id: 'wind', label: 'Wind', icon: 'fa-wind' },
-                ].map(w => `
+                <div class="ios-popover-header">
+                    <span class="ios-popover-eyebrow">Map Overlays</span>
+                    <span class="ios-popover-heading">Weather</span>
+                </div>
+                <div class="ios-popover-list">
+                ${WEATHER_LAYERS.map(w => `
                     <button type="button" class="ios-popover-row" data-weather="${w.id}">
-                        <i class="fa-solid ${w.icon}"></i>
-                        <span>${w.label}</span>
+                        <span class="ios-popover-icon"><i class="fa-solid ${w.icon}"></i></span>
+                        <span class="ios-popover-text">
+                            <span class="ios-popover-label">${w.label}</span>
+                            <span class="ios-popover-sub">${w.sub}</span>
+                        </span>
                         <span class="ios-popover-switch" aria-hidden="true"></span>
                     </button>
                 `).join('')}
+                </div>
             </div>
         `;
 
@@ -262,10 +287,7 @@ export const MobileLandingChromeUI = {
         // --- Server sync (in case other code dispatches serverChange) ---
         window.addEventListener('serverChange', (e) => {
             const name = (e.detail?.server || this.parent?._currentServer || 'Expert');
-            const initial = document.getElementById('ios-server-initial');
-            if (initial) initial.textContent = name.charAt(0).toUpperCase();
-            const pill = document.getElementById('ios-server-pill');
-            if (pill) pill.setAttribute('aria-label', `Server: ${name}`);
+            this._applyServerVisual(name);
             this._refreshServerSheetChecks(name);
         });
 
@@ -304,9 +326,9 @@ export const MobileLandingChromeUI = {
     },
 
     _setActiveTab(btn) {
-        document.querySelectorAll('#ios-landing-tabbar .ios-tab').forEach(t => t.classList.remove('is-active'));
-        btn?.classList.add('is-active');
-        setTimeout(() => btn?.classList.remove('is-active'), 280);
+        document.querySelectorAll('#ios-landing-tabbar .ios-tab').forEach(t => t.classList.remove('is-pressed'));
+        btn?.classList.add('is-pressed');
+        setTimeout(() => btn?.classList.remove('is-pressed'), 320);
     },
 
     /* ===========================================================
@@ -329,14 +351,21 @@ export const MobileLandingChromeUI = {
     _selectServer(name) {
         if (!name) return;
         if (this.parent) this.parent._currentServer = name;
-        const initial = document.getElementById('ios-server-initial');
-        if (initial) initial.textContent = name.charAt(0).toUpperCase();
-        const pill = document.getElementById('ios-server-pill');
-        if (pill) pill.setAttribute('aria-label', `Server: ${name}`);
+        this._applyServerVisual(name);
         const oldLabel = document.getElementById('landing-server-name');
         if (oldLabel) oldLabel.textContent = `${name.toUpperCase()} SERVER`;
         this._refreshServerSheetChecks(name);
         window.dispatchEvent(new CustomEvent('serverChange', { detail: { server: name } }));
+    },
+    _applyServerVisual(name) {
+        const meta = SERVER_META[name] || SERVER_META.Expert;
+        const pill = document.getElementById('ios-server-pill');
+        const initial = document.getElementById('ios-server-initial');
+        if (initial) initial.textContent = name.charAt(0).toUpperCase();
+        if (pill) {
+            pill.setAttribute('aria-label', `Server: ${name}`);
+            pill.style.setProperty('--server-tint', meta.color);
+        }
     },
     _refreshServerSheetChecks(name) {
         document.querySelectorAll('#ios-server-sheet [data-server]').forEach(row => {
@@ -369,8 +398,11 @@ export const MobileLandingChromeUI = {
     _syncFilterDot() {
         const dot = document.getElementById('ios-tab-filter-dot');
         if (!dot) return;
-        const hasActive = !!(this.parent && this.parent._activeFilters && Object.keys(this.parent._activeFilters).length > 0);
-        dot.classList.toggle('is-on', hasActive);
+        const count = (this.parent && this.parent._activeFilters)
+            ? Object.keys(this.parent._activeFilters).length
+            : 0;
+        dot.textContent = count > 9 ? '9+' : String(count);
+        dot.classList.toggle('is-on', count > 0);
     },
 
     /* ===========================================================
@@ -387,71 +419,69 @@ export const MobileLandingChromeUI = {
                 display: none !important;
             }
 
-            /* ============ SHARED — iOS GLASS TOKENS ============ */
+            /* ============ SHARED — NATIVE GLASS TOKENS ============
+               Let backdrop-filter do the work. One hairline, one shadow.
+               No fake sheens, no multi-edge inset highlights. */
             .ios-chrome,
             .ios-sheet-root,
             .ios-popover-root {
                 font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
                 -webkit-font-smoothing: antialiased;
                 color: #fff;
-                /* Lighter, more transparent surfaces — true vibrancy. */
-                --ios-bg: rgba(22, 22, 26, 0.52);
-                --ios-bg-elev: rgba(28, 28, 32, 0.62);
-                --ios-bg-deep: rgba(36, 36, 40, 0.74);
-                --ios-stroke: rgba(255, 255, 255, 0.12);
-                --ios-stroke-soft: rgba(255, 255, 255, 0.06);
-                --ios-fill: rgba(120, 120, 128, 0.28);
-                --ios-fill-strong: rgba(120, 120, 128, 0.4);
-                /* Whiter text + icons — primary near full white, secondary bright. */
+                --ios-bg: rgba(30, 30, 32, 0.55);
+                --ios-bg-elev: rgba(40, 40, 44, 0.70);
+                --ios-bg-deep: rgba(48, 48, 52, 0.82);
+                --ios-stroke: rgba(255, 255, 255, 0.14);
+                --ios-stroke-soft: rgba(255, 255, 255, 0.08);
+                --ios-fill: rgba(255, 255, 255, 0.08);
+                --ios-fill-strong: rgba(255, 255, 255, 0.14);
                 --ios-text: #ffffff;
-                --ios-text-2: rgba(255, 255, 255, 0.88);
-                --ios-text-3: rgba(255, 255, 255, 0.62);
-                --ios-text-4: rgba(255, 255, 255, 0.42);
+                --ios-text-2: rgba(255, 255, 255, 0.90);
+                --ios-text-3: rgba(235, 235, 245, 0.60);
+                --ios-text-4: rgba(235, 235, 245, 0.30);
                 --ios-accent: #0a84ff;
                 --ios-success: #30d158;
                 --ios-warning: #ffd60a;
-                /* Glass effect: 40px blur + 200% saturation = vivid vibrancy. */
-                --ios-blur: saturate(200%) blur(40px);
-                /* Inner highlight + outer drop combo for layered depth. */
-                --ios-inner-hi: inset 0 0.5px 0 rgba(255, 255, 255, 0.18);
-                --ios-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+                /* iOS Material.regular ≈ blur(30) + saturate(180%) */
+                --ios-blur: saturate(180%) blur(30px);
+                --ios-inner-hi: none;
+                --ios-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
             }
             .ios-chrome[data-theme="light"],
             .ios-sheet-root[data-theme="light"],
             .ios-popover-root[data-theme="light"] {
                 color: #000;
-                --ios-bg: rgba(248, 248, 250, 0.58);
-                --ios-bg-elev: rgba(250, 250, 252, 0.7);
-                --ios-bg-deep: rgba(252, 252, 254, 0.82);
-                --ios-stroke: rgba(0, 0, 0, 0.1);
+                --ios-bg: rgba(245, 245, 247, 0.72);
+                --ios-bg-elev: rgba(250, 250, 252, 0.82);
+                --ios-bg-deep: rgba(252, 252, 254, 0.90);
+                --ios-stroke: rgba(0, 0, 0, 0.08);
                 --ios-stroke-soft: rgba(0, 0, 0, 0.05);
-                --ios-fill: rgba(118, 118, 128, 0.14);
-                --ios-fill-strong: rgba(118, 118, 128, 0.24);
+                --ios-fill: rgba(0, 0, 0, 0.05);
+                --ios-fill-strong: rgba(0, 0, 0, 0.10);
                 --ios-text: #000;
                 --ios-text-2: rgba(0, 0, 0, 0.88);
                 --ios-text-3: rgba(60, 60, 67, 0.6);
-                --ios-text-4: rgba(60, 60, 67, 0.4);
+                --ios-text-4: rgba(60, 60, 67, 0.3);
                 --ios-accent: #007aff;
-                --ios-inner-hi: inset 0 0.5px 0 rgba(255, 255, 255, 0.6);
-                --ios-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
+                --ios-shadow: 0 4px 18px rgba(0, 0, 0, 0.10);
             }
 
-            /* ============ TOP BAR ============ */
+            /* ============ TOP BAR — bare positioning frame ============
+               No wrapper card. Each child below is its own glass bead. */
             #ios-landing-topbar {
                 position: fixed;
-                top: 0;
-                left: 0;
-                right: 0;
+                top: calc(env(safe-area-inset-top, 0px) + 2px);
+                left: 8px;
+                right: 8px;
                 z-index: 1500;
-                background: var(--ios-bg);
-                -webkit-backdrop-filter: var(--ios-blur);
-                backdrop-filter: var(--ios-blur);
-                border-bottom: 0.5px solid var(--ios-stroke);
-                box-shadow: var(--ios-inner-hi);
-                padding: calc(env(safe-area-inset-top, 0px) + 8px) 12px 10px 12px;
-                pointer-events: auto;
+                background: transparent;
+                border: none;
+                box-shadow: none;
+                padding: 7px 0;
+                pointer-events: none; /* let map gestures through the gaps */
                 visibility: visible;
             }
+            #ios-landing-topbar .ios-topbar-inner > * { pointer-events: auto; }
             /* Tactical-ui root starts hidden/inactive; reveal our chrome
                only once it's been activated by flight.js. */
             #inflight-tactical-ui:not(.active) #ios-landing-topbar,
@@ -464,12 +494,12 @@ export const MobileLandingChromeUI = {
                 position: relative;
                 display: flex;
                 align-items: center;
-                gap: 10px;
+                gap: 8px;
                 width: 100%;
                 height: 38px;
             }
 
-            /* Server pill — circular initial badge (no status dot) */
+            /* Server pill — standalone glass bead */
             .ios-server-pill {
                 flex: 0 0 auto;
                 display: grid;
@@ -477,40 +507,50 @@ export const MobileLandingChromeUI = {
                 width: 38px;
                 height: 38px;
                 padding: 0;
-                border: none;
-                background: var(--ios-fill);
-                color: var(--ios-text);
+                border: 0.5px solid var(--ios-stroke);
+                background: var(--ios-bg);
+                -webkit-backdrop-filter: var(--ios-blur);
+                backdrop-filter: var(--ios-blur);
+                color: var(--server-tint, var(--ios-text));
                 border-radius: 50%;
                 cursor: pointer;
-                box-shadow: var(--ios-inner-hi);
-                transition: transform 0.15s ease, background-color 0.15s ease;
+                box-shadow: var(--ios-shadow);
+                transition:
+                    transform 0.22s cubic-bezier(0.16,1,0.3,1),
+                    background-color 0.22s ease,
+                    color 0.25s ease;
                 -webkit-tap-highlight-color: transparent;
             }
-            .ios-server-pill:active { transform: scale(0.92); background: var(--ios-fill-strong); }
+            .ios-server-pill:active {
+                transform: scale(0.9);
+                background: var(--ios-fill-strong);
+            }
             .ios-server-initial {
                 font-family: inherit;
-                font-size: 16px;
+                font-size: 15px;
                 font-weight: 700;
-                letter-spacing: 0;
                 line-height: 1;
-                color: var(--ios-text);
+                color: inherit;
             }
 
-            /* Search shell */
+            /* Search shell — standalone glass capsule */
             .ios-search-shell {
                 flex: 1 1 auto;
                 min-width: 0;
                 height: 38px;
-                padding: 0 10px;
+                padding: 0 14px;
                 display: flex;
                 align-items: center;
-                gap: 7px;
-                background: var(--ios-fill);
-                border-radius: 10px;
-                box-shadow: var(--ios-inner-hi);
-                transition: background-color 0.2s ease;
+                gap: 8px;
+                background: var(--ios-bg);
+                -webkit-backdrop-filter: var(--ios-blur);
+                backdrop-filter: var(--ios-blur);
+                border: 0.5px solid var(--ios-stroke);
+                border-radius: 999px;
+                box-shadow: var(--ios-shadow);
+                transition: background-color 0.22s ease;
             }
-            .ios-search-shell.is-active { background: var(--ios-fill-strong); }
+            .ios-search-shell.is-active { background: var(--ios-bg-elev); }
             .ios-search-glyph {
                 color: var(--ios-text-2);
                 font-size: 14px;
@@ -562,36 +602,41 @@ export const MobileLandingChromeUI = {
             #ios-landing-topbar #blade-search-input:not(:placeholder-shown) ~ #blade-search-clear,
             #ios-landing-topbar .has-text #blade-search-clear { display: inline-flex; align-items: center; justify-content: center; }
 
-            /* Profile orb */
+            /* Profile orb — standalone glass bead */
             .ios-profile-btn {
                 flex: 0 0 auto;
                 width: 38px; height: 38px;
-                border: none;
+                border: 0.5px solid var(--ios-stroke);
                 border-radius: 50%;
-                background: var(--ios-fill);
+                background: var(--ios-bg);
+                -webkit-backdrop-filter: var(--ios-blur);
+                backdrop-filter: var(--ios-blur);
                 color: var(--ios-text);
                 font-size: 15px;
                 display: grid;
                 place-items: center;
                 cursor: pointer;
-                box-shadow: var(--ios-inner-hi);
-                transition: transform 0.15s ease, background-color 0.15s ease, opacity 0.2s ease;
+                box-shadow: var(--ios-shadow);
+                transition:
+                    transform 0.22s cubic-bezier(0.16,1,0.3,1),
+                    background-color 0.22s ease,
+                    opacity 0.2s ease;
                 -webkit-tap-highlight-color: transparent;
             }
-            .ios-profile-btn:active { transform: scale(0.92); background: var(--ios-fill-strong); }
+            .ios-profile-btn:active { transform: scale(0.9); background: var(--ios-bg-elev); }
 
             /* Cancel button — slides in over the profile orb */
             .ios-cancel-btn {
                 position: absolute;
-                top: 0; right: 0;
+                top: 0; right: 4px;
                 height: 38px;
                 padding: 0 2px 0 8px;
                 border: none;
                 background: transparent;
                 color: var(--ios-accent);
                 font-family: inherit;
-                font-size: 17px;
-                font-weight: 400;
+                font-size: 16px;
+                font-weight: 500;
                 letter-spacing: -0.2px;
                 cursor: pointer;
                 opacity: 0;
@@ -610,84 +655,164 @@ export const MobileLandingChromeUI = {
             /* During search, the search field stretches across the bar */
             #inflight-tactical-ui.mobile-search-active .ios-search-shell {
                 position: absolute;
-                left: 0; right: 60px; top: 0;
+                left: 0; right: 64px; top: 0;
                 width: auto;
                 height: 38px;
             }
 
-            /* Search results — full-bleed sheet below the nav bar */
+            /* ============ SEARCH RESULTS — floating glass card ============
+               Matches the search capsule above: same margins, hairline,
+               backdrop-filter, and corner radius. Sits as a contained
+               sheet under the search bead, not a full-bleed page. */
             #inflight-tactical-ui #blade-search-results {
                 position: fixed !important;
-                top: calc(env(safe-area-inset-top, 0px) + 56px) !important;
-                left: 0 !important;
-                right: 0 !important;
-                width: 100vw !important;
-                height: calc(100dvh - env(safe-area-inset-top, 0px) - 56px) !important;
-                max-height: none !important;
+                top: calc(env(safe-area-inset-top, 0px) + 54px) !important;
+                left: 8px !important;
+                right: 8px !important;
+                width: auto !important;
+                max-height: calc(100dvh - env(safe-area-inset-top, 0px) - max(env(safe-area-inset-bottom, 0px), 4px) - 80px) !important;
+                height: auto !important;
                 margin: 0 !important;
-                padding: 0 0 calc(env(safe-area-inset-bottom, 0px) + 16px) !important;
-                border: none !important;
-                border-radius: 0 !important;
-                background: rgba(10, 10, 11, 0.97) !important;
-                -webkit-backdrop-filter: blur(20px) !important;
-                backdrop-filter: blur(20px) !important;
-                box-shadow: none !important;
+                padding: 6px !important;
+                border: 0.5px solid var(--ios-stroke) !important;
+                border-radius: 22px !important;
+                background: var(--ios-bg-deep) !important;
+                -webkit-backdrop-filter: var(--ios-blur) !important;
+                backdrop-filter: var(--ios-blur) !important;
+                box-shadow: var(--ios-shadow) !important;
+                overflow-y: auto !important;
+                -webkit-overflow-scrolling: touch !important;
+                overscroll-behavior: contain !important;
                 z-index: 1499 !important;
                 pointer-events: auto !important;
                 visibility: visible !important;
             }
             #inflight-tactical-ui[data-theme="light"] #blade-search-results {
-                background: rgba(248, 248, 250, 0.98) !important;
+                background: var(--ios-bg-deep) !important;
             }
+            /* Hide native scrollbar — iOS aesthetic. */
+            #inflight-tactical-ui #blade-search-results::-webkit-scrollbar {
+                width: 0 !important;
+                background: transparent !important;
+            }
+
+            /* Section divider between result groups — clean hairline, no padding noise. */
+            #inflight-tactical-ui .blade-results-section + .blade-results-section {
+                border-top: 0.5px solid var(--ios-stroke-soft) !important;
+                margin-top: 6px !important;
+                padding-top: 4px !important;
+            }
+            /* Section header — small uppercase label inside the glass card. */
             #inflight-tactical-ui .blade-results-header {
-                position: sticky !important;
-                top: 0 !important;
-                background: inherit !important;
-                padding: 16px 16px 6px !important;
+                position: static !important;
+                background: transparent !important;
+                padding: 10px 12px 4px !important;
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
                 font-size: 11px !important;
                 font-weight: 600 !important;
                 text-transform: uppercase !important;
-                letter-spacing: 0.6px !important;
-                color: var(--ios-text-2, rgba(235,235,245,0.6)) !important;
-                z-index: 1 !important;
+                letter-spacing: 0.5px !important;
+                color: var(--ios-text-3) !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: space-between !important;
             }
-            #inflight-tactical-ui .premium-result-item {
-                min-height: 60px !important;
-                padding: 12px 16px !important;
-                gap: 14px !important;
-                margin: 0 !important;
-                border-radius: 0 !important;
-                border-bottom: 0.5px solid rgba(255,255,255,0.08) !important;
-            }
-            #inflight-tactical-ui[data-theme="light"] .premium-result-item {
-                border-bottom-color: rgba(0,0,0,0.08) !important;
-            }
-            #inflight-tactical-ui .premium-result-item:active {
-                background: rgba(255,255,255,0.06) !important;
+            #inflight-tactical-ui .blade-results-count {
+                font-family: inherit !important;
+                font-size: 11px !important;
+                font-weight: 500 !important;
+                color: var(--ios-text-4) !important;
+                letter-spacing: 0 !important;
             }
 
-            /* ============ BOTTOM TAB BAR ============ */
+            /* Result rows — flush inside the rounded card, gentle press feedback. */
+            #inflight-tactical-ui .premium-result-item {
+                min-height: 56px !important;
+                padding: 10px 12px !important;
+                gap: 12px !important;
+                margin: 0 !important;
+                border: none !important;
+                border-radius: 14px !important;
+                background: transparent !important;
+                transition: background-color 0.15s ease !important;
+            }
+            #inflight-tactical-ui .premium-result-item + .premium-result-item {
+                margin-top: 1px !important;
+            }
+            #inflight-tactical-ui .premium-result-item:active,
+            #inflight-tactical-ui .premium-result-item.selected {
+                background: var(--ios-fill) !important;
+            }
+
+            /* Result row typography & inner chip — iOS palette */
+            #inflight-tactical-ui .premium-result-item .res-callsign {
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
+                font-size: 15px !important;
+                font-weight: 600 !important;
+                letter-spacing: -0.2px !important;
+                color: var(--ios-text) !important;
+            }
+            #inflight-tactical-ui .premium-result-item .res-secondary-row,
+            #inflight-tactical-ui .premium-result-item .res-pilot {
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
+                font-size: 12.5px !important;
+                font-weight: 400 !important;
+                color: var(--ios-text-3) !important;
+            }
+            #inflight-tactical-ui .premium-result-item .res-pill {
+                background: var(--ios-fill) !important;
+                color: var(--ios-text-2) !important;
+                font-size: 10px !important;
+                font-weight: 600 !important;
+                padding: 2px 7px !important;
+                border-radius: 6px !important;
+                letter-spacing: 0.02em !important;
+            }
+            #inflight-tactical-ui .premium-result-item .res-altitude {
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
+                font-size: 13px !important;
+                font-weight: 600 !important;
+                color: var(--ios-text) !important;
+            }
+            #inflight-tactical-ui .premium-result-item .res-altitude span {
+                color: var(--ios-text-3) !important;
+                font-weight: 400 !important;
+            }
+            #inflight-tactical-ui .premium-highlight {
+                color: var(--ios-accent) !important;
+                font-weight: 700 !important;
+            }
+            #inflight-tactical-ui .premium-empty-state {
+                padding: 28px 16px !important;
+                color: var(--ios-text-3) !important;
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
+                font-size: 14px !important;
+            }
+
+            /* ============ BOTTOM TAB BAR — native glass stadium ============ */
             #ios-landing-tabbar {
                 position: fixed;
-                left: 0; right: 0; bottom: 0;
+                left: 8px;
+                right: 8px;
+                bottom: max(env(safe-area-inset-bottom, 0px), 4px);
                 z-index: 1500;
                 background: var(--ios-bg);
                 -webkit-backdrop-filter: var(--ios-blur);
                 backdrop-filter: var(--ios-blur);
-                border-top: 0.5px solid var(--ios-stroke);
-                box-shadow: var(--ios-inner-hi);
-                padding-bottom: env(safe-area-inset-bottom, 0px);
+                border: 0.5px solid var(--ios-stroke);
+                border-radius: 28px;
+                box-shadow: var(--ios-shadow);
                 pointer-events: auto;
                 visibility: visible;
-                transition: transform 0.32s cubic-bezier(0.16,1,0.3,1), opacity 0.2s ease;
+                transition: transform 0.34s cubic-bezier(0.16,1,0.3,1), opacity 0.2s ease;
             }
             .ios-tabbar-inner {
                 display: flex;
                 align-items: stretch;
                 justify-content: space-around;
                 width: 100%;
-                height: 52px;
-                padding: 2px 4px 0;
+                height: 56px;
+                padding: 4px;
             }
             .ios-tab {
                 position: relative;
@@ -698,47 +823,86 @@ export const MobileLandingChromeUI = {
                 align-items: center;
                 justify-content: center;
                 gap: 3px;
-                padding: 4px 2px 6px;
+                padding: 0;
                 background: transparent;
                 border: none;
+                border-radius: 18px;
                 color: var(--ios-text-2);
                 font-family: inherit;
                 cursor: pointer;
-                transition: color 0.15s ease, transform 0.15s ease;
+                transition:
+                    color 0.22s ease,
+                    background-color 0.18s ease,
+                    transform 0.18s cubic-bezier(0.16,1,0.3,1);
                 -webkit-tap-highlight-color: transparent;
             }
             .ios-tab i {
-                font-size: 22px;
+                font-size: 20px;
                 line-height: 1;
                 color: inherit;
             }
             .ios-tab .ios-tab-label {
                 font-size: 10.5px;
                 font-weight: 600;
-                letter-spacing: 0.1px;
+                letter-spacing: 0.05px;
                 line-height: 1.1;
                 color: inherit;
             }
-            .ios-tab:active { transform: scale(0.94); color: var(--ios-text); }
-            .ios-tab.is-active { color: var(--ios-accent); }
-            .ios-tab-dot {
-                position: absolute;
-                top: 4px;
-                right: 22%;
-                width: 8px; height: 8px;
-                border-radius: 50%;
-                background: var(--ios-accent);
-                box-shadow: 0 0 6px rgba(10, 132, 255, 0.8);
-                opacity: 0;
-                transform: scale(0.6);
-                transition: opacity 0.2s ease, transform 0.2s ease;
+            .ios-tab:active {
+                background: var(--ios-fill);
+                transform: scale(0.96);
             }
-            .ios-tab-dot.is-on { opacity: 1; transform: scale(1); }
+            .ios-tab.is-pressed { color: var(--ios-accent); }
+            .ios-tab-iconwrap {
+                position: relative;
+                display: grid;
+                place-items: center;
+                line-height: 0;
+            }
+            .ios-tab-iconwrap i { font-size: 20px; line-height: 1; }
+
+            /* Filter icon wrapper so the badge can anchor relative to the icon */
+            .ios-tab-iconwrap {
+                position: relative;
+                display: grid;
+                place-items: center;
+                line-height: 0;
+            }
+            .ios-tab-iconwrap i {
+                font-size: 20px;
+                line-height: 1;
+            }
+
+            /* Filter count badge */
+            .ios-tab-badge {
+                position: absolute;
+                top: -6px;
+                right: -10px;
+                min-width: 16px;
+                height: 16px;
+                padding: 0 4px;
+                border-radius: 999px;
+                background: #ff453a;
+                color: #fff;
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif;
+                font-size: 10px;
+                font-weight: 700;
+                line-height: 16px;
+                text-align: center;
+                box-shadow: 0 1px 3px rgba(255, 69, 58, 0.45);
+                opacity: 0;
+                transform: scale(0.4);
+                transition:
+                    opacity 0.22s ease,
+                    transform 0.28s cubic-bezier(0.16,1,0.3,1);
+                pointer-events: none;
+            }
+            .ios-tab-badge.is-on { opacity: 1; transform: scale(1); }
 
             /* Hide tab bar when searching or a detail sheet is up */
             #inflight-tactical-ui.mobile-search-active #ios-landing-tabbar,
             #sector-ops-map-fullscreen:has(.mobile-island-bottom.island-active) #inflight-tactical-ui #ios-landing-tabbar {
-                transform: translateY(120%);
+                transform: translateY(140%);
                 opacity: 0;
                 pointer-events: none;
             }
@@ -762,41 +926,46 @@ export const MobileLandingChromeUI = {
             }
             .ios-sheet-card {
                 position: absolute;
-                left: 8px; right: 8px; bottom: 8px;
-                padding: 8px 8px calc(env(safe-area-inset-bottom, 0px) + 8px);
-                transform: translateY(20px);
+                left: 10px; right: 10px; bottom: 10px;
+                padding: 0;
+                transform: translateY(24px);
                 opacity: 0;
-                transition: transform 0.32s cubic-bezier(0.16,1,0.3,1), opacity 0.25s ease;
+                transition:
+                    transform 0.4s cubic-bezier(0.16,1,0.3,1),
+                    opacity 0.28s ease;
             }
             .ios-sheet-root.is-open .ios-sheet-card { transform: translateY(0); opacity: 1; }
             .ios-sheet-grip { display: none; }
             .ios-sheet-title {
                 font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif;
                 font-size: 13px;
-                font-weight: 500;
+                font-weight: 600;
                 color: var(--ios-text-3);
                 text-align: center;
-                padding: 14px 16px 10px;
+                padding: 16px 16px 12px;
                 background: var(--ios-bg-deep);
                 -webkit-backdrop-filter: var(--ios-blur);
                 backdrop-filter: var(--ios-blur);
-                border-radius: 14px 14px 0 0;
+                border-radius: 16px 16px 0 0;
                 box-shadow: var(--ios-inner-hi);
+                letter-spacing: 0.2px;
+                text-transform: uppercase;
             }
             .ios-sheet-group {
                 background: var(--ios-bg-deep);
                 -webkit-backdrop-filter: var(--ios-blur);
                 backdrop-filter: var(--ios-blur);
-                border-radius: 0 0 14px 14px;
+                border-radius: 0 0 16px 16px;
                 overflow: hidden;
+                box-shadow: var(--ios-shadow);
             }
             .ios-sheet-row {
                 position: relative;
                 display: flex;
                 align-items: center;
-                justify-content: space-between;
+                gap: 14px;
                 width: 100%;
-                padding: 16px 18px;
+                padding: 14px 18px;
                 background: transparent;
                 border: none;
                 color: var(--ios-text);
@@ -806,17 +975,52 @@ export const MobileLandingChromeUI = {
                 text-align: left;
                 cursor: pointer;
                 -webkit-tap-highlight-color: transparent;
+                transition: background-color 0.18s ease;
             }
             .ios-sheet-row + .ios-sheet-row {
                 border-top: 0.5px solid var(--ios-stroke);
             }
-            .ios-sheet-row:active { background: rgba(255, 255, 255, 0.06); }
-            .ios-sheet-row-check {
-                color: var(--ios-accent);
-                font-size: 16px;
-                opacity: 0;
+            .ios-sheet-row:active { background: rgba(255, 255, 255, 0.08); }
+            .ios-sheet-row-icon {
+                flex: 0 0 auto;
+                display: grid;
+                place-items: center;
+                width: 34px;
+                height: 34px;
+                border-radius: 10px;
+                font-size: 15px;
+                box-shadow: inset 0 0.5px 0 rgba(255,255,255,0.15);
             }
-            .ios-sheet-row.is-selected .ios-sheet-row-check { opacity: 1; }
+            .ios-sheet-row-text {
+                flex: 1 1 auto;
+                min-width: 0;
+                display: flex;
+                flex-direction: column;
+                gap: 2px;
+            }
+            .ios-sheet-row-label {
+                font-size: 16px;
+                font-weight: 600;
+                letter-spacing: -0.2px;
+                color: var(--ios-text);
+            }
+            .ios-sheet-row-sub {
+                font-size: 12.5px;
+                font-weight: 400;
+                color: var(--ios-text-3);
+                letter-spacing: -0.1px;
+            }
+            .ios-sheet-row-check {
+                flex: 0 0 auto;
+                color: var(--ios-accent);
+                font-size: 17px;
+                font-weight: 700;
+                opacity: 0;
+                transform: scale(0.7);
+                transition: opacity 0.2s ease, transform 0.25s cubic-bezier(0.16,1,0.3,1);
+            }
+            .ios-sheet-row.is-selected { background: rgba(10, 132, 255, 0.10); }
+            .ios-sheet-row.is-selected .ios-sheet-row-check { opacity: 1; transform: scale(1); }
             .ios-sheet-cancel {
                 display: block;
                 width: 100%;
@@ -856,39 +1060,60 @@ export const MobileLandingChromeUI = {
                 position: absolute;
                 left: 12px;
                 right: 12px;
-                bottom: calc(env(safe-area-inset-bottom, 0px) + 70px);
-                max-width: 320px;
+                bottom: calc(max(env(safe-area-inset-bottom, 0px), 4px) + 72px);
+                max-width: 340px;
                 margin: 0 auto;
                 padding: 6px;
                 background: var(--ios-bg-deep);
                 -webkit-backdrop-filter: var(--ios-blur);
                 backdrop-filter: var(--ios-blur);
                 border: 0.5px solid var(--ios-stroke);
-                border-radius: 16px;
+                border-radius: 20px;
                 box-shadow: var(--ios-inner-hi), var(--ios-shadow);
-                transform: translateY(10px) scale(0.98);
+                transform: translateY(12px) scale(0.96);
                 transform-origin: bottom center;
                 opacity: 0;
-                transition: transform 0.22s cubic-bezier(0.16,1,0.3,1), opacity 0.18s ease;
+                transition:
+                    transform 0.32s cubic-bezier(0.16,1,0.3,1),
+                    opacity 0.22s ease;
             }
             .ios-popover-root.is-open .ios-popover-card {
                 transform: translateY(0) scale(1);
                 opacity: 1;
             }
-            .ios-popover-title {
-                font-size: 11px;
+            .ios-popover-header {
+                display: flex;
+                flex-direction: column;
+                gap: 2px;
+                padding: 10px 14px 10px;
+                border-bottom: 0.5px solid var(--ios-stroke-soft);
+                margin-bottom: 4px;
+            }
+            .ios-popover-eyebrow {
+                font-size: 10.5px;
                 font-weight: 600;
                 color: var(--ios-text-3);
                 text-transform: uppercase;
                 letter-spacing: 0.6px;
-                padding: 8px 12px 6px;
+            }
+            .ios-popover-heading {
+                font-size: 19px;
+                font-weight: 700;
+                letter-spacing: -0.4px;
+                color: var(--ios-text);
+            }
+            .ios-popover-list {
+                display: flex;
+                flex-direction: column;
+                gap: 2px;
+                padding: 2px;
             }
             .ios-popover-row {
                 display: flex;
                 align-items: center;
                 gap: 12px;
                 width: 100%;
-                padding: 12px;
+                padding: 10px 10px;
                 background: transparent;
                 border: none;
                 border-radius: 12px;
@@ -899,41 +1124,70 @@ export const MobileLandingChromeUI = {
                 text-align: left;
                 cursor: pointer;
                 -webkit-tap-highlight-color: transparent;
+                transition: background-color 0.18s ease;
             }
             .ios-popover-row:active { background: rgba(255, 255, 255, 0.06); }
-            .ios-popover-row i {
+            .ios-popover-icon {
                 flex: 0 0 auto;
-                width: 22px;
-                text-align: center;
-                font-size: 15px;
+                display: grid;
+                place-items: center;
+                width: 32px;
+                height: 32px;
+                border-radius: 9px;
+                background: var(--ios-fill);
+                box-shadow: inset 0 0.5px 0 rgba(255,255,255,0.15);
                 color: var(--ios-text-2);
+                font-size: 14px;
+                transition: background-color 0.22s ease, color 0.22s ease;
             }
-            .ios-popover-row span:not(.ios-popover-switch) {
+            .ios-popover-icon i { line-height: 1; }
+            .ios-popover-text {
                 flex: 1 1 auto;
+                min-width: 0;
+                display: flex;
+                flex-direction: column;
+                gap: 1px;
+            }
+            .ios-popover-label {
+                font-size: 15px;
+                font-weight: 600;
+                letter-spacing: -0.2px;
+                color: var(--ios-text);
+            }
+            .ios-popover-sub {
+                font-size: 11.5px;
+                font-weight: 400;
+                color: var(--ios-text-3);
+                letter-spacing: -0.1px;
             }
             .ios-popover-switch {
                 flex: 0 0 auto;
-                width: 36px;
-                height: 22px;
-                border-radius: 11px;
+                width: 40px;
+                height: 24px;
+                border-radius: 12px;
                 background: rgba(120, 120, 128, 0.32);
                 position: relative;
-                transition: background-color 0.22s ease;
+                transition: background-color 0.25s ease;
+                box-shadow: inset 0 1px 2px rgba(0,0,0,0.18);
             }
             .ios-popover-switch::after {
                 content: "";
                 position: absolute;
                 top: 2px; left: 2px;
-                width: 18px; height: 18px;
+                width: 20px; height: 20px;
                 border-radius: 50%;
                 background: #fff;
-                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.25);
-                transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+                box-shadow:
+                    0 2px 4px rgba(0,0,0,0.28),
+                    0 0 1px rgba(0,0,0,0.18);
+                transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
             }
-            .ios-popover-row.is-on { color: var(--ios-text); }
-            .ios-popover-row.is-on i { color: var(--ios-accent); }
+            .ios-popover-row.is-on .ios-popover-icon {
+                background: color-mix(in srgb, var(--ios-accent) 22%, transparent);
+                color: var(--ios-accent);
+            }
             .ios-popover-row.is-on .ios-popover-switch { background: var(--ios-success); }
-            .ios-popover-row.is-on .ios-popover-switch::after { transform: translateX(14px); }
+            .ios-popover-row.is-on .ios-popover-switch::after { transform: translateX(16px); }
 
             /* ============================================================
                UNIFIED iOS GLASS — Filter sheet + Settings sheet
@@ -1259,8 +1513,10 @@ export const MobileLandingChromeUI = {
                consumer (.mobile-island-bottom, .mobile-glass-pill, the
                route-summary handles, etc.) inherits the iOS palette. */
             :root {
-                --hud-bg: rgba(22, 22, 26, 0.52) !important;
-                --hud-blur: 40px !important;
+                /* Match the native iOS Material.regular opacity (~80%) so
+                   the island reads as a solid surface, not see-through. */
+                --hud-bg: rgba(28, 28, 32, 0.82) !important;
+                --hud-blur: 30px !important;
                 --hud-border: rgba(255, 255, 255, 0.12) !important;
                 --hud-accent: #0a84ff !important;
                 --hud-glow: none !important;
@@ -1351,49 +1607,118 @@ export const MobileLandingChromeUI = {
                 color: #fff !important;
             }
 
-            /* Tab bar inside the info window — iOS-flat (no underline, accent fill) */
+            /* ============ AC INFO TAB BAR — iOS segmented control ============
+               Structure (rendered by flight.js with hardcoded inline styles):
+                 .ac-info-window-tabs
+                   .modern-view-switcher
+                     .ac-info-tab-btn (Flight Display)
+                     .ac-info-tab-btn.pilot-tab-btn (Pilot Report)
+                     .switcher-highlight (sliding indicator)
+                   #ac-dock-toggle-btn
+               We restyle every layer to read as a real iOS segmented control. */
+
+            /* Outer tab container — kill the inline dark fill, give it
+               sensible padding and no bottom underline. */
             .info-window .ac-info-window-tabs,
             .mobile-island-bottom .ac-info-window-tabs {
                 background: transparent !important;
                 border-bottom: 0.5px solid var(--hud-border) !important;
-                padding: 0 12px !important;
-                height: 48px !important;
+                padding: 10px 12px !important;
+                height: auto !important;
+                gap: 10px !important;
             }
+
+            /* Segmented-control track */
+            .info-window .modern-view-switcher,
+            .mobile-island-bottom .modern-view-switcher {
+                background: rgba(118, 118, 128, 0.24) !important;
+                border: 0.5px solid var(--ios-stroke, rgba(255,255,255,0.10)) !important;
+                border-radius: 9px !important;
+                padding: 2px !important;
+                height: 32px !important;
+                box-shadow: inset 0 0.5px 0 rgba(255,255,255,0.10) !important;
+            }
+
+            /* Sliding indicator behind the active segment */
+            .info-window .switcher-highlight,
+            .mobile-island-bottom .switcher-highlight {
+                top: 2px !important;
+                left: 2px !important;
+                width: calc(50% - 2px) !important;
+                height: calc(100% - 4px) !important;
+                background: rgba(255, 255, 255, 0.22) !important;
+                border: 0.5px solid rgba(255, 255, 255, 0.18) !important;
+                border-radius: 7px !important;
+                box-shadow:
+                    0 1px 2px rgba(0, 0, 0, 0.18),
+                    inset 0 0.5px 0 rgba(255, 255, 255, 0.20) !important;
+                transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1) !important;
+            }
+
+            /* Segment buttons — sentence case, SF Pro, no letterspacing */
             .info-window .ac-info-tab-btn,
             .mobile-island-bottom .ac-info-tab-btn {
                 font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
-                font-size: 14px !important;
+                font-size: 13px !important;
                 font-weight: 600 !important;
-                letter-spacing: -0.1px !important;
-                color: rgba(235, 235, 245, 0.62) !important;
+                font-style: normal !important;
+                letter-spacing: -0.08px !important;
+                text-transform: none !important;
+                color: rgba(235, 235, 245, 0.66) !important;
+                background: transparent !important;
+                border: none !important;
                 border-bottom: none !important;
-                padding: 0 8px !important;
-                gap: 8px !important;
+                border-radius: 7px !important;
+                padding: 0 10px !important;
+                gap: 7px !important;
                 text-shadow: none !important;
+                transition: color 0.22s ease !important;
             }
             .info-window .ac-info-tab-btn i,
             .mobile-island-bottom .ac-info-tab-btn i {
                 color: inherit !important;
-                font-size: 14px !important;
+                font-size: 12px !important;
             }
             .info-window .ac-info-tab-btn.active,
             .mobile-island-bottom .ac-info-tab-btn.active {
-                color: var(--hud-accent) !important;
+                color: #ffffff !important;
                 border-bottom-color: transparent !important;
                 text-shadow: none !important;
             }
             .info-window .ac-info-tab-btn.active i,
             .mobile-island-bottom .ac-info-tab-btn.active i {
-                color: var(--hud-accent) !important;
+                color: #ffffff !important;
+            }
+            /* Pilot tab: keep amber accent in the icon for recognizability,
+               but match the segmented look — selected = white text on the
+               slider, idle = dim white. */
+            .info-window .ac-info-tab-btn.pilot-tab-btn,
+            .mobile-island-bottom .ac-info-tab-btn.pilot-tab-btn {
+                color: rgba(235, 235, 245, 0.66) !important;
+                font-weight: 600 !important;
+                letter-spacing: -0.08px !important;
+            }
+            .info-window .ac-info-tab-btn.pilot-tab-btn i,
+            .mobile-island-bottom .ac-info-tab-btn.pilot-tab-btn i {
+                color: #ffd60a !important;
             }
             .info-window .ac-info-tab-btn.pilot-tab-btn.active,
             .mobile-island-bottom .ac-info-tab-btn.pilot-tab-btn.active {
-                color: #ffd60a !important;
+                color: #ffffff !important;
                 border-bottom-color: transparent !important;
             }
             .info-window .ac-info-tab-btn.pilot-tab-btn.active i,
             .mobile-island-bottom .ac-info-tab-btn.pilot-tab-btn.active i {
                 color: #ffd60a !important;
+            }
+
+            /* Hide the desktop "dock" toggle button on mobile — there's no
+               docking on a phone, and it crowds the segmented control. */
+            .info-window #ac-dock-toggle-btn,
+            .mobile-island-bottom #ac-dock-toggle-btn,
+            .info-window .ac-dock-toggle-btn,
+            .mobile-island-bottom .ac-dock-toggle-btn {
+                display: none !important;
             }
 
             /* Drawer scrollbars — iOS-thin and white */
