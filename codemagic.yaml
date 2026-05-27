@@ -39,6 +39,15 @@ workflows:
           rm -rf ios
           npx cap add ios
 
+          # Lock iPhone to portrait orientation. iPad keeps its default
+          # multi-orientation support via UISupportedInterfaceOrientations~ipad
+          # (which `cap add ios` writes separately).
+          echo "==> Locking iPhone orientation to portrait"
+          PLIST="ios/App/App/Info.plist"
+          /usr/libexec/PlistBuddy -c "Delete :UISupportedInterfaceOrientations" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations array" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations:0 string UIInterfaceOrientationPortrait" "$PLIST"
+
           # Generate iOS app icons from assets/icon-only.png into the freshly
           # created ios/ project. Must run after `cap add ios` so the
           # Assets.xcassets target exists, and before `cap sync` so the

@@ -9952,6 +9952,49 @@ function updateTrafficLegendUI() {
 function setupAircraftWindowEvents() {
         if (!aircraftInfoWindow || aircraftInfoWindow.dataset.eventsAttached === 'true') return;
 
+        // Bell logic extracted so the mobile sector-ops proxy can call it
+        // directly against the visible button — the desktop click delegation
+        // doesn't see clicks on bells that have been moved into the island.
+        async function handleTrackmeBellClick(trackMeBtn) {
+            if (!trackMeBtn) return;
+            const flightId = trackMeBtn.dataset.flightId || currentFlightInWindow;
+            if (!flightId) return;
+            if (window.InflightLiveActivity?.isTrackingFlight(flightId)) {
+                await window.InflightLiveActivity.end({ flightId });
+                showNotification?.('Live Activity stopped.', 'info');
+            } else {
+                await window.InflightLiveActivity?.requestNotificationPermission?.({ force: true });
+                const prior = window.InflightLiveActivity?.getTrackedFlightId();
+                if (prior && prior !== flightId) {
+                    await window.InflightLiveActivity.end({ flightId: prior });
+                }
+                const payload = (typeof buildLiveActivityPayload === 'function')
+                    ? buildLiveActivityPayload(flightId)
+                    : null;
+                if (!payload) {
+                    showNotification?.('Could not read flight data yet — try again in a moment.', 'error');
+                    return;
+                }
+                const res = await window.InflightLiveActivity.start(payload);
+                if (res?.ok) {
+                    showNotification?.('Tracking on Lock Screen.', 'success');
+                } else if (res?.reason === 'unsupported') {
+                    showNotification?.('Live Activities not available on this device.', 'error');
+                } else {
+                    const reason = (res && res.reason) ? String(res.reason) : 'unknown';
+                    const short = reason.length > 140 ? reason.slice(0, 140) + '…' : reason;
+                    console.error('[LiveActivity] start failed:', res);
+                    showNotification?.(`Could not start Live Activity: ${short}`, 'error');
+                }
+            }
+            const icon = trackMeBtn.querySelector('i');
+            if (icon) {
+                icon.classList.toggle('fa-bell');
+                icon.classList.toggle('fa-bell-slash');
+            }
+        }
+        window.handleTrackmeBellClick = handleTrackmeBellClick;
+
         aircraftInfoWindow.addEventListener('click', async (e) => {
             const closeBtn = e.target.closest('.aircraft-window-close-btn');
             const pinBtn = e.target.closest('.aircraft-window-pin-btn');
@@ -9964,48 +10007,7 @@ function setupAircraftWindowEvents() {
 
             if (trackMeBtn) {
                 e.preventDefault();
-                const flightId = trackMeBtn.dataset.flightId || currentFlightInWindow;
-                if (!flightId) return;
-                if (window.InflightLiveActivity?.isTrackingFlight(flightId)) {
-                    await window.InflightLiveActivity.end({ flightId });
-                    showNotification?.('Live Activity stopped.', 'info');
-                } else {
-                    // Surface the iOS "Allow Notifications" prompt on first
-                    // bell tap. force:true asks even if we already prompted
-                    // this session; iOS itself only shows the dialog once.
-                    await window.InflightLiveActivity?.requestNotificationPermission?.({ force: true });
-                    // End any other active Live Activity first — we only ever track one "my flight" at a time.
-                    const prior = window.InflightLiveActivity?.getTrackedFlightId();
-                    if (prior && prior !== flightId) {
-                        await window.InflightLiveActivity.end({ flightId: prior });
-                    }
-                    const payload = (typeof buildLiveActivityPayload === 'function')
-                        ? buildLiveActivityPayload(flightId)
-                        : null;
-                    if (!payload) {
-                        showNotification?.('Could not read flight data yet — try again in a moment.', 'error');
-                        return;
-                    }
-                    const res = await window.InflightLiveActivity.start(payload);
-                    if (res?.ok) {
-                        showNotification?.('Tracking on Lock Screen.', 'success');
-                    } else if (res?.reason === 'unsupported') {
-                        showNotification?.('Live Activities not available on this device.', 'error');
-                    } else {
-                        // Surface the actual native error so we can diagnose
-                        // ActivityKit failures instead of guessing.
-                        const reason = (res && res.reason) ? String(res.reason) : 'unknown';
-                        const short = reason.length > 140 ? reason.slice(0, 140) + '…' : reason;
-                        console.error('[LiveActivity] start failed:', res);
-                        showNotification?.(`Could not start Live Activity: ${short}`, 'error');
-                    }
-                }
-                // Swap the icon
-                const icon = trackMeBtn.querySelector('i');
-                if (icon) {
-                    icon.classList.toggle('fa-bell');
-                    icon.classList.toggle('fa-bell-slash');
-                }
+                await handleTrackmeBellClick(trackMeBtn);
                 return;
             }
 
