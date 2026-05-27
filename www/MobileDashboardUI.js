@@ -2667,40 +2667,48 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
         if (document.getElementById('mdui-styles')) return;
 
         const css = `
-            @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap');
+            /* iOS-native typography: rely on the system stack (SF Pro on
+               Apple platforms). No webfont import needed. */
 
-            /* ── DOSSIER SUB-TABS ── */
+            /* ── Global safety: nothing inside the shell may blow past the
+               viewport width on small phones. ── */
+            #mdui-shell, #mdui-shell * { box-sizing: border-box; }
+            #mdui-shell img, #mdui-shell video, #mdui-shell canvas { max-width: 100%; }
+
+            /* ── DOSSIER SUB-TABS (iOS segmented control) ── */
             .mdui-sub-tab-bar {
                 display: flex;
-                background: var(--mdui-surface);
-                border: 1px solid var(--mdui-border);
-                padding: 4px;
-                border-radius: 12px;
-                margin-bottom: 24px;
-                gap: 4px;
+                background: var(--mdui-input);
+                border: none;
+                padding: 2px;
+                border-radius: 9px;
+                margin-bottom: 20px;
+                gap: 2px;
             }
             .mdui-career-tab-btn {
-                flex: 1;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                gap: 8px;
-                padding: 8px 0;
+                flex: 1; min-width: 0;
+                display: flex; align-items: center; justify-content: center;
+                gap: 6px;
+                padding: 7px 4px;
                 border: none;
                 background: transparent;
-                color: var(--mdui-muted);
+                color: var(--mdui-text);
                 font-family: var(--mdui-font-sans);
-                font-size: 0.78rem;
-                font-weight: 600;
-                border-radius: 8px;
+                font-size: 13px;
+                font-weight: 500;
+                letter-spacing: -0.2px;
+                border-radius: 7px;
                 cursor: pointer;
-                transition: 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+                -webkit-tap-highlight-color: transparent;
+                transition: background-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
             }
-            .mdui-career-tab-btn i { font-size: 0.85rem; }
+            .mdui-career-tab-btn i { font-size: 12px; }
+            .mdui-career-tab-btn:active { transform: scale(0.97); }
             .mdui-career-tab-btn.active {
-                background: var(--mdui-card);
-                color: var(--mdui-accent);
-                box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+                background: var(--mdui-card-elev);
+                color: var(--mdui-text);
+                font-weight: 600;
+                box-shadow: 0 3px 8px rgba(0,0,0,0.08);
             }
             #mdui-career-content-host {
                 min-height: 200px;
@@ -2731,66 +2739,82 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             }
         }
 
-            /* ── Shell & Theme Variables ── */
+            /* ── Shell & Theme Variables ──
+               Native iOS palette + SF Pro typography to match the new
+               landing chrome (see MobileLandingChromeUI). Accent stays
+               user-customizable via _ACCENT_PRESETS. */
             #mdui-shell {
-                --mdui-bg:        #f5f1ea;
-                --mdui-surface:   #faf6ef;
-                --mdui-card:      #ffffff;
-                --mdui-card-elev: #fffbf3;
-                --mdui-input:     #ffffff;
-                --mdui-border:    rgba(26, 22, 18, 0.08);
-                --mdui-border-strong: rgba(26, 22, 18, 0.14);
-                --mdui-hover:     rgba(26, 22, 18, 0.04);
-                --mdui-text:      #1a1612;
-                --mdui-muted:     #6b6258;
-                --mdui-tertiary:  #9a9088;
-                --mdui-on-accent: #fffbf3;
+                --mdui-bg:        #f2f2f7;
+                --mdui-surface:   rgba(255, 255, 255, 0.74);
+                --mdui-card:      rgba(255, 255, 255, 0.82);
+                --mdui-card-elev: rgba(255, 255, 255, 0.92);
+                --mdui-input:     rgba(118, 118, 128, 0.10);
+                --mdui-border:    rgba(60, 60, 67, 0.16);
+                --mdui-border-light: rgba(60, 60, 67, 0.10);
+                --mdui-border-strong: rgba(60, 60, 67, 0.24);
+                --mdui-hover:     rgba(60, 60, 67, 0.05);
+                --mdui-text:      #1c1c1e;
+                --mdui-muted:     rgba(60, 60, 67, 0.68);
+                --mdui-tertiary:  rgba(60, 60, 67, 0.42);
+                --mdui-on-accent: #ffffff;
 
-                --mdui-accent:    #b88553;
-                --mdui-accent-hover: #a87543;
-                --mdui-accent-soft: rgba(184, 133, 83, 0.10);
-                --mdui-accent-glow: rgba(184, 133, 83, 0.18);
+                --mdui-accent:    #007aff;
+                --mdui-accent-hover: #0a84ff;
+                --mdui-accent-soft: rgba(0, 122, 255, 0.12);
+                --mdui-accent-glow: rgba(0, 122, 255, 0.22);
 
-                --mdui-success:   #4a8c5a;
-                --mdui-success-soft: rgba(74, 140, 90, 0.12);
-                --mdui-danger:    #c25a5a;
-                --mdui-danger-soft: rgba(194, 90, 90, 0.10);
-                --mdui-warn:      #c8893d;
-                --mdui-warn-soft: rgba(200, 137, 61, 0.12);
-                --mdui-info:      #5a82c8;
-                --mdui-info-soft: rgba(90, 130, 200, 0.10);
+                --mdui-success:   #30a14e;
+                --mdui-success-soft: rgba(48, 161, 78, 0.12);
+                --mdui-danger:    #ff3b30;
+                --mdui-danger-soft: rgba(255, 59, 48, 0.10);
+                --mdui-warn:      #ff9500;
+                --mdui-warn-soft: rgba(255, 149, 0, 0.12);
+                --mdui-info:      #5ac8fa;
+                --mdui-info-soft: rgba(90, 200, 250, 0.14);
 
-                --mdui-tab-h:     68px;
-                --mdui-top-h:     60px;
+                --mdui-tab-h:     56px;
+                --mdui-top-h:     50px;
                 --mdui-radius:    16px;
-                --mdui-font-sans: 'DM Sans', system-ui, -apple-system, sans-serif;
-                --mdui-font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
-                --mdui-shadow-card: 0 1px 2px rgba(26, 22, 18, 0.04);
-                --mdui-shadow-pop:  0 8px 24px -6px rgba(28, 22, 16, 0.18);
+                --mdui-font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', system-ui, sans-serif;
+                --mdui-font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+                --mdui-blur:      saturate(180%) blur(30px);
+                --mdui-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04);
+                --mdui-shadow-pop:  0 12px 32px rgba(0, 0, 0, 0.18);
 
                 position: fixed; inset: 0; z-index: 9998;
                 background: var(--mdui-bg); display: flex; flex-direction: column;
                 font-family: var(--mdui-font-sans); color: var(--mdui-text);
+                -webkit-font-smoothing: antialiased;
                 transform: translateY(100%); transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
             }
             #mdui-shell.mdui-open { transform: translateY(0); }
 
             #mdui-shell[data-theme="dark"] {
-                --mdui-bg:        #1a1612; --mdui-surface:   #221d17;
-                --mdui-card:      #2a241d; --mdui-card-elev: #322b22;
-                --mdui-input:     #1f1a14;
-                --mdui-border:    rgba(255, 248, 235, 0.08);
-                --mdui-border-strong: rgba(255, 248, 235, 0.14);
-                --mdui-hover:     rgba(255, 248, 235, 0.04);
-                --mdui-text:      #f0e9dd; --mdui-muted:     #9a8e7e;
-                --mdui-tertiary:  #6e6457; --mdui-on-accent: #1a1612;
+                --mdui-bg:        #000000;
+                --mdui-surface:   rgba(28, 28, 30, 0.72);
+                --mdui-card:      rgba(44, 44, 46, 0.78);
+                --mdui-card-elev: rgba(58, 58, 60, 0.88);
+                --mdui-input:     rgba(118, 118, 128, 0.24);
+                --mdui-border:    rgba(84, 84, 88, 0.36);
+                --mdui-border-light: rgba(84, 84, 88, 0.22);
+                --mdui-border-strong: rgba(84, 84, 88, 0.54);
+                --mdui-hover:     rgba(235, 235, 245, 0.06);
+                --mdui-text:      #ffffff;
+                --mdui-muted:     rgba(235, 235, 245, 0.60);
+                --mdui-tertiary:  rgba(235, 235, 245, 0.30);
+                --mdui-on-accent: #ffffff;
 
-                --mdui-success:   #6db380; --mdui-success-soft: rgba(109, 179, 128, 0.16);
-                --mdui-danger:    #d97676; --mdui-danger-soft: rgba(217, 118, 118, 0.14);
-                --mdui-warn:      #d9a563; --mdui-warn-soft: rgba(217, 165, 99, 0.16);
-                --mdui-info:      #7da0e6; --mdui-info-soft: rgba(125, 160, 230, 0.14);
-                --mdui-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.2);
-                --mdui-shadow-pop:  0 8px 24px -6px rgba(0, 0, 0, 0.4);
+                --mdui-accent:    #0a84ff;
+                --mdui-accent-hover: #409cff;
+                --mdui-accent-soft: rgba(10, 132, 255, 0.18);
+                --mdui-accent-glow: rgba(10, 132, 255, 0.28);
+
+                --mdui-success:   #30d158; --mdui-success-soft: rgba(48, 209, 88, 0.18);
+                --mdui-danger:    #ff453a; --mdui-danger-soft: rgba(255, 69, 58, 0.16);
+                --mdui-warn:      #ff9f0a; --mdui-warn-soft: rgba(255, 159, 10, 0.18);
+                --mdui-info:      #64d2ff; --mdui-info-soft: rgba(100, 210, 255, 0.18);
+                --mdui-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4);
+                --mdui-shadow-pop:  0 12px 32px rgba(0, 0, 0, 0.6);
             }
 
             .mdui-wrapper-layer {
@@ -2800,75 +2824,204 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             }
             .mdui-wrapper-layer.mdui-open { opacity: 1; visibility: visible; }
 
-            #mdui-screen { display: flex; flex-direction: column; flex: 1; min-height: 0; position: relative; }
+            #mdui-screen { display: flex; flex-direction: column; flex: 1; min-height: 0; position: relative; padding-top: env(safe-area-inset-top); }
 
-            .mdui-eyebrow { font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--mdui-tertiary); }
+            .mdui-eyebrow { font-size: 0.66rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: var(--mdui-tertiary); }
             .mdui-mono-meta { font-family: var(--mdui-font-mono); font-size: 0.74rem; color: var(--mdui-muted); font-weight: 600; }
 
-            .mdui-top-bar { height: var(--mdui-top-h); min-height: var(--mdui-top-h); display: flex; align-items: center; padding: 0 20px; gap: 12px; flex-shrink: 0; z-index: 10; background: var(--mdui-bg); }
-            .mdui-avatar { width: 32px; height: 32px; background: var(--mdui-accent); color: var(--mdui-on-accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.02em; flex-shrink: 0; }
-            .mdui-top-title { font-weight: 700; font-size: 1.05rem; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mdui-text); }
-            .mdui-close-btn { width: 36px; height: 36px; border: 1px solid var(--mdui-border); border-radius: 10px; background: var(--mdui-card); color: var(--mdui-muted); display: flex; align-items: center; justify-content: center; font-size: 0.85rem; cursor: pointer; flex-shrink: 0; transition: 0.14s; }
-            .mdui-close-btn:hover { background: var(--mdui-danger-soft); color: var(--mdui-danger); border-color: transparent; }
+            /* ── Top bar (iOS nav style, sticky-translucent) ── */
+            .mdui-top-bar {
+                height: var(--mdui-top-h); min-height: var(--mdui-top-h);
+                display: flex; align-items: center;
+                padding: 0 16px; gap: 12px;
+                flex-shrink: 0; z-index: 10;
+                background: color-mix(in srgb, var(--mdui-bg) 70%, transparent);
+                -webkit-backdrop-filter: var(--mdui-blur);
+                backdrop-filter: var(--mdui-blur);
+                border-bottom: 0.5px solid var(--mdui-border-light);
+            }
+            .mdui-avatar {
+                width: 32px; height: 32px;
+                background: var(--mdui-accent); color: var(--mdui-on-accent);
+                border-radius: 50%;
+                display: flex; align-items: center; justify-content: center;
+                font-size: 0.74rem; font-weight: 600;
+                letter-spacing: 0.01em;
+                flex-shrink: 0;
+                box-shadow: 0 1px 2px var(--mdui-accent-glow);
+            }
+            .mdui-top-title {
+                font-weight: 600; font-size: 17px;
+                letter-spacing: -0.4px;
+                flex: 1;
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                color: var(--mdui-text);
+                text-align: center;
+            }
+            .mdui-close-btn {
+                width: 32px; height: 32px;
+                border: none;
+                border-radius: 50%;
+                background: var(--mdui-input);
+                color: var(--mdui-muted);
+                display: flex; align-items: center; justify-content: center;
+                font-size: 0.9rem; cursor: pointer; flex-shrink: 0;
+                -webkit-tap-highlight-color: transparent;
+                transition: background-color 0.18s ease, transform 0.18s ease;
+            }
+            .mdui-close-btn:active { transform: scale(0.92); background: var(--mdui-hover); }
 
-            .mdui-content { flex: 1; overflow-y: auto; min-height: 0; padding: 10px 20px calc(var(--mdui-tab-h) + env(safe-area-inset-bottom) + 20px); -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+            .mdui-content {
+                flex: 1; overflow-y: auto; min-height: 0;
+                padding: 14px 16px calc(var(--mdui-tab-h) + env(safe-area-inset-bottom) + 28px);
+                -webkit-overflow-scrolling: touch; scrollbar-width: none;
+                overscroll-behavior-y: contain;
+            }
             .mdui-content::-webkit-scrollbar { display: none; }
 
-            #mdui-tabbar { position: absolute; bottom: 0; left: 0; right: 0; height: calc(var(--mdui-tab-h) + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom); background: var(--mdui-card); border-top: 1px solid var(--mdui-border); display: flex; z-index: 9999; box-shadow: 0 -4px 24px rgba(0,0,0,0.03); }
-            .mdui-tab-btn { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; border: none; background: none; color: var(--mdui-muted); font-size: 0.65rem; font-weight: 600; cursor: pointer; transition: color 0.14s; }
-            .mdui-tab-btn i { font-size: 1.1rem; transition: transform 0.14s; }
+            /* ── Floating glass tab bar (matches landing chrome) ── */
+            #mdui-tabbar {
+                position: absolute;
+                left: 8px; right: 8px;
+                bottom: max(env(safe-area-inset-bottom, 0px), 4px);
+                height: var(--mdui-tab-h);
+                background: var(--mdui-card);
+                -webkit-backdrop-filter: var(--mdui-blur);
+                backdrop-filter: var(--mdui-blur);
+                border: 0.5px solid var(--mdui-border);
+                border-radius: 26px;
+                display: flex;
+                z-index: 9999;
+                padding: 4px;
+                box-shadow: var(--mdui-shadow-pop);
+                transition: transform 0.34s cubic-bezier(0.16,1,0.3,1), opacity 0.2s ease;
+            }
+            .mdui-tab-btn {
+                flex: 1; min-width: 0;
+                display: flex; flex-direction: column;
+                align-items: center; justify-content: center;
+                gap: 3px;
+                border: none; background: none;
+                color: var(--mdui-muted);
+                font-family: inherit;
+                font-size: 10.5px; font-weight: 600;
+                letter-spacing: 0.02px; line-height: 1.1;
+                border-radius: 18px;
+                cursor: pointer;
+                -webkit-tap-highlight-color: transparent;
+                transition: color 0.22s ease, background-color 0.18s ease, transform 0.18s cubic-bezier(0.16,1,0.3,1);
+            }
+            .mdui-tab-btn i { font-size: 19px; line-height: 1; transition: transform 0.18s ease; }
+            .mdui-tab-btn:active { background: var(--mdui-hover); transform: scale(0.96); }
             .mdui-tab-btn.active { color: var(--mdui-accent); }
             .mdui-tab-btn.active i { transform: translateY(-1px); }
-            .mdui-tab-badge { position: absolute; top: -4px; right: -8px; min-width: 16px; height: 16px; padding: 0 4px; background: var(--mdui-success); color: #fff; font-size: 0.6rem; font-weight: 800; border-radius: 999px; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 2px var(--mdui-card); }
+            .mdui-tab-btn > span:last-child {
+                max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            }
+            .mdui-tab-badge {
+                position: absolute; top: -4px; right: -10px;
+                min-width: 16px; height: 16px;
+                padding: 0 4px;
+                background: var(--mdui-danger); color: #fff;
+                font-family: inherit;
+                font-size: 10px; font-weight: 700;
+                border-radius: 999px;
+                display: flex; align-items: center; justify-content: center;
+                box-shadow: 0 1px 3px rgba(255, 69, 58, 0.4);
+            }
 
-            .mdui-tab-header { margin-bottom: 24px; }
-            .mdui-tab-header h2 { margin: 0 0 4px 0; font-size: 1.6rem; font-weight: 700; color: var(--mdui-text); letter-spacing: -0.02em; }
-            .mdui-tab-header p { margin: 0; color: var(--mdui-muted); font-size: 0.92rem; line-height: 1.45; }
+            .mdui-tab-header { margin-bottom: 20px; }
+            .mdui-tab-header h2 { margin: 0 0 4px 0; font-size: 28px; font-weight: 700; color: var(--mdui-text); letter-spacing: -0.5px; line-height: 1.15; }
+            .mdui-tab-header p { margin: 0; color: var(--mdui-muted); font-size: 15px; line-height: 1.4; letter-spacing: -0.2px; }
 
-            .mdui-card { background: var(--mdui-card); border: 1px solid var(--mdui-border); border-radius: var(--mdui-radius); box-shadow: var(--mdui-shadow-card); margin-bottom: 16px; overflow: hidden; }
-            .mdui-card-header { padding: 16px 20px; border-bottom: 1px solid var(--mdui-border-light); }
-            .mdui-card-header h3 { margin: 0; font-size: 0.95rem; font-weight: 600; color: var(--mdui-text); display: flex; align-items: center; }
-            .mdui-card-body { padding: 20px; }
-            .mdui-card-eyebrow { font-size: 0.66rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--mdui-tertiary); margin-bottom: 14px; }
-            .mdui-card-footer { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--mdui-border-light); display: flex; justify-content: flex-end; }
+            .mdui-card {
+                background: var(--mdui-card);
+                -webkit-backdrop-filter: var(--mdui-blur);
+                backdrop-filter: var(--mdui-blur);
+                border: 0.5px solid var(--mdui-border);
+                border-radius: var(--mdui-radius);
+                box-shadow: var(--mdui-shadow-card);
+                margin-bottom: 14px;
+                overflow: hidden;
+            }
+            .mdui-card-header { padding: 14px 16px 10px; border-bottom: 0.5px solid var(--mdui-border-light); }
+            .mdui-card-header h3 { margin: 0; font-size: 15px; font-weight: 600; color: var(--mdui-text); letter-spacing: -0.2px; display: flex; align-items: center; }
+            .mdui-card-body { padding: 16px; }
+            .mdui-card-eyebrow { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--mdui-tertiary); margin-bottom: 10px; }
+            .mdui-card-footer { margin-top: 14px; padding-top: 14px; border-top: 0.5px solid var(--mdui-border-light); display: flex; justify-content: flex-end; }
 
-            .mdui-alert { padding: 12px 14px; border-radius: 10px; font-size: 0.84rem; font-weight: 500; display: flex; align-items: center; gap: 8px; }
+            .mdui-alert { padding: 12px 14px; border-radius: 12px; font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 8px; letter-spacing: -0.2px; line-height: 1.4; }
             .mdui-alert-error   { background: var(--mdui-danger-soft);  color: var(--mdui-danger); }
             .mdui-alert-success { background: var(--mdui-success-soft); color: var(--mdui-success); }
             .mdui-alert-warn    { background: var(--mdui-warn-soft);    color: var(--mdui-warn); }
             .mdui-alert-info    { background: var(--mdui-info-soft);    color: var(--mdui-info); }
 
-            .mdui-status-badge { padding: 3px 10px; border-radius: 999px; font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+            .mdui-status-badge { padding: 3px 9px; border-radius: 999px; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
             .mdui-status-badge.pos { background: var(--mdui-success-soft); color: var(--mdui-success); }
             .mdui-status-badge.neg { background: var(--mdui-danger-soft); color: var(--mdui-danger); }
 
-            .mdui-mini-tag { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 6px; font-size: 0.62rem; font-weight: 700; letter-spacing: 0.04em; }
-            .mdui-mini-tag-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+            .mdui-mini-tag { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 6px; font-size: 10px; font-weight: 700; letter-spacing: 0.04em; }
+            .mdui-mini-tag-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 
-            .mdui-input-group { margin-bottom: 16px; }
-            .mdui-input-group label { display: block; font-size: 0.72rem; font-weight: 600; color: var(--mdui-muted); margin-bottom: 6px; }
+            .mdui-input-group { margin-bottom: 14px; }
+            .mdui-input-group label { display: block; font-size: 12px; font-weight: 600; color: var(--mdui-muted); margin-bottom: 6px; letter-spacing: -0.1px; }
             .mdui-input-wrap { position: relative; display: flex; align-items: center; }
-            .mdui-input-icon { position: absolute; left: 12px; color: var(--mdui-tertiary); font-size: 0.82rem; pointer-events: none; }
-            .mdui-input { width: 100%; padding: 10px 12px; background: var(--mdui-input); border: 1px solid var(--mdui-border); border-radius: 10px; color: var(--mdui-text); font-family: var(--mdui-font-sans); font-size: 0.88rem; outline: none; transition: 0.14s; box-sizing: border-box; }
+            .mdui-input-icon { position: absolute; left: 12px; color: var(--mdui-tertiary); font-size: 0.85rem; pointer-events: none; }
+            .mdui-input {
+                width: 100%; padding: 11px 14px;
+                background: var(--mdui-input);
+                border: 0.5px solid transparent;
+                border-radius: 10px;
+                color: var(--mdui-text);
+                font-family: var(--mdui-font-sans);
+                font-size: 16px; /* prevents iOS zoom on focus */
+                letter-spacing: -0.2px;
+                outline: none;
+                transition: 0.18s ease;
+                box-sizing: border-box;
+                -webkit-appearance: none; appearance: none;
+            }
             .mdui-input.has-icon { padding-left: 36px; }
-            .mdui-input:focus { border-color: var(--mdui-accent); box-shadow: 0 0 0 3px var(--mdui-accent-soft); }
+            .mdui-input:focus { background: var(--mdui-card-elev); border-color: var(--mdui-accent); box-shadow: 0 0 0 3px var(--mdui-accent-soft); }
             .mdui-input:disabled { opacity: 0.5; cursor: not-allowed; }
             .mdui-icao-input { font-family: var(--mdui-font-mono); text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em; }
-            .mdui-help { font-size: 0.72rem; color: var(--mdui-tertiary); margin-top: 6px; line-height: 1.4; }
-            .mdui-select { appearance: none; cursor: pointer; }
+            .mdui-help { font-size: 12px; color: var(--mdui-tertiary); margin-top: 6px; line-height: 1.4; letter-spacing: -0.1px; }
+            .mdui-select { appearance: none; -webkit-appearance: none; cursor: pointer; }
 
-            .mdui-btn-primary, .mdui-btn-secondary, .mdui-btn-danger-outline, .mdui-btn-ghost, .mdui-btn-danger { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 18px; border-radius: 10px; font-family: var(--mdui-font-sans); font-size: 0.86rem; font-weight: 600; cursor: pointer; transition: 0.14s; }
-            .mdui-btn-primary { background: var(--mdui-accent); color: var(--mdui-on-accent); border: 1px solid transparent; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
-            .mdui-btn-primary:hover { background: var(--mdui-accent-hover); box-shadow: 0 4px 12px var(--mdui-accent-glow); }
-            .mdui-btn-primary:disabled { opacity: 0.55; cursor: not-allowed; }
-            .mdui-btn-block { width: 100%; padding: 12px 20px; }
-            .mdui-btn-secondary { background: var(--mdui-card); color: var(--mdui-text); border: 1px solid var(--mdui-border); width: 100%; }
-            .mdui-btn-danger-outline { background: transparent; color: var(--mdui-danger); border: 1px solid var(--mdui-danger-soft); width: 100%; }
-            .mdui-btn-ghost { background: transparent; color: var(--mdui-muted); border: 1px solid var(--mdui-border); font-size: 0.78rem; padding: 7px 14px; border-radius: 9px; }
+            .mdui-btn-primary, .mdui-btn-secondary, .mdui-btn-danger-outline, .mdui-btn-ghost, .mdui-btn-danger {
+                display: inline-flex; align-items: center; justify-content: center;
+                gap: 8px; padding: 11px 18px; border-radius: 12px;
+                font-family: var(--mdui-font-sans);
+                font-size: 15px; font-weight: 600;
+                letter-spacing: -0.2px;
+                cursor: pointer;
+                -webkit-tap-highlight-color: transparent;
+                transition: transform 0.16s ease, background-color 0.18s ease, opacity 0.18s ease;
+            }
+            .mdui-btn-primary { background: var(--mdui-accent); color: var(--mdui-on-accent); border: none; }
+            .mdui-btn-primary:hover { background: var(--mdui-accent-hover); }
+            .mdui-btn-primary:active { transform: scale(0.97); opacity: 0.9; }
+            .mdui-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+            .mdui-btn-block { width: 100%; padding: 13px 20px; }
+            .mdui-btn-secondary { background: var(--mdui-input); color: var(--mdui-text); border: none; width: 100%; }
+            .mdui-btn-secondary:active { transform: scale(0.97); background: var(--mdui-hover); }
+            .mdui-btn-danger-outline { background: var(--mdui-danger-soft); color: var(--mdui-danger); border: none; width: 100%; }
+            .mdui-btn-danger-outline:active { transform: scale(0.97); opacity: 0.85; }
+            .mdui-btn-ghost { background: transparent; color: var(--mdui-muted); border: 0.5px solid var(--mdui-border); font-size: 13px; padding: 7px 14px; border-radius: 999px; }
             .mdui-btn-ghost:hover { background: var(--mdui-hover); color: var(--mdui-text); }
-            .mdui-btn-danger { background: var(--mdui-danger); color: #fff; border: 1px solid transparent; }
-            .mdui-icon-btn { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--mdui-border); background: var(--mdui-card); color: var(--mdui-muted); cursor: pointer; transition: 0.14s; }
+            .mdui-btn-danger { background: var(--mdui-danger); color: #fff; border: none; }
+            .mdui-icon-btn {
+                width: 32px; height: 32px;
+                border-radius: 50%;
+                border: none;
+                background: var(--mdui-input);
+                color: var(--mdui-muted);
+                cursor: pointer;
+                -webkit-tap-highlight-color: transparent;
+                transition: 0.16s;
+            }
             .mdui-icon-btn:hover { background: var(--mdui-hover); color: var(--mdui-text); }
+            .mdui-icon-btn:active { transform: scale(0.92); }
 
             @keyframes mdui-fade-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
             .mdui-fade-up { animation: mdui-fade-up 0.28s cubic-bezier(0.16, 1, 0.3, 1) both; }
@@ -2876,15 +3029,16 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             .mdui-skel { background: var(--mdui-border); border-radius: 6px; animation: mdui-pulse 1.6s ease-in-out infinite; }
             @keyframes mdui-toast-in { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 
-            .mdui-empty-state { text-align: center; padding: 40px 20px; background: var(--mdui-card); border: 1px dashed var(--mdui-border); border-radius: var(--mdui-radius); }
-            .mdui-empty-state i { font-size: 2.2rem; color: var(--mdui-tertiary); opacity: 0.6; margin-bottom: 14px; display: block; }
-            .mdui-empty-state h4 { margin: 0 0 6px 0; color: var(--mdui-text); font-size: 1rem; font-weight: 600; }
-            .mdui-empty-state p { margin: 0; color: var(--mdui-muted); font-size: 0.84rem; line-height: 1.5; }
-            .mdui-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 28px 0; color: var(--mdui-muted); font-size: 0.85rem; font-weight: 500; text-align: center; }
+            .mdui-empty-state { text-align: center; padding: 32px 18px; background: var(--mdui-card); border: 0.5px dashed var(--mdui-border); border-radius: var(--mdui-radius); }
+            .mdui-empty-state i { font-size: 32px; color: var(--mdui-tertiary); opacity: 0.6; margin-bottom: 12px; display: block; }
+            .mdui-empty-state h4 { margin: 0 0 6px 0; color: var(--mdui-text); font-size: 16px; font-weight: 600; letter-spacing: -0.3px; }
+            .mdui-empty-state p { margin: 0; color: var(--mdui-muted); font-size: 14px; line-height: 1.4; letter-spacing: -0.2px; }
+            .mdui-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 24px 12px; color: var(--mdui-muted); font-size: 14px; font-weight: 500; text-align: center; letter-spacing: -0.2px; }
+            .mdui-empty i { font-size: 22px; opacity: 0.6; }
 
             /* ── TOASTS ── */
-            .mdui-toast-container { position: fixed; bottom: 80px; left: 20px; right: 20px; z-index: 10000; display: flex; flex-direction: column-reverse; gap: 10px; pointer-events: none; }
-            .mdui-toast { background: var(--mdui-card); border: 1px solid var(--mdui-border); color: var(--mdui-text); padding: 12px 16px; border-radius: var(--mdui-radius); font-size: 0.84rem; font-weight: 500; line-height: 1.45; box-shadow: var(--mdui-shadow-pop); pointer-events: auto; animation: mdui-toast-in 240ms ease-out; transition: 0.24s; }
+            .mdui-toast-container { position: fixed; bottom: calc(var(--mdui-tab-h) + env(safe-area-inset-bottom) + 14px); left: 12px; right: 12px; z-index: 10000; display: flex; flex-direction: column-reverse; gap: 8px; pointer-events: none; }
+            .mdui-toast { background: var(--mdui-card-elev); -webkit-backdrop-filter: var(--mdui-blur); backdrop-filter: var(--mdui-blur); border: 0.5px solid var(--mdui-border); color: var(--mdui-text); padding: 12px 14px; border-radius: 14px; font-size: 14px; font-weight: 500; line-height: 1.4; letter-spacing: -0.2px; box-shadow: var(--mdui-shadow-pop); pointer-events: auto; animation: mdui-toast-in 240ms ease-out; transition: 0.24s; }
             .mdui-toast-out { opacity: 0; transform: translateY(8px); }
             .mdui-toast-info { border-color: var(--mdui-info-soft); }
             .mdui-toast-success { background: var(--mdui-success-soft); border-color: var(--mdui-success-soft); color: var(--mdui-success); }
@@ -2892,78 +3046,112 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             .mdui-toast-warn { background: var(--mdui-warn-soft); border-color: var(--mdui-warn-soft); color: var(--mdui-warn); }
 
             /* ── DASHBOARD ── */
-            .mdui-cc-greeting { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--mdui-border); }
-            .mdui-greeting-name { font-size: 1.7rem; font-weight: 700; margin: 0 0 6px 0; color: var(--mdui-text); line-height: 1.1; letter-spacing: -0.025em; }
-            .mdui-greeting-date { font-size: 0.78rem; font-weight: 500; color: var(--mdui-tertiary); text-align: right; white-space: nowrap; }
-            .mdui-stat-strip { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--mdui-muted); font-size: 0.8rem; font-weight: 500; }
+            .mdui-cc-greeting {
+                display: flex; justify-content: space-between; align-items: flex-end;
+                gap: 12px;
+                margin-bottom: 18px; padding-bottom: 14px;
+                border-bottom: 0.5px solid var(--mdui-border-light);
+            }
+            .mdui-cc-greeting > div:first-child { min-width: 0; flex: 1; }
+            .mdui-greeting-name {
+                font-size: 26px; font-weight: 700;
+                margin: 0 0 6px 0;
+                color: var(--mdui-text);
+                line-height: 1.12;
+                letter-spacing: -0.6px;
+            }
+            .mdui-greeting-date {
+                font-size: 12px; font-weight: 500;
+                color: var(--mdui-tertiary);
+                text-align: right; white-space: nowrap;
+                letter-spacing: -0.1px;
+            }
+            .mdui-stat-strip {
+                display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+                color: var(--mdui-muted);
+                font-size: 13px; font-weight: 500;
+                letter-spacing: -0.1px;
+            }
             .mdui-strip-sep { opacity: 0.4; }
 
-            .mdui-dispatch-mini { padding: 0 20px 20px; }
-            .mdui-dispatch-route { display: flex; align-items: center; justify-content: space-between; padding-bottom: 12px; border-bottom: 1px solid var(--mdui-border-light); margin-bottom: 12px; gap: 10px; }
-            .mdui-dispatch-airport { display: flex; flex-direction: column; gap: 4px; }
-            .mdui-dispatch-icao { font-family: var(--mdui-font-mono); font-size: 1.5rem; font-weight: 700; line-height: 1; color: var(--mdui-text); letter-spacing: -0.02em; }
-            .mdui-dispatch-gate { font-size: 0.65rem; color: var(--mdui-tertiary); font-weight: 600; }
-            .mdui-dispatch-center { display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--mdui-tertiary); flex: 1; font-size: 0.66rem; font-weight: 600; }
-            .mdui-dispatch-plane { color: var(--mdui-accent); font-size: 0.85rem; }
-            .mdui-dispatch-meta-row { display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; font-weight: 500; color: var(--mdui-muted); }
+            .mdui-dispatch-mini { padding: 0 16px 16px; }
+            .mdui-dispatch-route { display: flex; align-items: center; justify-content: space-between; padding-bottom: 12px; border-bottom: 0.5px solid var(--mdui-border-light); margin-bottom: 12px; gap: 8px; }
+            .mdui-dispatch-airport { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+            .mdui-dispatch-icao { font-family: var(--mdui-font-mono); font-size: 22px; font-weight: 700; line-height: 1; color: var(--mdui-text); letter-spacing: -0.4px; }
+            .mdui-dispatch-gate { font-size: 11px; color: var(--mdui-tertiary); font-weight: 600; }
+            .mdui-dispatch-center { display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--mdui-tertiary); flex: 1; font-size: 10.5px; font-weight: 600; letter-spacing: 0.02em; }
+            .mdui-dispatch-plane { color: var(--mdui-accent); font-size: 14px; }
+            .mdui-dispatch-meta-row { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 500; color: var(--mdui-muted); letter-spacing: -0.1px; }
 
-            .mdui-flight-row { display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--mdui-border-light); }
+            .mdui-flight-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 0.5px solid var(--mdui-border-light); }
             .mdui-flight-row:last-child { border-bottom: none; }
             .mdui-flight-route { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
-            .mdui-icao { font-family: var(--mdui-font-mono); font-size: 0.86rem; font-weight: 700; color: var(--mdui-text); letter-spacing: 0.02em; }
-            .mdui-arrow { color: var(--mdui-tertiary); font-size: 0.7rem; }
-            .mdui-flight-meta { display: flex; align-items: center; gap: 5px; font-size: 0.7rem; color: var(--mdui-muted); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-            .mdui-flight-time { font-size: 0.68rem; font-weight: 600; color: var(--mdui-tertiary); white-space: nowrap; flex-shrink: 0; }
+            .mdui-icao { font-family: var(--mdui-font-mono); font-size: 14px; font-weight: 700; color: var(--mdui-text); letter-spacing: 0.02em; }
+            .mdui-arrow { color: var(--mdui-tertiary); font-size: 12px; }
+            .mdui-flight-meta { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--mdui-muted); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+            .mdui-flight-time { font-size: 11px; font-weight: 600; color: var(--mdui-tertiary); white-space: nowrap; flex-shrink: 0; }
 
-            .mdui-live-card { background: var(--mdui-card); border: 1px solid var(--mdui-border); border-radius: var(--mdui-radius); overflow: hidden; box-shadow: var(--mdui-shadow-pop); display: flex; flex-direction: column; margin-bottom: 24px; height: auto; }
-            .mdui-live-visual { position: relative; height: 170px; background: #0a0e14; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+            .mdui-live-card { background: var(--mdui-card); -webkit-backdrop-filter: var(--mdui-blur); backdrop-filter: var(--mdui-blur); border: 0.5px solid var(--mdui-border); border-radius: var(--mdui-radius); overflow: hidden; box-shadow: var(--mdui-shadow-pop); display: flex; flex-direction: column; margin-bottom: 18px; height: auto; }
+            .mdui-live-visual { position: relative; height: 160px; background: #0a0e14; overflow: hidden; display: flex; align-items: center; justify-content: center; }
             .mdui-live-bg { position: absolute; inset: 0; background-size: contain; background-repeat: no-repeat; background-position: center; z-index: 2; }
             .mdui-live-bg-blur { position: absolute; inset: -20px; background-size: cover; background-position: center; filter: blur(16px) brightness(0.6); z-index: 1; }
             .mdui-live-bg-fallback { background: linear-gradient(135deg, #2a3445 0%, #1a2030 60%, #14181f 100%); z-index: 1; }
             .mdui-live-overlay { position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, transparent 40%); z-index: 3; pointer-events: none; }
-            .mdui-3d-action-wrap { position: absolute; top: 12px; right: 12px; z-index: 4; }
-            
-            .mdui-live-content { display: flex; flex-direction: column; padding: 16px 20px; background: var(--mdui-card); border-top: 1px solid var(--mdui-border-light); z-index: 5; }
-            .mdui-live-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-            .mdui-live-route-pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; background: var(--mdui-surface); border: 1px solid var(--mdui-border); border-radius: 999px; }
-            .mdui-live-icao { font-family: var(--mdui-font-mono); font-size: 0.92rem; font-weight: 700; color: var(--mdui-text); letter-spacing: 0.04em; }
-            .mdui-live-route-icon { color: var(--mdui-accent); font-size: 0.7rem; }
-            .mdui-live-ident { display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
-            .mdui-live-acft { font-size: 0.92rem; font-weight: 700; color: var(--mdui-text); }
-            .mdui-live-cs { font-family: var(--mdui-font-mono); font-size: 0.74rem; color: var(--mdui-muted); font-weight: 600; margin-top: 2px; }
-            
-            .mdui-live-stats { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--mdui-surface); border: 1px solid var(--mdui-border); border-radius: 12px; overflow: hidden; }
-            .mdui-live-stat { display: flex; flex-direction: column; gap: 2px; padding: 10px 14px; border-right: 1px solid var(--mdui-border); align-items: center; }
+            .mdui-3d-action-wrap { position: absolute; top: 10px; right: 10px; z-index: 4; }
+
+            .mdui-live-content { display: flex; flex-direction: column; padding: 14px 16px; background: transparent; border-top: 0.5px solid var(--mdui-border-light); z-index: 5; }
+            .mdui-live-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; }
+            .mdui-live-route-pill { display: inline-flex; align-items: center; gap: 8px; padding: 5px 11px; background: var(--mdui-input); border: none; border-radius: 999px; }
+            .mdui-live-icao { font-family: var(--mdui-font-mono); font-size: 14px; font-weight: 700; color: var(--mdui-text); letter-spacing: 0.04em; }
+            .mdui-live-route-icon { color: var(--mdui-accent); font-size: 11px; }
+            .mdui-live-ident { display: flex; flex-direction: column; align-items: flex-end; text-align: right; min-width: 0; }
+            .mdui-live-acft { font-size: 14px; font-weight: 600; color: var(--mdui-text); letter-spacing: -0.2px; }
+            .mdui-live-cs { font-family: var(--mdui-font-mono); font-size: 11px; color: var(--mdui-muted); font-weight: 600; margin-top: 2px; }
+
+            .mdui-live-stats { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--mdui-input); border: none; border-radius: 12px; overflow: hidden; }
+            .mdui-live-stat { display: flex; flex-direction: column; gap: 2px; padding: 9px 6px; border-right: 0.5px solid var(--mdui-border-light); align-items: center; min-width: 0; }
             .mdui-live-stat:last-child { border-right: none; }
-            .mdui-live-stat .label { font-size: 0.56rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--mdui-tertiary); }
-            .mdui-live-stat .value { font-family: var(--mdui-font-mono); font-size: 1.05rem; font-weight: 700; color: var(--mdui-text); display: flex; align-items: baseline; gap: 3px; line-height: 1; }
-            .mdui-live-stat .value em { font-style: normal; font-size: 0.62rem; color: var(--mdui-muted); font-weight: 600; }
+            .mdui-live-stat .label { font-size: 9.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--mdui-tertiary); }
+            .mdui-live-stat .value { font-family: var(--mdui-font-mono); font-size: 15px; font-weight: 700; color: var(--mdui-text); display: flex; align-items: baseline; gap: 3px; line-height: 1; }
+            .mdui-live-stat .value em { font-style: normal; font-size: 10px; color: var(--mdui-muted); font-weight: 600; }
 
             /* ── CAREER / TRENDS ── */
-            .mdui-cover-banner { width: 100%; height: 160px; margin-bottom: 24px; border-radius: var(--mdui-radius); background-size: cover; background-position: center; position: relative; overflow: hidden; border: 1px solid var(--mdui-border); }
-            .mdui-cover-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: flex-end; padding: 18px 20px; background: linear-gradient(to top, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0.18) 55%, transparent 100%); color: #fff; }
-            .mdui-cover-name { font-size: 1.4rem; font-weight: 700; letter-spacing: -0.01em; }
-            .mdui-cover-bio { margin-top: 4px; font-size: 0.88rem; opacity: 0.92; }
-            .mdui-bio-strip { display: flex; align-items: center; gap: 10px; padding: 12px 16px; margin-bottom: 24px; background: var(--mdui-accent-soft); border: 1px solid var(--mdui-accent-soft); border-radius: var(--mdui-radius); color: var(--mdui-muted); font-size: 0.92rem; font-style: italic; }
+            .mdui-cover-banner { width: 100%; height: 140px; margin-bottom: 18px; border-radius: var(--mdui-radius); background-size: cover; background-position: center; position: relative; overflow: hidden; border: 0.5px solid var(--mdui-border); }
+            .mdui-cover-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: flex-end; padding: 16px; background: linear-gradient(to top, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0.18) 55%, transparent 100%); color: #fff; }
+            .mdui-cover-name { font-size: 22px; font-weight: 700; letter-spacing: -0.4px; }
+            .mdui-cover-bio { margin-top: 3px; font-size: 14px; opacity: 0.92; letter-spacing: -0.2px; }
+            .mdui-bio-strip { display: flex; align-items: center; gap: 10px; padding: 12px 14px; margin-bottom: 18px; background: var(--mdui-accent-soft); border: none; border-radius: var(--mdui-radius); color: var(--mdui-text); font-size: 14px; line-height: 1.4; font-style: italic; letter-spacing: -0.2px; }
 
-            .mdui-mini-stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-            .mdui-mini-stat-card { background: var(--mdui-card); border: 1px solid var(--mdui-border); border-radius: var(--mdui-radius); padding: 16px 12px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; box-shadow: var(--mdui-shadow-card); }
-            .mdui-drillable-card { cursor: pointer; transition: 0.14s; }
-            .mdui-drillable-card:hover { transform: translateY(-1px); border-color: var(--mdui-accent-soft); }
-            .mdui-mini-icon { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; font-size: 1.1rem; flex-shrink: 0; }
-            .mdui-mini-stat-card[data-tone="indigo"]  .mdui-mini-icon { background: rgba(99,102,241,0.10);  color: #6366f1; }
-            .mdui-mini-stat-card[data-tone="violet"]  .mdui-mini-icon { background: rgba(139,92,246,0.10);  color: #8b5cf6; }
-            .mdui-mini-stat-card[data-tone="emerald"] .mdui-mini-icon { background: rgba(16,185,129,0.10);  color: #10b981; }
-            .mdui-mini-data { display: flex; flex-direction: column; gap: 2px; }
-            .mdui-mini-value { font-size: 1.05rem; font-weight: 700; color: var(--mdui-text); line-height: 1; letter-spacing: -0.01em; }
-            .mdui-mini-label { font-size: 0.65rem; font-weight: 600; color: var(--mdui-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+            .mdui-mini-stat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+            .mdui-mini-stat-card {
+                background: var(--mdui-card);
+                -webkit-backdrop-filter: var(--mdui-blur);
+                backdrop-filter: var(--mdui-blur);
+                border: 0.5px solid var(--mdui-border);
+                border-radius: 14px;
+                padding: 14px 8px;
+                display: flex; flex-direction: column;
+                align-items: center; text-align: center;
+                gap: 7px;
+                box-shadow: var(--mdui-shadow-card);
+                min-width: 0;
+            }
+            .mdui-drillable-card { cursor: pointer; transition: transform 0.16s ease, border-color 0.16s ease; -webkit-tap-highlight-color: transparent; }
+            .mdui-drillable-card:active { transform: scale(0.97); }
+            .mdui-mini-icon { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; font-size: 14px; flex-shrink: 0; }
+            .mdui-mini-stat-card[data-tone="indigo"]  .mdui-mini-icon { background: rgba(94,92,230,0.16);  color: #5e5ce6; }
+            .mdui-mini-stat-card[data-tone="violet"]  .mdui-mini-icon { background: rgba(175,82,222,0.16);  color: #af52de; }
+            .mdui-mini-stat-card[data-tone="emerald"] .mdui-mini-icon { background: rgba(48,209,88,0.16);   color: #30d158; }
+            .mdui-mini-data { display: flex; flex-direction: column; gap: 2px; min-width: 0; max-width: 100%; }
+            .mdui-mini-value { font-size: 16px; font-weight: 700; color: var(--mdui-text); line-height: 1; letter-spacing: -0.3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .mdui-mini-label { font-size: 10px; font-weight: 600; color: var(--mdui-muted); text-transform: uppercase; letter-spacing: 0.04em; }
 
-            .mdui-trends-grid { display: grid; gap: 4px; }
-            .mdui-trend-row { display: grid; grid-template-columns: 1.6fr 1fr 1fr; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--mdui-border-light); }
+            .mdui-trends-grid { display: grid; gap: 2px; }
+            .mdui-trend-row { display: grid; grid-template-columns: 1.4fr minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 8px; padding: 10px 0; border-bottom: 0.5px solid var(--mdui-border-light); }
             .mdui-trend-row:last-child { border-bottom: none; }
-            .mdui-trend-label { font-size: 0.88rem; color: var(--mdui-muted); }
-            .mdui-trend-current { font-size: 1.05rem; font-weight: 600; color: var(--mdui-text); }
-            .mdui-trend-delta { font-size: 0.92rem; font-weight: 600; }
+            .mdui-trend-label { font-size: 14px; color: var(--mdui-muted); letter-spacing: -0.2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .mdui-trend-current { font-size: 15px; font-weight: 600; color: var(--mdui-text); letter-spacing: -0.2px; overflow: hidden; text-overflow: ellipsis; }
+            .mdui-trend-delta { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
             .mdui-trend-up { color: var(--mdui-success); }
             .mdui-trend-down { color: var(--mdui-danger); }
             .mdui-trend-neutral { color: var(--mdui-tertiary); }
@@ -2994,39 +3182,39 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             .mdui-load-bar-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
             .mdui-load-bar-track { width: 100%; height: 6px; background: var(--mdui-surface); border-radius: 3px; overflow: hidden; }
             .mdui-load-bar-fill { height: 100%; border-radius: 3px; transition: 0.32s; }
-            .mdui-intel-stats-quad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 14px 20px; border-top: 1px solid var(--mdui-border-light); border-bottom: 1px solid var(--mdui-border-light); }
-            .mdui-intel-stat { display: flex; flex-direction: column; gap: 4px; }
-            .mdui-intel-stat .label { font-size: 0.6rem; color: var(--mdui-tertiary); font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
-            .mdui-intel-stat .value { font-family: var(--mdui-font-mono); font-size: 1.25rem; color: var(--mdui-text); font-weight: 700; line-height: 1; }
-            .mdui-section-head { display: flex; justify-content: space-between; align-items: center; margin: 0 20px 8px; }
-            .mdui-intel-heatmap { display: flex; gap: 3px; height: 32px; border-radius: 6px; overflow: hidden; background: var(--mdui-surface); padding: 3px; margin: 0 20px 16px;}
+            .mdui-intel-stats-quad { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; padding: 12px 16px; border-top: 0.5px solid var(--mdui-border-light); border-bottom: 0.5px solid var(--mdui-border-light); }
+            .mdui-intel-stat { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+            .mdui-intel-stat .label { font-size: 10px; color: var(--mdui-tertiary); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+            .mdui-intel-stat .value { font-family: var(--mdui-font-mono); font-size: 19px; color: var(--mdui-text); font-weight: 700; line-height: 1; overflow: hidden; text-overflow: ellipsis; }
+            .mdui-section-head { display: flex; justify-content: space-between; align-items: center; margin: 0 16px 8px; }
+            .mdui-intel-heatmap { display: flex; gap: 3px; height: 28px; border-radius: 8px; overflow: hidden; background: var(--mdui-input); padding: 3px; margin: 0 16px 14px;}
             .mdui-intel-heatblock { flex: 1; border-radius: 4px; }
 
             /* ── DISPATCH ── */
-            .mdui-form-sheet { margin-bottom: 24px; }
-            .mdui-form-section-title { margin: 0 0 12px 0; font-size: 0.66rem; font-weight: 700; color: var(--mdui-tertiary); text-transform: uppercase; letter-spacing: 0.1em; padding-bottom: 6px; border-bottom: 1px solid var(--mdui-border-light); }
-            .mdui-form-actions { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--mdui-border-light); display: flex; gap: 10px; justify-content: flex-end; }
+            .mdui-form-sheet { margin-bottom: 18px; }
+            .mdui-form-section-title { margin: 0 0 10px 0; font-size: 11px; font-weight: 600; color: var(--mdui-tertiary); text-transform: uppercase; letter-spacing: 0.06em; padding-bottom: 6px; border-bottom: 0.5px solid var(--mdui-border-light); }
+            .mdui-form-actions { margin-top: 18px; padding-top: 14px; border-top: 0.5px solid var(--mdui-border-light); display: flex; gap: 8px; justify-content: flex-end; }
             .mdui-form-actions button { flex: 1; }
 
-            .mdui-ticket { background: var(--mdui-card); border: 1px solid var(--mdui-border); border-radius: var(--mdui-radius); box-shadow: var(--mdui-shadow-card); display: flex; flex-direction: column; margin-bottom: 16px; position: relative; }
-            .mdui-ticket-actions { position: absolute; top: 12px; right: 12px; display: flex; gap: 6px; }
-            .mdui-ticket-stub { border-bottom: 1px dashed var(--mdui-border); padding: 16px 20px; display: flex; align-items: center; }
-            .mdui-ticket-date { font-family: var(--mdui-font-mono); font-size: 0.86rem; font-weight: 700; color: var(--mdui-text); margin-right: 10px; }
-            .mdui-ticket-time { font-size: 0.74rem; color: var(--mdui-muted); font-weight: 600; flex: 1; }
-            .mdui-ticket-cs { background: var(--mdui-accent-soft); color: var(--mdui-accent); padding: 3px 8px; border-radius: 6px; font-size: 0.74rem; font-weight: 700; font-family: var(--mdui-font-mono); }
-            .mdui-ticket-body { padding: 16px 20px; }
-            .mdui-ticket-route { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-            .mdui-ticket-point { display: flex; flex-direction: column; gap: 4px; }
+            .mdui-ticket { background: var(--mdui-card); -webkit-backdrop-filter: var(--mdui-blur); backdrop-filter: var(--mdui-blur); border: 0.5px solid var(--mdui-border); border-radius: var(--mdui-radius); box-shadow: var(--mdui-shadow-card); display: flex; flex-direction: column; margin-bottom: 14px; position: relative; }
+            .mdui-ticket-actions { position: absolute; top: 10px; right: 10px; display: flex; gap: 6px; }
+            .mdui-ticket-stub { border-bottom: 0.5px dashed var(--mdui-border); padding: 14px 16px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+            .mdui-ticket-date { font-family: var(--mdui-font-mono); font-size: 13px; font-weight: 700; color: var(--mdui-text); }
+            .mdui-ticket-time { font-size: 12px; color: var(--mdui-muted); font-weight: 600; flex: 1; min-width: 0; }
+            .mdui-ticket-cs { background: var(--mdui-accent-soft); color: var(--mdui-accent); padding: 3px 8px; border-radius: 6px; font-size: 12px; font-weight: 700; font-family: var(--mdui-font-mono); }
+            .mdui-ticket-body { padding: 14px 16px; }
+            .mdui-ticket-route { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+            .mdui-ticket-point { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
             .mdui-ticket-point-right { align-items: flex-end; }
-            .mdui-ticket-icao { font-family: var(--mdui-font-mono); font-size: 1.5rem; font-weight: 700; color: var(--mdui-text); letter-spacing: -0.01em; line-height: 1; }
-            .mdui-ticket-gate { font-size: 0.66rem; color: var(--mdui-tertiary); font-weight: 600; }
-            .mdui-ticket-path { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; position: relative; padding: 0 16px; }
-            .mdui-ticket-duration { font-size: 0.68rem; color: var(--mdui-tertiary); font-weight: 600; }
-            .mdui-ticket-line { width: 100%; height: 1px; background: var(--mdui-border); position: relative; display: flex; justify-content: center; align-items: center; }
-            .mdui-ticket-line i { position: absolute; color: var(--mdui-accent); font-size: 0.85rem; background: var(--mdui-card); padding: 0 6px; }
-            .mdui-ticket-acft { font-size: 0.7rem; color: var(--mdui-muted); font-weight: 700; letter-spacing: 0.04em; }
-            .mdui-ticket-aside { border-top: 1px solid var(--mdui-border-light); padding: 12px 20px; display: flex; justify-content: space-around; }
-            .mdui-ticket-stat { display: flex; align-items: center; gap: 8px; font-size: 0.78rem; color: var(--mdui-muted); font-weight: 500; }
+            .mdui-ticket-icao { font-family: var(--mdui-font-mono); font-size: 22px; font-weight: 700; color: var(--mdui-text); letter-spacing: -0.4px; line-height: 1; }
+            .mdui-ticket-gate { font-size: 11px; color: var(--mdui-tertiary); font-weight: 600; }
+            .mdui-ticket-path { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; position: relative; padding: 0 8px; min-width: 0; }
+            .mdui-ticket-duration { font-size: 11px; color: var(--mdui-tertiary); font-weight: 600; }
+            .mdui-ticket-line { width: 100%; height: 1px; background: var(--mdui-border-light); position: relative; display: flex; justify-content: center; align-items: center; }
+            .mdui-ticket-line i { position: absolute; color: var(--mdui-accent); font-size: 13px; background: var(--mdui-card); padding: 0 6px; }
+            .mdui-ticket-acft { font-size: 11px; color: var(--mdui-muted); font-weight: 700; letter-spacing: 0.04em; }
+            .mdui-ticket-aside { border-top: 0.5px solid var(--mdui-border-light); padding: 11px 16px; display: flex; justify-content: space-around; flex-wrap: wrap; gap: 6px; }
+            .mdui-ticket-stat { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--mdui-muted); font-weight: 500; }
 
             .mdui-confirm-box { background: var(--mdui-card); border-radius: var(--mdui-radius); padding: 20px; max-width: 340px; width: 100%; text-align: center; }
             .mdui-confirm-icon { font-size: 2rem; color: var(--mdui-danger); margin-bottom: 12px; }
@@ -3039,33 +3227,33 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             .mdui-autocomplete-item { padding: 10px 14px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--mdui-border-light); cursor: pointer; font-weight: 500; }
             .mdui-autocomplete-item:hover { background: var(--mdui-hover); }
             
-            .mdui-watchlist-grid { display: grid; gap: 12px; }
-            .mdui-wl-card { background: var(--mdui-card); border: 1px solid var(--mdui-border); border-radius: var(--mdui-radius); padding: 16px; }
-            .mdui-wl-card.live { border-color: var(--mdui-success-soft); background: linear-gradient(180deg, var(--mdui-success-soft) 0%, var(--mdui-card) 65%); }
-            .mdui-wl-card-top { display: flex; justify-content: space-between; align-items: center; }
-            .mdui-wl-identity { display: flex; align-items: center; gap: 12px; }
-            .mdui-wl-dot { width: 10px; height: 10px; border-radius: 50%; }
-            .mdui-wl-dot.live { background: var(--mdui-success); animation: mdui-pulse 2s infinite; }
+            .mdui-watchlist-grid { display: grid; gap: 10px; }
+            .mdui-wl-card { background: var(--mdui-card); -webkit-backdrop-filter: var(--mdui-blur); backdrop-filter: var(--mdui-blur); border: 0.5px solid var(--mdui-border); border-radius: var(--mdui-radius); padding: 14px; }
+            .mdui-wl-card.live { border-color: var(--mdui-success-soft); }
+            .mdui-wl-card-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+            .mdui-wl-identity { display: flex; align-items: center; gap: 10px; min-width: 0; }
+            .mdui-wl-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+            .mdui-wl-dot.live { background: var(--mdui-success); animation: mdui-pulse 2s infinite; box-shadow: 0 0 0 4px var(--mdui-success-soft); }
             .mdui-wl-dot.offline { background: var(--mdui-tertiary); opacity: 0.5; }
-            .mdui-wl-username { font-weight: 700; font-size: 0.95rem; }
-            .mdui-wl-status { font-size: 0.72rem; color: var(--mdui-muted); margin-top: 2px; }
+            .mdui-wl-username { font-weight: 600; font-size: 15px; letter-spacing: -0.2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .mdui-wl-status { font-size: 12px; color: var(--mdui-muted); margin-top: 2px; }
             .mdui-wl-status.live { color: var(--mdui-success); }
-            .mdui-watchlist-remove-btn { background: none; border: none; color: var(--mdui-tertiary); cursor: pointer; padding: 5px; }
-            .mdui-wl-flight-info { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--mdui-border-light); }
-            .mdui-wl-route { display: flex; align-items: center; justify-content: center; gap: 14px; margin-bottom: 12px; font-family: var(--mdui-font-mono); font-weight: 700; font-size: 1.2rem; }
-            .mdui-wl-plane-icon { color: var(--mdui-accent); font-size: 1rem; }
-            .mdui-wl-telemetry { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-            .mdui-wl-tele-item { display: flex; flex-direction: column; background: var(--mdui-surface); padding: 8px 12px; border-radius: 8px; }
-            .mdui-wl-tele-item .label { font-size: 0.6rem; color: var(--mdui-tertiary); font-weight: 700; }
-            .mdui-wl-tele-item .value { font-family: var(--mdui-font-mono); font-weight: 700; font-size: 0.9rem; }
+            .mdui-watchlist-remove-btn { background: none; border: none; color: var(--mdui-tertiary); cursor: pointer; padding: 4px; }
+            .mdui-wl-flight-info { margin-top: 12px; padding-top: 12px; border-top: 0.5px solid var(--mdui-border-light); }
+            .mdui-wl-route { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 10px; font-family: var(--mdui-font-mono); font-weight: 700; font-size: 18px; letter-spacing: -0.2px; }
+            .mdui-wl-plane-icon { color: var(--mdui-accent); font-size: 14px; }
+            .mdui-wl-telemetry { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+            .mdui-wl-tele-item { display: flex; flex-direction: column; background: var(--mdui-input); padding: 8px 12px; border-radius: 10px; min-width: 0; }
+            .mdui-wl-tele-item .label { font-size: 10px; color: var(--mdui-tertiary); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+            .mdui-wl-tele-item .value { font-family: var(--mdui-font-mono); font-weight: 700; font-size: 13px; color: var(--mdui-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-            .mdui-toggle-label { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; }
+            .mdui-toggle-label { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
             .mdui-toggle-label input { display: none; }
-            .mdui-toggle-track { position: relative; width: 38px; height: 22px; background: var(--mdui-border); border-radius: 999px; transition: 0.14s; }
-            .mdui-toggle-thumb { position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; background: #fff; border-radius: 50%; transition: 0.18s; }
-            .mdui-toggle-label input:checked + .mdui-toggle-track { background: var(--mdui-accent); }
-            .mdui-toggle-label input:checked + .mdui-toggle-track .mdui-toggle-thumb { transform: translateX(16px); }
-            .mdui-toggle-text { font-size: 0.78rem; font-weight: 600; color: var(--mdui-muted); }
+            .mdui-toggle-track { position: relative; width: 51px; height: 31px; background: rgba(120, 120, 128, 0.32); border-radius: 999px; transition: background-color 0.25s ease; box-shadow: inset 0 1px 2px rgba(0,0,0,0.18); }
+            .mdui-toggle-thumb { position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; background: #fff; border-radius: 50%; box-shadow: 0 2px 4px rgba(0,0,0,0.28), 0 0 1px rgba(0,0,0,0.18); transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1); }
+            .mdui-toggle-label input:checked + .mdui-toggle-track { background: var(--mdui-success); }
+            .mdui-toggle-label input:checked + .mdui-toggle-track .mdui-toggle-thumb { transform: translateX(20px); }
+            .mdui-toggle-text { font-size: 14px; font-weight: 500; color: var(--mdui-text); letter-spacing: -0.2px; }
 
             /* ── DRILL DOWN ── */
             .mdui-drill-box { background: var(--mdui-card); border-radius: var(--mdui-radius); width: 100%; max-width: 360px; overflow: hidden; box-shadow: var(--mdui-shadow-pop); }
@@ -3086,33 +3274,35 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             .mdui-drillable:hover { color: var(--mdui-accent); border-bottom-color: var(--mdui-accent); }
 
             /* ── SETTINGS ── */
-            .mdui-settings-grid { display: flex; flex-direction: column; gap: 16px; }
+            .mdui-settings-grid { display: flex; flex-direction: column; gap: 14px; }
             .mdui-theme-options { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-            .mdui-theme-option { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--mdui-border); border-radius: 10px; cursor: pointer; transition: 0.14s; }
-            .mdui-theme-option:hover { background: var(--mdui-hover); }
+            .mdui-theme-option { display: flex; align-items: center; gap: 10px; padding: 11px 12px; border: 0.5px solid var(--mdui-border); border-radius: 12px; cursor: pointer; transition: 0.16s; background: var(--mdui-input); -webkit-tap-highlight-color: transparent; }
+            .mdui-theme-option:active { transform: scale(0.98); background: var(--mdui-hover); }
             .mdui-theme-option input { display: none; }
-            .mdui-theme-option i { color: var(--mdui-tertiary); font-size: 0.85rem; }
-            .mdui-theme-option span { color: var(--mdui-text); font-weight: 500; font-size: 0.85rem; }
+            .mdui-theme-option i { color: var(--mdui-tertiary); font-size: 14px; }
+            .mdui-theme-option span { color: var(--mdui-text); font-weight: 500; font-size: 14px; letter-spacing: -0.2px; }
             .mdui-theme-option:has(input:checked) { border-color: var(--mdui-accent); background: var(--mdui-accent-soft); }
             .mdui-theme-option:has(input:checked) i { color: var(--mdui-accent); }
             .mdui-accent-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; }
-            .mdui-accent-swatch { width: 36px; height: 36px; border-radius: 50%; border: 2px solid var(--mdui-border); cursor: pointer; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 0.78rem; transition: 0.14s; padding: 0; }
-            .mdui-accent-swatch.active { border-color: var(--mdui-text); box-shadow: 0 0 0 2px var(--mdui-card), 0 0 0 4px var(--mdui-accent-glow); }
-            .mdui-plan-box { background: var(--mdui-surface); border: 1px solid var(--mdui-border); border-radius: var(--mdui-radius); padding: 16px; }
-            .mdui-plan-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-            .mdui-plan-header h4 { margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--mdui-text); }
-            .mdui-plan-price { font-size: 1.4rem; font-weight: 700; color: var(--mdui-text); margin: 0 0 4px 0; letter-spacing: -0.02em; }
-            .mdui-plan-renewal { font-size: 0.78rem; color: var(--mdui-tertiary); margin: 0; }
-            .mdui-billing-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+            .mdui-accent-swatch { width: 34px; height: 34px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 12px; transition: 0.16s; padding: 0; -webkit-tap-highlight-color: transparent; }
+            .mdui-accent-swatch:active { transform: scale(0.92); }
+            .mdui-accent-swatch.active { box-shadow: 0 0 0 2px var(--mdui-bg), 0 0 0 4px var(--mdui-accent); }
+            .mdui-plan-box { background: var(--mdui-input); border: none; border-radius: var(--mdui-radius); padding: 14px; }
+            .mdui-plan-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; gap: 8px; }
+            .mdui-plan-header h4 { margin: 0; font-size: 15px; font-weight: 600; color: var(--mdui-text); letter-spacing: -0.2px; }
+            .mdui-plan-price { font-size: 22px; font-weight: 700; color: var(--mdui-text); margin: 0 0 4px 0; letter-spacing: -0.4px; }
+            .mdui-plan-renewal { font-size: 12px; color: var(--mdui-tertiary); margin: 0; }
+            .mdui-billing-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
 
             /* ── ONBOARDING ── */
-            .mdui-onboarding { padding: 40px 20px; display: flex; flex-direction: column; justify-content: flex-start; min-height: 100%; }
-            .mdui-onb-icon { width: 56px; height: 56px; margin: 0 auto 18px; border-radius: 16px; background: var(--mdui-accent-soft); color: var(--mdui-accent); font-size: 1.5rem; display: grid; place-items: center; }
-            .mdui-onb-title { font-size: 1.7rem; font-weight: 700; text-align: center; margin: 0 0 8px; color: var(--mdui-text); letter-spacing: -0.02em; }
-            .mdui-onb-sub { text-align: center; color: var(--mdui-muted); font-size: 0.92rem; line-height: 1.5; margin: 0; }
-            .mdui-pill-row { display: flex; gap: 10px; }
-            .mdui-radio-pill { flex: 1; padding: 10px 12px; border-radius: 10px; cursor: pointer; border: 1px solid var(--mdui-border); background: var(--mdui-input); display: flex; align-items: center; justify-content: center; font-size: 0.85rem; font-weight: 500; color: var(--mdui-text); transition: 0.14s; }
-            .mdui-radio-pill:has(input:checked) { border-color: var(--mdui-accent); background: var(--mdui-accent-soft); }
+            .mdui-onboarding { padding: 32px 16px calc(env(safe-area-inset-bottom) + 32px); display: flex; flex-direction: column; justify-content: flex-start; min-height: 100%; }
+            .mdui-onb-icon { width: 56px; height: 56px; margin: 0 auto 16px; border-radius: 16px; background: var(--mdui-accent-soft); color: var(--mdui-accent); font-size: 22px; display: grid; place-items: center; }
+            .mdui-onb-title { font-size: 28px; font-weight: 700; text-align: center; margin: 0 0 8px; color: var(--mdui-text); letter-spacing: -0.6px; }
+            .mdui-onb-sub { text-align: center; color: var(--mdui-muted); font-size: 15px; line-height: 1.4; margin: 0; letter-spacing: -0.2px; }
+            .mdui-pill-row { display: flex; gap: 8px; }
+            .mdui-radio-pill { flex: 1; min-width: 0; padding: 11px 10px; border-radius: 12px; cursor: pointer; border: 0.5px solid var(--mdui-border); background: var(--mdui-input); display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 500; color: var(--mdui-text); letter-spacing: -0.2px; -webkit-tap-highlight-color: transparent; transition: 0.16s; }
+            .mdui-radio-pill:active { transform: scale(0.97); }
+            .mdui-radio-pill:has(input:checked) { border-color: var(--mdui-accent); background: var(--mdui-accent-soft); color: var(--mdui-accent); }
             .mdui-radio-pill input { display: none; }
             /* ── Carousel Roulette & 3D HUD Support ── */
         .mdui-live-carousel {
@@ -3147,31 +3337,35 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             align-items: center;
             gap: 12px;
             padding: 12px 14px;
-            background: var(--mdui-surface);
-            border: 1px solid var(--mdui-border);
+            background: var(--mdui-input);
+            border: none;
             border-radius: 12px;
             text-decoration: none;
-            transition: 0.14s;
+            color: inherit;
+            -webkit-tap-highlight-color: transparent;
+            transition: background-color 0.18s ease, transform 0.16s ease;
         }
-        .mdui-action-link:hover {
-            background: var(--mdui-card-elev);
-            border-color: var(--mdui-border-strong);
-        }
+        .mdui-action-link:active { transform: scale(0.98); background: var(--mdui-hover); }
         .mdui-action-icon {
-            width: 36px;
-            height: 36px;
-            border-radius: 10px;
-            background: var(--mdui-hover);
-            color: var(--mdui-muted);
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: var(--mdui-accent-soft);
+            color: var(--mdui-accent);
             display: grid;
             place-items: center;
-            font-size: 0.95rem;
+            font-size: 14px;
+            flex-shrink: 0;
         }
         .mdui-action-text {
             flex: 1;
-            font-size: 0.88rem;
-            font-weight: 600;
+            font-size: 15px;
+            font-weight: 500;
             color: var(--mdui-text);
+            letter-spacing: -0.2px;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         `;
 
