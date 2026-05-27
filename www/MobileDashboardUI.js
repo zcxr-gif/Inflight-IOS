@@ -459,17 +459,18 @@ init(supabaseClient) {
         const el = document.createElement('div');
         el.id    = 'mdui-shell';
         el.innerHTML = `
+            <div id="mdui-sheet-grabber" aria-hidden="true"><span></span></div>
             <div id="mdui-screen"></div>
-            <nav id="mdui-tabbar">
+            <nav id="mdui-tabbar" role="tablist">
                 ${this._tabDef().map(t => {
                     const badge = t.id === 'watchlist' ? `<span id="mdui-tab-badge-watchlist" class="mdui-tab-badge" style="display:none;"></span>` : '';
                     return `
-                    <button class="mdui-tab-btn" data-tab="${t.id}" aria-label="${t.label}">
-                        <div style="position:relative;">
+                    <button class="mdui-tab-btn" data-tab="${t.id}" aria-label="${t.label}" role="tab">
+                        <div class="mdui-tab-iconwrap">
                             <i class="${t.icon}"></i>
                             ${badge}
                         </div>
-                        <span>${t.label}</span>
+                        <span class="mdui-tab-label">${t.label}</span>
                     </button>`;
                 }).join('')}
             </nav>
@@ -481,6 +482,95 @@ init(supabaseClient) {
             const btn = e.target.closest('.mdui-tab-btn');
             if (btn) this.switchTab(btn.dataset.tab);
         });
+
+        this._wireSheetGesture(el);
+        this._wireLargeTitleScroll(el);
+    },
+
+    /**
+     * iOS sheet drag-to-dismiss. Listens for a downward drag that begins
+     * within the grabber zone (or anywhere on the top bar) and either
+     * dismisses the sheet when the user crosses the threshold or snaps it
+     * back into place. Mirrors the rubber-band feel of an iOS modal.
+     */
+    _wireSheetGesture(shell) {
+        const DISMISS_THRESHOLD_PX = 110;
+        const DISMISS_VELOCITY     = 0.55; // px/ms
+        let active = false;
+        let startY = 0, lastY = 0, startT = 0, lastT = 0, dy = 0;
+        let topBar = null;
+
+        const isGrabZone = (target) => {
+            // Drag is initiated only from the grabber or the iOS nav bar
+            // header — never from the scrolling content area below.
+            return !!target.closest('#mdui-sheet-grabber, .mdui-nav-bar, .mdui-large-title-wrap');
+        };
+
+        const onDown = (ev) => {
+            if (!this._isOpen) return;
+            const t = ev.touches ? ev.touches[0] : ev;
+            if (!isGrabZone(ev.target)) return;
+            const screen = document.getElementById('mdui-screen');
+            // Only allow if the inner scroller is already at the top —
+            // otherwise the gesture belongs to the content scroll.
+            const content = screen?.querySelector('.mdui-content');
+            if (content && content.scrollTop > 2) return;
+            active = true;
+            startY = lastY = t.clientY;
+            startT = lastT = performance.now();
+            dy = 0;
+            shell.style.transition = 'none';
+        };
+        const onMove = (ev) => {
+            if (!active) return;
+            const t = ev.touches ? ev.touches[0] : ev;
+            const now = performance.now();
+            dy = Math.max(0, t.clientY - startY);
+            lastY = t.clientY;
+            lastT = now;
+            // Slight rubber-banding on upward over-drag is naturally avoided
+            // because we clamp dy >= 0.
+            shell.style.transform = `translateY(${dy}px)`;
+        };
+        const onUp = () => {
+            if (!active) return;
+            active = false;
+            const velocity = dy / Math.max(1, (lastT - startT));
+            shell.style.transition = '';
+            shell.style.transform = '';
+            if (dy > DISMISS_THRESHOLD_PX || velocity > DISMISS_VELOCITY) {
+                this.close();
+            }
+        };
+
+        shell.addEventListener('touchstart', onDown, { passive: true });
+        shell.addEventListener('touchmove',  onMove, { passive: true });
+        shell.addEventListener('touchend',   onUp,   { passive: true });
+        shell.addEventListener('touchcancel',onUp,   { passive: true });
+        // Mouse fallback for desktop testing
+        shell.addEventListener('mousedown', onDown);
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup',   onUp);
+    },
+
+    /**
+     * iOS large-title behaviour: while the content scroller is near the top
+     * the large title is fully visible and the compact nav title is hidden;
+     * once the user scrolls past the large title, the compact title fades
+     * in and a hairline separator appears under the nav bar.
+     */
+    _wireLargeTitleScroll(shell) {
+        const onScroll = () => {
+            const screen = shell.querySelector('#mdui-screen');
+            const content = screen?.querySelector('.mdui-content');
+            const nav = screen?.querySelector('.mdui-nav-bar');
+            const large = screen?.querySelector('.mdui-large-title');
+            if (!content || !nav || !large) return;
+            const collapsed = content.scrollTop > (large.offsetTop + large.offsetHeight - 6);
+            nav.classList.toggle('is-collapsed', collapsed);
+        };
+        // Delegate at the shell level — re-attached after every render.
+        shell.addEventListener('scroll', onScroll, true);
     },
 
     _tabDef() {
@@ -507,11 +597,14 @@ init(supabaseClient) {
         const tabbar = document.getElementById('mdui-tabbar');
         if (tabbar) tabbar.style.display = this._activeTab === 'onboarding' ? 'none' : '';
 
+        // iOS large-title shell: a sticky nav bar that fades in a compact
+        // title only after the user scrolls past the large title inside the
+        // scrolling content. Matches how the system Settings / Health apps
+        // present their navigation.
         screen.innerHTML = `
-            <div class="mdui-top-bar">
-                ${this._renderTopBar()}
-            </div>
+            ${this._renderNavBar()}
             <div class="mdui-content mdui-scroll" id="mdui-content-area">
+                ${this._renderLargeTitle()}
                 ${this._renderTabContent()}
             </div>
         `;
@@ -522,30 +615,58 @@ init(supabaseClient) {
         if (this._activeTab === 'dashboard') this._updateLiveBanner();
     },
 
-    _renderTopBar() {
-        if (this._activeTab === 'onboarding') {
-            return `<span class="mdui-top-title">Welcome Aboard</span>`;
-        }
-        const titles = {
-            dashboard:        'Command Center',
-            'career-deep-dive': 'Pilot Dossier',
-            'airspace-intel': 'Airspace Radar',
-            'flight-plan':    'Flight Dispatch',
-            watchlist:        'Pilot Watchlist',
-            settings:         'Settings',
-        };
+    _navTitle() {
+        if (this._activeTab === 'onboarding') return 'Welcome';
+        return ({
+            dashboard:         'Home',
+            'career-deep-dive':'Dossier',
+            'airspace-intel':  'Traffic',
+            'flight-plan':     'Dispatch',
+            watchlist:         'Watchlist',
+            settings:          'Settings',
+        })[this._activeTab] || '';
+    },
+
+    _navSubtitle() {
+        if (this._activeTab === 'onboarding') return '';
+        return ({
+            dashboard:         'Command Center',
+            'career-deep-dive':'Pilot Dossier',
+            'airspace-intel':  'Airspace Radar',
+            'flight-plan':     'Flight Dispatch',
+            watchlist:         'Pilot Watchlist',
+            settings:          'Preferences',
+        })[this._activeTab] || '';
+    },
+
+    _renderNavBar() {
         const user    = this._currentUser;
         const name    = user?.user_metadata?.full_name || user?.user_metadata?.name || 'Captain';
         const initials = name.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
+        const isOnb   = this._activeTab === 'onboarding';
 
         return `
-            <div class="mdui-avatar">${initials}</div>
-            <span class="mdui-top-title">${titles[this._activeTab] || ''}</span>
-            <button class="mdui-close-btn" id="mdui-close" aria-label="Close">
-                <i class="fa-solid fa-xmark"></i>
-            </button>
+            <div class="mdui-nav-bar">
+                <button class="mdui-nav-btn" id="mdui-close" aria-label="Done"${isOnb ? ' style="display:none;"' : ''}>Done</button>
+                <span class="mdui-nav-title">${this._navTitle()}</span>
+                <div class="mdui-nav-avatar" aria-hidden="true">${initials}</div>
+            </div>
         `;
     },
+
+    _renderLargeTitle() {
+        if (this._activeTab === 'onboarding') return '';
+        return `
+            <div class="mdui-large-title-wrap">
+                <h1 class="mdui-large-title">${this._navTitle()}</h1>
+                <p class="mdui-large-subtitle">${this._navSubtitle()}</p>
+            </div>
+        `;
+    },
+
+    // Kept for backwards compatibility with any external caller; new code
+    // should use _renderNavBar / _renderLargeTitle directly.
+    _renderTopBar() { return this._renderNavBar(); },
 
     // ─── Tab Content ─────────────────────────────────────────────────────────
 
@@ -639,42 +760,57 @@ _tabOnboarding() {
 
         let recentHTML = '';
         if (!ifUsername) {
-            recentHTML = `<div class="mdui-empty"><i class="fa-solid fa-link-slash"></i><span>Link your IF account in Settings.</span></div>`;
+            recentHTML = `
+                <div class="mdui-list-group">
+                    <div class="mdui-list-row no-icon" data-static="true">
+                        <div class="mdui-list-row-text">
+                            <span class="mdui-list-row-label">Not linked</span>
+                            <span class="mdui-list-row-sub">Add your IF username in Settings.</span>
+                        </div>
+                    </div>
+                </div>`;
         } else if (this._ifData.loading) {
-            recentHTML = [1,2,3].map(() => `
-                <div class="mdui-flight-row">
-                    <div class="mdui-skel" style="width:110px;height:14px;border-radius:4px;"></div>
-                    <div class="mdui-skel" style="width:55px;height:10px;border-radius:4px;"></div>
-                </div>`).join('');
+            recentHTML = `
+                <div class="mdui-list-group">
+                    ${[1,2,3].map(() => `
+                        <div class="mdui-list-row no-icon" data-static="true">
+                            <div class="mdui-list-row-text">
+                                <div class="mdui-skel" style="width:130px;height:14px;border-radius:4px;"></div>
+                                <div class="mdui-skel" style="width:80px;height:10px;border-radius:4px;margin-top:6px;"></div>
+                            </div>
+                        </div>`).join('')}
+                </div>`;
         } else if (this._ifData.logbook?.length > 0) {
-            recentHTML = this._ifData.logbook.slice(0, 5).map((f, i) => {
-                const dep     = f.originAirport      || 'N/A';
-                const arr     = f.destinationAirport || 'N/A';
+            const rows = this._ifData.logbook.slice(0, 5).map((f, i) => {
+                const dep     = f.originAirport      || '—';
+                const arr     = f.destinationAirport || '—';
                 const hrs     = (f.totalTime / 60).toFixed(1);
                 const dateObj = new Date(f.created);
                 const fresh   = (Date.now() - dateObj.getTime()) < 172800000;
                 const timeStr = fresh ? 'Recently' : dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                const depAttr = dep !== 'N/A' ? `data-drill="icao" data-icao="${dep}"` : '';
-                const arrAttr = arr !== 'N/A' ? `data-drill="icao" data-icao="${arr}"` : '';
-                const cs = f.callsign || 'N/A';
-                const csAttr = cs !== 'N/A' ? `data-drill="callsign" data-callsign="${cs}"` : '';
+                const cs = f.callsign || '—';
+                const depAttr = dep !== '—' ? `data-drill="icao" data-icao="${dep}"` : '';
                 return `
-                    <div class="mdui-flight-row mdui-fade-up" style="animation-delay:${i * 0.04}s;">
-                        <div class="mdui-flight-route">
-                            <span class="mdui-icao mdui-drillable" ${depAttr}>${dep}</span>
-                            <span class="mdui-arrow">→</span>
-                            <span class="mdui-icao mdui-drillable" ${arrAttr}>${arr}</span>
+                    <button type="button" class="mdui-list-row" ${depAttr} style="animation-delay:${i * 0.04}s;">
+                        <span class="mdui-list-row-icon tone-blue"><i class="fa-solid fa-plane"></i></span>
+                        <div class="mdui-list-row-text">
+                            <span class="mdui-list-row-label" style="font-family:var(--mdui-font-mono); letter-spacing:0;">${dep} → ${arr}</span>
+                            <span class="mdui-list-row-sub">${cs} · ${hrs}h · ${timeStr}</span>
                         </div>
-                        <div class="mdui-flight-meta">
-                            <span class="mdui-drillable" ${csAttr}>${cs}</span>
-                            <span class="mdui-dot">·</span>
-                            <span>${hrs}h</span>
-                        </div>
-                        <div class="mdui-flight-time">${timeStr}</div>
-                    </div>`;
+                        <i class="fa-solid fa-chevron-right mdui-list-row-chevron"></i>
+                    </button>`;
             }).join('');
+            recentHTML = `<div class="mdui-list-group">${rows}</div>`;
         } else {
-            recentHTML = `<div class="mdui-empty"><i class="fa-solid fa-inbox"></i><span>No recent flights.</span></div>`;
+            recentHTML = `
+                <div class="mdui-list-group">
+                    <div class="mdui-list-row no-icon" data-static="true">
+                        <div class="mdui-list-row-text">
+                            <span class="mdui-list-row-label">No recent flights</span>
+                            <span class="mdui-list-row-sub">Your logbook will appear here once you fly.</span>
+                        </div>
+                    </div>
+                </div>`;
         }
 
         let nextDepHTML = '';
@@ -691,59 +827,71 @@ _tabOnboarding() {
             const mins  = next.duration_minutes % 60;
 
             nextDepHTML = `
-                <div class="mdui-dispatch-mini">
-                    <div class="mdui-dispatch-route">
-                        <div class="mdui-dispatch-airport">
-                            <span class="mdui-dispatch-icao mdui-drillable" ${next.dep_icao ? `data-drill="icao" data-icao="${next.dep_icao}"` : ''}>${next.dep_icao || '----'}</span>
-                            ${next.dep_gate ? `<span class="mdui-dispatch-gate">Gate ${next.dep_gate}</span>` : ''}
-                        </div>
-                        <div class="mdui-dispatch-center">
-                            <i class="fa-solid fa-plane mdui-dispatch-plane"></i>
-                            <span class="mdui-dispatch-dur">${hours}h ${mins}m</span>
-                        </div>
-                        <div class="mdui-dispatch-airport" style="text-align:right;">
-                            <span class="mdui-dispatch-icao mdui-drillable" ${next.arr_icao ? `data-drill="icao" data-icao="${next.arr_icao}"` : ''}>${next.arr_icao || '----'}</span>
-                            ${next.arr_gate ? `<span class="mdui-dispatch-gate">Gate ${next.arr_gate}</span>` : ''}
+                <div class="mdui-list-group">
+                    <div class="mdui-list-row" data-static="true" style="padding: 14px;">
+                        <div style="display:flex; flex-direction:column; width:100%; gap: 10px;">
+                            <div class="mdui-dispatch-route">
+                                <div class="mdui-dispatch-airport">
+                                    <span class="mdui-dispatch-icao mdui-drillable" ${next.dep_icao ? `data-drill="icao" data-icao="${next.dep_icao}"` : ''}>${next.dep_icao || '----'}</span>
+                                    ${next.dep_gate ? `<span class="mdui-dispatch-gate">Gate ${next.dep_gate}</span>` : ''}
+                                </div>
+                                <div class="mdui-dispatch-center">
+                                    <i class="fa-solid fa-plane mdui-dispatch-plane"></i>
+                                    <span class="mdui-dispatch-dur">${hours}h ${mins}m</span>
+                                </div>
+                                <div class="mdui-dispatch-airport" style="text-align:right;">
+                                    <span class="mdui-dispatch-icao mdui-drillable" ${next.arr_icao ? `data-drill="icao" data-icao="${next.arr_icao}"` : ''}>${next.arr_icao || '----'}</span>
+                                    ${next.arr_gate ? `<span class="mdui-dispatch-gate">Gate ${next.arr_gate}</span>` : ''}
+                                </div>
+                            </div>
                         </div>
                     </div>
-                    <div class="mdui-dispatch-meta-row">
-                        <div style="display:flex; justify-content:space-between; width:100%; margin-bottom: 4px;">
-                            <span>Aircraft</span>
-                            <strong style="color:var(--mdui-text);">${next.aircraft_type || 'N/A'}</strong>
-                        </div>
-                        <div style="display:flex; justify-content:space-between; width:100%; margin-bottom: 4px;">
-                            <span>Callsign</span>
-                            <strong style="color:var(--mdui-text); font-family:var(--mdui-font-mono);">${next.callsign || 'N/A'}</strong>
-                        </div>
-                        <div style="display:flex; justify-content:space-between; width:100%;">
-                            <span>Departure</span>
-                            <strong style="color:var(--mdui-accent);">${countdown}</strong>
-                        </div>
+                    <div class="mdui-list-form-row">
+                        <span class="mdui-list-form-label">Aircraft</span>
+                        <span class="mdui-list-row-value">${next.aircraft_type || '—'}</span>
+                    </div>
+                    <div class="mdui-list-form-row">
+                        <span class="mdui-list-form-label">Callsign</span>
+                        <span class="mdui-list-row-value" style="font-family:var(--mdui-font-mono);">${next.callsign || '—'}</span>
+                    </div>
+                    <div class="mdui-list-form-row">
+                        <span class="mdui-list-form-label">Departure</span>
+                        <span class="mdui-list-row-value" style="color: var(--mdui-accent); font-weight: 600;">${countdown}</span>
                     </div>
                 </div>`;
         } else {
-            nextDepHTML = `<div class="mdui-empty" style="padding: 20px 0;"><i class="fa-regular fa-calendar"></i><span>No upcoming flights filed.</span></div>`;
+            nextDepHTML = `
+                <div class="mdui-list-group">
+                    <div class="mdui-list-row no-icon" data-static="true">
+                        <div class="mdui-list-row-text">
+                            <span class="mdui-list-row-label">No upcoming flights</span>
+                            <span class="mdui-list-row-sub">File a flight plan from the Dispatch tab.</span>
+                        </div>
+                    </div>
+                </div>`;
         }
 
         return `
-            <div class="mdui-cc-greeting mdui-fade-up">
-                <div>
-                    <h1 class="mdui-greeting-name">${greeting},<br/>${firstName}.</h1>
-                    ${statPills}
+            <div class="mdui-fade-up">
+                <div class="mdui-greeting-hero">
+                    <div class="mdui-greeting-text">
+                        <div class="mdui-greeting-date">${dateStr}</div>
+                        <h2 class="mdui-greeting-name">${greeting}, ${firstName}.</h2>
+                        ${statPills}
+                    </div>
                 </div>
-                <span class="mdui-greeting-date">${dateStr}</span>
-            </div>
 
-            <div id="mdui-live-banner"></div>
+                <div id="mdui-live-banner"></div>
 
-            <div class="mdui-card mdui-fade-up" style="animation-delay:0.06s;">
-                <div class="mdui-card-eyebrow">Next Departure</div>
-                ${nextDepHTML}
-            </div>
+                <div class="mdui-list-section">
+                    <div class="mdui-list-section-header">Next Departure</div>
+                    ${nextDepHTML}
+                </div>
 
-            <div class="mdui-card mdui-fade-up" style="animation-delay:0.1s; padding: 6px 0;">
-                <div class="mdui-card-eyebrow" style="padding: 14px 16px 0;">Recent Flights</div>
-                ${recentHTML}
+                <div class="mdui-list-section">
+                    <div class="mdui-list-section-header">Recent Flights</div>
+                    ${recentHTML}
+                </div>
             </div>
         `;
     },
@@ -1171,31 +1319,43 @@ _tabCareer() {
     _tabWatchlist() {
         const notifChecked = this._userPrefs.notification_watchlist_enabled ? 'checked' : '';
         return `
-            <div class="mdui-tab-header mdui-fade-up">
-                <h2>Pilot Watchlist</h2>
-                <p>Track specific pilots in real-time. Get notified the moment they go airborne.</p>
-                <label class="mdui-toggle-label" style="margin-top: 10px; display:inline-flex;">
-                    <input type="checkbox" id="mdui-watchlist-notif-toggle" ${notifChecked}>
-                    <span class="mdui-toggle-track"><span class="mdui-toggle-thumb"></span></span>
-                    <span class="mdui-toggle-text">Live alerts</span>
-                </label>
-            </div>
+            <div class="mdui-fade-up">
+                <p class="mdui-large-subtitle" style="padding: 0 2px 14px;">Track specific pilots in real-time. Get notified the moment they go airborne.</p>
 
-            <div class="mdui-card mdui-fade-up" style="margin-bottom: 24px; overflow: visible;">
-                <div class="mdui-card-body" style="display:flex; gap:10px;">
-                    <div class="mdui-input-wrap" style="flex:1; position: relative;">
-                        <i class="fa-solid fa-user-plus mdui-input-icon"></i>
-                        <input type="text" id="mdui-watchlist-input" class="mdui-input has-icon" placeholder="Search active pilots…" autocomplete="off">
-                        <div id="mdui-watchlist-dropdown" class="mdui-autocomplete-dropdown" style="display: none;"></div>
+                <div class="mdui-list-section">
+                    <div class="mdui-list-section-header">Add Pilot</div>
+                    <div class="mdui-list-group" style="overflow: visible;">
+                        <div class="mdui-list-form-row" style="position: relative;">
+                            <span class="mdui-list-form-control" style="justify-content: flex-start; position: relative;">
+                                <i class="fa-solid fa-magnifying-glass" style="position:absolute; left:0; top:50%; transform:translateY(-50%); color: var(--mdui-tertiary); font-size: 14px;"></i>
+                                <input type="text" id="mdui-watchlist-input" placeholder="Search active pilots…" autocomplete="off" style="padding-left: 22px; text-align: left;">
+                                <button class="mdui-nav-btn" id="mdui-watchlist-add-btn" style="margin-left: 8px; flex: 0 0 auto;">Add</button>
+                            </span>
+                            <div id="mdui-watchlist-dropdown" class="mdui-autocomplete-dropdown" style="display: none;"></div>
+                        </div>
                     </div>
-                    <button class="mdui-btn-primary" id="mdui-watchlist-add-btn">
-                        <i class="fa-solid fa-plus"></i> Add
-                    </button>
                 </div>
-            </div>
 
-            <div id="mdui-watchlist-pilots-container" class="mdui-fade-up">
-                ${this._getWatchlistPilotsHTML()}
+                <div class="mdui-list-section">
+                    <div class="mdui-list-section-header">Live Alerts</div>
+                    <div class="mdui-list-group">
+                        <div class="mdui-list-row" data-static="true">
+                            <span class="mdui-list-row-icon tone-orange"><i class="fa-solid fa-bell"></i></span>
+                            <div class="mdui-list-row-text">
+                                <span class="mdui-list-row-label">Notify when airborne</span>
+                                <span class="mdui-list-row-sub">Show a toast the moment any tracked pilot takes off.</span>
+                            </div>
+                            <label class="mdui-toggle-label">
+                                <input type="checkbox" id="mdui-watchlist-notif-toggle" ${notifChecked}>
+                                <span class="mdui-toggle-track"><span class="mdui-toggle-thumb"></span></span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="mdui-watchlist-pilots-container" class="mdui-list-section">
+                    ${this._getWatchlistPilotsHTML()}
+                </div>
             </div>
         `;
     },
@@ -1203,58 +1363,46 @@ _tabCareer() {
     _getWatchlistPilotsHTML() {
         if (this._watchlist.length === 0) {
             return `
-                <div class="mdui-empty-state">
-                    <i class="fa-solid fa-binoculars"></i>
-                    <h4>No Pilots Tracked</h4>
-                    <p>Add an Infinite Flight username above to start monitoring their live status.</p>
+                <div class="mdui-list-section-header">Tracked Pilots</div>
+                <div class="mdui-list-group">
+                    <div class="mdui-list-row no-icon" data-static="true">
+                        <div class="mdui-list-row-text">
+                            <span class="mdui-list-row-label">No pilots tracked</span>
+                            <span class="mdui-list-row-sub">Add an Infinite Flight username above to start monitoring.</span>
+                        </div>
+                    </div>
                 </div>`;
         }
+        const rows = this._watchlist.map(entry => {
+            const un = entry.watched_username.toLowerCase();
+            const status = this._watchedPilotStatus[un];
+            const isLive = status?.isLive;
+            const flight = status?.flight;
+
+            const dep = flight?.departureIcao || '----';
+            const arr = flight?.arrivalIcao   || '----';
+            const alt = flight ? Math.round(flight.position.alt_ft).toLocaleString() + ' ft' : '';
+            const gs  = flight ? Math.round(flight.position.gs_kt) + ' kt'                : '';
+            const statusText = isLive ? `${dep} → ${arr} · ${alt} · ${gs}` : 'Offline';
+            const iconTone = isLive ? 'tone-green' : 'tone-gray';
+            const iconClass = isLive ? 'fa-plane' : 'fa-user-clock';
+
+            const drillAttrs = isLive ? `data-drill="icao" data-icao="${dep}"` : '';
+            return `
+                <div class="mdui-list-row" ${drillAttrs}${isLive ? '' : ' data-static="true"'}>
+                    <span class="mdui-list-row-icon ${iconTone}"><i class="fa-solid ${iconClass}"></i></span>
+                    <div class="mdui-list-row-text">
+                        <span class="mdui-list-row-label">${entry.watched_username}</span>
+                        <span class="mdui-list-row-sub ${isLive ? 'live' : ''}" style="${isLive ? `color: var(--mdui-success); font-family: var(--mdui-font-mono); letter-spacing: 0;` : ''}">${statusText}</span>
+                    </div>
+                    <button class="mdui-watchlist-remove-btn" data-id="${entry.id}" data-username="${entry.watched_username}" title="Remove" aria-label="Remove pilot">
+                        <i class="fa-solid fa-circle-minus"></i>
+                    </button>
+                </div>`;
+        }).join('');
         return `
-            <div class="mdui-watchlist-grid">
-                ${this._watchlist.map(entry => {
-                    const un = entry.watched_username.toLowerCase();
-                    const status = this._watchedPilotStatus[un];
-                    const isLive = status?.isLive;
-                    const flight = status?.flight;
-
-                    const dep = flight?.departureIcao || '----';
-                    const arr = flight?.arrivalIcao   || '----';
-                    const alt = flight ? Math.round(flight.position.alt_ft).toLocaleString() + ' ft' : '—';
-                    const gs  = flight ? Math.round(flight.position.gs_kt) + ' kt'                : '—';
-                    const acft = flight?.aircraft?.aircraftName || '—';
-
-                    const statusDot  = isLive ? `<span class="mdui-wl-dot live"></span>` : `<span class="mdui-wl-dot offline"></span>`;
-                    const statusText = isLive ? 'Airborne' : 'Offline';
-
-                    return `
-                        <div class="mdui-wl-card ${isLive ? 'live' : ''}">
-                            <div class="mdui-wl-card-top">
-                                <div class="mdui-wl-identity">
-                                    ${statusDot}
-                                    <div>
-                                        <div class="mdui-wl-username">${entry.watched_username}</div>
-                                        <div class="mdui-wl-status ${isLive ? 'live' : ''}">${statusText}</div>
-                                    </div>
-                                </div>
-                                <button class="mdui-watchlist-remove-btn" data-id="${entry.id}" data-username="${entry.watched_username}" title="Remove">
-                                    <i class="fa-solid fa-xmark"></i>
-                                </button>
-                            </div>
-                            ${isLive ? `
-                            <div class="mdui-wl-flight-info">
-                                <div class="mdui-wl-route">
-                                    <span class="mdui-wl-icao mdui-drillable" data-drill="icao" data-icao="${dep}">${dep}</span>
-                                    <i class="fa-solid fa-plane mdui-wl-plane-icon"></i>
-                                    <span class="mdui-wl-icao mdui-drillable" data-drill="icao" data-icao="${arr}">${arr}</span>
-                                </div>
-                                <div class="mdui-wl-telemetry">
-                                    <div class="mdui-wl-tele-item"><span class="label">ALTITUDE</span><span class="value">${alt}</span></div>
-                                    <div class="mdui-wl-tele-item"><span class="label">GND SPD</span><span class="value">${gs}</span></div>
-                                </div>
-                            </div>` : ''}
-                        </div>`;
-                }).join('')}
-            </div>`;
+            <div class="mdui-list-section-header">Tracked Pilots</div>
+            <div class="mdui-list-group">${rows}</div>`;
     },
 
     async _autoCalculateRouteEET(depIcao, arrIcao) {
@@ -1634,6 +1782,8 @@ _tabCareer() {
         const name       = user?.user_metadata?.full_name || user?.user_metadata?.name || '';
         const email      = user?.email || '';
         const ifUsername = user?.user_metadata?.if_username || '';
+        const initials   = (name || 'Captain').trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
+        const isIos      = typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative();
 
         const accentSwatchesHTML = Object.entries(this._ACCENT_PRESETS).map(([key, preset]) => {
             const variant = this._theme === 'dark' ? preset.dark : preset.light;
@@ -1643,169 +1793,185 @@ _tabCareer() {
                         class="mdui-accent-swatch ${isActive ? 'active' : ''}"
                         data-accent="${key}"
                         title="${preset.label}"
+                        aria-label="${preset.label}"
                         style="background:${variant.c};">
                     ${isActive ? '<i class="fa-solid fa-check"></i>' : ''}
                 </button>`;
         }).join('');
 
         return `
-            <div class="mdui-tab-header mdui-fade-up">
-                <h2>Settings</h2>
-                <p>Manage your profile, preferences, and security.</p>
-            </div>
+            <div class="mdui-fade-up">
 
-            <div class="mdui-settings-grid mdui-fade-up">
-                <div class="mdui-card">
-                    <div class="mdui-card-header"><h3>Profile Details</h3></div>
-                    <div class="mdui-card-body">
-                        <div class="mdui-input-group">
-                            <label>Full Name</label>
-                            <div class="mdui-input-wrap">
-                                <i class="fa-solid fa-user mdui-input-icon"></i>
-                                <input type="text" id="mdui-edit-name" class="mdui-input has-icon" value="${name}">
-                            </div>
-                        </div>
-                        <div class="mdui-input-group">
-                            <label>Email Address</label>
-                            <div class="mdui-input-wrap">
-                                <i class="fa-solid fa-envelope mdui-input-icon"></i>
-                                <input type="email" class="mdui-input has-icon" value="${email}" disabled>
-                            </div>
-                        </div>
-                        <div class="mdui-input-group">
-                            <label>Infinite Flight Username</label>
-                            <div class="mdui-input-wrap">
-                                <i class="fa-solid fa-plane mdui-input-icon"></i>
-                                <input type="text" id="mdui-edit-if" class="mdui-input has-icon" value="${ifUsername}">
-                            </div>
-                        </div>
-                        <div class="mdui-input-group">
-                            <label>New Password (Optional)</label>
-                            <div class="mdui-input-wrap">
-                                <i class="fa-solid fa-lock mdui-input-icon"></i>
-                                <input type="password" id="mdui-edit-pw" class="mdui-input has-icon" placeholder="Leave blank to keep current">
-                            </div>
-                        </div>
-                    </div>
-                </div>
+              <!-- Identity hero, like the top of iOS Settings -->
+              <button class="mdui-list-group mdui-id-card" id="mdui-edit-name-row" type="button" aria-label="Edit profile">
+                  <div class="mdui-id-avatar">${initials}</div>
+                  <div class="mdui-id-text">
+                      <div class="mdui-id-name">${name || 'Add your name'}</div>
+                      <div class="mdui-id-sub">${email || 'Tap to set up profile'}</div>
+                  </div>
+                  <i class="fa-solid fa-chevron-right mdui-list-row-chevron"></i>
+              </button>
 
-                <div class="mdui-card mdui-fade-up" style="animation-delay:0.04s;">
-                    <div class="mdui-card-header"><h3>Pilot Identity</h3></div>
-                    <div class="mdui-card-body">
-                        <div class="mdui-input-group">
-                            <label>Tagline</label>
-                            <div class="mdui-input-wrap">
-                                <i class="fa-solid fa-quote-left mdui-input-icon"></i>
-                                <input type="text" id="mdui-edit-bio" class="mdui-input has-icon" maxlength="140"
-                                       value="${(this._bio || '').replace(/"/g, '&quot;')}" placeholder="e.g. Long-haul addict · 787 type rating">
-                            </div>
-                        </div>
-                        <div class="mdui-input-group" style="margin-bottom:0;">
-                            <label>Cover Image URL</label>
-                            <div class="mdui-input-wrap">
-                                <i class="fa-solid fa-image mdui-input-icon"></i>
-                                <input type="url" id="mdui-edit-cover" class="mdui-input has-icon"
-                                       value="${(this._coverUrl || '').replace(/"/g, '&quot;')}" placeholder="https://...">
-                            </div>
-                        </div>
-                    </div>
-                </div>
+              <!-- Profile -->
+              <div class="mdui-list-section">
+                  <div class="mdui-list-section-header">Profile</div>
+                  <div class="mdui-list-group">
+                      <div class="mdui-list-form-row">
+                          <span class="mdui-list-form-label">Name</span>
+                          <span class="mdui-list-form-control">
+                              <input type="text" id="mdui-edit-name" placeholder="Captain" value="${name.replace(/"/g, '&quot;')}">
+                          </span>
+                      </div>
+                      <div class="mdui-list-form-row">
+                          <span class="mdui-list-form-label">Email</span>
+                          <span class="mdui-list-form-control">
+                              <input type="email" value="${email}" disabled>
+                          </span>
+                      </div>
+                      <div class="mdui-list-form-row">
+                          <span class="mdui-list-form-label">IF Username</span>
+                          <span class="mdui-list-form-control">
+                              <input type="text" id="mdui-edit-if" placeholder="Forum name" value="${ifUsername.replace(/"/g, '&quot;')}">
+                          </span>
+                      </div>
+                      <div class="mdui-list-form-row">
+                          <span class="mdui-list-form-label">New Password</span>
+                          <span class="mdui-list-form-control">
+                              <input type="password" id="mdui-edit-pw" placeholder="Leave blank">
+                          </span>
+                      </div>
+                  </div>
+                  <div class="mdui-list-section-footer">Your Infinite Flight username is used to pull live stats and flight history.</div>
+              </div>
 
-                <div class="mdui-card mdui-fade-up" style="animation-delay:0.08s;">
-                    <div class="mdui-card-header"><h3>Appearance</h3></div>
-                    <div class="mdui-card-body">
-                        <div class="mdui-input-group">
-                            <label>Theme</label>
-                            <div class="mdui-pill-row">
-                                <label class="mdui-theme-option">
-                                    <input type="radio" name="mdui-theme" value="light" ${this._theme === 'light' ? 'checked' : ''}>
-                                    <i class="fa-solid fa-sun"></i>
-                                    <span>Light</span>
-                                </label>
-                                <label class="mdui-theme-option">
-                                    <input type="radio" name="mdui-theme" value="dark" ${this._theme === 'dark' ? 'checked' : ''}>
-                                    <i class="fa-solid fa-moon"></i>
-                                    <span>Dark</span>
-                                </label>
-                            </div>
-                        </div>
-                        <div class="mdui-input-group" style="margin-bottom:0;">
-                            <label>Accent Color</label>
-                            <div class="mdui-accent-grid" id="mdui-accent-grid">${accentSwatchesHTML}</div>
-                        </div>
-                    </div>
-                </div>
+              <!-- Pilot Identity -->
+              <div class="mdui-list-section">
+                  <div class="mdui-list-section-header">Pilot Identity</div>
+                  <div class="mdui-list-group">
+                      <div class="mdui-list-form-row">
+                          <span class="mdui-list-form-label">Tagline</span>
+                          <span class="mdui-list-form-control">
+                              <input type="text" id="mdui-edit-bio" maxlength="140" placeholder="787 type rating · long-haul" value="${(this._bio || '').replace(/"/g, '&quot;')}">
+                          </span>
+                      </div>
+                      <div class="mdui-list-form-row">
+                          <span class="mdui-list-form-label">Cover URL</span>
+                          <span class="mdui-list-form-control">
+                              <input type="url" id="mdui-edit-cover" placeholder="https://…" value="${(this._coverUrl || '').replace(/"/g, '&quot;')}">
+                          </span>
+                      </div>
+                  </div>
+              </div>
 
-                <div id="mdui-settings-msg" class="mdui-alert" style="display:none;"></div>
-                <button class="mdui-btn-primary mdui-btn-block mdui-fade-up" id="mdui-save-btn" style="animation-delay:0.1s;">Save Changes</button>
+              <!-- Appearance -->
+              <div class="mdui-list-section">
+                  <div class="mdui-list-section-header">Appearance</div>
+                  <div class="mdui-list-group">
+                      <div class="mdui-list-form-row" style="padding: 12px 14px;">
+                          <span class="mdui-list-form-label">Theme</span>
+                          <span class="mdui-list-form-control mdui-segmented">
+                              <label class="mdui-segmented-opt">
+                                  <input type="radio" name="mdui-theme" value="light" ${this._theme === 'light' ? 'checked' : ''}>
+                                  <span>Light</span>
+                              </label>
+                              <label class="mdui-segmented-opt">
+                                  <input type="radio" name="mdui-theme" value="dark" ${this._theme === 'dark' ? 'checked' : ''}>
+                                  <span>Dark</span>
+                              </label>
+                          </span>
+                      </div>
+                      <div class="mdui-list-form-row" style="padding: 12px 14px; align-items: center;">
+                          <span class="mdui-list-form-label">Accent</span>
+                          <span class="mdui-list-form-control" style="justify-content: flex-end;">
+                              <div class="mdui-accent-grid" id="mdui-accent-grid">${accentSwatchesHTML}</div>
+                          </span>
+                      </div>
+                  </div>
+              </div>
 
-                <div class="mdui-card mdui-fade-up ios-hide" style="animation-delay:0.12s; margin-top: 16px;">
-                    <div class="mdui-card-header"><h3>Billing</h3></div>
-                    <div class="mdui-card-body">
-                        <div class="mdui-plan-box">
-                            <div class="mdui-plan-header">
-                                <h4>${this._subscription.plan}</h4>
-                                <span class="mdui-status-badge ${this._subscription.status === 'Active' ? 'pos' : 'neg'}">
-                                    ${this._subscription.status}
-                                </span>
-                            </div>
-                            <p class="mdui-plan-price">${this._subscription.price}</p>
-                            <p class="mdui-plan-renewal">Next payment: ${this._subscription.nextPayment}</p>
-                        </div>
-                        <div id="mdui-billing-msg" class="mdui-alert" style="display:none; margin:12px 0 0;"></div>
-                        <div class="mdui-billing-actions">
-                            <button class="mdui-btn-secondary" id="mdui-billing-update">
-                                <i class="fa-solid fa-credit-card"></i> Update payment method
-                            </button>
-                            <button class="mdui-btn-danger-outline" id="mdui-billing-cancel">
-                                <i class="fa-solid fa-ban"></i> Cancel subscription
-                            </button>
-                        </div>
-                    </div>
-                </div>
+              <div id="mdui-settings-msg" class="mdui-alert" style="display:none; margin-bottom: 14px;"></div>
+              <button class="mdui-btn-primary mdui-btn-block" id="mdui-save-btn" style="margin-bottom: 22px;">Save Changes</button>
 
-                <div class="mdui-card mdui-fade-up" style="animation-delay:0.14s; margin-top: 16px;">
-                    <div class="mdui-card-header"><h3>Support & Legal</h3></div>
-                    <div class="mdui-card-body" style="padding: 12px;">
-                        <div style="display: flex; flex-direction: column; gap: 10px;">
-                            <a href="terms.html" target="_blank" class="mdui-action-link">
-                                <span class="mdui-action-icon"><i class="fa-solid fa-file-contract"></i></span>
-                                <span class="mdui-action-text">Terms of Use</span>
-                            </a>
-                            <a href="privacy.html" target="_blank" class="mdui-action-link">
-                                <span class="mdui-action-icon"><i class="fa-solid fa-shield-halved"></i></span>
-                                <span class="mdui-action-text">Privacy Policy</span>
-                            </a>
-                            <a href="https://discord.gg/9a6d8s4s" target="_blank" class="mdui-action-link">
-                                <span class="mdui-action-icon" style="color: #5865F2;"><i class="fa-brands fa-discord"></i></span>
-                                <span class="mdui-action-text">Discord Community</span>
-                            </a>
-                            <a href="mailto:inflightCustomer@gmail.com" class="mdui-action-link">
-                                <span class="mdui-action-icon"><i class="fa-solid fa-envelope"></i></span>
-                                <span class="mdui-action-text">Email Support</span>
-                            </a>
-                        </div>
-                    </div>
-                </div>
+              ${isIos ? '' : `
+              <!-- Billing -->
+              <div class="mdui-list-section">
+                  <div class="mdui-list-section-header">Subscription</div>
+                  <div class="mdui-list-group">
+                      <div class="mdui-list-row" data-static="true">
+                          <span class="mdui-list-row-icon tone-blue"><i class="fa-solid fa-rocket"></i></span>
+                          <div class="mdui-list-row-text">
+                              <span class="mdui-list-row-label">${this._subscription.plan}</span>
+                              <span class="mdui-list-row-sub">${this._subscription.price} · ${this._subscription.status}</span>
+                          </div>
+                          <span class="mdui-list-row-value">${this._subscription.nextPayment || ''}</span>
+                      </div>
+                      <button class="mdui-list-row" id="mdui-billing-update" type="button">
+                          <span class="mdui-list-row-icon tone-gray"><i class="fa-solid fa-credit-card"></i></span>
+                          <div class="mdui-list-row-text"><span class="mdui-list-row-label">Update Payment Method</span></div>
+                          <i class="fa-solid fa-chevron-right mdui-list-row-chevron"></i>
+                      </button>
+                      <button class="mdui-list-row destructive" id="mdui-billing-cancel" type="button">
+                          <span class="mdui-list-row-icon tone-red"><i class="fa-solid fa-ban"></i></span>
+                          <div class="mdui-list-row-text"><span class="mdui-list-row-label">Cancel Subscription</span></div>
+                          <i class="fa-solid fa-chevron-right mdui-list-row-chevron"></i>
+                      </button>
+                  </div>
+                  <div id="mdui-billing-msg" class="mdui-alert" style="display:none; margin-top: 8px;"></div>
+              </div>`}
 
-                <div class="mdui-fade-up" style="animation-delay:0.16s; padding-bottom: 8px; margin-top: 16px;">
-                    <button class="mdui-btn-danger-outline" id="mdui-signout" style="width:100%;">
-                        <i class="fa-solid fa-right-from-bracket"></i> Sign Out
-                    </button>
-                </div>
+              <!-- Support -->
+              <div class="mdui-list-section">
+                  <div class="mdui-list-section-header">Support &amp; Legal</div>
+                  <div class="mdui-list-group">
+                      <a class="mdui-list-row" href="terms.html" target="_blank" rel="noopener">
+                          <span class="mdui-list-row-icon tone-gray"><i class="fa-solid fa-file-contract"></i></span>
+                          <div class="mdui-list-row-text"><span class="mdui-list-row-label">Terms of Use</span></div>
+                          <i class="fa-solid fa-chevron-right mdui-list-row-chevron"></i>
+                      </a>
+                      <a class="mdui-list-row" href="privacy.html" target="_blank" rel="noopener">
+                          <span class="mdui-list-row-icon tone-gray"><i class="fa-solid fa-shield-halved"></i></span>
+                          <div class="mdui-list-row-text"><span class="mdui-list-row-label">Privacy Policy</span></div>
+                          <i class="fa-solid fa-chevron-right mdui-list-row-chevron"></i>
+                      </a>
+                      <a class="mdui-list-row" href="https://discord.gg/9a6d8s4s" target="_blank" rel="noopener">
+                          <span class="mdui-list-row-icon" style="background:#5865F2;"><i class="fa-brands fa-discord"></i></span>
+                          <div class="mdui-list-row-text"><span class="mdui-list-row-label">Discord Community</span></div>
+                          <i class="fa-solid fa-chevron-right mdui-list-row-chevron"></i>
+                      </a>
+                      <a class="mdui-list-row" href="mailto:inflightCustomer@gmail.com">
+                          <span class="mdui-list-row-icon tone-blue"><i class="fa-solid fa-envelope"></i></span>
+                          <div class="mdui-list-row-text"><span class="mdui-list-row-label">Email Support</span></div>
+                          <i class="fa-solid fa-chevron-right mdui-list-row-chevron"></i>
+                      </a>
+                  </div>
+              </div>
 
-                <div class="mdui-card mdui-fade-up" style="animation-delay:0.18s; margin-top: 16px; border-color: rgba(239, 68, 68, 0.25);">
-                    <div class="mdui-card-header"><h3 style="color: #ef4444;">Danger Zone</h3></div>
-                    <div class="mdui-card-body">
-                        <p style="margin: 0 0 12px 0; font-size: 0.85rem; color: var(--mdui-muted); line-height: 1.5;">
-                            Permanently delete your InFlight account and all associated data. This cannot be undone.
-                        </p>
-                        <div id="mdui-delete-msg" class="mdui-alert" style="display:none; margin:0 0 12px 0;"></div>
-                        <button class="mdui-btn-danger-outline" id="mdui-delete-account" style="width:100%; border-color: rgba(239, 68, 68, 0.5); color: #ef4444;">
-                            <i class="fa-solid fa-trash"></i> Delete Account
-                        </button>
-                    </div>
-                </div>
+              <!-- Account -->
+              <div class="mdui-list-section">
+                  <div class="mdui-list-group">
+                      <button class="mdui-list-row destructive" id="mdui-signout" type="button">
+                          <div class="mdui-list-row-text" style="text-align:center; align-items:center;">
+                              <span class="mdui-list-row-label" style="color: var(--mdui-danger); text-align:center; width:100%;">Sign Out</span>
+                          </div>
+                      </button>
+                  </div>
+              </div>
+
+              <!-- Danger zone -->
+              <div class="mdui-list-section" style="margin-bottom: 32px;">
+                  <div class="mdui-list-section-header" style="color: var(--mdui-danger);">Danger Zone</div>
+                  <div class="mdui-list-group">
+                      <button class="mdui-list-row destructive" id="mdui-delete-account" type="button">
+                          <span class="mdui-list-row-icon tone-red"><i class="fa-solid fa-trash"></i></span>
+                          <div class="mdui-list-row-text">
+                              <span class="mdui-list-row-label" style="color: var(--mdui-danger);">Delete Account</span>
+                              <span class="mdui-list-row-sub">Permanently erase all data</span>
+                          </div>
+                          <i class="fa-solid fa-chevron-right mdui-list-row-chevron"></i>
+                      </button>
+                  </div>
+                  <div id="mdui-delete-msg" class="mdui-alert" style="display:none; margin-top: 8px;"></div>
+              </div>
             </div>
         `;
     },
@@ -2483,6 +2649,14 @@ _attachListeners() {
         }
 
         if (this._activeTab === 'settings') {
+            // Identity hero acts as a "jump to name field" affordance.
+            document.getElementById('mdui-edit-name-row')?.addEventListener('click', () => {
+                const target = document.getElementById('mdui-edit-name');
+                if (!target) return;
+                target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                setTimeout(() => target.focus({ preventScroll: true }), 220);
+            });
+
             document.querySelectorAll('input[name="mdui-theme"]').forEach(r => {
                 r.addEventListener('change', e => {
                     this._theme = e.target.value;
@@ -2785,7 +2959,11 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
                 background: var(--mdui-bg); display: flex; flex-direction: column;
                 font-family: var(--mdui-font-sans); color: var(--mdui-text);
                 -webkit-font-smoothing: antialiased;
-                transform: translateY(100%); transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+                transform: translateY(100%);
+                /* iOS spring (Material standard easing): a snappier curve
+                   than the previous quart easing. */
+                transition: transform 0.46s cubic-bezier(0.32, 0.72, 0, 1);
+                will-change: transform;
             }
             #mdui-shell.mdui-open { transform: translateY(0); }
 
@@ -2824,60 +3002,359 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             }
             .mdui-wrapper-layer.mdui-open { opacity: 1; visibility: visible; }
 
-            #mdui-screen { display: flex; flex-direction: column; flex: 1; min-height: 0; position: relative; padding-top: env(safe-area-inset-top); }
+            /* iOS modal sheet presentation: the shell behaves as a card
+               that lifts up from the bottom, leaves a small gap below the
+               status bar, and shows a grabber that the user can drag down
+               to dismiss. */
+            #mdui-shell {
+                border-top-left-radius: 14px;
+                border-top-right-radius: 14px;
+                overflow: hidden;
+            }
+            #mdui-sheet-grabber {
+                position: absolute; top: 0; left: 0; right: 0;
+                padding-top: env(safe-area-inset-top);
+                height: calc(env(safe-area-inset-top) + 18px);
+                display: flex; align-items: flex-start; justify-content: center;
+                z-index: 11;
+                touch-action: none;
+            }
+            #mdui-sheet-grabber span {
+                width: 36px; height: 5px;
+                margin-top: 6px;
+                border-radius: 999px;
+                background: var(--mdui-border-strong);
+                opacity: 0.55;
+            }
+            #mdui-screen {
+                display: flex; flex-direction: column;
+                flex: 1; min-height: 0; position: relative;
+                padding-top: calc(env(safe-area-inset-top) + 18px);
+            }
 
-            .mdui-eyebrow { font-size: 0.66rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: var(--mdui-tertiary); }
-            .mdui-mono-meta { font-family: var(--mdui-font-mono); font-size: 0.74rem; color: var(--mdui-muted); font-weight: 600; }
+            .mdui-eyebrow { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--mdui-tertiary); }
+            .mdui-mono-meta { font-family: var(--mdui-font-mono); font-size: 12px; color: var(--mdui-muted); font-weight: 600; }
 
-            /* ── Top bar (iOS nav style, sticky-translucent) ── */
-            .mdui-top-bar {
-                height: var(--mdui-top-h); min-height: var(--mdui-top-h);
+            /* ── iOS large-title nav bar ──
+               Compact mode (default): tight 44pt bar with the title visible.
+               When .is-collapsed isn't present, we instead let the large
+               title in the scroll area take over and hide the compact label.
+               When .is-collapsed IS present (user has scrolled), the
+               compact label fades in and a hairline appears under the bar.
+            */
+            .mdui-nav-bar {
+                position: relative;
+                height: 44px; min-height: 44px;
                 display: flex; align-items: center;
-                padding: 0 16px; gap: 12px;
-                flex-shrink: 0; z-index: 10;
-                background: color-mix(in srgb, var(--mdui-bg) 70%, transparent);
+                padding: 0 14px;
+                z-index: 10;
+                background: color-mix(in srgb, var(--mdui-bg) 80%, transparent);
                 -webkit-backdrop-filter: var(--mdui-blur);
                 backdrop-filter: var(--mdui-blur);
-                border-bottom: 0.5px solid var(--mdui-border-light);
+                border-bottom: 0.5px solid transparent;
+                transition: border-color 0.22s ease, background-color 0.22s ease;
             }
-            .mdui-avatar {
-                width: 32px; height: 32px;
+            .mdui-nav-bar.is-collapsed { border-bottom-color: var(--mdui-border-light); }
+            .mdui-nav-btn {
+                background: none; border: none; padding: 0;
+                color: var(--mdui-accent);
+                font-family: inherit;
+                font-size: 17px; font-weight: 500;
+                letter-spacing: -0.4px;
+                cursor: pointer;
+                -webkit-tap-highlight-color: transparent;
+                transition: opacity 0.18s ease, transform 0.18s ease;
+            }
+            .mdui-nav-btn:active { opacity: 0.55; transform: scale(0.96); }
+            .mdui-nav-title {
+                position: absolute; left: 50%; top: 50%;
+                transform: translate(-50%, -50%);
+                font-weight: 600; font-size: 17px;
+                letter-spacing: -0.4px;
+                color: var(--mdui-text);
+                opacity: 0;
+                transition: opacity 0.22s ease;
+                pointer-events: none;
+                max-width: 60%;
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            }
+            .mdui-nav-bar.is-collapsed .mdui-nav-title { opacity: 1; }
+            .mdui-nav-avatar {
+                margin-left: auto;
+                width: 30px; height: 30px;
                 background: var(--mdui-accent); color: var(--mdui-on-accent);
                 border-radius: 50%;
                 display: flex; align-items: center; justify-content: center;
-                font-size: 0.74rem; font-weight: 600;
+                font-family: inherit;
+                font-size: 12px; font-weight: 600;
                 letter-spacing: 0.01em;
                 flex-shrink: 0;
                 box-shadow: 0 1px 2px var(--mdui-accent-glow);
+                user-select: none;
             }
-            .mdui-top-title {
-                font-weight: 600; font-size: 17px;
-                letter-spacing: -0.4px;
-                flex: 1;
-                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+
+            /* ── iOS large title ── */
+            .mdui-large-title-wrap {
+                padding: 6px 16px 14px;
+            }
+            .mdui-large-title {
+                margin: 0; padding: 0;
+                font-size: 34px; font-weight: 700;
+                letter-spacing: -0.8px;
+                line-height: 1.08;
                 color: var(--mdui-text);
-                text-align: center;
             }
-            .mdui-close-btn {
-                width: 32px; height: 32px;
-                border: none;
-                border-radius: 50%;
-                background: var(--mdui-input);
+            .mdui-large-subtitle {
+                margin: 4px 0 0;
+                font-size: 14px; font-weight: 400;
+                letter-spacing: -0.2px;
                 color: var(--mdui-muted);
-                display: flex; align-items: center; justify-content: center;
-                font-size: 0.9rem; cursor: pointer; flex-shrink: 0;
-                -webkit-tap-highlight-color: transparent;
-                transition: background-color 0.18s ease, transform 0.18s ease;
             }
-            .mdui-close-btn:active { transform: scale(0.92); background: var(--mdui-hover); }
+
+            /* Legacy aliases used only by the old top bar — hidden in the
+               new shell. Scoped to #mdui-screen so the drill-down modal,
+               which lives outside the screen and still uses
+               .mdui-close-btn, isn't affected. */
+            #mdui-screen .mdui-top-bar,
+            #mdui-screen > .mdui-top-bar > .mdui-top-title,
+            #mdui-screen > .mdui-top-bar > .mdui-close-btn { display: none !important; }
+            .mdui-avatar {
+                width: 30px; height: 30px;
+                background: var(--mdui-accent); color: var(--mdui-on-accent);
+                border-radius: 50%;
+                display: flex; align-items: center; justify-content: center;
+                font-size: 12px; font-weight: 600;
+                flex-shrink: 0;
+            }
 
             .mdui-content {
                 flex: 1; overflow-y: auto; min-height: 0;
-                padding: 14px 16px calc(var(--mdui-tab-h) + env(safe-area-inset-bottom) + 28px);
+                padding: 0 16px calc(var(--mdui-tab-h) + env(safe-area-inset-bottom) + 32px);
                 -webkit-overflow-scrolling: touch; scrollbar-width: none;
                 overscroll-behavior-y: contain;
             }
             .mdui-content::-webkit-scrollbar { display: none; }
+
+            /* ── iOS inset grouped list ──
+               The canonical pattern from Settings, Health, Wallet, etc.:
+               rounded card with internal hairlines separating each row, an
+               uppercase header above the group, and an optional footer hint
+               below. Used across Settings, Watchlist, Dispatch list, etc. */
+            .mdui-list-section { margin-bottom: 22px; }
+            .mdui-list-section-header {
+                font-size: 13px; font-weight: 400;
+                letter-spacing: -0.08px;
+                color: var(--mdui-muted);
+                text-transform: uppercase;
+                padding: 0 14px 7px;
+            }
+            .mdui-list-section-footer {
+                font-size: 13px; font-weight: 400;
+                letter-spacing: -0.08px;
+                color: var(--mdui-muted);
+                padding: 7px 14px 0;
+                line-height: 1.35;
+            }
+            .mdui-list-group {
+                background: var(--mdui-card);
+                -webkit-backdrop-filter: var(--mdui-blur);
+                backdrop-filter: var(--mdui-blur);
+                border: 0.5px solid var(--mdui-border-light);
+                border-radius: 12px;
+                overflow: hidden;
+            }
+            .mdui-list-row {
+                position: relative;
+                display: flex; align-items: center;
+                gap: 12px;
+                padding: 11px 14px;
+                min-height: 44px;
+                background: transparent;
+                color: var(--mdui-text);
+                border: none;
+                width: 100%;
+                font-family: inherit;
+                font-size: 16px; font-weight: 400;
+                letter-spacing: -0.3px;
+                text-align: left;
+                cursor: pointer;
+                -webkit-tap-highlight-color: transparent;
+                transition: background-color 0.16s ease;
+            }
+            .mdui-list-row:not(:last-child)::after {
+                content: "";
+                position: absolute;
+                left: 50px; right: 0; bottom: 0;
+                height: 0.5px;
+                background: var(--mdui-border-light);
+            }
+            .mdui-list-row.no-icon:not(:last-child)::after { left: 14px; }
+            .mdui-list-row:active { background: var(--mdui-hover); }
+            .mdui-list-row[data-static="true"] { cursor: default; }
+            .mdui-list-row[data-static="true"]:active { background: transparent; }
+            .mdui-list-row-icon {
+                flex: 0 0 auto;
+                width: 28px; height: 28px;
+                border-radius: 7px;
+                display: grid; place-items: center;
+                background: var(--mdui-accent);
+                color: var(--mdui-on-accent);
+                font-size: 14px;
+                box-shadow: inset 0 0.5px 0 rgba(255,255,255,0.18);
+            }
+            .mdui-list-row-icon.tone-gray  { background: rgba(142,142,147,0.95); }
+            .mdui-list-row-icon.tone-green { background: var(--mdui-success); }
+            .mdui-list-row-icon.tone-red   { background: var(--mdui-danger); }
+            .mdui-list-row-icon.tone-orange{ background: var(--mdui-warn); }
+            .mdui-list-row-icon.tone-purple{ background: #af52de; }
+            .mdui-list-row-icon.tone-blue  { background: #0a84ff; }
+            .mdui-list-row-icon.tone-indigo{ background: #5e5ce6; }
+            .mdui-list-row-text {
+                flex: 1 1 auto; min-width: 0;
+                display: flex; flex-direction: column; gap: 1px;
+            }
+            .mdui-list-row-label {
+                font-size: 16px; font-weight: 400;
+                color: var(--mdui-text);
+                letter-spacing: -0.3px;
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            }
+            .mdui-list-row-sub {
+                font-size: 13px; font-weight: 400;
+                color: var(--mdui-muted);
+                letter-spacing: -0.1px;
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            }
+            .mdui-list-row-value {
+                flex: 0 0 auto;
+                color: var(--mdui-muted);
+                font-size: 16px; font-weight: 400;
+                letter-spacing: -0.3px;
+                max-width: 42%;
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            }
+            .mdui-list-row-chevron {
+                flex: 0 0 auto;
+                color: var(--mdui-tertiary);
+                font-size: 13px;
+                margin-left: 4px;
+            }
+            .mdui-list-row.destructive .mdui-list-row-label,
+            .mdui-list-row.destructive { color: var(--mdui-danger); }
+
+            /* iOS Settings-style identity card (hero at the top) */
+            .mdui-id-card {
+                display: flex; align-items: center;
+                gap: 14px;
+                width: 100%;
+                padding: 12px 14px;
+                margin-bottom: 22px;
+                border: 0.5px solid var(--mdui-border-light);
+                background: var(--mdui-card);
+                -webkit-backdrop-filter: var(--mdui-blur);
+                backdrop-filter: var(--mdui-blur);
+                border-radius: 12px;
+                text-align: left;
+                color: var(--mdui-text);
+                font-family: inherit;
+                cursor: pointer;
+                -webkit-tap-highlight-color: transparent;
+                transition: background-color 0.16s ease;
+            }
+            .mdui-id-card:active { background: var(--mdui-hover); }
+            .mdui-id-avatar {
+                flex: 0 0 auto;
+                width: 56px; height: 56px;
+                border-radius: 50%;
+                background: var(--mdui-accent);
+                color: var(--mdui-on-accent);
+                display: grid; place-items: center;
+                font-size: 22px; font-weight: 600;
+                letter-spacing: 0.01em;
+                box-shadow: 0 2px 6px var(--mdui-accent-glow);
+            }
+            .mdui-id-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+            .mdui-id-name {
+                font-size: 19px; font-weight: 600;
+                letter-spacing: -0.4px;
+                color: var(--mdui-text);
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            }
+            .mdui-id-sub {
+                font-size: 13px; font-weight: 400;
+                letter-spacing: -0.1px;
+                color: var(--mdui-muted);
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            }
+
+            /* iOS segmented control */
+            .mdui-segmented {
+                display: inline-flex;
+                background: var(--mdui-input);
+                border-radius: 8px;
+                padding: 2px;
+                gap: 2px;
+                width: auto;
+                max-width: 220px;
+                justify-content: flex-end;
+            }
+            .mdui-segmented-opt {
+                display: inline-flex; align-items: center; justify-content: center;
+                padding: 5px 12px;
+                border-radius: 6px;
+                font-size: 13px; font-weight: 500;
+                color: var(--mdui-text);
+                letter-spacing: -0.1px;
+                cursor: pointer;
+                -webkit-tap-highlight-color: transparent;
+                transition: background-color 0.18s ease, color 0.18s ease;
+            }
+            .mdui-segmented-opt input { display: none; }
+            .mdui-segmented-opt:has(input:checked) {
+                background: var(--mdui-card-elev);
+                font-weight: 600;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+            }
+
+            /* iOS list inline form rows — label left, control right. */
+            .mdui-list-form-row {
+                display: flex; align-items: center;
+                gap: 10px;
+                padding: 9px 14px;
+                min-height: 44px;
+                position: relative;
+            }
+            .mdui-list-form-row:not(:last-child)::after {
+                content: ""; position: absolute;
+                left: 14px; right: 0; bottom: 0;
+                height: 0.5px;
+                background: var(--mdui-border-light);
+            }
+            .mdui-list-form-label {
+                font-size: 16px; font-weight: 400;
+                color: var(--mdui-text);
+                letter-spacing: -0.3px;
+                flex: 0 0 auto;
+                min-width: 96px;
+            }
+            .mdui-list-form-control {
+                flex: 1 1 auto; min-width: 0;
+                display: flex; justify-content: flex-end;
+            }
+            .mdui-list-form-control input,
+            .mdui-list-form-control select {
+                flex: 1 1 auto; min-width: 0;
+                width: 100%;
+                background: transparent;
+                border: none;
+                color: var(--mdui-text);
+                text-align: right;
+                font-family: inherit;
+                font-size: 16px; letter-spacing: -0.3px;
+                outline: none;
+            }
+            .mdui-list-form-control input::placeholder { color: var(--mdui-tertiary); }
+            .mdui-list-form-control input:disabled { color: var(--mdui-muted); -webkit-text-fill-color: var(--mdui-muted); opacity: 1; }
 
             /* ── Floating glass tab bar (matches landing chrome) ── */
             #mdui-tabbar {
@@ -2911,6 +3388,7 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
                 -webkit-tap-highlight-color: transparent;
                 transition: color 0.22s ease, background-color 0.18s ease, transform 0.18s cubic-bezier(0.16,1,0.3,1);
             }
+            .mdui-tab-iconwrap { position: relative; display: grid; place-items: center; line-height: 0; }
             .mdui-tab-btn i { font-size: 19px; line-height: 1; transition: transform 0.18s ease; }
             .mdui-tab-btn:active { background: var(--mdui-hover); transform: scale(0.96); }
             .mdui-tab-btn.active { color: var(--mdui-accent); }
@@ -2930,9 +3408,19 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
                 box-shadow: 0 1px 3px rgba(255, 69, 58, 0.4);
             }
 
-            .mdui-tab-header { margin-bottom: 20px; }
-            .mdui-tab-header h2 { margin: 0 0 4px 0; font-size: 28px; font-weight: 700; color: var(--mdui-text); letter-spacing: -0.5px; line-height: 1.15; }
-            .mdui-tab-header p { margin: 0; color: var(--mdui-muted); font-size: 15px; line-height: 1.4; letter-spacing: -0.2px; }
+            /* The iOS large title already shows the page heading, so any
+               in-content .mdui-tab-header acts as a description subtitle:
+               hide the h2 and let the description paragraph sit underneath
+               the large title. */
+            .mdui-tab-header { margin: 0 2px 18px; }
+            .mdui-tab-header h2 { display: none; }
+            .mdui-tab-header p {
+                margin: 0;
+                color: var(--mdui-muted);
+                font-size: 15px;
+                line-height: 1.4;
+                letter-spacing: -0.2px;
+            }
 
             .mdui-card {
                 background: var(--mdui-card);
@@ -3046,31 +3534,29 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             .mdui-toast-warn { background: var(--mdui-warn-soft); border-color: var(--mdui-warn-soft); color: var(--mdui-warn); }
 
             /* ── DASHBOARD ── */
-            .mdui-cc-greeting {
-                display: flex; justify-content: space-between; align-items: flex-end;
-                gap: 12px;
-                margin-bottom: 18px; padding-bottom: 14px;
-                border-bottom: 0.5px solid var(--mdui-border-light);
+            .mdui-greeting-hero {
+                padding: 4px 2px 18px;
             }
-            .mdui-cc-greeting > div:first-child { min-width: 0; flex: 1; }
-            .mdui-greeting-name {
-                font-size: 26px; font-weight: 700;
-                margin: 0 0 6px 0;
-                color: var(--mdui-text);
-                line-height: 1.12;
-                letter-spacing: -0.6px;
-            }
+            .mdui-greeting-text { display: flex; flex-direction: column; gap: 4px; }
             .mdui-greeting-date {
-                font-size: 12px; font-weight: 500;
-                color: var(--mdui-tertiary);
-                text-align: right; white-space: nowrap;
+                font-size: 13px; font-weight: 500;
+                color: var(--mdui-accent);
                 letter-spacing: -0.1px;
+                text-transform: uppercase;
+            }
+            .mdui-greeting-name {
+                font-size: 22px; font-weight: 600;
+                margin: 0;
+                color: var(--mdui-text);
+                line-height: 1.18;
+                letter-spacing: -0.4px;
             }
             .mdui-stat-strip {
                 display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+                margin-top: 8px;
                 color: var(--mdui-muted);
-                font-size: 13px; font-weight: 500;
-                letter-spacing: -0.1px;
+                font-size: 14px; font-weight: 500;
+                letter-spacing: -0.2px;
             }
             .mdui-strip-sep { opacity: 0.4; }
 
@@ -3238,7 +3724,16 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             .mdui-wl-username { font-weight: 600; font-size: 15px; letter-spacing: -0.2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
             .mdui-wl-status { font-size: 12px; color: var(--mdui-muted); margin-top: 2px; }
             .mdui-wl-status.live { color: var(--mdui-success); }
-            .mdui-watchlist-remove-btn { background: none; border: none; color: var(--mdui-tertiary); cursor: pointer; padding: 4px; }
+            .mdui-watchlist-remove-btn {
+                background: none; border: none;
+                color: var(--mdui-danger);
+                cursor: pointer;
+                padding: 6px;
+                font-size: 20px;
+                -webkit-tap-highlight-color: transparent;
+                transition: transform 0.18s ease, opacity 0.18s ease;
+            }
+            .mdui-watchlist-remove-btn:active { transform: scale(0.86); opacity: 0.7; }
             .mdui-wl-flight-info { margin-top: 12px; padding-top: 12px; border-top: 0.5px solid var(--mdui-border-light); }
             .mdui-wl-route { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 10px; font-family: var(--mdui-font-mono); font-weight: 700; font-size: 18px; letter-spacing: -0.2px; }
             .mdui-wl-plane-icon { color: var(--mdui-accent); font-size: 14px; }
