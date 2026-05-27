@@ -268,7 +268,7 @@ export const ProfileUI = {
             'header.dossier.title': 'Dossier del Piloto',
             'header.dossier.sub': 'Análisis de carrera y estadísticas de vuelo completas.',
             'header.watchlist.title': 'Lista de Pilotos',
-            'header.watchlist.sub': 'Sigue pilotos en tiempo real y recibe avisos cuando despeguen.',
+            'header.watchlist.sub': 'Sigue pilotos en tiempo real y recibe avisos cuando se conecten.',
             'header.settings.title': 'Ajustes', 'header.settings.sub': 'Gestiona tu perfil y preferencias.',
             'header.dispatch.title': 'Despacho de Vuelo', 'header.traffic.title': 'Tráfico',
             'greet.morning': 'Buenos días', 'greet.afternoon': 'Buenas tardes', 'greet.evening': 'Buenas noches',
@@ -311,7 +311,7 @@ export const ProfileUI = {
             'header.dossier.title': 'Dossiê do Piloto',
             'header.dossier.sub': 'Análise de carreira e estatísticas de voo completas.',
             'header.watchlist.title': 'Lista de Pilotos',
-            'header.watchlist.sub': 'Acompanhe pilotos em tempo real e seja notificado ao decolar.',
+            'header.watchlist.sub': 'Acompanhe pilotos em tempo real e seja notificado quando entrarem em rota.',
             'header.settings.title': 'Configurações', 'header.settings.sub': 'Gerencie seu perfil e preferências.',
             'header.dispatch.title': 'Despacho de Voo', 'header.traffic.title': 'Tráfego',
             'greet.morning': 'Bom dia', 'greet.afternoon': 'Boa tarde', 'greet.evening': 'Boa noite',
@@ -354,7 +354,7 @@ export const ProfileUI = {
             'header.dossier.title': 'Dossier Pilote',
             'header.dossier.sub': 'Analyses de carrière et statistiques de vol détaillées.',
             'header.watchlist.title': 'Suivi de Pilotes',
-            'header.watchlist.sub': 'Suivez des pilotes en temps réel et soyez alerté au décollage.',
+            'header.watchlist.sub': 'Suivez des pilotes en temps réel et soyez alerté à leur connexion.',
             'header.settings.title': 'Paramètres', 'header.settings.sub': 'Gérez votre profil et vos préférences.',
             'header.dispatch.title': 'Dispatch de Vol', 'header.traffic.title': 'Trafic',
             'greet.morning': 'Bonjour', 'greet.afternoon': 'Bon après-midi', 'greet.evening': 'Bonsoir',
@@ -397,7 +397,7 @@ export const ProfileUI = {
             'header.dossier.title': 'Pilotendossier',
             'header.dossier.sub': 'Karriereanalysen und Flugstatistiken.',
             'header.watchlist.title': 'Pilotenliste',
-            'header.watchlist.sub': 'Verfolge Piloten in Echtzeit und werde beim Start benachrichtigt.',
+            'header.watchlist.sub': 'Verfolge Piloten in Echtzeit und werde benachrichtigt, sobald sie online sind.',
             'header.settings.title': 'Einstellungen', 'header.settings.sub': 'Profil und Einstellungen verwalten.',
             'header.dispatch.title': 'Flugdispatch', 'header.traffic.title': 'Verkehr',
             'greet.morning': 'Guten Morgen', 'greet.afternoon': 'Guten Tag', 'greet.evening': 'Guten Abend',
@@ -440,7 +440,7 @@ export const ProfileUI = {
             'header.dossier.title': 'パイロット・ドシエ',
             'header.dossier.sub': 'キャリア分析と詳細な飛行統計。',
             'header.watchlist.title': 'パイロット・ウォッチリスト',
-            'header.watchlist.sub': 'リアルタイムでパイロットを追跡し、離陸時に通知を受け取ります。',
+            'header.watchlist.sub': 'リアルタイムでパイロットを追跡し、接続時に通知を受け取ります。',
             'header.settings.title': '設定', 'header.settings.sub': 'プロファイルと設定を管理します。',
             'header.dispatch.title': 'フライト・ディスパッチ', 'header.traffic.title': '交通',
             'greet.morning': 'おはようございます', 'greet.afternoon': 'こんにちは', 'greet.evening': 'こんばんは',
@@ -595,7 +595,9 @@ init(supabaseClient) {
                     }
                     this._watchedPilotStatus = newStatus;
 
-                    if (this._userPrefs.notification_watchlist_enabled) {
+                    // Watchlist notifications are an account-gated feature:
+                    // skip entirely if the user isn't signed in.
+                    if (this._currentUser && this._userPrefs.notification_watchlist_enabled) {
                         for (const [un, cur] of Object.entries(newStatus)) {
                             const prev = this._prevWatchedStatus[un];
                             if (cur.isLive && prev && !prev.isLive) {
@@ -604,7 +606,7 @@ init(supabaseClient) {
                                 const route = (f?.departureIcao && f?.arrivalIcao)
                                     ? ` on ${f.departureIcao} → ${f.arrivalIcao}`
                                     : '';
-                                this._showToast(`<i class="fa-solid fa-plane-departure" style="margin-right:8px;"></i><strong>${who}</strong> is now airborne${route}`, 'info');
+                                this._showToast(`<i class="fa-solid fa-plane-departure" style="margin-right:8px;"></i><strong>${who}</strong> is now online${route}`, 'info');
                                 try {
                                     // iOS notification hierarchy:
                                     //   title   = friend's name (bold)
@@ -618,11 +620,11 @@ init(supabaseClient) {
                                     if (acft) bodyParts.push(acft);
                                     window.InflightLiveActivity?.presentLocalNotification?.({
                                         title: who,
-                                        subtitle: 'Now airborne',
-                                        body:  bodyParts.join(' · ') || 'Watchlist pilot just took off',
-                                        identifier: `watchlist-airborne-${un}`,
+                                        subtitle: 'Now online',
+                                        body:  bodyParts.join(' · ') || 'Watchlist pilot just connected',
+                                        identifier: `watchlist-online-${un}`,
                                         threadIdentifier: 'inflight-watchlist',
-                                        userInfo: { kind: 'watchlist_airborne', username: un }
+                                        userInfo: { kind: 'watchlist_online', username: un }
                                     });
                                 } catch (_) { /* best-effort */ }
                             }
