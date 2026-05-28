@@ -3081,8 +3081,9 @@ function injectCustomStyles() {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            background: var(--bg-glass);
-            border-bottom: 1px solid var(--border-glass);
+            background: #3a3a3a;
+            border-top: 1px solid rgba(255,255,255,0.04);
+            border-bottom: 1px solid rgba(0,0,0,0.24);
             padding: 0 20px;
             height: 60px;
         }
@@ -13350,20 +13351,6 @@ let totalDistanceNM = 0;
         delete windowEl.dataset.cruiseAltFt;
     }
     
-    // --- Plan Button ---
-    const simbriefAircraftValue = (typeof findSimbriefAircraftValue === 'function') ? findSimbriefAircraftValue(aircraftName) : null;
-    let planButtonHtml = '';
-    if (hasPlan && simbriefAircraftValue) {
-        planButtonHtml = `
-            <button id="plan-this-flight-btn" class="pilot-stats-toggle-btn" 
-                data-departure="${departureIcao}" 
-                data-arrival="${arrivalIcao}" 
-                data-aircraft="${simbriefAircraftValue}"
-                style="width: 100%; margin-top: 16px;">
-                <i class="fa-solid fa-file-invoice"></i> Plan This Flight
-            </button>`;
-    }
-
     const pilotUsername = baseProps.username || 'N/A';
     const pilotReportTabText = (pilotUsername !== 'N/A' && pilotUsername) ? pilotUsername : 'Pilot Report';
 
@@ -13451,7 +13438,7 @@ let totalDistanceNM = 0;
     // --- HTML Construction ---
     windowEl.innerHTML = `
     <div class="ac-header-modern" id="ac-overview-panel" style=" background-image: url('${techCardImagePath}'), url('/CommunityPlanes/default.png'); position: relative; display: flex; flex-direction: column; flex-shrink: 0; min-height: 200px; background-size: cover; background-position: center; transition: background-image 0.5s ease-in-out;">
-            <div class="ac-header-overlay" style="position: absolute; inset: 0; background: linear-gradient(to bottom, transparent 0%, transparent 50%, var(--iw-bg-end) 100%); z-index: 0; pointer-events: none;"></div>
+            <div class="ac-header-overlay" style="position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(0,0,0,0.04) 0%, rgba(0,0,0,0.08) 38%, rgba(58,58,58,0.18) 62%, rgba(58,58,58,0.72) 88%, #3a3a3a 100%); z-index: 0; pointer-events: none;"></div>
             <div class="ac-header-top" style=" position: relative; z-index: 1; padding: 20px 24px; display: flex; justify-content: space-between; align-items: flex-start;">
                 <div class="ac-identity-group" style="max-width: calc(100% - 168px);">
                     <h1 style="font-size: 24px; font-weight: 800; color: #fff; margin: 0; line-height: 1.1; text-shadow: 0 2px 4px rgba(0,0,0,0.8);">${logoHtml} ${baseProps.callsign}</h1>
@@ -13488,7 +13475,7 @@ let totalDistanceNM = 0;
             </div>
         </div>
 
-        <div class="ac-route-bar-backdrop" style="background: #3a3a3a; position: relative;">
+        <div class="ac-route-bar-backdrop" style="background: #3a3a3a; position: relative; box-shadow: 0 -24px 36px rgba(58,58,58,0.32);">
         <div class="ac-route-info-bar" style=" background: #3a3a3a; backdrop-filter: blur(16px); margin: -32px 16px 0 16px; border-radius: 12px; padding: 14px 24px; border: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0; position: relative; z-index: 5; box-shadow: 0 8px 32px rgba(0,0,0,0.4);">
             <div class="route-node">
         <span class="city-name" style="color: #94a3b8; font-size: 9px; font-weight: 600; text-transform: uppercase;">${depCity}</span>
@@ -13524,8 +13511,8 @@ let totalDistanceNM = 0;
         </div>
         </div>
 
-    <div class="ac-info-window-tabs" style="background: #3a3a3a; padding: 16px 16px 8px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0;">
-            <div class="modern-view-switcher" id="main-data-switcher" style="flex: 1; min-width: 0; background: rgba(15, 23, 42, 0.4); border-radius: 12px; padding: 4px; display: flex; position: relative; border: 1px solid rgba(255,255,255,0.05); height: 44px;">
+    <div class="ac-info-window-tabs" style="background: #3a3a3a; padding: 16px 16px 8px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0; border-top: 1px solid rgba(255,255,255,0.04); border-bottom: 1px solid rgba(0,0,0,0.24);">
+            <div class="modern-view-switcher" id="main-data-switcher" style="flex: 1; min-width: 0; background: #24272f; border-radius: 12px; padding: 4px; display: flex; position: relative; border: 1px solid rgba(255,255,255,0.08); height: 44px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);">
                  <button class="ac-info-tab-btn ${flightDataActiveClass}" data-tab="ac-tab-flight-data" style="flex: 1; min-width: 0; overflow: hidden; border: none; background: transparent; color: #fff; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
                     <i class="fa-solid fa-gauge-high" style="flex-shrink: 0;"></i>
                     <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Flight Display</span>
@@ -13534,7 +13521,7 @@ let totalDistanceNM = 0;
                     <i class="fa-solid fa-chart-simple" style="flex-shrink: 0;"></i>
                     <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${pilotReportTabText}</span>
                  </button>
-                 <div class="switcher-highlight" id="main-switcher-highlight" style="position: absolute; top: 4px; left: 4px; width: calc(50% - 4px); height: calc(100% - 8px); background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); transform: translateX(${highlightX});"></div>
+                 <div class="switcher-highlight" id="main-switcher-highlight" style="position: absolute; top: 4px; left: 4px; width: calc(50% - 4px); height: calc(100% - 8px); background: #3a3f4a; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); transform: translateX(${highlightX}); box-shadow: 0 6px 16px rgba(0,0,0,0.22);"></div>
             </div>
             <button id="ac-dock-toggle-btn" class="ac-dock-toggle-btn" title="Move Window">
     <i class="fa-solid fa-arrows-left-right-to-line"></i>
@@ -13787,39 +13774,55 @@ let totalDistanceNM = 0;
                         </span>
                     </div>
 
-                    <!-- Position grid: LAT / LON / HDG / G·S -->
-                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;">
-                        <div style="display: flex; flex-direction: column;">
+                    <!-- Position grid: compact iOS-friendly live flight data -->
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(86px, 1fr)); gap: 12px;">
+                        <div style="display: flex; flex-direction: column; min-width: 0;">
                             <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">LAT</span>
                             <span id="ac-lat" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">---</span>
                         </div>
-                        <div style="display: flex; flex-direction: column;">
+                        <div style="display: flex; flex-direction: column; min-width: 0;">
                             <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">LON</span>
                             <span id="ac-lon" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">---</span>
                         </div>
-                        <div style="display: flex; flex-direction: column;">
+                        <div style="display: flex; flex-direction: column; min-width: 0;">
+                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">ALT</span>
+                            <span id="ac-alt" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">--- <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">ft</span></span>
+                        </div>
+                        <div style="display: flex; flex-direction: column; min-width: 0;">
                             <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">HDG</span>
                             <span id="ac-heading" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">---°</span>
                         </div>
-                        <div style="display: flex; flex-direction: column;">
+                        <div style="display: flex; flex-direction: column; min-width: 0;">
                             <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">G/S</span>
                             <span id="ac-gs" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">--- <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">kt</span></span>
                         </div>
+                        <div style="display: flex; flex-direction: column; min-width: 0;">
+                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">V/S</span>
+                            <span id="ac-vs" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">---</span>
+                        </div>
                     </div>
 
-                    <!-- Atmosphere row: WIND / SAT / TAS -->
-                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.06);">
-                        <div style="display: flex; flex-direction: column;">
+                    <!-- Atmosphere and plan row: WIND / SAT / TAS / CRZ / ALT delta -->
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(86px, 1fr)); gap: 12px; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.06);">
+                        <div style="display: flex; flex-direction: column; min-width: 0;">
                             <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">WIND</span>
                             <span id="ac-env-wind" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">---/--</span>
                         </div>
-                        <div style="display: flex; flex-direction: column;">
+                        <div style="display: flex; flex-direction: column; min-width: 0;">
                             <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">SAT</span>
                             <span id="ac-env-oat" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">--°C</span>
                         </div>
-                        <div style="display: flex; flex-direction: column;">
+                        <div style="display: flex; flex-direction: column; min-width: 0;">
                             <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">TAS</span>
                             <span id="ac-tas" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">--- <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">kt</span></span>
+                        </div>
+                        <div style="display: flex; flex-direction: column; min-width: 0;">
+                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">CRZ</span>
+                            <span id="ac-cruise-tgt" style="color: #38bdf8; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">${cruiseAltText}</span>
+                        </div>
+                        <div style="display: flex; flex-direction: column; min-width: 0;">
+                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">ALT Δ</span>
+                            <span id="ac-alt-delta" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">---</span>
                         </div>
                     </div>
 
@@ -13890,66 +13893,6 @@ let totalDistanceNM = 0;
                         <i class="fa-solid fa-camera" style="color: #38bdf8; font-size: 9px;"></i>
                         <span style="font-size: 9px; color: #94a3b8;">Photo · ${photographerName}</span>
                     </div>` : ''}
-               </div>
-
-                <!-- ════════════ VERTICAL PROFILE CARD (enhanced VSD with live readouts) ════════════ -->
-                <div class="ac-info-card-bar tech-module vsd-module-container" style="background: #3a3a3a; backdrop-filter: blur(16px); border-radius: 12px; padding: 16px 20px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 8px 32px rgba(0,0,0,0.4);">
-                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
-                        <span class="tech-module-title" style="font-size: 9px; color: #fff; text-transform: uppercase; font-weight: 800; letter-spacing: 1.2px; display: flex; align-items: center; gap: 8px;">
-                            <i class="fa-solid fa-chart-area" style="color: #38bdf8;"></i> Vertical Profile
-                        </span>
-                        <span class="fms-page-count" style="font-size: 8px; color: #94a3b8; font-weight: 600; letter-spacing: 0.6px;">VSD</span>
-                    </div>
-
-                    <!-- Live readouts: ALT / V·S / CRZ TGT / ALT Δ -->
-                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 14px;">
-                        <div style="display: flex; flex-direction: column;">
-                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">ALT</span>
-                            <span id="ac-alt" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">--- <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">ft</span></span>
-                        </div>
-                        <div style="display: flex; flex-direction: column;">
-                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">V/S</span>
-                            <span id="ac-vs" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">---</span>
-                        </div>
-                        <div style="display: flex; flex-direction: column;">
-                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">CRZ</span>
-                            <span id="ac-cruise-tgt" style="color: #38bdf8; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">${cruiseAltText}</span>
-                        </div>
-                        <div style="display: flex; flex-direction: column;">
-                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">Δ TGT</span>
-                            <span id="ac-alt-delta" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">---</span>
-                        </div>
-                    </div>
-
-                    <!-- The chart (kept identical so existing VSD render code keeps working) -->
-                    <div id="vsd-panel" class="vsd-panel active" data-plan-id="" data-profile-built="false" style="background: rgba(0,0,0,0.25); border-radius: 10px; padding: 8px; border: 1px solid rgba(255,255,255,0.04);">
-                        <div id="vsd-graph-window" class="vsd-graph-window">
-                            <div id="vsd-aircraft-icon"></div>
-                            <div id="vsd-graph-content">
-                                <svg id="vsd-profile-svg" xmlns="http://www.w3.org/2000/svg">
-                                    <path id="vsd-flown-path" d="" />
-                                    <path id="vsd-profile-path" d="" />
-                                </svg>
-                                <div id="vsd-waypoint-labels"></div>
-                            </div>
-                            ${planButtonHtml}
-                        </div>
-                    </div>
-
-                    <!-- Footer: legend + live phase indicator -->
-                    <div class="vsd-footer" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; align-items: center; justify-content: space-between; gap: 10px;">
-                        <div style="display: flex; align-items: center; gap: 12px;">
-                            <div class="vsd-legend-item" style="display: flex; align-items: center; gap: 6px;">
-                                <div class="dot-plan" style="width: 10px; height: 3px; background: #38bdf8; border-radius: 1px;"></div>
-                                <span style="font-size: 8px; color: #94a3b8; font-weight: 700; letter-spacing: 0.6px;">PLANNED</span>
-                            </div>
-                            <div class="vsd-legend-item" style="display: flex; align-items: center; gap: 6px;">
-                                <div class="dot-flown" style="width: 10px; height: 3px; background: #4ade80; border-radius: 1px;"></div>
-                                <span style="font-size: 8px; color: #94a3b8; font-weight: 700; letter-spacing: 0.6px;">FLOWN</span>
-                            </div>
-                        </div>
-                        <span id="ac-vsd-phase" style="font-size: 10px; color: #fbbf24; font-weight: 800; letter-spacing: 0.8px;">${flightPhase}</span>
-                    </div>
                 </div>
             </div>
  
