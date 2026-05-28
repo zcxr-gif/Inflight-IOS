@@ -48,15 +48,18 @@ public struct InflightActivityAttributes: ActivityAttributes {
     }
 
     // Static identity -- never changes for the life of the activity.
+    public var flightId: String
     public var callsign: String
     public var airlineName: String
     public var departureIcao: String
     public var arrivalIcao: String
 
-    public init(callsign: String,
+    public init(flightId: String,
+                callsign: String,
                 airlineName: String,
                 departureIcao: String,
                 arrivalIcao: String) {
+        self.flightId = flightId
         self.callsign = callsign
         self.airlineName = airlineName
         self.departureIcao = departureIcao

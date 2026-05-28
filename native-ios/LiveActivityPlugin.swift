@@ -9,10 +9,100 @@ public class LiveActivityPlugin: CAPPlugin, UNUserNotificationCenterDelegate {
 
     private var activeActivityIdByFlight: [String: String] = [:]
     private var didInstallForegroundDelegate = false
+    // Activity ids we've already attached a push-token observer to, so a
+    // reused activity / a relaunch reconcile doesn't spawn duplicate tasks.
+    private var observedActivityIds = Set<String>()
+    // Cache the most recent tokens so JS can pull them via `syncTokens` even
+    // if it attached its listener after the native side emitted them
+    // (Capacitor events aren't buffered for late subscribers).
+    private var lastPushTokenByFlight: [String: String] = [:]
+    private var lastPushToStartToken: String?
 
     public override func load() {
         super.load()
         installForegroundDelegate()
+        if #available(iOS 16.1, *) {
+            // Re-attach to any activity that survived an app relaunch so the
+            // backend keeps getting push tokens and JS update/end still
+            // resolve by flightId.
+            reconcileActivities()
+            // Device-level push-to-start token (iOS 17.2+) lets the backend
+            // create a Live Activity remotely without the app running.
+            observePushToStartToken()
+        }
+    }
+
+    // MARK: - Push token plumbing
+
+    @available(iOS 16.1, *)
+    private func hexString(_ data: Data) -> String {
+        data.map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Stream this activity's APNs push token to JS (event
+    /// `liveActivityPushToken`) so it can be relayed to the backend. The
+    /// backend pushes `content-state` updates to this token to move the
+    /// plane / NM / ETE even while the app is suspended or terminated.
+    @available(iOS 16.1, *)
+    private func observePushToken(_ activity: Activity<InflightActivityAttributes>) {
+        guard !observedActivityIds.contains(activity.id) else { return }
+        observedActivityIds.insert(activity.id)
+        let flightId = activity.attributes.flightId
+        let activityId = activity.id
+        Task { [weak self] in
+            for await tokenData in activity.pushTokenUpdates {
+                guard let self = self else { return }
+                let token = self.hexString(tokenData)
+                self.lastPushTokenByFlight[flightId] = token
+                self.notifyListeners("liveActivityPushToken", data: [
+                    "flightId": flightId,
+                    "activityId": activityId,
+                    "token": token
+                ])
+            }
+        }
+    }
+
+    /// Stream the device-level push-to-start token (iOS 17.2+) to JS
+    /// (event `liveActivityPushToStartToken`).
+    @available(iOS 16.1, *)
+    private func observePushToStartToken() {
+        guard #available(iOS 17.2, *) else { return }
+        Task { [weak self] in
+            for await tokenData in Activity<InflightActivityAttributes>.pushToStartTokenUpdates {
+                guard let self = self else { return }
+                let token = self.hexString(tokenData)
+                self.lastPushToStartToken = token
+                self.notifyListeners("liveActivityPushToStartToken", data: [
+                    "token": token
+                ])
+            }
+        }
+    }
+
+    /// Re-emit all cached push tokens. JS calls this right after attaching its
+    /// listeners so a token issued before the listener existed isn't lost.
+    @objc func syncTokens(_ call: CAPPluginCall) {
+        if let t = lastPushToStartToken {
+            notifyListeners("liveActivityPushToStartToken", data: ["token": t])
+        }
+        for (fid, tok) in lastPushTokenByFlight {
+            notifyListeners("liveActivityPushToken", data: ["flightId": fid, "token": tok])
+        }
+        call.resolve()
+    }
+
+    /// Rebuild the flightId→activityId map and re-observe push tokens for any
+    /// activities that outlived the app process.
+    @available(iOS 16.1, *)
+    private func reconcileActivities() {
+        for activity in Activity<InflightActivityAttributes>.activities {
+            let fid = activity.attributes.flightId
+            if !fid.isEmpty {
+                activeActivityIdByFlight[fid] = activity.id
+            }
+            observePushToken(activity)
+        }
     }
 
     /// Become the UNUserNotificationCenter delegate so local notifications
@@ -248,6 +338,7 @@ public class LiveActivityPlugin: CAPPlugin, UNUserNotificationCenterDelegate {
         }
 
         let attributes = InflightActivityAttributes(
+            flightId: flightId,
             callsign: callsign,
             airlineName: airlineName,
             departureIcao: departureIcao,
@@ -266,21 +357,27 @@ public class LiveActivityPlugin: CAPPlugin, UNUserNotificationCenterDelegate {
 
         do {
             let activity: Activity<InflightActivityAttributes>
+            // `.token` asks ActivityKit for an APNs push token so the backend
+            // can drive updates while the app is suspended. Requires the
+            // `aps-environment` entitlement + a Push-enabled provisioning
+            // profile; without them the activity still starts and local
+            // updates work, the push token simply never arrives.
             if #available(iOS 16.2, *) {
                 let content = ActivityContent(state: state, staleDate: nil)
                 activity = try Activity.request(
                     attributes: attributes,
                     content: content,
-                    pushType: nil
+                    pushType: .token
                 )
             } else {
                 activity = try Activity.request(
                     attributes: attributes,
                     contentState: state,
-                    pushType: nil
+                    pushType: .token
                 )
             }
             activeActivityIdByFlight[flightId] = activity.id
+            observePushToken(activity)
             call.resolve(["activityId": activity.id, "reused": false])
         } catch {
             call.reject("Failed to start Live Activity: \(error.localizedDescription)")
@@ -403,6 +500,7 @@ public class LiveActivityPlugin: CAPPlugin, UNUserNotificationCenterDelegate {
                 }
             }
             self.activeActivityIdByFlight.removeValue(forKey: flightId)
+            self.observedActivityIds.remove(activityId)
             call.resolve()
         }
     }

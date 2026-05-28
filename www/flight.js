@@ -7917,6 +7917,10 @@ function initializeSectorOpsSocket() {
         // [UPDATED] Use currentServerName
         console.log(`Socket: Connected with ID ${sectorOpsSocket.id}. Joining room: ${currentServerName.toLowerCase()}`);
         sectorOpsSocket.emit('join_server_room', currentServerName);
+        // (Re)publish any Live Activity push tokens to the backend. Doing
+        // this on every connect covers reconnects and the case where the
+        // token was issued before the socket was up.
+        window.wireLiveActivityPushRelay?.();
     });
 
     // Listen for the broadcasted flight data
@@ -9342,6 +9346,54 @@ async function createAirportInfoWindowHTML(icao) {
     }
     window.buildLiveActivityPayload = buildLiveActivityPayload;
 
+    // --- Live Activity push-token relay -------------------------------------
+    // Forwards the APNs push tokens ActivityKit issues for a pinned flight up
+    // to the backend over the same socket that streams flight data. The
+    // backend maps token -> flightId and sends APNs Live Activity pushes so
+    // the lock-screen plane / NM / ETE keep moving while the phone is locked
+    // and the app suspended. Idempotent -- safe to call on every (re)connect;
+    // onPushToken replays the buffered token so reconnects re-publish it.
+    function wireLiveActivityPushRelay() {
+        const LA = window.InflightLiveActivity;
+        if (!LA || typeof LA.onPushToken !== 'function' || !sectorOpsSocket) return;
+        LA.onPushToken((ev) => {
+            if (!sectorOpsSocket || !ev || !ev.token) return;
+            try {
+                sectorOpsSocket.emit('live_activity_token', {
+                    platform: 'ios',
+                    flightId: ev.flightId,
+                    activityId: ev.activityId || null,
+                    token: ev.token,
+                    server: (typeof currentServerName !== 'undefined') ? currentServerName : null,
+                    ts: Date.now()
+                });
+            } catch (_) {}
+        });
+        LA.onPushToStartToken((ev) => {
+            if (!sectorOpsSocket || !ev || !ev.token) return;
+            try {
+                sectorOpsSocket.emit('live_activity_pushtostart_token', {
+                    platform: 'ios',
+                    token: ev.token,
+                    ts: Date.now()
+                });
+            } catch (_) {}
+        });
+    }
+    window.wireLiveActivityPushRelay = wireLiveActivityPushRelay;
+
+    // Tell the backend to stop pushing for a flight whose activity ended.
+    function emitLiveActivityUnregister(flightId) {
+        try {
+            sectorOpsSocket?.emit('live_activity_unregister', {
+                platform: 'ios',
+                flightId,
+                ts: Date.now()
+            });
+        } catch (_) {}
+    }
+    window.emitLiveActivityUnregister = emitLiveActivityUnregister;
+
     // --- DOM elements ---
     const pilotNameElem = document.getElementById('pilot-name');
     const pilotCallsignElem = document.getElementById('pilot-callsign');
@@ -10010,12 +10062,14 @@ function setupAircraftWindowEvents() {
             if (!flightId) return;
             if (window.InflightLiveActivity?.isTrackingFlight(flightId)) {
                 await window.InflightLiveActivity.end({ flightId });
+                window.emitLiveActivityUnregister?.(flightId);
                 showNotification?.('Live Activity stopped.', 'info');
             } else {
                 await window.InflightLiveActivity?.requestNotificationPermission?.({ force: true });
                 const prior = window.InflightLiveActivity?.getTrackedFlightId();
                 if (prior && prior !== flightId) {
                     await window.InflightLiveActivity.end({ flightId: prior });
+                    window.emitLiveActivityUnregister?.(prior);
                 }
                 const payload = (typeof buildLiveActivityPayload === 'function')
                     ? buildLiveActivityPayload(flightId)
@@ -15114,6 +15168,7 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             if (isLanded) {
                 setTimeout(() => {
                     window.InflightLiveActivity?.end({ flightId: baseProps.flightId, immediate: false });
+                    window.emitLiveActivityUnregister?.(baseProps.flightId);
                 }, 30000);
             }
         }
