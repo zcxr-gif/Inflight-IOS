@@ -9319,10 +9319,26 @@ async function createAirportInfoWindowHTML(icao) {
             atdMs = depInfo.timestamp.getTime();
         }
 
+        // Aircraft model + livery for the Live Activity. `props.aircraft` may
+        // be a JSON blob (string or object) on some feeds, with the flat
+        // props.aircraftName / props.liveryName as the fallback.
+        let acBlob = {};
+        try {
+            acBlob = (typeof props.aircraft === 'string')
+                ? JSON.parse(props.aircraft || '{}')
+                : (props.aircraft || {});
+        } catch (_) { acBlob = {}; }
+        const aircraftType = acBlob.aircraftName || props.aircraftName || '';
+        const liveryName   = acBlob.liveryName || props.liveryName || '';
+        const registration = acBlob.registration || props.registration || props.tailNumber || '';
+
         return {
             flightId,
             callsign: props.callsign || flightId,
-            airlineName: props.liveryName || props.aircraftName || '',
+            airlineName: liveryName || aircraftType || '',
+            aircraftType,
+            liveryName,
+            registration,
             departureIcao: depIcao,
             arrivalIcao: arrIcao,
             scheduledDeparture: schedDepMs || (atdMs || Date.now()),

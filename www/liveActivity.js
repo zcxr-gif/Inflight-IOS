@@ -2,9 +2,11 @@
 // On non-iOS or non-supporting devices every call is a silent no-op.
 //
 // Public API on window.InflightLiveActivity:
-//   start({ flightId, callsign, airlineName, departureIcao, arrivalIcao,
+//   start({ flightId, callsign, airlineName, aircraftType, liveryName,
+//           registration, departureIcao, arrivalIcao,
 //           scheduledDeparture, scheduledArrival, currentEta,
-//           currentAtd, distanceToDestinationNm, isLanded }) -> Promise
+//           currentAtd, distanceToDestinationNm, totalDistanceNm,
+//           isLanded }) -> Promise
 //   update({ flightId, currentEta, currentAtd,
 //            distanceToDestinationNm, isLanded }) -> Promise
 //   end({ flightId, immediate }) -> Promise
@@ -208,6 +210,9 @@
             flightId: String(payload.flightId),
             callsign: payload.callsign || '',
             airlineName: payload.airlineName || '',
+            aircraftType: payload.aircraftType || '',
+            liveryName: payload.liveryName || '',
+            registration: payload.registration || '',
             departureIcao: payload.departureIcao || '',
             arrivalIcao: payload.arrivalIcao || '',
             scheduledDepartureMs: toMs(payload.scheduledDeparture),
