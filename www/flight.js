@@ -7745,7 +7745,7 @@ function handleSocketFlightUpdate(data) {
             }
 
             // 4. Update Trail Cache
-            const localTrail = liveTrailCache.get(flightId);
+            let localTrail = liveTrailCache.get(flightId);
             
             const fullFlightProps = {
                 ...newProperties,
@@ -7765,6 +7765,14 @@ function handleSocketFlightUpdate(data) {
                     date: new Date(flight.position.lastReport || Date.now()).toISOString()
                 };
                 localTrail.push(newRoutePoint);
+                // Defensive trim: drop any cached point newer than the frame
+                // we're rendering the marker from, so a future /history sample
+                // can never push the flown path ahead of the icon. On a clean
+                // (monotonic) cache this removes nothing.
+                localTrail = trimTrailToMarkerTime(
+                    localTrail,
+                    new Date(flight.position.lastReport || Date.now()).getTime()
+                );
                 liveTrailCache.set(flightId, localTrail);
 
                 // --- [NEW] Update Simple Iframe if Active ---
@@ -7834,8 +7842,14 @@ function handleSocketFlightUpdate(data) {
                 date: new Date(flight.position.lastReport || Date.now()).toISOString()
             };
             localTrail.push(newRoutePoint);
+            // Same defensive trim as the focused-flight path so a pinned
+            // trail can't render ahead of its icon either.
+            localTrail = trimTrailToMarkerTime(
+                localTrail,
+                new Date(flight.position.lastReport || Date.now()).getTime()
+            );
             liveTrailCache.set(flightId, localTrail);
-            
+
             if (typeof FlownPath3D !== 'undefined') {
                 FlownPath3D.updatePath(sectorOpsMap, flightId, localTrail, mapFilters.show3DPath);
             }
@@ -12835,6 +12849,31 @@ function generateSmoothPath(points, tension = 0.5) {
     return result;
 }
 
+/**
+ * Trim a trail to the points at or before a cutoff time (ms since epoch).
+ *
+ * The /history endpoint can return GPS samples that are ~15s NEWER than the
+ * latest socket frame the live marker is drawn from. Because
+ * generateAltitudeColoredRoute() appends the marker's position to the END of
+ * the line, any cached trail point with a timestamp past the marker renders
+ * as a spur that shoots ahead of the aircraft icon and then doubles back.
+ * Keeping the trail trimmed to the marker's frame time pins the leading edge
+ * of the path to the plane. As the marker advances, live socket frames refill
+ * the leading edge, so the trail loses no visible length.
+ *
+ * Points with no parseable `date` are kept (we can't place them in time, and
+ * dropping them would punch holes in older trails). Returns the input
+ * unchanged when no usable cutoff is supplied.
+ */
+function trimTrailToMarkerTime(trail, cutoffMs) {
+    if (!Array.isArray(trail) || cutoffMs == null || !Number.isFinite(cutoffMs)) return trail;
+    return trail.filter(p => {
+        if (!p || !p.date) return true;
+        const t = new Date(p.date).getTime();
+        return !Number.isFinite(t) || t <= cutoffMs;
+    });
+}
+
 function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
     const features = [];
     const allPoints = [...(trailPoints || [])];
@@ -13102,10 +13141,31 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             sortedRoutePoints = historyArray.sort((a, b) => new Date(a.date) - new Date(b.date));
         }
 
-        if (typeof liveTrailCache !== 'undefined') liveTrailCache.set(flightProps.flightId, sortedRoutePoints);
+        // Align the trail to the LIVE marker BEFORE caching it. The history
+        // endpoint can return GPS samples ~15s newer than the socket frame the
+        // marker is drawn from; caching those future points is what made the
+        // flown path overshoot the aircraft icon. The prior fix trimmed only
+        // the first render and left the CACHE full of future points, so every
+        // continuous socket tick re-rendered the overshoot -- which is why it
+        // kept coming back. Caching the trimmed trail keeps the path pinned to
+        // the plane; live frames refill the leading edge as the marker moves.
+        const liveFeature = (typeof currentMapFeatures !== 'undefined')
+            ? currentMapFeatures[flightProps.flightId] : null;
+        const liveLastUpdateMs = liveFeature?.properties?.last_update
+            ? new Date(liveFeature.properties.last_update).getTime() : null;
+        const livePosition = liveFeature?.geometry?.coordinates
+            ? {
+                lat: liveFeature.geometry.coordinates[1],
+                lon: liveFeature.geometry.coordinates[0],
+                alt_ft: liveFeature.properties?.altitude ?? flightProps.position?.alt_ft ?? 0
+              }
+            : flightProps.position;
+        const trailUpToMarker = trimTrailToMarkerTime(sortedRoutePoints, liveLastUpdateMs);
+
+        if (typeof liveTrailCache !== 'undefined') liveTrailCache.set(flightProps.flightId, trailUpToMarker);
 
         if (typeof FlownPath3D !== 'undefined') {
-            FlownPath3D.updatePath(sectorOpsMap, flightProps.flightId, sortedRoutePoints, mapFilters.show3DPath);
+            FlownPath3D.updatePath(sectorOpsMap, flightProps.flightId, trailUpToMarker, mapFilters.show3DPath);
         }
 
         if (currentFlightInWindow === flightProps.flightId) {
@@ -13139,35 +13199,8 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
 
         const flownLayerId = `flown-path-${flightProps.flightId}`;
 
-        // Sync the initial flown-path render to whatever the live marker is
-        // actually showing on the map. Two failure modes used to produce a
-        // path that visibly extended past the aircraft icon on first open:
-        //   1. `flightProps.position` is the snapshot from click time, often
-        //      a few hundred ms (sometimes seconds) stale by the time the
-        //      history fetch resolves — using it would anchor the path to
-        //      an older spot than the icon.
-        //   2. The history endpoint can return GPS samples that are newer
-        //      than the latest socket frame the marker has consumed;
-        //      appending them stretches the line past the icon until the
-        //      next socket tick catches the marker up.
-        // Reading the live feature from currentMapFeatures + filtering
-        // trail points to <= marker last_update fixes both.
-        const liveFeature = (typeof currentMapFeatures !== 'undefined')
-            ? currentMapFeatures[flightProps.flightId] : null;
-        const liveLastUpdateMs = liveFeature?.properties?.last_update
-            ? new Date(liveFeature.properties.last_update).getTime() : null;
-        const livePosition = liveFeature?.geometry?.coordinates
-            ? {
-                lat: liveFeature.geometry.coordinates[1],
-                lon: liveFeature.geometry.coordinates[0],
-                alt_ft: liveFeature.properties?.altitude ?? flightProps.position?.alt_ft ?? 0
-              }
-            : flightProps.position;
-        const trailUpToMarker = (liveLastUpdateMs != null)
-            ? sortedRoutePoints.filter(p => !p.date || new Date(p.date).getTime() <= liveLastUpdateMs)
-            : sortedRoutePoints;
-
-        // Generate the segmented FeatureCollection using our new function
+        // trailUpToMarker + livePosition were resolved above (trimmed to the
+        // live marker so the path can't extend past the aircraft icon).
         const initialRouteData = generateAltitudeColoredRoute(trailUpToMarker, livePosition, plan);
 
         if (!sectorOpsMap.getSource(flownLayerId)) {
