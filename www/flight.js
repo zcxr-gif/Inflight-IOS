@@ -7745,7 +7745,7 @@ function handleSocketFlightUpdate(data) {
             }
 
             // 4. Update Trail Cache
-            const localTrail = liveTrailCache.get(flightId);
+            let localTrail = liveTrailCache.get(flightId);
             
             const fullFlightProps = {
                 ...newProperties,
@@ -7765,6 +7765,14 @@ function handleSocketFlightUpdate(data) {
                     date: new Date(flight.position.lastReport || Date.now()).toISOString()
                 };
                 localTrail.push(newRoutePoint);
+                // Defensive trim: drop any cached point newer than the frame
+                // we're rendering the marker from, so a future /history sample
+                // can never push the flown path ahead of the icon. On a clean
+                // (monotonic) cache this removes nothing.
+                localTrail = trimTrailToMarkerTime(
+                    localTrail,
+                    new Date(flight.position.lastReport || Date.now()).getTime()
+                );
                 liveTrailCache.set(flightId, localTrail);
 
                 // --- [NEW] Update Simple Iframe if Active ---
@@ -7834,8 +7842,14 @@ function handleSocketFlightUpdate(data) {
                 date: new Date(flight.position.lastReport || Date.now()).toISOString()
             };
             localTrail.push(newRoutePoint);
+            // Same defensive trim as the focused-flight path so a pinned
+            // trail can't render ahead of its icon either.
+            localTrail = trimTrailToMarkerTime(
+                localTrail,
+                new Date(flight.position.lastReport || Date.now()).getTime()
+            );
             liveTrailCache.set(flightId, localTrail);
-            
+
             if (typeof FlownPath3D !== 'undefined') {
                 FlownPath3D.updatePath(sectorOpsMap, flightId, localTrail, mapFilters.show3DPath);
             }
@@ -7917,6 +7931,10 @@ function initializeSectorOpsSocket() {
         // [UPDATED] Use currentServerName
         console.log(`Socket: Connected with ID ${sectorOpsSocket.id}. Joining room: ${currentServerName.toLowerCase()}`);
         sectorOpsSocket.emit('join_server_room', currentServerName);
+        // (Re)publish any Live Activity push tokens to the backend. Doing
+        // this on every connect covers reconnects and the case where the
+        // token was issued before the socket was up.
+        window.wireLiveActivityPushRelay?.();
     });
 
     // Listen for the broadcasted flight data
@@ -9299,14 +9317,20 @@ async function createAirportInfoWindowHTML(icao) {
         const depInfo = computeDepartureTimeInfo(props, cachedTrail, filedPlan, depIcao);
         const arrInfo = computeArrivalTimeInfo(props, filedPlan, distanceNm);
 
-        // ETA: prefer the smart cascade's timestamp; fall back to a fresh
-        // gs+distance estimate; finally fall back to scheduled arrival. The
-        // old code's "now + 1h" fallback was producing wildly wrong ETEs
-        // on the lock-screen countdown when the aircraft was slow/taxiing.
+        // ETA: prefer a live distance/groundspeed estimate so the lock-screen
+        // ETE stays in lockstep with the NM-remaining readout and the plane's
+        // position on the route. Fall back to the in-app cascade (filed /
+        // scheduled), then to a jet-cruise estimate, and only as a last
+        // resort to the scheduled arrival. We deliberately avoid the old
+        // flat "now + 1h" guess, which surfaced as a bogus "1 hour" ETE.
         const gs = props.position?.gs_kt || 0;
-        let etaMs = arrInfo?.timestamp ? arrInfo.timestamp.getTime() : null;
-        if (!etaMs && distanceNm > 0 && gs > 50) {
+        let etaMs = null;
+        if (distanceNm > 0 && gs > 50) {
             etaMs = Date.now() + (distanceNm / gs) * 3600 * 1000;
+        } else if (arrInfo?.timestamp) {
+            etaMs = arrInfo.timestamp.getTime();
+        } else if (distanceNm > 0) {
+            etaMs = Date.now() + (distanceNm / 400) * 3600 * 1000; // assume ~400 kt cruise
         }
         if (!etaMs) etaMs = schedArrMs || (Date.now() + 60 * 60 * 1000);
 
@@ -9335,6 +9359,54 @@ async function createAirportInfoWindowHTML(icao) {
         };
     }
     window.buildLiveActivityPayload = buildLiveActivityPayload;
+
+    // --- Live Activity push-token relay -------------------------------------
+    // Forwards the APNs push tokens ActivityKit issues for a pinned flight up
+    // to the backend over the same socket that streams flight data. The
+    // backend maps token -> flightId and sends APNs Live Activity pushes so
+    // the lock-screen plane / NM / ETE keep moving while the phone is locked
+    // and the app suspended. Idempotent -- safe to call on every (re)connect;
+    // onPushToken replays the buffered token so reconnects re-publish it.
+    function wireLiveActivityPushRelay() {
+        const LA = window.InflightLiveActivity;
+        if (!LA || typeof LA.onPushToken !== 'function' || !sectorOpsSocket) return;
+        LA.onPushToken((ev) => {
+            if (!sectorOpsSocket || !ev || !ev.token) return;
+            try {
+                sectorOpsSocket.emit('live_activity_token', {
+                    platform: 'ios',
+                    flightId: ev.flightId,
+                    activityId: ev.activityId || null,
+                    token: ev.token,
+                    server: (typeof currentServerName !== 'undefined') ? currentServerName : null,
+                    ts: Date.now()
+                });
+            } catch (_) {}
+        });
+        LA.onPushToStartToken((ev) => {
+            if (!sectorOpsSocket || !ev || !ev.token) return;
+            try {
+                sectorOpsSocket.emit('live_activity_pushtostart_token', {
+                    platform: 'ios',
+                    token: ev.token,
+                    ts: Date.now()
+                });
+            } catch (_) {}
+        });
+    }
+    window.wireLiveActivityPushRelay = wireLiveActivityPushRelay;
+
+    // Tell the backend to stop pushing for a flight whose activity ended.
+    function emitLiveActivityUnregister(flightId) {
+        try {
+            sectorOpsSocket?.emit('live_activity_unregister', {
+                platform: 'ios',
+                flightId,
+                ts: Date.now()
+            });
+        } catch (_) {}
+    }
+    window.emitLiveActivityUnregister = emitLiveActivityUnregister;
 
     // --- DOM elements ---
     const pilotNameElem = document.getElementById('pilot-name');
@@ -10004,12 +10076,14 @@ function setupAircraftWindowEvents() {
             if (!flightId) return;
             if (window.InflightLiveActivity?.isTrackingFlight(flightId)) {
                 await window.InflightLiveActivity.end({ flightId });
+                window.emitLiveActivityUnregister?.(flightId);
                 showNotification?.('Live Activity stopped.', 'info');
             } else {
                 await window.InflightLiveActivity?.requestNotificationPermission?.({ force: true });
                 const prior = window.InflightLiveActivity?.getTrackedFlightId();
                 if (prior && prior !== flightId) {
                     await window.InflightLiveActivity.end({ flightId: prior });
+                    window.emitLiveActivityUnregister?.(prior);
                 }
                 const payload = (typeof buildLiveActivityPayload === 'function')
                     ? buildLiveActivityPayload(flightId)
@@ -12775,6 +12849,31 @@ function generateSmoothPath(points, tension = 0.5) {
     return result;
 }
 
+/**
+ * Trim a trail to the points at or before a cutoff time (ms since epoch).
+ *
+ * The /history endpoint can return GPS samples that are ~15s NEWER than the
+ * latest socket frame the live marker is drawn from. Because
+ * generateAltitudeColoredRoute() appends the marker's position to the END of
+ * the line, any cached trail point with a timestamp past the marker renders
+ * as a spur that shoots ahead of the aircraft icon and then doubles back.
+ * Keeping the trail trimmed to the marker's frame time pins the leading edge
+ * of the path to the plane. As the marker advances, live socket frames refill
+ * the leading edge, so the trail loses no visible length.
+ *
+ * Points with no parseable `date` are kept (we can't place them in time, and
+ * dropping them would punch holes in older trails). Returns the input
+ * unchanged when no usable cutoff is supplied.
+ */
+function trimTrailToMarkerTime(trail, cutoffMs) {
+    if (!Array.isArray(trail) || cutoffMs == null || !Number.isFinite(cutoffMs)) return trail;
+    return trail.filter(p => {
+        if (!p || !p.date) return true;
+        const t = new Date(p.date).getTime();
+        return !Number.isFinite(t) || t <= cutoffMs;
+    });
+}
+
 function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
     const features = [];
     const allPoints = [...(trailPoints || [])];
@@ -13042,10 +13141,31 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             sortedRoutePoints = historyArray.sort((a, b) => new Date(a.date) - new Date(b.date));
         }
 
-        if (typeof liveTrailCache !== 'undefined') liveTrailCache.set(flightProps.flightId, sortedRoutePoints);
+        // Align the trail to the LIVE marker BEFORE caching it. The history
+        // endpoint can return GPS samples ~15s newer than the socket frame the
+        // marker is drawn from; caching those future points is what made the
+        // flown path overshoot the aircraft icon. The prior fix trimmed only
+        // the first render and left the CACHE full of future points, so every
+        // continuous socket tick re-rendered the overshoot -- which is why it
+        // kept coming back. Caching the trimmed trail keeps the path pinned to
+        // the plane; live frames refill the leading edge as the marker moves.
+        const liveFeature = (typeof currentMapFeatures !== 'undefined')
+            ? currentMapFeatures[flightProps.flightId] : null;
+        const liveLastUpdateMs = liveFeature?.properties?.last_update
+            ? new Date(liveFeature.properties.last_update).getTime() : null;
+        const livePosition = liveFeature?.geometry?.coordinates
+            ? {
+                lat: liveFeature.geometry.coordinates[1],
+                lon: liveFeature.geometry.coordinates[0],
+                alt_ft: liveFeature.properties?.altitude ?? flightProps.position?.alt_ft ?? 0
+              }
+            : flightProps.position;
+        const trailUpToMarker = trimTrailToMarkerTime(sortedRoutePoints, liveLastUpdateMs);
+
+        if (typeof liveTrailCache !== 'undefined') liveTrailCache.set(flightProps.flightId, trailUpToMarker);
 
         if (typeof FlownPath3D !== 'undefined') {
-            FlownPath3D.updatePath(sectorOpsMap, flightProps.flightId, sortedRoutePoints, mapFilters.show3DPath);
+            FlownPath3D.updatePath(sectorOpsMap, flightProps.flightId, trailUpToMarker, mapFilters.show3DPath);
         }
 
         if (currentFlightInWindow === flightProps.flightId) {
@@ -13079,35 +13199,8 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
 
         const flownLayerId = `flown-path-${flightProps.flightId}`;
 
-        // Sync the initial flown-path render to whatever the live marker is
-        // actually showing on the map. Two failure modes used to produce a
-        // path that visibly extended past the aircraft icon on first open:
-        //   1. `flightProps.position` is the snapshot from click time, often
-        //      a few hundred ms (sometimes seconds) stale by the time the
-        //      history fetch resolves — using it would anchor the path to
-        //      an older spot than the icon.
-        //   2. The history endpoint can return GPS samples that are newer
-        //      than the latest socket frame the marker has consumed;
-        //      appending them stretches the line past the icon until the
-        //      next socket tick catches the marker up.
-        // Reading the live feature from currentMapFeatures + filtering
-        // trail points to <= marker last_update fixes both.
-        const liveFeature = (typeof currentMapFeatures !== 'undefined')
-            ? currentMapFeatures[flightProps.flightId] : null;
-        const liveLastUpdateMs = liveFeature?.properties?.last_update
-            ? new Date(liveFeature.properties.last_update).getTime() : null;
-        const livePosition = liveFeature?.geometry?.coordinates
-            ? {
-                lat: liveFeature.geometry.coordinates[1],
-                lon: liveFeature.geometry.coordinates[0],
-                alt_ft: liveFeature.properties?.altitude ?? flightProps.position?.alt_ft ?? 0
-              }
-            : flightProps.position;
-        const trailUpToMarker = (liveLastUpdateMs != null)
-            ? sortedRoutePoints.filter(p => !p.date || new Date(p.date).getTime() <= liveLastUpdateMs)
-            : sortedRoutePoints;
-
-        // Generate the segmented FeatureCollection using our new function
+        // trailUpToMarker + livePosition were resolved above (trimmed to the
+        // live marker so the path can't extend past the aircraft icon).
         const initialRouteData = generateAltitudeColoredRoute(trailUpToMarker, livePosition, plan);
 
         if (!sectorOpsMap.getSource(flownLayerId)) {
@@ -15045,11 +15138,19 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     try {
         if (window.InflightLiveActivity?.isTrackingFlight(baseProps.flightId)) {
             const _gsLA = baseProps.position?.gs_kt || 0;
-            const etaMs = _arrInfoLive?.timestamp
-                ? _arrInfoLive.timestamp.getTime()
-                : (distanceToDestNM > 0 && _gsLA > 50
-                    ? Date.now() + (distanceToDestNM / _gsLA) * 3600 * 1000
-                    : null);
+            // ETA: prefer the live distance/groundspeed estimate so the ETE,
+            // the NM remaining, and the plane's progress all move together.
+            // Fall back to the in-app cascade (filed/scheduled) when we're too
+            // slow for a meaningful estimate (taxi/hold). When we genuinely
+            // have nothing, send `undefined` and let the native side keep the
+            // last good ETA instead of inventing a fake "1 hour".
+            let etaMs;
+            if (distanceToDestNM > 0 && _gsLA > 50) {
+                etaMs = Date.now() + (distanceToDestNM / _gsLA) * 3600 * 1000;
+            } else if (_arrInfoLive?.timestamp) {
+                etaMs = _arrInfoLive.timestamp.getTime();
+            }
+
             // ATD only counts when we have real GPS history (label
             // ACTUAL). Otherwise leave it undefined so the widget shows
             // the scheduled departure verbatim instead of pretending
@@ -15057,25 +15158,50 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             const atdMs = (_depInfoLive?.timestamp && _depInfoLive.label === 'ACTUAL')
                 ? _depInfoLive.timestamp.getTime()
                 : undefined;
+
+            // Recompute the great-circle total + scheduled times every tick so
+            // a filed plan / airport coords that resolve after the activity
+            // started can correct a pinned lock screen that was showing stale
+            // info (or a plane stuck at the origin because total was 0).
+            let totalNmLA;
+            const _dLat = airportsData[_depIcaoLive]?.lat, _dLon = airportsData[_depIcaoLive]?.lon;
+            const _aLat = airportsData[_arrIcaoLive]?.lat, _aLon = airportsData[_arrIcaoLive]?.lon;
+            if (_dLat != null && _dLon != null && _aLat != null && _aLon != null) {
+                totalNmLA = getDistanceKm(_dLat, _dLon, _aLat, _aLon) / 1.852;
+            }
+
+            let schedDepMsLA, schedArrMsLA;
+            if (_cachedFiledPlan?.dep_time) {
+                const _p = Date.parse(_cachedFiledPlan.dep_time);
+                if (Number.isFinite(_p)) {
+                    schedDepMsLA = _p;
+                    if (_cachedFiledPlan.duration_minutes) {
+                        schedArrMsLA = _p + _cachedFiledPlan.duration_minutes * 60000;
+                    }
+                }
+            }
+
             const isLanded = !!(baseProps.position?.alt_ft != null && baseProps.position.alt_ft < 100
                                 && _gsLA < 40 && distanceToDestNM < 5);
-            // Bail without an update if we genuinely have no ETA value
-            // to send. The Swift `update` defaults a missing ETA to
-            // Date.now(), which would zero out the lock-screen
-            // countdown ("0 min remaining") -- much worse than just
-            // skipping a tick.
-            if (etaMs) {
-                window.InflightLiveActivity.update({
-                    flightId: baseProps.flightId,
-                    currentEta: etaMs,
-                    currentAtd: atdMs,
-                    distanceToDestinationNm: distanceToDestNM,
-                    isLanded
-                });
-            }
+
+            // Always push the distance / landed / total even when we have no
+            // fresh ETA -- that's what keeps the plane and NM moving. Omitted
+            // fields are preserved natively from the prior state.
+            window.InflightLiveActivity.update({
+                flightId: baseProps.flightId,
+                currentEta: etaMs,
+                currentAtd: atdMs,
+                scheduledDeparture: schedDepMsLA,
+                scheduledArrival: schedArrMsLA,
+                distanceToDestinationNm: distanceToDestNM,
+                totalDistanceNm: totalNmLA,
+                isLanded
+            });
+
             if (isLanded) {
                 setTimeout(() => {
                     window.InflightLiveActivity?.end({ flightId: baseProps.flightId, immediate: false });
+                    window.emitLiveActivityUnregister?.(baseProps.flightId);
                 }, 30000);
             }
         }

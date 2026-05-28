@@ -69,11 +69,22 @@ log "Existing App target sources before: #{app_target.source_build_phase.files_r
 end
 
 # Set NSSupportsLiveActivities in the App's Info.plist (independent of project).
+# NSSupportsLiveActivitiesFrequentUpdates lets the backend push frequent
+# content-state updates (position/distance) without the system throttling
+# them -- important for a flight tracker where the plane should keep moving.
 info = Plist.parse_xml(APP_INFO_PLIST.to_s) || {}
+info_changed = false
 unless info['NSSupportsLiveActivities'] == true
   info['NSSupportsLiveActivities'] = true
+  info_changed = true
+end
+unless info['NSSupportsLiveActivitiesFrequentUpdates'] == true
+  info['NSSupportsLiveActivitiesFrequentUpdates'] = true
+  info_changed = true
+end
+if info_changed
   File.write(APP_INFO_PLIST.to_s, Plist::Emit.dump(info))
-  log "NSSupportsLiveActivities = true written to Info.plist"
+  log "Live Activity Info.plist keys (incl. FrequentUpdates) written."
 end
 
 # Resolve the App group. cap add ios uses a top-level 'App' group with
@@ -150,6 +161,63 @@ if BUNDLED_CAP_CONFIG.exist?
 else
   die "#{BUNDLED_CAP_CONFIG} not found — `cap sync` should have produced it. " \
       "Without this, the Capacitor 8 bridge cannot discover LiveActivityPlugin."
+end
+
+# ---------------------------------------------------------------------------
+# Phase A3: APNs push entitlement for backend-driven Live Activity updates.
+#
+# Requesting an activity with `pushType: .token` only yields a usable push
+# token if the App target carries the `aps-environment` entitlement AND the
+# signing provisioning profile has the Push Notifications capability enabled.
+#
+# We write the entitlement here so the project is *ready* for push. The
+# remaining, account-side steps are NOT something this script can do:
+#   1. Enable "Push Notifications" on the App ID (com.tracker.Inflight) in
+#      the Apple Developer portal.
+#   2. Regenerate the App's distribution provisioning profile so it includes
+#      that capability, and make it available to the Codemagic build.
+# Until those are done the activity still starts and *local* updates work;
+# the push token simply won't be delivered.
+#
+# 'production' matches the distribution ('iPhone Distribution') signing this
+# pipeline uses; the backend must talk to the APNs production host. Switch to
+# 'development' only for a debug-signed build.
+# ---------------------------------------------------------------------------
+
+begin
+  existing_ent_setting = app_target.build_configurations
+                                   .map { |c| c.build_settings['CODE_SIGN_ENTITLEMENTS'] }
+                                   .compact.reject { |v| v.to_s.strip.empty? }.first
+  ent_rel  = existing_ent_setting || 'App/App.entitlements'
+  ent_path = REPO_ROOT.join('ios/App', ent_rel)
+  FileUtils.mkdir_p(ent_path.dirname)
+
+  ent = ent_path.exist? ? (Plist.parse_xml(ent_path.to_s) || {}) : {}
+  if ent['aps-environment'].to_s.empty?
+    ent['aps-environment'] = 'production'
+    File.write(ent_path.to_s, Plist::Emit.dump(ent))
+    log "aps-environment=production written to #{ent_rel}"
+  else
+    log "aps-environment already set (#{ent['aps-environment']}) in #{ent_rel}"
+  end
+
+  app_target.build_configurations.each do |config|
+    cur = config.build_settings['CODE_SIGN_ENTITLEMENTS']
+    if cur.nil? || cur.to_s.strip.empty?
+      config.build_settings['CODE_SIGN_ENTITLEMENTS'] = ent_rel
+    end
+  end
+
+  ent_basename = Pathname.new(ent_rel).basename.to_s
+  unless app_group.files.any? { |f| f.path == ent_basename }
+    app_group.new_reference(ent_basename) rescue nil
+  end
+
+  project.save
+  log "Phase A3 saved: APNs push entitlement wired (CODE_SIGN_ENTITLEMENTS=#{ent_rel})."
+rescue => e
+  warn "[live-activity] Phase A3 (push entitlement) failed (non-fatal): #{e.class}: #{e.message}"
+  project.save
 end
 
 # ---------------------------------------------------------------------------

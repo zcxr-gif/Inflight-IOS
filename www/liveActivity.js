@@ -17,6 +17,44 @@
     let pluginRef = null;
     let notificationPermissionRequested = false;
 
+    // --- Push-token relay state ---------------------------------------------
+    // ActivityKit hands us an APNs push token per activity (and, on iOS 17.2+,
+    // a device-level push-to-start token). We buffer the latest of each so a
+    // consumer that subscribes late (e.g. after the socket connects) still
+    // gets them, and forward live updates to whoever registered a callback.
+    let pushTokenCb = null;
+    let pushToStartCb = null;
+    let lastPushToStartToken = null;
+    const lastTokenByFlight = new Map();
+    let tokenListenersAttached = false;
+
+    function attachTokenListeners() {
+        if (tokenListenersAttached) return;
+        const plugin = getPlugin();
+        if (!plugin || typeof plugin.addListener !== 'function') return;
+        tokenListenersAttached = true;
+        try {
+            plugin.addListener('liveActivityPushToken', (ev) => {
+                if (!ev || !ev.token || !ev.flightId) return;
+                lastTokenByFlight.set(String(ev.flightId), ev.token);
+                if (pushTokenCb) { try { pushTokenCb(ev); } catch (_) {} }
+            });
+            plugin.addListener('liveActivityPushToStartToken', (ev) => {
+                if (!ev || !ev.token) return;
+                lastPushToStartToken = ev.token;
+                if (pushToStartCb) { try { pushToStartCb(ev); } catch (_) {} }
+            });
+            // Pull any token the native side emitted before this listener
+            // existed (e.g. the push-to-start token issued at launch).
+            if (typeof plugin.syncTokens === 'function') {
+                plugin.syncTokens().catch(() => {});
+            }
+        } catch (e) {
+            console.warn('[LiveActivity] attachTokenListeners failed:', e);
+            tokenListenersAttached = false;
+        }
+    }
+
     function detectIOS() {
         // Be liberal: any of (Capacitor reports ios) OR (UA looks like iOS in a
         // WebView) OR (running under the capacitor:// scheme) is enough. The
@@ -222,6 +260,7 @@
             totalDistanceNm: Number(payload.totalDistanceNm) || Number(payload.distanceToDestinationNm) || 0,
             isLanded: !!payload.isLanded
         };
+        attachTokenListeners();
         try {
             const res = await plugin.start(args);
             trackedFlights.add(args.flightId);
@@ -240,16 +279,25 @@
         if (!trackedFlights.has(flightId)) {
             return { ok: false, reason: 'not_tracking' };
         }
-        // Throttle: ActivityKit budget is generous but no need to push more often than once per 15s.
+        // Throttle so we don't hammer ActivityKit, but keep it short enough
+        // that the plane / NM / ETE visibly track the flight. Local updates
+        // (the app is foregrounded) are cheap, so ~5s keeps things live
+        // without burning battery.
         const last = lastUpdateByFlight.get(flightId) || 0;
-        if (Date.now() - last < 15000 && !payload.force) {
+        if (Date.now() - last < 5000 && !payload.force) {
             return { ok: false, reason: 'throttled' };
         }
         const args = {
             flightId,
             currentEtaMs: toMs(payload.currentEta),
             currentAtdMs: toMs(payload.currentAtd),
+            // Refresh the scheduled times + total distance on every push so a
+            // filed plan / airport coords that resolve after start can correct
+            // a pinned activity that was showing stale info.
+            scheduledDepartureMs: toMs(payload.scheduledDeparture),
+            scheduledArrivalMs: toMs(payload.scheduledArrival),
             distanceToDestinationNm: Number(payload.distanceToDestinationNm) || 0,
+            totalDistanceNm: Number(payload.totalDistanceNm) || undefined,
             isLanded: !!payload.isLanded
         };
         try {
@@ -312,6 +360,32 @@
         presentLocalNotification,
         openSystemSettings,
         describeCapacitor,
+        // --- Push-token relay (for backend-driven Live Activity updates) ----
+        // Register a callback that fires with { flightId, activityId, token }
+        // every time ActivityKit issues/rotates a flight's APNs push token.
+        // Buffered tokens are replayed immediately so a late subscriber (e.g.
+        // registered after the socket connects) doesn't miss one.
+        onPushToken(cb) {
+            pushTokenCb = (typeof cb === 'function') ? cb : null;
+            attachTokenListeners();
+            if (pushTokenCb) {
+                lastTokenByFlight.forEach((token, flightId) => {
+                    try { pushTokenCb({ flightId, token }); } catch (_) {}
+                });
+            }
+        },
+        // Register a callback for the device-level push-to-start token
+        // (iOS 17.2+): { token }. Lets the backend create a Live Activity
+        // remotely without the app running.
+        onPushToStartToken(cb) {
+            pushToStartCb = (typeof cb === 'function') ? cb : null;
+            attachTokenListeners();
+            if (pushToStartCb && lastPushToStartToken) {
+                try { pushToStartCb({ token: lastPushToStartToken }); } catch (_) {}
+            }
+        },
+        getLastPushToStartToken() { return lastPushToStartToken; },
+        getPushTokenForFlight(flightId) { return lastTokenByFlight.get(String(flightId)) || null; },
         // Diagnostic: returns everything we know about the bridge state.
         diagnose() {
             return {
@@ -341,6 +415,10 @@
             const plugin = getPlugin();
             if (plugin) {
                 requestNotificationPermission();
+                // Start listening for push tokens right away so the
+                // device-level push-to-start token (emitted natively at
+                // launch) is captured even before the user pins a flight.
+                attachTokenListeners();
                 return;
             }
             if (attempts < 20) setTimeout(tick, 500);

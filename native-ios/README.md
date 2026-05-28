@@ -31,7 +31,9 @@ That script uses the `xcodeproj` ruby gem (pre-installed on Codemagic
 Mac runners via CocoaPods) to:
 
 1. Copy the Swift files into `ios/App/App/` and `ios/App/InflightLiveActivity/`.
-2. Add `NSSupportsLiveActivities = true` to the main app `Info.plist`.
+2. Add `NSSupportsLiveActivities = true` (+ `NSSupportsLiveActivitiesFrequentUpdates`)
+   to the main app `Info.plist`, and write the `aps-environment` push
+   entitlement to `App.entitlements` (see "Backend-driven push updates").
 3. Add `LiveActivityPlugin.swift` + `.m` to the main `App` target.
 4. Create a new `InflightLiveActivity` Widget Extension target.
 5. Add the widget Swift files + Info.plist to the new target.
@@ -76,6 +78,91 @@ gem install xcodeproj plist   # if not already
 ruby native-ios/inject_live_activity.rb
 open ios/App/App.xcodeproj
 ```
+
+## Backend-driven push updates (APNs Live Activity)
+
+The Live Activity is requested with `pushType: .token`, so ActivityKit
+issues an APNs push token the backend can use to update the lock-screen
+plane / NM / ETE **while the phone is locked and the app is suspended**.
+The app does the plumbing; the backend (the same one serving the flight
+sockets) needs to store the tokens and send APNs pushes.
+
+### What the app emits (over the existing `sectorOpsSocket`)
+
+| Socket event | Payload | When |
+|---|---|---|
+| `live_activity_token` | `{ platform:"ios", flightId, activityId, token, server, ts }` | When a pinned flight's activity gets/rotates its push token (re-sent on every socket reconnect). |
+| `live_activity_pushtostart_token` | `{ platform:"ios", token, ts }` | Device-level token (iOS 17.2+). Lets the backend *create* an activity remotely. |
+| `live_activity_unregister` | `{ platform:"ios", flightId, ts }` | When the user stops tracking or the flight lands. Stop pushing this token. |
+
+The backend should map `token → flightId` and, whenever it has fresh
+position data for that flight, send an APNs push to the token.
+
+### APNs request the backend must send
+
+- **Host:** `api.push.apple.com` (production — matches the distribution
+  build; use `api.sandbox.push.apple.com` only for a debug-signed build).
+- **`:path`:** `/3/device/<token>`
+- **Headers:**
+  - `apns-push-type: liveactivity`
+  - `apns-topic: com.tracker.Inflight.push-type.liveactivity`
+  - `apns-priority: 10` (use `5` for low-priority/budgeted updates)
+  - `authorization: bearer <APNs JWT>` (token-based auth with your APNs key)
+- **Body:**
+
+```jsonc
+{
+  "aps": {
+    "timestamp": 1748450400,          // seconds; when YOU generated this update
+    "event": "update",                // or "end"
+    "stale-date": 1748450700,         // optional: when iOS should grey it out
+    "relevance-score": 100,           // optional
+    "content-state": {
+      "distanceToDestinationNm": 412.3,
+      "totalDistanceNm": 980.0,
+      "currentETA": 1748455800,       // Date -> Unix epoch SECONDS (number)
+      "scheduledDeparture": 1748448000,
+      "scheduledArrival": 1748455200,
+      "currentATD": 1748448120,       // omit if unknown
+      "isLanded": false
+    }
+  }
+}
+```
+
+To **start** an activity remotely (push-to-start, iOS 17.2+) send the same
+request to the `live_activity_pushtostart_token`, with
+`"event": "start"`, an `"attributes-type": "InflightActivityAttributes"`,
+an `"attributes": { flightId, callsign, airlineName, departureIcao,
+arrivalIcao }` object, and the `content-state` above.
+
+### Contract notes (must match the Swift model exactly)
+
+- `content-state` keys are the `ContentState` property names verbatim:
+  `distanceToDestinationNm`, `totalDistanceNm`, `currentETA`,
+  `scheduledDeparture`, `scheduledArrival`, `currentATD`, `isLanded`.
+- **All `Date` fields are Unix epoch *seconds*** (numbers), per Apple's
+  ActivityKit push decoding — not milliseconds, not ISO-8601.
+- Send `event:"end"` (optionally with a final `content-state`) to retire the
+  activity; the app also ends it locally on landing.
+- `currentETA` drives the lock-screen countdown, `distanceToDestinationNm` +
+  `totalDistanceNm` drive the plane's position. Keep them consistent
+  (ETA ≈ now + remaining/groundspeed) so the plane and the timer agree.
+
+### Build / signing prerequisites (account side)
+
+`pushType: .token` needs the `aps-environment` entitlement, which the
+injector now writes, **plus** an App ID with Push Notifications enabled and
+a provisioning profile that includes it:
+
+1. Enable **Push Notifications** on App ID `com.tracker.Inflight`.
+2. Regenerate the App's distribution profile so it carries that capability
+   (the Codemagic `fetch-signing-files ... --create` step will do this for
+   the App ID once the capability is enabled).
+3. Create an **APNs Auth Key** (.p8) for the backend's token-based JWT.
+
+Until those are in place the activity still starts and local (foreground)
+updates work — the push token just won't be delivered.
 
 ## Why not just commit the `ios/` folder?
 

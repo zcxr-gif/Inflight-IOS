@@ -47,18 +47,34 @@ private func timeStringShort(_ date: Date) -> String {
 
 @available(iOS 16.1, *)
 private func flightProgress(_ context: ActivityViewContext<InflightActivityAttributes>) -> Double {
-    let total = context.attributes.totalDistanceNm
-    let remaining = max(0, context.state.distanceToDestinationNm)
-    if total > 1 {
+    let st = context.state
+    if st.isLanded { return 1.0 }
+    let total = st.totalDistanceNm
+    let remaining = max(0, st.distanceToDestinationNm)
+    // Distance-based progress is what "how close is the plane" really means,
+    // so prefer it. Guard against a bogus total (<= remaining) which would
+    // otherwise peg the plane at the origin forever.
+    if total > 1 && total >= remaining {
         let done = max(0, total - remaining)
         return min(max(done / total, 0), 1)
     }
-    let dep = context.attributes.scheduledDeparture
-    let arr = context.attributes.scheduledArrival
-    let span = arr.timeIntervalSince(dep)
-    guard span > 0 else { return context.state.isLanded ? 1.0 : 0.0 }
-    let elapsed = Date().timeIntervalSince(dep)
+    // Fallback: time-based progress across the active flight window. Anchored
+    // on the actual takeoff when known (else the scheduled departure) and
+    // running toward the live ETA, so the fill advances in step with the
+    // countdown even while we wait on a fresh distance push.
+    let start = st.currentATD ?? st.scheduledDeparture
+    let end = st.currentETA
+    let span = end.timeIntervalSince(start)
+    guard span > 0 else { return 0 }
+    let elapsed = Date().timeIntervalSince(start)
     return min(max(elapsed / span, 0), 1)
+}
+
+/// Show the hours component on the countdown only when at least an hour is
+/// left -- otherwise the timer reads cleanly as minutes:seconds.
+@available(iOS 16.1, *)
+private func etaShowsHours(_ eta: Date) -> Bool {
+    eta.timeIntervalSinceNow >= 3600
 }
 
 // =============================================================================
@@ -117,13 +133,8 @@ struct InflightLiveActivity: Widget {
                         .foregroundColor(InflightLA.success)
                         .frame(maxWidth: 60)
                 } else {
-                    Text(timerInterval: Date()...context.state.currentETA,
-                         pauseTime: nil,
-                         countsDown: true,
-                         showsHours: false)
-                        .font(InflightLA.counterFont)
-                        .foregroundColor(InflightLA.accent)
-                        .frame(maxWidth: 56)
+                    ETECountdown(eta: context.state.currentETA)
+                        .frame(maxWidth: 64)
                 }
             } minimal: {
                 Image(systemName: "airplane")
@@ -173,11 +184,11 @@ struct LockScreenView: View {
             // Times under each ICAO, with an "Estimated" line below if the
             // estimate / actual shifted from the schedule.
             HStack(alignment: .top) {
-                TimeBlock(scheduled: context.attributes.scheduledDeparture,
+                TimeBlock(scheduled: context.state.scheduledDeparture,
                           actual: context.state.currentATD,
                           alignment: .leading)
                 Spacer()
-                TimeBlock(scheduled: context.attributes.scheduledArrival,
+                TimeBlock(scheduled: context.state.scheduledArrival,
                           actual: context.state.currentETA,
                           alignment: .trailing)
             }
@@ -200,14 +211,11 @@ struct LockScreenView: View {
                 Spacer()
                 if !context.state.isLanded {
                     HStack(spacing: 4) {
-                        Text(timerInterval: Date()...context.state.currentETA,
-                             pauseTime: nil,
-                             countsDown: true,
-                             showsHours: false)
-                            .font(InflightLA.footerFont)
-                            .foregroundColor(InflightLA.text)
+                        ETECountdown(eta: context.state.currentETA,
+                                     font: InflightLA.footerFont,
+                                     color: InflightLA.text)
                             .multilineTextAlignment(.trailing)
-                            .frame(minWidth: 52, alignment: .trailing)
+                            .frame(minWidth: 64, alignment: .trailing)
                         Text("left")
                             .font(InflightLA.footerFont)
                             .foregroundColor(InflightLA.textSecond)
@@ -349,6 +357,30 @@ struct DynamicIslandRoute: View {
 // MARK: - Status badge + Dynamic Island ETA chip
 // =============================================================================
 
+/// A live ETE countdown rendered by the system clock, so it stays accurate
+/// to the second without a push -- including while the phone is locked and
+/// the app suspended. Shows hours + minutes for long legs, minutes + seconds
+/// for the final hour.
+@available(iOS 16.1, *)
+struct ETECountdown: View {
+    let eta: Date
+    var font: Font = InflightLA.counterFont
+    var color: Color = InflightLA.accent
+
+    var body: some View {
+        // `Text(timerInterval:)` requires a strictly-increasing range; clamp
+        // the end past "now" so an already-elapsed ETA can't crash the view.
+        let end = max(eta, Date().addingTimeInterval(1))
+        Text(timerInterval: Date()...end,
+             pauseTime: nil,
+             countsDown: true,
+             showsHours: etaShowsHours(eta))
+            .font(font)
+            .foregroundColor(color)
+            .monospacedDigit()
+    }
+}
+
 @available(iOS 16.1, *)
 struct StatusBadge: View {
     let text: String
@@ -372,12 +404,7 @@ struct DynamicETAReadout: View {
             StatusBadge(text: "Landed", color: InflightLA.success)
         } else {
             HStack(spacing: 4) {
-                Text(timerInterval: Date()...context.state.currentETA,
-                     pauseTime: nil,
-                     countsDown: true,
-                     showsHours: false)
-                    .font(InflightLA.counterFont)
-                    .foregroundColor(InflightLA.accent)
+                ETECountdown(eta: context.state.currentETA)
                 Text("left")
                     .font(InflightLA.counterFont)
                     .foregroundColor(InflightLA.textSecond)

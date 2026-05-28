@@ -9,10 +9,100 @@ public class LiveActivityPlugin: CAPPlugin, UNUserNotificationCenterDelegate {
 
     private var activeActivityIdByFlight: [String: String] = [:]
     private var didInstallForegroundDelegate = false
+    // Activity ids we've already attached a push-token observer to, so a
+    // reused activity / a relaunch reconcile doesn't spawn duplicate tasks.
+    private var observedActivityIds = Set<String>()
+    // Cache the most recent tokens so JS can pull them via `syncTokens` even
+    // if it attached its listener after the native side emitted them
+    // (Capacitor events aren't buffered for late subscribers).
+    private var lastPushTokenByFlight: [String: String] = [:]
+    private var lastPushToStartToken: String?
 
     public override func load() {
         super.load()
         installForegroundDelegate()
+        if #available(iOS 16.1, *) {
+            // Re-attach to any activity that survived an app relaunch so the
+            // backend keeps getting push tokens and JS update/end still
+            // resolve by flightId.
+            reconcileActivities()
+            // Device-level push-to-start token (iOS 17.2+) lets the backend
+            // create a Live Activity remotely without the app running.
+            observePushToStartToken()
+        }
+    }
+
+    // MARK: - Push token plumbing
+
+    @available(iOS 16.1, *)
+    private func hexString(_ data: Data) -> String {
+        data.map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Stream this activity's APNs push token to JS (event
+    /// `liveActivityPushToken`) so it can be relayed to the backend. The
+    /// backend pushes `content-state` updates to this token to move the
+    /// plane / NM / ETE even while the app is suspended or terminated.
+    @available(iOS 16.1, *)
+    private func observePushToken(_ activity: Activity<InflightActivityAttributes>) {
+        guard !observedActivityIds.contains(activity.id) else { return }
+        observedActivityIds.insert(activity.id)
+        let flightId = activity.attributes.flightId
+        let activityId = activity.id
+        Task { [weak self] in
+            for await tokenData in activity.pushTokenUpdates {
+                guard let self = self else { return }
+                let token = self.hexString(tokenData)
+                self.lastPushTokenByFlight[flightId] = token
+                self.notifyListeners("liveActivityPushToken", data: [
+                    "flightId": flightId,
+                    "activityId": activityId,
+                    "token": token
+                ])
+            }
+        }
+    }
+
+    /// Stream the device-level push-to-start token (iOS 17.2+) to JS
+    /// (event `liveActivityPushToStartToken`).
+    @available(iOS 16.1, *)
+    private func observePushToStartToken() {
+        guard #available(iOS 17.2, *) else { return }
+        Task { [weak self] in
+            for await tokenData in Activity<InflightActivityAttributes>.pushToStartTokenUpdates {
+                guard let self = self else { return }
+                let token = self.hexString(tokenData)
+                self.lastPushToStartToken = token
+                self.notifyListeners("liveActivityPushToStartToken", data: [
+                    "token": token
+                ])
+            }
+        }
+    }
+
+    /// Re-emit all cached push tokens. JS calls this right after attaching its
+    /// listeners so a token issued before the listener existed isn't lost.
+    @objc func syncTokens(_ call: CAPPluginCall) {
+        if let t = lastPushToStartToken {
+            notifyListeners("liveActivityPushToStartToken", data: ["token": t])
+        }
+        for (fid, tok) in lastPushTokenByFlight {
+            notifyListeners("liveActivityPushToken", data: ["flightId": fid, "token": tok])
+        }
+        call.resolve()
+    }
+
+    /// Rebuild the flightId→activityId map and re-observe push tokens for any
+    /// activities that outlived the app process.
+    @available(iOS 16.1, *)
+    private func reconcileActivities() {
+        for activity in Activity<InflightActivityAttributes>.activities {
+            let fid = activity.attributes.flightId
+            if !fid.isEmpty {
+                activeActivityIdByFlight[fid] = activity.id
+            }
+            observePushToken(activity)
+        }
     }
 
     /// Become the UNUserNotificationCenter delegate so local notifications
@@ -231,13 +321,16 @@ public class LiveActivityPlugin: CAPPlugin, UNUserNotificationCenterDelegate {
         // omit this on old callers -- fall back to the current remaining
         // distance so the bar starts at 0% progress (visually identical
         // to "just took off").
-        let totalDistNm = call.getDouble("totalDistanceNm") ?? distNm
+        let totalDistNm = max(call.getDouble("totalDistanceNm") ?? distNm, distNm)
         let isLanded = call.getBool("isLanded") ?? false
 
         if let existingId = activeActivityIdByFlight[flightId] {
             updateActivity(id: existingId,
                            distNm: distNm,
+                           totalDistNm: totalDistNm,
                            currentETA: currentETA,
+                           schedDep: schedDep,
+                           schedArr: schedArr,
                            currentATD: currentATD,
                            isLanded: isLanded)
             call.resolve(["activityId": existingId, "reused": true])
@@ -245,39 +338,46 @@ public class LiveActivityPlugin: CAPPlugin, UNUserNotificationCenterDelegate {
         }
 
         let attributes = InflightActivityAttributes(
+            flightId: flightId,
             callsign: callsign,
             airlineName: airlineName,
             departureIcao: departureIcao,
-            arrivalIcao: arrivalIcao,
-            scheduledDeparture: schedDep,
-            scheduledArrival: schedArr,
-            totalDistanceNm: max(totalDistNm, distNm)
+            arrivalIcao: arrivalIcao
         )
 
         let state = InflightActivityAttributes.ContentState(
             distanceToDestinationNm: distNm,
+            totalDistanceNm: totalDistNm,
             currentETA: currentETA,
+            scheduledDeparture: schedDep,
+            scheduledArrival: schedArr,
             currentATD: currentATD,
             isLanded: isLanded
         )
 
         do {
             let activity: Activity<InflightActivityAttributes>
+            // `.token` asks ActivityKit for an APNs push token so the backend
+            // can drive updates while the app is suspended. Requires the
+            // `aps-environment` entitlement + a Push-enabled provisioning
+            // profile; without them the activity still starts and local
+            // updates work, the push token simply never arrives.
             if #available(iOS 16.2, *) {
                 let content = ActivityContent(state: state, staleDate: nil)
                 activity = try Activity.request(
                     attributes: attributes,
                     content: content,
-                    pushType: nil
+                    pushType: .token
                 )
             } else {
                 activity = try Activity.request(
                     attributes: attributes,
                     contentState: state,
-                    pushType: nil
+                    pushType: .token
                 )
             }
             activeActivityIdByFlight[flightId] = activity.id
+            observePushToken(activity)
             call.resolve(["activityId": activity.id, "reused": false])
         } catch {
             call.reject("Failed to start Live Activity: \(error.localizedDescription)")
@@ -319,16 +419,41 @@ public class LiveActivityPlugin: CAPPlugin, UNUserNotificationCenterDelegate {
             distNm = prior?.distanceToDestinationNm ?? 0
         }
 
+        // Keep the total in sync too, so a corrected great-circle distance
+        // (e.g. once the departure airport's coords resolve) un-sticks a
+        // plane that was pinned at the origin. Never let total drop below
+        // the remaining distance -- that would push progress negative.
+        let totalDistNm: Double
+        if let t = call.getDouble("totalDistanceNm") {
+            totalDistNm = max(t, distNm)
+        } else {
+            totalDistNm = max(prior?.totalDistanceNm ?? distNm, distNm)
+        }
+
         let currentETA: Date
         if let etaMs = call.getDouble("currentEtaMs"), let d = dateFromMs(etaMs) {
             currentETA = d
         } else if let p = prior?.currentETA {
+            // Preserve the last good ETA rather than inventing a fake
+            // "now + 1h" countdown -- that bogus fallback was the source
+            // of the wrong "1 hour" ETE the user reported.
             currentETA = p
         } else {
-            // Last-ditch fallback so we still have *some* future date
-            // to count down to. Never user-facing in practice because
-            // `start` always seeds an ETA.
             currentETA = Date().addingTimeInterval(3600)
+        }
+
+        let schedDep: Date
+        if let ms = call.getDouble("scheduledDepartureMs"), let d = dateFromMs(ms) {
+            schedDep = d
+        } else {
+            schedDep = prior?.scheduledDeparture ?? Date()
+        }
+
+        let schedArr: Date
+        if let ms = call.getDouble("scheduledArrivalMs"), let d = dateFromMs(ms) {
+            schedArr = d
+        } else {
+            schedArr = prior?.scheduledArrival ?? currentETA
         }
 
         let currentATD: Date?
@@ -342,7 +467,10 @@ public class LiveActivityPlugin: CAPPlugin, UNUserNotificationCenterDelegate {
 
         updateActivity(id: activityId,
                        distNm: distNm,
+                       totalDistNm: totalDistNm,
                        currentETA: currentETA,
+                       schedDep: schedDep,
+                       schedArr: schedArr,
                        currentATD: currentATD,
                        isLanded: isLanded)
         call.resolve()
@@ -372,6 +500,7 @@ public class LiveActivityPlugin: CAPPlugin, UNUserNotificationCenterDelegate {
                 }
             }
             self.activeActivityIdByFlight.removeValue(forKey: flightId)
+            self.observedActivityIds.remove(activityId)
             call.resolve()
         }
     }
@@ -379,14 +508,20 @@ public class LiveActivityPlugin: CAPPlugin, UNUserNotificationCenterDelegate {
     @available(iOS 16.1, *)
     private func updateActivity(id: String,
                                 distNm: Double,
+                                totalDistNm: Double,
                                 currentETA: Date,
+                                schedDep: Date,
+                                schedArr: Date,
                                 currentATD: Date?,
                                 isLanded: Bool) {
         Task {
             for activity in Activity<InflightActivityAttributes>.activities where activity.id == id {
                 let newState = InflightActivityAttributes.ContentState(
                     distanceToDestinationNm: distNm,
+                    totalDistanceNm: totalDistNm,
                     currentETA: currentETA,
+                    scheduledDeparture: schedDep,
+                    scheduledArrival: schedArr,
                     currentATD: currentATD,
                     isLanded: isLanded
                 )
