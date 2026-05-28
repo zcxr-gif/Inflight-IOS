@@ -1,7 +1,0 @@
-SUPABASE_URL              = https://mzrjznwzvnvahqamctxy.supabase.co
-SUPABASE_SERVICE_ROLE_KEY = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im16cmp6bnd6dm52YWhxYW1jdHh5Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODU0NTI3NywiZXhwIjoyMDk0MTIxMjc3fQ.PbnquQ3iwWYVPDVf2JrLr6JHJQ9hEKUHHuyF7Ap4WAs
-DISCORD_CLIENT_ID         = 1503570817794183348
-DISCORD_CLIENT_SECRET     = 7Fpv8BQpAakAvG5CZh-eKcHPGn2eXTfY
-DISCORD_GUILD_ID          = 1474928001044058173
-DISCORD_REDIRECT_URI      = https://discoverva.netlify.app/.netlify/functions/auth-callback
-SESSION_SECRET            = 8473941793
