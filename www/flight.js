@@ -9299,14 +9299,20 @@ async function createAirportInfoWindowHTML(icao) {
         const depInfo = computeDepartureTimeInfo(props, cachedTrail, filedPlan, depIcao);
         const arrInfo = computeArrivalTimeInfo(props, filedPlan, distanceNm);
 
-        // ETA: prefer the smart cascade's timestamp; fall back to a fresh
-        // gs+distance estimate; finally fall back to scheduled arrival. The
-        // old code's "now + 1h" fallback was producing wildly wrong ETEs
-        // on the lock-screen countdown when the aircraft was slow/taxiing.
+        // ETA: prefer a live distance/groundspeed estimate so the lock-screen
+        // ETE stays in lockstep with the NM-remaining readout and the plane's
+        // position on the route. Fall back to the in-app cascade (filed /
+        // scheduled), then to a jet-cruise estimate, and only as a last
+        // resort to the scheduled arrival. We deliberately avoid the old
+        // flat "now + 1h" guess, which surfaced as a bogus "1 hour" ETE.
         const gs = props.position?.gs_kt || 0;
-        let etaMs = arrInfo?.timestamp ? arrInfo.timestamp.getTime() : null;
-        if (!etaMs && distanceNm > 0 && gs > 50) {
+        let etaMs = null;
+        if (distanceNm > 0 && gs > 50) {
             etaMs = Date.now() + (distanceNm / gs) * 3600 * 1000;
+        } else if (arrInfo?.timestamp) {
+            etaMs = arrInfo.timestamp.getTime();
+        } else if (distanceNm > 0) {
+            etaMs = Date.now() + (distanceNm / 400) * 3600 * 1000; // assume ~400 kt cruise
         }
         if (!etaMs) etaMs = schedArrMs || (Date.now() + 60 * 60 * 1000);
 
@@ -15045,11 +15051,19 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     try {
         if (window.InflightLiveActivity?.isTrackingFlight(baseProps.flightId)) {
             const _gsLA = baseProps.position?.gs_kt || 0;
-            const etaMs = _arrInfoLive?.timestamp
-                ? _arrInfoLive.timestamp.getTime()
-                : (distanceToDestNM > 0 && _gsLA > 50
-                    ? Date.now() + (distanceToDestNM / _gsLA) * 3600 * 1000
-                    : null);
+            // ETA: prefer the live distance/groundspeed estimate so the ETE,
+            // the NM remaining, and the plane's progress all move together.
+            // Fall back to the in-app cascade (filed/scheduled) when we're too
+            // slow for a meaningful estimate (taxi/hold). When we genuinely
+            // have nothing, send `undefined` and let the native side keep the
+            // last good ETA instead of inventing a fake "1 hour".
+            let etaMs;
+            if (distanceToDestNM > 0 && _gsLA > 50) {
+                etaMs = Date.now() + (distanceToDestNM / _gsLA) * 3600 * 1000;
+            } else if (_arrInfoLive?.timestamp) {
+                etaMs = _arrInfoLive.timestamp.getTime();
+            }
+
             // ATD only counts when we have real GPS history (label
             // ACTUAL). Otherwise leave it undefined so the widget shows
             // the scheduled departure verbatim instead of pretending
@@ -15057,22 +15071,46 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             const atdMs = (_depInfoLive?.timestamp && _depInfoLive.label === 'ACTUAL')
                 ? _depInfoLive.timestamp.getTime()
                 : undefined;
+
+            // Recompute the great-circle total + scheduled times every tick so
+            // a filed plan / airport coords that resolve after the activity
+            // started can correct a pinned lock screen that was showing stale
+            // info (or a plane stuck at the origin because total was 0).
+            let totalNmLA;
+            const _dLat = airportsData[_depIcaoLive]?.lat, _dLon = airportsData[_depIcaoLive]?.lon;
+            const _aLat = airportsData[_arrIcaoLive]?.lat, _aLon = airportsData[_arrIcaoLive]?.lon;
+            if (_dLat != null && _dLon != null && _aLat != null && _aLon != null) {
+                totalNmLA = getDistanceKm(_dLat, _dLon, _aLat, _aLon) / 1.852;
+            }
+
+            let schedDepMsLA, schedArrMsLA;
+            if (_cachedFiledPlan?.dep_time) {
+                const _p = Date.parse(_cachedFiledPlan.dep_time);
+                if (Number.isFinite(_p)) {
+                    schedDepMsLA = _p;
+                    if (_cachedFiledPlan.duration_minutes) {
+                        schedArrMsLA = _p + _cachedFiledPlan.duration_minutes * 60000;
+                    }
+                }
+            }
+
             const isLanded = !!(baseProps.position?.alt_ft != null && baseProps.position.alt_ft < 100
                                 && _gsLA < 40 && distanceToDestNM < 5);
-            // Bail without an update if we genuinely have no ETA value
-            // to send. The Swift `update` defaults a missing ETA to
-            // Date.now(), which would zero out the lock-screen
-            // countdown ("0 min remaining") -- much worse than just
-            // skipping a tick.
-            if (etaMs) {
-                window.InflightLiveActivity.update({
-                    flightId: baseProps.flightId,
-                    currentEta: etaMs,
-                    currentAtd: atdMs,
-                    distanceToDestinationNm: distanceToDestNM,
-                    isLanded
-                });
-            }
+
+            // Always push the distance / landed / total even when we have no
+            // fresh ETA -- that's what keeps the plane and NM moving. Omitted
+            // fields are preserved natively from the prior state.
+            window.InflightLiveActivity.update({
+                flightId: baseProps.flightId,
+                currentEta: etaMs,
+                currentAtd: atdMs,
+                scheduledDeparture: schedDepMsLA,
+                scheduledArrival: schedArrMsLA,
+                distanceToDestinationNm: distanceToDestNM,
+                totalDistanceNm: totalNmLA,
+                isLanded
+            });
+
             if (isLanded) {
                 setTimeout(() => {
                     window.InflightLiveActivity?.end({ flightId: baseProps.flightId, immediate: false });

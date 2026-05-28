@@ -240,16 +240,25 @@
         if (!trackedFlights.has(flightId)) {
             return { ok: false, reason: 'not_tracking' };
         }
-        // Throttle: ActivityKit budget is generous but no need to push more often than once per 15s.
+        // Throttle so we don't hammer ActivityKit, but keep it short enough
+        // that the plane / NM / ETE visibly track the flight. Local updates
+        // (the app is foregrounded) are cheap, so ~5s keeps things live
+        // without burning battery.
         const last = lastUpdateByFlight.get(flightId) || 0;
-        if (Date.now() - last < 15000 && !payload.force) {
+        if (Date.now() - last < 5000 && !payload.force) {
             return { ok: false, reason: 'throttled' };
         }
         const args = {
             flightId,
             currentEtaMs: toMs(payload.currentEta),
             currentAtdMs: toMs(payload.currentAtd),
+            // Refresh the scheduled times + total distance on every push so a
+            // filed plan / airport coords that resolve after start can correct
+            // a pinned activity that was showing stale info.
+            scheduledDepartureMs: toMs(payload.scheduledDeparture),
+            scheduledArrivalMs: toMs(payload.scheduledArrival),
             distanceToDestinationNm: Number(payload.distanceToDestinationNm) || 0,
+            totalDistanceNm: Number(payload.totalDistanceNm) || undefined,
             isLanded: !!payload.isLanded
         };
         try {

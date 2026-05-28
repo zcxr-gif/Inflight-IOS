@@ -231,13 +231,16 @@ public class LiveActivityPlugin: CAPPlugin, UNUserNotificationCenterDelegate {
         // omit this on old callers -- fall back to the current remaining
         // distance so the bar starts at 0% progress (visually identical
         // to "just took off").
-        let totalDistNm = call.getDouble("totalDistanceNm") ?? distNm
+        let totalDistNm = max(call.getDouble("totalDistanceNm") ?? distNm, distNm)
         let isLanded = call.getBool("isLanded") ?? false
 
         if let existingId = activeActivityIdByFlight[flightId] {
             updateActivity(id: existingId,
                            distNm: distNm,
+                           totalDistNm: totalDistNm,
                            currentETA: currentETA,
+                           schedDep: schedDep,
+                           schedArr: schedArr,
                            currentATD: currentATD,
                            isLanded: isLanded)
             call.resolve(["activityId": existingId, "reused": true])
@@ -248,15 +251,15 @@ public class LiveActivityPlugin: CAPPlugin, UNUserNotificationCenterDelegate {
             callsign: callsign,
             airlineName: airlineName,
             departureIcao: departureIcao,
-            arrivalIcao: arrivalIcao,
-            scheduledDeparture: schedDep,
-            scheduledArrival: schedArr,
-            totalDistanceNm: max(totalDistNm, distNm)
+            arrivalIcao: arrivalIcao
         )
 
         let state = InflightActivityAttributes.ContentState(
             distanceToDestinationNm: distNm,
+            totalDistanceNm: totalDistNm,
             currentETA: currentETA,
+            scheduledDeparture: schedDep,
+            scheduledArrival: schedArr,
             currentATD: currentATD,
             isLanded: isLanded
         )
@@ -319,16 +322,41 @@ public class LiveActivityPlugin: CAPPlugin, UNUserNotificationCenterDelegate {
             distNm = prior?.distanceToDestinationNm ?? 0
         }
 
+        // Keep the total in sync too, so a corrected great-circle distance
+        // (e.g. once the departure airport's coords resolve) un-sticks a
+        // plane that was pinned at the origin. Never let total drop below
+        // the remaining distance -- that would push progress negative.
+        let totalDistNm: Double
+        if let t = call.getDouble("totalDistanceNm") {
+            totalDistNm = max(t, distNm)
+        } else {
+            totalDistNm = max(prior?.totalDistanceNm ?? distNm, distNm)
+        }
+
         let currentETA: Date
         if let etaMs = call.getDouble("currentEtaMs"), let d = dateFromMs(etaMs) {
             currentETA = d
         } else if let p = prior?.currentETA {
+            // Preserve the last good ETA rather than inventing a fake
+            // "now + 1h" countdown -- that bogus fallback was the source
+            // of the wrong "1 hour" ETE the user reported.
             currentETA = p
         } else {
-            // Last-ditch fallback so we still have *some* future date
-            // to count down to. Never user-facing in practice because
-            // `start` always seeds an ETA.
             currentETA = Date().addingTimeInterval(3600)
+        }
+
+        let schedDep: Date
+        if let ms = call.getDouble("scheduledDepartureMs"), let d = dateFromMs(ms) {
+            schedDep = d
+        } else {
+            schedDep = prior?.scheduledDeparture ?? Date()
+        }
+
+        let schedArr: Date
+        if let ms = call.getDouble("scheduledArrivalMs"), let d = dateFromMs(ms) {
+            schedArr = d
+        } else {
+            schedArr = prior?.scheduledArrival ?? currentETA
         }
 
         let currentATD: Date?
@@ -342,7 +370,10 @@ public class LiveActivityPlugin: CAPPlugin, UNUserNotificationCenterDelegate {
 
         updateActivity(id: activityId,
                        distNm: distNm,
+                       totalDistNm: totalDistNm,
                        currentETA: currentETA,
+                       schedDep: schedDep,
+                       schedArr: schedArr,
                        currentATD: currentATD,
                        isLanded: isLanded)
         call.resolve()
@@ -379,14 +410,20 @@ public class LiveActivityPlugin: CAPPlugin, UNUserNotificationCenterDelegate {
     @available(iOS 16.1, *)
     private func updateActivity(id: String,
                                 distNm: Double,
+                                totalDistNm: Double,
                                 currentETA: Date,
+                                schedDep: Date,
+                                schedArr: Date,
                                 currentATD: Date?,
                                 isLanded: Bool) {
         Task {
             for activity in Activity<InflightActivityAttributes>.activities where activity.id == id {
                 let newState = InflightActivityAttributes.ContentState(
                     distanceToDestinationNm: distNm,
+                    totalDistanceNm: totalDistNm,
                     currentETA: currentETA,
+                    scheduledDeparture: schedDep,
+                    scheduledArrival: schedArr,
                     currentATD: currentATD,
                     isLanded: isLanded
                 )
