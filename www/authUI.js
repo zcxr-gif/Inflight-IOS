@@ -109,7 +109,7 @@ export const AuthUI = {
         }
     },
 
-    async open(mode = 'signin') {
+    async open(mode = 'choose') {
         if (!this._supabase) {
             console.error("AuthUI: Supabase client not initialized. Call AuthUI.init(supabase) first.");
             return;
@@ -192,13 +192,13 @@ export const AuthUI = {
         const card = document.getElementById('auth-modal-card');
         if (!card) return;
 
+        const isChoose = this._mode === 'choose';
         const isSignIn = this._mode === 'signin';
         const isSignUp = this._mode === 'signup';
         const isPayment = this._mode === 'payment';
         const isForgot = this._mode === 'forgot';
         const isUpdatePassword = this._mode === 'update_password';
         const isRenew = this._mode === 'renew';
-        const iosNativeEarly = (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative());
 
         const showPaymentOptions = isPayment || isRenew;
 
@@ -209,21 +209,34 @@ export const AuthUI = {
                 <img src="Images/InflightPro.png" alt="InFlight Pro Logo" class="auth-brand-logo" onerror="this.style.display='none'">
         `;
 
-        if (!showPaymentOptions && !isForgot && !isUpdatePassword) {
+        // ── Choose screen: first step. User picks Log In or Create Account.
+        if (isChoose) {
             html += `
-                <div class="auth-toggle-container">
-                    <div class="auth-toggle-pill">
-                        <button class="auth-toggle-btn ${isSignIn ? 'active' : ''}" data-mode="signin">Sign In</button>
-                        <button class="auth-toggle-btn ${isSignUp ? 'active' : ''}" data-mode="signup">Sign Up</button>
-                    </div>
+                    <h3 class="auth-choose-title">Welcome aboard</h3>
+                    <p class="auth-choose-copy">Sign in to your account, or create a new one on the web.</p>
+                </div>
+                <div class="auth-form-body auth-choose-body">
+                    <button class="auth-submit-btn auth-choose-primary" id="auth-choose-login">
+                        <i class="fa-solid fa-right-to-bracket"></i>
+                        <span>Log In</span>
+                    </button>
+                    <button class="auth-choose-secondary" id="auth-choose-signup">
+                        <i class="fa-solid fa-user-plus"></i>
+                        <span>Create Account</span>
+                        <i class="fa-solid fa-arrow-up-right-from-square auth-choose-ext"></i>
+                    </button>
+                    <p class="auth-choose-footer">
+                        New accounts are created at <strong>inflight.info</strong>.
+                    </p>
                 </div>
             `;
+            card.innerHTML = html;
+            this.attachContentListeners();
+            return;
         }
 
-        // iOS native: the Sign Up tab opens a "Create an account online" view
-        // instead of the signup form (Apple guideline + we only handle account
-        // creation through the website).
-        if (iosNativeEarly && isSignUp) {
+        // Sign Up always hands off to the website (web + iOS).
+        if (isSignUp) {
             html += `</div>
                 <div class="auth-form-body ios-signup-redirect">
                     <div class="ios-redirect-hero">
@@ -238,13 +251,20 @@ export const AuthUI = {
                         <i class="fa-solid fa-arrow-up-right-from-square" style="margin-right:8px;"></i>
                         Open inflight.info
                     </button>
-                    <button class="auth-back-btn" id="auth-back-to-signin-from-redirect">Back to Sign In</button>
+                    <button class="auth-back-btn" id="auth-back-to-choose">Back</button>
                 </div>`;
             card.innerHTML = html;
             this.attachContentListeners();
             return;
         }
-        if (isPayment) {
+        if (isSignIn) {
+            html += `
+                <div class="auth-payment-header auth-signin-header">
+                    <h3 style="margin: 0; font-size: 1.35rem; font-weight: 700;">Welcome back</h3>
+                    <p style="margin: 6px 0 0; font-size: 0.9rem;">Sign in to continue to InFlight.</p>
+                </div>
+            `;
+        } else if (isPayment) {
             html += `
                 <div class="auth-payment-header">
                     <h3 style="margin: 0; color: #0f172a; font-size: 1.25rem; font-weight: 700;">Start Your 7-Day Free Trial</h3>
@@ -357,34 +377,11 @@ export const AuthUI = {
                 <button class="auth-submit-btn" id="auth-submit-update-btn">Save New Password</button>
             `;
         } else {
-            let formFields = '';
-            
-            if (isSignUp) {
-                const showPricingNotice = !(typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative());
-                formFields += `
-                    ${showPricingNotice ? `
-                    <div class="auth-premium-notice">
-                        <i class="fa-solid fa-gem auth-premium-icon"></i>
-                        <div class="auth-premium-text">
-                            <strong>InFlight Pro</strong> is $1.99/mo after your <strong>7-day free trial</strong>.
-                        </div>
-                    </div>
-                    ` : ''}
-                    <div class="auth-input-group">
-                        <label>Full Name</label>
-                        <div class="auth-field-wrapper">
-                            <i class="fa-solid fa-user auth-field-icon"></i>
-                            <input type="text" id="auth-name" placeholder="John Doe" class="auth-input" required>
-                        </div>
-                    </div>
-                `;
-            }
-
             const storedEmail = localStorage.getItem('inflight_remembered_email');
-            const defaultEmail = isSignIn && storedEmail ? storedEmail : '';
-            const defaultRememberChecked = (isSignIn && storedEmail) || localStorage.getItem('inflight_remember_preference') !== 'false' ? 'checked' : '';
+            const defaultEmail = storedEmail || '';
+            const defaultRememberChecked = storedEmail || localStorage.getItem('inflight_remember_preference') !== 'false' ? 'checked' : '';
 
-            formFields += `
+            html += `
                 <div class="auth-input-group">
                     <label>Email Address</label>
                     <div class="auth-field-wrapper">
@@ -392,7 +389,7 @@ export const AuthUI = {
                         <input type="email" id="auth-email" placeholder="pilot@example.com" class="auth-input" value="${defaultEmail}" required>
                     </div>
                 </div>
-                
+
                 <div class="auth-input-group">
                     <label>Password</label>
                     <div class="auth-field-wrapper">
@@ -400,42 +397,20 @@ export const AuthUI = {
                         <input type="password" id="auth-password" placeholder="••••••••" class="auth-input" required>
                     </div>
                 </div>
-            `;
 
-            let optionsHtml = '';
-            if (isSignIn) {
-                optionsHtml = `
-                    <div class="auth-options">
-                        <label class="auth-checkbox">
-                            <input type="checkbox" id="auth-remember" ${defaultRememberChecked}>
-                            <span>Remember me</span>
-                        </label>
-                        <a href="#" class="auth-forgot-link" id="auth-forgot-password">Forgot password?</a>
-                    </div>
-                `;
-            } else {
-                optionsHtml = `
-                    <div class="auth-options">
-                        <label class="auth-checkbox">
-                            <input type="checkbox" id="auth-terms" required>
-                            <span>I agree to the <a href="terms.html" target="_blank" class="auth-terms-link">Terms of Use</a> & <a href="privacy.html" target="_blank" class="auth-terms-link">Privacy Policy</a></span>
-                        </label>
-                    </div>
-                `;
-            }
+                <div class="auth-options">
+                    <label class="auth-checkbox">
+                        <input type="checkbox" id="auth-remember" ${defaultRememberChecked}>
+                        <span>Remember me</span>
+                    </label>
+                    <a href="#" class="auth-forgot-link" id="auth-forgot-password">Forgot password?</a>
+                </div>
 
-            const iosNative = (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative());
-            const signupSubmitText = iosNative ? "Create Account" : "Start 7-Day Free Trial";
-            const submitText = isSignIn ? "Sign In" : signupSubmitText;
-
-            html += `
-                ${formFields}
-                ${optionsHtml}
-                
                 <div id="auth-success-message" class="auth-success" style="display: none;"></div>
                 <div id="auth-error-message" class="auth-error" style="display: none;"></div>
 
-                <button class="auth-submit-btn ${isSignUp ? 'auth-submit-pro' : ''}" id="auth-submit-btn">${submitText}</button>
+                <button class="auth-submit-btn" id="auth-submit-btn">Sign In</button>
+                <button class="auth-back-btn" id="auth-back-to-choose">Back</button>
             `;
         }
 
@@ -669,15 +644,17 @@ export const AuthUI = {
     attachContentListeners() {
         document.getElementById('close-auth-ui')?.addEventListener('click', () => this.close());
 
-        const toggleBtns = document.querySelectorAll('.auth-toggle-btn');
-        toggleBtns.forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                this.switchMode(e.target.dataset.mode);
-            });
+        document.getElementById('auth-choose-login')?.addEventListener('click', () => {
+            this.switchMode('signin');
+        });
+        document.getElementById('auth-choose-signup')?.addEventListener('click', () => {
+            this.switchMode('signup');
+        });
+        document.getElementById('auth-back-to-choose')?.addEventListener('click', () => {
+            this.switchMode('choose');
         });
 
-        // iOS signup redirect — open inflight.info in the system browser
-        // (Capacitor routes window.open with _system to Safari).
+        // Signup redirect — open inflight.info. Capacitor routes _system to Safari on iOS.
         document.getElementById('auth-open-signup-site')?.addEventListener('click', () => {
             const url = 'https://inflight.info';
             try {
@@ -687,84 +664,41 @@ export const AuthUI = {
                 window.location.href = url;
             }
         });
-        document.getElementById('auth-back-to-signin-from-redirect')?.addEventListener('click', () => {
-            this.switchMode('signin');
-        });
 
         document.getElementById('auth-submit-btn')?.addEventListener('click', async () => {
             this.hideError();
             const email = document.getElementById('auth-email')?.value;
             const password = document.getElementById('auth-password')?.value;
-            const name = document.getElementById('auth-name')?.value || '';
-            
+
             if (!email || !password) {
                 this.showError("Please enter both email and password.");
                 return;
             }
 
-            if (this._mode === 'signup') {
-                const termsCheckbox = document.getElementById('auth-terms');
-                if (termsCheckbox && !termsCheckbox.checked) {
-                    this.showError("Please agree to the Terms of Use and Privacy Policy.");
-                    return; 
-                }
-                
-                this._tempSignUpData = { email, password, name, is_renew: false };
+            this.setLoading('auth-submit-btn', true, 'Sign In');
 
-                if (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) {
-                    // App Store compliance: no in-app trial/checkout step.
-                    // Create the Supabase account directly as a free user;
-                    // they can subscribe later on the website if they want Pro.
-                    this.setLoading('auth-submit-btn', true, 'Create Account');
-                    try {
-                        const { data: signUpData, error: signUpError } = await this._supabase.auth.signUp({
-                            email,
-                            password,
-                            options: { data: { full_name: name } }
-                        });
-                        this.setLoading('auth-submit-btn', false, 'Create Account');
-                        if (signUpError) {
-                            this.showError(signUpError.message);
-                        } else if (signUpData?.user && !signUpData?.session) {
-                            this.showSuccess("Account created. Check your email to confirm, then sign in.");
-                        } else {
-                            this.close();
-                            this.open();
-                        }
-                    } catch (err) {
-                        this.setLoading('auth-submit-btn', false, 'Create Account');
-                        this.showError(err?.message || "Failed to create account.");
+            const { data, error } = await this._supabase.auth.signInWithPassword({
+                email: email,
+                password: password,
+            });
+
+            this.setLoading('auth-submit-btn', false, 'Sign In');
+
+            if (error) {
+                this.showError(error.message);
+            } else {
+                const rememberCheckbox = document.getElementById('auth-remember');
+                if (rememberCheckbox) {
+                    localStorage.setItem('inflight_remember_preference', rememberCheckbox.checked);
+                    if (rememberCheckbox.checked) {
+                        localStorage.setItem('inflight_remembered_email', email);
+                    } else {
+                        localStorage.removeItem('inflight_remembered_email');
                     }
-                } else {
-                    this.switchMode('payment');
                 }
 
-            } else if (this._mode === 'signin') {
-                this.setLoading('auth-submit-btn', true, 'Sign In');
-                
-                const { data, error } = await this._supabase.auth.signInWithPassword({
-                    email: email,
-                    password: password,
-                });
-
-                this.setLoading('auth-submit-btn', false, 'Sign In');
-
-                if (error) {
-                    this.showError(error.message);
-                } else {
-                    const rememberCheckbox = document.getElementById('auth-remember');
-                    if (rememberCheckbox) {
-                        localStorage.setItem('inflight_remember_preference', rememberCheckbox.checked);
-                        if (rememberCheckbox.checked) {
-                            localStorage.setItem('inflight_remembered_email', email);
-                        } else {
-                            localStorage.removeItem('inflight_remembered_email');
-                        }
-                    }
-
-                    this.close();
-                    this.open();
-                }
+                this.close();
+                this.open();
             }
         });
 
@@ -1298,6 +1232,100 @@ export const AuthUI = {
                 background: #e2e8f0;
             }
 
+            /* ── Choose screen (web) ─────────────────────────────────── */
+            .auth-choose-title {
+                margin: 4px 0 6px;
+                color: #0f172a;
+                font-size: 1.5rem;
+                font-weight: 700;
+                letter-spacing: -0.01em;
+            }
+
+            .auth-choose-copy {
+                margin: 0 auto 4px;
+                color: #64748b;
+                font-size: 0.92rem;
+                line-height: 1.45;
+                max-width: 320px;
+            }
+
+            .auth-choose-body {
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+                padding-top: 4px;
+            }
+
+            .auth-choose-primary {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 10px;
+                background: linear-gradient(135deg, #2563eb, #1d4ed8);
+                margin-bottom: 0;
+            }
+
+            .auth-choose-primary:hover:not(:disabled) {
+                background: linear-gradient(135deg, #3b82f6, #2563eb);
+                box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.25), 0 4px 6px -2px rgba(37, 99, 235, 0.1);
+            }
+
+            .auth-choose-secondary {
+                width: 100%;
+                background: #f8fafc;
+                color: #0f172a;
+                border: 1px solid #e2e8f0;
+                border-radius: 10px;
+                padding: 14px;
+                font-size: 0.95rem;
+                font-weight: 600;
+                font-family: inherit;
+                cursor: pointer;
+                transition: all 0.2s ease;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 10px;
+                position: relative;
+            }
+
+            .auth-choose-secondary:hover {
+                background: #ffffff;
+                border-color: #2563eb;
+                color: #1d4ed8;
+                box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.08);
+                transform: translateY(-1px);
+            }
+
+            .auth-choose-ext {
+                font-size: 0.75rem;
+                opacity: 0.55;
+                margin-left: 2px;
+            }
+
+            .auth-choose-footer {
+                margin: 14px 0 0;
+                text-align: center;
+                color: #94a3b8;
+                font-size: 0.78rem;
+                line-height: 1.4;
+            }
+
+            .auth-choose-footer strong {
+                color: #475569;
+                font-weight: 600;
+            }
+
+            .auth-signin-header {
+                margin-top: 4px;
+                text-align: center;
+                color: #0f172a;
+            }
+
+            .auth-signin-header p {
+                color: #64748b;
+            }
+
             @media (max-width: 480px) {
                 .auth-header-section { padding: 24px 20px 16px; }
                 .auth-form-body { padding: 0 20px 24px; }
@@ -1619,6 +1647,84 @@ export const AuthUI = {
                 padding: 0 6px;
             }
             html.ios-native .ios-redirect-copy strong { color: #fff; }
+
+            /* ── Choose screen (iOS native) ──────────────────────────── */
+            html.ios-native .auth-choose-title {
+                color: #fff !important;
+                font-size: 26px !important;
+                font-weight: 700 !important;
+                letter-spacing: -0.4px !important;
+                margin: 6px 0 6px !important;
+            }
+            html.ios-native .auth-choose-copy {
+                color: rgba(235, 235, 245, 0.7) !important;
+                font-size: 15px !important;
+                line-height: 1.4 !important;
+                max-width: 320px !important;
+                margin: 0 auto !important;
+            }
+            html.ios-native .auth-choose-body {
+                display: flex !important;
+                flex-direction: column !important;
+                gap: 10px !important;
+                padding-top: 12px !important;
+            }
+            html.ios-native .auth-choose-primary {
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                gap: 10px !important;
+            }
+            html.ios-native .auth-choose-secondary {
+                width: 100% !important;
+                height: 50px !important;
+                background: rgba(118, 118, 128, 0.24) !important;
+                color: #fff !important;
+                border: none !important;
+                border-radius: 12px !important;
+                font-family: inherit !important;
+                font-size: 17px !important;
+                font-weight: 600 !important;
+                letter-spacing: -0.2px !important;
+                cursor: pointer !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                gap: 10px !important;
+                box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.12) !important;
+                -webkit-tap-highlight-color: transparent !important;
+                transition: transform 0.12s ease, background-color 0.2s ease !important;
+            }
+            html.ios-native .auth-choose-secondary:active {
+                transform: scale(0.98) !important;
+                background: rgba(118, 118, 128, 0.36) !important;
+            }
+            html.ios-native .auth-choose-ext {
+                font-size: 12px !important;
+                opacity: 0.6 !important;
+            }
+            html.ios-native .auth-choose-footer {
+                margin: 18px 0 0 !important;
+                text-align: center !important;
+                color: rgba(235, 235, 245, 0.5) !important;
+                font-size: 13px !important;
+                line-height: 1.4 !important;
+            }
+            html.ios-native .auth-choose-footer strong {
+                color: rgba(235, 235, 245, 0.85) !important;
+                font-weight: 600 !important;
+            }
+
+            html.ios-native .auth-signin-header h3 {
+                color: #fff !important;
+                font-size: 22px !important;
+                font-weight: 700 !important;
+                letter-spacing: -0.4px !important;
+            }
+            html.ios-native .auth-signin-header p {
+                color: rgba(235, 235, 245, 0.6) !important;
+                font-size: 14px !important;
+            }
         `;
         
         const style = document.createElement('style');

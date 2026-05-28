@@ -5,9 +5,30 @@
  * Note: Runway Designations (Numbers/Letters) have been removed.
  */
 
+// Each airport's processed OSM geojson can be hundreds of KB.
+// Cap the cache so opening many different airports doesn't slowly
+// exhaust memory — iOS WebKit kills the page on memory pressure,
+// which surfaces to the user as the app "restarting".
+const LAYOUT_CACHE_MAX = 5;
+
 export const AirportLayoutManager = {
     activeLayers: new Set(),
     layoutCache: new Map(),
+
+    _touchCache(icao) {
+        // Re-insert to mark this airport as most-recently-used.
+        const v = this.layoutCache.get(icao);
+        this.layoutCache.delete(icao);
+        this.layoutCache.set(icao, v);
+    },
+
+    _trimCache() {
+        while (this.layoutCache.size > LAYOUT_CACHE_MAX) {
+            const oldestKey = this.layoutCache.keys().next().value;
+            if (oldestKey === undefined) break;
+            this.layoutCache.delete(oldestKey);
+        }
+    },
 
     // --- GEOMETRY UTILITIES ---
     
@@ -56,8 +77,9 @@ export const AirportLayoutManager = {
 
         if (this.layoutCache.has(icao)) {
             geojsonData = this.layoutCache.get(icao);
+            this._touchCache(icao);
         } else {
-            const buffer = 0.05; 
+            const buffer = 0.05;
             const bbox = `${lat - (buffer/2)},${lon - buffer},${lat + (buffer/2)},${lon + buffer}`;
             const query = `[out:json][timeout:45];(way["aeroway"~"taxiway|taxilane|apron|runway|parking_guideline"](${bbox});relation["aeroway"~"taxiway|taxilane|apron|runway|parking_guideline"](${bbox});node["aeroway"~"gate|parking_position"](${bbox}););out geom;`;
             const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
@@ -68,6 +90,7 @@ export const AirportLayoutManager = {
                 if (!data.elements) return;
                 geojsonData = this.processOsmData(data.elements);
                 this.layoutCache.set(icao, geojsonData);
+                this._trimCache();
             } catch (error) {
                 console.error(`AirportLayout error:`, error);
                 return;

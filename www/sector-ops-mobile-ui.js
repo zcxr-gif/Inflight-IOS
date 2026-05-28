@@ -1044,6 +1044,14 @@ disableHudControls() {
             .mobile-legacy-sheet .ac-info-window-tabs {
                 background: #3a3a3a !important;
             }
+            /* Keep the top-right action buttons (pin / bell / replay / share)
+               clickable in legacy mode. The drag handle wrapper sits at
+               z-index 2000 across the middle 50% of the sheet, and on
+               narrow phones the buttons extend left into that zone, so
+               their taps would get swallowed by the handle's grab area. */
+            .mobile-legacy-sheet .overview-actions {
+                z-index: 2001 !important;
+            }
             .mobile-legacy-sheet .route-summary-overlay {
                 /* The handle will wrap this */
             }

@@ -17,6 +17,9 @@ import { FlightDispatchService } from './FlightDispatchService.js';
 import { MobileDashboardUI } from './MobileDashboardUI.js';
 import { trackManager } from './proTrackManager.js';
 import { FlightReplay } from './flightReplay.js';
+import { installSlowConnectionMonitor } from './slowConnectionMonitor.js';
+
+installSlowConnectionMonitor();
 
 console.log(
     "%cInflight %cdesigned by and property of _Servernoob",
