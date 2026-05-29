@@ -20,6 +20,9 @@ const SERVER_META = {
 const WEATHER_LAYERS = [
     { id: 'precip',  label: 'Precipitation', sub: 'Live radar + intensity', icon: 'fa-satellite-dish' },
     { id: 'sigmets', label: 'SIGMETs',       sub: 'Significant weather',    icon: 'fa-triangle-exclamation' },
+    { id: 'alerts',  label: 'Alerts (US)',   sub: 'NWS warnings',           icon: 'fa-bell' },
+    { id: 'gairmet', label: 'G-AIRMETs',     sub: 'Turb / ice / IFR',       icon: 'fa-layer-group' },
+    { id: 'pireps',  label: 'PIREPs',        sub: 'Pilot reports',          icon: 'fa-comment-dots' },
     { id: 'clouds',  label: 'Clouds',        sub: 'Coverage overlay',       icon: 'fa-cloud' },
     { id: 'wind',    label: 'Winds Aloft',   sub: 'Direction + speed',      icon: 'fa-wind' },
 ];

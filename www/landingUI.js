@@ -387,6 +387,9 @@ export const LandingUI = {
                             <div class="weather-spread">
                                 <button class="spread-opt" data-weather="precip"><i class="fa-solid fa-satellite-dish"></i><span class="spread-label">Radar</span></button>
                                 <button class="spread-opt" data-weather="sigmets"><i class="fa-solid fa-triangle-exclamation"></i><span class="spread-label">SIGMETs</span></button>
+                                <button class="spread-opt" data-weather="alerts"><i class="fa-solid fa-bell"></i><span class="spread-label">Alerts</span></button>
+                                <button class="spread-opt" data-weather="gairmet"><i class="fa-solid fa-layer-group"></i><span class="spread-label">G-AIRMET</span></button>
+                                <button class="spread-opt" data-weather="pireps"><i class="fa-solid fa-comment-dots"></i><span class="spread-label">PIREPs</span></button>
                                 <button class="spread-opt" data-weather="clouds"><i class="fa-solid fa-cloud"></i><span class="spread-label">Clouds</span></button>
                                 <button class="spread-opt" data-weather="wind"><i class="fa-solid fa-wind"></i><span class="spread-label">Wind</span></button>
                             </div>

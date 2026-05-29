@@ -16206,13 +16206,9 @@ function processRawPilotData(gradeInfo) {
         const openWeatherBtn = document.getElementById('open-weather-settings-btn');
         if (!openWeatherBtn) return;
 
-        const precipToggle = document.getElementById('weather-toggle-precip');
-        const cloudsToggle = document.getElementById('weather-toggle-clouds');
-        const windToggle = document.getElementById('weather-toggle-wind');
-
-        const isAnyActive = (precipToggle && precipToggle.checked) ||
-                            (cloudsToggle && cloudsToggle.checked) ||
-                            (windToggle && windToggle.checked);
+        // Reflect ANY active weather overlay (radar, sigmets, alerts, g-airmets,
+        // pireps, clouds, wind) so the toolbar button lights up consistently.
+        const isAnyActive = document.querySelectorAll('.weather-toggle-list input[type="checkbox"]:checked').length > 0;
 
         openWeatherBtn.classList.toggle('active', isAnyActive);
     }
