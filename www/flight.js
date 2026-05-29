@@ -18,6 +18,7 @@ import { MobileDashboardUI } from './MobileDashboardUI.js';
 import { trackManager } from './proTrackManager.js';
 import { FlightReplay } from './flightReplay.js';
 import { installSlowConnectionMonitor } from './slowConnectionMonitor.js';
+import { runFirstRunExperience } from './firstRunExperience.js';
 
 installSlowConnectionMonitor();
 
@@ -16675,6 +16676,13 @@ async function initializeApp() {
 
         // Initialize the Sector Ops view (map render starts now)
         await initializeSectorOpsView();
+
+        // First-launch gate: on the very first run (or after the legal docs
+        // are re-versioned) play the cinematic map intro and require the user
+        // to accept the Privacy Policy + Terms before the app is usable.
+        // Returning users skip this instantly. Fire-and-forget so it doesn't
+        // block the rest of boot from finishing underneath the modal.
+        runFirstRunExperience(sectorOpsMap);
 
         // Make sure runways finished too before we move on to anything that needs them
         await runwaysPromise;
