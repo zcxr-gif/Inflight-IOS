@@ -23,8 +23,8 @@ const WEATHER_LAYERS = [
     { id: 'alerts',  label: 'Alerts (US)',   sub: 'NWS warnings',           icon: 'fa-bell' },
     { id: 'gairmet', label: 'G-AIRMETs',     sub: 'Turb / ice / IFR',       icon: 'fa-layer-group' },
     { id: 'pireps',  label: 'PIREPs',        sub: 'Pilot reports',          icon: 'fa-comment-dots' },
-    { id: 'clouds',  label: 'Clouds',        sub: 'Coverage overlay',       icon: 'fa-cloud' },
-    { id: 'wind',    label: 'Winds Aloft',   sub: 'Direction + speed',      icon: 'fa-wind' },
+    { id: 'clouds',  label: 'Clouds',        sub: 'Satellite infrared',     icon: 'fa-cloud' },
+    { id: 'wind',    label: 'Wind',          sub: 'Surface wind speed',     icon: 'fa-wind' },
 ];
 
 export const MobileLandingChromeUI = {

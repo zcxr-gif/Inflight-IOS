@@ -7046,6 +7046,116 @@ async function togglePirepLayer(show) {
     }
 }
 
+/**
+ * --- [NEW] Cloud Cover Layer ---
+ * Uses RainViewer's free, KEY-LESS satellite infrared imagery (cloud tops),
+ * reusing the same weather-maps.json config as the radar layer.
+ */
+async function toggleCloudLayer(show) {
+    if (!sectorOpsMap) return;
+
+    const SOURCE_ID = 'rainviewer-satellite-source';
+    const LAYER_ID = 'rainviewer-satellite-layer';
+
+    if (show && !isCloudLayerAdded) {
+        try {
+            const res = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+            const data = await res.json();
+            const host = data.host;
+            const frames = data.satellite && data.satellite.infrared;
+
+            if (!frames || !frames.length) {
+                showNotification('Cloud (satellite) imagery unavailable right now.', 'info');
+                return;
+            }
+
+            // Use the most recent infrared frame. Satellite tiles use colour
+            // scheme 0 with no smoothing/snow flags: /{z}/{x}/{y}/0/0_0.png
+            const latest = frames[frames.length - 1];
+            const tileUrl = `${host}${latest.path}/512/{z}/{x}/{y}/0/0_0.png`;
+
+            sectorOpsMap.addSource(SOURCE_ID, {
+                'type': 'raster',
+                'tiles': [tileUrl],
+                'tileSize': 512,
+                'maxzoom': 8
+            });
+
+            sectorOpsMap.addLayer({
+                'id': LAYER_ID,
+                'type': 'raster',
+                'source': SOURCE_ID,
+                'paint': {
+                    'raster-opacity': 0.55,
+                    'raster-resampling': 'linear',
+                    'raster-fade-duration': 0
+                }
+            }, 'sector-ops-live-flights-layer');
+
+            isCloudLayerAdded = true;
+            console.log('Cloud (RainViewer satellite IR) layer added.');
+
+        } catch (error) {
+            console.error('Failed to init cloud layer:', error);
+            showNotification('Could not load cloud imagery.', 'error');
+        }
+
+    } else if (isCloudLayerAdded) {
+        const vis = show ? 'visible' : 'none';
+        if (sectorOpsMap.getLayer(LAYER_ID)) sectorOpsMap.setLayoutProperty(LAYER_ID, 'visibility', vis);
+    }
+}
+
+/**
+ * --- [NEW] Wind Layer ---
+ * Wind-speed raster from OpenWeatherMap (`wind_new`). There is no good key-less
+ * global wind-raster source, so this uses the OWM key already provided by the
+ * server config; if absent, the layer is skipped with a notice.
+ */
+async function toggleWindLayer(show) {
+    if (!sectorOpsMap) return;
+
+    const SOURCE_ID = 'owm-wind-source';
+    const LAYER_ID = 'owm-wind-layer';
+
+    if (show && !isWindLayerAdded) {
+        if (!OWM_API_KEY) {
+            showNotification('Wind overlay needs an OpenWeatherMap key.', 'info');
+            return;
+        }
+        try {
+            const tileUrl = `https://tile.openweathermap.org/map/wind_new/{z}/{x}/{y}.png?appid=${OWM_API_KEY}`;
+
+            sectorOpsMap.addSource(SOURCE_ID, {
+                'type': 'raster',
+                'tiles': [tileUrl],
+                'tileSize': 256
+            });
+
+            sectorOpsMap.addLayer({
+                'id': LAYER_ID,
+                'type': 'raster',
+                'source': SOURCE_ID,
+                'paint': {
+                    'raster-opacity': 0.6,
+                    'raster-fade-duration': 0
+                }
+            }, 'sector-ops-live-flights-layer');
+
+            isWindLayerAdded = true;
+            console.log('Wind (OpenWeatherMap) layer added.');
+
+        } catch (error) {
+            console.error('Failed to init wind layer:', error);
+            showNotification('Could not load wind overlay.', 'error');
+        }
+
+    } else if (isWindLayerAdded) {
+        const vis = show ? 'visible' : 'none';
+        if (sectorOpsMap.getLayer(LAYER_ID)) sectorOpsMap.setLayoutProperty(LAYER_ID, 'visibility', vis);
+    }
+}
+
 // Add this inside the document.addEventListener('DOMContentLoaded', async () => { ... }) block
 window.addEventListener('serverChange', (e) => {
     const serverMapping = {
@@ -12174,9 +12284,9 @@ if (upgradeBtn) {
                         </ul>
                         <div class="weather-disclaimer-note">
                             <i class="fa-solid fa-server"></i>
-                            <strong>Note:</strong> Rain radar (RainViewer), SIGMETs, G-AIRMETs
-                            &amp; PIREPs (NOAA) and US weather alerts (NWS) are live.
-                            Cloud &amp; wind overlays are not yet available.
+                            <strong>Note:</strong> Rain radar &amp; satellite clouds (RainViewer),
+                            SIGMETs, G-AIRMETs &amp; PIREPs (NOAA), US alerts (NWS) and wind
+                            (OpenWeatherMap) are live.
                         </div>
                     </div>
                 </div>
