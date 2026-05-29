@@ -2193,13 +2193,6 @@ function injectCustomStyles() {
             transform: translateX(0) translateY(0) scale(1);
             pointer-events: auto;
         }
-        /* Simple Flight Window host: animate the compact <-> expanded resize. */
-        .info-window.simple-window-host {
-            transition: opacity 0.45s cubic-bezier(0.16, 1, 0.3, 1),
-                        transform 0.5s cubic-bezier(0.16, 1, 0.3, 1),
-                        width 0.5s cubic-bezier(0.16, 1, 0.3, 1),
-                        height 0.5s cubic-bezier(0.16, 1, 0.3, 1);
-        }
         .info-window-header {
             display: flex;
             justify-content: space-between;
@@ -13101,10 +13094,13 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         cachedFlightDataForStatsView = { flightProps, plan };
 
         if (typeof mapFilters !== 'undefined' && mapFilters.useSimpleFlightWindow) {
-            // Open the redesigned simple window in its compact "peek" state.
+            // The simple window shows the full flight readout immediately, so
+            // give the host a tall, fixed size that the iframe fills (it scrolls
+            // internally for overflow). On mobile the legacy-sheet CSS overrides
+            // these dimensions with !important.
             windowEl.classList.add('simple-window-host');
-            windowEl.style.width = '380px';
-            windowEl.style.height = '300px';
+            windowEl.style.width = '400px';
+            windowEl.style.height = 'min(800px, calc(100vh - 40px))';
             windowEl.innerHTML = `<iframe id="simple-flight-window-frame" src="flightinfo.html" style="width:100%; flex-grow: 1; border:none;" scrolling="no"></iframe>`;
             const simpleData = formatDataForSimpleWindow(flightProps, plan, [], communityAircraftData);
             const iframe = document.getElementById('simple-flight-window-frame');
@@ -15647,32 +15643,6 @@ async function handleIframeMessage(event) {
     // 1. ND Ready Check (Existing)
     if (event.data && event.data.type === 'ND_READY') {
         refreshNavDisplayFromCache();
-        return;
-    }
-
-    // 1b. Simple Flight Window size requests (compact "peek" vs expanded).
-    // The iframe measures its own content and asks the host to resize.
-    if (event.data && event.data.type === 'SIMPLE_WINDOW_RESIZE') {
-        const host = document.getElementById('aircraft-info-window');
-        if (!host || !host.classList.contains('simple-window-host')) return;
-        const mode = event.data.mode === 'expanded' ? 'expanded' : 'compact';
-        const reported = Math.round(event.data.height || 0);
-        host.classList.toggle('simple-window-expanded', mode === 'expanded');
-        if (mode === 'expanded') {
-            // Fill available space but never exceed the viewport; the iframe
-            // scrolls internally for anything taller.
-            host.style.width = '440px';
-            host.style.height = `min(${reported || 760}px, calc(100vh - 40px))`;
-        } else {
-            host.style.width = '380px';
-            host.style.height = `${Math.max(180, reported || 300)}px`;
-        }
-        return;
-    }
-
-    // 1c. Simple Flight Window requested close.
-    if (event.data && event.data.type === 'SIMPLE_WINDOW_CLOSE') {
-        if (typeof closeAircraftWindow === 'function') closeAircraftWindow();
         return;
     }
 
