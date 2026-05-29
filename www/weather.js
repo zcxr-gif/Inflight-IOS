@@ -230,6 +230,83 @@ const fetchActiveAlertsGeoJSON = async () => {
     }
 };
 
+/**
+ * Fetches active G-AIRMETs (Graphical AIRMETs: turbulence, icing, IFR, mountain
+ * obscuration, surface winds, LLWS) from the NOAA Aviation Weather Center as a
+ * GeoJSON FeatureCollection for the map overlay. No API key required.
+ * @returns {Promise<object>} GeoJSON FeatureCollection (possibly empty).
+ */
+const fetchGAirmetGeoJSON = async () => {
+    const empty = { type: 'FeatureCollection', features: [] };
+    try {
+        const response = await fetch('https://aviationweather.gov/api/data/gairmet?format=geojson');
+        if (!response.ok) return empty;
+        const data = await response.json();
+        if (!data || !data.features) return empty;
+        data.features = data.features.filter(f => f.geometry);
+        return data;
+    } catch (error) {
+        console.error('Failed to fetch G-AIRMETs:', error);
+        return empty;
+    }
+};
+
+/**
+ * Fetches recent PIREPs (pilot reports) from the NOAA Aviation Weather Center as
+ * a GeoJSON FeatureCollection of points. No API key required.
+ * @param {number} [ageHours=2] - How far back to look.
+ * @returns {Promise<object>} GeoJSON FeatureCollection (possibly empty).
+ */
+const fetchPirepsGeoJSON = async (ageHours = 2) => {
+    const empty = { type: 'FeatureCollection', features: [] };
+    try {
+        const response = await fetch(`https://aviationweather.gov/api/data/pirep?format=geojson&age=${ageHours}`);
+        if (!response.ok) return empty;
+        const data = await response.json();
+        if (!data || !data.features) return empty;
+        data.features = data.features.filter(f => f.geometry);
+        return data;
+    } catch (error) {
+        console.error('Failed to fetch PIREPs:', error);
+        return empty;
+    }
+};
+
+/**
+ * Fetches the NWS textual point forecast for a location (US only, no key).
+ * Two-step: resolve the grid point, then read its forecast periods.
+ * @param {number} lat
+ * @param {number} lon
+ * @returns {Promise<Array<{name:string, temp:string, wind:string, short:string, detailed:string}>>}
+ */
+const fetchPointForecast = async (lat, lon) => {
+    if (lat == null || lon == null) return [];
+    try {
+        const ptRes = await fetch(`https://api.weather.gov/points/${lat.toFixed(4)},${lon.toFixed(4)}`, {
+            headers: { 'Accept': 'application/geo+json' }
+        });
+        if (!ptRes.ok) return [];
+        const pt = await ptRes.json();
+        const forecastUrl = pt.properties?.forecast;
+        if (!forecastUrl) return [];
+
+        const fRes = await fetch(forecastUrl, { headers: { 'Accept': 'application/geo+json' } });
+        if (!fRes.ok) return [];
+        const f = await fRes.json();
+        const periods = f.properties?.periods || [];
+        return periods.slice(0, 6).map(p => ({
+            name: p.name || '',
+            temp: p.temperature != null ? `${p.temperature}°${p.temperatureUnit || 'F'}` : '--',
+            wind: [p.windSpeed, p.windDirection].filter(Boolean).join(' '),
+            short: p.shortForecast || '',
+            detailed: p.detailedForecast || ''
+        }));
+    } catch (error) {
+        console.error('Failed to fetch NWS point forecast:', error);
+        return [];
+    }
+};
+
 // Expose the service to be used by other scripts
 window.WeatherService = {
     fetchAndParseMetar,
@@ -237,5 +314,8 @@ window.WeatherService = {
     fetchTaf,
     fetchWindsAloft,
     fetchNwsAlerts,
-    fetchActiveAlertsGeoJSON
+    fetchActiveAlertsGeoJSON,
+    fetchGAirmetGeoJSON,
+    fetchPirepsGeoJSON,
+    fetchPointForecast
 };

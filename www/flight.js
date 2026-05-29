@@ -6885,6 +6885,167 @@ async function toggleNwsAlertsLayer(show) {
     }
 }
 
+/**
+ * --- [NEW] G-AIRMET Layer ---
+ * Graphical AIRMETs from NOAA: turbulence, icing, IFR, mountain obscuration,
+ * surface winds and LLWS. Free, no key. Drawn like SIGMETs but dashed.
+ */
+let isGAirmetLayerAdded = false;
+
+async function toggleGAirmetLayer(show) {
+    if (!sectorOpsMap) return;
+
+    const SOURCE_ID = 'gairmet-source';
+    const FILL_LAYER_ID = 'gairmet-fill';
+    const LINE_LAYER_ID = 'gairmet-outline';
+
+    // G-AIRMET hazard codes vary (TURB, TURB-HI, ICE, IFR, MT_OBSC, SFC_WND, LLWS).
+    // Color by a substring match so variants group sensibly.
+    const hazardColor = [
+        'match',
+        ['get', 'hazard'],
+        'ICE', '#22d3ee', 'ICING', '#22d3ee',
+        'IFR', '#a78bfa',
+        'MT_OBSC', '#94a3b8', 'MTN_OBSC', '#94a3b8',
+        'SFC_WND', '#34d399', 'LLWS', '#34d399',
+        '#f59e0b' // TURB & default (amber)
+    ];
+
+    if (show && !isGAirmetLayerAdded) {
+        try {
+            const geojson = window.WeatherService
+                ? await window.WeatherService.fetchGAirmetGeoJSON()
+                : { type: 'FeatureCollection', features: [] };
+
+            if (!geojson.features || !geojson.features.length) {
+                showNotification('No active G-AIRMETs right now.', 'info');
+                return;
+            }
+
+            sectorOpsMap.addSource(SOURCE_ID, { 'type': 'geojson', 'data': geojson });
+
+            sectorOpsMap.addLayer({
+                'id': FILL_LAYER_ID,
+                'type': 'fill',
+                'source': SOURCE_ID,
+                'paint': { 'fill-color': hazardColor, 'fill-opacity': 0.12 }
+            }, 'sector-ops-live-flights-layer');
+
+            sectorOpsMap.addLayer({
+                'id': LINE_LAYER_ID,
+                'type': 'line',
+                'source': SOURCE_ID,
+                'paint': {
+                    'line-color': hazardColor,
+                    'line-width': 1.2,
+                    'line-opacity': 0.8,
+                    'line-dasharray': [2, 1]
+                }
+            }, 'sector-ops-live-flights-layer');
+
+            sectorOpsMap.on('click', FILL_LAYER_ID, (e) => {
+                const props = e.features[0].properties || {};
+                const layer = (props.base != null || props.top != null)
+                    ? `<br><span style="font-size:0.75em;color:#777;">${props.base ?? 'SFC'} – ${props.top ?? '--'}</span>` : '';
+                new mapboxgl.Popup()
+                    .setLngLat(e.lngLat)
+                    .setHTML(`
+                        <div style="color:#333; padding:5px; max-width:240px;">
+                            <strong>G-AIRMET: ${props.hazard || 'Hazard'}</strong>
+                            <span style="font-size:0.75em;color:#a60;"> ${props.severity || ''}</span>
+                            <br><span style="font-size:0.8em;color:#555;">${props.dueTo || props.product || ''}</span>${layer}
+                        </div>
+                    `)
+                    .addTo(sectorOpsMap);
+            });
+
+            isGAirmetLayerAdded = true;
+            console.log(`G-AIRMET layer added (${geojson.features.length} active).`);
+
+        } catch (error) {
+            console.error('Failed to load G-AIRMETs:', error);
+            showNotification('Could not load G-AIRMETs.', 'error');
+        }
+
+    } else if (isGAirmetLayerAdded) {
+        const vis = show ? 'visible' : 'none';
+        if (sectorOpsMap.getLayer(FILL_LAYER_ID)) sectorOpsMap.setLayoutProperty(FILL_LAYER_ID, 'visibility', vis);
+        if (sectorOpsMap.getLayer(LINE_LAYER_ID)) sectorOpsMap.setLayoutProperty(LINE_LAYER_ID, 'visibility', vis);
+    }
+}
+
+/**
+ * --- [NEW] PIREP Layer ---
+ * Recent pilot reports from NOAA as clickable points. Free, no key.
+ * Urgent (UUA) reports are drawn red, routine (UA) amber.
+ */
+let isPirepLayerAdded = false;
+
+async function togglePirepLayer(show) {
+    if (!sectorOpsMap) return;
+
+    const SOURCE_ID = 'pirep-source';
+    const LAYER_ID = 'pirep-points';
+
+    if (show && !isPirepLayerAdded) {
+        try {
+            const geojson = window.WeatherService
+                ? await window.WeatherService.fetchPirepsGeoJSON(3)
+                : { type: 'FeatureCollection', features: [] };
+
+            if (!geojson.features || !geojson.features.length) {
+                showNotification('No recent PIREPs right now.', 'info');
+                return;
+            }
+
+            sectorOpsMap.addSource(SOURCE_ID, { 'type': 'geojson', 'data': geojson });
+
+            sectorOpsMap.addLayer({
+                'id': LAYER_ID,
+                'type': 'circle',
+                'source': SOURCE_ID,
+                'paint': {
+                    'circle-radius': 5,
+                    'circle-color': [
+                        'match', ['get', 'airepType'],
+                        'Urgent PIREP', '#ef4444',
+                        '#f59e0b'
+                    ],
+                    'circle-stroke-width': 1.5,
+                    'circle-stroke-color': '#ffffff',
+                    'circle-opacity': 0.9
+                }
+            });
+
+            sectorOpsMap.on('click', LAYER_ID, (e) => {
+                const props = e.features[0].properties || {};
+                new mapboxgl.Popup()
+                    .setLngLat(e.lngLat)
+                    .setHTML(`
+                        <div style="color:#333; padding:5px; max-width:260px;">
+                            <strong>PIREP${props.fltLvl ? ' @ FL' + props.fltLvl : ''}</strong>
+                            <br><span style="font-size:0.8em;color:#555; font-family:monospace;">${props.rawOb || props.raw_text || 'No details'}</span>
+                        </div>
+                    `)
+                    .addTo(sectorOpsMap);
+            });
+            sectorOpsMap.on('mouseenter', LAYER_ID, () => { sectorOpsMap.getCanvas().style.cursor = 'pointer'; });
+            sectorOpsMap.on('mouseleave', LAYER_ID, () => { sectorOpsMap.getCanvas().style.cursor = ''; });
+
+            isPirepLayerAdded = true;
+            console.log(`PIREP layer added (${geojson.features.length} reports).`);
+
+        } catch (error) {
+            console.error('Failed to load PIREPs:', error);
+            showNotification('Could not load PIREPs.', 'error');
+        }
+
+    } else if (isPirepLayerAdded) {
+        const vis = show ? 'visible' : 'none';
+        if (sectorOpsMap.getLayer(LAYER_ID)) sectorOpsMap.setLayoutProperty(LAYER_ID, 'visibility', vis);
+    }
+}
+
 // Add this inside the document.addEventListener('DOMContentLoaded', async () => { ... }) block
 window.addEventListener('serverChange', (e) => {
     const serverMapping = {
@@ -9078,16 +9239,67 @@ async function createAirportInfoWindowHTML(icao) {
         let atisModuleHtml = '';
         let metarString = '';
         let tafString = '';
+        let forecastHtml = '';
+        let windsAloftHtml = '';
 
         try {
             if (window.WeatherService) {
-                // Fetch METAR (VATSIM) and TAF (NOAA) together.
-                const [w, taf] = await Promise.all([
+                // Fetch METAR (VATSIM), TAF (NOAA), NWS forecast and winds aloft together.
+                const [w, taf, forecast, winds] = await Promise.all([
                     window.WeatherService.fetchAndParseMetar(icao),
-                    window.WeatherService.fetchTaf(icao)
+                    window.WeatherService.fetchTaf(icao),
+                    (coords.lat != null && coords.lon != null)
+                        ? window.WeatherService.fetchPointForecast(coords.lat, coords.lon) : Promise.resolve([]),
+                    (coords.lat != null && coords.lon != null)
+                        ? window.WeatherService.fetchWindsAloft(coords.lat, coords.lon) : Promise.resolve(null)
                 ]);
                 if (taf && taf.available) {
                     tafString = taf.lines.length ? taf.lines.join('\n') : taf.raw;
+                }
+
+                // NWS textual forecast (US only; empty elsewhere).
+                if (forecast && forecast.length) {
+                    forecastHtml = `
+                        <div style="margin-top: 16px;">
+                            <div style="font-size: 0.75rem; color: #94a3b8; font-weight: 700; margin-bottom: 8px;">FORECAST (NWS)</div>
+                            <div style="display:flex; flex-direction:column; gap:6px;">
+                                ${forecast.map(p => `
+                                    <div style="background: rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.06); border-radius:6px; padding:8px 10px;">
+                                        <div style="display:flex; justify-content:space-between; font-size:0.7rem;">
+                                            <span style="color:#38bdf8; font-weight:700;">${p.name}</span>
+                                            <span style="color:#fbbf24;">${p.temp}${p.wind ? ' · ' + p.wind : ''}</span>
+                                        </div>
+                                        <div style="font-size:0.72rem; color:#cbd5e1; margin-top:2px;">${p.short}</div>
+                                    </div>`).join('')}
+                            </div>
+                        </div>`;
+                }
+
+                // Winds & temps aloft over the field (global; for climb/departure planning).
+                if (winds && winds.levels && winds.levels.length) {
+                    const rows = winds.levels
+                        .filter(l => l.altFt >= elevation) // only levels above the field
+                        .slice(0, 8)
+                        .map(l => `
+                            <tr>
+                                <td style="padding:3px 8px; color:#38bdf8;">${l.fl}</td>
+                                <td style="padding:3px 8px; text-align:center;">${String(l.dirDeg).padStart(3,'0')}° / ${l.spdKts}kt</td>
+                                <td style="padding:3px 8px; text-align:right; color:#fbbf24;">${l.tempC}°C</td>
+                            </tr>`).join('');
+                    if (rows) {
+                        windsAloftHtml = `
+                            <div style="margin-top: 16px;">
+                                <div style="font-size: 0.75rem; color: #94a3b8; font-weight: 700; margin-bottom: 8px;">WINDS / TEMPS ALOFT</div>
+                                <table style="width:100%; border-collapse:collapse; font-size:0.72rem; font-family:monospace; background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.06); border-radius:6px; overflow:hidden;">
+                                    <thead><tr style="color:#94a3b8; text-align:left; border-bottom:1px solid rgba(255,255,255,0.08);">
+                                        <th style="padding:4px 8px; font-weight:700;">LEVEL</th>
+                                        <th style="padding:4px 8px; font-weight:700; text-align:center;">WIND</th>
+                                        <th style="padding:4px 8px; font-weight:700; text-align:right;">TEMP</th>
+                                    </tr></thead>
+                                    <tbody>${rows}</tbody>
+                                </table>
+                            </div>`;
+                    }
                 }
                 let flightCategory = 'VFR', catColor = '#4ade80';
 
@@ -9329,6 +9541,8 @@ async function createAirportInfoWindowHTML(icao) {
                                 <div style="font-size: 0.75rem; color: #94a3b8; font-weight: 700; margin-bottom: 8px;">TAF (FORECAST)</div>
                                 <div class="metar-strip" style="border-radius: 6px; white-space: pre-line; line-height: 1.5;">${tafString || 'N/A'}</div>
                             </div>
+                            ${windsAloftHtml}
+                            ${forecastHtml}
                         </div>
                     </div>
                 </div>
@@ -11930,6 +12144,20 @@ if (upgradeBtn) {
                                 </label>
                             </li>
                             <li class="weather-toggle-item">
+                                <span class="weather-toggle-label"><i class="fa-solid fa-layer-group"></i> G-AIRMETs</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="weather-toggle-gairmet">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </li>
+                            <li class="weather-toggle-item">
+                                <span class="weather-toggle-label"><i class="fa-solid fa-comment-dots"></i> PIREPs</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="weather-toggle-pireps">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </li>
+                            <li class="weather-toggle-item">
                                 <span class="weather-toggle-label"><i class="fa-solid fa-cloud"></i> Cloud Cover</span>
                                 <label class="toggle-switch">
                                     <input type="checkbox" id="weather-toggle-clouds">
@@ -11946,9 +12174,9 @@ if (upgradeBtn) {
                         </ul>
                         <div class="weather-disclaimer-note">
                             <i class="fa-solid fa-server"></i>
-                            <strong>Note:</strong> Rain radar (RainViewer), SIGMETs (NOAA)
-                            and US weather alerts (NWS) are live. Cloud &amp; wind overlays
-                            are not yet available.
+                            <strong>Note:</strong> Rain radar (RainViewer), SIGMETs, G-AIRMETs
+                            &amp; PIREPs (NOAA) and US weather alerts (NWS) are live.
+                            Cloud &amp; wind overlays are not yet available.
                         </div>
                     </div>
                 </div>
@@ -12416,6 +12644,18 @@ function onAtcDataReceived(newAtcData) {
         if (document.getElementById('weather-toggle-alerts')?.checked) {
             isNwsAlertsLayerAdded = false; // Force re-fetch/re-add
             toggleNwsAlertsLayer(true);
+        }
+
+        // 3c. Re-apply G-AIRMETs
+        if (document.getElementById('weather-toggle-gairmet')?.checked) {
+            isGAirmetLayerAdded = false; // Force re-fetch/re-add
+            toggleGAirmetLayer(true);
+        }
+
+        // 3d. Re-apply PIREPs
+        if (document.getElementById('weather-toggle-pireps')?.checked) {
+            isPirepLayerAdded = false; // Force re-fetch/re-add
+            togglePirepLayer(true);
         }
 
         // 4. Re-apply Radar (Precip - RainViewer)
@@ -15990,6 +16230,12 @@ function processRawPilotData(gradeInfo) {
         case 'alerts':
             toggleNwsAlertsLayer(isActive);
             break;
+        case 'gairmet':
+            toggleGAirmetLayer(isActive);
+            break;
+        case 'pireps':
+            togglePirepLayer(isActive);
+            break;
         case 'clouds':
             // Ensure toggleCloudLayer is defined or show notification
             if (typeof toggleCloudLayer === 'function') toggleCloudLayer(isActive);
@@ -16040,6 +16286,12 @@ function processRawPilotData(gradeInfo) {
                         break;
                     case 'weather-toggle-alerts':
                         toggleNwsAlertsLayer(isChecked);
+                        break;
+                    case 'weather-toggle-gairmet':
+                        toggleGAirmetLayer(isChecked);
+                        break;
+                    case 'weather-toggle-pireps':
+                        togglePirepLayer(isChecked);
                         break;
                     case 'weather-toggle-clouds':
                         toggleCloudLayer(isChecked);
