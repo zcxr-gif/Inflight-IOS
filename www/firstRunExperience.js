@@ -63,6 +63,12 @@ export function runFirstRunExperience(map, opts = {}) {
 
     injectStyles();
 
+    // Hide the app's UI chrome (top bar, tab bar, HUD, panels, info windows)
+    // while the cinematic intro plays so nothing but the map is visible. The
+    // class lives on <body> so it also catches chrome that boot injects
+    // *after* the intro has already started.
+    setChromeHidden(true);
+
     return new Promise((resolve) => {
         const { overlay, agreeBtn, checkbox } = buildModal();
         document.body.appendChild(overlay);
@@ -80,6 +86,8 @@ export function runFirstRunExperience(map, opts = {}) {
         agreeBtn.addEventListener('click', () => {
             if (agreeBtn.disabled) return;
             persistAcceptance();
+            // Fade the chrome back in underneath the dismissing modal.
+            setChromeHidden(false);
             overlay.classList.remove('fre-visible');
             overlay.classList.add('fre-dismissing');
             const cleanup = () => {
@@ -93,14 +101,33 @@ export function runFirstRunExperience(map, opts = {}) {
     });
 }
 
+/**
+ * Toggle the intro chrome-hidden state on <body>. When hiding, also marks the
+ * body as "chrome-managed" so the fade transition is in effect; when showing,
+ * the managed class is removed shortly after so our overrides don't linger.
+ */
+function setChromeHidden(hidden) {
+    const body = document.body;
+    if (!body) return;
+    if (hidden) {
+        body.classList.add('fre-chrome-managed', 'fre-intro-active');
+    } else {
+        body.classList.remove('fre-intro-active');
+        // Drop the managed class once the fade-in has finished so our
+        // transition override no longer applies to normal app usage.
+        setTimeout(() => body.classList.remove('fre-chrome-managed'), 750);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Map intro animation
 // ---------------------------------------------------------------------------
 
 /**
- * Cinematic intro: snap the camera out to a globe-level view, then fly it
- * back in to the map's intended target with a gentle rotation. Resolves when
- * the move finishes (or after a hard timeout so we never hang the gate).
+ * Cinematic intro: start zoomed in tight over the hub, then pull the camera
+ * back out to the map's default ("spawn") view with a gentle rotation —
+ * an "in to out" reveal. Resolves when the move finishes (or after a hard
+ * timeout so we never hang the gate).
  */
 function playIntroAnimation(map) {
     return new Promise((resolve) => {
@@ -117,6 +144,8 @@ function playIntroAnimation(map) {
         };
 
         try {
+            // The map's current camera is the default spawn view we want to
+            // settle on at the end of the pull-out.
             const target = {
                 center: map.getCenter(),
                 zoom: map.getZoom(),
@@ -124,34 +153,34 @@ function playIntroAnimation(map) {
                 pitch: 0
             };
 
-            // Pull way out and offset the bearing so the globe visibly
-            // rotates as we descend toward the hub.
+            // Start tight over the hub with a slight bearing offset so the
+            // world visibly rotates as we pull back out.
             map.jumpTo({
-                center: [target.center.lng, Math.min(target.center.lat + 18, 70)],
-                zoom: 0.4,
-                bearing: -32,
+                center: target.center,
+                zoom: 9,
+                bearing: 26,
                 pitch: 0
             });
 
             map.once('moveend', done);
             // Hard ceiling: never let the gate wait on the map for too long.
-            setTimeout(done, 5200);
+            setTimeout(done, 6800);
 
-            // Small beat so the globe is visible before we dive in.
+            // Small beat at the tight zoom before the camera pulls out.
             setTimeout(() => {
                 if (settled) return;
                 try {
                     map.flyTo({
                         ...target,
-                        duration: 4200,
-                        curve: 1.5,
-                        speed: 0.6,
+                        duration: 5200,
+                        curve: 1.42,
+                        speed: 0.5,
                         essential: true
                     });
                 } catch (_) {
                     done();
                 }
-            }, 350);
+            }, 450);
         } catch (_) {
             done();
         }
@@ -250,6 +279,30 @@ function injectStyles() {
     const style = document.createElement('style');
     style.id = 'fre-styles';
     style.textContent = `
+        /* Intro chrome management: smoothly fade the app's UI overlays out
+           while the map intro animation plays, then back in on accept. The
+           transition is only applied while .fre-chrome-managed is on <body>,
+           so it never affects normal app behaviour afterwards. */
+        body.fre-chrome-managed #inflight-tactical-ui,
+        body.fre-chrome-managed #mobile-hud-controls,
+        body.fre-chrome-managed #ios-landing-topbar,
+        body.fre-chrome-managed #ios-landing-tabbar,
+        body.fre-chrome-managed #sector-ops-floating-panel,
+        body.fre-chrome-managed #aircraft-info-window,
+        body.fre-chrome-managed #airport-info-window {
+            transition: opacity 600ms ease !important;
+        }
+        body.fre-intro-active #inflight-tactical-ui,
+        body.fre-intro-active #mobile-hud-controls,
+        body.fre-intro-active #ios-landing-topbar,
+        body.fre-intro-active #ios-landing-tabbar,
+        body.fre-intro-active #sector-ops-floating-panel,
+        body.fre-intro-active #aircraft-info-window,
+        body.fre-intro-active #airport-info-window {
+            opacity: 0 !important;
+            pointer-events: none !important;
+        }
+
         #fre-overlay {
             position: fixed;
             inset: 0;

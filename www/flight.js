@@ -2180,14 +2180,17 @@ function injectCustomStyles() {
             display: flex;
             flex-direction: column;
             overflow: hidden;
-            transition: opacity 0.3s ease, transform 0.3s ease;
+            transition: opacity 0.55s cubic-bezier(0.16, 1, 0.3, 1),
+                        transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+            transform-origin: top right;
             opacity: 0;
-            transform: translateX(20px);
+            transform: translateX(28px) translateY(10px) scale(0.96);
             pointer-events: none;
+            will-change: opacity, transform;
         }
-        .info-window.visible { 
+        .info-window.visible {
             opacity: 1;
-            transform: translateX(0);
+            transform: translateX(0) translateY(0) scale(1);
             pointer-events: auto;
         }
         .info-window-header {
@@ -4545,11 +4548,12 @@ function injectCustomStyles() {
             .info-window.dock-left {
                 right: auto !important;
                 left: 20px !important;
-                transform: translateX(-20px);
+                transform-origin: top left;
+                transform: translateX(-28px) translateY(10px) scale(0.96);
             }
 
             .info-window.dock-left.visible {
-                transform: translateX(0);
+                transform: translateX(0) translateY(0) scale(1);
             }
         }
 
@@ -12173,7 +12177,7 @@ function initializeSectorOpsMap(centerICAO) {
         container: 'sector-ops-map-fullscreen',
         style: currentMapStyle,
         center: centerCoords,
-        zoom: 2,
+        zoom: 1.3,
         minZoom: 0,
         interactive: true,
         projection: mapFilters.useFlatMap ? 'mercator' : 'globe',
