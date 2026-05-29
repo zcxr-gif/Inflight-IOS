@@ -817,6 +817,42 @@ window.refreshPilotRelations = refreshPilotRelations;
         }
     }
 
+    // --- Pro entitlement cache -------------------------------------------
+    // The app reads `profiles.is_pro` from Supabase in a few places ad-hoc.
+    // For features that need a synchronous "is this user Pro?" answer (e.g.
+    // the Inflight multi-flight tracking limit) we cache it once here and
+    // expose it on window. Defaults to false until the lookup resolves so a
+    // slow/failed query never accidentally unlocks Pro-only behavior.
+    window.InflightUser = window.InflightUser || { isPro: false, loaded: false };
+    window.isInflightPro = function () {
+        return !!(window.InflightUser && window.InflightUser.isPro);
+    };
+
+    async function refreshProStatus() {
+        try {
+            const { data: sessionData } = await supabase.auth.getSession();
+            const userId = sessionData?.session?.user?.id;
+            if (!userId) {
+                window.InflightUser = { isPro: false, loaded: true };
+                return false;
+            }
+            const { data: profile, error } = await supabase
+                .from('profiles')
+                .select('is_pro')
+                .eq('id', userId)
+                .single();
+            const isPro = !error && !!(profile && profile.is_pro);
+            window.InflightUser = { isPro, loaded: true };
+            window.dispatchEvent(new CustomEvent('proStatusChanged', { detail: { isPro } }));
+            return isPro;
+        } catch (e) {
+            console.warn('[Pro] status refresh failed:', e);
+            window.InflightUser = { isPro: false, loaded: true };
+            return false;
+        }
+    }
+    window.refreshProStatus = refreshProStatus;
+
     // Helper function to extract repetitive style mapping logic
     function applyMapStyleMapping() {
         if (mapFilters.mapStyle) {
@@ -9319,10 +9355,26 @@ async function createAirportInfoWindowHTML(icao) {
             atdMs = depInfo.timestamp.getTime();
         }
 
+        // Aircraft model + livery for the Live Activity. `props.aircraft` may
+        // be a JSON blob (string or object) on some feeds, with the flat
+        // props.aircraftName / props.liveryName as the fallback.
+        let acBlob = {};
+        try {
+            acBlob = (typeof props.aircraft === 'string')
+                ? JSON.parse(props.aircraft || '{}')
+                : (props.aircraft || {});
+        } catch (_) { acBlob = {}; }
+        const aircraftType = acBlob.aircraftName || props.aircraftName || '';
+        const liveryName   = acBlob.liveryName || props.liveryName || '';
+        const registration = acBlob.registration || props.registration || props.tailNumber || '';
+
         return {
             flightId,
             callsign: props.callsign || flightId,
-            airlineName: props.liveryName || props.aircraftName || '',
+            airlineName: liveryName || aircraftType || '',
+            aircraftType,
+            liveryName,
+            registration,
             departureIcao: depIcao,
             arrivalIcao: arrIcao,
             scheduledDeparture: schedDepMs || (atdMs || Date.now()),
@@ -10007,9 +10059,23 @@ function setupAircraftWindowEvents() {
                 showNotification?.('Live Activity stopped.', 'info');
             } else {
                 await window.InflightLiveActivity?.requestNotificationPermission?.({ force: true });
-                const prior = window.InflightLiveActivity?.getTrackedFlightId();
-                if (prior && prior !== flightId) {
-                    await window.InflightLiveActivity.end({ flightId: prior });
+
+                // Plan limit: free tracks 1 flight, Pro tracks up to 3.
+                const limit = window.InflightLiveActivity?.getTrackingLimit?.() ?? 1;
+                const count = window.InflightLiveActivity?.getTrackedCount?.() ?? 0;
+                const isPro = (typeof window.isInflightPro === 'function') ? window.isInflightPro() : false;
+                if (count >= limit) {
+                    if (isPro) {
+                        // At the Pro cap — don't silently drop one of their
+                        // flights; ask them to free a slot from the Inflight tab.
+                        showNotification?.(`You're tracking the maximum of ${limit} flights. Stop one from the Inflight tab to add another.`, 'info');
+                        return;
+                    }
+                    // Free tier: silently swap out the existing tracked flight.
+                    const prior = window.InflightLiveActivity?.getTrackedFlightId();
+                    if (prior && prior !== flightId) {
+                        await window.InflightLiveActivity.end({ flightId: prior });
+                    }
                 }
                 const payload = (typeof buildLiveActivityPayload === 'function')
                     ? buildLiveActivityPayload(flightId)
@@ -16588,6 +16654,11 @@ async function initializeApp() {
         PerformanceMonitor.init();
 
         loadFiltersFromLocalStorage();
+
+        // Resolve Pro entitlement early so multi-flight tracking limits and
+        // other gated features have a real answer to gate on. Fire-and-forget;
+        // window.isInflightPro() returns false until this lands.
+        refreshProStatus();
 
         // Inject all custom CSS
         injectCustomStyles();

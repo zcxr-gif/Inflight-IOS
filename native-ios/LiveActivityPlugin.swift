@@ -222,6 +222,9 @@ public class LiveActivityPlugin: CAPPlugin, UNUserNotificationCenterDelegate {
         }
 
         let airlineName = call.getString("airlineName") ?? ""
+        let aircraftType = call.getString("aircraftType") ?? ""
+        let liveryName = call.getString("liveryName") ?? ""
+        let registration = call.getString("registration") ?? ""
         let schedDep = dateFromMs(call.getDouble("scheduledDepartureMs")) ?? Date()
         let schedArr = dateFromMs(call.getDouble("scheduledArrivalMs")) ?? Date().addingTimeInterval(3600)
         let currentETA = dateFromMs(call.getDouble("currentEtaMs")) ?? schedArr
@@ -247,6 +250,9 @@ public class LiveActivityPlugin: CAPPlugin, UNUserNotificationCenterDelegate {
         let attributes = InflightActivityAttributes(
             callsign: callsign,
             airlineName: airlineName,
+            aircraftType: aircraftType,
+            liveryName: liveryName,
+            registration: registration,
             departureIcao: departureIcao,
             arrivalIcao: arrivalIcao,
             scheduledDeparture: schedDep,

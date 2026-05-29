@@ -2,9 +2,11 @@
 // On non-iOS or non-supporting devices every call is a silent no-op.
 //
 // Public API on window.InflightLiveActivity:
-//   start({ flightId, callsign, airlineName, departureIcao, arrivalIcao,
+//   start({ flightId, callsign, airlineName, aircraftType, liveryName,
+//           registration, departureIcao, arrivalIcao,
 //           scheduledDeparture, scheduledArrival, currentEta,
-//           currentAtd, distanceToDestinationNm, isLanded }) -> Promise
+//           currentAtd, distanceToDestinationNm, totalDistanceNm,
+//           isLanded }) -> Promise
 //   update({ flightId, currentEta, currentAtd,
 //            distanceToDestinationNm, isLanded }) -> Promise
 //   end({ flightId, immediate }) -> Promise
@@ -14,8 +16,39 @@
 (function () {
     const trackedFlights = new Set();
     let lastUpdateByFlight = new Map();
+    // Per-flight display snapshot so the Inflight panel can render rich info
+    // (route, ETA, distance, status) even for flights that have scrolled off
+    // the live map. Keyed by flightId, kept in start order for FIFO swaps.
+    const trackedMeta = new Map();
     let pluginRef = null;
     let notificationPermissionRequested = false;
+
+    function rememberMeta(flightId, payload, partial) {
+        const prev = trackedMeta.get(flightId) || { startedAt: Date.now() };
+        const next = partial ? Object.assign({}, prev) : Object.assign({}, prev);
+        const assignIf = (key, val) => { if (val !== undefined && val !== null) next[key] = val; };
+        assignIf('callsign', payload.callsign);
+        assignIf('airlineName', payload.airlineName);
+        assignIf('aircraftType', payload.aircraftType);
+        assignIf('liveryName', payload.liveryName);
+        assignIf('registration', payload.registration);
+        assignIf('departureIcao', payload.departureIcao);
+        assignIf('arrivalIcao', payload.arrivalIcao);
+        if (payload.currentEta != null) next.currentEtaMs = toMs(payload.currentEta);
+        if (payload.currentAtd != null) next.currentAtdMs = toMs(payload.currentAtd);
+        if (payload.distanceToDestinationNm != null) {
+            const d = Number(payload.distanceToDestinationNm);
+            if (Number.isFinite(d)) next.distanceToDestinationNm = d;
+        }
+        if (payload.totalDistanceNm != null) {
+            const t = Number(payload.totalDistanceNm);
+            if (Number.isFinite(t)) next.totalDistanceNm = t;
+        }
+        if (payload.isLanded != null) next.isLanded = !!payload.isLanded;
+        next.flightId = String(flightId);
+        next.updatedAt = Date.now();
+        trackedMeta.set(String(flightId), next);
+    }
 
     function detectIOS() {
         // Be liberal: any of (Capacitor reports ios) OR (UA looks like iOS in a
@@ -208,6 +241,9 @@
             flightId: String(payload.flightId),
             callsign: payload.callsign || '',
             airlineName: payload.airlineName || '',
+            aircraftType: payload.aircraftType || '',
+            liveryName: payload.liveryName || '',
+            registration: payload.registration || '',
             departureIcao: payload.departureIcao || '',
             arrivalIcao: payload.arrivalIcao || '',
             scheduledDepartureMs: toMs(payload.scheduledDeparture),
@@ -226,6 +262,8 @@
             const res = await plugin.start(args);
             trackedFlights.add(args.flightId);
             lastUpdateByFlight.set(args.flightId, Date.now());
+            rememberMeta(args.flightId, payload, false);
+            window.dispatchEvent(new CustomEvent('inflightTrackingChanged', { detail: { flightId: args.flightId, tracking: true } }));
             return { ok: true, ...res };
         } catch (err) {
             console.warn('[LiveActivity] start failed:', err);
@@ -255,6 +293,7 @@
         try {
             await plugin.update(args);
             lastUpdateByFlight.set(flightId, Date.now());
+            rememberMeta(flightId, payload, true);
             return { ok: true };
         } catch (err) {
             console.warn('[LiveActivity] update failed:', err);
@@ -270,6 +309,8 @@
             await plugin.end({ flightId, immediate: !!payload.immediate });
             trackedFlights.delete(flightId);
             lastUpdateByFlight.delete(flightId);
+            trackedMeta.delete(flightId);
+            window.dispatchEvent(new CustomEvent('inflightTrackingChanged', { detail: { flightId, tracking: false } }));
             return { ok: true };
         } catch (err) {
             console.warn('[LiveActivity] end failed:', err);
@@ -282,8 +323,33 @@
     }
 
     function getTrackedFlightId() {
-        // We only intend one Live Activity at a time for "my flight" — return the first.
+        // Back-compat: the oldest tracked flight. Newer callers should prefer
+        // getTrackedFlightIds() now that Pro users can track several at once.
         return trackedFlights.values().next().value || null;
+    }
+
+    function getTrackedFlightIds() {
+        return Array.from(trackedFlights);
+    }
+
+    function getTrackedCount() {
+        return trackedFlights.size;
+    }
+
+    // Rich per-flight snapshots for the Inflight panel, in start order.
+    function getTrackedFlights() {
+        return Array.from(trackedFlights).map(id => {
+            const m = trackedMeta.get(id) || { flightId: id };
+            return Object.assign({ flightId: id }, m);
+        });
+    }
+
+    // Plan limit: free tier tracks 1 flight, Pro tracks up to 3.
+    function getTrackingLimit() {
+        const isPro = (typeof window !== 'undefined' && typeof window.isInflightPro === 'function')
+            ? window.isInflightPro()
+            : false;
+        return isPro ? 3 : 1;
     }
 
     async function openSystemSettings() {
@@ -307,6 +373,10 @@
         end,
         isTrackingFlight,
         getTrackedFlightId,
+        getTrackedFlightIds,
+        getTrackedCount,
+        getTrackedFlights,
+        getTrackingLimit,
         requestNotificationPermission,
         getNotificationPermissionStatus,
         presentLocalNotification,

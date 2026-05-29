@@ -29,6 +29,8 @@ export const MobileLandingChromeUI = {
     _initialized: false,
     _serverSheetOpen: false,
     _weatherSheetOpen: false,
+    _inflightSheetOpen: false,
+    _inflightTicker: null,
     _searchActive: false,
 
     init(parentUI) {
@@ -87,9 +89,12 @@ export const MobileLandingChromeUI = {
         bottomBar.setAttribute('data-theme', this.parent?._theme || 'dark');
         bottomBar.innerHTML = `
             <div class="ios-tabbar-inner">
-                <button type="button" class="ios-tab" data-action="server">
-                    <i class="fa-solid fa-server"></i>
-                    <span class="ios-tab-label">Server</span>
+                <button type="button" class="ios-tab" data-action="inflight">
+                    <span class="ios-tab-iconwrap">
+                        <i class="fa-solid fa-bell"></i>
+                        <span class="ios-tab-badge" id="ios-tab-inflight-dot">0</span>
+                    </span>
+                    <span class="ios-tab-label">Inflight</span>
                 </button>
                 <button type="button" class="ios-tab" data-action="weather">
                     <i class="fa-solid fa-cloud-sun-rain"></i>
@@ -162,10 +167,33 @@ export const MobileLandingChromeUI = {
             </div>
         `;
 
+        // --- Inflight tracking sheet (replaces the old Server tab) ---
+        const inflightSheet = document.createElement('div');
+        inflightSheet.id = 'ios-inflight-sheet';
+        inflightSheet.className = 'ios-sheet-root ios-inflight-root';
+        inflightSheet.setAttribute('data-theme', this.parent?._theme || 'dark');
+        inflightSheet.innerHTML = `
+            <div class="ios-sheet-backdrop" data-dismiss="inflight"></div>
+            <div class="ios-sheet-card ios-inflight-card">
+                <div class="ios-inflight-panel">
+                    <div class="ios-inflight-header">
+                        <div class="ios-inflight-titles">
+                            <span class="ios-inflight-eyebrow">Live Tracking</span>
+                            <span class="ios-inflight-title">Inflight</span>
+                        </div>
+                        <span class="ios-inflight-plan" id="ios-inflight-plan"></span>
+                    </div>
+                    <div class="ios-inflight-body" id="ios-inflight-body"></div>
+                </div>
+                <button type="button" class="ios-sheet-cancel" data-dismiss="inflight">Done</button>
+            </div>
+        `;
+
         root.appendChild(topBar);
         root.appendChild(bottomBar);
         mapHost.appendChild(serverSheet);
         mapHost.appendChild(weatherPop);
+        mapHost.appendChild(inflightSheet);
 
         // Move existing search input + clear button into the new shell so
         // every LandingUI handler stays bound.
@@ -195,12 +223,14 @@ export const MobileLandingChromeUI = {
         const root = document.getElementById('inflight-tactical-ui');
 
         // --- Theme follow ---
+        const inflightSheetEl = document.getElementById('ios-inflight-sheet');
         window.addEventListener('puiThemeChanged', (e) => {
             const t = e.detail?.theme || 'dark';
             topBar?.setAttribute('data-theme', t);
             tabBar?.setAttribute('data-theme', t);
             serverSheet?.setAttribute('data-theme', t);
             weatherPop?.setAttribute('data-theme', t);
+            inflightSheetEl?.setAttribute('data-theme', t);
         });
 
         // --- Profile ---
@@ -282,6 +312,45 @@ export const MobileLandingChromeUI = {
             }
         });
 
+        // --- Inflight tracking sheet ---
+        const inflightSheet = document.getElementById('ios-inflight-sheet');
+        inflightSheet?.addEventListener('click', async (e) => {
+            if (e.target.closest('[data-dismiss="inflight"]')) {
+                this._closeInflightSheet();
+                return;
+            }
+            const stopBtn = e.target.closest('[data-stop-flight]');
+            if (stopBtn) {
+                const fid = stopBtn.dataset.stopFlight;
+                stopBtn.disabled = true;
+                try { await window.InflightLiveActivity?.end?.({ flightId: fid }); } catch (_) {}
+                this._renderInflightSheet();
+                this._updateInflightBadge();
+                this._syncMapBellIcons?.(fid, false);
+                return;
+            }
+            const upgradeBtn = e.target.closest('[data-inflight-upgrade]');
+            if (upgradeBtn) {
+                this._closeInflightSheet();
+                try {
+                    if (window.AuthUI && typeof window.AuthUI.open === 'function') {
+                        window.AuthUI.open();
+                    }
+                } catch (_) {}
+            }
+        });
+
+        // Keep the tab badge + open sheet in sync as flights start/stop.
+        window.addEventListener('inflightTrackingChanged', () => {
+            this._updateInflightBadge();
+            if (this._inflightSheetOpen) this._renderInflightSheet();
+        });
+        window.addEventListener('proStatusChanged', () => {
+            this._updateInflightBadge();
+            if (this._inflightSheetOpen) this._renderInflightSheet();
+        });
+        this._updateInflightBadge();
+
         // --- Weather popover selection ---
         weatherPop?.addEventListener('click', (e) => {
             if (e.target.closest('[data-dismiss="weather"]')) {
@@ -323,6 +392,9 @@ export const MobileLandingChromeUI = {
     _handleTab(action, btn) {
         this._setActiveTab(btn);
         switch (action) {
+            case 'inflight':
+                this._openInflightSheet();
+                break;
             case 'server':
                 this._openServerSheet();
                 break;
@@ -383,6 +455,179 @@ export const MobileLandingChromeUI = {
     _refreshServerSheetChecks(name) {
         document.querySelectorAll('#ios-server-sheet [data-server]').forEach(row => {
             row.classList.toggle('is-selected', row.dataset.server === name);
+        });
+    },
+
+    /* ===========================================================
+       Inflight tracking sheet
+       =========================================================== */
+    _la() {
+        return (typeof window !== 'undefined') ? window.InflightLiveActivity : null;
+    },
+    _isPro() {
+        return (typeof window !== 'undefined' && typeof window.isInflightPro === 'function')
+            ? window.isInflightPro()
+            : false;
+    },
+    _trackingLimit() {
+        const la = this._la();
+        if (la && typeof la.getTrackingLimit === 'function') return la.getTrackingLimit();
+        return this._isPro() ? 3 : 1;
+    },
+    _trackedFlights() {
+        const la = this._la();
+        if (la && typeof la.getTrackedFlights === 'function') {
+            try { return la.getTrackedFlights() || []; } catch (_) { return []; }
+        }
+        return [];
+    },
+
+    _openInflightSheet() {
+        const sheet = document.getElementById('ios-inflight-sheet');
+        if (!sheet) return;
+        this._inflightSheetOpen = true;
+        this._renderInflightSheet();
+        sheet.classList.add('is-open');
+        document.body.style.overflow = 'hidden';
+        // Live-tick the ETE readouts while the sheet is visible.
+        this._stopInflightTicker();
+        this._inflightTicker = setInterval(() => this._tickInflightTimes(), 1000);
+    },
+    _closeInflightSheet() {
+        const sheet = document.getElementById('ios-inflight-sheet');
+        if (!sheet) return;
+        this._inflightSheetOpen = false;
+        sheet.classList.remove('is-open');
+        document.body.style.overflow = '';
+        this._stopInflightTicker();
+    },
+    _stopInflightTicker() {
+        if (this._inflightTicker) { clearInterval(this._inflightTicker); this._inflightTicker = null; }
+    },
+
+    _eteParts(etaMs) {
+        if (!etaMs) return null;
+        let secs = Math.round((etaMs - Date.now()) / 1000);
+        if (!Number.isFinite(secs)) return null;
+        const overdue = secs < 0;
+        secs = Math.abs(secs);
+        const h = Math.floor(secs / 3600);
+        const m = Math.floor((secs % 3600) / 60);
+        return { h, m, overdue, text: `${h}h ${String(m).padStart(2, '0')}m` };
+    },
+    _fmtClock(ms) {
+        if (!ms) return '--:--';
+        try {
+            return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        } catch (_) { return '--:--'; }
+    },
+
+    _updateInflightBadge() {
+        const dot = document.getElementById('ios-tab-inflight-dot');
+        if (!dot) return;
+        const count = this._trackedFlights().length;
+        dot.textContent = count > 9 ? '9+' : String(count);
+        dot.classList.toggle('is-on', count > 0);
+    },
+
+    // Refresh only the live ETE text nodes (cheap, runs every second while open).
+    _tickInflightTimes() {
+        const body = document.getElementById('ios-inflight-body');
+        if (!body) return;
+        body.querySelectorAll('[data-eta-ms]').forEach(el => {
+            const etaMs = Number(el.dataset.etaMs) || 0;
+            const landed = el.dataset.landed === '1';
+            if (landed) { el.textContent = 'Landed'; return; }
+            const parts = this._eteParts(etaMs);
+            el.textContent = parts ? (parts.overdue ? `${parts.text} over` : `${parts.text} left`) : '—';
+        });
+    },
+
+    _renderInflightSheet() {
+        const body = document.getElementById('ios-inflight-body');
+        const plan = document.getElementById('ios-inflight-plan');
+        if (!body) return;
+
+        const la = this._la();
+        const supported = !!(la && typeof la.isSupported === 'function' && la.isSupported());
+        const isPro = this._isPro();
+        const limit = this._trackingLimit();
+        const flights = this._trackedFlights();
+
+        if (plan) {
+            plan.textContent = `${flights.length}/${limit} · ${isPro ? 'Pro' : 'Free'}`;
+            plan.classList.toggle('is-pro', isPro);
+        }
+
+        if (!supported) {
+            body.innerHTML = `
+                <div class="ios-inflight-empty">
+                    <i class="fa-solid fa-circle-info"></i>
+                    <p>Live Activities aren't available on this device. Track flights on iPhone to see them on your Lock Screen and Dynamic Island.</p>
+                </div>`;
+            return;
+        }
+
+        const rows = flights.map(f => {
+            const route = `${f.departureIcao || '–––'} → ${f.arrivalIcao || '–––'}`;
+            const sub = [f.aircraftType, f.liveryName].filter(Boolean).join(' · ');
+            const nm = (f.distanceToDestinationNm != null && Number.isFinite(f.distanceToDestinationNm))
+                ? `${Math.max(0, Math.round(f.distanceToDestinationNm))} NM` : '';
+            const eteParts = this._eteParts(f.currentEtaMs);
+            const eteText = f.isLanded ? 'Landed' : (eteParts ? (eteParts.overdue ? `${eteParts.text} over` : `${eteParts.text} left`) : '—');
+            const arr = f.currentEtaMs ? `Arr ${this._fmtClock(f.currentEtaMs)}` : '';
+            return `
+                <div class="ios-inflight-row">
+                    <div class="ios-inflight-row-main">
+                        <div class="ios-inflight-row-top">
+                            <span class="ios-inflight-callsign">${this._esc(f.callsign || f.flightId)}</span>
+                            ${f.isLanded ? '<span class="ios-inflight-chip landed">Landed</span>' : '<span class="ios-inflight-chip live">Live</span>'}
+                        </div>
+                        <div class="ios-inflight-route">${this._esc(route)}</div>
+                        ${sub ? `<div class="ios-inflight-sub">${this._esc(sub)}</div>` : ''}
+                        <div class="ios-inflight-metrics">
+                            <span class="ios-inflight-ete" data-eta-ms="${f.currentEtaMs || 0}" data-landed="${f.isLanded ? '1' : '0'}">${this._esc(eteText)}</span>
+                            ${nm ? `<span class="ios-inflight-dot-sep"></span><span>${nm}</span>` : ''}
+                            ${arr ? `<span class="ios-inflight-dot-sep"></span><span>${arr}</span>` : ''}
+                        </div>
+                    </div>
+                    <button type="button" class="ios-inflight-stop" data-stop-flight="${this._esc(String(f.flightId))}" aria-label="Stop tracking">
+                        <i class="fa-solid fa-bell-slash"></i>
+                    </button>
+                </div>`;
+        }).join('');
+
+        const emptyState = `
+            <div class="ios-inflight-empty">
+                <i class="fa-solid fa-bell"></i>
+                <p>You're not tracking any flights yet.</p>
+                <span>Open a flight on the map and tap the <i class="fa-solid fa-bell"></i> bell to follow it on your Lock Screen.</span>
+            </div>`;
+
+        const upsell = (!isPro) ? `
+            <button type="button" class="ios-inflight-upsell" data-inflight-upgrade>
+                <span class="ios-inflight-upsell-icon"><i class="fa-solid fa-crown"></i></span>
+                <span class="ios-inflight-upsell-text">
+                    <span class="ios-inflight-upsell-title">Track up to 3 flights with Pro</span>
+                    <span class="ios-inflight-upsell-sub">Free plan follows one flight at a time</span>
+                </span>
+                <i class="fa-solid fa-chevron-right"></i>
+            </button>` : '';
+
+        body.innerHTML = (flights.length ? `<div class="ios-inflight-list">${rows}</div>` : emptyState) + upsell;
+    },
+
+    _esc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    },
+
+    // Best-effort: flip any visible track-me bell on the map for this flight.
+    _syncMapBellIcons(flightId, tracking) {
+        document.querySelectorAll(`.aircraft-window-trackme-btn[data-flight-id="${CSS.escape(String(flightId))}"] i`).forEach(icon => {
+            icon.classList.toggle('fa-bell', !tracking);
+            icon.classList.toggle('fa-bell-slash', tracking);
         });
     },
 
@@ -1066,6 +1311,124 @@ export const MobileLandingChromeUI = {
                 -webkit-tap-highlight-color: transparent;
             }
             .ios-sheet-cancel:active { background: rgba(50, 50, 52, 0.95); }
+
+            /* ============ INFLIGHT TRACKING SHEET ============ */
+            .ios-inflight-panel {
+                background: var(--ios-bg-deep);
+                -webkit-backdrop-filter: var(--ios-blur);
+                backdrop-filter: var(--ios-blur);
+                border-radius: 18px;
+                overflow: hidden;
+                box-shadow: var(--ios-shadow);
+            }
+            .ios-inflight-header {
+                display: flex;
+                align-items: flex-end;
+                justify-content: space-between;
+                gap: 12px;
+                padding: 16px 18px 12px;
+                border-bottom: 0.5px solid var(--ios-stroke-soft);
+            }
+            .ios-inflight-titles { display: flex; flex-direction: column; gap: 1px; }
+            .ios-inflight-eyebrow {
+                font-size: 10.5px; font-weight: 600; letter-spacing: 0.6px;
+                text-transform: uppercase; color: var(--ios-text-3);
+            }
+            .ios-inflight-title {
+                font-size: 22px; font-weight: 700; letter-spacing: -0.4px; color: var(--ios-text);
+            }
+            .ios-inflight-plan {
+                flex: 0 0 auto;
+                font-size: 12px; font-weight: 600; letter-spacing: 0.2px;
+                color: var(--ios-text-2);
+                background: var(--ios-fill);
+                padding: 5px 10px; border-radius: 999px;
+            }
+            .ios-inflight-plan.is-pro {
+                color: #1c1c1e;
+                background: linear-gradient(135deg, #ffd60a, #ff9f0a);
+            }
+            .ios-inflight-body {
+                max-height: min(56dvh, 460px);
+                overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
+                overscroll-behavior: contain;
+            }
+            .ios-inflight-body::-webkit-scrollbar { width: 0; background: transparent; }
+            .ios-inflight-list { display: flex; flex-direction: column; }
+            .ios-inflight-row {
+                display: flex; align-items: center; gap: 12px;
+                padding: 13px 16px;
+            }
+            .ios-inflight-row + .ios-inflight-row { border-top: 0.5px solid var(--ios-stroke-soft); }
+            .ios-inflight-row-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+            .ios-inflight-row-top { display: flex; align-items: center; gap: 8px; }
+            .ios-inflight-callsign {
+                font-size: 16px; font-weight: 700; letter-spacing: -0.2px; color: var(--ios-text);
+            }
+            .ios-inflight-chip {
+                font-size: 9.5px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;
+                padding: 2px 7px; border-radius: 999px;
+            }
+            .ios-inflight-chip.live { color: var(--ios-success); background: color-mix(in srgb, var(--ios-success) 18%, transparent); }
+            .ios-inflight-chip.landed { color: var(--ios-text-3); background: var(--ios-fill); }
+            .ios-inflight-route {
+                font-size: 14px; font-weight: 600; color: var(--ios-text-2); letter-spacing: 0.2px;
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            }
+            .ios-inflight-sub {
+                font-size: 12px; color: var(--ios-text-3);
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            }
+            .ios-inflight-metrics {
+                display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+                margin-top: 2px; font-size: 12.5px; font-weight: 500; color: var(--ios-text-2);
+            }
+            .ios-inflight-ete { font-weight: 700; color: var(--ios-accent); font-variant-numeric: tabular-nums; }
+            .ios-inflight-dot-sep {
+                width: 3px; height: 3px; border-radius: 50%;
+                background: var(--ios-text-4); display: inline-block;
+            }
+            .ios-inflight-stop {
+                flex: 0 0 auto; width: 38px; height: 38px;
+                display: grid; place-items: center;
+                border: none; border-radius: 12px;
+                background: var(--ios-fill); color: #ff453a;
+                font-size: 15px; cursor: pointer;
+                -webkit-tap-highlight-color: transparent;
+                transition: transform 0.15s ease, background-color 0.15s ease;
+            }
+            .ios-inflight-stop:active { transform: scale(0.92); background: var(--ios-fill-strong); }
+            .ios-inflight-stop:disabled { opacity: 0.4; }
+            .ios-inflight-empty {
+                display: flex; flex-direction: column; align-items: center; gap: 8px;
+                padding: 34px 26px; text-align: center;
+            }
+            .ios-inflight-empty > i { font-size: 26px; color: var(--ios-text-4); }
+            .ios-inflight-empty p { margin: 0; font-size: 15px; font-weight: 600; color: var(--ios-text-2); }
+            .ios-inflight-empty span { font-size: 12.5px; color: var(--ios-text-3); line-height: 1.45; }
+            .ios-inflight-empty span i { color: var(--ios-accent); }
+            .ios-inflight-upsell {
+                display: flex; align-items: center; gap: 12px; width: 100%;
+                margin-top: 8px; padding: 14px 16px;
+                background: var(--ios-bg-deep);
+                -webkit-backdrop-filter: var(--ios-blur);
+                backdrop-filter: var(--ios-blur);
+                border: 0.5px solid var(--ios-stroke);
+                border-radius: 16px; cursor: pointer; text-align: left;
+                color: var(--ios-text);
+                -webkit-tap-highlight-color: transparent;
+            }
+            .ios-inflight-upsell:active { background: var(--ios-bg-elev); }
+            .ios-inflight-upsell-icon {
+                flex: 0 0 auto; width: 34px; height: 34px; border-radius: 10px;
+                display: grid; place-items: center; font-size: 15px; color: #1c1c1e;
+                background: linear-gradient(135deg, #ffd60a, #ff9f0a);
+            }
+            .ios-inflight-upsell-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+            .ios-inflight-upsell-title { font-size: 14.5px; font-weight: 600; color: var(--ios-text); }
+            .ios-inflight-upsell-sub { font-size: 12px; color: var(--ios-text-3); }
+            .ios-inflight-upsell > .fa-chevron-right { color: var(--ios-text-4); font-size: 13px; }
 
             /* ============ WEATHER POPOVER ============ */
             .ios-popover-root {
