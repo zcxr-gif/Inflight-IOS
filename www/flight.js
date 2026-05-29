@@ -2193,6 +2193,13 @@ function injectCustomStyles() {
             transform: translateX(0) translateY(0) scale(1);
             pointer-events: auto;
         }
+        /* Simple Flight Window host: animate the compact <-> expanded resize. */
+        .info-window.simple-window-host {
+            transition: opacity 0.45s cubic-bezier(0.16, 1, 0.3, 1),
+                        transform 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+                        width 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+                        height 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
         .info-window-header {
             display: flex;
             justify-content: space-between;
@@ -10565,6 +10572,8 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
     let originIcao = '---', destIcao = '---';
     let progress = 0, elapsed = '--:--', eta = '--:--', ete = '--:--', originTime = '--:--';
     let originCountry = '', destCountry = '';
+    let originName = '', destName = '';
+    let totalNm = 0, remainingNm = 0, flownNm = 0;
 
     // --- TIME & ELAPSED CALCULATIONS ---
     if (routePoints && routePoints.length > 0) {
@@ -10589,8 +10598,8 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         originIcao = plan.origin?.icao || plan.flightPlanItems[0].identifier || '---';
         destIcao = plan.destination?.icao || plan.flightPlanItems[plan.flightPlanItems.length - 1].identifier || '---';
 
-        if (airportsData[originIcao]) originCountry = airportsData[originIcao].country;
-        if (airportsData[destIcao]) destCountry = airportsData[destIcao].country;
+        if (airportsData[originIcao]) { originCountry = airportsData[originIcao].country; originName = airportsData[originIcao].name || ''; }
+        if (airportsData[destIcao]) { destCountry = airportsData[destIcao].country; destName = airportsData[destIcao].name || ''; }
 
         // --- A. FLATTEN AND IDENTIFY GROUPS ---
         const flatList = [];
@@ -10649,7 +10658,11 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             const destLat = flatList[flatList.length - 1].location.latitude;
             const destLon = flatList[flatList.length - 1].location.longitude;
             const distRemainingKm = getDistanceKm(pos.lat, pos.lon, destLat, destLon);
-            
+
+            totalNm = totalDistKm / 1.852;
+            remainingNm = Math.max(0, distRemainingKm / 1.852);
+            flownNm = Math.max(0, totalNm - remainingNm);
+
             progress = Math.max(0, Math.min(100, (1 - (distRemainingKm / totalDistKm)) * 100));
 
             const speedKts = pos.gs_kt || 0;
@@ -10712,14 +10725,19 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         route: {
             originIcao,
             originCountry,
+            originName,
             destIcao,
             destCountry,
+            destName,
             originTime: originTime,
             destTime: eta,
             progress: progress,
             elapsed: elapsed,
             eta: eta,
             ete: ete,
+            totalNm: Math.round(totalNm),
+            remainingNm: Math.round(remainingNm),
+            flownNm: Math.round(flownNm),
             waypoints: structuredWaypoints
         }
     };
@@ -12111,11 +12129,7 @@ window.globalNatTracks = natTracks;
         setupSmartMapBackgroundClick();
 
         // --- 14. Listen for ND_READY signal ---
-        window.addEventListener('message', (event) => {
-            if (event.data && event.data.type === 'ND_READY') {
-                refreshNavDisplayFromCache();
-            }
-        });
+        window.addEventListener('message', handleIframeMessage);
 
         // --- 15. Start Live Loop ---
         startSectorOpsLiveLoop();
@@ -13087,7 +13101,10 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         cachedFlightDataForStatsView = { flightProps, plan };
 
         if (typeof mapFilters !== 'undefined' && mapFilters.useSimpleFlightWindow) {
-            windowEl.style.width = '420px';
+            // Open the redesigned simple window in its compact "peek" state.
+            windowEl.classList.add('simple-window-host');
+            windowEl.style.width = '380px';
+            windowEl.style.height = '300px';
             windowEl.innerHTML = `<iframe id="simple-flight-window-frame" src="flightinfo.html" style="width:100%; flex-grow: 1; border:none;" scrolling="no"></iframe>`;
             const simpleData = formatDataForSimpleWindow(flightProps, plan, [], communityAircraftData);
             const iframe = document.getElementById('simple-flight-window-frame');
@@ -13268,8 +13285,15 @@ function closeAircraftWindow() {
     }
 
     aircraftInfoWindow.classList.remove('visible');
+    // Reset any inline sizing applied by the simple flight window so other
+    // window modes fall back to their CSS-defined dimensions next time.
+    if (aircraftInfoWindow.classList.contains('simple-window-host')) {
+        aircraftInfoWindow.classList.remove('simple-window-host');
+        aircraftInfoWindow.style.width = '';
+        aircraftInfoWindow.style.height = '';
+    }
     if (window.MobileUIHandler) window.MobileUIHandler.closeActiveWindow();
-    
+
     // Clear the map layers using the ID tracker ONLY IF NOT PINNED
     if (!window.pinnedFlights || !window.pinnedFlights.has(currentFlightInWindow)) {
         clearLiveFlightPath(currentFlightInWindow);
@@ -15623,6 +15647,32 @@ async function handleIframeMessage(event) {
     // 1. ND Ready Check (Existing)
     if (event.data && event.data.type === 'ND_READY') {
         refreshNavDisplayFromCache();
+        return;
+    }
+
+    // 1b. Simple Flight Window size requests (compact "peek" vs expanded).
+    // The iframe measures its own content and asks the host to resize.
+    if (event.data && event.data.type === 'SIMPLE_WINDOW_RESIZE') {
+        const host = document.getElementById('aircraft-info-window');
+        if (!host || !host.classList.contains('simple-window-host')) return;
+        const mode = event.data.mode === 'expanded' ? 'expanded' : 'compact';
+        const reported = Math.round(event.data.height || 0);
+        host.classList.toggle('simple-window-expanded', mode === 'expanded');
+        if (mode === 'expanded') {
+            // Fill available space but never exceed the viewport; the iframe
+            // scrolls internally for anything taller.
+            host.style.width = '440px';
+            host.style.height = `min(${reported || 760}px, calc(100vh - 40px))`;
+        } else {
+            host.style.width = '380px';
+            host.style.height = `${Math.max(180, reported || 300)}px`;
+        }
+        return;
+    }
+
+    // 1c. Simple Flight Window requested close.
+    if (event.data && event.data.type === 'SIMPLE_WINDOW_CLOSE') {
+        if (typeof closeAircraftWindow === 'function') closeAircraftWindow();
         return;
     }
 
