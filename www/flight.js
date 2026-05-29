@@ -6803,6 +6803,88 @@ async function toggleSigmetLayer(show) {
     }
 }
 
+/**
+ * --- [NEW] NWS Weather Alerts Layer (US) ---
+ * Fetches all active National Weather Service alerts (warnings/watches) as
+ * GeoJSON polygons from api.weather.gov (free, no key). US coverage only.
+ */
+let isNwsAlertsLayerAdded = false;
+
+async function toggleNwsAlertsLayer(show) {
+    if (!sectorOpsMap) return;
+
+    const SOURCE_ID = 'nws-alerts-source';
+    const FILL_LAYER_ID = 'nws-alerts-fill';
+    const LINE_LAYER_ID = 'nws-alerts-outline';
+
+    // Color by severity, matching how the rest of the weather UI reads.
+    const severityColor = [
+        'match',
+        ['get', 'severity'],
+        'Extreme', '#c026d3',  // magenta
+        'Severe', '#ef4444',   // red
+        'Moderate', '#f59e0b', // amber
+        'Minor', '#facc15',    // yellow
+        '#60a5fa'              // unknown / info (blue)
+    ];
+
+    if (show && !isNwsAlertsLayerAdded) {
+        try {
+            const geojson = window.WeatherService
+                ? await window.WeatherService.fetchActiveAlertsGeoJSON()
+                : { type: 'FeatureCollection', features: [] };
+
+            if (!geojson.features || !geojson.features.length) {
+                showNotification('No active NWS alerts right now.', 'info');
+                return;
+            }
+
+            sectorOpsMap.addSource(SOURCE_ID, { 'type': 'geojson', 'data': geojson });
+
+            sectorOpsMap.addLayer({
+                'id': FILL_LAYER_ID,
+                'type': 'fill',
+                'source': SOURCE_ID,
+                'paint': { 'fill-color': severityColor, 'fill-opacity': 0.15 }
+            }, 'sector-ops-live-flights-layer');
+
+            sectorOpsMap.addLayer({
+                'id': LINE_LAYER_ID,
+                'type': 'line',
+                'source': SOURCE_ID,
+                'paint': { 'line-color': severityColor, 'line-width': 1.2, 'line-opacity': 0.85 }
+            }, 'sector-ops-live-flights-layer');
+
+            // Click for alert details.
+            sectorOpsMap.on('click', FILL_LAYER_ID, (e) => {
+                const props = e.features[0].properties || {};
+                new mapboxgl.Popup()
+                    .setLngLat(e.lngLat)
+                    .setHTML(`
+                        <div style="color:#333; padding:5px; max-width:240px;">
+                            <strong>${props.event || 'NWS Alert'}</strong>
+                            <span style="font-size:0.75em; color:#a00;"> (${props.severity || 'Unknown'})</span><br>
+                            <span style="font-size:0.8em; color:#555;">${props.headline || 'No details'}</span>
+                        </div>
+                    `)
+                    .addTo(sectorOpsMap);
+            });
+
+            isNwsAlertsLayerAdded = true;
+            console.log(`NWS alerts layer added (${geojson.features.length} active).`);
+
+        } catch (error) {
+            console.error('Failed to load NWS alerts:', error);
+            showNotification('Could not load NWS alerts.', 'error');
+        }
+
+    } else if (isNwsAlertsLayerAdded) {
+        const vis = show ? 'visible' : 'none';
+        if (sectorOpsMap.getLayer(FILL_LAYER_ID)) sectorOpsMap.setLayoutProperty(FILL_LAYER_ID, 'visibility', vis);
+        if (sectorOpsMap.getLayer(LINE_LAYER_ID)) sectorOpsMap.setLayoutProperty(LINE_LAYER_ID, 'visibility', vis);
+    }
+}
+
 // Add this inside the document.addEventListener('DOMContentLoaded', async () => { ... }) block
 window.addEventListener('serverChange', (e) => {
     const serverMapping = {
@@ -7338,32 +7420,37 @@ async function fetchAndDisplayWeather() {
 
     const lat = currentAircraftPositionForGeocode.lat;
     const lon = currentAircraftPositionForGeocode.lon;
-
-    // Use OpenMeteo API endpoint (No API key required for this data)
-    const OPENMETEO_URL = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,wind_speed_10m,wind_direction_10m&forecast_days=1`;
-    
-    // Elements to update (optional, but good for debugging)
-    const windDisplay = document.getElementById('wind-speed-display');
+    const altFt = currentAircraftPositionForGeocode.alt_ft || 0;
 
     try {
-        // 1. Fetch data
-        const response = await fetch(OPENMETEO_URL);
-        if (!response.ok) throw new Error('OpenMeteo fetch failed.');
-        
-        const data = await response.json();
-        const current = data.current;
+        // Winds aloft (Open-Meteo, key-less, global). Returns the full pressure-level
+        // table plus the surface conditions and the level nearest our altitude.
+        const wx = window.WeatherService
+            ? await window.WeatherService.fetchWindsAloft(lat, lon, altFt)
+            : null;
 
-        if (!current) throw new Error('Invalid OpenMeteo response.');
+        if (!wx || (!wx.surface && !wx.levels.length)) {
+            throw new Error('Invalid winds-aloft response.');
+        }
 
-        // 2. Update the shared state object with new data
-        // We use temperature_2m as OAT approximation (simplification)
-        currentAircraftPositionForGeocode.oat_c = current.temperature_2m;
-        currentAircraftPositionForGeocode.wind_dir = current.wind_direction_10m;
-        
-        // Convert m/s to knots (1 m/s ≈ 1.944 kts)
-        currentAircraftPositionForGeocode.wind_spd_kts = Math.round(current.wind_speed_10m * 1.944);
+        // Pick the most representative reading: at/above ~5000 ft use the nearest
+        // pressure level (true cruise OAT/wind); below that, use surface.
+        let source = wx.surface;
+        if (altFt >= 5000 && wx.nearest) {
+            source = { tempC: wx.nearest.tempC, spdKts: wx.nearest.spdKts, dirDeg: wx.nearest.dirDeg };
+        }
+        if (!source && wx.nearest) {
+            source = { tempC: wx.nearest.tempC, spdKts: wx.nearest.spdKts, dirDeg: wx.nearest.dirDeg };
+        }
 
-        // 3. Update the Nav Display iframe *immediately* with new wind data
+        // Update the shared state object with new data.
+        currentAircraftPositionForGeocode.oat_c = source.tempC;
+        currentAircraftPositionForGeocode.wind_dir = source.dirDeg;
+        currentAircraftPositionForGeocode.wind_spd_kts = source.spdKts;
+        // Keep the full winds-aloft table around for any UI that wants it.
+        currentAircraftPositionForGeocode.windsAloft = wx.levels;
+
+        // Update the Nav Display iframe *immediately* with new wind data.
         const navIframe = document.getElementById('nav-display-frame');
         if (navIframe && navIframe.contentWindow) {
              navIframe.contentWindow.postMessage({
@@ -7372,8 +7459,8 @@ async function fetchAndDisplayWeather() {
             }, '*');
         }
 
-        console.log(`Weather updated: OAT=${current.temperature_2m}C, Wind=${current.wind_direction_10m}° @ ${currentAircraftPositionForGeocode.wind_spd_kts}kts`);
-        
+        console.log(`Weather updated @ ${Math.round(altFt)}ft: OAT=${source.tempC}C, Wind=${source.dirDeg}° @ ${source.spdKts}kts (winds-aloft levels: ${wx.levels.length})`);
+
     } catch (error) {
         console.error("Weather fetch error:", error);
         // Clear or set default values on error
@@ -8990,10 +9077,18 @@ async function createAirportInfoWindowHTML(icao) {
         let weatherModuleHtml = '';
         let atisModuleHtml = '';
         let metarString = '';
+        let tafString = '';
 
         try {
             if (window.WeatherService) {
-                const w = await window.WeatherService.fetchAndParseMetar(icao);
+                // Fetch METAR (VATSIM) and TAF (NOAA) together.
+                const [w, taf] = await Promise.all([
+                    window.WeatherService.fetchAndParseMetar(icao),
+                    window.WeatherService.fetchTaf(icao)
+                ]);
+                if (taf && taf.available) {
+                    tafString = taf.lines.length ? taf.lines.join('\n') : taf.raw;
+                }
                 let flightCategory = 'VFR', catColor = '#4ade80';
 
                 if (w.raw.includes('LIFR')) {
@@ -9229,6 +9324,10 @@ async function createAirportInfoWindowHTML(icao) {
                             <div style="margin-top: 16px;">
                                 <div style="font-size: 0.75rem; color: #94a3b8; font-weight: 700; margin-bottom: 8px;">RAW METAR</div>
                                 <div class="metar-strip" style="border-radius: 6px;">${metarString || 'N/A'}</div>
+                            </div>
+                            <div style="margin-top: 16px;">
+                                <div style="font-size: 0.75rem; color: #94a3b8; font-weight: 700; margin-bottom: 8px;">TAF (FORECAST)</div>
+                                <div class="metar-strip" style="border-radius: 6px; white-space: pre-line; line-height: 1.5;">${tafString || 'N/A'}</div>
                             </div>
                         </div>
                     </div>
@@ -11824,6 +11923,13 @@ if (upgradeBtn) {
                                 </label>
                             </li>
                             <li class="weather-toggle-item">
+                                <span class="weather-toggle-label"><i class="fa-solid fa-bell"></i> Weather Alerts (US)</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="weather-toggle-alerts">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </li>
+                            <li class="weather-toggle-item">
                                 <span class="weather-toggle-label"><i class="fa-solid fa-cloud"></i> Cloud Cover</span>
                                 <label class="toggle-switch">
                                     <input type="checkbox" id="weather-toggle-clouds">
@@ -11840,8 +11946,9 @@ if (upgradeBtn) {
                         </ul>
                         <div class="weather-disclaimer-note">
                             <i class="fa-solid fa-server"></i>
-                            <strong>Note:</strong> ONLY rain radar is provided.
-                            Other radars (sigmets, clouds, wind) are not available.
+                            <strong>Note:</strong> Rain radar (RainViewer), SIGMETs (NOAA)
+                            and US weather alerts (NWS) are live. Cloud &amp; wind overlays
+                            are not yet available.
                         </div>
                     </div>
                 </div>
@@ -12303,6 +12410,12 @@ function onAtcDataReceived(newAtcData) {
         if (document.getElementById('weather-toggle-sigmets')?.checked) {
             isSigmetLayerAdded = false; // Force re-fetch/re-add
             toggleSigmetLayer(true);
+        }
+
+        // 3b. Re-apply NWS Weather Alerts (US)
+        if (document.getElementById('weather-toggle-alerts')?.checked) {
+            isNwsAlertsLayerAdded = false; // Force re-fetch/re-add
+            toggleNwsAlertsLayer(true);
         }
 
         // 4. Re-apply Radar (Precip - RainViewer)
@@ -15874,6 +15987,9 @@ function processRawPilotData(gradeInfo) {
         case 'sigmets':
             toggleSigmetLayer(isActive);
             break;
+        case 'alerts':
+            toggleNwsAlertsLayer(isActive);
+            break;
         case 'clouds':
             // Ensure toggleCloudLayer is defined or show notification
             if (typeof toggleCloudLayer === 'function') toggleCloudLayer(isActive);
@@ -15921,6 +16037,9 @@ function processRawPilotData(gradeInfo) {
                         break;
                     case 'weather-toggle-sigmets':
                         toggleSigmetLayer(isChecked);
+                        break;
+                    case 'weather-toggle-alerts':
+                        toggleNwsAlertsLayer(isChecked);
                         break;
                     case 'weather-toggle-clouds':
                         toggleCloudLayer(isChecked);
