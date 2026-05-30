@@ -59,11 +59,19 @@
     /* ============================================================
        PHASE VISIBILITY
        body.collapsed -> compact bar ; body.expanded -> full window
+       Both phases stay in the layout (absolutely stacked) and cross-fade
+       so dragging the sheet morphs small <-> big info in and out.
        ============================================================ */
-    .collapsed-bar { display: none; }
-    .expanded-view { display: none; }
-    body.collapsed .collapsed-bar { display: flex; }
-    body.expanded  .expanded-view { display: flex; }
+    .collapsed-bar, .expanded-view {
+        position: absolute; inset: 0;
+        opacity: 0; visibility: hidden; pointer-events: none;
+        transition: opacity 0.35s ease, visibility 0s linear 0.35s;
+    }
+    body.collapsed .collapsed-bar,
+    body.expanded  .expanded-view {
+        opacity: 1; visibility: visible; pointer-events: auto;
+        transition: opacity 0.35s ease, visibility 0s linear 0s;
+    }
 
     /* ============================================================
        PHASE 1 — COLLAPSED BAR
@@ -71,6 +79,7 @@
     .collapsed-bar {
         width: 100%;
         height: 100%;
+        display: flex;
         flex-direction: column;
         /* Anchor content to the TOP. The mobile peek sheet is taller than the
            screen and is positioned with its top edge at the peek line, so only
@@ -83,7 +92,7 @@
         padding: 26px 16px 16px;
         gap: 14px;
         cursor: pointer;
-        position: relative;
+        position: absolute; inset: 0;
         overflow: hidden;
     }
 
@@ -183,11 +192,12 @@
        ============================================================ */
     .expanded-view {
         width: 100%; height: 100%;
+        display: flex;
         flex-direction: column;
         background: linear-gradient(135deg, var(--theme-bg-start), var(--theme-bg-end));
         backdrop-filter: blur(40px) saturate(140%);
         -webkit-backdrop-filter: blur(40px) saturate(140%);
-        position: relative;
+        position: absolute; inset: 0;
         background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
     }
 
@@ -696,21 +706,25 @@
         // PHASE STATE
         // =========================================================
         const body = document.body;
+        let currentPhase = body.classList.contains('expanded') ? 'expanded' : 'collapsed';
 
+        // The `changed` guard makes this idempotent: when the parent echoes the
+        // phase back (e.g. via drag sync), we morph the content but don't loop.
         function setPhase(phase) {
-            if (phase === 'expanded') {
-                body.classList.remove('collapsed');
-                body.classList.add('expanded');
-            } else {
-                body.classList.remove('expanded');
-                body.classList.add('collapsed');
-            }
-            // Tell the parent so it can resize the host window.
+            const next = (phase === 'expanded') ? 'expanded' : 'collapsed';
+            const changed = next !== currentPhase;
+            currentPhase = next;
+            body.classList.toggle('expanded', next === 'expanded');
+            body.classList.toggle('collapsed', next === 'collapsed');
+
+            if (!changed) return;
+
+            // Tell the parent so it can resize the host window / snap the sheet.
             try {
-                window.parent.postMessage({ type: 'SIMPLE_WINDOW_STATE', state: phase }, '*');
+                window.parent.postMessage({ type: 'SIMPLE_WINDOW_STATE', state: next }, '*');
             } catch (e) {}
             // When opening, ask for fresh pilot stats.
-            if (phase === 'expanded') {
+            if (next === 'expanded') {
                 try { window.parent.postMessage({ type: 'REQUEST_PILOT_STATS' }, '*'); } catch (e) {}
             }
         }
