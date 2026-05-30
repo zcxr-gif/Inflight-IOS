@@ -33,7 +33,7 @@
         --color-success: #10b981;
         --color-warning: #f59e0b;
         --color-danger: #ef4444;
-        --color-gold: #fbbf24;
+        --color-gold: #ffffff;
 
         --radius-sm: 8px;
         --radius-md: 12px;
@@ -106,9 +106,17 @@
         background: rgba(255,255,255,0.06); border: 1px solid var(--border-glass);
         color: var(--text-secondary); letter-spacing: 0.5px;
     }
+    .cb-pilot {
+        display: flex; align-items: center; gap: 6px;
+        font-size: 12px; font-weight: 600; color: var(--text-primary);
+        margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        letter-spacing: 0.3px;
+    }
+    .cb-pilot i { font-size: 10px; color: var(--text-dim); flex-shrink: 0; }
+    .cb-pilot span { overflow: hidden; text-overflow: ellipsis; }
     .cb-airline {
         font-size: 13px; font-weight: 600; color: var(--text-secondary);
-        margin-top: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
     .cb-thumb {
         width: 116px; height: 66px; flex-shrink: 0;
@@ -143,7 +151,7 @@
         flex: 1; display: flex; align-items: center; justify-content: center;
         color: var(--color-gold); font-size: 18px;
     }
-    .cb-mid i { filter: drop-shadow(0 0 8px rgba(251,191,36,0.4)); }
+    .cb-mid i { filter: drop-shadow(0 0 8px rgba(255,255,255,0.35)); }
 
     /* Row 3: progress */
     .cb-progress-wrap { display: flex; flex-direction: column; gap: 6px; }
@@ -159,7 +167,7 @@
     .cb-fill-plane {
         position: absolute; top: 50%; left: 0%; transform: translate(-50%, -50%);
         color: var(--color-gold); font-size: 12px;
-        transition: left 0.5s linear; filter: drop-shadow(0 0 6px rgba(251,191,36,0.6));
+        transition: left 0.5s linear; filter: drop-shadow(0 0 6px rgba(255,255,255,0.5));
     }
     .cb-prog-labels {
         display: flex; justify-content: space-between;
@@ -305,7 +313,7 @@
     .rh-plane-badge {
         width: 46px; height: 46px; border-radius: 50%;
         background: #fff; display: grid; place-items: center;
-        color: var(--color-gold); font-size: 20px; box-shadow: 0 6px 16px rgba(0,0,0,.4);
+        color: #18181b; font-size: 20px; box-shadow: 0 6px 16px rgba(0,0,0,.4);
     }
 
     /* TIMES GRID (Scheduled / Actual / Estimated) */
@@ -325,7 +333,7 @@
     }
     .rp-track { position: relative; height: 4px; border-radius: 2px; background: rgba(255,255,255,.10); }
     .rp-fill { position: absolute; left: 0; top: 0; height: 100%; width: 0%; background: var(--color-gold); border-radius: 2px; transition: width .5s linear; }
-    .rp-plane { position: absolute; top: 50%; left: 0%; transform: translate(-50%,-50%); color: var(--color-gold); font-size: 14px; transition: left .5s linear; filter: drop-shadow(0 0 6px rgba(251,191,36,.6)); }
+    .rp-plane { position: absolute; top: 50%; left: 0%; transform: translate(-50%,-50%); color: var(--color-gold); font-size: 14px; transition: left .5s linear; filter: drop-shadow(0 0 6px rgba(255,255,255,.5)); }
     .rp-labels { display: flex; justify-content: space-between; margin-top: 10px; font-size: 12px; font-weight: 500; color: var(--text-secondary); }
     .rp-labels .mono { font-family: var(--font-data); }
 
@@ -456,6 +464,10 @@
                 <div class="cb-callsign-row">
                     <span class="cb-callsign" id="c-callsign">----</span>
                     <span class="cb-chip" id="c-actype" style="display:none;">---</span>
+                </div>
+                <div class="cb-pilot" id="c-pilot">
+                    <i class="fa-solid fa-user-astronaut"></i>
+                    <span id="c-username">Pilot</span>
                 </div>
                 <div class="cb-airline" id="c-airline">Tap for details</div>
             </div>
@@ -729,7 +741,9 @@
             const callsign = data.callsign || 'N/A';
             updateText('callsign', callsign);
             updateText('c-callsign', callsign);
-            updateText('username', (data.username || 'Pilot').toUpperCase());
+            const pilotName = (data.username || 'Pilot').toUpperCase();
+            updateText('username', pilotName);
+            updateText('c-username', pilotName);
 
             // Flight phase badge
             const phase = data.phase ? data.phase.toUpperCase() : 'STANDBY';
