@@ -7911,20 +7911,33 @@ function handleSocketFlightUpdate(data) {
             }
         }
 
-        // Only update the Map Animation/Icons if the map is actually ready.
-        if (isMapReady) {
-            mapAnimator.updateFlight(flight.position, newProperties);
-        }
+        // [PERF] Do NOT push the map source here.
+        // currentMapFeatures[flightId] was already mutated above, so the
+        // per-flight mapAnimator.updateFlight() call that used to live here was
+        // (a) redundant work and (b) the cause of an O(N²) update storm: it ran
+        // source.setData(<entire collection>) once PER flight, re-serializing &
+        // re-uploading all N features N times for every socket packet. With
+        // ~1000 live flights that is ~1,000,000 feature serializations to paint
+        // the map a single time — the main cause of the cold-start freeze.
+        // We now push the whole collection exactly once, after the loop.
     });
 
-    // Clean up old flights
+    // Clean up old flights. (No per-flight setData here either — the single
+    // batched push below removes departed aircraft in one pass.)
     for (const flightId in currentMapFeatures) {
         if (!updatedFlightIds.has(String(flightId))) {
-            if (isMapReady) {
-                mapAnimator.removeFlight(flightId);
-            }
             delete currentMapFeatures[flightId];
         }
+    }
+
+    // [PERF] Single batched push of the full feature collection for this packet.
+    // Converts the old O(N²) per-flight update storm into one O(N) update,
+    // which is what makes the map load in (and keep updating) smoothly.
+    if (isMapReady) {
+        sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
+            type: 'FeatureCollection',
+            features: Object.values(currentMapFeatures)
+        });
     }
 
     const landingVisible = localStorage.getItem('landingUI_visible') !== 'false';
