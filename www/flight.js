@@ -193,12 +193,19 @@ if ('serviceWorker' in navigator) {
     const LIVE_FLIGHTS_API_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run/flights';
     const ACARS_USER_API_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run/users'; // NEW: For user stats
     let currentServerName = localStorage.getItem('preferredServer') || 'Expert Server';
-    // iOS/Capacitor app shim: inside the native app the origin is capacitor://,
-    // so relative netlify-function calls must be redirected to production.
+    // iOS/Capacitor app shim: inside the native app the origin is a local
+    // virtual one (capacitor://inflight-secure, or https://inflight-secure once
+    // the https scheme is enabled for service-worker tile caching), so relative
+    // netlify-function calls must be redirected to production. Detect the app by
+    // the Capacitor bridge and known local hostnames rather than scheme alone, so
+    // routing keeps working regardless of which scheme the WebView uses.
     const PRODUCTION_URL = 'https://inflight.info';
     const IS_LOCAL_OR_APP = window.location.hostname === 'localhost' ||
+                            window.location.hostname === 'inflight-secure' ||
                             window.location.protocol === 'file:' ||
-                            window.location.protocol === 'capacitor:';
+                            window.location.protocol === 'capacitor:' ||
+                            window.location.protocol === 'ionic:' ||
+                            !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform());
     const CURRENT_SITE_URL = IS_LOCAL_OR_APP ? PRODUCTION_URL : window.location.origin;
 
 

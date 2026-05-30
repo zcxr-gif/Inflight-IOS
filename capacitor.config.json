@@ -3,8 +3,12 @@
   "appName": "Inflight",
   "webDir": "www",
   "server": {
-    "hostname": "inflight-secure", 
-    "androidScheme": "https"
+    "hostname": "inflight-secure",
+    "androidScheme": "https",
+    "iosScheme": "https"
+  },
+  "ios": {
+    "limitsNavigationsToAppBoundDomains": true
   },
   "plugins": {
     "CapacitorHttp": {
