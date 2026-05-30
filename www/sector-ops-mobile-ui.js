@@ -4,6 +4,7 @@ const MobileUIHandler = {
         breakpoint: 992, // The max-width in pixels to trigger mobile view
         defaultMode: 'legacy', // Default is 'legacy' sheet
         legacyPeekHeight: 320, // Height of the "peek" state for legacy sheet
+        simplePeekHeight: 240, // Shorter peek for the simple flight window (hugs its compact bar)
     },
 
     // --- STATE ---
@@ -945,6 +946,9 @@ disableHudControls() {
             .mobile-legacy-sheet:has(> #simple-flight-window-frame) {
                 height: calc(100vh - var(--legacy-top-offset)) !important;
                 height: calc(100dvh - var(--legacy-top-offset)) !important;
+                /* Shorter peek so the compact bar isn't followed by a big
+                   chunk of empty space. Kept in sync with CONFIG.simplePeekHeight. */
+                --legacy-peek-height: 240px;
             }
             .mobile-legacy-sheet > #simple-flight-window-frame {
                 width: 100% !important;
@@ -1583,9 +1587,35 @@ wireUpLegacySheetInteractions(sheetElement, handleElement) {
     /**
      * [NEW] Sets the "Legacy Sheet" to a specific state.
      */
+    // Is the simple flight-info iframe the active legacy sheet?
+    isSimpleSheet() {
+        return !!(this.activeWindow && this.activeWindow.querySelector
+            && this.activeWindow.querySelector('#simple-flight-window-frame'));
+    },
+
+    // The simple window hugs its compact bar, so it gets a shorter peek.
+    getPeekHeight() {
+        return this.isSimpleSheet() ? this.CONFIG.simplePeekHeight : this.CONFIG.legacyPeekHeight;
+    },
+
+    // Keep the iframe's content phase in sync with the host sheet so dragging
+    // the sheet up/down morphs small <-> big info (no tap required).
+    syncSimpleIframePhase(targetState) {
+        if (!this.isSimpleSheet()) return;
+        const iframe = this.activeWindow.querySelector('#simple-flight-window-frame');
+        if (iframe && iframe.contentWindow) {
+            try {
+                iframe.contentWindow.postMessage({
+                    type: 'SET_PHASE',
+                    phase: targetState === 'expanded' ? 'expanded' : 'collapsed'
+                }, '*');
+            } catch (e) {}
+        }
+    },
+
     setLegacySheetState(targetState) { // 'peek', 'expanded', or 'closed'
         if (!this.activeWindow) return;
-        
+
         this.legacySheetState.currentState = targetState;
         this.activeWindow.style.transition = 'transform 0.45s cubic-bezier(0.16, 1, 0.3, 1)';
         this.activeWindow.style.transform = ''; // Remove inline style from dragging
@@ -1594,19 +1624,21 @@ wireUpLegacySheetInteractions(sheetElement, handleElement) {
             this.activeWindow.classList.add('visible');
             this.activeWindow.classList.remove('peek');
             if (this.overlayEl) this.overlayEl.classList.add('visible');
-            
+
             const topOffset = parseInt(getComputedStyle(document.documentElement)
             .getPropertyValue('--hud-top-window-height')) || 280;
             const expandedY = topOffset;
 
             this.legacySheetState.currentSheetY = expandedY;
+            this.syncSimpleIframePhase('expanded');
 
         } else if (targetState === 'peek') {
             this.activeWindow.classList.add('visible', 'peek');
             if (this.overlayEl) this.overlayEl.classList.remove('visible');
-            
-            const peekY = window.innerHeight - this.CONFIG.legacyPeekHeight;
+
+            const peekY = window.innerHeight - this.getPeekHeight();
             this.legacySheetState.currentSheetY = peekY;
+            this.syncSimpleIframePhase('collapsed');
 
         } else if (targetState === 'closed') {
             this.activeWindow.classList.remove('visible', 'peek');
@@ -1685,7 +1717,7 @@ wireUpLegacySheetInteractions(sheetElement, handleElement) {
         const rect = this.activeWindow.getBoundingClientRect();
         if (this.legacySheetState.currentState === 'peek') {
             // Translate Y is exactly the total height minus the visible peek area
-            this.legacySheetState.startTranslateY = rect.height - this.CONFIG.legacyPeekHeight;
+            this.legacySheetState.startTranslateY = rect.height - this.getPeekHeight();
         } else {
             // Expanded is always at 0 translation
             this.legacySheetState.startTranslateY = 0;
@@ -1732,26 +1764,27 @@ wireUpLegacySheetInteractions(sheetElement, handleElement) {
         const deltaY = this.legacySheetState.currentTranslateY - this.legacySheetState.startTranslateY;
 
         // --- SNAPPING LOGIC ---
+        // Pulling up/down brings the two phases back and forth into one another.
+        // We never close just because the sheet was pulled down from expanded;
+        // closing is reserved for a deliberate large pull from the peek state.
         if (this.legacySheetState.currentState === 'peek') {
-            if (deltaY < -40) { 
-                // Swiped UP more than 40px -> Expand to full page
+            if (deltaY < -40) {
+                // Swiped UP -> grow peek into the full window
                 this.setLegacySheetState('expanded');
-            } else if (deltaY > 80) { 
-                // Swiped DOWN more than 80px -> Close the window entirely
+            } else if (deltaY > 140) {
+                // Deliberate large swipe DOWN from peek -> close the window
                 this.closeActiveWindow();
-            } else { 
-                // Didn't swipe far enough -> Snap back to peek
+            } else {
+                // Not far enough -> snap back to peek
                 this.setLegacySheetState('peek');
             }
         } else { // Was in 'expanded' state
-            if (deltaY > 150) { 
-                // [NEW] Large swipe DOWN more than 150px -> Close entirely ("close it nearly the same")
-                this.closeActiveWindow();
-            } else if (deltaY > 60) { 
-                // Moderate swipe DOWN -> Shrink back to peek
+            if (deltaY > 60) {
+                // Swiped DOWN -> shrink the full window back into the peek bar
+                // (never close from expanded — pulling just brings peek back)
                 this.setLegacySheetState('peek');
-            } else { 
-                // Didn't swipe far enough -> Snap back to expanded
+            } else {
+                // Not far enough -> snap back to expanded
                 this.setLegacySheetState('expanded');
             }
         }

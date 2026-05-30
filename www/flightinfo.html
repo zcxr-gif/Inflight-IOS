@@ -33,7 +33,7 @@
         --color-success: #10b981;
         --color-warning: #f59e0b;
         --color-danger: #ef4444;
-        --color-gold: #fbbf24;
+        --color-gold: #ffffff;
 
         --radius-sm: 8px;
         --radius-md: 12px;
@@ -59,11 +59,19 @@
     /* ============================================================
        PHASE VISIBILITY
        body.collapsed -> compact bar ; body.expanded -> full window
+       Both phases stay in the layout (absolutely stacked) and cross-fade
+       so dragging the sheet morphs small <-> big info in and out.
        ============================================================ */
-    .collapsed-bar { display: none; }
-    .expanded-view { display: none; }
-    body.collapsed .collapsed-bar { display: flex; }
-    body.expanded  .expanded-view { display: flex; }
+    .collapsed-bar, .expanded-view {
+        position: absolute; inset: 0;
+        opacity: 0; visibility: hidden; pointer-events: none;
+        transition: opacity 0.35s ease, visibility 0s linear 0.35s;
+    }
+    body.collapsed .collapsed-bar,
+    body.expanded  .expanded-view {
+        opacity: 1; visibility: visible; pointer-events: auto;
+        transition: opacity 0.35s ease, visibility 0s linear 0s;
+    }
 
     /* ============================================================
        PHASE 1 — COLLAPSED BAR
@@ -71,17 +79,20 @@
     .collapsed-bar {
         width: 100%;
         height: 100%;
+        display: flex;
         flex-direction: column;
-        /* Anchor content to the bottom so the bar stays visible inside the
-           mobile peek sheet (which only reveals the bottom slice of the iframe). */
-        justify-content: flex-end;
+        /* Anchor content to the TOP. The mobile peek sheet is taller than the
+           screen and is positioned with its top edge at the peek line, so only
+           the TOP slice of the iframe is actually on-screen. Extra top padding
+           keeps the content clear of the floating drag handle / grip. */
+        justify-content: flex-start;
         background: linear-gradient(135deg, var(--theme-bg-start), var(--theme-bg-end));
         backdrop-filter: blur(40px) saturate(140%);
         -webkit-backdrop-filter: blur(40px) saturate(140%);
-        padding: 18px 16px 16px;
+        padding: 26px 16px 16px;
         gap: 14px;
         cursor: pointer;
-        position: relative;
+        position: absolute; inset: 0;
         overflow: hidden;
     }
 
@@ -104,14 +115,22 @@
         background: rgba(255,255,255,0.06); border: 1px solid var(--border-glass);
         color: var(--text-secondary); letter-spacing: 0.5px;
     }
+    .cb-pilot {
+        display: flex; align-items: center; gap: 6px;
+        font-size: 12px; font-weight: 600; color: var(--text-primary);
+        margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        letter-spacing: 0.3px;
+    }
+    .cb-pilot i { font-size: 10px; color: var(--text-dim); flex-shrink: 0; }
+    .cb-pilot span { overflow: hidden; text-overflow: ellipsis; }
     .cb-airline {
         font-size: 13px; font-weight: 600; color: var(--text-secondary);
-        margin-top: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
     .cb-thumb {
         width: 116px; height: 66px; flex-shrink: 0;
         border-radius: var(--radius-md);
-        background: #0f172a center/cover no-repeat;
+        background: #0f172a center/contain no-repeat;
         border: 1px solid var(--border-highlight);
         box-shadow: 0 6px 18px rgba(0,0,0,0.45);
         position: relative; overflow: hidden;
@@ -141,7 +160,7 @@
         flex: 1; display: flex; align-items: center; justify-content: center;
         color: var(--color-gold); font-size: 18px;
     }
-    .cb-mid i { filter: drop-shadow(0 0 8px rgba(251,191,36,0.4)); }
+    .cb-mid i { filter: drop-shadow(0 0 8px rgba(255,255,255,0.35)); }
 
     /* Row 3: progress */
     .cb-progress-wrap { display: flex; flex-direction: column; gap: 6px; }
@@ -157,7 +176,7 @@
     .cb-fill-plane {
         position: absolute; top: 50%; left: 0%; transform: translate(-50%, -50%);
         color: var(--color-gold); font-size: 12px;
-        transition: left 0.5s linear; filter: drop-shadow(0 0 6px rgba(251,191,36,0.6));
+        transition: left 0.5s linear; filter: drop-shadow(0 0 6px rgba(255,255,255,0.5));
     }
     .cb-prog-labels {
         display: flex; justify-content: space-between;
@@ -173,11 +192,12 @@
        ============================================================ */
     .expanded-view {
         width: 100%; height: 100%;
+        display: flex;
         flex-direction: column;
         background: linear-gradient(135deg, var(--theme-bg-start), var(--theme-bg-end));
         backdrop-filter: blur(40px) saturate(140%);
         -webkit-backdrop-filter: blur(40px) saturate(140%);
-        position: relative;
+        position: absolute; inset: 0;
         background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
     }
 
@@ -229,6 +249,12 @@
         mask-image: linear-gradient(to bottom, transparent 0, black 18px, black 100%);
     }
     .scroll-viewport::-webkit-scrollbar { width: 0; }
+    /* The viewport is a flex column, so its children would otherwise shrink to
+       fit. The mission card has overflow:hidden, which lets flexbox collapse it
+       to near-zero height (min-height:auto resolves to 0), hiding the hero,
+       route, times and progress. Pin every child to its natural height and let
+       the viewport scroll instead. */
+    .scroll-viewport > * { flex-shrink: 0; }
 
     .unified-mission-card {
         border-radius: var(--radius-lg); border: 1px solid var(--border-glass);
@@ -243,10 +269,10 @@
         background: #0f172a; overflow: hidden;
     }
     .hero-img {
-        width: 100%; height: 100%; object-fit: cover; object-position: center;
-        display: block; transition: transform 8s ease; transform: scale(1.02);
+        width: 100%; height: 100%; object-fit: contain; object-position: center;
+        display: block; transition: transform 8s ease; transform: scale(1);
     }
-    .unified-mission-card:hover .hero-img { transform: scale(1.06); }
+    .unified-mission-card:hover .hero-img { transform: scale(1.03); }
     .photo-credit {
         position: absolute; top: 10px; left: 10px; font-size: 9px;
         color: rgba(255,255,255,.75); background: rgba(0,0,0,.5); padding: 3px 8px;
@@ -297,7 +323,7 @@
     .rh-plane-badge {
         width: 46px; height: 46px; border-radius: 50%;
         background: #fff; display: grid; place-items: center;
-        color: var(--color-gold); font-size: 20px; box-shadow: 0 6px 16px rgba(0,0,0,.4);
+        color: #18181b; font-size: 20px; box-shadow: 0 6px 16px rgba(0,0,0,.4);
     }
 
     /* TIMES GRID (Scheduled / Actual / Estimated) */
@@ -317,7 +343,7 @@
     }
     .rp-track { position: relative; height: 4px; border-radius: 2px; background: rgba(255,255,255,.10); }
     .rp-fill { position: absolute; left: 0; top: 0; height: 100%; width: 0%; background: var(--color-gold); border-radius: 2px; transition: width .5s linear; }
-    .rp-plane { position: absolute; top: 50%; left: 0%; transform: translate(-50%,-50%); color: var(--color-gold); font-size: 14px; transition: left .5s linear; filter: drop-shadow(0 0 6px rgba(251,191,36,.6)); }
+    .rp-plane { position: absolute; top: 50%; left: 0%; transform: translate(-50%,-50%); color: var(--color-gold); font-size: 14px; transition: left .5s linear; filter: drop-shadow(0 0 6px rgba(255,255,255,.5)); }
     .rp-labels { display: flex; justify-content: space-between; margin-top: 10px; font-size: 12px; font-weight: 500; color: var(--text-secondary); }
     .rp-labels .mono { font-family: var(--font-data); }
 
@@ -377,6 +403,11 @@
 
     /* PILOT MANIFEST */
     .profile-card { background:var(--bg-panel); border:1px solid var(--border-glass); border-radius:var(--radius-lg); overflow:hidden; display:flex; flex-direction:column; margin-bottom:6px; }
+    .profile-pilot-head { padding:16px 20px 0; display:flex; flex-direction:column; gap:4px; }
+    .pp-name { font-size:18px; font-weight:800; color:#fff; letter-spacing:-.3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .pp-link { display:inline-flex; align-items:center; gap:6px; font-size:10px; font-weight:700; letter-spacing:.8px; text-transform:uppercase; color:var(--color-brand); text-decoration:none; width:fit-content; }
+    .pp-link:hover { color:#fff; }
+    .pp-link i { font-size:9px; }
     .profile-header-row { padding:20px; display:flex; align-items:center; gap:20px; background:rgba(255,255,255,.02); }
     .grade-badge-group { display:flex; flex-direction:column; align-items:center; justify-content:center; background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.1); padding:10px 16px; border-radius:12px; min-width:80px; }
     .grade-label { font-size:8px; color:var(--text-dim); font-weight:700; letter-spacing:1px; margin-bottom:2px; }
@@ -448,6 +479,10 @@
                 <div class="cb-callsign-row">
                     <span class="cb-callsign" id="c-callsign">----</span>
                     <span class="cb-chip" id="c-actype" style="display:none;">---</span>
+                </div>
+                <div class="cb-pilot" id="c-pilot">
+                    <i class="fa-solid fa-user-astronaut"></i>
+                    <span id="c-username">Pilot</span>
                 </div>
                 <div class="cb-airline" id="c-airline">Tap for details</div>
             </div>
@@ -612,6 +647,12 @@
             <div id="profile-anchor">
                 <div class="grid-section-label">Pilot Manifest</div>
                 <div class="profile-card">
+                    <div class="profile-pilot-head">
+                        <span class="pp-name" id="prof-username">Pilot</span>
+                        <a class="pp-link" id="prof-community-link" target="_blank" rel="noopener" style="display:none;">
+                            Community Profile <i class="fa-solid fa-up-right-from-square"></i>
+                        </a>
+                    </div>
                     <div class="profile-header-row">
                         <div class="grade-badge-group">
                             <span class="grade-label">GRADE</span>
@@ -665,21 +706,25 @@
         // PHASE STATE
         // =========================================================
         const body = document.body;
+        let currentPhase = body.classList.contains('expanded') ? 'expanded' : 'collapsed';
 
+        // The `changed` guard makes this idempotent: when the parent echoes the
+        // phase back (e.g. via drag sync), we morph the content but don't loop.
         function setPhase(phase) {
-            if (phase === 'expanded') {
-                body.classList.remove('collapsed');
-                body.classList.add('expanded');
-            } else {
-                body.classList.remove('expanded');
-                body.classList.add('collapsed');
-            }
-            // Tell the parent so it can resize the host window.
+            const next = (phase === 'expanded') ? 'expanded' : 'collapsed';
+            const changed = next !== currentPhase;
+            currentPhase = next;
+            body.classList.toggle('expanded', next === 'expanded');
+            body.classList.toggle('collapsed', next === 'collapsed');
+
+            if (!changed) return;
+
+            // Tell the parent so it can resize the host window / snap the sheet.
             try {
-                window.parent.postMessage({ type: 'SIMPLE_WINDOW_STATE', state: phase }, '*');
+                window.parent.postMessage({ type: 'SIMPLE_WINDOW_STATE', state: next }, '*');
             } catch (e) {}
             // When opening, ask for fresh pilot stats.
-            if (phase === 'expanded') {
+            if (next === 'expanded') {
                 try { window.parent.postMessage({ type: 'REQUEST_PILOT_STATS' }, '*'); } catch (e) {}
             }
         }
@@ -721,7 +766,9 @@
             const callsign = data.callsign || 'N/A';
             updateText('callsign', callsign);
             updateText('c-callsign', callsign);
-            updateText('username', (data.username || 'Pilot').toUpperCase());
+            const pilotName = (data.username || 'Pilot').toUpperCase();
+            updateText('username', pilotName);
+            updateText('c-username', pilotName);
 
             // Flight phase badge
             const phase = data.phase ? data.phase.toUpperCase() : 'STANDBY';
@@ -866,12 +913,23 @@
             return h + 'h ' + m + 'm ago';
         }
 
+        const num = (v) => Number.isFinite(Number(v)) ? Number(v) : 0;
+
         window.updatePilotProfile = function(profile) {
             if (!profile) return;
+
+            // Pilot identity + Community profile link (mirrors the profile UI).
+            if (profile.username) updateText('prof-username', profile.username);
+            const communityLink = document.getElementById('prof-community-link');
+            if (communityLink) {
+                if (profile.communityUrl) { communityLink.href = profile.communityUrl; communityLink.style.display = 'inline-flex'; }
+                else communityLink.style.display = 'none';
+            }
+
             updateText('prof-grade', profile.grade || 'N/A');
             updateText('prof-atc', profile.atcRank || 'Observer');
             updateText('prof-va', profile.virtualAirline || 'N/A');
-            updateText('prof-xp', typeof profile.xp === 'number' ? profile.xp.toLocaleString() : '---');
+            updateText('prof-xp', num(profile.xp).toLocaleString());
             updateText('prof-total-vio', profile.totalViolations || '0');
             if (profile.violationDetails) {
                 updateText('prof-v1', profile.violationDetails.level1 || 0);
@@ -883,22 +941,35 @@
             updateText('prof-land-90', '---');
 
             const progContainer = document.getElementById('progression-list');
-            if (profile.progression && progContainer) {
+            if (Array.isArray(profile.progression) && progContainer) {
                 let html = '';
                 profile.progression.forEach(item => {
-                    let pct = item.target > 0 ? (item.current / item.target) * 100 : 0;
+                    const current = num(item.current), target = num(item.target);
+                    let pct = target > 0 ? (current / target) * 100 : 0;
                     if (pct > 100) pct = 100;
-                    if (item.label.includes('Flight Time')) updateText('prof-time-90', item.current + ' hrs');
-                    if (item.label.includes('Landings')) updateText('prof-land-90', item.current);
+                    if (item.label.includes('Flight Time')) updateText('prof-time-90', current + ' hrs');
+                    if (item.label.includes('Landings')) updateText('prof-land-90', current);
                     let statusClass = 'neutral';
-                    if (item.type === 'MAX_LIMIT') statusClass = item.current > item.target ? 'failed' : 'success';
-                    else if (item.current >= item.target) statusClass = 'success';
+                    if (item.type === 'MAX_LIMIT') statusClass = current > target ? 'failed' : 'success';
+                    else if (current >= target) statusClass = 'success';
                     html += `<div class="prog-item ${statusClass}">
                         <div class="prog-label-row"><span class="prog-name">${item.label}</span>
-                        <span class="prog-nums">${item.current.toLocaleString()} / ${item.target.toLocaleString()}</span></div>
+                        <span class="prog-nums">${current.toLocaleString()} / ${target.toLocaleString()}</span></div>
                         <div class="prog-track"><div class="prog-fill" style="width:${pct}%"></div></div></div>`;
                 });
                 progContainer.innerHTML = html;
+            }
+        };
+
+        // Graceful fallback when the pilot grade lookup fails — show a state
+        // instead of leaving silent placeholders.
+        window.showPilotProfileError = function(message) {
+            updateText('prof-grade', '--');
+            updateText('prof-atc', 'Unavailable');
+            updateText('prof-va', '—');
+            const progContainer = document.getElementById('progression-list');
+            if (progContainer) {
+                progContainer.innerHTML = `<div style="font-size:11px; color:var(--text-dim); font-style:italic; padding:4px 0;">${message || 'Pilot stats unavailable.'}</div>`;
             }
         };
 
@@ -950,7 +1021,8 @@
                 window.updateFlightInterface(d.payload);
                 if (d.payload && d.payload.theme) applyTheme(d.payload.theme.start, d.payload.theme.end, d.payload.theme.opacity);
             }
-            if (d.type === 'PILOT_STATS_DATA') window.updatePilotProfile(d.payload.profile);
+            if (d.type === 'PILOT_STATS_DATA') window.updatePilotProfile(d.payload && d.payload.profile);
+            if (d.type === 'PILOT_STATS_ERROR') window.showPilotProfileError(d.message);
             if (d.type === 'THEME_UPDATE') applyTheme(d.payload.start, d.payload.end, d.payload.opacity);
             // Parent can force a phase (e.g. mobile sheet swipe).
             if (d.type === 'SET_PHASE') setPhase(d.phase === 'expanded' ? 'expanded' : 'collapsed');
