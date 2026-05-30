@@ -171,8 +171,83 @@ function runLegalStep(map, { restoreChrome } = {}) {
     });
 }
 
-/** Step 2: one-time "which flight info window?" picker. */
-function runWindowChoiceStep({ restoreChrome } = {}) {
+/**
+ * Step 2: one-time "which flight info window?" picker.
+ *
+ * Preferred path is a hands-on, live demo — we open a real, randomly chosen
+ * flight's info window and let the user flip that very same flight between the
+ * Simple and Standard styles before committing, so they *see* each one rather
+ * than reading about it. If no live flights are available yet (data still
+ * loading, or offline) we fall back to the self-contained mockup picker so the
+ * gate never stalls the boot.
+ */
+async function runWindowChoiceStep({ restoreChrome } = {}) {
+    const flightProps = await waitForLiveFlight(5000);
+    if (flightProps) {
+        await runWindowDemoStep(flightProps, { restoreChrome });
+    } else {
+        await runWindowMockupStep({ restoreChrome });
+    }
+}
+
+/** Live picker: opens a real flight window and toggles it between both styles. */
+function runWindowDemoStep(flightProps, { restoreChrome } = {}) {
+    return new Promise((resolve) => {
+        const { overlay, segs, continueBtn } = buildWindowDemoBanner();
+        document.body.appendChild(overlay);
+
+        // Reveal *only* the aircraft info window beneath us — the rest of the
+        // app chrome stays hidden so the live example reads cleanly — then fade
+        // in our control banner.
+        document.body.classList.add('fre-demo');
+        requestAnimationFrame(() => overlay.classList.add('fre-visible'));
+
+        // Default to the Standard window so the user immediately sees a real
+        // example; tapping a segment switches the same flight live.
+        let selected = 'standard';
+        let switching = false;
+
+        // Re-open the chosen style for the SAME flight via the real app path.
+        const openStyle = async (useSimple) => {
+            if (switching) return;
+            switching = true;
+            try {
+                if (window.mapFilters) window.mapFilters.useSimpleFlightWindow = useSimple;
+                if (typeof window.handleAircraftClick === 'function') {
+                    await window.handleAircraftClick(flightProps);
+                }
+            } catch (_) { /* best-effort demo */ }
+            switching = false;
+        };
+
+        segs.forEach((btn) => {
+            btn.addEventListener('click', () => {
+                if (switching) return;
+                segs.forEach((b) => b.classList.toggle('fre-seg-active', b === btn));
+                selected = btn.dataset.window;
+                openStyle(selected === 'simple');
+            });
+        });
+
+        // Center the camera on the example flight, then open the first style.
+        if (typeof window.flyToFlight === 'function') {
+            try { window.flyToFlight(flightProps); } catch (_) { /* non-fatal */ }
+        }
+        openStyle(false);
+
+        continueBtn.addEventListener('click', () => {
+            // Tear down the live demo window, then persist the final choice and
+            // dismiss — restoring the full app chrome underneath.
+            try { if (typeof window.closeAircraftWindow === 'function') window.closeAircraftWindow(); } catch (_) { }
+            document.body.classList.remove('fre-demo');
+            persistWindowChoice(selected === 'simple');
+            dismissOverlay(overlay, restoreChrome, resolve);
+        });
+    });
+}
+
+/** Fallback picker: static mockups when there are no live flights to demo. */
+function runWindowMockupStep({ restoreChrome } = {}) {
     return new Promise((resolve) => {
         const { overlay, continueBtn, choices } = buildWindowChoiceModal();
         document.body.appendChild(overlay);
@@ -192,6 +267,46 @@ function runWindowChoiceStep({ restoreChrome } = {}) {
             persistWindowChoice(selected === 'simple');
             dismissOverlay(overlay, restoreChrome, resolve);
         });
+    });
+}
+
+/** Pick a random live flight's properties (the shape handleAircraftClick wants). */
+function pickRandomLiveFlight() {
+    let flights = [];
+    try {
+        if (typeof window.getLiveFlightData === 'function') {
+            flights = window.getLiveFlightData() || [];
+        }
+    } catch (_) {
+        return null;
+    }
+    if (!flights.length) return null;
+
+    // getLiveFlightData() returns GeoJSON features; the real map-click handler
+    // passes feature.properties straight to handleAircraftClick, so we do too.
+    const props = flights
+        .map((f) => (f && f.properties) ? f.properties : f)
+        .filter((p) => p && p.flightId);
+    if (!props.length) return null;
+
+    // Prefer an en-route flight with a full origin→destination route for the
+    // richest-looking example; fall back to any flight otherwise.
+    const enroute = props.filter((p) => p.departureIcao && p.arrivalIcao);
+    const pool = enroute.length ? enroute : props;
+    return pool[Math.floor(Math.random() * pool.length)];
+}
+
+/** Resolve with a random live flight, polling briefly while data loads. */
+function waitForLiveFlight(timeoutMs = 5000) {
+    return new Promise((resolve) => {
+        const start = Date.now();
+        const tick = () => {
+            const flight = pickRandomLiveFlight();
+            if (flight) { resolve(flight); return; }
+            if (Date.now() - start >= timeoutMs) { resolve(null); return; }
+            setTimeout(tick, 350);
+        };
+        tick();
     });
 }
 
@@ -392,6 +507,39 @@ function buildWindowChoiceModal() {
     const continueBtn = overlay.querySelector('#fre-window-continue');
     const choices = Array.from(overlay.querySelectorAll('.fre-choice'));
     return { overlay, continueBtn, choices };
+}
+
+/**
+ * Compact, top-docked control banner for the live window demo. It floats above
+ * the real (open) flight info window without covering it — only the card itself
+ * is interactive, so the user can still poke at the live example underneath.
+ */
+function buildWindowDemoBanner() {
+    const overlay = document.createElement('div');
+    overlay.id = 'fre-window-demo';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-labelledby', 'fre-demo-title');
+
+    overlay.innerHTML = `
+        <div class="fre-demo-card" role="document">
+            <h2 id="fre-demo-title" class="fre-demo-title">Choose your flight window</h2>
+            <p class="fre-demo-sub">This is a live example. Tap each style to compare, then continue — you can change it anytime in Settings.</p>
+            <div class="fre-seg" role="group" aria-label="Flight window style">
+                <button type="button" class="fre-seg-btn fre-seg-active" data-window="standard">
+                    <i class="fa-solid fa-gauge-high" aria-hidden="true"></i><span>Standard</span>
+                </button>
+                <button type="button" class="fre-seg-btn" data-window="simple">
+                    <i class="fa-solid fa-window-maximize" aria-hidden="true"></i><span>Simple</span>
+                </button>
+            </div>
+            <button type="button" id="fre-demo-continue" class="fre-agree">Continue</button>
+        </div>
+    `;
+
+    const segs = Array.from(overlay.querySelectorAll('.fre-seg-btn'));
+    const continueBtn = overlay.querySelector('#fre-demo-continue');
+    return { overlay, segs, continueBtn };
 }
 
 /**
@@ -695,6 +843,108 @@ function injectStyles() {
         #fre-overlay .pv-d-tabs { display: flex; gap: 5px; }
         #fre-overlay .pv-d-tabs > span { flex: 1; height: 8px; border-radius: 3px; background: rgba(255,255,255,0.10); }
         #fre-overlay .pv-d-tabs > span:first-child { background: ${ACCENT}; }
+
+        /* --- Live window demo (Step 2 preferred path) --- */
+        /* While the demo runs we keep the rest of the chrome hidden but reveal
+           the real aircraft info window so the user sees a genuine example. The
+           extra .fre-demo class out-specifies the intro hide rule above. */
+        body.fre-intro-active.fre-demo #aircraft-info-window {
+            opacity: 1 !important;
+            pointer-events: auto !important;
+        }
+
+        /* Top-docked, non-blocking banner — only the card captures input. */
+        #fre-window-demo {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 2147483000;
+            display: flex;
+            justify-content: center;
+            padding: calc(env(safe-area-inset-top, 0px) + 12px) 14px 0;
+            pointer-events: none;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            color: #e8eaf6;
+            opacity: 0;
+            transform: translateY(-14px);
+            transition: opacity 320ms ease, transform 320ms cubic-bezier(0.16, 1, 0.3, 1);
+            -webkit-font-smoothing: antialiased;
+        }
+        #fre-window-demo.fre-visible { opacity: 1; transform: translateY(0); }
+        #fre-window-demo.fre-dismissing { opacity: 0; transform: translateY(-14px); }
+
+        #fre-window-demo .fre-demo-card {
+            pointer-events: auto;
+            width: 100%;
+            max-width: 460px;
+            padding: 15px 18px 17px;
+            border-radius: 20px;
+            text-align: center;
+            background: linear-gradient(180deg, #0e1a36 0%, #070d1f 100%);
+            border: 1px solid rgba(56, 189, 248, 0.22);
+            box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55),
+                        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+        }
+        #fre-window-demo .fre-demo-title {
+            font-size: 1.12rem;
+            font-weight: 700;
+            margin: 0 0 4px;
+            color: #fff;
+        }
+        #fre-window-demo .fre-demo-sub {
+            font-size: 0.8rem;
+            line-height: 1.4;
+            color: rgba(199, 210, 254, 0.72);
+            margin: 0 0 13px;
+        }
+        #fre-window-demo .fre-seg {
+            display: flex;
+            gap: 6px;
+            padding: 5px;
+            margin: 0 0 13px;
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        #fre-window-demo .fre-seg-btn {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 7px;
+            padding: 10px 8px;
+            border: none;
+            border-radius: 10px;
+            background: transparent;
+            color: rgba(226, 234, 246, 0.78);
+            font: inherit;
+            font-size: 0.92rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease;
+        }
+        #fre-window-demo .fre-seg-btn i { font-size: 0.85rem; color: ${ACCENT}; }
+        #fre-window-demo .fre-seg-btn.fre-seg-active {
+            color: #04111f;
+            background: linear-gradient(180deg, #5cc8ff 0%, ${ACCENT} 100%);
+            box-shadow: 0 6px 16px rgba(56, 189, 248, 0.32);
+        }
+        #fre-window-demo .fre-seg-btn.fre-seg-active i { color: #04111f; }
+        #fre-window-demo .fre-agree {
+            width: 100%;
+            padding: 13px 18px;
+            border: none;
+            border-radius: 13px;
+            font-size: 0.98rem;
+            font-weight: 700;
+            color: #04111f;
+            background: linear-gradient(180deg, #5cc8ff 0%, ${ACCENT} 100%);
+            box-shadow: 0 10px 26px rgba(56, 189, 248, 0.35);
+            cursor: pointer;
+            transition: transform 120ms ease, box-shadow 200ms ease;
+        }
+        #fre-window-demo .fre-agree:active { transform: scale(0.98); }
 
         /* In-app legal document viewer */
         .fre-doc-viewer {
