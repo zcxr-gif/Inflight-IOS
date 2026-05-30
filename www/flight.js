@@ -13373,6 +13373,13 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
     }
 }
 
+// Exposed so other modules (e.g. the first-run onboarding's live window demo)
+// can open and tear down a real flight info window through the normal app path.
+if (typeof window !== 'undefined') {
+    window.handleAircraftClick = handleAircraftClick;
+    window.closeAircraftWindow = closeAircraftWindow;
+}
+
 /**
  * Closes the airport information window and cleans up associated map layers/states.
  * This is called whenever an aircraft is selected or the airport window is closed manually.

@@ -171,8 +171,89 @@ function runLegalStep(map, { restoreChrome } = {}) {
     });
 }
 
-/** Step 2: one-time "which flight info window?" picker. */
-function runWindowChoiceStep({ restoreChrome } = {}) {
+/**
+ * Step 2: one-time "which flight info window?" picker.
+ *
+ * Preferred path is a hands-on, live demo — we open two real, randomly chosen
+ * flights' info windows (one per style) and let the user flip between the
+ * Simple and Standard styles before committing, so they *see* each one rather
+ * than reading about it. We wait for the live socket to actually deliver
+ * flights first. If none arrive (offline, or the feed is empty) we fall back
+ * to the self-contained mockup picker so the gate never stalls the boot.
+ *
+ * Two *different* flights are used deliberately: handleAircraftClick() bails
+ * early when asked to re-open the flight that's already showing, so reusing a
+ * single flight would make the second style silently fail to render.
+ */
+async function runWindowChoiceStep({ restoreChrome } = {}) {
+    // Wait (reasonably) for the socket to populate live flights before deciding.
+    const flights = await waitForLiveFlights(2, 25000);
+    if (flights.length >= 2) {
+        await runWindowDemoStep(flights[0], flights[1], { restoreChrome });
+    } else {
+        await runWindowMockupStep({ restoreChrome });
+    }
+}
+
+/**
+ * Live picker: opens a real flight window and lets the user flip between the
+ * two styles — Standard backed by one flight, Simple by another.
+ */
+function runWindowDemoStep(standardFlight, simpleFlight, { restoreChrome } = {}) {
+    return new Promise((resolve) => {
+        const { overlay, segs, continueBtn } = buildWindowDemoBanner();
+        document.body.appendChild(overlay);
+
+        // Don't fight the app's own window system: reveal the full chrome so the
+        // real info window opens and animates exactly as it does in normal use,
+        // with our control banner floating on top.
+        setChromeHidden(false);
+        requestAnimationFrame(() => overlay.classList.add('fre-visible'));
+
+        // Default to the Standard window so the user immediately sees a real
+        // example; tapping a segment opens the other style's flight live.
+        let selected = 'standard';
+        let switching = false;
+
+        // Open the chosen style's flight via the real app path. Awaiting the
+        // whole call means the in-app loading guard has cleared before we allow
+        // the next switch, so taps can't race each other.
+        const openStyle = async (useSimple) => {
+            if (switching) return;
+            switching = true;
+            try {
+                if (window.mapFilters) window.mapFilters.useSimpleFlightWindow = useSimple;
+                const fp = useSimple ? simpleFlight : standardFlight;
+                if (typeof window.handleAircraftClick === 'function') {
+                    await window.handleAircraftClick(fp);
+                }
+            } catch (_) { /* best-effort demo */ }
+            switching = false;
+        };
+
+        segs.forEach((btn) => {
+            btn.addEventListener('click', () => {
+                if (switching) return;
+                segs.forEach((b) => b.classList.toggle('fre-seg-active', b === btn));
+                selected = btn.dataset.window;
+                openStyle(selected === 'simple');
+            });
+        });
+
+        openStyle(false);
+
+        continueBtn.addEventListener('click', () => {
+            // Tear down the live demo window, then persist the final choice and
+            // dismiss.
+            try { if (typeof window.closeAircraftWindow === 'function') window.closeAircraftWindow(); } catch (_) { }
+            persistWindowChoice(selected === 'simple');
+            dismissOverlay(overlay, restoreChrome, resolve);
+        });
+    });
+}
+
+/** Fallback picker: static mockups when there are no live flights to demo. */
+function runWindowMockupStep({ restoreChrome } = {}) {
     return new Promise((resolve) => {
         const { overlay, continueBtn, choices } = buildWindowChoiceModal();
         document.body.appendChild(overlay);
@@ -192,6 +273,74 @@ function runWindowChoiceStep({ restoreChrome } = {}) {
             persistWindowChoice(selected === 'simple');
             dismissOverlay(overlay, restoreChrome, resolve);
         });
+    });
+}
+
+/**
+ * Pick up to `count` distinct random live flights' properties (the shape
+ * handleAircraftClick wants). Prefers en-route flights with a full
+ * origin→destination route for the richest-looking example.
+ */
+function pickRandomLiveFlights(count) {
+    let flights = [];
+    try {
+        if (typeof window.getLiveFlightData === 'function') {
+            flights = window.getLiveFlightData() || [];
+        }
+    } catch (_) {
+        return [];
+    }
+    if (!flights.length) return [];
+
+    // getLiveFlightData() returns GeoJSON features; the real map-click handler
+    // passes feature.properties straight to handleAircraftClick, so we do too.
+    const props = flights
+        .map((f) => (f && f.properties) ? f.properties : f)
+        .filter((p) => p && p.flightId);
+    if (!props.length) return [];
+
+    // Prefer en-route flights (full route) up front, then top up with any others.
+    const enroute = props.filter((p) => p.departureIcao && p.arrivalIcao);
+    const others = props.filter((p) => !(p.departureIcao && p.arrivalIcao));
+    const ordered = shuffle(enroute).concat(shuffle(others));
+
+    // De-dupe by flightId so the two demo flights are genuinely different.
+    const picked = [];
+    const seen = new Set();
+    for (const p of ordered) {
+        if (seen.has(p.flightId)) continue;
+        seen.add(p.flightId);
+        picked.push(p);
+        if (picked.length >= count) break;
+    }
+    return picked;
+}
+
+/** Fisher–Yates shuffle (returns a new array). */
+function shuffle(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+}
+
+/**
+ * Resolve with up to `minCount` distinct live flights, polling while the live
+ * socket fills in. Resolves early as soon as `minCount` are available, and
+ * resolves with whatever it has (possibly fewer, possibly none) at timeout.
+ */
+function waitForLiveFlights(minCount, timeoutMs) {
+    return new Promise((resolve) => {
+        const start = Date.now();
+        const tick = () => {
+            const flights = pickRandomLiveFlights(minCount);
+            if (flights.length >= minCount) { resolve(flights); return; }
+            if (Date.now() - start >= timeoutMs) { resolve(flights); return; }
+            setTimeout(tick, 400);
+        };
+        tick();
     });
 }
 
@@ -392,6 +541,39 @@ function buildWindowChoiceModal() {
     const continueBtn = overlay.querySelector('#fre-window-continue');
     const choices = Array.from(overlay.querySelectorAll('.fre-choice'));
     return { overlay, continueBtn, choices };
+}
+
+/**
+ * Compact, top-docked control banner for the live window demo. It floats above
+ * the real (open) flight info window without covering it — only the card itself
+ * is interactive, so the user can still poke at the live example underneath.
+ */
+function buildWindowDemoBanner() {
+    const overlay = document.createElement('div');
+    overlay.id = 'fre-window-demo';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-labelledby', 'fre-demo-title');
+
+    overlay.innerHTML = `
+        <div class="fre-demo-card" role="document">
+            <h2 id="fre-demo-title" class="fre-demo-title">Choose your flight window</h2>
+            <p class="fre-demo-sub">This is a live example. Tap each style to compare, then continue — you can change it anytime in Settings.</p>
+            <div class="fre-seg" role="group" aria-label="Flight window style">
+                <button type="button" class="fre-seg-btn fre-seg-active" data-window="standard">
+                    <i class="fa-solid fa-gauge-high" aria-hidden="true"></i><span>Standard</span>
+                </button>
+                <button type="button" class="fre-seg-btn" data-window="simple">
+                    <i class="fa-solid fa-window-maximize" aria-hidden="true"></i><span>Simple</span>
+                </button>
+            </div>
+            <button type="button" id="fre-demo-continue" class="fre-agree">Continue</button>
+        </div>
+    `;
+
+    const segs = Array.from(overlay.querySelectorAll('.fre-seg-btn'));
+    const continueBtn = overlay.querySelector('#fre-demo-continue');
+    return { overlay, segs, continueBtn };
 }
 
 /**
@@ -695,6 +877,102 @@ function injectStyles() {
         #fre-overlay .pv-d-tabs { display: flex; gap: 5px; }
         #fre-overlay .pv-d-tabs > span { flex: 1; height: 8px; border-radius: 3px; background: rgba(255,255,255,0.10); }
         #fre-overlay .pv-d-tabs > span:first-child { background: ${ACCENT}; }
+
+        /* --- Live window demo (Step 2 preferred path) --- */
+        /* The demo restores the full app chrome and lets the real info window
+           open normally, with this top-docked banner floating above it. The
+           banner is non-blocking — only the card itself captures input. */
+        #fre-window-demo {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 2147483000;
+            display: flex;
+            justify-content: center;
+            padding: calc(env(safe-area-inset-top, 0px) + 12px) 14px 0;
+            pointer-events: none;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            color: #e8eaf6;
+            opacity: 0;
+            transform: translateY(-14px);
+            transition: opacity 320ms ease, transform 320ms cubic-bezier(0.16, 1, 0.3, 1);
+            -webkit-font-smoothing: antialiased;
+        }
+        #fre-window-demo.fre-visible { opacity: 1; transform: translateY(0); }
+        #fre-window-demo.fre-dismissing { opacity: 0; transform: translateY(-14px); }
+
+        #fre-window-demo .fre-demo-card {
+            pointer-events: auto;
+            width: 100%;
+            max-width: 460px;
+            padding: 15px 18px 17px;
+            border-radius: 20px;
+            text-align: center;
+            background: linear-gradient(180deg, #0e1a36 0%, #070d1f 100%);
+            border: 1px solid rgba(56, 189, 248, 0.22);
+            box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55),
+                        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+        }
+        #fre-window-demo .fre-demo-title {
+            font-size: 1.12rem;
+            font-weight: 700;
+            margin: 0 0 4px;
+            color: #fff;
+        }
+        #fre-window-demo .fre-demo-sub {
+            font-size: 0.8rem;
+            line-height: 1.4;
+            color: rgba(199, 210, 254, 0.72);
+            margin: 0 0 13px;
+        }
+        #fre-window-demo .fre-seg {
+            display: flex;
+            gap: 6px;
+            padding: 5px;
+            margin: 0 0 13px;
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        #fre-window-demo .fre-seg-btn {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 7px;
+            padding: 10px 8px;
+            border: none;
+            border-radius: 10px;
+            background: transparent;
+            color: rgba(226, 234, 246, 0.78);
+            font: inherit;
+            font-size: 0.92rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease;
+        }
+        #fre-window-demo .fre-seg-btn i { font-size: 0.85rem; color: ${ACCENT}; }
+        #fre-window-demo .fre-seg-btn.fre-seg-active {
+            color: #04111f;
+            background: linear-gradient(180deg, #5cc8ff 0%, ${ACCENT} 100%);
+            box-shadow: 0 6px 16px rgba(56, 189, 248, 0.32);
+        }
+        #fre-window-demo .fre-seg-btn.fre-seg-active i { color: #04111f; }
+        #fre-window-demo .fre-agree {
+            width: 100%;
+            padding: 13px 18px;
+            border: none;
+            border-radius: 13px;
+            font-size: 0.98rem;
+            font-weight: 700;
+            color: #04111f;
+            background: linear-gradient(180deg, #5cc8ff 0%, ${ACCENT} 100%);
+            box-shadow: 0 10px 26px rgba(56, 189, 248, 0.35);
+            cursor: pointer;
+            transition: transform 120ms ease, box-shadow 200ms ease;
+        }
+        #fre-window-demo .fre-agree:active { transform: scale(0.98); }
 
         /* In-app legal document viewer */
         .fre-doc-viewer {
