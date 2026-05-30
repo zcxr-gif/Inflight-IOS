@@ -1210,25 +1210,47 @@ function handleSavedFlightListClick(e) {
 
     // --- Helper: Fetch API Keys from Netlify Function ---
     async function fetchApiKeys() {
+        // [PERF] Warm-start fast path. On a previous successful launch we cached
+        // the Mapbox token in localStorage. Set it synchronously *before* the
+        // network call so the map can begin loading immediately instead of
+        // blocking on the Netlify config round-trip (which can be 1–3 s on a
+        // slow/in-flight connection). We still fetch the fresh config below and
+        // overwrite the token, so a rotated/revoked token self-heals on the next
+        // launch. Note: this runs synchronously up to the first `await`, so the
+        // token is already set by the time fetchApiKeys() returns its promise.
+        try {
+            const cachedToken = localStorage.getItem('cachedMapboxToken');
+            if (cachedToken && !MAPBOX_ACCESS_TOKEN) {
+                MAPBOX_ACCESS_TOKEN = cachedToken;
+                mapboxgl.accessToken = cachedToken;
+            }
+        } catch (e) { /* localStorage unavailable — fall through to network */ }
+
         try {
             const response = await fetch(`${CURRENT_SITE_URL}/.netlify/functions/config`);
             if (!response.ok) throw new Error('Could not fetch server configuration.');
-            
+
             const config = await response.json();
-            
+
             if (!config.mapboxToken) throw new Error('Mapbox token is missing from server configuration.');
             if (!config.owmApiKey) throw new Error('OWM API key is missing from server configuration.');
 
             // Set Mapbox key
             MAPBOX_ACCESS_TOKEN = config.mapboxToken;
             mapboxgl.accessToken = MAPBOX_ACCESS_TOKEN;
-            
+            // Cache it so the next launch can start the map without waiting.
+            try { localStorage.setItem('cachedMapboxToken', config.mapboxToken); } catch (e) {}
+
             // Set OWM key
             OWM_API_KEY = config.owmApiKey;
 
         } catch (error) {
             console.error('Failed to initialize API keys:', error.message);
-            showNotification('Could not load mapping or weather services.', 'error');
+            // Only surface the error if we have no token at all (cold start with
+            // no cache). A cached token means the map can still load fine.
+            if (!MAPBOX_ACCESS_TOKEN) {
+                showNotification('Could not load mapping or weather services.', 'error');
+            }
         }
     }
 
@@ -16854,17 +16876,29 @@ async function initializeApp() {
         injectCustomStyles();
         
 
-        // [PERF FIX] Parallelize: kick off all 3 fetches at once, but only
-        // block on the two the map actually needs (token + airport coords).
-        // Runways finish in the background while the map is rendering.
+        // [PERF FIX] Parallelize: kick off all 3 fetches at once.
         const apiKeysPromise = fetchApiKeys();
         const airportsPromise = fetchAirportsData();
         const runwaysPromise = fetchRunwaysData();
 
-        await Promise.all([apiKeysPromise, airportsPromise]);
+        // [PERF] The map only needs the Mapbox token to start painting — it opens
+        // at zoom 1.3 (a whole-globe view) where the exact center isn't visible
+        // yet, and airportsData has a safe `{}` default with a center fallback. So
+        // we no longer gate the first paint behind the 11 MB airports.json parse;
+        // airports + runways finish in the background while the globe renders.
+        // On a warm start fetchApiKeys() sets the token synchronously from the
+        // localStorage cache, so MAPBOX_ACCESS_TOKEN is already populated here and
+        // we skip waiting on the Netlify config round-trip entirely.
+        if (!MAPBOX_ACCESS_TOKEN) {
+            await apiKeysPromise; // Cold start, no cached token: we must wait for it.
+        }
 
         // Initialize the Sector Ops view (map render starts now)
         await initializeSectorOpsView();
+
+        // Make sure airports.json and the fresh config have landed before we move
+        // on to anything downstream that depends on them (markers, centering, etc).
+        await Promise.all([apiKeysPromise, airportsPromise]);
 
         // First-launch gate: on the very first run (or after the legal docs
         // are re-versioned) play the cinematic map intro and require the user
