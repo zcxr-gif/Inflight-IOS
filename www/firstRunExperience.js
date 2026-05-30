@@ -28,6 +28,12 @@
 const LEGAL_VERSION = '2026-04-25';
 const STORAGE_KEY = 'inflight_legal_accepted';
 
+// Key for the one-time "which flight info window?" choice. Its mere presence
+// means the user has made the choice at least once; the value records what they
+// picked ('simple' | 'standard'). Every user — including ones who accepted the
+// legal docs before this step existed — is asked exactly once.
+const WINDOW_CHOICE_KEY = 'inflight_window_choice';
+
 const ACCENT = '#38bdf8';
 
 /** Has the user already agreed to the *current* version of the docs? */
@@ -41,10 +47,51 @@ export function hasAcceptedLegal() {
     }
 }
 
+/** Has the user already picked a flight info window at least once? */
+export function hasChosenWindow() {
+    try {
+        return !!localStorage.getItem(WINDOW_CHOICE_KEY);
+    } catch (_) {
+        return false;
+    }
+}
+
 function persistAcceptance() {
     try {
         localStorage.setItem(STORAGE_KEY, LEGAL_VERSION);
     } catch (_) { /* storage unavailable; nothing we can do */ }
+}
+
+/**
+ * Record the flight-window choice and apply it to the live app immediately so
+ * the very next aircraft the user taps respects it.
+ * @param {boolean} useSimple  true = simple card window, false = standard panel.
+ */
+function persistWindowChoice(useSimple) {
+    try {
+        localStorage.setItem(WINDOW_CHOICE_KEY, useSimple ? 'simple' : 'standard');
+    } catch (_) { /* storage unavailable */ }
+
+    try {
+        if (window.mapFilters) {
+            window.mapFilters.useSimpleFlightWindow = useSimple;
+            // The simple window only supports the legacy mobile sheet, mirroring
+            // the dependency enforced by the in-app settings toggle.
+            if (useSimple) {
+                try { localStorage.setItem('mobileDisplayMode', 'legacy'); } catch (_) { }
+            }
+            if (typeof window.saveFiltersToLocalStorage === 'function') {
+                window.saveFiltersToLocalStorage();
+            } else {
+                try { localStorage.setItem('mapFilters', JSON.stringify(window.mapFilters)); } catch (_) { }
+            }
+        }
+        // Keep any already-rendered settings controls in sync with the choice.
+        const deskToggle = document.getElementById('filter-toggle-simple-window');
+        if (deskToggle) deskToggle.checked = useSimple;
+        document.querySelectorAll('input[data-setting="useSimpleFlightWindow"]')
+            .forEach((i) => { i.checked = useSimple; });
+    } catch (_) { /* applying the choice is best-effort */ }
 }
 
 /**
@@ -56,19 +103,52 @@ function persistAcceptance() {
  * @returns {Promise<void>} Resolves once the user has accepted (or immediately
  *                          for returning users).
  */
-export function runFirstRunExperience(map, opts = {}) {
-    if (!opts.force && hasAcceptedLegal()) {
-        return Promise.resolve();
-    }
+export async function runFirstRunExperience(map, opts = {}) {
+    const needLegal = opts.force || !hasAcceptedLegal();
+    const needWindow = opts.force || !hasChosenWindow();
+
+    // Returning users who've done both skip everything.
+    if (!needLegal && !needWindow) return;
 
     injectStyles();
 
     // Hide the app's UI chrome (top bar, tab bar, HUD, panels, info windows)
-    // while the cinematic intro plays so nothing but the map is visible. The
-    // class lives on <body> so it also catches chrome that boot injects
-    // *after* the intro has already started.
+    // while the onboarding runs so nothing but the map is visible. The class
+    // lives on <body> so it also catches chrome that boot injects *after*
+    // onboarding has already started.
     setChromeHidden(true);
 
+    // Step 1 — legal acceptance (plays the cinematic intro for brand-new users).
+    // Step 2 — pick a flight info window. Whichever runs last fades the chrome
+    // back in beneath its dismissing modal.
+    if (needLegal) {
+        await runLegalStep(map, { restoreChrome: !needWindow });
+    }
+    if (needWindow) {
+        await runWindowChoiceStep({ restoreChrome: true });
+    }
+}
+
+/** Reveal an overlay, then resolve once the given trigger fires; handles the
+ *  shared fade-in / fade-out + cleanup. `onCommit` runs before the dismiss. */
+function dismissOverlay(overlay, restoreChrome, resolve) {
+    if (restoreChrome) {
+        // Fade the chrome back in underneath the dismissing modal.
+        setChromeHidden(false);
+    }
+    overlay.classList.remove('fre-visible');
+    overlay.classList.add('fre-dismissing');
+    const cleanup = () => {
+        overlay.remove();
+        resolve();
+    };
+    overlay.addEventListener('transitionend', cleanup, { once: true });
+    // Safety net in case the transition event never fires.
+    setTimeout(cleanup, 600);
+}
+
+/** Step 1: branded legal-acceptance gate with the cinematic map intro. */
+function runLegalStep(map, { restoreChrome } = {}) {
     return new Promise((resolve) => {
         const { overlay, agreeBtn, checkbox } = buildModal();
         document.body.appendChild(overlay);
@@ -86,17 +166,31 @@ export function runFirstRunExperience(map, opts = {}) {
         agreeBtn.addEventListener('click', () => {
             if (agreeBtn.disabled) return;
             persistAcceptance();
-            // Fade the chrome back in underneath the dismissing modal.
-            setChromeHidden(false);
-            overlay.classList.remove('fre-visible');
-            overlay.classList.add('fre-dismissing');
-            const cleanup = () => {
-                overlay.remove();
-                resolve();
-            };
-            overlay.addEventListener('transitionend', cleanup, { once: true });
-            // Safety net in case the transition event never fires.
-            setTimeout(cleanup, 600);
+            dismissOverlay(overlay, restoreChrome, resolve);
+        });
+    });
+}
+
+/** Step 2: one-time "which flight info window?" picker. */
+function runWindowChoiceStep({ restoreChrome } = {}) {
+    return new Promise((resolve) => {
+        const { overlay, continueBtn, choices } = buildWindowChoiceModal();
+        document.body.appendChild(overlay);
+        requestAnimationFrame(() => overlay.classList.add('fre-visible'));
+
+        let selected = null;
+        choices.forEach((btn) => {
+            btn.addEventListener('click', () => {
+                choices.forEach((b) => b.classList.toggle('fre-choice-selected', b === btn));
+                selected = btn.dataset.window;
+                continueBtn.disabled = false;
+            });
+        });
+
+        continueBtn.addEventListener('click', () => {
+            if (continueBtn.disabled || !selected) return;
+            persistWindowChoice(selected === 'simple');
+            dismissOverlay(overlay, restoreChrome, resolve);
         });
     });
 }
@@ -236,6 +330,44 @@ function buildModal() {
     });
 
     return { overlay, agreeBtn, checkbox };
+}
+
+/** One-time picker letting the user choose their flight info window style. */
+function buildWindowChoiceModal() {
+    const overlay = document.createElement('div');
+    overlay.id = 'fre-overlay';
+    overlay.classList.add('fre-overlay-choice');
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-labelledby', 'fre-window-title');
+
+    overlay.innerHTML = `
+        <div class="fre-card" role="document">
+            <h1 id="fre-window-title" class="fre-title">Choose your flight window</h1>
+            <p class="fre-sub">How should flight details look when you tap an aircraft? You can change this anytime in Settings.</p>
+
+            <div class="fre-choices">
+                <button type="button" class="fre-choice" data-window="simple">
+                    <i class="fa-solid fa-window-maximize fre-choice-icon"></i>
+                    <span class="fre-choice-name">Simple</span>
+                    <span class="fre-choice-desc">A clean, card-style window with the key flight info at a glance.</span>
+                </button>
+                <button type="button" class="fre-choice" data-window="standard">
+                    <i class="fa-solid fa-gauge-high fre-choice-icon"></i>
+                    <span class="fre-choice-name">Standard</span>
+                    <span class="fre-choice-desc">The full avionics panel with detailed instruments and tabs.</span>
+                </button>
+            </div>
+
+            <button type="button" id="fre-window-continue" class="fre-agree" disabled>
+                Continue
+            </button>
+        </div>
+    `;
+
+    const continueBtn = overlay.querySelector('#fre-window-continue');
+    const choices = Array.from(overlay.querySelectorAll('.fre-choice'));
+    return { overlay, continueBtn, choices };
 }
 
 /**
@@ -448,6 +580,60 @@ function injectStyles() {
             opacity: 0.4;
             box-shadow: none;
             cursor: not-allowed;
+        }
+
+        /* Flight info window picker */
+        #fre-overlay .fre-choices {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            width: 100%;
+            margin: 4px 0 22px;
+        }
+        #fre-overlay .fre-choice {
+            display: grid;
+            grid-template-columns: 44px 1fr;
+            grid-template-rows: auto auto;
+            column-gap: 14px;
+            align-items: center;
+            text-align: left;
+            width: 100%;
+            padding: 16px;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1.5px solid rgba(255, 255, 255, 0.10);
+            color: inherit;
+            font: inherit;
+            cursor: pointer;
+            transition: border-color 160ms ease, background 160ms ease, transform 120ms ease;
+        }
+        #fre-overlay .fre-choice:active { transform: scale(0.99); }
+        #fre-overlay .fre-choice-selected {
+            border-color: ${ACCENT};
+            background: rgba(56, 189, 248, 0.10);
+            box-shadow: 0 0 0 1px ${ACCENT}, 0 10px 26px rgba(56, 189, 248, 0.18);
+        }
+        #fre-overlay .fre-choice-icon {
+            grid-row: 1 / span 2;
+            width: 44px;
+            height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+            color: ${ACCENT};
+            background: rgba(56, 189, 248, 0.10);
+            border-radius: 12px;
+        }
+        #fre-overlay .fre-choice-name {
+            font-size: 1rem;
+            font-weight: 700;
+            color: #fff;
+        }
+        #fre-overlay .fre-choice-desc {
+            font-size: 0.82rem;
+            line-height: 1.4;
+            color: rgba(199, 210, 254, 0.72);
         }
 
         /* In-app legal document viewer */
