@@ -174,47 +174,58 @@ function runLegalStep(map, { restoreChrome } = {}) {
 /**
  * Step 2: one-time "which flight info window?" picker.
  *
- * Preferred path is a hands-on, live demo — we open a real, randomly chosen
- * flight's info window and let the user flip that very same flight between the
+ * Preferred path is a hands-on, live demo — we open two real, randomly chosen
+ * flights' info windows (one per style) and let the user flip between the
  * Simple and Standard styles before committing, so they *see* each one rather
- * than reading about it. If no live flights are available yet (data still
- * loading, or offline) we fall back to the self-contained mockup picker so the
- * gate never stalls the boot.
+ * than reading about it. We wait for the live socket to actually deliver
+ * flights first. If none arrive (offline, or the feed is empty) we fall back
+ * to the self-contained mockup picker so the gate never stalls the boot.
+ *
+ * Two *different* flights are used deliberately: handleAircraftClick() bails
+ * early when asked to re-open the flight that's already showing, so reusing a
+ * single flight would make the second style silently fail to render.
  */
 async function runWindowChoiceStep({ restoreChrome } = {}) {
-    const flightProps = await waitForLiveFlight(5000);
-    if (flightProps) {
-        await runWindowDemoStep(flightProps, { restoreChrome });
+    // Wait (reasonably) for the socket to populate live flights before deciding.
+    const flights = await waitForLiveFlights(2, 25000);
+    if (flights.length >= 2) {
+        await runWindowDemoStep(flights[0], flights[1], { restoreChrome });
     } else {
         await runWindowMockupStep({ restoreChrome });
     }
 }
 
-/** Live picker: opens a real flight window and toggles it between both styles. */
-function runWindowDemoStep(flightProps, { restoreChrome } = {}) {
+/**
+ * Live picker: opens a real flight window and lets the user flip between the
+ * two styles — Standard backed by one flight, Simple by another.
+ */
+function runWindowDemoStep(standardFlight, simpleFlight, { restoreChrome } = {}) {
     return new Promise((resolve) => {
         const { overlay, segs, continueBtn } = buildWindowDemoBanner();
         document.body.appendChild(overlay);
 
-        // Reveal *only* the aircraft info window beneath us — the rest of the
-        // app chrome stays hidden so the live example reads cleanly — then fade
-        // in our control banner.
-        document.body.classList.add('fre-demo');
+        // Don't fight the app's own window system: reveal the full chrome so the
+        // real info window opens and animates exactly as it does in normal use,
+        // with our control banner floating on top.
+        setChromeHidden(false);
         requestAnimationFrame(() => overlay.classList.add('fre-visible'));
 
         // Default to the Standard window so the user immediately sees a real
-        // example; tapping a segment switches the same flight live.
+        // example; tapping a segment opens the other style's flight live.
         let selected = 'standard';
         let switching = false;
 
-        // Re-open the chosen style for the SAME flight via the real app path.
+        // Open the chosen style's flight via the real app path. Awaiting the
+        // whole call means the in-app loading guard has cleared before we allow
+        // the next switch, so taps can't race each other.
         const openStyle = async (useSimple) => {
             if (switching) return;
             switching = true;
             try {
                 if (window.mapFilters) window.mapFilters.useSimpleFlightWindow = useSimple;
+                const fp = useSimple ? simpleFlight : standardFlight;
                 if (typeof window.handleAircraftClick === 'function') {
-                    await window.handleAircraftClick(flightProps);
+                    await window.handleAircraftClick(fp);
                 }
             } catch (_) { /* best-effort demo */ }
             switching = false;
@@ -229,17 +240,12 @@ function runWindowDemoStep(flightProps, { restoreChrome } = {}) {
             });
         });
 
-        // Center the camera on the example flight, then open the first style.
-        if (typeof window.flyToFlight === 'function') {
-            try { window.flyToFlight(flightProps); } catch (_) { /* non-fatal */ }
-        }
         openStyle(false);
 
         continueBtn.addEventListener('click', () => {
             // Tear down the live demo window, then persist the final choice and
-            // dismiss — restoring the full app chrome underneath.
+            // dismiss.
             try { if (typeof window.closeAircraftWindow === 'function') window.closeAircraftWindow(); } catch (_) { }
-            document.body.classList.remove('fre-demo');
             persistWindowChoice(selected === 'simple');
             dismissOverlay(overlay, restoreChrome, resolve);
         });
@@ -270,41 +276,69 @@ function runWindowMockupStep({ restoreChrome } = {}) {
     });
 }
 
-/** Pick a random live flight's properties (the shape handleAircraftClick wants). */
-function pickRandomLiveFlight() {
+/**
+ * Pick up to `count` distinct random live flights' properties (the shape
+ * handleAircraftClick wants). Prefers en-route flights with a full
+ * origin→destination route for the richest-looking example.
+ */
+function pickRandomLiveFlights(count) {
     let flights = [];
     try {
         if (typeof window.getLiveFlightData === 'function') {
             flights = window.getLiveFlightData() || [];
         }
     } catch (_) {
-        return null;
+        return [];
     }
-    if (!flights.length) return null;
+    if (!flights.length) return [];
 
     // getLiveFlightData() returns GeoJSON features; the real map-click handler
     // passes feature.properties straight to handleAircraftClick, so we do too.
     const props = flights
         .map((f) => (f && f.properties) ? f.properties : f)
         .filter((p) => p && p.flightId);
-    if (!props.length) return null;
+    if (!props.length) return [];
 
-    // Prefer an en-route flight with a full origin→destination route for the
-    // richest-looking example; fall back to any flight otherwise.
+    // Prefer en-route flights (full route) up front, then top up with any others.
     const enroute = props.filter((p) => p.departureIcao && p.arrivalIcao);
-    const pool = enroute.length ? enroute : props;
-    return pool[Math.floor(Math.random() * pool.length)];
+    const others = props.filter((p) => !(p.departureIcao && p.arrivalIcao));
+    const ordered = shuffle(enroute).concat(shuffle(others));
+
+    // De-dupe by flightId so the two demo flights are genuinely different.
+    const picked = [];
+    const seen = new Set();
+    for (const p of ordered) {
+        if (seen.has(p.flightId)) continue;
+        seen.add(p.flightId);
+        picked.push(p);
+        if (picked.length >= count) break;
+    }
+    return picked;
 }
 
-/** Resolve with a random live flight, polling briefly while data loads. */
-function waitForLiveFlight(timeoutMs = 5000) {
+/** Fisher–Yates shuffle (returns a new array). */
+function shuffle(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+}
+
+/**
+ * Resolve with up to `minCount` distinct live flights, polling while the live
+ * socket fills in. Resolves early as soon as `minCount` are available, and
+ * resolves with whatever it has (possibly fewer, possibly none) at timeout.
+ */
+function waitForLiveFlights(minCount, timeoutMs) {
     return new Promise((resolve) => {
         const start = Date.now();
         const tick = () => {
-            const flight = pickRandomLiveFlight();
-            if (flight) { resolve(flight); return; }
-            if (Date.now() - start >= timeoutMs) { resolve(null); return; }
-            setTimeout(tick, 350);
+            const flights = pickRandomLiveFlights(minCount);
+            if (flights.length >= minCount) { resolve(flights); return; }
+            if (Date.now() - start >= timeoutMs) { resolve(flights); return; }
+            setTimeout(tick, 400);
         };
         tick();
     });
@@ -845,15 +879,9 @@ function injectStyles() {
         #fre-overlay .pv-d-tabs > span:first-child { background: ${ACCENT}; }
 
         /* --- Live window demo (Step 2 preferred path) --- */
-        /* While the demo runs we keep the rest of the chrome hidden but reveal
-           the real aircraft info window so the user sees a genuine example. The
-           extra .fre-demo class out-specifies the intro hide rule above. */
-        body.fre-intro-active.fre-demo #aircraft-info-window {
-            opacity: 1 !important;
-            pointer-events: auto !important;
-        }
-
-        /* Top-docked, non-blocking banner — only the card captures input. */
+        /* The demo restores the full app chrome and lets the real info window
+           open normally, with this top-docked banner floating above it. The
+           banner is non-blocking — only the card itself captures input. */
         #fre-window-demo {
             position: fixed;
             top: 0;
