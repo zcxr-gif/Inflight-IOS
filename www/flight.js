@@ -4109,8 +4109,19 @@ function injectCustomStyles() {
 
         #simple-flight-window-frame {
             border-radius: var(--radius-md);
-            background: var(--bg-glass); 
+            background: var(--bg-glass);
         }
+
+        /* --- Simple Flight Window phases (collapsed bar <-> expanded panel) --- */
+        .info-window.simple-collapsed,
+        .info-window.simple-expanded {
+            transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+                        height 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+                        max-height 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+                        opacity 0.55s cubic-bezier(0.16, 1, 0.3, 1),
+                        transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .info-window.simple-collapsed { overflow: hidden; }
 
         /* --- ATIS & TERMINAL STYLES --- */
         .atis-status-row {
@@ -7812,14 +7823,15 @@ function handleSocketFlightUpdate(data) {
                 const simpleIframe = document.getElementById('simple-flight-window-frame');
                 if (mapFilters.useSimpleFlightWindow && simpleIframe && simpleIframe.contentWindow) {
                      const freshData = formatDataForSimpleWindow(
-                         fullFlightProps, 
-                         cachedFlightDataForStatsView.plan, 
+                         fullFlightProps,
+                         cachedFlightDataForStatsView.plan,
                          liveTrailCache.get(flightId),
                          {
                              imageUrl: fullFlightProps.communityImageUrl,
                              contributorName: fullFlightProps.contributorName,
                              tailNumber: fullFlightProps.tailNumber
-                         }
+                         },
+                         cachedFlightDataForStatsView.filedPlanData || null
                      );
                      simpleIframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: freshData }, '*');
                 } else if (!mapFilters.useSimpleFlightWindow) {
@@ -10546,7 +10558,89 @@ function initializeAircraftLayer() {
     }
 
 
-function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData) {
+/**
+ * --- [NEW] Resize / reposition the simple-window host for its collapsed vs expanded phase. ---
+ * Desktop: the floating #aircraft-info-window grows from a compact bar to the full panel.
+ * Mobile: drive the existing legacy-sheet peek/expanded snap points.
+ */
+function applySimpleWindowPhase(phase) {
+    const windowEl = document.getElementById('aircraft-info-window');
+    if (!windowEl) return;
+    const expanded = (phase === 'expanded');
+    windowEl.classList.toggle('simple-collapsed', !expanded);
+    windowEl.classList.toggle('simple-expanded', expanded);
+
+    const onMobile = !!(window.MobileUIHandler && typeof window.MobileUIHandler.isMobile === 'function'
+        && window.MobileUIHandler.isMobile());
+
+    if (onMobile && window.MobileUIHandler && typeof window.MobileUIHandler.setLegacySheetState === 'function') {
+        // The mobile sheet owns sizing; just snap it to the matching detent.
+        window.MobileUIHandler.setLegacySheetState(expanded ? 'expanded' : 'peek');
+        return;
+    }
+
+    // Desktop: size the floating panel. The iframe uses flex-grow with no intrinsic
+    // height, so we must give the host an explicit height for it to fill.
+    if (expanded) {
+        windowEl.style.width = '440px';
+        windowEl.style.height = 'min(760px, calc(100vh - 40px))';
+        windowEl.style.maxHeight = 'calc(100vh - 40px)';
+    } else {
+        windowEl.style.width = '380px';
+        windowEl.style.height = '236px';       // compact bar only
+        windowEl.style.maxHeight = '236px';
+    }
+}
+
+/**
+ * --- [NEW] Route simple-window action-bar buttons to the existing flight actions. ---
+ * Reuses the battle-tested replay / trip-card / track-me flows rather than duplicating them.
+ */
+function handleSimpleWindowAction(action) {
+    switch (action) {
+        case 'tripcard':
+            if (typeof toggleTripCardMode === 'function') toggleTripCardMode(true);
+            break;
+        case 'follow':
+            if (typeof window.handleTrackmeBellClick === 'function' && currentFlightInWindow) {
+                window.handleTrackmeBellClick({
+                    dataset: { flightId: currentFlightInWindow },
+                    querySelector: () => null
+                });
+            }
+            break;
+        case 'replay':
+            triggerSimpleWindowReplay();
+            break;
+        default:
+            break;
+    }
+}
+
+/**
+ * --- [NEW] Fire the existing replay flow from the simple window. ---
+ * The replay logic lives in the delegated click handler bound to #aircraft-info-window
+ * and depends on that handler's closure. Rather than duplicate it, we drop a hidden
+ * `.aircraft-window-replay-btn` into the window and click it so the real handler runs.
+ */
+function triggerSimpleWindowReplay() {
+    const windowEl = document.getElementById('aircraft-info-window');
+    if (!windowEl) return;
+    if (!currentFlightInWindow) {
+        if (typeof showNotification === 'function') showNotification('No flight selected to replay.', 'error');
+        return;
+    }
+    let btn = windowEl.querySelector('.aircraft-window-replay-btn.simple-proxy');
+    if (!btn) {
+        btn = document.createElement('button');
+        btn.className = 'aircraft-window-replay-btn simple-proxy';
+        btn.style.display = 'none';
+        windowEl.appendChild(btn);
+    }
+    btn.click();
+}
+
+function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData, filedPlanData = null) {
     if (!flightProps) return null;
 
     // 1. Parsing
@@ -10565,6 +10659,8 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
     let originIcao = '---', destIcao = '---';
     let progress = 0, elapsed = '--:--', eta = '--:--', ete = '--:--', originTime = '--:--';
     let originCountry = '', destCountry = '';
+    let originCity = '', destCity = '';
+    let distRemainingNm = null, distFlownNm = null;
 
     // --- TIME & ELAPSED CALCULATIONS ---
     if (routePoints && routePoints.length > 0) {
@@ -10589,8 +10685,8 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         originIcao = plan.origin?.icao || plan.flightPlanItems[0].identifier || '---';
         destIcao = plan.destination?.icao || plan.flightPlanItems[plan.flightPlanItems.length - 1].identifier || '---';
 
-        if (airportsData[originIcao]) originCountry = airportsData[originIcao].country;
-        if (airportsData[destIcao]) destCountry = airportsData[destIcao].country;
+        if (airportsData[originIcao]) { originCountry = airportsData[originIcao].country; originCity = airportsData[originIcao].name || ''; }
+        if (airportsData[destIcao]) { destCountry = airportsData[destIcao].country; destCity = airportsData[destIcao].name || ''; }
 
         // --- A. FLATTEN AND IDENTIFY GROUPS ---
         const flatList = [];
@@ -10649,8 +10745,10 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             const destLat = flatList[flatList.length - 1].location.latitude;
             const destLon = flatList[flatList.length - 1].location.longitude;
             const distRemainingKm = getDistanceKm(pos.lat, pos.lon, destLat, destLon);
-            
+
             progress = Math.max(0, Math.min(100, (1 - (distRemainingKm / totalDistKm)) * 100));
+            distRemainingNm = Math.round(distRemainingKm / 1.852);
+            distFlownNm = Math.max(0, Math.round((totalDistKm - distRemainingKm) / 1.852));
 
             const speedKts = pos.gs_kt || 0;
             if (speedKts > 50) {
@@ -10680,6 +10778,36 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             });
         });
     }
+
+    // --- Source-tagged times (SCHEDULED / ACTUAL / ESTIMATED), reusing the legacy helpers ---
+    let depInfo = null, arrInfo = null;
+    try {
+        if (typeof computeDepartureTimeInfo === 'function') {
+            const di = computeDepartureTimeInfo(flightProps, routePoints, filedPlanData, originIcao);
+            if (di) depInfo = { time: di.time, label: di.label, color: di.color };
+        }
+        if (typeof computeArrivalTimeInfo === 'function') {
+            const ai = computeArrivalTimeInfo(flightProps, filedPlanData, distRemainingNm != null ? distRemainingNm : 0);
+            if (ai) arrInfo = { time: ai.time, label: ai.label, color: ai.color };
+        }
+    } catch (e) { /* non-fatal: fall back to plain times */ }
+
+    // --- Explicit four-cell time grid (FR24-style): Scheduled/Actual + Scheduled/Estimated ---
+    const fmtUtc = (d) => (d && !isNaN(d.getTime()))
+        ? d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })
+        : null;
+    const times = { depScheduled: null, depActual: null, arrScheduled: null, arrEstimated: null };
+    if (filedPlanData && filedPlanData.dep_time) {
+        const d = new Date(filedPlanData.dep_time);
+        times.depScheduled = fmtUtc(d);
+        if (filedPlanData.duration_minutes) {
+            times.arrScheduled = fmtUtc(new Date(d.getTime() + filedPlanData.duration_minutes * 60000));
+        }
+    }
+    if (routePoints && routePoints.length > 0 && routePoints[0].date) {
+        times.depActual = fmtUtc(new Date(routePoints[0].date));
+    }
+    if (eta && eta !== '--:--') times.arrEstimated = eta;
 
     return {
         theme: {
@@ -10712,14 +10840,21 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         route: {
             originIcao,
             originCountry,
+            originCity,
             destIcao,
             destCountry,
+            destCity,
             originTime: originTime,
             destTime: eta,
             progress: progress,
             elapsed: elapsed,
             eta: eta,
             ete: ete,
+            depInfo: depInfo,
+            arrInfo: arrInfo,
+            times: times,
+            distRemainingNm: distRemainingNm,
+            distFlownNm: distFlownNm,
             waypoints: structuredWaypoints
         }
     };
@@ -12110,10 +12245,18 @@ window.globalNatTracks = natTracks;
         // --- 13. Initialize Smart Map Click ---
         setupSmartMapBackgroundClick();
 
-        // --- 14. Listen for ND_READY signal ---
+        // --- 14. Listen for iframe messages (ND_READY, simple-window stats/actions/resize) ---
         window.addEventListener('message', (event) => {
             if (event.data && event.data.type === 'ND_READY') {
                 refreshNavDisplayFromCache();
+            }
+            // Route simple-flight-window iframe messages (pilot stats request, etc.)
+            if (event.data && (
+                event.data.type === 'REQUEST_PILOT_STATS' ||
+                event.data.type === 'SIMPLE_WINDOW_STATE' ||
+                event.data.type === 'SIMPLE_WINDOW_ACTION'
+            )) {
+                handleIframeMessage(event);
             }
         });
 
@@ -13087,9 +13230,12 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         cachedFlightDataForStatsView = { flightProps, plan };
 
         if (typeof mapFilters !== 'undefined' && mapFilters.useSimpleFlightWindow) {
-            windowEl.style.width = '420px';
+            // Cache filed-plan data so the live-update path can compute SCHEDULED/ACTUAL times too.
+            cachedFlightDataForStatsView = { flightProps, plan, filedPlanData };
+            // Start in the compact (collapsed) phase; the iframe asks us to resize on expand.
+            applySimpleWindowPhase('collapsed');
             windowEl.innerHTML = `<iframe id="simple-flight-window-frame" src="flightinfo.html" style="width:100%; flex-grow: 1; border:none;" scrolling="no"></iframe>`;
-            const simpleData = formatDataForSimpleWindow(flightProps, plan, [], communityAircraftData);
+            const simpleData = formatDataForSimpleWindow(flightProps, plan, [], communityAircraftData, filedPlanData);
             const iframe = document.getElementById('simple-flight-window-frame');
             iframe.onload = () => iframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: simpleData }, '*');
         } else if (typeof populateAircraftInfoWindow === 'function') {
@@ -15628,6 +15774,18 @@ async function handleIframeMessage(event) {
 
     // 2. Flight Data Update (Existing Loopback - ignored here)
     if (event.data && event.data.type === 'FLIGHT_DATA_UPDATE') {
+        return;
+    }
+
+    // 2a. [NEW] Simple Window expand/collapse — resize the host container.
+    if (event.data && event.data.type === 'SIMPLE_WINDOW_STATE') {
+        applySimpleWindowPhase(event.data.state);
+        return;
+    }
+
+    // 2b. [NEW] Simple Window action buttons (replay / trip card / follow).
+    if (event.data && event.data.type === 'SIMPLE_WINDOW_ACTION') {
+        handleSimpleWindowAction(event.data.action);
         return;
     }
 
