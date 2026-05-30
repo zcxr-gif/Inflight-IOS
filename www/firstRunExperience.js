@@ -348,13 +348,37 @@ function buildWindowChoiceModal() {
 
             <div class="fre-choices">
                 <button type="button" class="fre-choice" data-window="simple">
-                    <i class="fa-solid fa-window-maximize fre-choice-icon"></i>
-                    <span class="fre-choice-name">Simple</span>
+                    <span class="fre-preview fre-preview-simple" aria-hidden="true">
+                        <span class="pv-s-top">
+                            <span class="pv-s-id"><span class="pv-s-call"></span><span class="pv-s-sub"></span></span>
+                            <span class="pv-s-thumb"></span>
+                        </span>
+                        <span class="pv-s-route">
+                            <span class="pv-s-icao"></span>
+                            <i class="fa-solid fa-plane pv-s-plane"></i>
+                            <span class="pv-s-icao"></span>
+                        </span>
+                        <span class="pv-s-bar"><span></span></span>
+                    </span>
+                    <span class="fre-choice-head">
+                        <i class="fa-solid fa-window-maximize fre-choice-ic"></i>
+                        <span class="fre-choice-name">Simple</span>
+                    </span>
                     <span class="fre-choice-desc">A clean, card-style window with the key flight info at a glance.</span>
                 </button>
                 <button type="button" class="fre-choice" data-window="standard">
-                    <i class="fa-solid fa-gauge-high fre-choice-icon"></i>
-                    <span class="fre-choice-name">Standard</span>
+                    <span class="fre-preview fre-preview-standard" aria-hidden="true">
+                        <span class="pv-d-head"></span>
+                        <span class="pv-d-body">
+                            <span class="pv-d-adi"></span>
+                            <span class="pv-d-tiles"><span></span><span></span><span></span><span></span></span>
+                        </span>
+                        <span class="pv-d-tabs"><span></span><span></span><span></span><span></span></span>
+                    </span>
+                    <span class="fre-choice-head">
+                        <i class="fa-solid fa-gauge-high fre-choice-ic"></i>
+                        <span class="fre-choice-name">Standard</span>
+                    </span>
                     <span class="fre-choice-desc">The full avionics panel with detailed instruments and tabs.</span>
                 </button>
             </div>
@@ -591,14 +615,12 @@ function injectStyles() {
             margin: 4px 0 22px;
         }
         #fre-overlay .fre-choice {
-            display: grid;
-            grid-template-columns: 44px 1fr;
-            grid-template-rows: auto auto;
-            column-gap: 14px;
-            align-items: center;
+            display: flex;
+            flex-direction: column;
+            gap: 9px;
             text-align: left;
             width: 100%;
-            padding: 16px;
+            padding: 12px;
             border-radius: 16px;
             background: rgba(255, 255, 255, 0.03);
             border: 1.5px solid rgba(255, 255, 255, 0.10);
@@ -613,17 +635,14 @@ function injectStyles() {
             background: rgba(56, 189, 248, 0.10);
             box-shadow: 0 0 0 1px ${ACCENT}, 0 10px 26px rgba(56, 189, 248, 0.18);
         }
-        #fre-overlay .fre-choice-icon {
-            grid-row: 1 / span 2;
-            width: 44px;
-            height: 44px;
+        #fre-overlay .fre-choice-head {
             display: flex;
             align-items: center;
-            justify-content: center;
-            font-size: 1.1rem;
+            gap: 9px;
+        }
+        #fre-overlay .fre-choice-ic {
+            font-size: 0.9rem;
             color: ${ACCENT};
-            background: rgba(56, 189, 248, 0.10);
-            border-radius: 12px;
         }
         #fre-overlay .fre-choice-name {
             font-size: 1rem;
@@ -631,10 +650,51 @@ function injectStyles() {
             color: #fff;
         }
         #fre-overlay .fre-choice-desc {
-            font-size: 0.82rem;
+            font-size: 0.8rem;
             line-height: 1.4;
             color: rgba(199, 210, 254, 0.72);
         }
+
+        /* --- Mini mockups: a tiny live-ish preview of each window style --- */
+        #fre-overlay .fre-preview {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            height: 104px;
+            padding: 11px;
+            border-radius: 11px;
+            background: linear-gradient(150deg, #18181b, #0c1322);
+            border: 1px solid rgba(255, 255, 255, 0.07);
+            overflow: hidden;
+        }
+
+        /* Simple: roomy card — id + thumb, big route, progress bar */
+        #fre-overlay .fre-preview-simple { gap: 9px; justify-content: center; }
+        #fre-overlay .pv-s-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+        #fre-overlay .pv-s-id { display: flex; flex-direction: column; gap: 4px; }
+        #fre-overlay .pv-s-call { width: 52px; height: 9px; border-radius: 3px; background: #ffffff; }
+        #fre-overlay .pv-s-sub { width: 34px; height: 5px; border-radius: 3px; background: rgba(255,255,255,0.35); }
+        #fre-overlay .pv-s-thumb { width: 46px; height: 26px; border-radius: 6px; background: rgba(56,189,248,0.22); border: 1px solid rgba(255,255,255,0.12); }
+        #fre-overlay .pv-s-route { display: flex; align-items: center; justify-content: space-between; }
+        #fre-overlay .pv-s-icao { width: 40px; height: 13px; border-radius: 3px; background: rgba(255,255,255,0.85); }
+        #fre-overlay .pv-s-plane { color: ${ACCENT}; font-size: 11px; }
+        #fre-overlay .pv-s-bar { position: relative; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.14); }
+        #fre-overlay .pv-s-bar > span { position: absolute; inset: 0 55% 0 0; border-radius: 2px; background: ${ACCENT}; }
+
+        /* Standard: dense avionics — header, attitude dial + gauge tiles, tab bar */
+        #fre-overlay .fre-preview-standard { gap: 7px; }
+        #fre-overlay .pv-d-head { height: 11px; border-radius: 3px; background: rgba(255,255,255,0.10); }
+        #fre-overlay .pv-d-body { flex: 1; display: flex; gap: 7px; }
+        #fre-overlay .pv-d-adi {
+            width: 40px; border-radius: 6px; flex: 0 0 auto;
+            background: radial-gradient(circle at 50% 38%, #38bdf8 0 42%, #1d4ed8 42% 50%, #7c5e2a 50% 58%, #b45309 58% 100%);
+            border: 1px solid rgba(255,255,255,0.18);
+        }
+        #fre-overlay .pv-d-tiles { flex: 1; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 5px; }
+        #fre-overlay .pv-d-tiles > span { border-radius: 5px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.06); }
+        #fre-overlay .pv-d-tabs { display: flex; gap: 5px; }
+        #fre-overlay .pv-d-tabs > span { flex: 1; height: 8px; border-radius: 3px; background: rgba(255,255,255,0.10); }
+        #fre-overlay .pv-d-tabs > span:first-child { background: ${ACCENT}; }
 
         /* In-app legal document viewer */
         .fre-doc-viewer {
