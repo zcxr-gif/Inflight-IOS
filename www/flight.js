@@ -15828,6 +15828,13 @@ async function handleIframeMessage(event) {
                 // Process the raw IF API data into the UI-ready format
                 const formattedProfile = processRawPilotData(data.gradeInfo);
 
+                // Thread the pilot identity through so the manifest can show the
+                // username + Community profile link, mirroring the profile UI.
+                if (formattedProfile && username) {
+                    formattedProfile.username = username;
+                    formattedProfile.communityUrl = `https://community.infiniteflight.com/u/${username}/summary`;
+                }
+
                 // Send the specific payload structure expected by flightinfo.html
                 iframe.contentWindow.postMessage({
                     type: 'PILOT_STATS_DATA',
@@ -15931,7 +15938,7 @@ function processRawPilotData(gradeInfo) {
     }
 
     return {
-        grade: currentGradeObj ? currentGradeObj.name.replace('Grade ', 'Grade ') : `Grade ${currentGradeIdx + 1}`,
+        grade: currentGradeObj && currentGradeObj.name ? currentGradeObj.name.replace('Grade ', '') : `${currentGradeIdx + 1}`,
         xp: totalXP,
         atcRank: atcRankName,
         virtualAirline: gradeInfo.virtualAirline || 'N/A',

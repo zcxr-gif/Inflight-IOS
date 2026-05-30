@@ -393,6 +393,11 @@
 
     /* PILOT MANIFEST */
     .profile-card { background:var(--bg-panel); border:1px solid var(--border-glass); border-radius:var(--radius-lg); overflow:hidden; display:flex; flex-direction:column; margin-bottom:6px; }
+    .profile-pilot-head { padding:16px 20px 0; display:flex; flex-direction:column; gap:4px; }
+    .pp-name { font-size:18px; font-weight:800; color:#fff; letter-spacing:-.3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .pp-link { display:inline-flex; align-items:center; gap:6px; font-size:10px; font-weight:700; letter-spacing:.8px; text-transform:uppercase; color:var(--color-brand); text-decoration:none; width:fit-content; }
+    .pp-link:hover { color:#fff; }
+    .pp-link i { font-size:9px; }
     .profile-header-row { padding:20px; display:flex; align-items:center; gap:20px; background:rgba(255,255,255,.02); }
     .grade-badge-group { display:flex; flex-direction:column; align-items:center; justify-content:center; background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.1); padding:10px 16px; border-radius:12px; min-width:80px; }
     .grade-label { font-size:8px; color:var(--text-dim); font-weight:700; letter-spacing:1px; margin-bottom:2px; }
@@ -632,6 +637,12 @@
             <div id="profile-anchor">
                 <div class="grid-section-label">Pilot Manifest</div>
                 <div class="profile-card">
+                    <div class="profile-pilot-head">
+                        <span class="pp-name" id="prof-username">Pilot</span>
+                        <a class="pp-link" id="prof-community-link" target="_blank" rel="noopener" style="display:none;">
+                            Community Profile <i class="fa-solid fa-up-right-from-square"></i>
+                        </a>
+                    </div>
                     <div class="profile-header-row">
                         <div class="grade-badge-group">
                             <span class="grade-label">GRADE</span>
@@ -888,12 +899,23 @@
             return h + 'h ' + m + 'm ago';
         }
 
+        const num = (v) => Number.isFinite(Number(v)) ? Number(v) : 0;
+
         window.updatePilotProfile = function(profile) {
             if (!profile) return;
+
+            // Pilot identity + Community profile link (mirrors the profile UI).
+            if (profile.username) updateText('prof-username', profile.username);
+            const communityLink = document.getElementById('prof-community-link');
+            if (communityLink) {
+                if (profile.communityUrl) { communityLink.href = profile.communityUrl; communityLink.style.display = 'inline-flex'; }
+                else communityLink.style.display = 'none';
+            }
+
             updateText('prof-grade', profile.grade || 'N/A');
             updateText('prof-atc', profile.atcRank || 'Observer');
             updateText('prof-va', profile.virtualAirline || 'N/A');
-            updateText('prof-xp', typeof profile.xp === 'number' ? profile.xp.toLocaleString() : '---');
+            updateText('prof-xp', num(profile.xp).toLocaleString());
             updateText('prof-total-vio', profile.totalViolations || '0');
             if (profile.violationDetails) {
                 updateText('prof-v1', profile.violationDetails.level1 || 0);
@@ -905,22 +927,35 @@
             updateText('prof-land-90', '---');
 
             const progContainer = document.getElementById('progression-list');
-            if (profile.progression && progContainer) {
+            if (Array.isArray(profile.progression) && progContainer) {
                 let html = '';
                 profile.progression.forEach(item => {
-                    let pct = item.target > 0 ? (item.current / item.target) * 100 : 0;
+                    const current = num(item.current), target = num(item.target);
+                    let pct = target > 0 ? (current / target) * 100 : 0;
                     if (pct > 100) pct = 100;
-                    if (item.label.includes('Flight Time')) updateText('prof-time-90', item.current + ' hrs');
-                    if (item.label.includes('Landings')) updateText('prof-land-90', item.current);
+                    if (item.label.includes('Flight Time')) updateText('prof-time-90', current + ' hrs');
+                    if (item.label.includes('Landings')) updateText('prof-land-90', current);
                     let statusClass = 'neutral';
-                    if (item.type === 'MAX_LIMIT') statusClass = item.current > item.target ? 'failed' : 'success';
-                    else if (item.current >= item.target) statusClass = 'success';
+                    if (item.type === 'MAX_LIMIT') statusClass = current > target ? 'failed' : 'success';
+                    else if (current >= target) statusClass = 'success';
                     html += `<div class="prog-item ${statusClass}">
                         <div class="prog-label-row"><span class="prog-name">${item.label}</span>
-                        <span class="prog-nums">${item.current.toLocaleString()} / ${item.target.toLocaleString()}</span></div>
+                        <span class="prog-nums">${current.toLocaleString()} / ${target.toLocaleString()}</span></div>
                         <div class="prog-track"><div class="prog-fill" style="width:${pct}%"></div></div></div>`;
                 });
                 progContainer.innerHTML = html;
+            }
+        };
+
+        // Graceful fallback when the pilot grade lookup fails — show a state
+        // instead of leaving silent placeholders.
+        window.showPilotProfileError = function(message) {
+            updateText('prof-grade', '--');
+            updateText('prof-atc', 'Unavailable');
+            updateText('prof-va', '—');
+            const progContainer = document.getElementById('progression-list');
+            if (progContainer) {
+                progContainer.innerHTML = `<div style="font-size:11px; color:var(--text-dim); font-style:italic; padding:4px 0;">${message || 'Pilot stats unavailable.'}</div>`;
             }
         };
 
@@ -972,7 +1007,8 @@
                 window.updateFlightInterface(d.payload);
                 if (d.payload && d.payload.theme) applyTheme(d.payload.theme.start, d.payload.theme.end, d.payload.theme.opacity);
             }
-            if (d.type === 'PILOT_STATS_DATA') window.updatePilotProfile(d.payload.profile);
+            if (d.type === 'PILOT_STATS_DATA') window.updatePilotProfile(d.payload && d.payload.profile);
+            if (d.type === 'PILOT_STATS_ERROR') window.showPilotProfileError(d.message);
             if (d.type === 'THEME_UPDATE') applyTheme(d.payload.start, d.payload.end, d.payload.opacity);
             // Parent can force a phase (e.g. mobile sheet swipe).
             if (d.type === 'SET_PHASE') setPhase(d.phase === 'expanded' ? 'expanded' : 'collapsed');
