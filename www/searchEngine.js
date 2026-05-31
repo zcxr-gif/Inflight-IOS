@@ -55,6 +55,7 @@ function buildAirportIndex(airportsData) {
         if (!a) continue;
         out[i] = {
             icao: icao.toUpperCase(),
+            iata: (a.iata || '').toUpperCase(),
             name: a.name || '',
             country: a.country || '',
             lat: a.lat,
@@ -90,10 +91,11 @@ function searchFlights(query, flights) {
     return results.slice(0, PER_CATEGORY_CAP);
 }
 
+// Airports are matched by ICAO, IATA, name, and country.
 function searchAirports(query, airportIndex) {
     const results = [];
     for (const a of airportIndex) {
-        const r = bestRank([a.icao, a.name, a.country], query);
+        const r = bestRank([a.icao, a.iata, a.name, a.country], query);
         if (r !== Infinity) results.push({ rank: r, airport: a });
     }
     // Tie-breaker: shorter ICAO first (favor real 4-letter codes), then name length.
