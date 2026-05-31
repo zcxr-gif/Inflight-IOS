@@ -10575,7 +10575,10 @@ function applySimpleWindowPhase(phase) {
 
     if (onMobile && window.MobileUIHandler && typeof window.MobileUIHandler.setLegacySheetState === 'function') {
         // The mobile sheet owns sizing; just snap it to the matching detent.
-        window.MobileUIHandler.setLegacySheetState(expanded ? 'expanded' : 'peek');
+        // iPads have no peek bar (phones only) — they stay on the expanded "second state".
+        const tabletExpandedOnly = typeof window.MobileUIHandler.isSimpleSheetExpandedOnly === 'function'
+            && window.MobileUIHandler.isSimpleSheetExpandedOnly();
+        window.MobileUIHandler.setLegacySheetState((expanded || tabletExpandedOnly) ? 'expanded' : 'peek');
         return;
     }
 
