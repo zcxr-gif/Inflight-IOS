@@ -10851,6 +10851,9 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         },
         username: flightProps.username,
         callsign: flightProps.callsign,
+        // Compact altitude/speed series for the simple window's Speed & Altitude
+        // graph (downsampled here so the postMessage payload stays small).
+        chart: (typeof FlightGraph !== 'undefined' && FlightGraph) ? FlightGraph.extractSeries(routePoints) : null,
         phase: detailedPhase.flightPhase || 'ENROUTE',
         phaseClass: detailedPhase.phaseClass || 'phase-enroute',
         phaseIcon: detailedPhase.phaseIcon || 'fa-route',
@@ -15607,6 +15610,27 @@ function updateFmsLegsModule(plan, currentPos) {
     }
     if(totalEteEl && document.getElementById('ac-ete')) {
         totalEteEl.textContent = document.getElementById('ac-ete').textContent;
+    }
+
+    // --- Speed & Altitude history graph (drawn from the /history breadcrumbs) ---
+    // Lazily injected into the Flight Display tab so we never touch the giant
+    // window template literal; re-rendered only when the trail grows.
+    if (typeof FlightGraph !== 'undefined' && FlightGraph) {
+        const tabPane = document.querySelector('#ac-tab-flight-data');
+        if (tabPane) {
+            if (!document.getElementById('ac-sa-graph-card')) {
+                tabPane.insertAdjacentHTML('beforeend',
+                    '<div id="ac-sa-graph-card" style="margin-top:8px;background:rgba(15,23,42,0.4);border:1px solid rgba(255,255,255,0.05);border-radius:12px;padding:12px;overflow:hidden;">'
+                    + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;color:#cbd5e1;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;"><i class="fa-solid fa-chart-area" style="color:#38bdf8;"></i> Speed &amp; Altitude</div>'
+                    + '<div id="ac-sa-graph"></div></div>');
+            }
+            const graphHost = document.getElementById('ac-sa-graph');
+            const ptsLen = (sortedRoutePoints && sortedRoutePoints.length) || 0;
+            if (graphHost && (graphHost.dataset.pts !== String(ptsLen) || !graphHost.firstChild)) {
+                FlightGraph.render(graphHost, sortedRoutePoints, { height: 190 });
+                graphHost.dataset.pts = String(ptsLen);
+            }
+        }
     }
 }
 

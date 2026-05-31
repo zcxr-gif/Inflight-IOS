@@ -11,6 +11,8 @@
 
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
+    <script src="flight-graph.js"></script>
+
     <style>
     /* --- DESIGN TOKENS (Theme: Carbon & Titanium) --- */
     :root {
@@ -405,6 +407,14 @@
     .vs-arrow.climbing { color:var(--color-success); transform:rotate(-45deg); }
     .vs-arrow.descending { color:var(--color-warning); transform:rotate(45deg); }
 
+    /* SPEED & ALTITUDE GRAPH */
+    .sa-graph-card {
+        background:var(--bg-panel); border:1px solid var(--border-glass);
+        border-radius:var(--radius-sm); padding:12px; overflow:hidden;
+    }
+    .sa-graph { width:100%; min-height:180px; }
+    .sa-graph svg { width:100%; height:auto; display:block; }
+
     /* PILOT MANIFEST */
     .profile-card { background:var(--bg-panel); border:1px solid var(--border-glass); border-radius:var(--radius-lg); overflow:hidden; display:flex; flex-direction:column; margin-bottom:6px; }
     .profile-pilot-head { padding:16px 20px 0; display:flex; flex-direction:column; gap:4px; }
@@ -680,6 +690,13 @@
                 </div>
             </div>
 
+            <div>
+                <div class="grid-section-label">Speed &amp; Altitude</div>
+                <div class="sa-graph-card">
+                    <div id="sa-graph" class="sa-graph"></div>
+                </div>
+            </div>
+
             <div id="profile-anchor">
                 <div class="grid-section-label">Pilot Manifest</div>
                 <div class="profile-card">
@@ -759,9 +776,11 @@
             try {
                 window.parent.postMessage({ type: 'SIMPLE_WINDOW_STATE', state: next }, '*');
             } catch (e) {}
-            // When opening, ask for fresh pilot stats.
+            // When opening, ask for fresh pilot stats and draw the graph now
+            // that the container finally has a measurable width.
             if (next === 'expanded') {
                 try { window.parent.postMessage({ type: 'REQUEST_PILOT_STATS' }, '*'); } catch (e) {}
+                setTimeout(renderSpeedAltGraph, 60);
             }
         }
 
@@ -940,7 +959,22 @@
             // Waypoints
             if (data.waypoints && Array.isArray(data.waypoints)) renderWaypoints(data.waypoints);
             else if (data.route && Array.isArray(data.route.waypoints)) renderWaypoints(data.route.waypoints);
+
+            // Speed & altitude history graph
+            lastFlightData = data;
+            renderSpeedAltGraph();
         };
+
+        // Render the Speed & Altitude chart from the last payload's series.
+        // Only worth drawing when expanded (the collapsed bar hides it and the
+        // container has no width), so we also re-run this on expand.
+        let lastFlightData = null;
+        function renderSpeedAltGraph() {
+            if (!window.FlightGraph || currentPhase !== 'expanded') return;
+            const host = document.getElementById('sa-graph');
+            if (!host || !lastFlightData || !lastFlightData.chart) return;
+            window.FlightGraph.render(host, lastFlightData.chart, { height: 180 });
+        }
 
         // Renders the 2x2 times grid: Scheduled/Actual (dep) + Scheduled/Estimated (arr).
         // Falls back to the single best-known time, then to the plain origin/eta strings.
