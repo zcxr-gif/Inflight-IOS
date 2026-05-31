@@ -13337,6 +13337,23 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             } else if (depIcao && depIcao !== 'N/A' && typeof injectGateInfoUI === 'function') {
                 injectGateInfoUI(depIcao, sortedRoutePoints);
             }
+
+            // Now that the full /history breadcrumb trail has arrived, push it
+            // into whichever window is open so the Speed & Altitude graph spans
+            // the entire flight (departure → now) immediately, rather than only
+            // the live samples captured since the window was opened. Live ticks
+            // keep extending it from here.
+            try {
+                if (mapFilters.useSimpleFlightWindow) {
+                    const simpleIframe = document.getElementById('simple-flight-window-frame');
+                    if (simpleIframe && simpleIframe.contentWindow) {
+                        const freshData = formatDataForSimpleWindow(flightProps, plan, sortedRoutePoints, communityAircraftData, filedPlanData);
+                        simpleIframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: freshData }, '*');
+                    }
+                } else if (typeof updateAircraftInfoWindow === 'function') {
+                    updateAircraftInfoWindow(flightProps, plan, sortedRoutePoints);
+                }
+            } catch (_) { /* non-fatal: live ticks will populate the graph */ }
         }
 
         const flownLayerId = `flown-path-${flightProps.flightId}`;
@@ -15614,15 +15631,20 @@ function updateFmsLegsModule(plan, currentPos) {
 
     // --- Speed & Altitude history graph (drawn from the /history breadcrumbs) ---
     // Lazily injected into the Flight Display tab so we never touch the giant
-    // window template literal; re-rendered only when the trail grows.
+    // window template literal; re-rendered whenever the trail length changes.
     if (typeof FlightGraph !== 'undefined' && FlightGraph) {
         const tabPane = document.querySelector('#ac-tab-flight-data');
         if (tabPane) {
             if (!document.getElementById('ac-sa-graph-card')) {
-                tabPane.insertAdjacentHTML('beforeend',
-                    '<div id="ac-sa-graph-card" style="margin-top:8px;background:rgba(15,23,42,0.4);border:1px solid rgba(255,255,255,0.05);border-radius:12px;padding:12px;overflow:hidden;">'
+                const cardHTML =
+                    '<div id="ac-sa-graph-card" style="margin:8px 0;background:rgba(15,23,42,0.4);border:1px solid rgba(255,255,255,0.05);border-radius:12px;padding:12px;overflow:hidden;">'
                     + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;color:#cbd5e1;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;"><i class="fa-solid fa-chart-area" style="color:#38bdf8;"></i> Speed &amp; Altitude</div>'
-                    + '<div id="ac-sa-graph"></div></div>');
+                    + '<div id="ac-sa-graph"></div></div>';
+                // Place it directly under the PFD/location row so it sits in view
+                // rather than below the long tail of the pane.
+                const anchor = tabPane.querySelector('.pfd-and-location-grid');
+                if (anchor) anchor.insertAdjacentHTML('afterend', cardHTML);
+                else tabPane.insertAdjacentHTML('afterbegin', cardHTML);
             }
             const graphHost = document.getElementById('ac-sa-graph');
             const ptsLen = (sortedRoutePoints && sortedRoutePoints.length) || 0;
