@@ -8,6 +8,9 @@ import { NatTracksLayer } from './natTracksLayer.js';
 import { FlownPath3D } from './flownPath3D.js';
 import { MobileSettingsUI } from './MobileSettingsUI.js';
 import { spriteUVs } from './plane-D2OPBxWC.js';
+// Populates window.IFVA_DATABASE (the IFVARB Virtual Airline directory) used
+// by the VA filter. Side-effect import — runs before any filter code below.
+import './va-database.js';
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
 import { AuthUI } from './authUI.js';
 import { ProfileUI } from './profileUI.js';
@@ -531,6 +534,7 @@ let mapFilters = {
         showNatTracks: true,
         showNatLabels: false,
         showVaOnly: false,
+        vaFilter: '', // Callsign code of a specific VA to show (e.g. 'DLVA'); '' = all VAs
         showGroupFlights: false,
         showUnstaffedAirports: false,
         showStaffOnly: false,
@@ -6928,6 +6932,13 @@ function updateAircraftLayerFilter() {
     if (mapFilters.showStaffOnly) filter.push(['==', 'isStaff', true]);
     if (mapFilters.showVaOnly) filter.push(['==', 'isVAMember', true]);
 
+    // Specific Virtual Airline filter: show only flights whose callsign begins
+    // with the selected VA's registered code (e.g. 'DLVA' matches 'DLVA123').
+    if (mapFilters.vaFilter && mapFilters.vaFilter.trim() !== '') {
+        const vaCode = mapFilters.vaFilter.toUpperCase();
+        filter.push(['==', ['slice', ['upcase', ['get', 'callsign']], 0, vaCode.length], vaCode]);
+    }
+
     // 2. Tactical Filters (Injected from landingUI.js)
     const tactical = mapFilters.tactical || {};
 
@@ -7035,8 +7046,9 @@ function updateAircraftLayerFilter() {
         const openFiltersBtn = document.getElementById('filters-settings-btn');
         if (openFiltersBtn) {
             // Check if any filter in mapFilters is true
-            const isFilterActive = mapFilters.showVaOnly || 
-                                   mapFilters.hideAtcMarkers || 
+            const isFilterActive = mapFilters.showVaOnly ||
+                                   !!mapFilters.vaFilter ||
+                                   mapFilters.hideAtcMarkers ||
                                    mapFilters.hideNoAtcMarkers; // Use the state object
             openFiltersBtn.classList.toggle('active', isFilterActive);
         }
@@ -10575,7 +10587,10 @@ function applySimpleWindowPhase(phase) {
 
     if (onMobile && window.MobileUIHandler && typeof window.MobileUIHandler.setLegacySheetState === 'function') {
         // The mobile sheet owns sizing; just snap it to the matching detent.
-        window.MobileUIHandler.setLegacySheetState(expanded ? 'expanded' : 'peek');
+        // iPads have no peek bar (phones only) — they stay on the expanded "second state".
+        const tabletExpandedOnly = typeof window.MobileUIHandler.isSimpleSheetExpandedOnly === 'function'
+            && window.MobileUIHandler.isSimpleSheetExpandedOnly();
+        window.MobileUIHandler.setLegacySheetState((expanded || tabletExpandedOnly) ? 'expanded' : 'peek');
         return;
     }
 
@@ -11415,7 +11430,7 @@ renderCategory(catId) {
             switch(catId) {
                 case 'airspace':
                     html = `
-                        
+
 
                         <div class="settings-section">
                             <label class="config-header">Network Visibility</label>
@@ -11427,7 +11442,23 @@ renderCategory(catId) {
                                 <div class="row-label"><i class="fa-solid fa-map-marked-alt"></i> Show Unstaffed Airports</div>
                                 <label class="toggle-switch"><input type="checkbox" id="set-show-unstaffed" ${mapFilters.showUnstaffedAirports ? 'checked' : ''}><span class="toggle-slider"></span></label>
                             </div>
-                            
+
+                        </div>
+
+                        <div class="settings-section">
+                            <label class="config-header">Virtual Airline</label>
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-plane-circle-check"></i> Show VA</div>
+                                <div class="input-wrapper select-wrapper">
+                                    <select id="set-va-filter" class="row-input-select">
+                                        <option value="">All Airlines</option>
+                                        ${(window.IFVA_DATABASE || []).map(va => `<option value="${va.code}" ${mapFilters.vaFilter === va.code ? 'selected' : ''}>${va.name}${va.approx ? ' *' : ''}</option>`).join('')}
+                                    </select>
+                                </div>
+                            </div>
+                            <p style="font-size: 0.65rem; color: #71717a; margin: -6px 0 4px 16px; line-height: 1.4;">
+                                Shows only flights whose callsign matches the selected VA. Data from IFVARB; entries marked * are approximate.
+                            </p>
                         </div>
                     `;
                     break;
@@ -11813,6 +11844,15 @@ renderCategory(catId) {
         const mapStyleSelect = document.getElementById('set-map-style');
         if (mapStyleSelect) {
             mapStyleSelect.addEventListener('change', (e) => update('mapStyle', e.target.value));
+        }
+
+        // Virtual Airline Filter Select
+        const vaFilterSelect = document.getElementById('set-va-filter');
+        if (vaFilterSelect) {
+            vaFilterSelect.addEventListener('change', (e) => {
+                update('vaFilter', e.target.value);
+                if (typeof updateToolbarButtonStates === 'function') updateToolbarButtonStates();
+            });
         }
 
         // Plane Size Input

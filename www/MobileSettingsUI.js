@@ -112,6 +112,7 @@ renderMobileContainer() {
                         <div class="m-settings-list">
                             ${this.renderToggle('showStaffOnly', 'Staff Pilots Only', 'fa-shield-check')}
                             ${this.renderToggle('showVaOnly', 'VA Members Only', 'fa-star')}
+                            ${this.renderVaFilterRow()}
                             ${this.renderToggle('showGroupFlights', 'Show Group Flights', 'fa-users')}
                             ${this.renderToggle('hideAllAircraft', 'Hide All Aircraft', 'fa-eye-slash')}
                         </div>
@@ -177,6 +178,28 @@ renderMobileContainer() {
                 </div>
                 <p class="m-notif-help" id="m-notif-help">Required for lock-screen flight tracking ("this is my flight") and push alerts.</p>
                 <div class="m-notif-diag" id="m-notif-diag"></div>
+            </div>
+        `;
+    },
+
+    // Dropdown that filters the map to a single Virtual Airline (by callsign
+    // code). Options come from window.IFVA_DATABASE (the IFVARB directory).
+    renderVaFilterRow() {
+        const options = (window.IFVA_DATABASE || [])
+            .map(va => `<option value="${va.code}">${va.name}${va.approx ? ' *' : ''}</option>`)
+            .join('');
+        return `
+            <div class="m-setting-row">
+                <div class="m-row-left">
+                    <i class="fa-solid fa-plane-circle-check"></i>
+                    <span>Show VA</span>
+                </div>
+                <div class="m-row-right">
+                    <select class="m-select" data-setting="vaFilter" style="max-width: 150px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; padding: 6px 8px; font-size: 0.8rem;">
+                        <option value="">All Airlines</option>
+                        ${options}
+                    </select>
+                </div>
             </div>
         `;
     },
@@ -382,6 +405,16 @@ refreshProLocks() {
                 if (window.updateMapFilters) window.updateMapFilters();
             });
         });
+
+        // Dropdown Listener (e.g. Virtual Airline filter)
+        sheet.querySelectorAll('select[data-setting]').forEach(sel => {
+            sel.addEventListener('change', (e) => {
+                const setting = e.target.dataset.setting;
+                window.mapFilters[setting] = e.target.value;
+                if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
+                if (window.updateMapFilters) window.updateMapFilters();
+            });
+        });
     },
 
     async refreshNotificationStatus() {
@@ -454,6 +487,12 @@ refreshProLocks() {
         container.querySelectorAll('input[type="color"]').forEach(input => {
             const val = filters[input.dataset.setting];
             if (val) input.value = val;
+        });
+
+        // Sync Dropdowns (e.g. Virtual Airline filter)
+        container.querySelectorAll('select[data-setting]').forEach(sel => {
+            const setting = sel.dataset.setting;
+            if (setting) sel.value = filters[setting] || '';
         });
 
         container.querySelectorAll('.m-range-input').forEach(input => {

@@ -9,6 +9,21 @@ const MobileUIHandler = {
 
     // --- STATE ---
     isMobile: () => window.innerWidth <= MobileUIHandler.CONFIG.breakpoint,
+    // True for iPad / tablet-class devices. iPadOS 13+ masquerades as a Mac,
+    // so fall back to the touch-points heuristic; Android tablets drop the
+    // "Mobile" token from their UA string.
+    isTablet: () => {
+        const ua = navigator.userAgent || '';
+        if (/iPad/.test(ua)) return true;
+        if (/Macintosh/.test(ua) && (navigator.maxTouchPoints || 0) > 1) return true;
+        if (/Android/.test(ua) && !/Mobile/.test(ua)) return true;
+        return false;
+    },
+    // The compact "peek" bar is a phone-only affordance; iPads jump straight to
+    // the expanded "second state" of the simple flight window.
+    isSimpleSheetExpandedOnly() {
+        return this.isSimpleSheet() && this.isTablet();
+    },
     activeWindow: null, // The *original* hidden info window
     activeMode: 'legacy', // Defaults to legacy
     topWindowEl: null, // HUD Mode: Top window
@@ -1227,8 +1242,14 @@ disableHudControls() {
                     // 2. NOW, animate it in
                     if (this.activeWindow) {
                         setTimeout(() => {
-                            this.activeWindow.classList.add('visible', 'peek');
-                            this.legacySheetState.currentState = 'peek';
+                            if (this.isSimpleSheetExpandedOnly()) {
+                                // iPad: skip the phone-only peek bar and open
+                                // straight into the expanded "second state".
+                                this.setLegacySheetState('expanded');
+                            } else {
+                                this.activeWindow.classList.add('visible', 'peek');
+                                this.legacySheetState.currentState = 'peek';
+                            }
                         }, 10);
                     }
 
@@ -1365,9 +1386,11 @@ wireUpLegacySheetInteractions(sheetElement, handleElement) {
         
         if (this.overlayEl) {
             this.overlayEl.addEventListener('click', () => {
-                if (this.legacySheetState.currentState === 'expanded') {
+                if (this.legacySheetState.currentState === 'expanded'
+                    && !this.isSimpleSheetExpandedOnly()) {
                     this.setLegacySheetState('peek');
                 } else {
+                    // iPad has no peek state to fall back to — dismiss instead.
                     this.closeActiveWindow();
                 }
             });
@@ -1777,6 +1800,14 @@ wireUpLegacySheetInteractions(sheetElement, handleElement) {
             } else {
                 // Not far enough -> snap back to peek
                 this.setLegacySheetState('peek');
+            }
+        } else if (this.isSimpleSheetExpandedOnly()) {
+            // iPad: there is no peek bar to collapse into, so a deliberate large
+            // swipe DOWN dismisses the window; anything smaller snaps back.
+            if (deltaY > 140) {
+                this.closeActiveWindow();
+            } else {
+                this.setLegacySheetState('expanded');
             }
         } else { // Was in 'expanded' state
             if (deltaY > 60) {
