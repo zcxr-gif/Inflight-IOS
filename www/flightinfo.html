@@ -241,6 +241,10 @@
     .state-descend { color:#fbbf24; border-color:rgba(251,191,36,.2); background:rgba(251,191,36,.05); }
     .state-cruise { color:#38bdf8; border-color:rgba(56,189,248,.2); background:rgba(56,189,248,.05); }
     .state-ground { color:#a1a1aa; border-color:rgba(161,161,170,.2); background:rgba(161,161,170,.05); }
+    .state-approach { color:#c084fc; border-color:rgba(192,132,252,.2); background:rgba(192,132,252,.05); }
+    .state-pushback { color:#fb923c; border-color:rgba(251,146,60,.2); background:rgba(251,146,60,.05); }
+    .state-enroute { color:#94a3b8; border-color:rgba(148,163,184,.2); background:rgba(148,163,184,.05); }
+    .state-badge-icon { font-size:9px; }
 
     /* Scroll area */
     .scroll-viewport {
@@ -531,6 +535,7 @@
             </div>
             <div class="flight-state-badge" id="state-badge">
                 <div class="state-indicator-dot" id="state-dot"></div>
+                <i class="fa-solid fa-route state-badge-icon" id="state-icon"></i>
                 <span class="state-text" id="status-text">Standby</span>
             </div>
         </header>
@@ -640,6 +645,37 @@
                     <div class="bento-cell">
                         <div class="cell-header"><span class="cell-label">Heading</span><i class="fa-regular fa-compass cell-icon"></i></div>
                         <div class="cell-data"><span id="val-hdg">---</span><span class="cell-unit">°</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <div class="grid-section-label">Navigation &amp; Environment</div>
+                <div class="telemetry-bento">
+                    <div class="bento-cell">
+                        <div class="cell-header"><span class="cell-label">True Airspeed</span><i class="fa-solid fa-wind cell-icon"></i></div>
+                        <div class="cell-data"><span id="val-tas">---</span><span class="cell-unit">kts</span></div>
+                    </div>
+                    <div class="bento-cell">
+                        <div class="cell-header"><span class="cell-label">OAT</span><i class="fa-solid fa-temperature-half cell-icon"></i></div>
+                        <div class="cell-data"><span id="val-oat">---</span><span class="cell-unit">°C</span></div>
+                    </div>
+                    <div class="bento-cell">
+                        <div class="cell-header"><span class="cell-label">Wind</span><i class="fa-solid fa-location-arrow cell-icon"></i></div>
+                        <div class="cell-data" style="font-size:18px;"><span id="val-wind">---</span></div>
+                    </div>
+                    <div class="bento-cell">
+                        <div class="cell-header"><span class="cell-label">To Destination</span><i class="fa-solid fa-flag-checkered cell-icon"></i></div>
+                        <div class="cell-data"><span id="val-dtg">---</span><span class="cell-unit">nm</span></div>
+                    </div>
+                    <div class="bento-cell">
+                        <div class="cell-header"><span class="cell-label">Next Waypoint</span><i class="fa-solid fa-diamond-turn-right cell-icon"></i></div>
+                        <div class="cell-data" style="font-size:16px;"><span id="val-nextwp">---</span></div>
+                        <div class="cell-unit" id="val-nextwp-dist" style="margin-top:4px;"></div>
+                    </div>
+                    <div class="bento-cell">
+                        <div class="cell-header"><span class="cell-label">Position</span><i class="fa-solid fa-crosshairs cell-icon"></i></div>
+                        <div class="cell-data" style="font-size:13px; line-height:1.4;"><span id="val-pos">---</span></div>
                     </div>
                 </div>
             </div>
@@ -770,15 +806,25 @@
             updateText('username', pilotName);
             updateText('c-username', pilotName);
 
-            // Flight phase badge
+            // Flight phase badge — mirrors the full window's detailed flying
+            // states (PUSHBACK, TAXIING, LIFTOFF, FLARE, LANDING ROLLOUT, …).
             const phase = data.phase ? data.phase.toUpperCase() : 'STANDBY';
             updateText('status-text', phase);
             const badge = document.getElementById('state-badge');
             badge.className = 'flight-state-badge';
-            if (phase.includes('CLIMB') || phase.includes('TAKEOFF')) badge.classList.add('state-climb');
-            else if (phase.includes('DESCENT') || phase.includes('APPROACH')) badge.classList.add('state-descend');
-            else if (phase.includes('CRUISE')) badge.classList.add('state-cruise');
-            else badge.classList.add('state-ground');
+            let stateClass;
+            if (phase.includes('CRUISE')) stateClass = 'state-cruise';
+            else if (phase.includes('DESCENT')) stateClass = 'state-descend';
+            else if (phase.includes('APPROACH') || phase.includes('FINAL') || phase.includes('FLARE') || phase.includes('LANDING')) stateClass = 'state-approach';
+            else if (phase.includes('PUSHBACK')) stateClass = 'state-pushback';
+            else if (phase.includes('CLIMB') || phase.includes('LIFTOFF') || phase.includes('TAKEOFF') || phase.includes('BOARDING')) stateClass = 'state-climb';
+            else if (phase.includes('TAXI') || phase.includes('HOLDING') || phase.includes('PARKED') || phase.includes('GROUND') || phase.includes('LINED UP')) stateClass = 'state-ground';
+            else stateClass = 'state-enroute';
+            badge.classList.add(stateClass);
+
+            // Phase icon, supplied by the shared classifier.
+            const stateIcon = document.getElementById('state-icon');
+            if (stateIcon && data.phaseIcon) stateIcon.className = 'fa-solid ' + data.phaseIcon + ' state-badge-icon';
 
             // Seat status
             const seatLabel = document.getElementById('seat-status-label');
@@ -835,6 +881,23 @@
                 else if (vs < -50) vsArrow.classList.add('descending');
                 else vsArrow.className = 'fa-solid fa-minus vs-arrow';
                 updateText('val-hdg', String(Math.round(data.telemetry.heading || 0)).padStart(3, '0'));
+
+                // Navigation & environment readouts (parity with the full window)
+                const t = data.telemetry;
+                updateText('val-tas', (t.tas != null) ? Math.round(t.tas) : '---');
+                updateText('val-oat', (t.oat != null) ? Math.round(t.oat) : '---');
+                if ((t.windDir != null && t.windSpd != null) && (t.windDir || t.windSpd)) {
+                    updateText('val-wind', `${String(Math.round(t.windDir)).padStart(3, '0')}° / ${Math.round(t.windSpd)}kt`);
+                } else {
+                    updateText('val-wind', '---');
+                }
+                if (t.lat != null && t.lon != null) {
+                    updateText('val-pos', `${Number(t.lat).toFixed(3)}, ${Number(t.lon).toFixed(3)}`);
+                } else {
+                    updateText('val-pos', '---');
+                }
+                updateText('val-nextwp', t.nextWpName || '---');
+                updateText('val-nextwp-dist', t.nextWpDist || '');
             }
 
             // Route
@@ -863,6 +926,7 @@
                 // Distances + elapsed/arrive labels (expanded view)
                 updateText('dist-flown', r.distFlownNm != null ? r.distFlownNm + ' nm' : '');
                 updateText('dist-remaining', r.distRemainingNm != null ? r.distRemainingNm + ' nm' : '');
+                updateText('val-dtg', r.distRemainingNm != null ? r.distRemainingNm : '---');
                 const elapsedAgo = r.elapsed && r.elapsed !== '--:--' ? agoText(r.elapsed) : '--';
                 const arriveIn = r.ete && r.ete !== '--:--' ? 'in ' + r.ete : '--';
                 updateText('elapsed-ago', elapsedAgo);
