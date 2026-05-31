@@ -10809,6 +10809,40 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
     }
     if (eta && eta !== '--:--') times.arrEstimated = eta;
 
+    // --- Detailed flying state (shared source of truth with the full window) ---
+    // Reuse the exact phase classifier the avionics window uses so the simple
+    // window reports PUSHBACK / TAXIING / LIFTOFF / FLARE / LANDING ROLLOUT etc.
+    // instead of its old 4-state Ground/Climb/Cruise/Descent guess.
+    const hasPlanForPhase = !!(plan && Array.isArray(plan.flightPlanItems) && plan.flightPlanItems.length > 1);
+    const distToDestForPhase = (distRemainingNm != null) ? distRemainingNm : 0;
+    const totalDistForPhase = (distFlownNm != null ? distFlownNm : 0) + (distRemainingNm != null ? distRemainingNm : 0);
+    let detailedPhase = { flightPhase: flightProps.phase || 'ENROUTE', phaseClass: 'phase-enroute', phaseIcon: 'fa-route' };
+    try {
+        if (typeof computeDetailedFlightPhase === 'function') {
+            detailedPhase = computeDetailedFlightPhase(
+                { position: pos },
+                plan,
+                routePoints,
+                progress,
+                distToDestForPhase,
+                totalDistForPhase,
+                hasPlanForPhase
+            );
+        }
+    } catch (e) { /* non-fatal: fall back to coarse phase */ }
+
+    // --- Environment + navigation readouts (parity with the full window) ---
+    // currentAircraftPositionForGeocode is kept in sync with the selected
+    // flight (the only flight this window renders), so it carries the live
+    // OAT / wind sampled for this aircraft.
+    const geo = (typeof currentAircraftPositionForGeocode !== 'undefined') ? currentAircraftPositionForGeocode : null;
+    const oatC = (geo && geo.oat_c != null) ? geo.oat_c : null;
+    const windDir = (geo && geo.wind_dir != null) ? geo.wind_dir : (flightProps.wind_dir != null ? flightProps.wind_dir : null);
+    const windSpd = (geo && geo.wind_spd_kts != null) ? geo.wind_spd_kts : (flightProps.wind_spd_kts != null ? flightProps.wind_spd_kts : null);
+    const tas = (typeof calculateTas === 'function' && pos.alt_ft != null)
+        ? calculateTas(pos.alt_ft, oatC != null ? oatC : 15, pos.gs_kt || 0) : null;
+    const activeWp = structuredWaypoints.find(w => w.active);
+
     return {
         theme: {
             start: mapFilters.themeStartColor || '#18181b',
@@ -10817,7 +10851,12 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         },
         username: flightProps.username,
         callsign: flightProps.callsign,
-        phase: flightProps.phase || 'ENROUTE',
+        // Compact altitude/speed series for the simple window's Speed & Altitude
+        // graph (downsampled here so the postMessage payload stays small).
+        chart: (typeof FlightGraph !== 'undefined' && FlightGraph) ? FlightGraph.extractSeries(routePoints) : null,
+        phase: detailedPhase.flightPhase || 'ENROUTE',
+        phaseClass: detailedPhase.phaseClass || 'phase-enroute',
+        phaseIcon: detailedPhase.phaseIcon || 'fa-route',
         pilotState: flightProps.pilotState !== undefined ? flightProps.pilotState : 0,
         telemetry: {
             altitude: pos.alt_ft,
@@ -10825,8 +10864,14 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             verticalSpeed: pos.vs_fpm,
             heading: pos.heading_deg,
             squawk: '2000',
-            windDir: flightProps.wind_dir || 0,
-            windSpd: flightProps.wind_spd_kts || 0
+            windDir: windDir != null ? windDir : 0,
+            windSpd: windSpd != null ? windSpd : 0,
+            oat: oatC,
+            tas: tas,
+            lat: pos.lat,
+            lon: pos.lon,
+            nextWpName: activeWp ? (activeWp.ident || '---') : '---',
+            nextWpDist: activeWp ? (activeWp.time || '') : ''
         },
         aircraft: {
             aircraftName: aircraft.aircraftName,
@@ -13292,6 +13337,23 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             } else if (depIcao && depIcao !== 'N/A' && typeof injectGateInfoUI === 'function') {
                 injectGateInfoUI(depIcao, sortedRoutePoints);
             }
+
+            // Now that the full /history breadcrumb trail has arrived, push it
+            // into whichever window is open so the Speed & Altitude graph spans
+            // the entire flight (departure → now) immediately, rather than only
+            // the live samples captured since the window was opened. Live ticks
+            // keep extending it from here.
+            try {
+                if (mapFilters.useSimpleFlightWindow) {
+                    const simpleIframe = document.getElementById('simple-flight-window-frame');
+                    if (simpleIframe && simpleIframe.contentWindow) {
+                        const freshData = formatDataForSimpleWindow(flightProps, plan, sortedRoutePoints, communityAircraftData, filedPlanData);
+                        simpleIframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: freshData }, '*');
+                    }
+                } else if (typeof updateAircraftInfoWindow === 'function') {
+                    updateAircraftInfoWindow(flightProps, plan, sortedRoutePoints);
+                }
+            } catch (_) { /* non-fatal: live ticks will populate the graph */ }
         }
 
         const flownLayerId = `flown-path-${flightProps.flightId}`;
@@ -14622,142 +14684,23 @@ function renderPilotStatsHTML(stats, username) {
 
 
 
-function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
-    const updateAll = (selector, value, isHTML = false) => {
-        const elements = document.querySelectorAll(selector);
-        elements.forEach(el => {
-            if (isHTML) {
-                el.innerHTML = value;
-            } else {
-                el.textContent = value;
-            }
-        });
-    };
-
-    const styleAll = (selector, property, value) => {
-        const elements = document.querySelectorAll(selector);
-        elements.forEach(el => {
-            el.style[property] = value;
-        });
-    };
-
-    const originalFlatWaypoints = (plan && plan.flightPlanItems) ? flattenWaypointsFromPlan(plan.flightPlanItems) : [];
-    const originalFlatWaypointObjects = (plan && plan.flightPlanItems) ? getFlatWaypointObjects(plan.flightPlanItems) : [];
-    const hasPlan = originalFlatWaypoints.length >= 2;
-
-    let progress = 0, ete = '--:--', distanceToDestNM = 0;
-    let totalDistanceNM = 0;
-    let nextWpName = '---', nextWpDistNM = '---';
-
-    if (hasPlan) {
-        let totalDistanceKm = 0;
-        for (let i = 0; i < originalFlatWaypoints.length - 1; i++) {
-            const [lon1, lat1] = originalFlatWaypoints[i];
-            const [lon2, lat2] = originalFlatWaypoints[i + 1];
-            totalDistanceKm += getDistanceKm(lat1, lon1, lat2, lon2);
-        }
-        totalDistanceNM = totalDistanceKm / 1.852;
-
-        if (totalDistanceNM > 0) {
-            const [destLon, destLat] = originalFlatWaypoints[originalFlatWaypoints.length - 1];
-            const remainingDistanceKm = getDistanceKm(baseProps.position.lat, baseProps.position.lon, destLat, destLon);
-            distanceToDestNM = remainingDistanceKm / 1.852;
-            
-            // Use direct distance from origin to destination to fix the sluggish scaling
-            const [originLon, originLat] = originalFlatWaypoints[0];
-            const totalDirectDistanceNM = getDistanceKm(originLat, originLon, destLat, destLon) / 1.852;
-            const scaleDist = totalDirectDistanceNM > 0 ? totalDirectDistanceNM : totalDistanceNM;
-
-            progress = Math.max(0, Math.min(100, (1 - (distanceToDestNM / scaleDist)) * 100));
-
-            if (baseProps.position.gs_kt > 50) {
-                const timeHours = distanceToDestNM / baseProps.position.gs_kt;
-                const hours = Math.floor(timeHours);
-                const minutes = Math.round((timeHours - hours) * 60);
-                ete = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-            }
-
-            let minScore = Infinity;
-            const currentTrack = baseProps.position.heading_deg;
-            for (let i = 1; i < originalFlatWaypointObjects.length; i++) {
-                const wp = originalFlatWaypointObjects[i];
-                if (!wp.location) continue;
-                
-                const distanceToWpKm = getDistanceKm(baseProps.position.lat, baseProps.position.lon, wp.location.latitude, wp.location.longitude);
-                const bearingToWp = getBearing(baseProps.position.lat, baseProps.position.lon, wp.location.latitude, wp.location.longitude);
-                const bearingDiff = Math.abs(normalizeBearingDiff(currentTrack - bearingToWp));
-                
-                if (bearingDiff <= 95 && distanceToWpKm < minScore) {
-                    minScore = distanceToWpKm;
-                    nextWpName = wp.identifier || wp.name || 'N/A';
-                    nextWpDistNM = (minScore / 1.852).toFixed(1);
-                }
-            }
-
-            if (nextWpName === '---' && distanceToDestNM < 10) {
-                nextWpName = "DEST";
-                nextWpDistNM = distanceToDestNM.toFixed(1);
-            }
-        }
-    }
-
-    updateAll('#ac-next-wp', nextWpName);
-    updateAll('#ac-next-wp-dist', `${nextWpDistNM === '---' ? '--.-' : nextWpDistNM}`, false);
-    updateAll('#ac-dist', `${Math.round(distanceToDestNM)}<span class="unit">NM</span>`, true);
-    updateAll('#ac-ete', ete);
-
-    // The Live Activity push used to live here, but it was computing
-    // its own ETA / ATD with a broken fallback ("now + 1h" when the
-    // aircraft was slow) and a typo (filedPlanData.departureTime — the
-    // real field is dep_time). It now lives below, after the same
-    // SCHEDULED/ACTUAL/ESTIMATED cascade the in-app card consumes, so
-    // the lock screen and the card always agree.
-
-    // --- New nav-card live readouts (heading / G·S / TAS / ALT / ALT Δ) ---
-    {
-        const _gs = baseProps.position.gs_kt || 0;
-        const _alt = baseProps.position.alt_ft || 0;
-        const _hdg = baseProps.position.heading_deg;
-        const _vs = baseProps.position.vs_fpm || 0;
-        const _oat_c = (typeof currentAircraftPositionForGeocode !== 'undefined' && currentAircraftPositionForGeocode)
-            ? (currentAircraftPositionForGeocode.oat_c ?? 15)
-            : 15;
-        const _tas = (typeof calculateTas === 'function') ? calculateTas(_alt, _oat_c, _gs) : Math.round(_gs);
-
-        if (_hdg != null && !isNaN(_hdg)) {
-            updateAll('#ac-heading', `${String(Math.round(((_hdg % 360) + 360) % 360)).padStart(3, '0')}°`);
-        }
-        updateAll('#ac-gs', `${Math.round(_gs)} <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">kt</span>`, true);
-        updateAll('#ac-tas', `${Math.round(_tas)} <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">kt</span>`, true);
-        updateAll('#ac-alt', `${Math.round(_alt).toLocaleString()} <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">ft</span>`, true);
-
-        // V/S — always live, independent of whether a flight plan is loaded.
-        const _vsArrow = _vs > 100 ? '▲' : _vs < -100 ? '▼' : '·';
-        const _vsColor = _vs > 100 ? '#4ade80' : _vs < -100 ? '#fbbf24' : '#94a3b8';
-        const _vsSign = _vs > 0 ? '+' : '';
-        updateAll('#ac-vs',
-            `<span style="color: ${_vsColor};">${_vsArrow}</span> ${_vsSign}${Math.round(_vs).toLocaleString()} <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">fpm</span>`,
-            true);
-
-        // ALT delta vs cached cruise target
-        const _windowEl2 = document.getElementById('aircraft-info-window');
-        const _cruiseAlt = (_windowEl2 && _windowEl2.dataset.cruiseAltFt)
-            ? parseFloat(_windowEl2.dataset.cruiseAltFt) : null;
-        if (_cruiseAlt && _cruiseAlt > 0) {
-            const _delta = Math.round(_alt - _cruiseAlt);
-            const _arrow = _delta > 50 ? '▲' : _delta < -50 ? '▼' : '·';
-            const _color = _delta > 50 ? '#fbbf24' : _delta < -50 ? '#fbbf24' : '#4ade80';
-            const _sign = _delta > 0 ? '+' : '';
-            const _txt = `<span style="color: ${_color};">${_arrow}</span> ${_sign}${Math.abs(_delta) >= 1000 ? (_delta / 1000).toFixed(1) + 'k' : _delta} <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">ft</span>`;
-            updateAll('#ac-alt-delta', _txt, true);
-        } else {
-            updateAll('#ac-alt-delta', '---', false);
-        }
-    }
-
+/**
+ * --- [SHARED] Detailed flying-state / phase detection. ---
+ * Single source of truth for the 15+ flight phases (PUSHBACK, TAXIING,
+ * HOLDING SHORT, LINED UP, TAKEOFF ROLL, LIFTOFF, CLIMB, CRUISE, DESCENT,
+ * APPROACH, FINAL, FLARE, LANDING ROLLOUT, …). Both the full avionics window
+ * and the simple flight-info window call this so they always report the same
+ * state instead of the simple window's old 4-state guess.
+ * @returns {{flightPhase:string, phaseClass:string, phaseIcon:string}}
+ */
+function computeDetailedFlightPhase(baseProps, plan, sortedRoutePoints, progress, distanceToDestNM, totalDistanceNM, hasPlan) {
     let flightPhase = 'ENROUTE';
     let phaseClass = 'phase-enroute';
     let phaseIcon = 'fa-route';
+
+    if (!baseProps || !baseProps.position) {
+        return { flightPhase, phaseClass, phaseIcon };
+    }
 
     const vs = baseProps.position.vs_fpm || 0;
     const altitude = baseProps.position.alt_ft || 0;
@@ -14925,6 +14868,159 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             phaseIcon = 'fa-minus';
         }
     }
+
+    return { flightPhase, phaseClass, phaseIcon };
+}
+
+function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
+    const updateAll = (selector, value, isHTML = false) => {
+        const elements = document.querySelectorAll(selector);
+        elements.forEach(el => {
+            if (isHTML) {
+                el.innerHTML = value;
+            } else {
+                el.textContent = value;
+            }
+        });
+    };
+
+    const styleAll = (selector, property, value) => {
+        const elements = document.querySelectorAll(selector);
+        elements.forEach(el => {
+            el.style[property] = value;
+        });
+    };
+
+    const originalFlatWaypoints = (plan && plan.flightPlanItems) ? flattenWaypointsFromPlan(plan.flightPlanItems) : [];
+    const originalFlatWaypointObjects = (plan && plan.flightPlanItems) ? getFlatWaypointObjects(plan.flightPlanItems) : [];
+    const hasPlan = originalFlatWaypoints.length >= 2;
+
+    let progress = 0, ete = '--:--', distanceToDestNM = 0;
+    let totalDistanceNM = 0;
+    let nextWpName = '---', nextWpDistNM = '---';
+
+    if (hasPlan) {
+        let totalDistanceKm = 0;
+        for (let i = 0; i < originalFlatWaypoints.length - 1; i++) {
+            const [lon1, lat1] = originalFlatWaypoints[i];
+            const [lon2, lat2] = originalFlatWaypoints[i + 1];
+            totalDistanceKm += getDistanceKm(lat1, lon1, lat2, lon2);
+        }
+        totalDistanceNM = totalDistanceKm / 1.852;
+
+        if (totalDistanceNM > 0) {
+            const [destLon, destLat] = originalFlatWaypoints[originalFlatWaypoints.length - 1];
+            const remainingDistanceKm = getDistanceKm(baseProps.position.lat, baseProps.position.lon, destLat, destLon);
+            distanceToDestNM = remainingDistanceKm / 1.852;
+            
+            // Use direct distance from origin to destination to fix the sluggish scaling
+            const [originLon, originLat] = originalFlatWaypoints[0];
+            const totalDirectDistanceNM = getDistanceKm(originLat, originLon, destLat, destLon) / 1.852;
+            const scaleDist = totalDirectDistanceNM > 0 ? totalDirectDistanceNM : totalDistanceNM;
+
+            progress = Math.max(0, Math.min(100, (1 - (distanceToDestNM / scaleDist)) * 100));
+
+            if (baseProps.position.gs_kt > 50) {
+                const timeHours = distanceToDestNM / baseProps.position.gs_kt;
+                const hours = Math.floor(timeHours);
+                const minutes = Math.round((timeHours - hours) * 60);
+                ete = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+            }
+
+            let minScore = Infinity;
+            const currentTrack = baseProps.position.heading_deg;
+            for (let i = 1; i < originalFlatWaypointObjects.length; i++) {
+                const wp = originalFlatWaypointObjects[i];
+                if (!wp.location) continue;
+                
+                const distanceToWpKm = getDistanceKm(baseProps.position.lat, baseProps.position.lon, wp.location.latitude, wp.location.longitude);
+                const bearingToWp = getBearing(baseProps.position.lat, baseProps.position.lon, wp.location.latitude, wp.location.longitude);
+                const bearingDiff = Math.abs(normalizeBearingDiff(currentTrack - bearingToWp));
+                
+                if (bearingDiff <= 95 && distanceToWpKm < minScore) {
+                    minScore = distanceToWpKm;
+                    nextWpName = wp.identifier || wp.name || 'N/A';
+                    nextWpDistNM = (minScore / 1.852).toFixed(1);
+                }
+            }
+
+            if (nextWpName === '---' && distanceToDestNM < 10) {
+                nextWpName = "DEST";
+                nextWpDistNM = distanceToDestNM.toFixed(1);
+            }
+        }
+    }
+
+    updateAll('#ac-next-wp', nextWpName);
+    updateAll('#ac-next-wp-dist', `${nextWpDistNM === '---' ? '--.-' : nextWpDistNM}`, false);
+    updateAll('#ac-dist', `${Math.round(distanceToDestNM)}<span class="unit">NM</span>`, true);
+    updateAll('#ac-ete', ete);
+
+    // The Live Activity push used to live here, but it was computing
+    // its own ETA / ATD with a broken fallback ("now + 1h" when the
+    // aircraft was slow) and a typo (filedPlanData.departureTime — the
+    // real field is dep_time). It now lives below, after the same
+    // SCHEDULED/ACTUAL/ESTIMATED cascade the in-app card consumes, so
+    // the lock screen and the card always agree.
+
+    // --- New nav-card live readouts (heading / G·S / TAS / ALT / ALT Δ) ---
+    {
+        const _gs = baseProps.position.gs_kt || 0;
+        const _alt = baseProps.position.alt_ft || 0;
+        const _hdg = baseProps.position.heading_deg;
+        const _vs = baseProps.position.vs_fpm || 0;
+        const _oat_c = (typeof currentAircraftPositionForGeocode !== 'undefined' && currentAircraftPositionForGeocode)
+            ? (currentAircraftPositionForGeocode.oat_c ?? 15)
+            : 15;
+        const _tas = (typeof calculateTas === 'function') ? calculateTas(_alt, _oat_c, _gs) : Math.round(_gs);
+
+        if (_hdg != null && !isNaN(_hdg)) {
+            updateAll('#ac-heading', `${String(Math.round(((_hdg % 360) + 360) % 360)).padStart(3, '0')}°`);
+        }
+        updateAll('#ac-gs', `${Math.round(_gs)} <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">kt</span>`, true);
+        updateAll('#ac-tas', `${Math.round(_tas)} <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">kt</span>`, true);
+        updateAll('#ac-alt', `${Math.round(_alt).toLocaleString()} <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">ft</span>`, true);
+
+        // V/S — always live, independent of whether a flight plan is loaded.
+        const _vsArrow = _vs > 100 ? '▲' : _vs < -100 ? '▼' : '·';
+        const _vsColor = _vs > 100 ? '#4ade80' : _vs < -100 ? '#fbbf24' : '#94a3b8';
+        const _vsSign = _vs > 0 ? '+' : '';
+        updateAll('#ac-vs',
+            `<span style="color: ${_vsColor};">${_vsArrow}</span> ${_vsSign}${Math.round(_vs).toLocaleString()} <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">fpm</span>`,
+            true);
+
+        // ALT delta vs cached cruise target
+        const _windowEl2 = document.getElementById('aircraft-info-window');
+        const _cruiseAlt = (_windowEl2 && _windowEl2.dataset.cruiseAltFt)
+            ? parseFloat(_windowEl2.dataset.cruiseAltFt) : null;
+        if (_cruiseAlt && _cruiseAlt > 0) {
+            const _delta = Math.round(_alt - _cruiseAlt);
+            const _arrow = _delta > 50 ? '▲' : _delta < -50 ? '▼' : '·';
+            const _color = _delta > 50 ? '#fbbf24' : _delta < -50 ? '#fbbf24' : '#4ade80';
+            const _sign = _delta > 0 ? '+' : '';
+            const _txt = `<span style="color: ${_color};">${_arrow}</span> ${_sign}${Math.abs(_delta) >= 1000 ? (_delta / 1000).toFixed(1) + 'k' : _delta} <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">ft</span>`;
+            updateAll('#ac-alt-delta', _txt, true);
+        } else {
+            updateAll('#ac-alt-delta', '---', false);
+        }
+    }
+
+    const altitude = baseProps.position.alt_ft || 0;
+
+    let departureIcao = null;
+    let arrivalIcao = null;
+
+    if (plan && Array.isArray(plan.flightPlanItems) && plan.flightPlanItems.length >= 2) {
+        departureIcao = plan.flightPlanItems[0]?.identifier?.trim().toUpperCase();
+        arrivalIcao = plan.flightPlanItems[plan.flightPlanItems.length - 1]?.identifier?.trim().toUpperCase();
+    }
+
+    // Detailed flying-state detection is shared with the simple flight-info
+    // window (see computeDetailedFlightPhase) so both surfaces report the same
+    // phase rather than diverging.
+    let { flightPhase, phaseClass, phaseIcon } = computeDetailedFlightPhase(
+        baseProps, plan, sortedRoutePoints, progress, distanceToDestNM, totalDistanceNM, hasPlan
+    );
 
     const vsdPanels = document.querySelectorAll('#vsd-panel');
     const planId = (plan && (plan.flightPlanId || plan.id)) || 'unknown';
@@ -15531,6 +15627,32 @@ function updateFmsLegsModule(plan, currentPos) {
     }
     if(totalEteEl && document.getElementById('ac-ete')) {
         totalEteEl.textContent = document.getElementById('ac-ete').textContent;
+    }
+
+    // --- Speed & Altitude history graph (drawn from the /history breadcrumbs) ---
+    // Lazily injected into the Flight Display tab so we never touch the giant
+    // window template literal; re-rendered whenever the trail length changes.
+    if (typeof FlightGraph !== 'undefined' && FlightGraph) {
+        const tabPane = document.querySelector('#ac-tab-flight-data');
+        if (tabPane) {
+            if (!document.getElementById('ac-sa-graph-card')) {
+                const cardHTML =
+                    '<div id="ac-sa-graph-card" style="margin:8px 0;background:rgba(15,23,42,0.4);border:1px solid rgba(255,255,255,0.05);border-radius:12px;padding:12px;overflow:hidden;">'
+                    + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;color:#cbd5e1;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;"><i class="fa-solid fa-chart-area" style="color:#38bdf8;"></i> Speed &amp; Altitude</div>'
+                    + '<div id="ac-sa-graph"></div></div>';
+                // Place it directly under the PFD/location row so it sits in view
+                // rather than below the long tail of the pane.
+                const anchor = tabPane.querySelector('.pfd-and-location-grid');
+                if (anchor) anchor.insertAdjacentHTML('afterend', cardHTML);
+                else tabPane.insertAdjacentHTML('afterbegin', cardHTML);
+            }
+            const graphHost = document.getElementById('ac-sa-graph');
+            const ptsLen = (sortedRoutePoints && sortedRoutePoints.length) || 0;
+            if (graphHost && (graphHost.dataset.pts !== String(ptsLen) || !graphHost.firstChild)) {
+                FlightGraph.render(graphHost, sortedRoutePoints, { height: 190 });
+                graphHost.dataset.pts = String(ptsLen);
+            }
+        }
     }
 }
 
