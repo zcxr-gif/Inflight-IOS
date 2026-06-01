@@ -20,6 +20,7 @@ import { FlightDispatchService } from './FlightDispatchService.js';
 import { MobileDashboardUI } from './MobileDashboardUI.js';
 import { trackManager } from './proTrackManager.js';
 import { FlightReplay } from './flightReplay.js';
+import { AtcReplay } from './atcReplay.js';
 import { installSlowConnectionMonitor } from './slowConnectionMonitor.js';
 import { runFirstRunExperience } from './firstRunExperience.js';
 
@@ -3596,6 +3597,46 @@ function injectCustomStyles() {
             font-size: 0.8rem;
         }
 
+        /* --- ATC SESSION HISTORY (Replay) --- */
+        .atc-history-card {
+            background: #1e293b;
+            border: 1px solid var(--border-glass);
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+        .atc-history-main { display: flex; flex-direction: column; gap: 5px; min-width: 0; flex: 1; }
+        .atc-history-top { display: flex; align-items: center; gap: 8px; }
+        .atc-history-user { font-weight: 700; color: #e2e8f0; font-size: 0.85rem; }
+        .atc-history-user i { color: #818cf8; margin-right: 4px; }
+        .atc-history-live {
+            font-size: 0.6rem; font-weight: 800; letter-spacing: 0.5px;
+            color: #4ade80; border: 1px solid #4ade80; border-radius: 4px; padding: 0 5px;
+            animation: atc-history-pulse 1.8s ease-in-out infinite;
+        }
+        @keyframes atc-history-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
+        .atc-history-freqs { display: flex; flex-wrap: wrap; gap: 4px; }
+        .atc-history-freq-pill {
+            font-size: 0.6rem; font-weight: 700; color: #cbd5e1;
+            background: rgba(99,102,241,0.12); border: 1px solid rgba(129,140,248,0.3);
+            border-radius: 4px; padding: 1px 6px;
+        }
+        .atc-history-freq-pill.muted { color: #64748b; background: transparent; border-color: #334155; }
+        .atc-history-meta { font-family: monospace; font-size: 0.7rem; color: #64748b; }
+        .atc-replay-session-btn {
+            flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px;
+            background: linear-gradient(135deg, #6366f1, #38bdf8); color: #fff;
+            border: none; border-radius: 8px; padding: 8px 12px;
+            font-size: 0.72rem; font-weight: 800; letter-spacing: 0.3px; cursor: pointer;
+            transition: transform .12s ease, box-shadow .12s ease;
+        }
+        .atc-replay-session-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(99,102,241,0.45); }
+        .atc-replay-session-btn:active { transform: translateY(0); }
+
         /* --- HERO ACTION BUTTONS --- */
         .hero-actions {
             position: absolute;
@@ -3660,6 +3701,10 @@ function injectCustomStyles() {
             align-items: center;
             justify-content: center;
             gap: 8px;
+            min-width: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .apt-tab-btn:hover {
@@ -7266,6 +7311,10 @@ function getAircraftCategory(aircraftName) {
     return 'B737'; // Default fallback that exists in your sprite sheet
 }
 
+// Expose for the ATC replay module (atcReplay.js) so historical flights reuse
+// the same aircraft → sprite-category mapping the live map uses.
+window.getAircraftCategory = getAircraftCategory;
+
 /**
  * Determines Flight Rules (IFR/VFR) based on aircraft state, equipment, and flight plan.
  */
@@ -8935,7 +8984,66 @@ async function fetchAirportData(icao) {
     }
 }
 
+// --- ATC Session History (Replay) ----------------------------------------
+// The ATC replay backend records every controller session for 48h. The
+// /api/atc/sessions/recent endpoint can't filter by airport, so we pull the
+// recent sessions for the current server and keep the ones staffing THIS
+// field, newest first. Each becomes a "Replay" card in the airport window.
+async function fetchAtcSessionsForAirport(icao) {
+    try {
+        const sessionId = await getValidSessionId();
+        const qs = (sessionId && sessionId !== 'default')
+            ? `?sessionId=${encodeURIComponent(sessionId)}&limit=200`
+            : '?limit=200';
+        const res = await fetch(`${ACARS_SOCKET_URL}/api/atc/sessions/recent${qs}`);
+        if (!res.ok) return [];
+        const json = await res.json();
+        if (!json || !json.ok || !Array.isArray(json.sessions)) return [];
+        return json.sessions
+            .filter(s => s.airportName === icao)
+            .sort((a, b) => (b.start || 0) - (a.start || 0));
+    } catch (e) {
+        console.warn(`Could not fetch ATC sessions for ${icao}`, e);
+        return [];
+    }
+}
 
+// "HH:MMZ · 2h ago" style label for a session start (Unix-ms).
+function formatAtcSessionStart(ms) {
+    if (!ms) return 'Unknown time';
+    const d = new Date(ms);
+    const diffMin = Math.floor((Date.now() - ms) / 60000);
+    let rel;
+    if (diffMin < 1) rel = 'just now';
+    else if (diffMin < 60) rel = `${diffMin}m ago`;
+    else if (diffMin < 1440) rel = `${Math.floor(diffMin / 60)}h ago`;
+    else rel = `${Math.floor(diffMin / 1440)}d ago`;
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}Z · ${rel}`;
+}
+
+function renderAtcSessionCard(s) {
+    const dur = (typeof s.durationMin === 'number') ? `${s.durationMin} min` : '';
+    const freqs = (s.frequencies || []).length
+        ? s.frequencies.map(f => `<span class="atc-history-freq-pill">${f}</span>`).join('')
+        : '<span class="atc-history-freq-pill muted">No positions</span>';
+    const when = formatAtcSessionStart(s.start);
+    const safeUser = String(s.username || 'Controller').replace(/"/g, '&quot;');
+    return `
+    <div class="atc-history-card">
+        <div class="atc-history-main">
+            <div class="atc-history-top">
+                <span class="atc-history-user"><i class="fa-solid fa-headset"></i> ${s.username || 'Controller'}</span>
+                ${s.open ? '<span class="atc-history-live">● LIVE</span>' : ''}
+            </div>
+            <div class="atc-history-freqs">${freqs}</div>
+            <div class="atc-history-meta"><i class="fa-regular fa-clock"></i> ${when}${dur ? ` · ${dur}` : ''}</div>
+        </div>
+        <button class="atc-replay-session-btn" data-atc-key="${s.key}" data-atc-apt="${s.airportName || ''}" data-atc-user="${safeUser}" title="Replay this controller session">
+            <i class="fa-solid fa-circle-play"></i> Replay
+        </button>
+    </div>`;
+}
 
 async function createAirportInfoWindowHTML(icao) {
         // 1. Get Static Data
@@ -9202,7 +9310,18 @@ async function createAirportInfoWindowHTML(icao) {
             ? '<div style="padding: 20px; text-align: center; color: #64748b;">No active frequencies.</div>' 
             : `<div style="padding: 12px;">${activeAtcFacilities.filter(f => f.airportName === icao).map(f => `<div class="atc-grid-card" style="padding: 8px;"><div style="display: flex; align-items: center; gap: 12px;"><span class="atc-type-badge ${f.type===1?'atc-type-twr':f.type===0?'atc-type-gnd':(f.type===4||f.type===5)?'atc-type-app':'atc-type-obs'}" style="width: 60px; font-size: 0.65rem;">${atcTypeToString(f.type)}</span><span class="atc-controller" style="font-size: 0.85rem;">${f.username||'Unknown'}</span></div><span class="atc-duration" style="font-size: 0.75rem;"><i class="fa-regular fa-clock"></i> ${formatAtcDuration(f.startTime)}</span></div>`).join('')}</div>`;
 
-        let notamsHtml = activeNotams.filter(n => n.airportIcao === icao).length === 0 
+        // --- ATC Replay History (recorded controller sessions for this field) ---
+        const atcSessions = await fetchAtcSessionsForAirport(icao);
+        let atcHistoryHtml = atcSessions.length === 0
+            ? '<div style="padding: 20px; text-align: center; color: #64748b;">No recorded ATC sessions in the last 48h.</div>'
+            : `<div style="padding: 12px; display: flex; flex-direction: column; gap: 4px;">
+                <div style="font-size: 0.65rem; color: #64748b; padding: 0 2px 6px; line-height: 1.4;">
+                    Replay a controller's session — their facility, frequency timeline, and every flight that passed through their airspace. Recordings are kept for 48 hours.
+                </div>
+                ${atcSessions.map(renderAtcSessionCard).join('')}
+            </div>`;
+
+        let notamsHtml = activeNotams.filter(n => n.airportIcao === icao).length === 0
             ? '<div style="padding: 20px; text-align: center; color: #64748b;">No active NOTAMs.</div>' 
             : `<div style="padding: 12px; display: flex; flex-direction: column; gap: 8px;">${activeNotams.filter(n => n.airportIcao === icao).map(n => `<div style="background: rgba(234, 179, 8, 0.1); border-left: 3px solid #eab308; padding: 8px; border-radius: 4px; color: #fef08a; font-family: monospace; font-size: 0.75rem;"><i class="fa-solid fa-triangle-exclamation"></i> ${n.message}</div>`).join('')}</div>`;
 
@@ -9235,6 +9354,7 @@ async function createAirportInfoWindowHTML(icao) {
                     <div class="apt-tabs-header">
                         <button class="apt-tab-btn active" data-target="apt-traffic"><i class="fa-solid fa-plane-circle-check"></i> TRAFFIC</button>
                         <button class="apt-tab-btn" data-target="apt-atc"><i class="fa-solid fa-headset"></i> FREQS</button>
+                        <button class="apt-tab-btn" data-target="apt-replay"><i class="fa-solid fa-circle-play"></i> REPLAY</button>
                         <button class="apt-tab-btn" data-target="apt-info"><i class="fa-solid fa-circle-info"></i> INFO</button>
                     </div>
 
@@ -9245,6 +9365,10 @@ async function createAirportInfoWindowHTML(icao) {
 
                     <div id="apt-atc" class="apt-tab-content">
                         ${atcHtml}
+                    </div>
+
+                    <div id="apt-replay" class="apt-tab-content">
+                        ${atcHistoryHtml}
                     </div>
 
                     <div id="apt-info" class="apt-tab-content">
@@ -9998,6 +10122,79 @@ function updateTrafficLegendUI() {
 }
 
 
+    // Launch the ATC session replay for a recorded controller session. Mirrors
+    // the flight-replay launch flow: get the competing chrome out of the way so
+    // the docked replay panel + map are unobstructed, then restore it once the
+    // replay tears itself down.
+    function launchAtcReplay(key, apt, user) {
+        if (!key) {
+            showNotification?.('No ATC session selected to replay.', 'error');
+            return;
+        }
+        if (typeof AtcReplay === 'undefined' || !sectorOpsMap) return;
+
+        const replayUrl = `${ACARS_SOCKET_URL}/api/atc/replay?key=${encodeURIComponent(key)}`;
+        const isMobile = !!(window.MobileUIHandler && window.MobileUIHandler.isMobile());
+
+        const uiToToggle = [];
+        let reopenAirportOnClose = false;
+
+        if (isMobile) {
+            // On mobile the airport window is presented through MobileUIHandler
+            // as a legacy sheet plus a dimming scrim (#mobile-window-overlay)
+            // over the map. The original #airport-info-window isn't even marked
+            // .visible, so soft-hiding it does nothing and the scrim stays up,
+            // blacking out the map behind the replay. Tear the sheet down
+            // properly and reopen it when the replay closes.
+            reopenAirportOnClose = !!currentAirportInWindow;
+            window.MobileUIHandler.closeActiveWindow(true);
+        } else {
+            // Desktop: soft-hide the floating chrome that competes with the
+            // bottom-docked replay panel and restore it verbatim on close.
+            const remember = (el) => {
+                if (el && el.classList && el.classList.contains('visible')) {
+                    uiToToggle.push(el);
+                    el.classList.remove('visible');
+                }
+            };
+            remember(document.getElementById('airport-info-window'));
+            remember(document.getElementById('aircraft-info-window'));
+            remember(document.getElementById('sector-ops-floating-panel'));
+            remember(document.getElementById('weather-settings-window'));
+            remember(document.getElementById('filter-settings-window'));
+            if (typeof airportInfoWindowRecallBtn !== 'undefined' && airportInfoWindowRecallBtn) {
+                airportInfoWindowRecallBtn.classList.remove('visible');
+            }
+        }
+
+        // The toolbar row is only ours to manage on desktop — on mobile
+        // MobileUIHandler owns showing/hiding it around its own windows.
+        const toolbarToggleBtnEl = document.getElementById('toolbar-toggle-panel-btn');
+        const toolbarRow = toolbarToggleBtnEl ? toolbarToggleBtnEl.parentElement : null;
+        let prevToolbarDisplay = null;
+        if (!isMobile && toolbarRow) {
+            prevToolbarDisplay = toolbarRow.style.display;
+            toolbarRow.style.display = 'none';
+        }
+
+        AtcReplay.open({
+            map: sectorOpsMap,
+            replayUrl,
+            meta: { airportName: apt, username: user },
+            onClose: () => {
+                if (isMobile) {
+                    if (reopenAirportOnClose) {
+                        const aptWin = document.getElementById('airport-info-window');
+                        if (aptWin) window.MobileUIHandler.openWindow(aptWin);
+                    }
+                } else {
+                    uiToToggle.forEach(el => { if (el && el.classList) el.classList.add('visible'); });
+                    if (toolbarRow) toolbarRow.style.display = prevToolbarDisplay || '';
+                }
+            }
+        });
+    }
+
     function setupAirportWindowEvents() {
     if (!airportInfoWindow || airportInfoWindow.dataset.eventsAttached === 'true') return;
 
@@ -10005,6 +10202,18 @@ function updateTrafficLegendUI() {
         const closeBtn = e.target.closest('#airport-window-close-btn');
         const hideBtn = e.target.closest('#airport-window-hide-btn');
         const trafficToggle = e.target.closest('#traffic-highlight-toggle');
+        const atcReplayBtn = e.target.closest('.atc-replay-session-btn');
+
+        // [NEW] ATC Session Replay launcher
+        if (atcReplayBtn) {
+            e.preventDefault();
+            launchAtcReplay(
+                atcReplayBtn.dataset.atcKey,
+                atcReplayBtn.dataset.atcApt,
+                atcReplayBtn.dataset.atcUser
+            );
+            return;
+        }
 
         // [NEW] Traffic Visualizer Toggle Handler
         if (trafficToggle) {
