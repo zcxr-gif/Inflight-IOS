@@ -146,6 +146,31 @@ renderMobileContainer() {
                             <button class="m-setting-pill" data-setting="iconColorMode" data-value="blue">Blue</button>
                             <button class="m-setting-pill" data-setting="iconColorMode" data-value="orange">Orange</button>
                         </div>
+
+                        <div class="mobile-section-header">Tools</div>
+                        <div class="m-settings-list">
+                            <div class="m-setting-row" id="m-atc-replay-row">
+                                <div class="m-row-left">
+                                    <i class="fa-solid fa-headset" style="color:#38bdf8;"></i>
+                                    <span>ATC Controller Replay</span>
+                                </div>
+                                <div class="m-row-right">
+                                    <button id="m-atc-replay-open" class="m-btn m-primary" type="button">Open</button>
+                                </div>
+                            </div>
+                            <p class="m-notif-help">Replay a controller's frequency timeline plus the aircraft in their airspace. Covers the last 48 hours.</p>
+                            <div class="m-setting-row" id="m-meta-refresh-row">
+                                <div class="m-row-left">
+                                    <i class="fa-solid fa-arrows-rotate" style="color:#fbbf24;"></i>
+                                    <span>Aircraft &amp; Liveries</span>
+                                </div>
+                                <div class="m-row-right">
+                                    <span id="m-meta-status" class="m-notif-status" data-status="loading">Checking…</span>
+                                    <button id="m-meta-refresh" class="m-btn m-primary" type="button">Refresh</button>
+                                </div>
+                            </div>
+                            <p class="m-notif-help" id="m-meta-help">Pull newly released planes and liveries without restarting the app.</p>
+                        </div>
                     </div>
 
                     <div class="sheet-footer">
@@ -261,6 +286,7 @@ refreshProLocks() {
             this.refreshProLocks();
             this.syncUIWithState();
             this.refreshNotificationStatus();
+            this.refreshMetadataStatus();
             sheet.classList.add('open');
             overlay.classList.add('visible');
         });
@@ -302,6 +328,45 @@ refreshProLocks() {
                 await this.refreshNotificationStatus();
                 notifBtn.disabled = false;
                 if (notifBtn.textContent === '…') notifBtn.textContent = prevLabel;
+            });
+        }
+
+        // --- ATC Controller Replay launcher ---
+        const atcReplayBtn = document.getElementById('m-atc-replay-open');
+        if (atcReplayBtn) {
+            atcReplayBtn.addEventListener('click', () => {
+                if (window.ATCReplay && typeof window.ATCReplay.open === 'function') {
+                    window.ATCReplay.open();
+                } else {
+                    window.showNotification?.('ATC Replay is still loading — try again in a moment.', 'info');
+                }
+            });
+        }
+
+        // --- Aircraft / livery metadata refresh ---
+        const metaBtn = document.getElementById('m-meta-refresh');
+        if (metaBtn) {
+            this.refreshMetadataStatus();
+            metaBtn.addEventListener('click', async () => {
+                const status = document.getElementById('m-meta-status');
+                metaBtn.disabled = true;
+                const prev = metaBtn.textContent;
+                metaBtn.textContent = '…';
+                if (status) { status.textContent = 'Refreshing…'; status.dataset.status = 'loading'; }
+                try {
+                    const r = await window.MetadataRefresh.refresh();
+                    if (status) {
+                        status.textContent = `${r.aircraft} aircraft · ${r.liveries} liveries`;
+                        status.dataset.status = 'ok';
+                    }
+                    window.showNotification?.(r.message || 'Metadata refreshed.', 'success');
+                } catch (err) {
+                    if (status) { status.textContent = 'Failed'; status.dataset.status = 'denied'; }
+                    window.showNotification?.(err?.message || 'Refresh failed.', 'error');
+                } finally {
+                    metaBtn.disabled = false;
+                    if (metaBtn.textContent === '…') metaBtn.textContent = prev;
+                }
             });
         }
 
@@ -415,6 +480,25 @@ refreshProLocks() {
                 if (window.updateMapFilters) window.updateMapFilters();
             });
         });
+    },
+
+    // Pull current aircraft/livery counts + last-refresh time into the Tools row.
+    async refreshMetadataStatus() {
+        const status = document.getElementById('m-meta-status');
+        const help = document.getElementById('m-meta-help');
+        if (!status || !window.MetadataRefresh) return;
+        try {
+            const meta = await window.MetadataRefresh.getMetadata();
+            const counts = meta.counts || {};
+            status.textContent = `${counts.aircraft ?? (meta.aircraft || []).length} aircraft · ${counts.liveries ?? (meta.liveries || []).length} liveries`;
+            status.dataset.status = 'ok';
+            if (help) {
+                help.textContent = `Last refreshed ${window.MetadataRefresh.formatRelative(meta.lastUpdated)}. Pulls newly released planes and liveries without restarting.`;
+            }
+        } catch {
+            status.textContent = 'Unavailable';
+            status.dataset.status = 'denied';
+        }
     },
 
     async refreshNotificationStatus() {
