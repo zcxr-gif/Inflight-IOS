@@ -10123,9 +10123,9 @@ function updateTrafficLegendUI() {
 
 
     // Launch the ATC session replay for a recorded controller session. Mirrors
-    // the flight-replay launch flow: snapshot + soft-hide the floating chrome
-    // that would compete with the docked replay panel, then restore it once
-    // the replay tears itself down.
+    // the flight-replay launch flow: get the competing chrome out of the way so
+    // the docked replay panel + map are unobstructed, then restore it once the
+    // replay tears itself down.
     function launchAtcReplay(key, apt, user) {
         if (!key) {
             showNotification?.('No ATC session selected to replay.', 'error');
@@ -10134,27 +10134,45 @@ function updateTrafficLegendUI() {
         if (typeof AtcReplay === 'undefined' || !sectorOpsMap) return;
 
         const replayUrl = `${ACARS_SOCKET_URL}/api/atc/replay?key=${encodeURIComponent(key)}`;
+        const isMobile = !!(window.MobileUIHandler && window.MobileUIHandler.isMobile());
 
         const uiToToggle = [];
-        const remember = (el) => {
-            if (el && el.classList && el.classList.contains('visible')) {
-                uiToToggle.push(el);
-                el.classList.remove('visible');
+        let reopenAirportOnClose = false;
+
+        if (isMobile) {
+            // On mobile the airport window is presented through MobileUIHandler
+            // as a legacy sheet plus a dimming scrim (#mobile-window-overlay)
+            // over the map. The original #airport-info-window isn't even marked
+            // .visible, so soft-hiding it does nothing and the scrim stays up,
+            // blacking out the map behind the replay. Tear the sheet down
+            // properly and reopen it when the replay closes.
+            reopenAirportOnClose = !!currentAirportInWindow;
+            window.MobileUIHandler.closeActiveWindow(true);
+        } else {
+            // Desktop: soft-hide the floating chrome that competes with the
+            // bottom-docked replay panel and restore it verbatim on close.
+            const remember = (el) => {
+                if (el && el.classList && el.classList.contains('visible')) {
+                    uiToToggle.push(el);
+                    el.classList.remove('visible');
+                }
+            };
+            remember(document.getElementById('airport-info-window'));
+            remember(document.getElementById('aircraft-info-window'));
+            remember(document.getElementById('sector-ops-floating-panel'));
+            remember(document.getElementById('weather-settings-window'));
+            remember(document.getElementById('filter-settings-window'));
+            if (typeof airportInfoWindowRecallBtn !== 'undefined' && airportInfoWindowRecallBtn) {
+                airportInfoWindowRecallBtn.classList.remove('visible');
             }
-        };
-        remember(document.getElementById('airport-info-window'));
-        remember(document.getElementById('aircraft-info-window'));
-        remember(document.getElementById('sector-ops-floating-panel'));
-        remember(document.getElementById('weather-settings-window'));
-        remember(document.getElementById('filter-settings-window'));
-        if (typeof airportInfoWindowRecallBtn !== 'undefined' && airportInfoWindowRecallBtn) {
-            airportInfoWindowRecallBtn.classList.remove('visible');
         }
 
+        // The toolbar row is only ours to manage on desktop — on mobile
+        // MobileUIHandler owns showing/hiding it around its own windows.
         const toolbarToggleBtnEl = document.getElementById('toolbar-toggle-panel-btn');
         const toolbarRow = toolbarToggleBtnEl ? toolbarToggleBtnEl.parentElement : null;
         let prevToolbarDisplay = null;
-        if (toolbarRow) {
+        if (!isMobile && toolbarRow) {
             prevToolbarDisplay = toolbarRow.style.display;
             toolbarRow.style.display = 'none';
         }
@@ -10164,18 +10182,15 @@ function updateTrafficLegendUI() {
             replayUrl,
             meta: { airportName: apt, username: user },
             onClose: () => {
-                if (window.MobileUIHandler && window.MobileUIHandler.isMobile()) {
-                    const aptWin = document.getElementById('airport-info-window');
-                    if (aptWin && uiToToggle.includes(aptWin)) {
-                        window.MobileUIHandler.openWindow(aptWin);
+                if (isMobile) {
+                    if (reopenAirportOnClose) {
+                        const aptWin = document.getElementById('airport-info-window');
+                        if (aptWin) window.MobileUIHandler.openWindow(aptWin);
                     }
-                    uiToToggle.forEach(el => {
-                        if (el && el.classList && el.id !== 'airport-info-window') el.classList.add('visible');
-                    });
                 } else {
                     uiToToggle.forEach(el => { if (el && el.classList) el.classList.add('visible'); });
+                    if (toolbarRow) toolbarRow.style.display = prevToolbarDisplay || '';
                 }
-                if (toolbarRow) toolbarRow.style.display = prevToolbarDisplay || '';
             }
         });
     }
