@@ -14683,12 +14683,13 @@ function renderPilotStatsHTML(stats, username) {
         // statsPane.classList.add('active');
 
         try {
-            const res = await fetch(`${ACARS_USER_API_URL}/${userId}/grade`);
+            const res = await fetch(`${ACARS_USER_API_URL.replace('/users', '/api/users')}/${userId}/stats`);
             if (!res.ok) throw new Error('Could not fetch pilot data.');
-            
+
             const data = await res.json();
-            if (data.ok && data.gradeInfo) {
-                statsDisplay.innerHTML = renderPilotStatsHTML(data.gradeInfo, username);
+            const pilotStats = data.stats || data.gradeInfo;
+            if (data.ok && pilotStats) {
+                statsDisplay.innerHTML = renderPilotStatsHTML(pilotStats, username);
                 
                 // --- Accordion event listeners ---
                 const accordionHeaders = statsDisplay.querySelectorAll('.accordion-header');
@@ -15987,15 +15988,16 @@ async function handleIframeMessage(event) {
         try {
             // Use the global API URL defined at top of file
             // Note: ACARS_USER_API_URL must be defined in your global scope (it is in your file: '.../users')
-            const res = await fetch(`${ACARS_USER_API_URL}/${userId}/grade`);
+            const res = await fetch(`${ACARS_USER_API_URL.replace('/users', '/api/users')}/${userId}/stats`);
 
             if (!res.ok) throw new Error('Failed to fetch pilot grade.');
 
             const data = await res.json();
+            const pilotStats = data.stats || data.gradeInfo;
 
-            if (data.ok && data.gradeInfo) {
+            if (data.ok && pilotStats) {
                 // Process the raw IF API data into the UI-ready format
-                const formattedProfile = processRawPilotData(data.gradeInfo);
+                const formattedProfile = processRawPilotData(pilotStats);
 
                 // Thread the pilot identity through so the manifest can show the
                 // username + Community profile link, mirroring the profile UI.
