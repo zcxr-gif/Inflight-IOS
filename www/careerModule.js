@@ -3,6 +3,45 @@
  * Premium Redesign: Aligned with the glassmorphic Command Dossier architecture.
  */
 
+/**
+ * A single touchdown captured during a flight.
+ * @typedef {Object} LandingStat
+ * @property {string} timestamp              - ISO 8601 (with Z) of the touchdown.
+ * @property {number} maxGForce              - Peak vertical G at touchdown.
+ * @property {number} groundSpeed            - Ground speed at touchdown (knots).
+ * @property {number} indicatedAirspeed      - Indicated airspeed at touchdown (knots).
+ * @property {number} latitude
+ * @property {number} longitude
+ * @property {number} centerlineDistance     - Lateral offset from runway centerline (meters).
+ * @property {number} verticalSpeed          - Touchdown vertical speed (fpm; negative = descending).
+ * @property {number} distanceFrom1kftMarker - Distance from the 1,000 ft markers (meters).
+ * @property {number} groundRollDistance     - Ground roll after touchdown (meters).
+ * @property {number} timeSinceLastLanding   - Seconds since the previous landing.
+ */
+
+/**
+ * A historical flight record returned by /api/users/{userId}/flights.
+ * NOTE: In this codebase totalTime/dayTime/nightTime are handled as MINUTES
+ * (see formatMinutes / calculateRatePerHour) to match the existing logbook feed.
+ * @typedef {Object} Flight
+ * @property {string} id
+ * @property {string} created                - ISO 8601, no tz suffix (treat as UTC).
+ * @property {string} userId
+ * @property {string} aircraftId
+ * @property {string} liveryId
+ * @property {string} callsign
+ * @property {string} server
+ * @property {number} dayTime
+ * @property {number} nightTime
+ * @property {number} totalTime
+ * @property {number} landingCount
+ * @property {?string} originAirport         - ICAO, may be null/empty.
+ * @property {?string} destinationAirport    - ICAO, may be null/empty.
+ * @property {number} xp
+ * @property {number} fuelUsedKg             - Total fuel burned (kg).
+ * @property {LandingStat[]} landingStats    - Per-touchdown telemetry (may be []).
+ */
+
 export const CareerModule = {
     // Core State
     _atcData: null,
@@ -26,6 +65,9 @@ export const CareerModule = {
     _atcPage: 1,
     _atcTotalPages: 1,
     _loadingMoreATC: false,
+
+    // Tracks which flight cards have their landing-detail panel expanded
+    _expandedFlights: new Set(),
 
     // Metadata caches
     _aircraftMap: new Map(),
@@ -52,6 +94,45 @@ export const CareerModule = {
     calculateRatePerHour(value, minutes) {
         if (!minutes || minutes <= 0 || !value) return "0.0";
         return ((value / minutes) * 60).toFixed(1);
+    },
+
+    /**
+     * Format a fuel-burn figure (kg) for display, rolling up to tonnes when large.
+     * @param {number} kg
+     * @returns {string}
+     */
+    formatFuel(kg) {
+        if (kg == null || isNaN(kg) || kg <= 0) return "—";
+        if (kg >= 1000) return `${(kg / 1000).toFixed(1)}t`;
+        return `${Math.round(kg).toLocaleString()} kg`;
+    },
+
+    /**
+     * Classify a touchdown by its vertical speed (fpm) into a quality band.
+     * @param {number} verticalSpeed - Negative = descending.
+     * @returns {{label: string, class: string}}
+     */
+    rateLanding(verticalSpeed) {
+        const v = Math.abs(Number(verticalSpeed) || 0);
+        if (v <= 100) return { label: "Butter", class: "land-butter" };
+        if (v <= 250) return { label: "Smooth", class: "land-smooth" };
+        if (v <= 500) return { label: "Firm", class: "land-firm" };
+        return { label: "Hard", class: "land-hard" };
+    },
+
+    /**
+     * Reduce a flight's landingStats into a card-level summary.
+     * @param {LandingStat[]} landingStats
+     * @returns {{count: number, best: LandingStat}|null}
+     */
+    summarizeLandings(landingStats) {
+        if (!Array.isArray(landingStats) || landingStats.length === 0) return null;
+        // "Best" landing = smoothest touchdown (smallest absolute vertical speed).
+        let best = landingStats[0];
+        for (const ls of landingStats) {
+            if (Math.abs(ls.verticalSpeed || 0) < Math.abs(best.verticalSpeed || 0)) best = ls;
+        }
+        return { count: landingStats.length, best };
     },
 
     async loadExtraData(userId, backendUrl, reRenderCallback) {
@@ -368,16 +449,23 @@ export const CareerModule = {
         if (this._error) return `<div class="pui-alert pui-alert-error">${this._error}</div>`;
         if (!this._flightData || this._flightData.length === 0) return `<div class="cm-empty-state"><i class="fa-solid fa-wind"></i> No flight telemetry logged.</div>`;
 
-        const flightRows = this._flightData.map(flight => {
+        const flightRows = this._flightData.map((flight, index) => {
             const date = flight.created ? new Date(flight.created).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit' }) : 'UNKNOWN';
-            
+
             const origin = flight.originAirport || 'VFR';
             const dest = flight.destinationAirport || 'LOCAL';
-            
+
             const totalTimeStr = this.formatMinutes(flight.totalTime);
             const serverName = flight.server || this._worldTypeMap[flight.worldType] || "UNKNOWN";
             const xpPerHour = this.calculateRatePerHour(flight.xp, flight.totalTime);
             const hasVios = flight.violations && flight.violations.length > 0;
+
+            // NEW: fuel burn + per-touchdown landing telemetry
+            const fuelStr = this.formatFuel(flight.fuelUsedKg);
+            const landingStats = Array.isArray(flight.landingStats) ? flight.landingStats : [];
+            const landingSummary = this.summarizeLandings(landingStats);
+            const flightKey = flight.id || `flt-${index}`;
+            const isExpanded = this._expandedFlights.has(flightKey);
             
             // Safely handle both lowercase 'd' and capital 'D' variations from the API
             const rawAircraftId = flight.aircraftID || flight.aircraftId;
@@ -400,41 +488,95 @@ export const CareerModule = {
             // 3. Resolve Livery Name
             const liveryName = liveryData ? liveryData.liveryName : '';
 
-            let vioBadge = hasVios 
-                ? `<div class="cm-log-vio-badge" title="${flight.violations.length} Violation(s) Issued"><i class="fa-solid fa-triangle-exclamation"></i> Lvl ${flight.violations[0].level}</div>` 
+            let vioBadge = hasVios
+                ? `<div class="cm-log-vio-badge" title="${flight.violations.length} Violation(s) Issued"><i class="fa-solid fa-triangle-exclamation"></i> Lvl ${flight.violations[0].level}</div>`
                 : '';
 
+            const fuelStatHTML = fuelStr !== '—'
+                ? `<div class="cm-fc-stat-item" title="Total fuel burned">
+                        <span class="lbl">FUEL</span>
+                        <span class="val">${fuelStr}</span>
+                    </div>`
+                : '';
+
+            // NEW: expandable landing-detail block (only when touchdown telemetry exists)
+            let landingBlockHTML = '';
+            if (landingSummary) {
+                const bestRate = this.rateLanding(landingSummary.best.verticalSpeed);
+                const bestVs = Math.round(landingSummary.best.verticalSpeed || 0);
+                const plural = landingSummary.count === 1 ? '' : 's';
+
+                const landingRows = landingStats.map((ls, i) => {
+                    const rate = this.rateLanding(ls.verticalSpeed);
+                    const tdTime = ls.timestamp
+                        ? new Date(ls.timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+                        : '';
+                    return `
+                        <div class="cm-landing-row">
+                            <div class="cm-lr-head">
+                                <span class="cm-lr-idx">#${i + 1}</span>
+                                <span class="cm-lr-rate ${rate.class}">${rate.label}</span>
+                                ${tdTime ? `<span class="cm-lr-time">${tdTime}</span>` : ''}
+                            </div>
+                            <div class="cm-lr-metrics">
+                                <span><b>${Math.round(ls.verticalSpeed || 0)}</b> fpm</span>
+                                <span><b>${(Number(ls.maxGForce) || 0).toFixed(2)}</b> G</span>
+                                <span><b>${Math.round(ls.groundSpeed || 0)}</b> kt GS</span>
+                                <span><b>${Math.round(ls.centerlineDistance || 0)}</b> m CL</span>
+                                <span><b>${Math.round(ls.groundRollDistance || 0)}</b> m roll</span>
+                            </div>
+                        </div>`;
+                }).join('');
+
+                landingBlockHTML = `
+                    <button type="button" class="cm-landing-toggle ${isExpanded ? 'open' : ''}" data-action="toggle-landings" data-flight="${flightKey}">
+                        <span class="cm-lt-summary">
+                            <i class="fa-solid fa-plane-arrival"></i>
+                            ${landingSummary.count} Landing${plural}
+                            <span class="cm-lt-best">· Best <b class="${bestRate.class}">${bestRate.label}</b> (${bestVs} fpm)</span>
+                        </span>
+                        <i class="fa-solid fa-chevron-down cm-lt-chevron"></i>
+                    </button>
+                    <div class="cm-landing-detail ${isExpanded ? 'open' : ''}">
+                        ${landingRows}
+                    </div>`;
+            }
+
             return `
-                <div class="cm-flight-card ${hasVios ? 'card-has-vio' : ''}">
-                    <div class="cm-fc-context">
-                        <div class="cm-fc-date">${date}</div>
-                        <div class="cm-fc-acft">
-                            <span class="cm-fc-acft-name">${aircraftName}</span>
-                            ${liveryName ? `<span class="cm-fc-livery">${liveryName}</span>` : ''}
+                <div class="cm-flight-entry">
+                    <div class="cm-flight-card ${hasVios ? 'card-has-vio' : ''} ${landingBlockHTML ? 'has-landings' : ''}">
+                        <div class="cm-fc-context">
+                            <div class="cm-fc-date">${date}</div>
+                            <div class="cm-fc-acft">
+                                <span class="cm-fc-acft-name">${aircraftName}</span>
+                                ${liveryName ? `<span class="cm-fc-livery">${liveryName}</span>` : ''}
+                            </div>
+                            <div class="cm-fc-server">${serverName}</div>
                         </div>
-                        <div class="cm-fc-server">${serverName}</div>
-                    </div>
 
-                    <div class="cm-fc-route">
-                        <div class="cm-fc-apt">${origin}</div>
-                        <div class="cm-fc-path">
-                            <div class="cm-fc-line"></div>
-                            <i class="fa-solid fa-plane cm-fc-plane-icon"></i>
+                        <div class="cm-fc-route">
+                            <div class="cm-fc-apt">${origin}</div>
+                            <div class="cm-fc-path">
+                                <div class="cm-fc-line"></div>
+                                <i class="fa-solid fa-plane cm-fc-plane-icon"></i>
+                            </div>
+                            <div class="cm-fc-apt">${dest}</div>
                         </div>
-                        <div class="cm-fc-apt">${dest}</div>
-                    </div>
 
-                    <div class="cm-fc-telemetry">
-                        <div class="cm-fc-stat-item">
-                            <span class="lbl">DURATION</span>
-                            <span class="val">${totalTimeStr}</span>
+                        <div class="cm-fc-telemetry">
+                            <div class="cm-fc-stat-item">
+                                <span class="lbl">DURATION</span>
+                                <span class="val">${totalTimeStr}</span>
+                            </div>
+                            <div class="cm-fc-stat-item">
+                                <span class="lbl">EFFICIENCY</span>
+                                <span class="val">${xpPerHour} <small>XP/h</small></span>
+                            </div>
+                            ${fuelStatHTML}
                         </div>
-                        <div class="cm-fc-stat-item">
-                            <span class="lbl">EFFICIENCY</span>
-                            <span class="val">${xpPerHour} <small>XP/h</small></span>
-                        </div>
+                        ${vioBadge}
                     </div>
-                    ${vioBadge}
+                    ${landingBlockHTML}
                 </div>
             `;
         }).join('');
@@ -584,7 +726,21 @@ export const CareerModule = {
                     this.loadMoreATC();
                     return;
                 }
-                
+
+                // Toggle per-flight landing detail panel
+                const landingToggle = e.target.closest('[data-action="toggle-landings"]');
+                if (landingToggle) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const key = landingToggle.getAttribute('data-flight');
+                    if (key) {
+                        if (this._expandedFlights.has(key)) this._expandedFlights.delete(key);
+                        else this._expandedFlights.add(key);
+                        if (this._reRenderCallback) this._reRenderCallback();
+                    }
+                    return;
+                }
+
             }, true); 
             
             this._navListenerAttached = true;
@@ -845,6 +1001,8 @@ export const CareerModule = {
                 box-shadow: 0 8px 24px rgba(0,0,0,0.08);
                 border-color: var(--pui-border);
             }
+            /* Keep cards anchored to their attached landing panel */
+            .cm-flight-card.has-landings:hover { transform: none; }
 
             .card-has-vio { 
                 border-left: 3px solid var(--pui-neg); 
@@ -921,6 +1079,90 @@ export const CareerModule = {
             .cm-fc-stat-item .lbl { font-size: 0.6rem; font-weight: 700; color: var(--pui-text-tertiary); letter-spacing: 0.05em; }
             .cm-fc-stat-item .val { font-family: var(--pui-font-mono); font-size: 0.95rem; font-weight: 700; color: var(--pui-text-primary); }
             .cm-fc-stat-item small { font-size: 0.7rem; color: var(--pui-text-secondary); font-weight: 400; }
+
+            /* Flight entry wrapper (card + expandable landing detail) */
+            .cm-flight-entry {
+                display: flex;
+                flex-direction: column;
+            }
+            .cm-flight-entry .cm-flight-card.has-landings {
+                border-bottom-left-radius: 0;
+                border-bottom-right-radius: 0;
+            }
+
+            /* Landing detail toggle */
+            .cm-landing-toggle {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                width: 100%;
+                background: var(--pui-bg-base);
+                border: 1px solid var(--pui-border-light);
+                border-top: none;
+                border-radius: 0 0 12px 12px;
+                padding: 10px 20px;
+                cursor: pointer;
+                font-family: var(--pui-font-mono);
+                font-size: 0.78rem;
+                font-weight: 600;
+                color: var(--pui-text-secondary);
+                transition: background 0.2s ease, color 0.2s ease;
+            }
+            .cm-landing-toggle:hover { color: var(--pui-text-primary); background: var(--pui-hover); }
+            .cm-landing-toggle.open { border-radius: 0; color: var(--pui-text-primary); }
+            .cm-lt-summary { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+            .cm-lt-summary > i { color: var(--pui-accent); }
+            .cm-lt-best { color: var(--pui-text-tertiary); font-weight: 500; }
+            .cm-lt-chevron { transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1); font-size: 0.75rem; }
+            .cm-landing-toggle.open .cm-lt-chevron { transform: rotate(180deg); }
+
+            /* Landing detail panel (collapsible) */
+            .cm-landing-detail {
+                max-height: 0;
+                overflow: hidden;
+                background: var(--pui-bg-base);
+                border: 1px solid var(--pui-border-light);
+                border-top: none;
+                transition: max-height 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            }
+            .cm-landing-detail.open {
+                max-height: 1200px;
+                border-radius: 0 0 12px 12px;
+            }
+            .cm-landing-row {
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+                padding: 12px 20px;
+                border-top: 1px dashed var(--pui-border-light);
+            }
+            .cm-landing-row:first-child { border-top: none; }
+            .cm-lr-head { display: flex; align-items: center; gap: 10px; }
+            .cm-lr-idx { font-family: var(--pui-font-mono); font-size: 0.7rem; font-weight: 700; color: var(--pui-text-tertiary); }
+            .cm-lr-time { font-family: var(--pui-font-mono); font-size: 0.7rem; color: var(--pui-text-tertiary); margin-left: auto; }
+            .cm-lr-rate {
+                font-family: var(--pui-font-mono);
+                font-size: 0.68rem;
+                font-weight: 700;
+                padding: 2px 8px;
+                border-radius: 6px;
+                text-transform: uppercase;
+                letter-spacing: 0.04em;
+            }
+            .land-butter { background: rgba(16, 185, 129, 0.12); color: #10b981; }
+            .land-smooth { background: rgba(59, 130, 246, 0.12); color: #3b82f6; }
+            .land-firm   { background: rgba(245, 158, 11, 0.12); color: #f59e0b; }
+            .land-hard   { background: rgba(239, 68, 68, 0.12);  color: #ef4444; }
+            b.land-butter, b.land-smooth, b.land-firm, b.land-hard { background: none; padding: 0; }
+            .cm-lr-metrics {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 6px 16px;
+                font-family: var(--pui-font-mono);
+                font-size: 0.75rem;
+                color: var(--pui-text-secondary);
+            }
+            .cm-lr-metrics b { color: var(--pui-text-primary); font-weight: 700; }
 
             .cm-log-vio-badge {
                 position: absolute;
