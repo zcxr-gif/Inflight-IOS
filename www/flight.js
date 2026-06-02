@@ -501,6 +501,12 @@ window.pinFlight = function(flightId) {
     let airportInfoWindow = null;
     let airportInfoWindowRecallBtn = null;
     let currentAirportInWindow = null;
+    // Monotonic token for airport-window open requests. Busy airports sit under
+    // dense marker clusters, so it's easy to tap several in quick succession;
+    // each tap fires an async fetch. This lets a request detect that a newer
+    // one has superseded it and bail before it writes stale content (or stale
+    // map-highlight state) into a window the user has already moved on from.
+    let airportWindowRequestSeq = 0;
     // NEW: State for the aircraft info window
     let aircraftInfoWindow = null;
     let weatherSettingsWindow = null; // <-- This was added in the last step
@@ -1768,6 +1774,17 @@ function injectCustomStyles() {
             border-color: rgba(255, 255, 255, 0.2);
             box-shadow: 0 12px 40px rgba(0,0,0,0.6);
         }
+
+        .route-card-bg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    z-index: 0;
+    /* Slight zoom mirrors the old background-size: 101% so edges stay covered. */
+    transform: scale(1.01);
+}
 
         .card-overlay {
     position: absolute;
@@ -9045,7 +9062,7 @@ function renderAtcSessionCard(s) {
     </div>`;
 }
 
-async function createAirportInfoWindowHTML(icao) {
+async function createAirportInfoWindowHTML(icao, requestId) {
         // 1. Get Static Data
         const staticData = airportsData[icao] || {};
         const airportMetadata = await fetchAirportData(icao);
@@ -9098,9 +9115,14 @@ async function createAirportInfoWindowHTML(icao) {
             console.error("Error fetching live stats:", e);
         }
 
-        // Update Global Traffic State for Highlighting
-        window.currentAirportTraffic = { in: inbounds, out: outbounds };
-        if (isTrafficHighlightActive) applyTrafficHighlighting();
+        // Update Global Traffic State for Highlighting — but only if this is
+        // still the active request. If the user tapped another airport while
+        // our /status fetch was in flight, recolouring the map for this (now
+        // stale) field would fight with the newer request's highlighting.
+        if (requestId === undefined || requestId === airportWindowRequestSeq) {
+            window.currentAirportTraffic = { in: inbounds, out: outbounds };
+            if (isTrafficHighlightActive) applyTrafficHighlighting();
+        }
 
         // 4. Merge Data
         const airportName = liveData?.name || staticData.name || 'Unknown Airport';
@@ -9250,8 +9272,15 @@ async function createAirportInfoWindowHTML(icao) {
             const al = extractAirlineCode(callsign);
             const logoHtml = `<img src="Images/vas/${al}.png" style="height: 12px; width: auto; max-width: 30px; margin-right: 8px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" onerror="this.style.display='none'">`;
             
+            // The hero image is a lazy <img> rather than a CSS background so
+            // WebKit only decodes the cards actually scrolled into view. A busy
+            // field can list 50 inbound + 50 outbound cards; decoding 100 remote
+            // images at once when the sheet slides open spikes memory enough to
+            // get the web view jettisoned (the "crash"). loading="lazy" keeps the
+            // off-screen ones from loading until the user scrolls to them.
             return `
-            <div class="route-card-reborn" style="background-image: url('${imgUrl}')">
+            <div class="route-card-reborn">
+                <img class="route-card-bg" src="${imgUrl}" loading="lazy" decoding="async" onerror="this.style.display='none'">
                 <div class="card-overlay"></div>
                 <div class="card-content">
                     <div class="card-header-zone">
@@ -13086,6 +13115,10 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
 async function handleAirportClick(icao, event = null, recenter = false) {
     if (!icao) return;
 
+    // Claim this as the newest open request. Any in-flight request for a
+    // previously tapped airport will see a higher seq and abort its DOM write.
+    const requestId = ++airportWindowRequestSeq;
+
     LandingUI.update(false);
     localStorage.setItem('landingUI_visible', 'false');
 
@@ -13151,7 +13184,13 @@ async function handleAirportClick(icao, event = null, recenter = false) {
 
     // 5. Fetch and Render Data
     try {
-        const windowContentHTML = await createAirportInfoWindowHTML(icao);
+        const windowContentHTML = await createAirportInfoWindowHTML(icao, requestId);
+
+        // If the user tapped another airport while we were fetching, a newer
+        // request now owns the window. Bail out silently rather than overwrite
+        // its content — or, worse, close the window it just opened.
+        if (requestId !== airportWindowRequestSeq) return;
+
         if (windowContentHTML && contentEl) {
             contentEl.innerHTML = windowContentHTML;
             contentEl.scrollTop = 0;
@@ -13177,7 +13216,9 @@ async function handleAirportClick(icao, event = null, recenter = false) {
         }
     } catch (err) {
         console.error("Failed to load airport info:", err);
-        closeAirportWindow();
+        // Only tear the window down if this request still owns it; a stale
+        // failure must not close the window a newer tap just opened.
+        if (requestId === airportWindowRequestSeq) closeAirportWindow();
     }
 }
 
