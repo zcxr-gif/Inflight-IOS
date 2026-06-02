@@ -10138,6 +10138,12 @@ function updateTrafficLegendUI() {
 
         const uiToToggle = [];
         let reopenAirportOnClose = false;
+        // Remember which airport to restore on close. We re-open it by replaying
+        // the full handleAirportClick() flow rather than just re-showing the
+        // sheet, because MobileUIHandler.openWindow() only animates the sheet in
+        // when it observes a content mutation — re-showing an already-populated
+        // window produces no mutation, so the sheet would stay off-screen.
+        const airportToReopen = currentAirportInWindow;
 
         if (isMobile) {
             // On mobile the airport window is presented through MobileUIHandler
@@ -10183,9 +10189,11 @@ function updateTrafficLegendUI() {
             meta: { airportName: apt, username: user, userId: uid || null, apiBase: ACARS_SOCKET_URL },
             onClose: () => {
                 if (isMobile) {
-                    if (reopenAirportOnClose) {
-                        const aptWin = document.getElementById('airport-info-window');
-                        if (aptWin) window.MobileUIHandler.openWindow(aptWin);
+                    // Re-run the full open flow so the sheet's content mutates and
+                    // MobileUIHandler animates it back in (a bare openWindow on an
+                    // unchanged window never fires its content observer).
+                    if (reopenAirportOnClose && airportToReopen && typeof handleAirportClick === 'function') {
+                        handleAirportClick(airportToReopen);
                     }
                 } else {
                     uiToToggle.forEach(el => { if (el && el.classList) el.classList.add('visible'); });
