@@ -52,6 +52,7 @@ export const AtcReplay = (() => {
     let isFreeLook = false;         // detached camera: orbit / tilt / pan the traffic freely
     let preFreeLookCam = null;      // camera snapshot, restored when free-look exits
     let preFreeLookGestures = null; // gesture + max-pitch snapshot, restored on exit
+    let three = null;               // Three.js 3D traffic layer state (dots + altitude stems)
     let currentMeta = {};           // caller-supplied {airportName, username, userId, apiBase}
     let flightRowEls = {};          // flightId -> list <div> (cached for animation)
     let pathMode = 'trails';        // how flown tracks are drawn (see PATH_MODES)
@@ -83,6 +84,14 @@ export const AtcReplay = (() => {
     const LYR_PLANES = 'atc-replay-planes-layer';
     const LYR_PLANE_LABELS = 'atc-replay-plane-labels';
     const LYR_CONFLICT = 'atc-replay-conflict-layer';
+    const LYR_3D = 'atc-replay-3d';          // Three.js custom layer: elevated traffic dots
+
+    // 3D traffic tuning. Dots are drawn at the aircraft's true altitude (in
+    // metres) but exaggerated vertically so the stack reads in the tilted
+    // free-look view; each dot trails a faint stem down to the ground.
+    const MAX_3D_DOTS = 2000;
+    const ALT_EXAGGERATION = 2.5;            // vertical scale for the dot/stem heights
+    const DOT_SIZE_PX = 24;                  // on-screen dot size (constant, no attenuation)
 
     // Traffic-hiding (identical strategy to flightReplay): while the ATC
     // replay is up we blank every live aircraft so the historical picture
@@ -597,6 +606,7 @@ export const AtcReplay = (() => {
             });
         }
 
+        ensureTraffic3D();
         bindMapInteractions();
         applyPathMode();
     }
@@ -824,6 +834,7 @@ export const AtcReplay = (() => {
             map.getSource(SRC_TRAILS).setData(buildTrailFeatures(absT));
         }
         updateConflictPulse(conflictSet.size > 0);
+        update3DTraffic(active, conflictSet);
 
         // follow focused flight if "fit/follow" is engaged
         if (isFollowing && focusedFlightId && map) {
@@ -995,7 +1006,7 @@ export const AtcReplay = (() => {
                 <button class="atcr-btn atcr-restart" title="Restart"><i class="fa-solid fa-backward-step"></i></button>
                 <button class="atcr-btn atcr-play" title="Play / Pause"><i class="fa-solid fa-play"></i></button>
                 <button class="atcr-btn atcr-fit" title="Fit airspace / follow focused flight"><i class="fa-solid fa-expand"></i></button>
-                <button class="atcr-btn atcr-freelook${isFreeLook ? ' active' : ''}" title="Free-look camera — orbit &amp; tilt the traffic (V)"><i class="fa-solid fa-cube"></i></button>
+                <button class="atcr-btn atcr-freelook${isFreeLook ? ' active' : ''}" title="3D traffic — orbit &amp; tilt to see aircraft at altitude (V)"><i class="fa-solid fa-cube"></i></button>
                 <button class="atcr-btn atcr-loop${isLooping ? ' active' : ''}" title="Loop playback"><i class="fa-solid fa-repeat"></i></button>
                 <div class="atcr-time" data-hud="elapsed">0:00</div>
                 <div class="atcr-scrub-wrap">
@@ -1400,6 +1411,156 @@ export const AtcReplay = (() => {
         } catch (_) {}
     }
 
+    // ---------- 3D traffic (elevated glowing dots) ----------
+    // Altitude colour as normalized [r,g,b] for Three.js vertex colours —
+    // mirrors getAltColor()'s ramp so the 3D dots match the 2D look.
+    function altColor01(alt) {
+        const stops = [
+            [0, [56, 189, 248]], [10000, [45, 212, 191]], [20000, [163, 230, 53]],
+            [30000, [250, 204, 21]], [40000, [244, 63, 94]]
+        ];
+        const a = Math.max(0, Math.min(40000, alt || 0));
+        let s1 = stops[0], s2 = stops[stops.length - 1];
+        for (let i = 0; i < stops.length - 1; i++) {
+            if (a >= stops[i][0] && a <= stops[i + 1][0]) { s1 = stops[i]; s2 = stops[i + 1]; break; }
+        }
+        const range = s2[0] - s1[0], f = range === 0 ? 0 : (a - s1[0]) / range;
+        return [
+            (s1[1][0] + (s2[1][0] - s1[1][0]) * f) / 255,
+            (s1[1][1] + (s2[1][1] - s1[1][1]) * f) / 255,
+            (s1[1][2] + (s2[1][2] - s1[1][2]) * f) / 255
+        ];
+    }
+
+    // Soft radial sprite so each point renders as a glowing orb rather than a
+    // hard square, tinted per-aircraft by the vertex colour.
+    function makeGlowTexture() {
+        const THREE = window.THREE;
+        const size = 64;
+        const c = document.createElement('canvas');
+        c.width = c.height = size;
+        const ctx = c.getContext('2d');
+        const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+        g.addColorStop(0, 'rgba(255,255,255,1)');
+        g.addColorStop(0.25, 'rgba(255,255,255,0.85)');
+        g.addColorStop(0.6, 'rgba(255,255,255,0.25)');
+        g.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, size, size);
+        const tex = new THREE.CanvasTexture(c);
+        tex.needsUpdate = true;
+        return tex;
+    }
+
+    // Build the Three.js custom layer once. Two buffers: the dots (THREE.Points,
+    // additive glow) and the vertical stems (THREE.LineSegments) connecting each
+    // dot to the ground. It renders in the map's own WebGL context, exactly the
+    // way flownPath3D.js does, positioning everything in Mercator world space.
+    function ensureTraffic3D() {
+        if (!map || three || !window.THREE || !window.mapboxgl) return;
+        if (map.getLayer(LYR_3D)) return;
+        const THREE = window.THREE;
+        const self = { visible: false };
+        const glowTex = makeGlowTexture();
+
+        const layer = {
+            id: LYR_3D, type: 'custom', renderingMode: '3d',
+            onAdd(m, gl) {
+                self.camera = new THREE.Camera();
+                self.scene = new THREE.Scene();
+
+                self.dotGeo = new THREE.BufferGeometry();
+                self.dotGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX_3D_DOTS * 3), 3));
+                self.dotGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(MAX_3D_DOTS * 3), 3));
+                self.dotMat = new THREE.PointsMaterial({
+                    size: DOT_SIZE_PX, sizeAttenuation: false, map: glowTex,
+                    vertexColors: true, transparent: true, depthWrite: false,
+                    blending: THREE.AdditiveBlending
+                });
+                self.dots = new THREE.Points(self.dotGeo, self.dotMat);
+                self.dots.frustumCulled = false;
+                self.scene.add(self.dots);
+
+                self.stemGeo = new THREE.BufferGeometry();
+                self.stemGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX_3D_DOTS * 2 * 3), 3));
+                self.stemGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(MAX_3D_DOTS * 2 * 3), 3));
+                self.stemMat = new THREE.LineBasicMaterial({
+                    vertexColors: true, transparent: true, opacity: 0.32,
+                    depthWrite: false, blending: THREE.AdditiveBlending
+                });
+                self.stems = new THREE.LineSegments(self.stemGeo, self.stemMat);
+                self.stems.frustumCulled = false;
+                self.scene.add(self.stems);
+
+                self.renderer = new THREE.WebGLRenderer({ canvas: m.getCanvas(), context: gl, antialias: true });
+                self.renderer.autoClear = false;
+                self.glowTex = glowTex;
+            },
+            render(gl, matrix) {
+                if (!self.renderer || !self.visible) return;
+                self.camera.projectionMatrix = new THREE.Matrix4().fromArray(matrix);
+                self.renderer.resetState();
+                self.renderer.render(self.scene, self.camera);
+            }
+        };
+        try { map.addLayer(layer); three = self; } catch (e) { console.warn('[AtcReplay] 3D layer add failed:', e); }
+    }
+
+    // Refresh the dot + stem buffers from the current frame's aircraft. No-op
+    // unless the 3D view is showing, so the flat radar path costs nothing.
+    function update3DTraffic(active, conflictSet) {
+        if (!three || !three.visible || !map) return;
+        const Merc = window.mapboxgl.MercatorCoordinate;
+        const [bandMin, bandMax] = ALT_BANDS[altBand] || ALT_BANDS.all;
+        const dotPos = three.dotGeo.attributes.position, dotCol = three.dotGeo.attributes.color;
+        const stemPos = three.stemGeo.attributes.position, stemCol = three.stemGeo.attributes.color;
+        let n = 0;
+        for (const { fl, pos } of active) {
+            if (n >= MAX_3D_DOTS) break;
+            const alt = pos.altitude || 0;
+            if (alt < bandMin || alt >= bandMax) continue;
+            const m = Merc.fromLngLat([pos.lon, pos.lat], alt * 0.3048 * ALT_EXAGGERATION);
+            const focused = focusedFlightId && fl.flightId === focusedFlightId;
+            const c = conflictSet.has(fl.flightId) ? [1, 0.27, 0.27] : (focused ? [1, 1, 1] : altColor01(alt));
+            dotPos.setXYZ(n, m.x, m.y, m.z);
+            dotCol.setXYZ(n, c[0], c[1], c[2]);
+            // stem runs from the ground point straight up to the dot
+            stemPos.setXYZ(n * 2, m.x, m.y, 0);
+            stemPos.setXYZ(n * 2 + 1, m.x, m.y, m.z);
+            stemCol.setXYZ(n * 2, c[0], c[1], c[2]);
+            stemCol.setXYZ(n * 2 + 1, c[0], c[1], c[2]);
+            n++;
+        }
+        three.dotGeo.setDrawRange(0, n);
+        three.stemGeo.setDrawRange(0, n * 2);
+        dotPos.needsUpdate = dotCol.needsUpdate = true;
+        stemPos.needsUpdate = stemCol.needsUpdate = true;
+        map.triggerRepaint();
+    }
+
+    // Swap between the flat radar icons and the 3D dot field. Showing the dots
+    // hides the ground-locked aircraft symbols/labels so they don't double up.
+    function set3DVisible(on) {
+        if (three) three.visible = !!on;
+        const flatVis = on ? 'none' : 'visible';
+        [LYR_PLANES, LYR_PLANE_LABELS].forEach(id => {
+            if (map && map.getLayer(id)) { try { map.setLayoutProperty(id, 'visibility', flatVis); } catch (_) {} }
+        });
+        if (map) map.triggerRepaint();
+    }
+
+    function dispose3D() {
+        if (!three) return;
+        try {
+            three.dotGeo && three.dotGeo.dispose();
+            three.stemGeo && three.stemGeo.dispose();
+            three.dotMat && three.dotMat.dispose();
+            three.stemMat && three.stemMat.dispose();
+            three.glowTex && three.glowTex.dispose();
+        } catch (_) {}
+        three = null;
+    }
+
     // ---------- free-look camera ----------
     // Detach the camera from the flat radar / follow behaviour and drop into a
     // cinematic high-pitch oblique view, letting the controller orbit, tilt and
@@ -1424,7 +1585,8 @@ export const AtcReplay = (() => {
         const on = (h) => !!(h && h.isEnabled && h.isEnabled());
         preFreeLookCam = {
             center: map.getCenter(), zoom: map.getZoom(),
-            pitch: map.getPitch(), bearing: map.getBearing()
+            pitch: map.getPitch(), bearing: map.getBearing(),
+            projection: (map.getProjection && map.getProjection().name) || 'mercator'
         };
         preFreeLookGestures = {
             maxPitch: map.getMaxPitch ? map.getMaxPitch() : 60,
@@ -1432,12 +1594,20 @@ export const AtcReplay = (() => {
             touchPitch: on(map.touchPitch)
         };
 
+        // mercator keeps the custom-layer matrix correct for the elevated dots
+        // and gives the flatter, horizon-lit look the 3D view is going for
+        try { if (map.setProjection) map.setProjection('mercator'); } catch (_) {}
+
         // free the gestures the flat radar view normally keeps locked down
         try { if (map.setMaxPitch) map.setMaxPitch(85); } catch (_) {}
         try { map.dragRotate && map.dragRotate.enable(); } catch (_) {}
         try { map.touchPitch && map.touchPitch.enable(); } catch (_) {}
         try { map.touchZoomRotate && map.touchZoomRotate.enableRotation(); } catch (_) {}
         try { map.keyboard && map.keyboard.enable(); } catch (_) {}
+
+        // raise the traffic into 3D glowing dots at altitude
+        set3DVisible(true);
+        renderFrame();
 
         // swing into the oblique angle, framed on the airspace centre
         let center = map.getCenter();
@@ -1453,7 +1623,7 @@ export const AtcReplay = (() => {
         } catch (_) {}
 
         panelEl?.querySelector('.atcr-freelook')?.classList.add('active');
-        showToast('Free-look — drag to orbit · two-finger / right-drag to tilt');
+        showToast('3D traffic — drag to orbit · two-finger / right-drag to tilt');
     }
 
     // restoreCamera=false hands the camera straight to whatever's taking over
@@ -1462,6 +1632,8 @@ export const AtcReplay = (() => {
         if (!isFreeLook) return;
         isFreeLook = false;
         panelEl?.querySelector('.atcr-freelook')?.classList.remove('active');
+        // drop back to the flat radar icons
+        set3DVisible(false);
         if (!map) { preFreeLookCam = null; preFreeLookGestures = null; return; }
 
         // restore the gesture lockdown the flat view expects
@@ -1471,6 +1643,8 @@ export const AtcReplay = (() => {
             try { if (!g.touchPitch && map.touchPitch) map.touchPitch.disable(); } catch (_) {}
             try { if (map.setMaxPitch) map.setMaxPitch(g.maxPitch); } catch (_) {}
         }
+        // restore the projection we swapped away from
+        try { if (map.setProjection && preFreeLookCam && preFreeLookCam.projection) map.setProjection(preFreeLookCam.projection); } catch (_) {}
         if (restoreCamera) {
             // ease back to exactly where the camera sat before free-look
             const c = preFreeLookCam;
@@ -1513,9 +1687,10 @@ export const AtcReplay = (() => {
         exitFreeLook(true);
         restoreLiveTraffic();
         if (map) {
-            [LYR_PLANE_LABELS, LYR_PLANES, LYR_CONFLICT, LYR_TRAILS, LYR_PATHS, LYR_RADIUS_LINE, LYR_RADIUS_FILL].forEach(id => {
+            [LYR_3D, LYR_PLANE_LABELS, LYR_PLANES, LYR_CONFLICT, LYR_TRAILS, LYR_PATHS, LYR_RADIUS_LINE, LYR_RADIUS_FILL].forEach(id => {
                 if (map.getLayer && map.getLayer(id)) { try { map.removeLayer(id); } catch (_) {} }
             });
+            dispose3D();
             [SRC_PLANES, SRC_TRAILS, SRC_PATHS, SRC_RADIUS + '-line', SRC_RADIUS].forEach(id => {
                 if (map.getSource && map.getSource(id)) { try { map.removeSource(id); } catch (_) {} }
             });
@@ -1525,7 +1700,7 @@ export const AtcReplay = (() => {
         controller = null; flights = []; currentMeta = {}; flightRowEls = {};
         spanStart = 0; totalDurationMs = 0; currentMs = 0; speed = 1;
         isScrubbing = false; focusedFlightId = null; isFollowing = false;
-        isFreeLook = false; preFreeLookCam = null; preFreeLookGestures = null;
+        isFreeLook = false; preFreeLookCam = null; preFreeLookGestures = null; three = null;
         enforcementCount = null; isLooping = false; isCollapsed = false;
         conflictIntervals = []; altBand = 'all';
 
