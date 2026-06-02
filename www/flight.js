@@ -6,6 +6,7 @@ import { GroupFlightManager } from './groupFlightManager.js';
 import { updateActiveSectors } from './atcHighlights.js';
 import { NatTracksLayer } from './natTracksLayer.js';
 import { FlownPath3D } from './flownPath3D.js';
+import { LiveTraffic3D } from './liveTraffic3D.js';
 import { MobileSettingsUI } from './MobileSettingsUI.js';
 import { spriteUVs } from './plane-D2OPBxWC.js';
 // Populates window.IFVA_DATABASE (the IFVARB Virtual Airline directory) used
@@ -8005,6 +8006,9 @@ function handleSocketFlightUpdate(data) {
         }
     }
 
+    // Push the new positions to the 3D dot field (no-op unless it's showing).
+    if (isMapReady && LiveTraffic3D.isVisible()) LiveTraffic3D.refresh();
+
     const landingVisible = localStorage.getItem('landingUI_visible') !== 'false';
     if (landingVisible && !currentFlightInWindow && !currentAirportInWindow) {
         LandingUI.update(true, { 
@@ -10700,6 +10704,10 @@ function initializeAircraftLayer() {
             mapAnimator = new MapAnimator(sectorOpsMap, 'sector-ops-live-flights-source', currentMapFeatures);
         }
 
+        // 3D live-traffic dot field (toggled from the map toolbar). Reads the
+        // same shared feature cache the flat symbol layer does.
+        LiveTraffic3D.init(sectorOpsMap, () => Object.values(currentMapFeatures));
+
         const initialIconSize = parseFloat(mapFilters.planeIconSize) || 0.15;
 
         if (!sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
@@ -12543,6 +12551,13 @@ if (!document.getElementById('trip-card-takeover')) {
                 toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
                     <button id="aircraft-recall-btn" class="toolbar-btn" title="Show Aircraft Info">
                         <i class="fa-solid fa-plane-up"></i>
+                    </button>
+                `);
+             }
+             if (!document.getElementById('live-3d-toggle-btn')) {
+                toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
+                    <button id="live-3d-toggle-btn" class="toolbar-btn" title="3D Traffic View">
+                        <i class="fa-solid fa-cube"></i>
                     </button>
                 `);
              }
@@ -16111,6 +16126,16 @@ function setupSectorOpsEventListeners() {
                 const isVisible = weatherSettingsWindow.classList.toggle('visible');
                 if (isVisible && typeof MobileUIHandler !== 'undefined') MobileUIHandler.openWindow(weatherSettingsWindow);
             }
+        });
+    }
+
+    // --- 3D Traffic Toggle ---
+    // Swaps the flat plane icons for the elevated 3D dot field and back.
+    const live3dBtn = document.getElementById('live-3d-toggle-btn');
+    if (live3dBtn) {
+        live3dBtn.addEventListener('click', () => {
+            const on = LiveTraffic3D.setVisible(!LiveTraffic3D.isVisible());
+            live3dBtn.classList.toggle('active', on);
         });
     }
 
