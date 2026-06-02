@@ -23,6 +23,9 @@ const PATH_MODE_STORAGE_KEY = 'atcReplayPathMode';
 const TRAIL_WINDOW_MS = 120000;
 // Fallback / minimum coverage radius when the controller payload omits one.
 const DEFAULT_RADIUS_NM = 50;
+// Loss-of-separation alert thresholds (airborne aircraft only).
+const CONFLICT_NM = 3;
+const CONFLICT_FT = 1000;
 
 export const AtcReplay = (() => {
     // ---------- state ----------
@@ -52,6 +55,9 @@ export const AtcReplay = (() => {
     let enforcementCount = null;    // violations the controller issued (null = unknown)
     let freqWinStart = 0;           // abs-ms at the left edge of the freq timeline
     let freqWinSpan = 0;            // width of the freq timeline in ms
+    let isLooping = false;          // restart at the end instead of stopping
+    let onKeyDown = null;           // bound keyboard-shortcut handler
+    let onPlaneClick = null, onPlaneEnter = null, onPlaneLeave = null; // map handlers
 
     const SRC_RADIUS = 'atc-replay-radius-source';
     const LYR_RADIUS_FILL = 'atc-replay-radius-fill';
@@ -63,6 +69,7 @@ export const AtcReplay = (() => {
     const SRC_PLANES = 'atc-replay-planes-source';
     const LYR_PLANES = 'atc-replay-planes-layer';
     const LYR_PLANE_LABELS = 'atc-replay-plane-labels';
+    const LYR_CONFLICT = 'atc-replay-conflict-layer';
 
     // Traffic-hiding (identical strategy to flightReplay): while the ATC
     // replay is up we blank every live aircraft so the historical picture
@@ -322,6 +329,7 @@ export const AtcReplay = (() => {
             #atc-replay-panel .atcr-play { background: #fff; color: #181a20; width: 38px; height: 38px; border-color: #fff; }
             #atc-replay-panel .atcr-play:hover { background: #e8eaed; }
             #atc-replay-panel .atcr-fit.active { background: #fff; color: #181a20; border-color: #fff; }
+            #atc-replay-panel .atcr-loop.active { background: #7dd3fc; color: #0b1220; border-color: #7dd3fc; }
             #atc-replay-panel .atcr-time { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; font-weight: 600; color: #e8eaed; min-width: 56px; text-align: center; }
             #atc-replay-panel .atcr-time-total { color: #9aa0a6; }
             #atc-replay-panel .atcr-scrubber {
@@ -342,6 +350,7 @@ export const AtcReplay = (() => {
             #atc-replay-panel .atcr-flight.focused { border-color: #7dd3fc; background: rgba(125,211,252,0.1); }
             #atc-replay-panel .atcr-flight.airport { border-left: 3px solid #4ade80; }
             #atc-replay-panel .atcr-flight.inactive { opacity: 0.4; }
+            #atc-replay-panel .atcr-flight.conflict { border-color: #f87171; background: rgba(248,113,113,0.12); }
             #atc-replay-panel .atcr-flight .fl-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 6px currentColor; }
             #atc-replay-panel .atcr-flight .fl-cs { font-family: 'JetBrains Mono', ui-monospace, monospace; font-weight: 700; font-size: 12px; color: #fff; min-width: 64px; }
             #atc-replay-panel .atcr-flight .fl-ac { font-size: 11px; color: #94a3b8; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -353,6 +362,17 @@ export const AtcReplay = (() => {
             #atc-replay-panel .atcr-enforce { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 800; letter-spacing: .4px; padding: 2px 7px; border-radius: 999px; white-space: nowrap; flex-shrink: 0; }
             #atc-replay-panel .atcr-enforce.issued { color: #fca5a5; background: rgba(248,113,113,0.14); border: 1px solid rgba(248,113,113,0.5); }
             #atc-replay-panel .atcr-enforce.clean { color: #6ee7b7; background: rgba(52,211,153,0.12); border: 1px solid rgba(52,211,153,0.4); }
+
+            /* loss-of-separation chip */
+            #atc-replay-panel .atcr-conflict { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 800; letter-spacing: .4px; padding: 2px 7px; border-radius: 999px; white-space: nowrap; flex-shrink: 0; color: #fca5a5; background: rgba(248,113,113,0.16); border: 1px solid rgba(248,113,113,0.6); animation: atcr-conflict-blink 1s ease-in-out infinite; }
+            @keyframes atcr-conflict-blink { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
+
+            /* focused-flight live telemetry strip */
+            #atc-replay-panel .atcr-focus { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; padding: 6px 12px; border-radius: 10px; background: rgba(125,211,252,0.1); border: 1px solid rgba(125,211,252,0.35); font-size: 11px; color: #cbd5e1; }
+            #atc-replay-panel .atcr-focus > i { color: #7dd3fc; }
+            #atc-replay-panel .atcr-focus .ff-cs { font-family: 'JetBrains Mono', ui-monospace, monospace; font-weight: 800; font-size: 12px; color: #fff; }
+            #atc-replay-panel .atcr-focus .ff-stat { color: #9aa0a6; font-weight: 600; }
+            #atc-replay-panel .atcr-focus .ff-stat b { font-family: 'JetBrains Mono', ui-monospace, monospace; color: #fff; font-weight: 700; margin-left: 3px; }
 
             /* path-mode segmented control */
             #atc-replay-panel .atcr-pathmode { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; row-gap: 6px; }
@@ -481,6 +501,20 @@ export const AtcReplay = (() => {
         if (!map.getSource(SRC_PLANES)) {
             map.addSource(SRC_PLANES, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
         }
+        // Loss-of-separation rings, drawn under the aircraft icons
+        if (!map.getLayer(LYR_CONFLICT)) {
+            map.addLayer({
+                id: LYR_CONFLICT, type: 'circle', source: SRC_PLANES,
+                filter: ['==', ['get', 'conflict'], true],
+                paint: {
+                    'circle-radius': 15,
+                    'circle-color': 'rgba(248,113,113,0.16)',
+                    'circle-stroke-color': '#f87171',
+                    'circle-stroke-width': 2,
+                    'circle-stroke-opacity': 0.9
+                }
+            });
+        }
         if (!map.getLayer(LYR_PLANES)) {
             map.addLayer({
                 id: LYR_PLANES, type: 'symbol', source: SRC_PLANES,
@@ -510,7 +544,32 @@ export const AtcReplay = (() => {
             });
         }
 
+        bindMapInteractions();
         applyPathMode();
+    }
+
+    // Let controllers click an aircraft on the map to focus it (same effect as
+    // tapping its row), with a pointer cursor on hover.
+    function bindMapInteractions() {
+        if (!map || onPlaneClick) return;
+        onPlaneClick = (e) => {
+            const f = e.features && e.features[0];
+            if (f && f.properties) focusFlight(f.properties.flightId);
+        };
+        onPlaneEnter = () => { try { map.getCanvas().style.cursor = 'pointer'; } catch (_) {} };
+        onPlaneLeave = () => { try { map.getCanvas().style.cursor = ''; } catch (_) {} };
+        map.on('click', LYR_PLANES, onPlaneClick);
+        map.on('mouseenter', LYR_PLANES, onPlaneEnter);
+        map.on('mouseleave', LYR_PLANES, onPlaneLeave);
+    }
+    function unbindMapInteractions() {
+        if (!map) return;
+        try {
+            if (onPlaneClick) map.off('click', LYR_PLANES, onPlaneClick);
+            if (onPlaneEnter) map.off('mouseenter', LYR_PLANES, onPlaneEnter);
+            if (onPlaneLeave) map.off('mouseleave', LYR_PLANES, onPlaneLeave);
+        } catch (_) {}
+        onPlaneClick = onPlaneEnter = onPlaneLeave = null;
     }
 
     // Show/hide the static-paths and trails layers to match the active path
@@ -630,25 +689,39 @@ export const AtcReplay = (() => {
         lastTickWall = now;
         currentMs = Math.min(totalDurationMs, currentMs + dt * speed);
         renderFrame();
-        if (currentMs >= totalDurationMs) pause();
-        else rafHandle = requestAnimationFrame(tick);
+        if (currentMs >= totalDurationMs) {
+            if (isLooping) { currentMs = 0; lastTickWall = performance.now(); rafHandle = requestAnimationFrame(tick); }
+            else pause();
+        } else {
+            rafHandle = requestAnimationFrame(tick);
+        }
     }
 
     function renderFrame() {
         const absT = spanStart + currentMs;
-        const features = [];
-        let activeCount = 0;
 
+        // 1. resolve every flight's current position
+        const active = [];
         for (const fl of flights) {
             const pos = positionAt(fl.points, absT);
             const listEl = flightRowEls[fl.flightId];
             if (!pos) {
-                if (listEl) listEl.classList.add('inactive');
+                if (listEl) { listEl.classList.add('inactive'); listEl.classList.remove('conflict'); }
                 continue;
             }
-            activeCount++;
             if (listEl) listEl.classList.remove('inactive');
-            features.push({
+            active.push({ fl, pos });
+        }
+
+        // 2. flag any airborne pairs that have lost separation
+        const conflictSet = detectConflicts(active);
+
+        // 3. build the aircraft features
+        const features = active.map(({ fl, pos }) => {
+            const conflict = conflictSet.has(fl.flightId);
+            const listEl = flightRowEls[fl.flightId];
+            if (listEl) listEl.classList.toggle('conflict', conflict);
+            return {
                 type: 'Feature',
                 geometry: { type: 'Point', coordinates: [pos.lon, pos.lat] },
                 properties: {
@@ -656,10 +729,11 @@ export const AtcReplay = (() => {
                     heading: pos.track || 0,
                     callsign: fl.callsign,
                     color: getAltColor(pos.altitude),
-                    flightId: fl.flightId
+                    flightId: fl.flightId,
+                    conflict
                 }
-            });
-        }
+            };
+        });
 
         if (map && map.getSource(SRC_PLANES)) {
             map.getSource(SRC_PLANES).setData({ type: 'FeatureCollection', features });
@@ -667,6 +741,7 @@ export const AtcReplay = (() => {
         if (pathMode === 'trails' && map && map.getSource(SRC_TRAILS)) {
             map.getSource(SRC_TRAILS).setData(buildTrailFeatures(absT));
         }
+        updateConflictPulse(conflictSet.size > 0);
 
         // follow focused flight if "fit/follow" is engaged
         if (isFollowing && focusedFlightId && map) {
@@ -675,9 +750,60 @@ export const AtcReplay = (() => {
             if (pos) map.jumpTo({ center: [pos.lon, pos.lat] });
         }
 
-        updateHUD(activeCount);
+        updateHUD(active.length, conflictSet.size);
+        updateFocusStrip(absT);
         updateFreqTimeline(absT);
         if (!isScrubbing) updateScrubber();
+    }
+
+    // Pairwise loss-of-separation test for the airborne aircraft in the frame.
+    function detectConflicts(active) {
+        const set = new Set();
+        for (let i = 0; i < active.length; i++) {
+            const a = active[i].pos;
+            if ((a.altitude || 0) < 500) continue; // skip ground/parked
+            for (let j = i + 1; j < active.length; j++) {
+                const b = active[j].pos;
+                if ((b.altitude || 0) < 500) continue;
+                if (Math.abs((a.altitude || 0) - (b.altitude || 0)) >= CONFLICT_FT) continue;
+                const midLat = ((a.lat + b.lat) / 2) * Math.PI / 180;
+                const dLat = (a.lat - b.lat) * 60;
+                const dLon = (a.lon - b.lon) * 60 * Math.cos(midLat);
+                if (Math.hypot(dLat, dLon) < CONFLICT_NM) {
+                    set.add(active[i].fl.flightId);
+                    set.add(active[j].fl.flightId);
+                }
+            }
+        }
+        return set;
+    }
+
+    // Gently breathe the conflict rings so they read as a live alert.
+    function updateConflictPulse(hasConflicts) {
+        if (!map || !map.getLayer(LYR_CONFLICT)) return;
+        if (!hasConflicts) return;
+        try { map.setPaintProperty(LYR_CONFLICT, 'circle-radius', 14 + 4 * Math.sin(performance.now() / 240)); } catch (_) {}
+    }
+
+    // Live readout for the focused flight (altitude / ground speed / heading).
+    function updateFocusStrip(absT) {
+        if (!panelEl) return;
+        const strip = panelEl.querySelector('[data-focus-strip]');
+        if (!strip) return;
+        if (!focusedFlightId) { strip.style.display = 'none'; return; }
+        const fl = flights.find(f => f.flightId === focusedFlightId);
+        strip.style.display = 'flex';
+        const csEl = strip.querySelector('.ff-cs');
+        if (csEl) csEl.textContent = (fl && fl.callsign) || '----';
+        const set = (k, v) => { const el = strip.querySelector(`[data-ff="${k}"]`); if (el) el.textContent = v; };
+        const pos = fl && positionAt(fl.points, absT);
+        if (pos) {
+            set('alt', Math.round(pos.altitude || 0).toLocaleString() + ' ft');
+            set('gs', Math.round(pos.groundSpeed || 0) + ' kt');
+            set('hdg', String(Math.round(pos.track || 0) % 360).padStart(3, '0') + '°');
+        } else {
+            set('alt', 'not airborne'); set('gs', '—'); set('hdg', '—');
+        }
     }
 
     // Sweep the playhead across the frequency timeline and light up whichever
@@ -760,6 +886,7 @@ export const AtcReplay = (() => {
                     <span class="atcr-apt">${apt}</span>
                     <span class="atcr-ctrl">${user}${radius !== '--' ? ` · ${radius}nm radius` : ''}</span>
                 </div>
+                <span class="atcr-conflict" data-hud="conflict" style="display:none;" title="Aircraft within ${CONFLICT_NM}nm and ${CONFLICT_FT}ft of each other"></span>
                 <span class="atcr-enforce" data-hud="enforce" style="display:none;"></span>
                 <button class="atcr-close" title="Close ATC Replay"><i class="fa-solid fa-xmark"></i></button>
             </div>
@@ -773,10 +900,19 @@ export const AtcReplay = (() => {
                 <div class="atcr-stat"><label>FIELD OPS</label><span data-hud="field">${flights.filter(f => f.atAirport).length}</span><small>arr/dep</small></div>
             </div>
 
+            <div class="atcr-focus" data-focus-strip style="display:none;">
+                <i class="fa-solid fa-crosshairs"></i>
+                <span class="ff-cs">----</span>
+                <span class="ff-stat">ALT <b data-ff="alt">--</b></span>
+                <span class="ff-stat">GS <b data-ff="gs">--</b></span>
+                <span class="ff-stat">HDG <b data-ff="hdg">--</b></span>
+            </div>
+
             <div class="atcr-controls">
                 <button class="atcr-btn atcr-restart" title="Restart"><i class="fa-solid fa-backward-step"></i></button>
                 <button class="atcr-btn atcr-play" title="Play / Pause"><i class="fa-solid fa-play"></i></button>
                 <button class="atcr-btn atcr-fit" title="Fit airspace / follow focused flight"><i class="fa-solid fa-expand"></i></button>
+                <button class="atcr-btn atcr-loop${isLooping ? ' active' : ''}" title="Loop playback"><i class="fa-solid fa-repeat"></i></button>
                 <div class="atcr-time" data-hud="elapsed">0:00</div>
                 <input type="range" class="atcr-scrubber" min="0" max="1000" value="0" step="1">
                 <div class="atcr-time atcr-time-total">${fmtClock(totalDurationMs)}</div>
@@ -834,10 +970,7 @@ export const AtcReplay = (() => {
         });
 
         panelEl.querySelectorAll('.atcr-speed-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                speed = Number(btn.dataset.speed);
-                panelEl.querySelectorAll('.atcr-speed-btn').forEach(b => b.classList.toggle('active', b === btn));
-            });
+            btn.addEventListener('click', () => { speed = Number(btn.dataset.speed); updateSpeedButtons(); });
         });
 
         panelEl.querySelectorAll('.atcr-seg-btn').forEach(btn => {
@@ -854,33 +987,120 @@ export const AtcReplay = (() => {
         flightRowEls = {};
         panelEl.querySelectorAll('.atcr-flight').forEach(row => {
             flightRowEls[row.dataset.fid] = row;
-            row.addEventListener('click', () => {
-                const fid = row.dataset.fid;
-                if (focusedFlightId === fid) {
-                    focusedFlightId = null;
-                    isFollowing = false;
-                    panelEl.querySelector('.atcr-fit')?.classList.remove('active');
-                } else {
-                    focusedFlightId = fid;
-                }
-                panelEl.querySelectorAll('.atcr-flight').forEach(r => r.classList.toggle('focused', r.dataset.fid === focusedFlightId));
-                applyPathMode();
-                // pan to the focused flight's current (or first) position
-                const fl = flights.find(f => f.flightId === focusedFlightId);
-                if (fl && map) {
-                    const pos = positionAt(fl.points, spanStart + currentMs) || fl.points[0];
-                    if (pos) map.easeTo({ center: [pos.lon, pos.lat], zoom: Math.max(map.getZoom(), 8), duration: 600 });
-                }
-            });
+            row.addEventListener('click', () => focusFlight(row.dataset.fid));
         });
+
+        panelEl.querySelector('.atcr-loop')?.addEventListener('click', toggleLoop);
     }
 
-    function updateHUD(activeCount) {
+    // Focus (or un-focus) a flight: highlight its row + full path, dim the rest,
+    // and pan to it. Shared by the flight list and map-click.
+    function focusFlight(fid) {
+        if (!fid) return;
+        if (focusedFlightId === fid) {
+            focusedFlightId = null;
+            isFollowing = false;
+            panelEl?.querySelector('.atcr-fit')?.classList.remove('active');
+        } else {
+            focusedFlightId = fid;
+        }
+        if (panelEl) panelEl.querySelectorAll('.atcr-flight').forEach(r => r.classList.toggle('focused', r.dataset.fid === focusedFlightId));
+        applyPathMode();
+        const fl = flights.find(f => f.flightId === focusedFlightId);
+        if (fl && map) {
+            const pos = positionAt(fl.points, spanStart + currentMs) || fl.points[0];
+            if (pos) map.easeTo({ center: [pos.lon, pos.lat], zoom: Math.max(map.getZoom(), 8), duration: 600 });
+        }
+        renderFrame();
+    }
+
+    function toggleLoop() {
+        isLooping = !isLooping;
+        panelEl?.querySelector('.atcr-loop')?.classList.toggle('active', isLooping);
+    }
+
+    function updateHUD(activeCount, conflictCount = 0) {
         if (!panelEl) return;
         const set = (sel, val) => { const el = panelEl.querySelector(sel); if (el) el.textContent = val; };
         set('[data-hud="utc"]', fmtZulu(spanStart + currentMs));
         set('[data-hud="active"]', String(activeCount));
         set('[data-hud="elapsed"]', fmtClock(currentMs));
+        const cf = panelEl.querySelector('[data-hud="conflict"]');
+        if (cf) {
+            if (conflictCount > 0) {
+                cf.style.display = 'inline-flex';
+                cf.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> ${conflictCount} too close`;
+            } else {
+                cf.style.display = 'none';
+            }
+        }
+    }
+    function updateSpeedButtons() {
+        if (!panelEl) return;
+        panelEl.querySelectorAll('.atcr-speed-btn').forEach(b => b.classList.toggle('active', Number(b.dataset.speed) === speed));
+    }
+    function cycleSpeed(dir) {
+        const i = ATC_SPEED_OPTIONS.indexOf(speed);
+        const ni = Math.max(0, Math.min(ATC_SPEED_OPTIONS.length - 1, (i < 0 ? 0 : i) + dir));
+        speed = ATC_SPEED_OPTIONS[ni];
+        updateSpeedButtons();
+    }
+    function skip(ms) {
+        currentMs = Math.max(0, Math.min(totalDurationMs, currentMs + ms));
+        renderFrame();
+    }
+
+    // ---------- keyboard shortcuts ----------
+    function bindKeys() {
+        if (onKeyDown) return;
+        onKeyDown = (e) => {
+            if (!panelEl) return;
+            const tag = (e.target && e.target.tagName) || '';
+            // ignore when a form control or panel button has focus, so we don't
+            // double-fire alongside the browser's native space/enter activation
+            if (/INPUT|TEXTAREA|SELECT|BUTTON/.test(tag) || (e.target && e.target.isContentEditable)) return;
+            switch (e.key) {
+                case ' ': case 'k': case 'K': e.preventDefault(); isPlaying ? pause() : play(); break;
+                case 'ArrowLeft': e.preventDefault(); skip(-10000); break;
+                case 'ArrowRight': e.preventDefault(); skip(10000); break;
+                case 'ArrowUp': e.preventDefault(); cycleSpeed(1); break;
+                case 'ArrowDown': e.preventDefault(); cycleSpeed(-1); break;
+                case 'l': case 'L': toggleLoop(); break;
+                case 'f': case 'F': panelEl.querySelector('.atcr-fit')?.click(); break;
+                case 'Escape': close(); break;
+                default: return;
+            }
+        };
+        document.addEventListener('keydown', onKeyDown);
+    }
+    function unbindKeys() {
+        if (onKeyDown) document.removeEventListener('keydown', onKeyDown);
+        onKeyDown = null;
+    }
+
+    // Shade the scrub bar by how many aircraft were airborne over time, so busy
+    // periods of the session are visible at a glance before you even play it.
+    function applyDensityGradient() {
+        if (!panelEl) return;
+        const s = panelEl.querySelector('.atcr-scrubber');
+        if (!s || !flights.length || !totalDurationMs) return;
+        const B = 60;
+        const counts = new Array(B).fill(0);
+        for (const fl of flights) {
+            if (!fl.points.length) continue;
+            const t0 = fl.points[0].t, t1 = fl.points[fl.points.length - 1].t;
+            for (let b = 0; b < B; b++) {
+                const t = spanStart + ((b + 0.5) / B) * totalDurationMs;
+                if (t >= t0 && t <= t1) counts[b]++;
+            }
+        }
+        const max = Math.max(1, ...counts);
+        const stops = counts.map((c, b) => {
+            const pct = (b / (B - 1)) * 100;
+            const a = 0.1 + 0.55 * (c / max);
+            return `rgba(125,211,252,${a.toFixed(2)}) ${pct.toFixed(1)}%`;
+        });
+        s.style.background = `linear-gradient(90deg, ${stops.join(',')})`;
     }
     function updateScrubber() {
         if (!panelEl) return;
@@ -991,9 +1211,11 @@ export const AtcReplay = (() => {
 
     function close() {
         pause();
+        unbindKeys();
+        unbindMapInteractions();
         restoreLiveTraffic();
         if (map) {
-            [LYR_PLANE_LABELS, LYR_PLANES, LYR_TRAILS, LYR_PATHS, LYR_RADIUS_LINE, LYR_RADIUS_FILL].forEach(id => {
+            [LYR_PLANE_LABELS, LYR_PLANES, LYR_CONFLICT, LYR_TRAILS, LYR_PATHS, LYR_RADIUS_LINE, LYR_RADIUS_FILL].forEach(id => {
                 if (map.getLayer && map.getLayer(id)) { try { map.removeLayer(id); } catch (_) {} }
             });
             [SRC_PLANES, SRC_TRAILS, SRC_PATHS, SRC_RADIUS + '-line', SRC_RADIUS].forEach(id => {
@@ -1005,7 +1227,7 @@ export const AtcReplay = (() => {
         controller = null; flights = []; currentMeta = {}; flightRowEls = {};
         spanStart = 0; totalDurationMs = 0; currentMs = 0; speed = 1;
         isScrubbing = false; focusedFlightId = null; isFollowing = false;
-        enforcementCount = null;
+        enforcementCount = null; isLooping = false;
 
         const cb = onCloseCallback; onCloseCallback = null;
         if (typeof cb === 'function') { try { cb(); } catch (e) { console.warn('[AtcReplay] onClose threw:', e); } }
@@ -1077,7 +1299,9 @@ export const AtcReplay = (() => {
         } catch (_) {}
 
         buildPanel();
+        applyDensityGradient();
         loadEnforcement();
+        bindKeys();
 
         const setup = () => {
             ensureLayers();
