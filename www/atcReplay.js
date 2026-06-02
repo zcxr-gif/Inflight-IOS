@@ -49,6 +49,9 @@ export const AtcReplay = (() => {
     let panelEl = null;
     let focusedFlightId = null;
     let isFollowing = false;        // camera follows the focused flight
+    let isFreeLook = false;         // detached camera: orbit / tilt / pan the traffic freely
+    let preFreeLookCam = null;      // camera snapshot, restored when free-look exits
+    let preFreeLookGestures = null; // gesture + max-pitch snapshot, restored on exit
     let currentMeta = {};           // caller-supplied {airportName, username, userId, apiBase}
     let flightRowEls = {};          // flightId -> list <div> (cached for animation)
     let pathMode = 'trails';        // how flown tracks are drawn (see PATH_MODES)
@@ -365,6 +368,7 @@ export const AtcReplay = (() => {
             #atc-replay-panel .atcr-play:hover { background: #e8eaed; }
             #atc-replay-panel .atcr-fit.active { background: #fff; color: #181a20; border-color: #fff; }
             #atc-replay-panel .atcr-loop.active { background: #7dd3fc; color: #0b1220; border-color: #7dd3fc; }
+            #atc-replay-panel .atcr-freelook.active { background: #fbbf24; color: #181a20; border-color: #fbbf24; box-shadow: 0 0 12px rgba(251,191,36,0.55); }
             #atc-replay-panel .atcr-time { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; font-weight: 600; color: #e8eaed; min-width: 56px; text-align: center; }
             #atc-replay-panel .atcr-time-total { color: #9aa0a6; }
             /* scrub bar + conflict markers */
@@ -991,6 +995,7 @@ export const AtcReplay = (() => {
                 <button class="atcr-btn atcr-restart" title="Restart"><i class="fa-solid fa-backward-step"></i></button>
                 <button class="atcr-btn atcr-play" title="Play / Pause"><i class="fa-solid fa-play"></i></button>
                 <button class="atcr-btn atcr-fit" title="Fit airspace / follow focused flight"><i class="fa-solid fa-expand"></i></button>
+                <button class="atcr-btn atcr-freelook${isFreeLook ? ' active' : ''}" title="Free-look camera — orbit &amp; tilt the traffic (V)"><i class="fa-solid fa-cube"></i></button>
                 <button class="atcr-btn atcr-loop${isLooping ? ' active' : ''}" title="Loop playback"><i class="fa-solid fa-repeat"></i></button>
                 <div class="atcr-time" data-hud="elapsed">0:00</div>
                 <div class="atcr-scrub-wrap">
@@ -1045,7 +1050,8 @@ export const AtcReplay = (() => {
                 // toggle follow mode on the focused flight
                 isFollowing = !isFollowing;
                 fitBtn.classList.toggle('active', isFollowing);
-                if (isFollowing) renderFrame();
+                // follow and free-look fight over the camera — drop free-look
+                if (isFollowing) { exitFreeLook(false); renderFrame(); }
             } else {
                 fitToAirspace();
             }
@@ -1085,6 +1091,7 @@ export const AtcReplay = (() => {
         });
 
         panelEl.querySelector('.atcr-loop')?.addEventListener('click', toggleLoop);
+        panelEl.querySelector('.atcr-freelook')?.addEventListener('click', toggleFreeLook);
         panelEl.querySelector('.atcr-collapse')?.addEventListener('click', () => togglePanelCollapse());
 
         // altitude-band filter
@@ -1208,6 +1215,7 @@ export const AtcReplay = (() => {
                 case 'ArrowDown': e.preventDefault(); cycleSpeed(-1); break;
                 case 'l': case 'L': toggleLoop(); break;
                 case 'f': case 'F': panelEl.querySelector('.atcr-fit')?.click(); break;
+                case 'v': case 'V': panelEl.querySelector('.atcr-freelook')?.click(); break;
                 case 'n': case 'N': jumpToConflict(1); break;
                 case 'p': case 'P': jumpToConflict(-1); break;
                 case 'Escape': close(); break;
@@ -1392,6 +1400,89 @@ export const AtcReplay = (() => {
         } catch (_) {}
     }
 
+    // ---------- free-look camera ----------
+    // Detach the camera from the flat radar / follow behaviour and drop into a
+    // cinematic high-pitch oblique view, letting the controller orbit, tilt and
+    // pan freely around the historical traffic while it keeps playing — the
+    // planes read as a field of glowing contacts against the horizon.
+    function toggleFreeLook() {
+        if (isFreeLook) exitFreeLook(true);
+        else enterFreeLook();
+    }
+
+    function enterFreeLook() {
+        if (!map || isFreeLook) return;
+        isFreeLook = true;
+
+        // follow and free-look both fight for the camera — only one wins
+        if (isFollowing) {
+            isFollowing = false;
+            panelEl?.querySelector('.atcr-fit')?.classList.remove('active');
+        }
+
+        // snapshot what we're about to change so we can put it back exactly
+        const on = (h) => !!(h && h.isEnabled && h.isEnabled());
+        preFreeLookCam = {
+            center: map.getCenter(), zoom: map.getZoom(),
+            pitch: map.getPitch(), bearing: map.getBearing()
+        };
+        preFreeLookGestures = {
+            maxPitch: map.getMaxPitch ? map.getMaxPitch() : 60,
+            dragRotate: on(map.dragRotate),
+            touchPitch: on(map.touchPitch)
+        };
+
+        // free the gestures the flat radar view normally keeps locked down
+        try { if (map.setMaxPitch) map.setMaxPitch(85); } catch (_) {}
+        try { map.dragRotate && map.dragRotate.enable(); } catch (_) {}
+        try { map.touchPitch && map.touchPitch.enable(); } catch (_) {}
+        try { map.touchZoomRotate && map.touchZoomRotate.enableRotation(); } catch (_) {}
+        try { map.keyboard && map.keyboard.enable(); } catch (_) {}
+
+        // swing into the oblique angle, framed on the airspace centre
+        let center = map.getCenter();
+        if (controller && Number.isFinite(controller.lat) && Number.isFinite(controller.lon)) {
+            center = [controller.lon, controller.lat];
+        }
+        try {
+            map.easeTo({
+                center, zoom: Math.min(map.getZoom(), 9),
+                pitch: 72, bearing: map.getBearing(),
+                duration: 1100, essential: true
+            });
+        } catch (_) {}
+
+        panelEl?.querySelector('.atcr-freelook')?.classList.add('active');
+        showToast('Free-look — drag to orbit · two-finger / right-drag to tilt');
+    }
+
+    // restoreCamera=false hands the camera straight to whatever's taking over
+    // (e.g. follow mode) instead of easing back to the flat view first.
+    function exitFreeLook(restoreCamera = true) {
+        if (!isFreeLook) return;
+        isFreeLook = false;
+        panelEl?.querySelector('.atcr-freelook')?.classList.remove('active');
+        if (!map) { preFreeLookCam = null; preFreeLookGestures = null; return; }
+
+        // restore the gesture lockdown the flat view expects
+        const g = preFreeLookGestures;
+        if (g) {
+            try { if (!g.dragRotate && map.dragRotate) map.dragRotate.disable(); } catch (_) {}
+            try { if (!g.touchPitch && map.touchPitch) map.touchPitch.disable(); } catch (_) {}
+            try { if (map.setMaxPitch) map.setMaxPitch(g.maxPitch); } catch (_) {}
+        }
+        if (restoreCamera) {
+            // ease back to exactly where the camera sat before free-look
+            const c = preFreeLookCam;
+            try {
+                map.easeTo(c
+                    ? { center: c.center, zoom: c.zoom, pitch: c.pitch, bearing: c.bearing, duration: 900, essential: true }
+                    : { pitch: 0, bearing: 0, duration: 900, essential: true });
+            } catch (_) {}
+        }
+        preFreeLookCam = null; preFreeLookGestures = null;
+    }
+
     // ---------- public ----------
     function play() {
         if (currentMs >= totalDurationMs) currentMs = 0;
@@ -1419,6 +1510,7 @@ export const AtcReplay = (() => {
         pause();
         unbindKeys();
         unbindMapInteractions();
+        exitFreeLook(true);
         restoreLiveTraffic();
         if (map) {
             [LYR_PLANE_LABELS, LYR_PLANES, LYR_CONFLICT, LYR_TRAILS, LYR_PATHS, LYR_RADIUS_LINE, LYR_RADIUS_FILL].forEach(id => {
@@ -1433,6 +1525,7 @@ export const AtcReplay = (() => {
         controller = null; flights = []; currentMeta = {}; flightRowEls = {};
         spanStart = 0; totalDurationMs = 0; currentMs = 0; speed = 1;
         isScrubbing = false; focusedFlightId = null; isFollowing = false;
+        isFreeLook = false; preFreeLookCam = null; preFreeLookGestures = null;
         enforcementCount = null; isLooping = false; isCollapsed = false;
         conflictIntervals = []; altBand = 'all';
 
