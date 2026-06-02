@@ -9232,7 +9232,13 @@ async function createAirportInfoWindowHTML(icao) {
             const callsign = p.callsign || 'Unknown';
             const pilot = p.username || 'Pilot';
             
-            const acData = (typeof p.aircraft === 'string') ? JSON.parse(p.aircraft) : (p.aircraft || {});
+            // A single malformed aircraft payload must not take down the whole
+            // airport window — busy fields have hundreds of flights and the odds
+            // of one bad record are high, so parse defensively.
+            let acData = {};
+            try {
+                acData = (typeof p.aircraft === 'string') ? JSON.parse(p.aircraft) : (p.aircraft || {});
+            } catch (_) { acData = {}; }
             const acName = acData.aircraftName || '---';
             const shortAc = acName.split(' ')[0].toUpperCase();
             
@@ -9270,6 +9276,20 @@ async function createAirportInfoWindowHTML(icao) {
             `;
         };
 
+        // Cap how many flight cards we build at once. At hub airports the
+        // inbound/outbound lists can run to many hundreds; concatenating that
+        // much HTML synchronously locks up (and can crash) the main thread, so
+        // render a sensible slice and note the remainder.
+        const MAX_TRAFFIC_CARDS = 50;
+        const renderFlightList = (ids, type) => {
+            const cards = ids.slice(0, MAX_TRAFFIC_CARDS).map(id => renderFlightCard(id, type)).join('');
+            const hidden = ids.length - MAX_TRAFFIC_CARDS;
+            const more = hidden > 0
+                ? `<div style="padding: 10px 12px; text-align: center; color: #64748b; font-size: 0.72rem;">+${hidden} more not shown</div>`
+                : '';
+            return cards + more;
+        };
+
         // --- UPDATED TRAFFIC HTML WITH DROPDOWNS ---
         let trafficHtml = (!trafficFetchSuccess) ? 
             '<div style="padding: 20px; text-align: center; color: #64748b;">Data unavailable.</div>' :
@@ -9286,7 +9306,7 @@ async function createAirportInfoWindowHTML(icao) {
                         <i class="fa-solid fa-chevron-down chevron"></i>
                     </summary>
                     <div class="traffic-dropdown-content">
-                        ${inbounds.map(id => renderFlightCard(id, 'in')).join('')}
+                        ${renderFlightList(inbounds, 'in')}
                     </div>
                 </details>
                 ` : ''}
@@ -9300,15 +9320,16 @@ async function createAirportInfoWindowHTML(icao) {
                         <i class="fa-solid fa-chevron-down chevron"></i>
                     </summary>
                     <div class="traffic-dropdown-content">
-                        ${outbounds.map(id => renderFlightCard(id, 'out')).join('')}
+                        ${renderFlightList(outbounds, 'out')}
                     </div>
                 </details>
                 ` : ''}
             </div>`;
 
-        let atcHtml = activeAtcFacilities.filter(f => f.airportName === icao).length === 0 
-            ? '<div style="padding: 20px; text-align: center; color: #64748b;">No active frequencies.</div>' 
-            : `<div style="padding: 12px;">${activeAtcFacilities.filter(f => f.airportName === icao).map(f => `<div class="atc-grid-card" style="padding: 8px;"><div style="display: flex; align-items: center; gap: 12px;"><span class="atc-type-badge ${f.type===1?'atc-type-twr':f.type===0?'atc-type-gnd':(f.type===4||f.type===5)?'atc-type-app':'atc-type-obs'}" style="width: 60px; font-size: 0.65rem;">${atcTypeToString(f.type)}</span><span class="atc-controller" style="font-size: 0.85rem;">${f.username||'Unknown'}</span></div><span class="atc-duration" style="font-size: 0.75rem;"><i class="fa-regular fa-clock"></i> ${formatAtcDuration(f.startTime)}</span></div>`).join('')}</div>`;
+        const airportAtc = activeAtcFacilities.filter(f => f.airportName === icao);
+        let atcHtml = airportAtc.length === 0
+            ? '<div style="padding: 20px; text-align: center; color: #64748b;">No active frequencies.</div>'
+            : `<div style="padding: 12px;">${airportAtc.map(f => `<div class="atc-grid-card" style="padding: 8px;"><div style="display: flex; align-items: center; gap: 12px;"><span class="atc-type-badge ${f.type===1?'atc-type-twr':f.type===0?'atc-type-gnd':(f.type===4||f.type===5)?'atc-type-app':'atc-type-obs'}" style="width: 60px; font-size: 0.65rem;">${atcTypeToString(f.type)}</span><span class="atc-controller" style="font-size: 0.85rem;">${f.username||'Unknown'}</span></div><span class="atc-duration" style="font-size: 0.75rem;"><i class="fa-regular fa-clock"></i> ${formatAtcDuration(f.startTime)}</span></div>`).join('')}</div>`;
 
         // --- ATC Replay History (recorded controller sessions for this field) ---
         const atcSessions = await fetchAtcSessionsForAirport(icao);

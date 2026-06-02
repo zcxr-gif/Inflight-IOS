@@ -49,6 +49,10 @@ export const AtcReplay = (() => {
     let panelEl = null;
     let focusedFlightId = null;
     let isFollowing = false;        // camera follows the focused flight
+    let isFreeLook = false;         // detached camera: orbit / tilt / pan the traffic freely
+    let preFreeLookCam = null;      // camera snapshot, restored when free-look exits
+    let preFreeLookGestures = null; // gesture + max-pitch snapshot, restored on exit
+    let three = null;               // Three.js 3D traffic layer state (dots + altitude stems)
     let currentMeta = {};           // caller-supplied {airportName, username, userId, apiBase}
     let flightRowEls = {};          // flightId -> list <div> (cached for animation)
     let pathMode = 'trails';        // how flown tracks are drawn (see PATH_MODES)
@@ -80,6 +84,14 @@ export const AtcReplay = (() => {
     const LYR_PLANES = 'atc-replay-planes-layer';
     const LYR_PLANE_LABELS = 'atc-replay-plane-labels';
     const LYR_CONFLICT = 'atc-replay-conflict-layer';
+    const LYR_3D = 'atc-replay-3d';          // Three.js custom layer: elevated traffic dots
+
+    // 3D traffic tuning. Dots are drawn at the aircraft's true altitude (in
+    // metres) but exaggerated vertically so the stack reads in the tilted
+    // free-look view; each dot trails a faint stem down to the ground.
+    const MAX_3D_DOTS = 2000;
+    const ALT_EXAGGERATION = 2.5;            // vertical scale for the dot/stem heights
+    const DOT_SIZE_PX = 24;                  // on-screen dot size (constant, no attenuation)
 
     // Traffic-hiding (identical strategy to flightReplay): while the ATC
     // replay is up we blank every live aircraft so the historical picture
@@ -307,6 +319,36 @@ export const AtcReplay = (() => {
                 from { transform: translate(-50%, 24px); opacity: 0; }
                 to   { transform: translate(-50%, 0);    opacity: 1; }
             }
+            /* loading overlay shown while the session payload is fetched */
+            #atc-replay-loading {
+                position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+                width: min(420px, calc(100vw - 32px));
+                background: rgba(24, 26, 32, 0.94);
+                border: 1px solid rgba(120, 170, 255, 0.22); border-radius: 16px;
+                backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+                box-shadow: 0 20px 60px rgba(0,0,0,0.6), 0 0 40px rgba(80,140,255,0.08);
+                color: #fff; font-family: 'Inter', system-ui, -apple-system, sans-serif;
+                z-index: 9001; padding: 18px 20px;
+                display: flex; align-items: center; gap: 14px;
+                animation: atc-replay-slide-up 220ms ease-out;
+            }
+            #atc-replay-loading.fade-out { opacity: 0; transition: opacity .2s ease; }
+            #atc-replay-loading .atcr-spinner {
+                width: 26px; height: 26px; flex-shrink: 0; border-radius: 50%;
+                border: 3px solid rgba(125,211,252,0.25); border-top-color: #7dd3fc;
+                animation: atcr-spin 0.8s linear infinite;
+            }
+            @keyframes atcr-spin { to { transform: rotate(360deg); } }
+            #atc-replay-loading .atcr-loading-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+            #atc-replay-loading .atcr-loading-title { font-weight: 700; font-size: 13px; }
+            #atc-replay-loading .atcr-loading-sub { color: #9aa0a6; font-size: 11px; }
+            /* pro-locked free-look button */
+            #atc-replay-panel .atcr-freelook { position: relative; }
+            #atc-replay-panel .atcr-freelook.locked { opacity: 0.9; }
+            #atc-replay-panel .atcr-pro-crown {
+                position: absolute; top: -5px; right: -5px; font-size: 9px; color: #fbbf24;
+                text-shadow: 0 1px 2px rgba(0,0,0,0.6); pointer-events: none;
+            }
             #atc-replay-panel .atcr-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
             #atc-replay-panel .atcr-title { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 13px; min-width: 0; }
             #atc-replay-panel .atcr-title i { color: #7dd3fc; font-size: 14px; }
@@ -365,6 +407,7 @@ export const AtcReplay = (() => {
             #atc-replay-panel .atcr-play:hover { background: #e8eaed; }
             #atc-replay-panel .atcr-fit.active { background: #fff; color: #181a20; border-color: #fff; }
             #atc-replay-panel .atcr-loop.active { background: #7dd3fc; color: #0b1220; border-color: #7dd3fc; }
+            #atc-replay-panel .atcr-freelook.active { background: #fbbf24; color: #181a20; border-color: #fbbf24; box-shadow: 0 0 12px rgba(251,191,36,0.55); }
             #atc-replay-panel .atcr-time { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; font-weight: 600; color: #e8eaed; min-width: 56px; text-align: center; }
             #atc-replay-panel .atcr-time-total { color: #9aa0a6; }
             /* scrub bar + conflict markers */
@@ -593,6 +636,7 @@ export const AtcReplay = (() => {
             });
         }
 
+        ensureTraffic3D();
         bindMapInteractions();
         applyPathMode();
     }
@@ -820,6 +864,7 @@ export const AtcReplay = (() => {
             map.getSource(SRC_TRAILS).setData(buildTrailFeatures(absT));
         }
         updateConflictPulse(conflictSet.size > 0);
+        update3DTraffic(active, conflictSet);
 
         // follow focused flight if "fit/follow" is engaged
         if (isFollowing && focusedFlightId && map) {
@@ -991,6 +1036,7 @@ export const AtcReplay = (() => {
                 <button class="atcr-btn atcr-restart" title="Restart"><i class="fa-solid fa-backward-step"></i></button>
                 <button class="atcr-btn atcr-play" title="Play / Pause"><i class="fa-solid fa-play"></i></button>
                 <button class="atcr-btn atcr-fit" title="Fit airspace / follow focused flight"><i class="fa-solid fa-expand"></i></button>
+                <button class="atcr-btn atcr-freelook${isFreeLook ? ' active' : ''}${isProUser() ? '' : ' locked'}" title="${isProUser() ? '3D traffic — orbit &amp; tilt to see aircraft at altitude (V)' : '3D traffic — Inflight Pro feature'}"><i class="fa-solid fa-cube"></i>${isProUser() ? '' : '<i class="fa-solid fa-crown atcr-pro-crown"></i>'}</button>
                 <button class="atcr-btn atcr-loop${isLooping ? ' active' : ''}" title="Loop playback"><i class="fa-solid fa-repeat"></i></button>
                 <div class="atcr-time" data-hud="elapsed">0:00</div>
                 <div class="atcr-scrub-wrap">
@@ -1045,7 +1091,8 @@ export const AtcReplay = (() => {
                 // toggle follow mode on the focused flight
                 isFollowing = !isFollowing;
                 fitBtn.classList.toggle('active', isFollowing);
-                if (isFollowing) renderFrame();
+                // follow and free-look fight over the camera — drop free-look
+                if (isFollowing) { exitFreeLook(false); renderFrame(); }
             } else {
                 fitToAirspace();
             }
@@ -1085,6 +1132,7 @@ export const AtcReplay = (() => {
         });
 
         panelEl.querySelector('.atcr-loop')?.addEventListener('click', toggleLoop);
+        panelEl.querySelector('.atcr-freelook')?.addEventListener('click', toggleFreeLook);
         panelEl.querySelector('.atcr-collapse')?.addEventListener('click', () => togglePanelCollapse());
 
         // altitude-band filter
@@ -1208,6 +1256,7 @@ export const AtcReplay = (() => {
                 case 'ArrowDown': e.preventDefault(); cycleSpeed(-1); break;
                 case 'l': case 'L': toggleLoop(); break;
                 case 'f': case 'F': panelEl.querySelector('.atcr-fit')?.click(); break;
+                case 'v': case 'V': panelEl.querySelector('.atcr-freelook')?.click(); break;
                 case 'n': case 'N': jumpToConflict(1); break;
                 case 'p': case 'P': jumpToConflict(-1); break;
                 case 'Escape': close(); break;
@@ -1392,6 +1441,253 @@ export const AtcReplay = (() => {
         } catch (_) {}
     }
 
+    // ---------- 3D traffic (elevated glowing dots) ----------
+    // Altitude colour as normalized [r,g,b] for Three.js vertex colours —
+    // mirrors getAltColor()'s ramp so the 3D dots match the 2D look.
+    function altColor01(alt) {
+        const stops = [
+            [0, [56, 189, 248]], [10000, [45, 212, 191]], [20000, [163, 230, 53]],
+            [30000, [250, 204, 21]], [40000, [244, 63, 94]]
+        ];
+        const a = Math.max(0, Math.min(40000, alt || 0));
+        let s1 = stops[0], s2 = stops[stops.length - 1];
+        for (let i = 0; i < stops.length - 1; i++) {
+            if (a >= stops[i][0] && a <= stops[i + 1][0]) { s1 = stops[i]; s2 = stops[i + 1]; break; }
+        }
+        const range = s2[0] - s1[0], f = range === 0 ? 0 : (a - s1[0]) / range;
+        return [
+            (s1[1][0] + (s2[1][0] - s1[1][0]) * f) / 255,
+            (s1[1][1] + (s2[1][1] - s1[1][1]) * f) / 255,
+            (s1[1][2] + (s2[1][2] - s1[1][2]) * f) / 255
+        ];
+    }
+
+    // Soft radial sprite so each point renders as a glowing orb rather than a
+    // hard square, tinted per-aircraft by the vertex colour.
+    function makeGlowTexture() {
+        const THREE = window.THREE;
+        const size = 64;
+        const c = document.createElement('canvas');
+        c.width = c.height = size;
+        const ctx = c.getContext('2d');
+        const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+        g.addColorStop(0, 'rgba(255,255,255,1)');
+        g.addColorStop(0.25, 'rgba(255,255,255,0.85)');
+        g.addColorStop(0.6, 'rgba(255,255,255,0.25)');
+        g.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, size, size);
+        const tex = new THREE.CanvasTexture(c);
+        tex.needsUpdate = true;
+        return tex;
+    }
+
+    // Build the Three.js custom layer once. Two buffers: the dots (THREE.Points,
+    // additive glow) and the vertical stems (THREE.LineSegments) connecting each
+    // dot to the ground. It renders in the map's own WebGL context, exactly the
+    // way flownPath3D.js does, positioning everything in Mercator world space.
+    function ensureTraffic3D() {
+        if (!map || three || !window.THREE || !window.mapboxgl) return;
+        if (map.getLayer(LYR_3D)) return;
+        const THREE = window.THREE;
+        const self = { visible: false };
+        const glowTex = makeGlowTexture();
+
+        const layer = {
+            id: LYR_3D, type: 'custom', renderingMode: '3d',
+            onAdd(m, gl) {
+                self.camera = new THREE.Camera();
+                self.scene = new THREE.Scene();
+
+                self.dotGeo = new THREE.BufferGeometry();
+                self.dotGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX_3D_DOTS * 3), 3));
+                self.dotGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(MAX_3D_DOTS * 3), 3));
+                self.dotMat = new THREE.PointsMaterial({
+                    size: DOT_SIZE_PX, sizeAttenuation: false, map: glowTex,
+                    vertexColors: true, transparent: true, depthWrite: false,
+                    blending: THREE.AdditiveBlending
+                });
+                self.dots = new THREE.Points(self.dotGeo, self.dotMat);
+                self.dots.frustumCulled = false;
+                self.scene.add(self.dots);
+
+                self.stemGeo = new THREE.BufferGeometry();
+                self.stemGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX_3D_DOTS * 2 * 3), 3));
+                self.stemGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(MAX_3D_DOTS * 2 * 3), 3));
+                self.stemMat = new THREE.LineBasicMaterial({
+                    vertexColors: true, transparent: true, opacity: 0.32,
+                    depthWrite: false, blending: THREE.AdditiveBlending
+                });
+                self.stems = new THREE.LineSegments(self.stemGeo, self.stemMat);
+                self.stems.frustumCulled = false;
+                self.scene.add(self.stems);
+
+                self.renderer = new THREE.WebGLRenderer({ canvas: m.getCanvas(), context: gl, antialias: true });
+                self.renderer.autoClear = false;
+                self.glowTex = glowTex;
+            },
+            render(gl, matrix) {
+                if (!self.renderer || !self.visible) return;
+                self.camera.projectionMatrix = new THREE.Matrix4().fromArray(matrix);
+                self.renderer.resetState();
+                self.renderer.render(self.scene, self.camera);
+            }
+        };
+        try { map.addLayer(layer); three = self; } catch (e) { console.warn('[AtcReplay] 3D layer add failed:', e); }
+    }
+
+    // Refresh the dot + stem buffers from the current frame's aircraft. No-op
+    // unless the 3D view is showing, so the flat radar path costs nothing.
+    function update3DTraffic(active, conflictSet) {
+        if (!three || !three.visible || !map) return;
+        const Merc = window.mapboxgl.MercatorCoordinate;
+        const [bandMin, bandMax] = ALT_BANDS[altBand] || ALT_BANDS.all;
+        const dotPos = three.dotGeo.attributes.position, dotCol = three.dotGeo.attributes.color;
+        const stemPos = three.stemGeo.attributes.position, stemCol = three.stemGeo.attributes.color;
+        let n = 0;
+        for (const { fl, pos } of active) {
+            if (n >= MAX_3D_DOTS) break;
+            const alt = pos.altitude || 0;
+            if (alt < bandMin || alt >= bandMax) continue;
+            const m = Merc.fromLngLat([pos.lon, pos.lat], alt * 0.3048 * ALT_EXAGGERATION);
+            const focused = focusedFlightId && fl.flightId === focusedFlightId;
+            const c = conflictSet.has(fl.flightId) ? [1, 0.27, 0.27] : (focused ? [1, 1, 1] : altColor01(alt));
+            dotPos.setXYZ(n, m.x, m.y, m.z);
+            dotCol.setXYZ(n, c[0], c[1], c[2]);
+            // stem runs from the ground point straight up to the dot
+            stemPos.setXYZ(n * 2, m.x, m.y, 0);
+            stemPos.setXYZ(n * 2 + 1, m.x, m.y, m.z);
+            stemCol.setXYZ(n * 2, c[0], c[1], c[2]);
+            stemCol.setXYZ(n * 2 + 1, c[0], c[1], c[2]);
+            n++;
+        }
+        three.dotGeo.setDrawRange(0, n);
+        three.stemGeo.setDrawRange(0, n * 2);
+        dotPos.needsUpdate = dotCol.needsUpdate = true;
+        stemPos.needsUpdate = stemCol.needsUpdate = true;
+        map.triggerRepaint();
+    }
+
+    // Swap between the flat radar icons and the 3D dot field. Showing the dots
+    // hides the ground-locked aircraft symbols/labels so they don't double up.
+    function set3DVisible(on) {
+        if (three) three.visible = !!on;
+        const flatVis = on ? 'none' : 'visible';
+        [LYR_PLANES, LYR_PLANE_LABELS].forEach(id => {
+            if (map && map.getLayer(id)) { try { map.setLayoutProperty(id, 'visibility', flatVis); } catch (_) {} }
+        });
+        if (map) map.triggerRepaint();
+    }
+
+    function dispose3D() {
+        if (!three) return;
+        try {
+            three.dotGeo && three.dotGeo.dispose();
+            three.stemGeo && three.stemGeo.dispose();
+            three.dotMat && three.dotMat.dispose();
+            three.stemMat && three.stemMat.dispose();
+            three.glowTex && three.glowTex.dispose();
+        } catch (_) {}
+        three = null;
+    }
+
+    // ---------- free-look camera ----------
+    // Detach the camera from the flat radar / follow behaviour and drop into a
+    // cinematic high-pitch oblique view, letting the controller orbit, tilt and
+    // pan freely around the historical traffic while it keeps playing — the
+    // planes read as a field of glowing contacts against the horizon.
+    function toggleFreeLook() {
+        if (isFreeLook) { exitFreeLook(true); return; }
+        if (!isProUser()) { promptUpgrade(); return; }
+        enterFreeLook();
+    }
+
+    function enterFreeLook() {
+        if (!map || isFreeLook) return;
+        isFreeLook = true;
+
+        // follow and free-look both fight for the camera — only one wins
+        if (isFollowing) {
+            isFollowing = false;
+            panelEl?.querySelector('.atcr-fit')?.classList.remove('active');
+        }
+
+        // snapshot what we're about to change so we can put it back exactly
+        const on = (h) => !!(h && h.isEnabled && h.isEnabled());
+        preFreeLookCam = {
+            center: map.getCenter(), zoom: map.getZoom(),
+            pitch: map.getPitch(), bearing: map.getBearing(),
+            projection: (map.getProjection && map.getProjection().name) || 'mercator'
+        };
+        preFreeLookGestures = {
+            maxPitch: map.getMaxPitch ? map.getMaxPitch() : 60,
+            dragRotate: on(map.dragRotate),
+            touchPitch: on(map.touchPitch)
+        };
+
+        // mercator keeps the custom-layer matrix correct for the elevated dots
+        // and gives the flatter, horizon-lit look the 3D view is going for
+        try { if (map.setProjection) map.setProjection('mercator'); } catch (_) {}
+
+        // free the gestures the flat radar view normally keeps locked down
+        try { if (map.setMaxPitch) map.setMaxPitch(85); } catch (_) {}
+        try { map.dragRotate && map.dragRotate.enable(); } catch (_) {}
+        try { map.touchPitch && map.touchPitch.enable(); } catch (_) {}
+        try { map.touchZoomRotate && map.touchZoomRotate.enableRotation(); } catch (_) {}
+        try { map.keyboard && map.keyboard.enable(); } catch (_) {}
+
+        // raise the traffic into 3D glowing dots at altitude
+        set3DVisible(true);
+        renderFrame();
+
+        // swing into the oblique angle, framed on the airspace centre
+        let center = map.getCenter();
+        if (controller && Number.isFinite(controller.lat) && Number.isFinite(controller.lon)) {
+            center = [controller.lon, controller.lat];
+        }
+        try {
+            map.easeTo({
+                center, zoom: Math.min(map.getZoom(), 9),
+                pitch: 72, bearing: map.getBearing(),
+                duration: 1100, essential: true
+            });
+        } catch (_) {}
+
+        panelEl?.querySelector('.atcr-freelook')?.classList.add('active');
+        showToast('3D traffic — drag to orbit · two-finger / right-drag to tilt');
+    }
+
+    // restoreCamera=false hands the camera straight to whatever's taking over
+    // (e.g. follow mode) instead of easing back to the flat view first.
+    function exitFreeLook(restoreCamera = true) {
+        if (!isFreeLook) return;
+        isFreeLook = false;
+        panelEl?.querySelector('.atcr-freelook')?.classList.remove('active');
+        // drop back to the flat radar icons
+        set3DVisible(false);
+        if (!map) { preFreeLookCam = null; preFreeLookGestures = null; return; }
+
+        // restore the gesture lockdown the flat view expects
+        const g = preFreeLookGestures;
+        if (g) {
+            try { if (!g.dragRotate && map.dragRotate) map.dragRotate.disable(); } catch (_) {}
+            try { if (!g.touchPitch && map.touchPitch) map.touchPitch.disable(); } catch (_) {}
+            try { if (map.setMaxPitch) map.setMaxPitch(g.maxPitch); } catch (_) {}
+        }
+        // restore the projection we swapped away from
+        try { if (map.setProjection && preFreeLookCam && preFreeLookCam.projection) map.setProjection(preFreeLookCam.projection); } catch (_) {}
+        if (restoreCamera) {
+            // ease back to exactly where the camera sat before free-look
+            const c = preFreeLookCam;
+            try {
+                map.easeTo(c
+                    ? { center: c.center, zoom: c.zoom, pitch: c.pitch, bearing: c.bearing, duration: 900, essential: true }
+                    : { pitch: 0, bearing: 0, duration: 900, essential: true });
+            } catch (_) {}
+        }
+        preFreeLookCam = null; preFreeLookGestures = null;
+    }
+
     // ---------- public ----------
     function play() {
         if (currentMs >= totalDurationMs) currentMs = 0;
@@ -1415,15 +1711,57 @@ export const AtcReplay = (() => {
         setTimeout(() => t.remove(), 3000);
     }
 
+    // Loading overlay — shown the instant a replay is requested so it's clear
+    // the (often multi-MB, server-reconstructed) session is being fetched,
+    // rather than leaving the user staring at nothing until the panel appears.
+    let loadingEl = null;
+    function showLoading(sub) {
+        hideLoading();
+        loadingEl = document.createElement('div');
+        loadingEl.id = 'atc-replay-loading';
+        loadingEl.innerHTML = `
+            <div class="atcr-spinner"></div>
+            <div class="atcr-loading-text">
+                <div class="atcr-loading-title">Loading ATC replay…</div>
+                <div class="atcr-loading-sub">${sub || 'Reconstructing the session — this can take a moment.'}</div>
+            </div>`;
+        document.body.appendChild(loadingEl);
+    }
+    function hideLoading() {
+        if (!loadingEl) return;
+        const el = loadingEl; loadingEl = null;
+        el.classList.add('fade-out');
+        setTimeout(() => { try { el.remove(); } catch (_) {} }, 220);
+    }
+
+    // ---------- subscription gating ----------
+    // The 3D traffic view is an Inflight Pro feature. Source of truth is the
+    // app's global helper; if it isn't present we fail closed (locked).
+    function isProUser() {
+        try { return typeof window.isInflightPro === 'function' ? !!window.isInflightPro() : false; }
+        catch (_) { return false; }
+    }
+    function promptUpgrade() {
+        showToast('3D traffic view is an Inflight Pro feature.');
+        try {
+            window.dispatchEvent(new CustomEvent('pro-upgrade-requested', {
+                bubbles: true, cancelable: true, detail: { source: 'atc-replay-3d' }
+            }));
+        } catch (_) {}
+    }
+
     function close() {
         pause();
+        hideLoading();
         unbindKeys();
         unbindMapInteractions();
+        exitFreeLook(true);
         restoreLiveTraffic();
         if (map) {
-            [LYR_PLANE_LABELS, LYR_PLANES, LYR_CONFLICT, LYR_TRAILS, LYR_PATHS, LYR_RADIUS_LINE, LYR_RADIUS_FILL].forEach(id => {
+            [LYR_3D, LYR_PLANE_LABELS, LYR_PLANES, LYR_CONFLICT, LYR_TRAILS, LYR_PATHS, LYR_RADIUS_LINE, LYR_RADIUS_FILL].forEach(id => {
                 if (map.getLayer && map.getLayer(id)) { try { map.removeLayer(id); } catch (_) {} }
             });
+            dispose3D();
             [SRC_PLANES, SRC_TRAILS, SRC_PATHS, SRC_RADIUS + '-line', SRC_RADIUS].forEach(id => {
                 if (map.getSource && map.getSource(id)) { try { map.removeSource(id); } catch (_) {} }
             });
@@ -1433,6 +1771,7 @@ export const AtcReplay = (() => {
         controller = null; flights = []; currentMeta = {}; flightRowEls = {};
         spanStart = 0; totalDurationMs = 0; currentMs = 0; speed = 1;
         isScrubbing = false; focusedFlightId = null; isFollowing = false;
+        isFreeLook = false; preFreeLookCam = null; preFreeLookGestures = null; three = null;
         enforcementCount = null; isLooping = false; isCollapsed = false;
         conflictIntervals = []; altBand = 'all';
 
@@ -1451,15 +1790,17 @@ export const AtcReplay = (() => {
         currentMeta = opts.meta || {};
         onCloseCallback = (typeof opts.onClose === 'function') ? opts.onClose : null;
 
+        showLoading();
         let payload = null;
         try {
             const res = await fetch(opts.replayUrl);
-            if (res.status === 404) { showToast('This ATC session has expired (data is kept 48h).'); close(); return false; }
+            if (res.status === 404) { hideLoading(); showToast('This ATC session has expired (data is kept 48h).'); close(); return false; }
             payload = res.ok ? await res.json() : null;
         } catch (e) {
             console.warn('[AtcReplay] fetch failed:', e);
         }
         if (!payload || !payload.ok || !payload.controller) {
+            hideLoading();
             showToast('Could not load ATC session.');
             close();
             return false;
@@ -1492,6 +1833,7 @@ export const AtcReplay = (() => {
             }
         }
         if (!isFinite(start) || !isFinite(end) || end <= start) {
+            hideLoading();
             showToast('No replayable track data in this session window.');
             close();
             return false;
@@ -1509,6 +1851,7 @@ export const AtcReplay = (() => {
 
         precomputeConflicts();
         buildPanel();
+        hideLoading();
         renderScrubMarks();
         try { if (localStorage.getItem(COLLAPSE_STORAGE_KEY) === '1') togglePanelCollapse(true); } catch (_) {}
         applyDensityGradient();
