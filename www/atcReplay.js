@@ -13,7 +13,7 @@
 //   AtcReplay.close()
 //   AtcReplay.isOpen()
 
-const ATC_SPEED_OPTIONS = [1, 2, 5, 10, 30, 60, 120, 240, 480];
+const ATC_SPEED_OPTIONS = [1, 2, 5, 10, 60, 240, 480];
 
 // How the flown tracks are drawn. 'trails' fades a comet tail in behind each
 // aircraft; 'full' draws every track end-to-end; 'off' hides them entirely.
@@ -50,6 +50,8 @@ export const AtcReplay = (() => {
     let flightRowEls = {};          // flightId -> list <div> (cached for animation)
     let pathMode = 'trails';        // how flown tracks are drawn (see PATH_MODES)
     let enforcementCount = null;    // violations the controller issued (null = unknown)
+    let freqWinStart = 0;           // abs-ms at the left edge of the freq timeline
+    let freqWinSpan = 0;            // width of the freq timeline in ms
 
     const SRC_RADIUS = 'atc-replay-radius-source';
     const LYR_RADIUS_FILL = 'atc-replay-radius-fill';
@@ -95,6 +97,16 @@ export const AtcReplay = (() => {
         const g = Math.round(s1[1][1] + (s2[1][1] - s1[1][1]) * f);
         const b = Math.round(s1[1][2] + (s2[1][2] - s1[1][2]) * f);
         return `rgb(${r}, ${g}, ${b})`;
+    }
+
+    // Altitude colour snapped to ~1500ft bands. Continuous getAltColor() gives a
+    // slightly different colour to every point, which would split a track into
+    // one feature per segment (and re-introduce the round-cap blobs). Snapping
+    // lets long stretches share a colour and merge into single smooth polylines,
+    // while still reading as a gradient across climbs/descents.
+    const ALT_BAND = 1500;
+    function bandColor(alt) {
+        return getAltColor(Math.round((alt || 0) / ALT_BAND) * ALT_BAND);
     }
 
     // Best-effort aircraft → sprite-category mapping so the animated planes
@@ -161,15 +173,22 @@ export const AtcReplay = (() => {
 
     // Chaikin corner-cutting: rounds the kinks out of a coarse track so the
     // drawn polyline reads as a smooth flown path rather than a chain of
-    // straight hops. Endpoints are preserved.
-    function smoothCoords(coords, iterations = 2) {
+    // straight hops. Endpoints are preserved. Works component-wise on points of
+    // any dimension, so the trail can carry fade/altitude alongside lon/lat and
+    // have them smoothed in lock-step.
+    function smoothCoords(coords, iterations = 3) {
         let pts = coords;
+        const dim = pts.length ? pts[0].length : 2;
         for (let it = 0; it < iterations && pts.length > 2; it++) {
             const out = [pts[0]];
             for (let i = 0; i < pts.length - 1; i++) {
                 const a = pts[i], b = pts[i + 1];
-                out.push([a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25]);
-                out.push([a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75]);
+                const q = new Array(dim), r = new Array(dim);
+                for (let d = 0; d < dim; d++) {
+                    q[d] = a[d] * 0.75 + b[d] * 0.25;
+                    r[d] = a[d] * 0.25 + b[d] * 0.75;
+                }
+                out.push(q, r);
             }
             out.push(pts[pts.length - 1]);
             pts = out;
@@ -276,11 +295,16 @@ export const AtcReplay = (() => {
 
             /* frequency timeline bars */
             #atc-replay-panel .atcr-freqs { display: flex; flex-direction: column; gap: 4px; }
+            #atc-replay-panel .atcr-freqs-label { margin-bottom: 2px; }
+            #atc-replay-panel .atcr-freqs-hint { color: #475569; font-weight: 600; text-transform: none; letter-spacing: 0; }
             #atc-replay-panel .atcr-freq-row { display: flex; align-items: center; gap: 8px; }
             #atc-replay-panel .atcr-freq-label { width: 78px; flex-shrink: 0; font-size: 10px; font-weight: 700; letter-spacing: .4px; color: #cbd5e1; text-align: right; }
             #atc-replay-panel .atcr-freq-track { position: relative; flex: 1; height: 10px; background: rgba(255,255,255,0.06); border-radius: 5px; overflow: hidden; }
-            #atc-replay-panel .atcr-freq-bar { position: absolute; top: 0; bottom: 0; background: linear-gradient(90deg, #38bdf8, #6366f1); border-radius: 5px; }
+            #atc-replay-panel .atcr-freq-bar { position: absolute; top: 0; bottom: 0; background: linear-gradient(90deg, #38bdf8, #6366f1); border-radius: 5px; opacity: 0.5; transition: opacity .15s ease, box-shadow .15s ease; }
             #atc-replay-panel .atcr-freq-bar.open { background: linear-gradient(90deg, #4ade80, #22d3ee); }
+            /* the bar covering the current replay moment lights up */
+            #atc-replay-panel .atcr-freq-bar.on-air { opacity: 1; box-shadow: 0 0 8px rgba(125,211,252,0.85); }
+            #atc-replay-panel .atcr-freq-playhead { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #fff; box-shadow: 0 0 6px rgba(255,255,255,0.9); pointer-events: none; z-index: 2; }
 
             #atc-replay-panel .atcr-hud { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
             #atc-replay-panel .atcr-stat { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 4px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; }
@@ -288,7 +312,7 @@ export const AtcReplay = (() => {
             #atc-replay-panel .atcr-stat span { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 15px; font-weight: 700; color: #fff; line-height: 1; }
             #atc-replay-panel .atcr-stat small { font-size: 9px; color: #9aa0a6; font-weight: 600; }
 
-            #atc-replay-panel .atcr-controls { display: flex; align-items: center; gap: 10px; }
+            #atc-replay-panel .atcr-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; row-gap: 8px; }
             #atc-replay-panel .atcr-btn {
                 background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); color: #fff;
                 width: 34px; height: 34px; border-radius: 50%; cursor: pointer; display: grid; place-items: center;
@@ -301,12 +325,12 @@ export const AtcReplay = (() => {
             #atc-replay-panel .atcr-time { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; font-weight: 600; color: #e8eaed; min-width: 56px; text-align: center; }
             #atc-replay-panel .atcr-time-total { color: #9aa0a6; }
             #atc-replay-panel .atcr-scrubber {
-                flex: 1; -webkit-appearance: none; appearance: none; height: 4px;
+                flex: 1 1 120px; min-width: 120px; -webkit-appearance: none; appearance: none; height: 4px;
                 background: rgba(255,255,255,0.15); border-radius: 4px; outline: none; cursor: pointer;
             }
             #atc-replay-panel .atcr-scrubber::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #7dd3fc; box-shadow: 0 0 8px rgba(125,211,252,0.7); cursor: grab; }
             #atc-replay-panel .atcr-scrubber::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: #7dd3fc; border: none; cursor: grab; }
-            #atc-replay-panel .atcr-speed-wrap { display: flex; gap: 2px; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 2px; flex-shrink: 0; }
+            #atc-replay-panel .atcr-speed-wrap { display: flex; gap: 2px; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 2px; flex-shrink: 0; flex-wrap: wrap; justify-content: center; }
             #atc-replay-panel .atcr-speed-btn { background: transparent; border: none; color: #9aa0a6; font-size: 10px; font-weight: 700; font-family: 'JetBrains Mono', ui-monospace, monospace; padding: 4px 6px; border-radius: 6px; cursor: pointer; min-width: 26px; transition: all .12s ease; }
             #atc-replay-panel .atcr-speed-btn:hover { color: #fff; }
             #atc-replay-panel .atcr-speed-btn.active { background: rgba(255,255,255,0.15); color: #fff; }
@@ -331,12 +355,16 @@ export const AtcReplay = (() => {
             #atc-replay-panel .atcr-enforce.clean { color: #6ee7b7; background: rgba(52,211,153,0.12); border: 1px solid rgba(52,211,153,0.4); }
 
             /* path-mode segmented control */
-            #atc-replay-panel .atcr-pathmode { display: flex; align-items: center; gap: 8px; }
+            #atc-replay-panel .atcr-pathmode { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; row-gap: 6px; }
             #atc-replay-panel .atcr-pathmode-label { font-size: 10px; font-weight: 700; letter-spacing: .6px; color: #64748b; text-transform: uppercase; }
             #atc-replay-panel .atcr-seg { display: flex; gap: 2px; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 2px; }
             #atc-replay-panel .atcr-seg-btn { background: transparent; border: none; color: #9aa0a6; font-size: 10px; font-weight: 700; padding: 4px 10px; border-radius: 6px; cursor: pointer; transition: all .12s ease; display: inline-flex; align-items: center; gap: 5px; }
             #atc-replay-panel .atcr-seg-btn:hover { color: #fff; }
             #atc-replay-panel .atcr-seg-btn.active { background: rgba(255,255,255,0.15); color: #fff; }
+
+            /* altitude colour legend */
+            #atc-replay-panel .atcr-legend { display: flex; align-items: center; gap: 6px; margin-left: auto; font-size: 9px; font-weight: 700; color: #64748b; }
+            #atc-replay-panel .atcr-legend-bar { width: 90px; height: 6px; border-radius: 3px; background: linear-gradient(90deg, rgb(56,189,248), rgb(45,212,191), rgb(163,230,53), rgb(250,204,21), rgb(244,63,94)); }
 
             .atc-replay-toast { position: fixed; top: 24px; left: 50%; transform: translateX(-50%); background: rgba(24,26,32,0.95); border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 10px 18px; border-radius: 10px; font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 600; z-index: 9001; box-shadow: 0 10px 30px rgba(0,0,0,0.5); transition: opacity .4s ease, transform .4s ease; }
             .atc-replay-toast.fade-out { opacity: 0; transform: translate(-50%, -8px); }
@@ -348,7 +376,11 @@ export const AtcReplay = (() => {
                 #atc-replay-panel .atcr-flights { max-height: 96px; }
                 #atc-replay-panel .atcr-hud { gap: 6px; }
                 #atc-replay-panel .atcr-stat span { font-size: 13px; }
-                #atc-replay-panel .atcr-speed-btn { font-size: 9px; padding: 3px 4px; min-width: 20px; }
+                /* speed presets drop to their own full-width row and spread
+                   evenly so they always fit the phone screen */
+                #atc-replay-panel .atcr-speed-wrap { flex: 1 1 100%; justify-content: space-between; }
+                #atc-replay-panel .atcr-speed-btn { flex: 1 1 auto; font-size: 10px; padding: 5px 2px; min-width: 0; }
+                #atc-replay-panel .atcr-legend { display: none; }
             }
         `;
         document.head.appendChild(style);
@@ -433,11 +465,14 @@ export const AtcReplay = (() => {
         if (!map.getLayer(LYR_TRAILS)) {
             map.addLayer({
                 id: LYR_TRAILS, type: 'line', source: SRC_TRAILS,
-                layout: { 'line-cap': 'round', 'line-join': 'round' },
+                // butt caps so adjacent fade bands abut seamlessly (no blobs);
+                // round joins keep the curve itself smooth
+                layout: { 'line-cap': 'butt', 'line-join': 'round' },
                 paint: {
                     'line-color': ['get', 'color'],
                     'line-opacity': ['get', 'fade'],
-                    'line-width': ['interpolate', ['linear'], ['get', 'fade'], 0, 1, 1, 4]
+                    'line-width': ['interpolate', ['linear'], ['get', 'fade'], 0, 0.6, 1, 4.5],
+                    'line-blur': 0.4
                 }
             });
         }
@@ -510,7 +545,7 @@ export const AtcReplay = (() => {
             const dim = anyFocused && !focused;
             const pts = fl.points;
             if (pts.length < 2) continue;
-            let runColor = getAltColor(pts[0].altitude);
+            let runColor = bandColor(pts[0].altitude);
             let run = [[pts[0].lon, pts[0].lat]];
             const flush = () => {
                 if (run.length < 2) return;
@@ -521,7 +556,7 @@ export const AtcReplay = (() => {
                 });
             };
             for (let i = 1; i < pts.length; i++) {
-                const c = getAltColor(pts[i].altitude);
+                const c = bandColor(pts[i].altitude);
                 run.push([pts[i].lon, pts[i].lat]);
                 if (c !== runColor) {
                     flush();
@@ -536,29 +571,52 @@ export const AtcReplay = (() => {
     }
 
     // Comet trails: the slice of each active flight's track within the last
-    // TRAIL_WINDOW_MS of session time, broken into sub-segments that fade from
-    // transparent (oldest) to opaque (at the aircraft) via the `fade` property.
+    // TRAIL_WINDOW_MS of session time, Chaikin-smoothed and split into a handful
+    // of contiguous bands that step from transparent (oldest) to opaque (at the
+    // aircraft). Each band is a real multi-point polyline — not a string of
+    // 2-point segments — so the tail curves cleanly and tapers without blobs.
+    const TRAIL_FADE_BANDS = 18;
     function buildTrailFeatures(absT) {
         const features = [];
         const windowStart = absT - TRAIL_WINDOW_MS;
         for (const fl of flights) {
             const pts = fl.points;
             if (!pts.length || absT < pts[0].t || windowStart > pts[pts.length - 1].t) continue;
-            // collect the in-window points, then the live interpolated head
+            // in-window points, then the live interpolated head
             const tail = pts.filter(p => p.t >= windowStart && p.t <= absT);
             const head = positionAt(pts, absT);
             if (!head) continue;
             const chain = tail.concat([head]);
             if (chain.length < 2) continue;
-            for (let i = 0; i < chain.length - 1; i++) {
-                const a = chain[i], b = chain[i + 1];
-                const fade = Math.max(0.04, (b.t - windowStart) / TRAIL_WINDOW_MS);
+            // augment each vertex with [lon, lat, fade(0..1), altitude] so the
+            // fade + altitude smooth in lock-step with the geometry
+            const aug = chain.map(p => [
+                p.lon, p.lat,
+                Math.max(0, Math.min(1, (p.t - windowStart) / TRAIL_WINDOW_MS)),
+                p.altitude || 0
+            ]);
+            const sm = smoothCoords(aug, 2); // rebuilt every frame — keep it light
+            const keyOf = (v) => Math.round(v[2] * TRAIL_FADE_BANDS) + '|' + bandColor(v[3]);
+            let group = [sm[0]];
+            let key = keyOf(sm[0]);
+            const flush = () => {
+                if (group.length < 2) return;
+                let fmax = 0;
+                for (const v of group) fmax = Math.max(fmax, v[2]);
+                const mid = group[Math.floor(group.length / 2)];
                 features.push({
                     type: 'Feature',
-                    geometry: { type: 'LineString', coordinates: [[a.lon, a.lat], [b.lon, b.lat]] },
-                    properties: { color: getAltColor(a.altitude), fade: Math.min(1, fade) }
+                    geometry: { type: 'LineString', coordinates: group.map(v => [v[0], v[1]]) },
+                    // ease so the tail stays readable a touch longer before vanishing
+                    properties: { color: bandColor(mid[3]), fade: Math.max(0.05, Math.pow(fmax, 0.8)) }
                 });
+            };
+            for (let i = 1; i < sm.length; i++) {
+                const k = keyOf(sm[i]);
+                group.push(sm[i]);
+                if (k !== key) { flush(); group = [sm[i]]; key = k; } // share boundary vertex
             }
+            flush();
         }
         return { type: 'FeatureCollection', features };
     }
@@ -618,7 +676,21 @@ export const AtcReplay = (() => {
         }
 
         updateHUD(activeCount);
+        updateFreqTimeline(absT);
         if (!isScrubbing) updateScrubber();
+    }
+
+    // Sweep the playhead across the frequency timeline and light up whichever
+    // frequencies were staffed at the current replay moment — so the bars read
+    // as a live "who was on" strip rather than a static decoration.
+    function updateFreqTimeline(absT) {
+        if (!panelEl || !freqWinSpan) return;
+        const pct = Math.max(0, Math.min(100, ((absT - freqWinStart) / freqWinSpan) * 100));
+        panelEl.querySelectorAll('.atcr-freq-playhead').forEach(ph => { ph.style.left = pct + '%'; });
+        panelEl.querySelectorAll('.atcr-freq-bar').forEach(bar => {
+            const fs = Number(bar.dataset.fs), fe = Number(bar.dataset.fe);
+            bar.classList.toggle('on-air', absT >= fs && absT <= fe);
+        });
     }
 
     // ---------- formatting ----------
@@ -649,6 +721,9 @@ export const AtcReplay = (() => {
         const winStart = controller?.window?.start ?? spanStart;
         const winEnd = controller?.window?.end ?? (spanStart + totalDurationMs);
         const winSpan = Math.max(1, winEnd - winStart);
+        // remember the timeline span so the playhead can be positioned each frame
+        freqWinStart = winStart;
+        freqWinSpan = winSpan;
         const freqRows = freqList.map(f => {
             const label = atcTypeLabel(f.type);
             const fs = Math.max(winStart, f.start ?? winStart);
@@ -657,7 +732,10 @@ export const AtcReplay = (() => {
             const width = Math.max(2, ((fe - fs) / winSpan) * 100);
             return `<div class="atcr-freq-row">
                 <span class="atcr-freq-label">${label}</span>
-                <span class="atcr-freq-track"><span class="atcr-freq-bar${f.open ? ' open' : ''}" style="left:${left}%;width:${width}%;"></span></span>
+                <span class="atcr-freq-track">
+                    <span class="atcr-freq-bar${f.open ? ' open' : ''}" data-fs="${fs}" data-fe="${fe}" style="left:${left}%;width:${width}%;"></span>
+                    <span class="atcr-freq-playhead"></span>
+                </span>
             </div>`;
         }).join('');
 
@@ -686,7 +764,7 @@ export const AtcReplay = (() => {
                 <button class="atcr-close" title="Close ATC Replay"><i class="fa-solid fa-xmark"></i></button>
             </div>
 
-            ${freqRows ? `<div class="atcr-freqs">${freqRows}</div>` : ''}
+            ${freqRows ? `<div class="atcr-section-label atcr-freqs-label">Staffed frequencies <span class="atcr-freqs-hint">— bar = when open · line = now</span></div><div class="atcr-freqs">${freqRows}</div>` : ''}
 
             <div class="atcr-hud">
                 <div class="atcr-stat"><label>UTC</label><span data-hud="utc">--:--:--</span><small>z</small></div>
@@ -713,6 +791,11 @@ export const AtcReplay = (() => {
                     <button class="atcr-seg-btn${pathMode === 'trails' ? ' active' : ''}" data-pathmode="trails" title="Fading trail behind each aircraft"><i class="fa-solid fa-meteor"></i> Trails</button>
                     <button class="atcr-seg-btn${pathMode === 'full' ? ' active' : ''}" data-pathmode="full" title="Draw every track end-to-end"><i class="fa-solid fa-route"></i> Full</button>
                     <button class="atcr-seg-btn${pathMode === 'off' ? ' active' : ''}" data-pathmode="off" title="Hide flown paths"><i class="fa-solid fa-eye-slash"></i> Off</button>
+                </div>
+                <div class="atcr-legend" title="Path colour by altitude">
+                    <span>0</span>
+                    <span class="atcr-legend-bar"></span>
+                    <span>40k</span>
                 </div>
             </div>
 
