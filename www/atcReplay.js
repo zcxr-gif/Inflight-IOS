@@ -319,6 +319,36 @@ export const AtcReplay = (() => {
                 from { transform: translate(-50%, 24px); opacity: 0; }
                 to   { transform: translate(-50%, 0);    opacity: 1; }
             }
+            /* loading overlay shown while the session payload is fetched */
+            #atc-replay-loading {
+                position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+                width: min(420px, calc(100vw - 32px));
+                background: rgba(24, 26, 32, 0.94);
+                border: 1px solid rgba(120, 170, 255, 0.22); border-radius: 16px;
+                backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+                box-shadow: 0 20px 60px rgba(0,0,0,0.6), 0 0 40px rgba(80,140,255,0.08);
+                color: #fff; font-family: 'Inter', system-ui, -apple-system, sans-serif;
+                z-index: 9001; padding: 18px 20px;
+                display: flex; align-items: center; gap: 14px;
+                animation: atc-replay-slide-up 220ms ease-out;
+            }
+            #atc-replay-loading.fade-out { opacity: 0; transition: opacity .2s ease; }
+            #atc-replay-loading .atcr-spinner {
+                width: 26px; height: 26px; flex-shrink: 0; border-radius: 50%;
+                border: 3px solid rgba(125,211,252,0.25); border-top-color: #7dd3fc;
+                animation: atcr-spin 0.8s linear infinite;
+            }
+            @keyframes atcr-spin { to { transform: rotate(360deg); } }
+            #atc-replay-loading .atcr-loading-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+            #atc-replay-loading .atcr-loading-title { font-weight: 700; font-size: 13px; }
+            #atc-replay-loading .atcr-loading-sub { color: #9aa0a6; font-size: 11px; }
+            /* pro-locked free-look button */
+            #atc-replay-panel .atcr-freelook { position: relative; }
+            #atc-replay-panel .atcr-freelook.locked { opacity: 0.9; }
+            #atc-replay-panel .atcr-pro-crown {
+                position: absolute; top: -5px; right: -5px; font-size: 9px; color: #fbbf24;
+                text-shadow: 0 1px 2px rgba(0,0,0,0.6); pointer-events: none;
+            }
             #atc-replay-panel .atcr-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
             #atc-replay-panel .atcr-title { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 13px; min-width: 0; }
             #atc-replay-panel .atcr-title i { color: #7dd3fc; font-size: 14px; }
@@ -1006,7 +1036,7 @@ export const AtcReplay = (() => {
                 <button class="atcr-btn atcr-restart" title="Restart"><i class="fa-solid fa-backward-step"></i></button>
                 <button class="atcr-btn atcr-play" title="Play / Pause"><i class="fa-solid fa-play"></i></button>
                 <button class="atcr-btn atcr-fit" title="Fit airspace / follow focused flight"><i class="fa-solid fa-expand"></i></button>
-                <button class="atcr-btn atcr-freelook${isFreeLook ? ' active' : ''}" title="3D traffic — orbit &amp; tilt to see aircraft at altitude (V)"><i class="fa-solid fa-cube"></i></button>
+                <button class="atcr-btn atcr-freelook${isFreeLook ? ' active' : ''}${isProUser() ? '' : ' locked'}" title="${isProUser() ? '3D traffic — orbit &amp; tilt to see aircraft at altitude (V)' : '3D traffic — Inflight Pro feature'}"><i class="fa-solid fa-cube"></i>${isProUser() ? '' : '<i class="fa-solid fa-crown atcr-pro-crown"></i>'}</button>
                 <button class="atcr-btn atcr-loop${isLooping ? ' active' : ''}" title="Loop playback"><i class="fa-solid fa-repeat"></i></button>
                 <div class="atcr-time" data-hud="elapsed">0:00</div>
                 <div class="atcr-scrub-wrap">
@@ -1567,8 +1597,9 @@ export const AtcReplay = (() => {
     // pan freely around the historical traffic while it keeps playing — the
     // planes read as a field of glowing contacts against the horizon.
     function toggleFreeLook() {
-        if (isFreeLook) exitFreeLook(true);
-        else enterFreeLook();
+        if (isFreeLook) { exitFreeLook(true); return; }
+        if (!isProUser()) { promptUpgrade(); return; }
+        enterFreeLook();
     }
 
     function enterFreeLook() {
@@ -1680,8 +1711,48 @@ export const AtcReplay = (() => {
         setTimeout(() => t.remove(), 3000);
     }
 
+    // Loading overlay — shown the instant a replay is requested so it's clear
+    // the (often multi-MB, server-reconstructed) session is being fetched,
+    // rather than leaving the user staring at nothing until the panel appears.
+    let loadingEl = null;
+    function showLoading(sub) {
+        hideLoading();
+        loadingEl = document.createElement('div');
+        loadingEl.id = 'atc-replay-loading';
+        loadingEl.innerHTML = `
+            <div class="atcr-spinner"></div>
+            <div class="atcr-loading-text">
+                <div class="atcr-loading-title">Loading ATC replay…</div>
+                <div class="atcr-loading-sub">${sub || 'Reconstructing the session — this can take a moment.'}</div>
+            </div>`;
+        document.body.appendChild(loadingEl);
+    }
+    function hideLoading() {
+        if (!loadingEl) return;
+        const el = loadingEl; loadingEl = null;
+        el.classList.add('fade-out');
+        setTimeout(() => { try { el.remove(); } catch (_) {} }, 220);
+    }
+
+    // ---------- subscription gating ----------
+    // The 3D traffic view is an Inflight Pro feature. Source of truth is the
+    // app's global helper; if it isn't present we fail closed (locked).
+    function isProUser() {
+        try { return typeof window.isInflightPro === 'function' ? !!window.isInflightPro() : false; }
+        catch (_) { return false; }
+    }
+    function promptUpgrade() {
+        showToast('3D traffic view is an Inflight Pro feature.');
+        try {
+            window.dispatchEvent(new CustomEvent('pro-upgrade-requested', {
+                bubbles: true, cancelable: true, detail: { source: 'atc-replay-3d' }
+            }));
+        } catch (_) {}
+    }
+
     function close() {
         pause();
+        hideLoading();
         unbindKeys();
         unbindMapInteractions();
         exitFreeLook(true);
@@ -1719,15 +1790,17 @@ export const AtcReplay = (() => {
         currentMeta = opts.meta || {};
         onCloseCallback = (typeof opts.onClose === 'function') ? opts.onClose : null;
 
+        showLoading();
         let payload = null;
         try {
             const res = await fetch(opts.replayUrl);
-            if (res.status === 404) { showToast('This ATC session has expired (data is kept 48h).'); close(); return false; }
+            if (res.status === 404) { hideLoading(); showToast('This ATC session has expired (data is kept 48h).'); close(); return false; }
             payload = res.ok ? await res.json() : null;
         } catch (e) {
             console.warn('[AtcReplay] fetch failed:', e);
         }
         if (!payload || !payload.ok || !payload.controller) {
+            hideLoading();
             showToast('Could not load ATC session.');
             close();
             return false;
@@ -1760,6 +1833,7 @@ export const AtcReplay = (() => {
             }
         }
         if (!isFinite(start) || !isFinite(end) || end <= start) {
+            hideLoading();
             showToast('No replayable track data in this session window.');
             close();
             return false;
@@ -1777,6 +1851,7 @@ export const AtcReplay = (() => {
 
         precomputeConflicts();
         buildPanel();
+        hideLoading();
         renderScrubMarks();
         try { if (localStorage.getItem(COLLAPSE_STORAGE_KEY) === '1') togglePanelCollapse(true); } catch (_) {}
         applyDensityGradient();
