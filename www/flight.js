@@ -9039,7 +9039,7 @@ function renderAtcSessionCard(s) {
             <div class="atc-history-freqs">${freqs}</div>
             <div class="atc-history-meta"><i class="fa-regular fa-clock"></i> ${when}${dur ? ` · ${dur}` : ''}</div>
         </div>
-        <button class="atc-replay-session-btn" data-atc-key="${s.key}" data-atc-apt="${s.airportName || ''}" data-atc-user="${safeUser}" title="Replay this controller session">
+        <button class="atc-replay-session-btn" data-atc-key="${s.key}" data-atc-apt="${s.airportName || ''}" data-atc-user="${safeUser}" data-atc-uid="${s.userId || s.userid || ''}" title="Replay this controller session">
             <i class="fa-solid fa-circle-play"></i> Replay
         </button>
     </div>`;
@@ -10126,7 +10126,7 @@ function updateTrafficLegendUI() {
     // the flight-replay launch flow: get the competing chrome out of the way so
     // the docked replay panel + map are unobstructed, then restore it once the
     // replay tears itself down.
-    function launchAtcReplay(key, apt, user) {
+    function launchAtcReplay(key, apt, user, uid) {
         if (!key) {
             showNotification?.('No ATC session selected to replay.', 'error');
             return;
@@ -10138,6 +10138,12 @@ function updateTrafficLegendUI() {
 
         const uiToToggle = [];
         let reopenAirportOnClose = false;
+        // Remember which airport to restore on close. We re-open it by replaying
+        // the full handleAirportClick() flow rather than just re-showing the
+        // sheet, because MobileUIHandler.openWindow() only animates the sheet in
+        // when it observes a content mutation — re-showing an already-populated
+        // window produces no mutation, so the sheet would stay off-screen.
+        const airportToReopen = currentAirportInWindow;
 
         if (isMobile) {
             // On mobile the airport window is presented through MobileUIHandler
@@ -10180,12 +10186,14 @@ function updateTrafficLegendUI() {
         AtcReplay.open({
             map: sectorOpsMap,
             replayUrl,
-            meta: { airportName: apt, username: user },
+            meta: { airportName: apt, username: user, userId: uid || null, apiBase: ACARS_SOCKET_URL },
             onClose: () => {
                 if (isMobile) {
-                    if (reopenAirportOnClose) {
-                        const aptWin = document.getElementById('airport-info-window');
-                        if (aptWin) window.MobileUIHandler.openWindow(aptWin);
+                    // Re-run the full open flow so the sheet's content mutates and
+                    // MobileUIHandler animates it back in (a bare openWindow on an
+                    // unchanged window never fires its content observer).
+                    if (reopenAirportOnClose && airportToReopen && typeof handleAirportClick === 'function') {
+                        handleAirportClick(airportToReopen);
                     }
                 } else {
                     uiToToggle.forEach(el => { if (el && el.classList) el.classList.add('visible'); });
@@ -10210,7 +10218,8 @@ function updateTrafficLegendUI() {
             launchAtcReplay(
                 atcReplayBtn.dataset.atcKey,
                 atcReplayBtn.dataset.atcApt,
-                atcReplayBtn.dataset.atcUser
+                atcReplayBtn.dataset.atcUser,
+                atcReplayBtn.dataset.atcUid
             );
             return;
         }
