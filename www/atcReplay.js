@@ -13,7 +13,16 @@
 //   AtcReplay.close()
 //   AtcReplay.isOpen()
 
-const ATC_SPEED_OPTIONS = [1, 2, 5, 10, 30, 60, 120];
+const ATC_SPEED_OPTIONS = [1, 2, 5, 10, 30, 60, 120, 240, 480];
+
+// How the flown tracks are drawn. 'trails' fades a comet tail in behind each
+// aircraft; 'full' draws every track end-to-end; 'off' hides them entirely.
+const PATH_MODES = ['trails', 'full', 'off'];
+const PATH_MODE_STORAGE_KEY = 'atcReplayPathMode';
+// How much flown history (in session time) trails behind each plane.
+const TRAIL_WINDOW_MS = 120000;
+// Fallback / minimum coverage radius when the controller payload omits one.
+const DEFAULT_RADIUS_NM = 50;
 
 export const AtcReplay = (() => {
     // ---------- state ----------
@@ -34,18 +43,21 @@ export const AtcReplay = (() => {
     let rafHandle = null;
 
     // map artifacts we own (and must tear down)
-    let controllerMarker = null;
     let panelEl = null;
     let focusedFlightId = null;
     let isFollowing = false;        // camera follows the focused flight
-    let currentMeta = {};           // caller-supplied {airportName, username}
+    let currentMeta = {};           // caller-supplied {airportName, username, userId, apiBase}
     let flightRowEls = {};          // flightId -> list <div> (cached for animation)
+    let pathMode = 'trails';        // how flown tracks are drawn (see PATH_MODES)
+    let enforcementCount = null;    // violations the controller issued (null = unknown)
 
     const SRC_RADIUS = 'atc-replay-radius-source';
     const LYR_RADIUS_FILL = 'atc-replay-radius-fill';
     const LYR_RADIUS_LINE = 'atc-replay-radius-line';
     const SRC_PATHS = 'atc-replay-paths-source';
     const LYR_PATHS = 'atc-replay-paths-layer';
+    const SRC_TRAILS = 'atc-replay-trails-source';
+    const LYR_TRAILS = 'atc-replay-trails-layer';
     const SRC_PLANES = 'atc-replay-planes-source';
     const LYR_PLANES = 'atc-replay-planes-layer';
     const LYR_PLANE_LABELS = 'atc-replay-plane-labels';
@@ -108,7 +120,7 @@ export const AtcReplay = (() => {
     // ---------- geometry ----------
     // Polygon approximating a circle of radiusNm around [lon,lat]. 1nm of
     // latitude ≈ 1/60°; longitude is corrected by cos(lat).
-    function circlePolygon(lon, lat, radiusNm, points = 128) {
+    function circleRing(lon, lat, radiusNm, points = 128) {
         const coords = [];
         const latRad = lat * Math.PI / 180;
         const dLat = radiusNm / 60;
@@ -117,7 +129,52 @@ export const AtcReplay = (() => {
             const theta = (i / points) * 2 * Math.PI;
             coords.push([lon + dLon * Math.cos(theta), lat + dLat * Math.sin(theta)]);
         }
-        return { type: 'Feature', geometry: { type: 'Polygon', coordinates: [coords] }, properties: {} };
+        return coords;
+    }
+
+    function circlePolygon(lon, lat, radiusNm, points = 128) {
+        return { type: 'Feature', geometry: { type: 'Polygon', coordinates: [circleRing(lon, lat, radiusNm, points)] }, properties: {} };
+    }
+
+    // Concentric annulus bands whose opacity fades toward the perimeter, so the
+    // coverage area softly dissolves at its edge instead of stopping at a hard
+    // line. Each band is its own (non-overlapping) feature carrying an `op`
+    // property the fill layer reads directly.
+    function fadingRingFeatures(lon, lat, radiusNm, bands = 9) {
+        const features = [];
+        for (let k = 0; k < bands; k++) {
+            const rInner = radiusNm * (k / bands);
+            const rOuter = radiusNm * ((k + 1) / bands);
+            const outer = circleRing(lon, lat, rOuter, 96);
+            const inner = circleRing(lon, lat, rInner, 96).reverse(); // hole
+            // brightest at the centre, fading to nearly nothing at the rim
+            const op = 0.11 * Math.pow(1 - k / bands, 1.4);
+            const rings = rInner > 0 ? [outer, inner] : [outer];
+            features.push({
+                type: 'Feature',
+                geometry: { type: 'Polygon', coordinates: rings },
+                properties: { op: Math.max(0.004, op) }
+            });
+        }
+        return { type: 'FeatureCollection', features };
+    }
+
+    // Chaikin corner-cutting: rounds the kinks out of a coarse track so the
+    // drawn polyline reads as a smooth flown path rather than a chain of
+    // straight hops. Endpoints are preserved.
+    function smoothCoords(coords, iterations = 2) {
+        let pts = coords;
+        for (let it = 0; it < iterations && pts.length > 2; it++) {
+            const out = [pts[0]];
+            for (let i = 0; i < pts.length - 1; i++) {
+                const a = pts[i], b = pts[i + 1];
+                out.push([a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25]);
+                out.push([a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75]);
+            }
+            out.push(pts[pts.length - 1]);
+            pts = out;
+        }
+        return pts;
     }
 
     // ---------- data normalization ----------
@@ -268,11 +325,18 @@ export const AtcReplay = (() => {
             #atc-replay-panel .atcr-flight .fl-badge { font-size: 8px; font-weight: 800; letter-spacing: .5px; color: #4ade80; border: 1px solid #4ade80; border-radius: 3px; padding: 0 3px; }
             #atc-replay-panel .atcr-section-label { font-size: 10px; font-weight: 700; letter-spacing: .6px; color: #64748b; text-transform: uppercase; }
 
-            /* controller marker */
-            .atc-replay-controller-marker { pointer-events: none; display: grid; place-items: center; }
-            .atc-replay-controller-marker .ctrl-ring { position: absolute; width: 40px; height: 40px; border-radius: 50%; background: rgba(99,102,241,0.25); animation: atc-ctrl-pulse 2s ease-out infinite; }
-            .atc-replay-controller-marker .ctrl-core { position: relative; width: 30px; height: 30px; border-radius: 50%; background: linear-gradient(135deg, #6366f1, #38bdf8); display: grid; place-items: center; color: #fff; font-size: 14px; box-shadow: 0 2px 10px rgba(0,0,0,0.5); border: 2px solid rgba(255,255,255,0.85); }
-            @keyframes atc-ctrl-pulse { 0% { transform: scale(0.6); opacity: 0.8; } 100% { transform: scale(2.2); opacity: 0; } }
+            /* enforcement badge (violations the controller issued) */
+            #atc-replay-panel .atcr-enforce { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 800; letter-spacing: .4px; padding: 2px 7px; border-radius: 999px; white-space: nowrap; flex-shrink: 0; }
+            #atc-replay-panel .atcr-enforce.issued { color: #fca5a5; background: rgba(248,113,113,0.14); border: 1px solid rgba(248,113,113,0.5); }
+            #atc-replay-panel .atcr-enforce.clean { color: #6ee7b7; background: rgba(52,211,153,0.12); border: 1px solid rgba(52,211,153,0.4); }
+
+            /* path-mode segmented control */
+            #atc-replay-panel .atcr-pathmode { display: flex; align-items: center; gap: 8px; }
+            #atc-replay-panel .atcr-pathmode-label { font-size: 10px; font-weight: 700; letter-spacing: .6px; color: #64748b; text-transform: uppercase; }
+            #atc-replay-panel .atcr-seg { display: flex; gap: 2px; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 2px; }
+            #atc-replay-panel .atcr-seg-btn { background: transparent; border: none; color: #9aa0a6; font-size: 10px; font-weight: 700; padding: 4px 10px; border-radius: 6px; cursor: pointer; transition: all .12s ease; display: inline-flex; align-items: center; gap: 5px; }
+            #atc-replay-panel .atcr-seg-btn:hover { color: #fff; }
+            #atc-replay-panel .atcr-seg-btn.active { background: rgba(255,255,255,0.15); color: #fff; }
 
             .atc-replay-toast { position: fixed; top: 24px; left: 50%; transform: translateX(-50%); background: rgba(24,26,32,0.95); border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 10px 18px; border-radius: 10px; font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 600; z-index: 9001; box-shadow: 0 10px 30px rgba(0,0,0,0.5); transition: opacity .4s ease, transform .4s ease; }
             .atc-replay-toast.fade-out { opacity: 0; transform: translate(-50%, -8px); }
@@ -318,23 +382,33 @@ export const AtcReplay = (() => {
     function ensureLayers() {
         if (!map) return;
 
-        // Radius ring (skip if controller has no location)
+        // Coverage perimeter (skip if controller has no location). The fill is a
+        // stack of concentric bands that fade toward the rim, and the boundary
+        // is a faint dashed line — soft and persistent rather than a hard edge.
         if (controller && typeof controller.lat === 'number' && typeof controller.lon === 'number') {
-            const circle = circlePolygon(controller.lon, controller.lat, controller.searchRadiusNm || 30);
+            const radiusNm = Math.max(DEFAULT_RADIUS_NM, controller.searchRadiusNm || 0);
+            const fillData = fadingRingFeatures(controller.lon, controller.lat, radiusNm);
+            const lineData = circlePolygon(controller.lon, controller.lat, radiusNm);
             if (!map.getSource(SRC_RADIUS)) {
-                map.addSource(SRC_RADIUS, { type: 'geojson', data: circle });
+                map.addSource(SRC_RADIUS, { type: 'geojson', data: fillData });
             } else {
-                map.getSource(SRC_RADIUS).setData(circle);
+                map.getSource(SRC_RADIUS).setData(fillData);
+            }
+            const lineSrcId = SRC_RADIUS + '-line';
+            if (!map.getSource(lineSrcId)) {
+                map.addSource(lineSrcId, { type: 'geojson', data: lineData });
+            } else {
+                map.getSource(lineSrcId).setData(lineData);
             }
             if (!map.getLayer(LYR_RADIUS_FILL)) {
-                map.addLayer({ id: LYR_RADIUS_FILL, type: 'fill', source: SRC_RADIUS, paint: { 'fill-color': '#6366f1', 'fill-opacity': 0.06 } });
+                map.addLayer({ id: LYR_RADIUS_FILL, type: 'fill', source: SRC_RADIUS, paint: { 'fill-color': '#6366f1', 'fill-opacity': ['get', 'op'] } });
             }
             if (!map.getLayer(LYR_RADIUS_LINE)) {
-                map.addLayer({ id: LYR_RADIUS_LINE, type: 'line', source: SRC_RADIUS, paint: { 'line-color': '#818cf8', 'line-width': 1.5, 'line-dasharray': [3, 3], 'line-opacity': 0.7 } });
+                map.addLayer({ id: LYR_RADIUS_LINE, type: 'line', source: lineSrcId, paint: { 'line-color': '#818cf8', 'line-width': 1.5, 'line-dasharray': [3, 4], 'line-opacity': 0.28 } });
             }
         }
 
-        // Static full flight paths (drawn once)
+        // Static flown tracks (rebuilt when focus / path-mode changes)
         if (!map.getSource(SRC_PATHS)) {
             map.addSource(SRC_PATHS, { type: 'geojson', data: buildPathFeatures() });
         } else {
@@ -348,6 +422,22 @@ export const AtcReplay = (() => {
                     'line-color': ['get', 'color'],
                     'line-width': ['case', ['boolean', ['get', 'focused'], false], 4.5, 2.5],
                     'line-opacity': ['case', ['boolean', ['get', 'dim'], false], 0.18, 0.9]
+                }
+            });
+        }
+
+        // Fading comet trails behind each aircraft (refreshed every frame)
+        if (!map.getSource(SRC_TRAILS)) {
+            map.addSource(SRC_TRAILS, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        }
+        if (!map.getLayer(LYR_TRAILS)) {
+            map.addLayer({
+                id: LYR_TRAILS, type: 'line', source: SRC_TRAILS,
+                layout: { 'line-cap': 'round', 'line-join': 'round' },
+                paint: {
+                    'line-color': ['get', 'color'],
+                    'line-opacity': ['get', 'fade'],
+                    'line-width': ['interpolate', ['linear'], ['get', 'fade'], 0, 1, 1, 4]
                 }
             });
         }
@@ -385,32 +475,88 @@ export const AtcReplay = (() => {
             });
         }
 
-        // Controller facility marker
-        if (controller && typeof controller.lat === 'number' && typeof controller.lon === 'number' && !controllerMarker) {
-            const el = document.createElement('div');
-            el.className = 'atc-replay-controller-marker';
-            el.innerHTML = `<div class="ctrl-ring"></div><div class="ctrl-core"><i class="fa-solid fa-tower-broadcast"></i></div>`;
-            controllerMarker = new mapboxgl.Marker({ element: el })
-                .setLngLat([controller.lon, controller.lat])
-                .addTo(map);
+        applyPathMode();
+    }
+
+    // Show/hide the static-paths and trails layers to match the active path
+    // mode, and rebuild the static paths (in 'trails' mode only the focused
+    // flight keeps a full track; everyone else relies on their comet trail).
+    function applyPathMode() {
+        if (!map) return;
+        const showFull = pathMode === 'full' || (pathMode === 'trails' && !!focusedFlightId);
+        const showTrails = pathMode === 'trails';
+        if (map.getLayer(LYR_PATHS)) map.setLayoutProperty(LYR_PATHS, 'visibility', showFull ? 'visible' : 'none');
+        if (map.getLayer(LYR_TRAILS)) map.setLayoutProperty(LYR_TRAILS, 'visibility', showTrails ? 'visible' : 'none');
+        if (map.getSource(SRC_PATHS)) map.getSource(SRC_PATHS).setData(buildPathFeatures());
+        if (!showTrails && map.getSource(SRC_TRAILS)) {
+            map.getSource(SRC_TRAILS).setData({ type: 'FeatureCollection', features: [] });
         }
     }
 
-    // Build the static path FeatureCollection for all flights, segment-coloured
-    // by altitude. The focused flight is drawn brighter; others dim when one is
-    // focused.
+    // Build the static path FeatureCollection, altitude-coloured. Rather than a
+    // feature-per-segment (which round-caps into a string of blobs), consecutive
+    // points sharing an altitude colour are merged into one smoothed polyline,
+    // so each track reads as a single clean line. The focused flight is drawn
+    // brighter; others dim when one is focused. Honours the active path mode:
+    // 'full' draws every track, 'trails' keeps only the focused flight's full
+    // track, 'off' draws nothing.
     function buildPathFeatures() {
         const features = [];
+        if (pathMode === 'off') return { type: 'FeatureCollection', features };
         const anyFocused = !!focusedFlightId;
         for (const fl of flights) {
             const focused = fl.flightId === focusedFlightId;
+            if (pathMode === 'trails' && !focused) continue; // trails carry the rest
             const dim = anyFocused && !focused;
-            for (let i = 0; i < fl.points.length - 1; i++) {
-                const p1 = fl.points[i], p2 = fl.points[i + 1];
+            const pts = fl.points;
+            if (pts.length < 2) continue;
+            let runColor = getAltColor(pts[0].altitude);
+            let run = [[pts[0].lon, pts[0].lat]];
+            const flush = () => {
+                if (run.length < 2) return;
                 features.push({
                     type: 'Feature',
-                    geometry: { type: 'LineString', coordinates: [[p1.lon, p1.lat], [p2.lon, p2.lat]] },
-                    properties: { color: getAltColor(p1.altitude), focused, dim }
+                    geometry: { type: 'LineString', coordinates: smoothCoords(run) },
+                    properties: { color: runColor, focused, dim }
+                });
+            };
+            for (let i = 1; i < pts.length; i++) {
+                const c = getAltColor(pts[i].altitude);
+                run.push([pts[i].lon, pts[i].lat]);
+                if (c !== runColor) {
+                    flush();
+                    // start the next run at this point so the line stays unbroken
+                    run = [[pts[i].lon, pts[i].lat]];
+                    runColor = c;
+                }
+            }
+            flush();
+        }
+        return { type: 'FeatureCollection', features };
+    }
+
+    // Comet trails: the slice of each active flight's track within the last
+    // TRAIL_WINDOW_MS of session time, broken into sub-segments that fade from
+    // transparent (oldest) to opaque (at the aircraft) via the `fade` property.
+    function buildTrailFeatures(absT) {
+        const features = [];
+        const windowStart = absT - TRAIL_WINDOW_MS;
+        for (const fl of flights) {
+            const pts = fl.points;
+            if (!pts.length || absT < pts[0].t || windowStart > pts[pts.length - 1].t) continue;
+            // collect the in-window points, then the live interpolated head
+            const tail = pts.filter(p => p.t >= windowStart && p.t <= absT);
+            const head = positionAt(pts, absT);
+            if (!head) continue;
+            const chain = tail.concat([head]);
+            if (chain.length < 2) continue;
+            for (let i = 0; i < chain.length - 1; i++) {
+                const a = chain[i], b = chain[i + 1];
+                const fade = Math.max(0.04, (b.t - windowStart) / TRAIL_WINDOW_MS);
+                features.push({
+                    type: 'Feature',
+                    geometry: { type: 'LineString', coordinates: [[a.lon, a.lat], [b.lon, b.lat]] },
+                    properties: { color: getAltColor(a.altitude), fade: Math.min(1, fade) }
                 });
             }
         }
@@ -459,6 +605,9 @@ export const AtcReplay = (() => {
 
         if (map && map.getSource(SRC_PLANES)) {
             map.getSource(SRC_PLANES).setData({ type: 'FeatureCollection', features });
+        }
+        if (pathMode === 'trails' && map && map.getSource(SRC_TRAILS)) {
+            map.getSource(SRC_TRAILS).setData(buildTrailFeatures(absT));
         }
 
         // follow focused flight if "fit/follow" is engaged
@@ -533,6 +682,7 @@ export const AtcReplay = (() => {
                     <span class="atcr-apt">${apt}</span>
                     <span class="atcr-ctrl">${user}${radius !== '--' ? ` · ${radius}nm radius` : ''}</span>
                 </div>
+                <span class="atcr-enforce" data-hud="enforce" style="display:none;"></span>
                 <button class="atcr-close" title="Close ATC Replay"><i class="fa-solid fa-xmark"></i></button>
             </div>
 
@@ -554,6 +704,15 @@ export const AtcReplay = (() => {
                 <div class="atcr-time atcr-time-total">${fmtClock(totalDurationMs)}</div>
                 <div class="atcr-speed-wrap">
                     ${ATC_SPEED_OPTIONS.map(s => `<button class="atcr-speed-btn${s === 1 ? ' active' : ''}" data-speed="${s}">${s}×</button>`).join('')}
+                </div>
+            </div>
+
+            <div class="atcr-pathmode">
+                <span class="atcr-pathmode-label">Paths</span>
+                <div class="atcr-seg">
+                    <button class="atcr-seg-btn${pathMode === 'trails' ? ' active' : ''}" data-pathmode="trails" title="Fading trail behind each aircraft"><i class="fa-solid fa-meteor"></i> Trails</button>
+                    <button class="atcr-seg-btn${pathMode === 'full' ? ' active' : ''}" data-pathmode="full" title="Draw every track end-to-end"><i class="fa-solid fa-route"></i> Full</button>
+                    <button class="atcr-seg-btn${pathMode === 'off' ? ' active' : ''}" data-pathmode="off" title="Hide flown paths"><i class="fa-solid fa-eye-slash"></i> Off</button>
                 </div>
             </div>
 
@@ -598,6 +757,16 @@ export const AtcReplay = (() => {
             });
         });
 
+        panelEl.querySelectorAll('.atcr-seg-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                pathMode = btn.dataset.pathmode;
+                try { localStorage.setItem(PATH_MODE_STORAGE_KEY, pathMode); } catch (_) {}
+                panelEl.querySelectorAll('.atcr-seg-btn').forEach(b => b.classList.toggle('active', b === btn));
+                applyPathMode();
+                renderFrame();
+            });
+        });
+
         // flight list → focus a flight (highlight its path, dim the rest)
         flightRowEls = {};
         panelEl.querySelectorAll('.atcr-flight').forEach(row => {
@@ -612,7 +781,7 @@ export const AtcReplay = (() => {
                     focusedFlightId = fid;
                 }
                 panelEl.querySelectorAll('.atcr-flight').forEach(r => r.classList.toggle('focused', r.dataset.fid === focusedFlightId));
-                if (map && map.getSource(SRC_PATHS)) map.getSource(SRC_PATHS).setData(buildPathFeatures());
+                applyPathMode();
                 // pan to the focused flight's current (or first) position
                 const fl = flights.find(f => f.flightId === focusedFlightId);
                 if (fl && map) {
@@ -641,13 +810,73 @@ export const AtcReplay = (() => {
         if (ic) ic.className = isPlaying ? 'fa-solid fa-pause' : 'fa-solid fa-play';
     }
 
+    // Paint the enforcement badge once we know how many violations the
+    // controller issued during the session (null = still unknown, hidden).
+    function renderEnforcement() {
+        if (!panelEl) return;
+        const el = panelEl.querySelector('[data-hud="enforce"]');
+        if (!el) return;
+        if (enforcementCount == null) { el.style.display = 'none'; return; }
+        el.style.display = 'inline-flex';
+        if (enforcementCount > 0) {
+            el.className = 'atcr-enforce issued';
+            el.innerHTML = `<i class="fa-solid fa-gavel"></i> ${enforcementCount} issued`;
+            el.title = `${enforcementCount} violation(s) issued this session`;
+        } else {
+            el.className = 'atcr-enforce clean';
+            el.innerHTML = `<i class="fa-solid fa-shield-halved"></i> No violations`;
+            el.title = 'No violations issued this session';
+        }
+    }
+
+    // We can't know mid-session whether a controller issued violations — that
+    // only lands in their ATC logbook once the session ends. So after the
+    // (already-historical) replay loads we reconcile against the controller's
+    // logbook, preferring any count baked into the replay payload itself.
+    async function loadEnforcement() {
+        let count = num(controller?.violationsIssued, currentMeta?.violationsIssued);
+        if (count == null) {
+            const uid = controller?.userId || currentMeta?.userId;
+            const base = currentMeta?.apiBase;
+            const icao = (controller && controller.airportName) || currentMeta?.airportName;
+            if (uid && base) {
+                try {
+                    const res = await fetch(`${base}/api/users/${encodeURIComponent(uid)}/atc?page=1`);
+                    const json = res.ok ? await res.json() : null;
+                    const sessions = (json && (json.data || json.sessions)) || [];
+                    // window the replay covers, with a little slack on each side
+                    const wStart = (controller?.window?.start ?? spanStart) - 30 * 60000;
+                    const wEnd = (controller?.window?.end ?? (spanStart + totalDurationMs)) + 30 * 60000;
+                    let best = null, bestDist = Infinity;
+                    for (const s of sessions) {
+                        const sIcao = s.facility?.airportIcao || s.airportName;
+                        if (icao && sIcao && sIcao !== icao) continue;
+                        const t = num(s.created, s.start, s.end);
+                        if (t == null) continue;
+                        if (t < wStart || t > wEnd) continue;
+                        const dist = Math.abs(t - (spanStart + totalDurationMs / 2));
+                        if (dist < bestDist) { bestDist = dist; best = s; }
+                    }
+                    if (best) count = num(best.violationsIssued) ?? 0;
+                } catch (e) {
+                    console.warn('[AtcReplay] enforcement lookup failed:', e);
+                }
+            }
+        }
+        enforcementCount = (count == null) ? null : count;
+        renderEnforcement();
+    }
+
     function fitToAirspace() {
         if (!map) return;
         try {
             const b = new mapboxgl.LngLatBounds();
             let has = false;
             if (controller && typeof controller.lat === 'number' && typeof controller.lon === 'number') {
-                b.extend([controller.lon, controller.lat]); has = true;
+                // extend by the full coverage ring so the whole perimeter shows
+                const radiusNm = Math.max(DEFAULT_RADIUS_NM, controller.searchRadiusNm || 0);
+                for (const c of circleRing(controller.lon, controller.lat, radiusNm, 32)) b.extend(c);
+                has = true;
             }
             for (const fl of flights) for (const p of fl.points) { b.extend([p.lon, p.lat]); has = true; }
             if (has) map.fitBounds(b, { padding: 80, maxZoom: 11, duration: 800 });
@@ -681,19 +910,19 @@ export const AtcReplay = (() => {
         pause();
         restoreLiveTraffic();
         if (map) {
-            [LYR_PLANE_LABELS, LYR_PLANES, LYR_PATHS, LYR_RADIUS_LINE, LYR_RADIUS_FILL].forEach(id => {
+            [LYR_PLANE_LABELS, LYR_PLANES, LYR_TRAILS, LYR_PATHS, LYR_RADIUS_LINE, LYR_RADIUS_FILL].forEach(id => {
                 if (map.getLayer && map.getLayer(id)) { try { map.removeLayer(id); } catch (_) {} }
             });
-            [SRC_PLANES, SRC_PATHS, SRC_RADIUS].forEach(id => {
+            [SRC_PLANES, SRC_TRAILS, SRC_PATHS, SRC_RADIUS + '-line', SRC_RADIUS].forEach(id => {
                 if (map.getSource && map.getSource(id)) { try { map.removeSource(id); } catch (_) {} }
             });
         }
-        if (controllerMarker) { try { controllerMarker.remove(); } catch (_) {} controllerMarker = null; }
         if (panelEl) { panelEl.remove(); panelEl = null; }
 
         controller = null; flights = []; currentMeta = {}; flightRowEls = {};
         spanStart = 0; totalDurationMs = 0; currentMs = 0; speed = 1;
         isScrubbing = false; focusedFlightId = null; isFollowing = false;
+        enforcementCount = null;
 
         const cb = onCloseCallback; onCloseCallback = null;
         if (typeof cb === 'function') { try { cb(); } catch (e) { console.warn('[AtcReplay] onClose threw:', e); } }
@@ -759,7 +988,13 @@ export const AtcReplay = (() => {
         totalDurationMs = end - start;
         currentMs = 0;
 
+        try {
+            const saved = localStorage.getItem(PATH_MODE_STORAGE_KEY);
+            if (PATH_MODES.includes(saved)) pathMode = saved;
+        } catch (_) {}
+
         buildPanel();
+        loadEnforcement();
 
         const setup = () => {
             ensureLayers();
