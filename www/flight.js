@@ -10360,6 +10360,14 @@ function setupAircraftWindowEvents() {
             const tabBtn = e.target.closest('.ac-info-tab-btn');
             const planBtn = e.target.closest('#plan-this-flight-btn');
             const profileToggleBtn = e.target.closest('.profile-toggle-btn');
+            const icaoLink = e.target.closest('.ac-icao-link');
+
+            if (icaoLink) {
+                e.preventDefault();
+                const icao = icaoLink.dataset.icao;
+                if (icao) handleAirportClick(icao, null, true);
+                return;
+            }
 
             if (trackMeBtn) {
                 e.preventDefault();
@@ -13054,7 +13062,7 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
  * Handles clicks on airport markers/tags. 
  * High priority: This will always close the aircraft window if it is open.
  */
-async function handleAirportClick(icao, event = null) {
+async function handleAirportClick(icao, event = null, recenter = false) {
     if (!icao) return;
 
     LandingUI.update(false);
@@ -13084,6 +13092,21 @@ async function handleAirportClick(icao, event = null) {
     const airport = airportsData ? airportsData[icao] : null;
     if (airport && typeof AirportLayoutManager !== 'undefined' && sectorOpsMap) {
         AirportLayoutManager.plotTaxiways(sectorOpsMap, icao, airport.lat, airport.lon);
+    }
+
+    // Travel to the airport when navigated here from a link (e.g. a clickable
+    // ICAO in a flight window). Marker clicks pass recenter=false since the
+    // airport is already where the user tapped.
+    if (recenter && airport && sectorOpsMap
+        && typeof airport.lat === 'number' && typeof airport.lon === 'number') {
+        try {
+            sectorOpsMap.flyTo({
+                center: [airport.lon, airport.lat],
+                zoom: Math.max(sectorOpsMap.getZoom(), 11),
+                duration: 1200,
+                essential: true
+            });
+        } catch (_) {}
     }
 
     // 3. Prepare UI Container
@@ -13773,6 +13796,15 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     const windowEl = document.getElementById('aircraft-info-window');
     if (!windowEl) return;
 
+    // Clickable origin/destination ICAOs — inject the hover affordance once.
+    if (!document.getElementById('ac-icao-link-style')) {
+        const s = document.createElement('style');
+        s.id = 'ac-icao-link-style';
+        s.textContent = `.ac-icao-link{cursor:pointer;border-radius:4px;transition:color .15s ease,text-shadow .15s ease;}`
+            + `.ac-icao-link:hover{color:#38bdf8;text-shadow:0 0 12px rgba(56,189,248,0.5);}`;
+        document.head.appendChild(s);
+    }
+
     // --- Helper function to update all elements matching a selector ---
     const updateAll = (selector, value, isHTML = false) => {
         const elements = document.querySelectorAll(selector);
@@ -13856,6 +13888,18 @@ let totalDistanceNM = 0;
 
     const departureIcao = hasPlan ? originalFlatWaypointObjects[0]?.identifier || originalFlatWaypointObjects[0]?.name : 'N/A';
     const arrivalIcao = hasPlan ? originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.identifier || originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.name : 'N/A';
+
+    // Make the origin/destination ICAOs clickable so the user can jump straight
+    // to that airport's window. Only codes we actually have airport data for
+    // become links — fixes/waypoints and 'N/A' stay as plain text.
+    const renderClickableIcao = (icao) => {
+        const code = (icao == null) ? '' : String(icao).trim();
+        const isAirport = code && typeof airportsData !== 'undefined' && airportsData[code];
+        if (!isAirport) return code || 'N/A';
+        return `<span class="ac-icao-link" data-icao="${code}" role="button" tabindex="0" title="View ${code} airport">${code}</span>`;
+    };
+    const departureIcaoHtml = renderClickableIcao(departureIcao);
+    const arrivalIcaoHtml = renderClickableIcao(arrivalIcao);
 
     // --- Source-tagged time info (SCHEDULED / ACTUAL / ESTIMATED) ---
     // Falls back to a back-calculated estimate so we never render '--:--' when we have any data at all.
@@ -14024,7 +14068,7 @@ let totalDistanceNM = 0;
             <div class="route-node">
         <span class="city-name" style="color: #94a3b8; font-size: 9px; font-weight: 600; text-transform: uppercase;">${depCity}</span>
         <span class="icao-large" style="display: flex; align-items: center; gap: 8px; color: #fff; font-size: 20px; font-weight: 800; font-family: 'JetBrains Mono', monospace; line-height: 1.1;">
-            ${departureIcao}
+            ${departureIcaoHtml}
             <img id="ac-bar-dep-flag" src="" style="height: 14px; border-radius: 2px; display: none; opacity: 0.8;" onerror="this.style.display='none'">
         </span>
         <span class="time-small" id="ac-bar-atd" style="color: ${depTimeInfo.color}; font-size: 11px; font-weight: 600;">${depTimeInfo.time === '--:--' ? '--:--' : depTimeInfo.time + ' Z'}</span>
@@ -14046,7 +14090,7 @@ let totalDistanceNM = 0;
             <div class="route-node end" style="text-align: right; align-items: flex-end;">
                 <span class="city-name" style="color: #94a3b8; font-size: 9px; font-weight: 600; text-transform: uppercase;">${arrCity}</span>
                 <span class="icao-large" style="display: flex; align-items: center; gap: 8px; flex-direction: row-reverse; color: #fff; font-size: 20px; font-weight: 800; font-family: 'JetBrains Mono', monospace; line-height: 1.1;">
-                    ${arrivalIcao}
+                    ${arrivalIcaoHtml}
                     <img id="ac-bar-arr-flag" src="" style="height: 14px; border-radius: 2px; display: none; opacity: 0.8;" onerror="this.style.display='none'">
                 </span>
                 <span class="time-small" id="ac-bar-eta" style="color: ${arrTimeInfo.color}; font-size: 11px; font-weight: 600;">${arrTimeInfo.time === '--:--' ? '--:--' : arrTimeInfo.time + ' Z'}</span>
@@ -16174,6 +16218,13 @@ async function handleIframeMessage(event) {
     // 2b. [NEW] Simple Window action buttons (replay / trip card / follow).
     if (event.data && event.data.type === 'SIMPLE_WINDOW_ACTION') {
         handleSimpleWindowAction(event.data.action);
+        return;
+    }
+
+    // 2c. [NEW] Tapping an ICAO in the simple flight window jumps to that airport.
+    if (event.data && event.data.type === 'NAVIGATE_TO_AIRPORT') {
+        const icao = event.data.icao;
+        if (icao && typeof handleAirportClick === 'function') handleAirportClick(icao, null, true);
         return;
     }
 

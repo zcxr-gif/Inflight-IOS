@@ -131,7 +131,16 @@ export const AtcReplay = (() => {
     // exposes getAircraftCategory globally; fall back to a sane default.
     function categoryFor(aircraftName) {
         if (typeof window.getAircraftCategory === 'function') {
-            try { return window.getAircraftCategory(aircraftName); } catch (_) {}
+            try {
+                const c = window.getAircraftCategory(aircraftName);
+                // getAircraftCategory() returns 'default' for blank/unknown names,
+                // but the sprite sheet has no 'icon-default' frame. Historical ATC
+                // sessions frequently omit the aircraft name, so resolving to a real
+                // sprite here keeps the plane visible — and stops Mapbox from
+                // re-requesting the missing image on every frame (a leak that
+                // eventually crashes the iOS web view).
+                if (c && c !== 'default') return c;
+            } catch (_) {}
         }
         return 'B737';
     }
@@ -1069,8 +1078,10 @@ export const AtcReplay = (() => {
         // flight list → focus a flight (highlight its path, dim the rest)
         flightRowEls = {};
         panelEl.querySelectorAll('.atcr-flight').forEach(row => {
-            flightRowEls[row.dataset.fid] = row;
-            row.addEventListener('click', () => focusFlight(row.dataset.fid));
+            const fid = row.dataset.fid;
+            if (!fid) return;
+            flightRowEls[fid] = row;
+            row.addEventListener('click', () => focusFlight(fid));
         });
 
         panelEl.querySelector('.atcr-loop')?.addEventListener('click', toggleLoop);
@@ -1135,7 +1146,11 @@ export const AtcReplay = (() => {
         const fl = flights.find(f => f.flightId === focusedFlightId);
         if (fl && map) {
             const pos = positionAt(fl.points, spanStart + currentMs) || fl.points[0];
-            if (pos) map.easeTo({ center: [pos.lon, pos.lat], zoom: Math.max(map.getZoom(), 8), duration: 600 });
+            if (pos && Number.isFinite(pos.lon) && Number.isFinite(pos.lat)) {
+                try {
+                    map.easeTo({ center: [pos.lon, pos.lat], zoom: Math.max(map.getZoom(), 8), duration: 600 });
+                } catch (e) { console.warn('[AtcReplay] focus camera move failed:', e); }
+            }
         }
         renderFrame();
     }
