@@ -56,6 +56,8 @@ export const AtcReplay = (() => {
     let freqWinStart = 0;           // abs-ms at the left edge of the freq timeline
     let freqWinSpan = 0;            // width of the freq timeline in ms
     let isLooping = false;          // restart at the end instead of stopping
+    let isCollapsed = false;        // panel collapsed to a slim playback bar
+    const COLLAPSE_STORAGE_KEY = 'atcReplayCollapsed';
     let onKeyDown = null;           // bound keyboard-shortcut handler
     let onPlaneClick = null, onPlaneEnter = null, onPlaneLeave = null; // map handlers
 
@@ -299,6 +301,22 @@ export const AtcReplay = (() => {
                 display: grid; place-items: center; transition: all .15s ease; flex-shrink: 0;
             }
             #atc-replay-panel .atcr-close:hover { background: rgba(255,255,255,0.15); color: #fff; }
+            #atc-replay-panel .atcr-collapse {
+                background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+                color: #e8eaed; width: 28px; height: 28px; border-radius: 50%; cursor: pointer;
+                display: grid; place-items: center; transition: all .15s ease; flex-shrink: 0;
+            }
+            #atc-replay-panel .atcr-collapse:hover { background: rgba(255,255,255,0.15); color: #fff; }
+
+            /* collapsed: shrink to header + transport bar */
+            #atc-replay-panel.collapsed { gap: 8px; padding-bottom: 12px; }
+            #atc-replay-panel.collapsed .atcr-collapsible { display: none !important; }
+
+            /* per-section fold (flights / frequencies) */
+            #atc-replay-panel .atcr-toggle { cursor: pointer; user-select: none; display: flex; align-items: center; gap: 6px; }
+            #atc-replay-panel .atcr-toggle:hover { color: #cbd5e1; }
+            #atc-replay-panel .sect-chev { font-size: 9px; transition: transform .15s ease; }
+            #atc-replay-panel .atcr-toggle.section-collapsed .sect-chev { transform: rotate(-90deg); }
 
             /* frequency timeline bars */
             #atc-replay-panel .atcr-freqs { display: flex; flex-direction: column; gap: 4px; }
@@ -888,19 +906,20 @@ export const AtcReplay = (() => {
                 </div>
                 <span class="atcr-conflict" data-hud="conflict" style="display:none;" title="Aircraft within ${CONFLICT_NM}nm and ${CONFLICT_FT}ft of each other"></span>
                 <span class="atcr-enforce" data-hud="enforce" style="display:none;"></span>
+                <button class="atcr-collapse" title="Collapse / expand panel"><i class="fa-solid fa-chevron-down"></i></button>
                 <button class="atcr-close" title="Close ATC Replay"><i class="fa-solid fa-xmark"></i></button>
             </div>
 
-            ${freqRows ? `<div class="atcr-section-label atcr-freqs-label">Staffed frequencies <span class="atcr-freqs-hint">— bar = when open · line = now</span></div><div class="atcr-freqs">${freqRows}</div>` : ''}
+            ${freqRows ? `<div class="atcr-section-label atcr-freqs-label atcr-collapsible atcr-toggle" data-section="freqs"><i class="fa-solid fa-chevron-down sect-chev"></i> Staffed frequencies <span class="atcr-freqs-hint">— bar = when open · line = now</span></div><div class="atcr-freqs atcr-collapsible" data-section-body="freqs">${freqRows}</div>` : ''}
 
-            <div class="atcr-hud">
+            <div class="atcr-hud atcr-collapsible">
                 <div class="atcr-stat"><label>UTC</label><span data-hud="utc">--:--:--</span><small>z</small></div>
                 <div class="atcr-stat"><label>AIRBORNE</label><span data-hud="active">0</span><small>in airspace</small></div>
                 <div class="atcr-stat"><label>FLIGHTS</label><span data-hud="total">${flights.length}</span><small>total</small></div>
                 <div class="atcr-stat"><label>FIELD OPS</label><span data-hud="field">${flights.filter(f => f.atAirport).length}</span><small>arr/dep</small></div>
             </div>
 
-            <div class="atcr-focus" data-focus-strip style="display:none;">
+            <div class="atcr-focus atcr-collapsible" data-focus-strip style="display:none;">
                 <i class="fa-solid fa-crosshairs"></i>
                 <span class="ff-cs">----</span>
                 <span class="ff-stat">ALT <b data-ff="alt">--</b></span>
@@ -921,7 +940,7 @@ export const AtcReplay = (() => {
                 </div>
             </div>
 
-            <div class="atcr-pathmode">
+            <div class="atcr-pathmode atcr-collapsible">
                 <span class="atcr-pathmode-label">Paths</span>
                 <div class="atcr-seg">
                     <button class="atcr-seg-btn${pathMode === 'trails' ? ' active' : ''}" data-pathmode="trails" title="Fading trail behind each aircraft"><i class="fa-solid fa-meteor"></i> Trails</button>
@@ -935,7 +954,7 @@ export const AtcReplay = (() => {
                 </div>
             </div>
 
-            ${flightRows ? `<div class="atcr-section-label">Flights in airspace (nearest first)</div><div class="atcr-flights">${flightRows}</div>` : '<div class="atcr-section-label">No flights recorded in this airspace window.</div>'}
+            ${flightRows ? `<div class="atcr-section-label atcr-collapsible atcr-toggle" data-section="flights"><i class="fa-solid fa-chevron-down sect-chev"></i> Flights in airspace (nearest first)</div><div class="atcr-flights atcr-collapsible" data-section-body="flights">${flightRows}</div>` : '<div class="atcr-section-label atcr-collapsible">No flights recorded in this airspace window.</div>'}
         `;
         document.body.appendChild(panelEl);
         bindPanelEvents();
@@ -991,6 +1010,30 @@ export const AtcReplay = (() => {
         });
 
         panelEl.querySelector('.atcr-loop')?.addEventListener('click', toggleLoop);
+        panelEl.querySelector('.atcr-collapse')?.addEventListener('click', () => togglePanelCollapse());
+
+        // fold individual sections (flights / frequencies) via their headers
+        panelEl.querySelectorAll('.atcr-toggle').forEach(lbl => {
+            lbl.addEventListener('click', () => {
+                const sec = lbl.dataset.section;
+                const body = panelEl.querySelector(`[data-section-body="${sec}"]`);
+                const collapsed = lbl.classList.toggle('section-collapsed');
+                if (body) body.style.display = collapsed ? 'none' : '';
+            });
+        });
+    }
+
+    // Master collapse: shrink the panel to just its header + transport controls
+    // so it stops eating half the screen. Remembered across sessions.
+    function togglePanelCollapse(force) {
+        if (!panelEl) return;
+        isCollapsed = (typeof force === 'boolean') ? force : !isCollapsed;
+        panelEl.classList.toggle('collapsed', isCollapsed);
+        const ic = panelEl.querySelector('.atcr-collapse i');
+        if (ic) ic.className = isCollapsed ? 'fa-solid fa-chevron-up' : 'fa-solid fa-chevron-down';
+        const btn = panelEl.querySelector('.atcr-collapse');
+        if (btn) btn.title = isCollapsed ? 'Expand panel' : 'Collapse panel';
+        try { localStorage.setItem(COLLAPSE_STORAGE_KEY, isCollapsed ? '1' : '0'); } catch (_) {}
     }
 
     // Focus (or un-focus) a flight: highlight its row + full path, dim the rest,
@@ -1227,7 +1270,7 @@ export const AtcReplay = (() => {
         controller = null; flights = []; currentMeta = {}; flightRowEls = {};
         spanStart = 0; totalDurationMs = 0; currentMs = 0; speed = 1;
         isScrubbing = false; focusedFlightId = null; isFollowing = false;
-        enforcementCount = null; isLooping = false;
+        enforcementCount = null; isLooping = false; isCollapsed = false;
 
         const cb = onCloseCallback; onCloseCallback = null;
         if (typeof cb === 'function') { try { cb(); } catch (e) { console.warn('[AtcReplay] onClose threw:', e); } }
@@ -1299,6 +1342,7 @@ export const AtcReplay = (() => {
         } catch (_) {}
 
         buildPanel();
+        try { if (localStorage.getItem(COLLAPSE_STORAGE_KEY) === '1') togglePanelCollapse(true); } catch (_) {}
         applyDensityGradient();
         loadEnforcement();
         bindKeys();
