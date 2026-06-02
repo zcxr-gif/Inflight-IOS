@@ -539,6 +539,7 @@ let mapFilters = {
             showLandUse: true    // Parks, Forests, etc.
         },
         show3DPath: false,
+        live3DTraffic: false, // 3D elevated dot view for live traffic (toolbar/settings toggle)
         showNatTracks: true,
         showNatLabels: false,
         showVaOnly: false,
@@ -657,6 +658,22 @@ function scheduleMapSourceUpdate() {
         }
         mapSourceUpdateTimeout = null;
     }, 400); // Batches all image resolutions into a single update every 400ms
+}
+
+// Single entry point for toggling the 3D live-traffic dot view. Persists the
+// preference, drives the THREE layer, and keeps both UI affordances (the map
+// toolbar button and the Settings toggle) in sync regardless of which one the
+// user tapped. Safe to call before either control exists (null-guarded).
+function setLive3DTraffic(on) {
+    on = !!on;
+    mapFilters.live3DTraffic = on;
+    try { saveFiltersToLocalStorage(); } catch (_) {}
+    if (typeof LiveTraffic3D !== 'undefined') LiveTraffic3D.setVisible(on);
+
+    const btn = document.getElementById('live-3d-toggle-btn');
+    if (btn) btn.classList.toggle('active', on);
+    const toggle = document.getElementById('set-3d-traffic');
+    if (toggle) toggle.checked = on;
 }
 
 // --- PREMIUM PLANE COLOR EXPRESSION ---
@@ -10704,9 +10721,10 @@ function initializeAircraftLayer() {
             mapAnimator = new MapAnimator(sectorOpsMap, 'sector-ops-live-flights-source', currentMapFeatures);
         }
 
-        // 3D live-traffic dot field (toggled from the map toolbar). Reads the
-        // same shared feature cache the flat symbol layer does.
+        // 3D live-traffic dot field (toggled from the map toolbar / Settings).
+        // Reads the same shared feature cache the flat symbol layer does.
         LiveTraffic3D.init(sectorOpsMap, () => Object.values(currentMapFeatures));
+        if (mapFilters.live3DTraffic) LiveTraffic3D.setVisible(true);
 
         const initialIconSize = parseFloat(mapFilters.planeIconSize) || 0.15;
 
@@ -11874,7 +11892,12 @@ renderCategory(catId) {
                                 <div class="row-label"><i class="fa-solid fa-tags"></i> Aircraft Labels</div>
                                 <label class="toggle-switch"><input type="checkbox" id="set-labels" ${mapFilters.showAircraftLabels ? 'checked' : ''}><span class="toggle-slider"></span></label>
                             </div>
-                            
+
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-cube"></i> 3D Traffic View</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-3d-traffic" ${mapFilters.live3DTraffic ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                            </div>
+
                             <div class="settings-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
                                 <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
                                     <div class="row-label"><i class="fa-solid fa-plane-up"></i> Aircraft Scale</div>
@@ -12123,6 +12146,13 @@ renderCategory(catId) {
             const el = document.getElementById(id);
             if (el) el.addEventListener('change', (e) => update(ids[id], e.target.checked));
         });
+
+        // 3D Traffic View — routed through the shared toggle so the map toolbar
+        // button stays in sync (it's not a plain mapFilters flag like the rest).
+        const live3dToggle = document.getElementById('set-3d-traffic');
+        if (live3dToggle) {
+            live3dToggle.addEventListener('change', (e) => setLive3DTraffic(e.target.checked));
+        }
 
         // Map Style Select
         const mapStyleSelect = document.getElementById('set-map-style');
@@ -16133,9 +16163,9 @@ function setupSectorOpsEventListeners() {
     // Swaps the flat plane icons for the elevated 3D dot field and back.
     const live3dBtn = document.getElementById('live-3d-toggle-btn');
     if (live3dBtn) {
+        live3dBtn.classList.toggle('active', !!mapFilters.live3DTraffic);
         live3dBtn.addEventListener('click', () => {
-            const on = LiveTraffic3D.setVisible(!LiveTraffic3D.isVisible());
-            live3dBtn.classList.toggle('active', on);
+            setLive3DTraffic(!LiveTraffic3D.isVisible());
         });
     }
 
