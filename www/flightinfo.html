@@ -320,6 +320,8 @@
     }
     .rh-port { min-width: 0; text-align: center; }
     .rh-icao { font-size: 44px; font-weight: 900; line-height: .95; letter-spacing: -2px; color: #fff; }
+    .icao-clickable { cursor: pointer; transition: color .15s ease, text-shadow .15s ease; }
+    .icao-clickable:hover { color: #38bdf8; text-shadow: 0 0 14px rgba(56,189,248,0.5); }
     .rh-city {
         font-size: 12px; font-weight: 600; color: var(--text-secondary);
         text-transform: uppercase; letter-spacing: .5px; margin-top: 6px;
@@ -807,6 +809,31 @@
             });
         });
 
+        // Clickable origin/destination ICAOs -> ask the host to open that airport.
+        // Only mark codes that look like real ICAOs (3-4 alphanumerics); '---'/'N/A'
+        // stay inert.
+        function setIcaoClickable(id, icao) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            const code = (icao || '').trim().toUpperCase();
+            if (/^[A-Z0-9]{3,4}$/.test(code)) {
+                el.dataset.icao = code;
+                el.classList.add('icao-clickable');
+            } else {
+                delete el.dataset.icao;
+                el.classList.remove('icao-clickable');
+            }
+        }
+        // Capture phase so tapping an ICAO inside the collapsed bar jumps to the
+        // airport instead of just expanding the window.
+        document.addEventListener('click', (e) => {
+            const el = e.target.closest('.icao-clickable[data-icao]');
+            if (!el) return;
+            e.preventDefault();
+            e.stopPropagation();
+            try { window.parent.postMessage({ type: 'NAVIGATE_TO_AIRPORT', icao: el.dataset.icao }, '*'); } catch (err) {}
+        }, true);
+
         window.scrollToProfile = function() {
             const el = document.getElementById('profile-anchor');
             if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -926,6 +953,10 @@
                 updateText('arr-icao', r.destIcao || '---');
                 updateText('c-dep-icao', r.originIcao || '---');
                 updateText('c-arr-icao', r.destIcao || '---');
+                setIcaoClickable('dep-icao', r.originIcao);
+                setIcaoClickable('arr-icao', r.destIcao);
+                setIcaoClickable('c-dep-icao', r.originIcao);
+                setIcaoClickable('c-arr-icao', r.destIcao);
 
                 setCity('dep-city', r.originCity);
                 setCity('arr-city', r.destCity);
