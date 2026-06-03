@@ -562,7 +562,8 @@ let mapFilters = {
         themeEndColor: '#18181b',
         themeOpacity: 90,
         showBuildings: false, // NEW: 3D Buildings
-        showDayNight: false   // NEW: Day/Night Cycle
+        showDayNight: false,  // NEW: Day/Night Cycle
+        smoothCruiseMotion: false // NEW: dead-reckon cruising planes between updates for smooth forward motion
     };
 
     window.saveFiltersToLocalStorage = saveFiltersToLocalStorage;
@@ -6919,6 +6920,11 @@ window.addEventListener('serverChange', (e) => {
 function updateMapFilters() {
     if (!sectorOpsMap) return;
 
+    // Keep smooth cruise motion in sync with the current preference.
+    if (mapAnimator && typeof mapAnimator.setAnimationEnabled === 'function') {
+        mapAnimator.setAnimationEnabled(!!mapFilters.smoothCruiseMotion);
+    }
+
     // 1. Handle Projection Changes
     const currentProjection = sectorOpsMap.getProjection().name;
     const targetProjection = mapFilters.useFlatMap ? 'mercator' : 'globe';
@@ -10731,6 +10737,8 @@ function initializeAircraftLayer() {
 
         if (typeof MapAnimator !== 'undefined' && !mapAnimator) {
             mapAnimator = new MapAnimator(sectorOpsMap, 'sector-ops-live-flights-source', currentMapFeatures);
+            // Honor the persisted "Smooth Cruise Motion" preference.
+            mapAnimator.setAnimationEnabled(!!mapFilters.smoothCruiseMotion);
         }
 
         // 3D live-traffic dot field (toggled from the map toolbar / Settings).
@@ -11910,6 +11918,15 @@ renderCategory(catId) {
                                 <label class="toggle-switch"><input type="checkbox" id="set-3d-traffic" ${mapFilters.live3DTraffic ? 'checked' : ''}><span class="toggle-slider"></span></label>
                             </div>
 
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-plane-circle-check"></i> Smooth Cruise Motion</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-smooth-cruise" ${mapFilters.smoothCruiseMotion ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                            </div>
+                            <p style="font-size: 0.7rem; color: #71717a; margin: -4px 0 4px 16px; line-height: 1.4;">
+                                <i class="fa-solid fa-circle-info" style="font-size: 0.6rem; margin-right: 4px;"></i>
+                                Glides cruising aircraft forward between updates instead of jumping.
+                            </p>
+
                             <div class="settings-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
                                 <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
                                     <div class="row-label"><i class="fa-solid fa-plane-up"></i> Aircraft Scale</div>
@@ -12134,7 +12151,8 @@ renderCategory(catId) {
             'set-nat-tracks': 'showNatTracks',
             'set-nat-labels': 'showNatLabels',
             'set-simple-win': 'useSimpleFlightWindow',
-            'setting-toggle-3dpath': 'show3DPath'
+            'setting-toggle-3dpath': 'show3DPath',
+            'set-smooth-cruise': 'smoothCruiseMotion'
         };
 
         // --- 3. Attach Pro Layer Listeners ---
