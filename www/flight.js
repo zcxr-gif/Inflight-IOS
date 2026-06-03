@@ -10257,11 +10257,20 @@ function updateTrafficLegendUI() {
             toolbarRow.style.display = 'none';
         }
 
+        // The live 3D dot field (LiveTraffic3D) is a separate THREE custom layer
+        // from the flat sector-ops icons the replay hides internally — so it would
+        // otherwise keep rendering live contacts on top of the historical replay.
+        // Suppress it for the duration (without touching the saved preference) and
+        // restore it on close if it was on.
+        const wasLive3D = (typeof LiveTraffic3D !== 'undefined') && LiveTraffic3D.isVisible();
+        if (wasLive3D) { try { LiveTraffic3D.setVisible(false); } catch (_) {} }
+
         AtcReplay.open({
             map: sectorOpsMap,
             replayUrl,
             meta: { airportName: apt, username: user, userId: uid || null, apiBase: ACARS_SOCKET_URL },
             onClose: () => {
+                if (wasLive3D) { try { LiveTraffic3D.setVisible(true); } catch (_) {} }
                 if (isMobile) {
                     // Re-run the full open flow so the sheet's content mutates and
                     // MobileUIHandler animates it back in (a bare openWindow on an
