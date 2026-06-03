@@ -1,3 +1,29 @@
+/*
+ * =====================================================================
+ * ⚠️  LEGACY / PARTIALLY DEPRECATED — sector-ops-mobile-ui.js
+ * =====================================================================
+ * This is the OLD mobile UI handler ("Sector Ops"). It is NOT the
+ * current landing / map chrome.
+ *
+ * The CURRENT mobile UI is driven by:
+ *   - landingUI.js                  (LandingUI — tactical header + search)
+ *   - MobileLandingChromeUI.js      (iOS bottom tab bar: Inflight / Weather
+ *                                     / Filters / Settings — the live HUD)
+ *   - MobileSettingsUI.js           (the current mobile settings panel,
+ *                                     opened from the Settings tab)
+ *
+ * Only a few helpers in THIS file are still live and called externally:
+ *   isMobile(), isTablet(), openWindow(), closeActiveWindow(),
+ *   openServerSheet() — used to present the aircraft/airport sheets.
+ *
+ * The floating HUD action stack built by injectMobileHudControls()
+ * below (Server pill / Search / Weather / Filters buttons) is LEGACY and
+ * is no longer injected — those controls now live in
+ * MobileLandingChromeUI.js. Do NOT add new map controls (e.g. the 3D
+ * Traffic toggle) here; add them to the current chrome / MobileSettingsUI
+ * instead, or they will never render.
+ * =====================================================================
+ */
 const MobileUIHandler = {
     // --- CONFIGURATION ---
     CONFIG: {
@@ -138,7 +164,13 @@ disableHudControls() {
 },
 
     /**
-     * [NEW] Injects the floating Server Pill (Top-Left) and Action Stack (Top-Right)
+     * [LEGACY — NO LONGER CALLED] Injects the floating Server Pill (Top-Left)
+     * and Action Stack (Top-Right: Search / Weather / Filters).
+     *
+     * Superseded by MobileLandingChromeUI.js, which renders the current iOS
+     * bottom tab bar. This method is retained only for reference and is not
+     * wired into the boot path. Add new map controls to the current chrome /
+     * MobileSettingsUI.js, not here.
      */
     injectMobileHudControls() {
         const mapContainer = document.getElementById('sector-ops-map-fullscreen');
@@ -178,9 +210,6 @@ disableHudControls() {
                 <button id="mobile-btn-filters" class="mobile-glass-sq-btn">
                     <i class="fa-solid fa-layer-group"></i>
                 </button>
-                <button id="mobile-btn-3d" class="mobile-glass-sq-btn" title="3D Traffic View">
-                    <i class="fa-solid fa-cube"></i>
-                </button>
             </div>
         `;
 
@@ -211,26 +240,6 @@ disableHudControls() {
             const btn = document.getElementById('open-filter-settings-btn'); // Trigger desktop logic
             if (btn) btn.click();
         });
-
-        // 3D Traffic View
-        // The desktop toolbar (which owns the canonical #live-3d-toggle-btn and
-        // its state-syncing handler) is hidden on mobile, so we proxy the tap
-        // through to it and mirror the resulting on/off state on the HUD button.
-        const mobile3dBtn = document.getElementById('mobile-btn-3d');
-        if (mobile3dBtn) {
-            const desktop3dBtn = document.getElementById('live-3d-toggle-btn');
-            // Reflect any persisted preference on first paint.
-            if (desktop3dBtn) {
-                mobile3dBtn.classList.toggle('active', desktop3dBtn.classList.contains('active'));
-            }
-            mobile3dBtn.addEventListener('click', () => {
-                const btn = document.getElementById('live-3d-toggle-btn'); // Trigger desktop logic
-                if (btn) {
-                    btn.click();
-                    mobile3dBtn.classList.toggle('active', btn.classList.contains('active'));
-                }
-            });
-        }
     },
 
     /**
@@ -552,13 +561,6 @@ disableHudControls() {
                 background: rgba(56, 189, 248, 0.2);
                 color: #fff;
                 border-color: rgba(56, 189, 248, 0.5);
-            }
-            /* Persistent "toggled on" state (e.g. 3D Traffic View enabled). */
-            .mobile-glass-sq-btn.active {
-                background: rgba(56, 189, 248, 0.25);
-                color: #fff;
-                border-color: rgba(56, 189, 248, 0.7);
-                box-shadow: 0 4px 15px rgba(56, 189, 248, 0.25);
             }
 
             /* --- 3. Server Switcher Sheet --- */

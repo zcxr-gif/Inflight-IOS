@@ -569,6 +569,9 @@ let mapFilters = {
     window.updateMapFilters = updateMapFilters;
     window.initializeSectorOpsMap = initializeSectorOpsMap;
     window.mapFilters = mapFilters;
+    // Exposed so the current mobile settings panel (MobileSettingsUI.js) can
+    // drive the 3D live-traffic dot view through the canonical toggle path.
+    window.setLive3DTraffic = setLive3DTraffic;
 
     const departureHubs = []; // Empty array
     let ALL_AVAILABLE_ROUTES = []; // Empty array
