@@ -101,6 +101,7 @@ renderMobileContainer() {
                         <div class="mobile-section-header">Visibility</div>
                         <div class="m-settings-list">
                             ${this.renderToggle('showAircraftLabels', 'Aircraft Labels', 'fa-tag')}
+                            ${this.renderToggle('live3DTraffic', '3D Live Traffic', 'fa-cubes')}
                             ${this.renderToggle('show3DPath', '3D Flown Path', 'fa-cube')}
                             ${this.renderToggle('showNatTracks', 'NAT Tracks', 'fa-route')}
                             ${this.renderToggle('showNatLabels', 'NAT Labels', 'fa-font')}
@@ -356,13 +357,20 @@ refreshProLocks() {
                 if (isPro) {
                     if (!window.mapFilters.proMapConfig) window.mapFilters.proMapConfig = {};
                     window.mapFilters.proMapConfig[setting] = e.target.checked;
-                    
+
                     if (window.updateBaseMapLayerVisibility) window.updateBaseMapLayerVisibility();
                     if (window.updatePro3DLayers) window.updatePro3DLayers();
+                } else if (setting === 'live3DTraffic' && window.setLive3DTraffic) {
+                    // The 3D live-traffic dot field needs more than a flag flip:
+                    // it swaps the flat icon layers for the THREE dot field,
+                    // persists the preference, and keeps the desktop controls in
+                    // sync. Route through the canonical toggle to do all of that.
+                    window.setLive3DTraffic(e.target.checked);
+                    return;
                 } else {
                     window.mapFilters[setting] = e.target.checked;
                 }
-                
+
                 if (window.updateMapFilters) window.updateMapFilters();
             });
         });

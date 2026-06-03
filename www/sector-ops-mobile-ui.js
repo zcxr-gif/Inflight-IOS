@@ -1,3 +1,29 @@
+/*
+ * =====================================================================
+ * ⚠️  LEGACY / PARTIALLY DEPRECATED — sector-ops-mobile-ui.js
+ * =====================================================================
+ * This is the OLD mobile UI handler ("Sector Ops"). It is NOT the
+ * current landing / map chrome.
+ *
+ * The CURRENT mobile UI is driven by:
+ *   - landingUI.js                  (LandingUI — tactical header + search)
+ *   - MobileLandingChromeUI.js      (iOS bottom tab bar: Inflight / Weather
+ *                                     / Filters / Settings — the live HUD)
+ *   - MobileSettingsUI.js           (the current mobile settings panel,
+ *                                     opened from the Settings tab)
+ *
+ * Only a few helpers in THIS file are still live and called externally:
+ *   isMobile(), isTablet(), openWindow(), closeActiveWindow(),
+ *   openServerSheet() — used to present the aircraft/airport sheets.
+ *
+ * The floating HUD action stack built by injectMobileHudControls()
+ * below (Server pill / Search / Weather / Filters buttons) is LEGACY and
+ * is no longer injected — those controls now live in
+ * MobileLandingChromeUI.js. Do NOT add new map controls (e.g. the 3D
+ * Traffic toggle) here; add them to the current chrome / MobileSettingsUI
+ * instead, or they will never render.
+ * =====================================================================
+ */
 const MobileUIHandler = {
     // --- CONFIGURATION ---
     CONFIG: {
@@ -138,7 +164,13 @@ disableHudControls() {
 },
 
     /**
-     * [NEW] Injects the floating Server Pill (Top-Left) and Action Stack (Top-Right)
+     * [LEGACY — NO LONGER CALLED] Injects the floating Server Pill (Top-Left)
+     * and Action Stack (Top-Right: Search / Weather / Filters).
+     *
+     * Superseded by MobileLandingChromeUI.js, which renders the current iOS
+     * bottom tab bar. This method is retained only for reference and is not
+     * wired into the boot path. Add new map controls to the current chrome /
+     * MobileSettingsUI.js, not here.
      */
     injectMobileHudControls() {
         const mapContainer = document.getElementById('sector-ops-map-fullscreen');
