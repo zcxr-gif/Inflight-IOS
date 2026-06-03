@@ -6,6 +6,7 @@ import { GroupFlightManager } from './groupFlightManager.js';
 import { updateActiveSectors } from './atcHighlights.js';
 import { NatTracksLayer } from './natTracksLayer.js';
 import { FlownPath3D } from './flownPath3D.js';
+import { LiveTraffic3D } from './liveTraffic3D.js';
 import { MobileSettingsUI } from './MobileSettingsUI.js';
 import { spriteUVs } from './plane-D2OPBxWC.js';
 // Populates window.IFVA_DATABASE (the IFVARB Virtual Airline directory) used
@@ -501,6 +502,12 @@ window.pinFlight = function(flightId) {
     let airportInfoWindow = null;
     let airportInfoWindowRecallBtn = null;
     let currentAirportInWindow = null;
+    // Monotonic token for airport-window open requests. Busy airports sit under
+    // dense marker clusters, so it's easy to tap several in quick succession;
+    // each tap fires an async fetch. This lets a request detect that a newer
+    // one has superseded it and bail before it writes stale content (or stale
+    // map-highlight state) into a window the user has already moved on from.
+    let airportWindowRequestSeq = 0;
     // NEW: State for the aircraft info window
     let aircraftInfoWindow = null;
     let weatherSettingsWindow = null; // <-- This was added in the last step
@@ -532,6 +539,7 @@ let mapFilters = {
             showLandUse: true    // Parks, Forests, etc.
         },
         show3DPath: false,
+        live3DTraffic: false, // 3D elevated dot view for live traffic (toolbar/settings toggle)
         showNatTracks: true,
         showNatLabels: false,
         showVaOnly: false,
@@ -650,6 +658,22 @@ function scheduleMapSourceUpdate() {
         }
         mapSourceUpdateTimeout = null;
     }, 400); // Batches all image resolutions into a single update every 400ms
+}
+
+// Single entry point for toggling the 3D live-traffic dot view. Persists the
+// preference, drives the THREE layer, and keeps both UI affordances (the map
+// toolbar button and the Settings toggle) in sync regardless of which one the
+// user tapped. Safe to call before either control exists (null-guarded).
+function setLive3DTraffic(on) {
+    on = !!on;
+    mapFilters.live3DTraffic = on;
+    try { saveFiltersToLocalStorage(); } catch (_) {}
+    if (typeof LiveTraffic3D !== 'undefined') LiveTraffic3D.setVisible(on);
+
+    const btn = document.getElementById('live-3d-toggle-btn');
+    if (btn) btn.classList.toggle('active', on);
+    const toggle = document.getElementById('set-3d-traffic');
+    if (toggle) toggle.checked = on;
 }
 
 // --- PREMIUM PLANE COLOR EXPRESSION ---
@@ -1768,6 +1792,17 @@ function injectCustomStyles() {
             border-color: rgba(255, 255, 255, 0.2);
             box-shadow: 0 12px 40px rgba(0,0,0,0.6);
         }
+
+        .route-card-bg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    z-index: 0;
+    /* Slight zoom mirrors the old background-size: 101% so edges stay covered. */
+    transform: scale(1.01);
+}
 
         .card-overlay {
     position: absolute;
@@ -7988,6 +8023,9 @@ function handleSocketFlightUpdate(data) {
         }
     }
 
+    // Push the new positions to the 3D dot field (no-op unless it's showing).
+    if (isMapReady && LiveTraffic3D.isVisible()) LiveTraffic3D.refresh();
+
     const landingVisible = localStorage.getItem('landingUI_visible') !== 'false';
     if (landingVisible && !currentFlightInWindow && !currentAirportInWindow) {
         LandingUI.update(true, { 
@@ -9045,7 +9083,7 @@ function renderAtcSessionCard(s) {
     </div>`;
 }
 
-async function createAirportInfoWindowHTML(icao) {
+async function createAirportInfoWindowHTML(icao, requestId) {
         // 1. Get Static Data
         const staticData = airportsData[icao] || {};
         const airportMetadata = await fetchAirportData(icao);
@@ -9098,9 +9136,14 @@ async function createAirportInfoWindowHTML(icao) {
             console.error("Error fetching live stats:", e);
         }
 
-        // Update Global Traffic State for Highlighting
-        window.currentAirportTraffic = { in: inbounds, out: outbounds };
-        if (isTrafficHighlightActive) applyTrafficHighlighting();
+        // Update Global Traffic State for Highlighting — but only if this is
+        // still the active request. If the user tapped another airport while
+        // our /status fetch was in flight, recolouring the map for this (now
+        // stale) field would fight with the newer request's highlighting.
+        if (requestId === undefined || requestId === airportWindowRequestSeq) {
+            window.currentAirportTraffic = { in: inbounds, out: outbounds };
+            if (isTrafficHighlightActive) applyTrafficHighlighting();
+        }
 
         // 4. Merge Data
         const airportName = liveData?.name || staticData.name || 'Unknown Airport';
@@ -9250,8 +9293,15 @@ async function createAirportInfoWindowHTML(icao) {
             const al = extractAirlineCode(callsign);
             const logoHtml = `<img src="Images/vas/${al}.png" style="height: 12px; width: auto; max-width: 30px; margin-right: 8px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" onerror="this.style.display='none'">`;
             
+            // The hero image is a lazy <img> rather than a CSS background so
+            // WebKit only decodes the cards actually scrolled into view. A busy
+            // field can list 50 inbound + 50 outbound cards; decoding 100 remote
+            // images at once when the sheet slides open spikes memory enough to
+            // get the web view jettisoned (the "crash"). loading="lazy" keeps the
+            // off-screen ones from loading until the user scrolls to them.
             return `
-            <div class="route-card-reborn" style="background-image: url('${imgUrl}')">
+            <div class="route-card-reborn">
+                <img class="route-card-bg" src="${imgUrl}" loading="lazy" decoding="async" onerror="this.style.display='none'">
                 <div class="card-overlay"></div>
                 <div class="card-content">
                     <div class="card-header-zone">
@@ -10671,6 +10721,11 @@ function initializeAircraftLayer() {
             mapAnimator = new MapAnimator(sectorOpsMap, 'sector-ops-live-flights-source', currentMapFeatures);
         }
 
+        // 3D live-traffic dot field (toggled from the map toolbar / Settings).
+        // Reads the same shared feature cache the flat symbol layer does.
+        LiveTraffic3D.init(sectorOpsMap, () => Object.values(currentMapFeatures));
+        if (mapFilters.live3DTraffic) LiveTraffic3D.setVisible(true);
+
         const initialIconSize = parseFloat(mapFilters.planeIconSize) || 0.15;
 
         if (!sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
@@ -11837,7 +11892,12 @@ renderCategory(catId) {
                                 <div class="row-label"><i class="fa-solid fa-tags"></i> Aircraft Labels</div>
                                 <label class="toggle-switch"><input type="checkbox" id="set-labels" ${mapFilters.showAircraftLabels ? 'checked' : ''}><span class="toggle-slider"></span></label>
                             </div>
-                            
+
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-cube"></i> 3D Traffic View</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-3d-traffic" ${mapFilters.live3DTraffic ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                            </div>
+
                             <div class="settings-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
                                 <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
                                     <div class="row-label"><i class="fa-solid fa-plane-up"></i> Aircraft Scale</div>
@@ -12086,6 +12146,13 @@ renderCategory(catId) {
             const el = document.getElementById(id);
             if (el) el.addEventListener('change', (e) => update(ids[id], e.target.checked));
         });
+
+        // 3D Traffic View — routed through the shared toggle so the map toolbar
+        // button stays in sync (it's not a plain mapFilters flag like the rest).
+        const live3dToggle = document.getElementById('set-3d-traffic');
+        if (live3dToggle) {
+            live3dToggle.addEventListener('change', (e) => setLive3DTraffic(e.target.checked));
+        }
 
         // Map Style Select
         const mapStyleSelect = document.getElementById('set-map-style');
@@ -12514,6 +12581,13 @@ if (!document.getElementById('trip-card-takeover')) {
                 toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
                     <button id="aircraft-recall-btn" class="toolbar-btn" title="Show Aircraft Info">
                         <i class="fa-solid fa-plane-up"></i>
+                    </button>
+                `);
+             }
+             if (!document.getElementById('live-3d-toggle-btn')) {
+                toolbarToggleBtn.parentElement.insertAdjacentHTML('beforeend', `
+                    <button id="live-3d-toggle-btn" class="toolbar-btn" title="3D Traffic View">
+                        <i class="fa-solid fa-cube"></i>
                     </button>
                 `);
              }
@@ -13086,6 +13160,10 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
 async function handleAirportClick(icao, event = null, recenter = false) {
     if (!icao) return;
 
+    // Claim this as the newest open request. Any in-flight request for a
+    // previously tapped airport will see a higher seq and abort its DOM write.
+    const requestId = ++airportWindowRequestSeq;
+
     LandingUI.update(false);
     localStorage.setItem('landingUI_visible', 'false');
 
@@ -13151,7 +13229,13 @@ async function handleAirportClick(icao, event = null, recenter = false) {
 
     // 5. Fetch and Render Data
     try {
-        const windowContentHTML = await createAirportInfoWindowHTML(icao);
+        const windowContentHTML = await createAirportInfoWindowHTML(icao, requestId);
+
+        // If the user tapped another airport while we were fetching, a newer
+        // request now owns the window. Bail out silently rather than overwrite
+        // its content — or, worse, close the window it just opened.
+        if (requestId !== airportWindowRequestSeq) return;
+
         if (windowContentHTML && contentEl) {
             contentEl.innerHTML = windowContentHTML;
             contentEl.scrollTop = 0;
@@ -13177,7 +13261,9 @@ async function handleAirportClick(icao, event = null, recenter = false) {
         }
     } catch (err) {
         console.error("Failed to load airport info:", err);
-        closeAirportWindow();
+        // Only tear the window down if this request still owns it; a stale
+        // failure must not close the window a newer tap just opened.
+        if (requestId === airportWindowRequestSeq) closeAirportWindow();
     }
 }
 
@@ -16070,6 +16156,16 @@ function setupSectorOpsEventListeners() {
                 const isVisible = weatherSettingsWindow.classList.toggle('visible');
                 if (isVisible && typeof MobileUIHandler !== 'undefined') MobileUIHandler.openWindow(weatherSettingsWindow);
             }
+        });
+    }
+
+    // --- 3D Traffic Toggle ---
+    // Swaps the flat plane icons for the elevated 3D dot field and back.
+    const live3dBtn = document.getElementById('live-3d-toggle-btn');
+    if (live3dBtn) {
+        live3dBtn.classList.toggle('active', !!mapFilters.live3DTraffic);
+        live3dBtn.addEventListener('click', () => {
+            setLive3DTraffic(!LiveTraffic3D.isVisible());
         });
     }
 
