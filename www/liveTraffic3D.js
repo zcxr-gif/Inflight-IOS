@@ -31,7 +31,9 @@ export const LiveTraffic3D = (() => {
     // balloon GPU memory. Beyond this we simply stop adding dots.
     const MAX_3D_DOTS = 4000;
     const ALT_EXAGGERATION = 2.5;   // vertical scale for dot/stem heights
-    const DOT_SIZE_PX = 22;         // on-screen dot size (no attenuation)
+    const DOT_SIZE_PX = 28;         // on-screen sprite size (no attenuation);
+                                    // a touch larger than the old dot so the
+                                    // plane silhouette stays legible
 
     // Flat 2D layers to hide while the 3D field is active so contacts don't
     // render twice. Missing layers are skipped silently.
@@ -66,21 +68,43 @@ export const LiveTraffic3D = (() => {
         ];
     }
 
-    // Soft radial sprite so each point renders as a glowing orb rather than
-    // a hard square, tinted per-aircraft by the vertex colour.
-    function makeGlowTexture() {
+    // Sprite for each contact: a soft glow halo with a crisp top-down plane
+    // silhouette punched into the middle, so the field reads as little
+    // aircraft rather than featureless dots. Drawn in white on transparent —
+    // the per-vertex altitude colour tints it, and additive blending keeps the
+    // luminous "contact" feel of the original dots. The glyph always points
+    // "up" (it's billboarded toward the camera); per-heading rotation isn't
+    // possible with a single batched THREE.Points draw, so this is a generic,
+    // orientation-free plane marker.
+    function makePlaneSprite() {
         const THREE = window.THREE;
         const size = 64;
         const c = document.createElement('canvas');
         c.width = c.height = size;
         const ctx = c.getContext('2d');
+
+        // 1. Soft glow halo (dimmer than the old pure-dot so the plane reads).
         const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-        g.addColorStop(0, 'rgba(255,255,255,1)');
-        g.addColorStop(0.25, 'rgba(255,255,255,0.85)');
-        g.addColorStop(0.6, 'rgba(255,255,255,0.25)');
+        g.addColorStop(0, 'rgba(255,255,255,0.42)');
+        g.addColorStop(0.45, 'rgba(255,255,255,0.12)');
         g.addColorStop(1, 'rgba(255,255,255,0)');
         ctx.fillStyle = g;
         ctx.fillRect(0, 0, size, size);
+
+        // 2. Crisp top-down airliner silhouette, built from a symmetric
+        //    right-hand outline mirrored about the vertical centreline.
+        const right = [
+            [32, 5], [35, 24], [61, 38], [61, 42], [35, 33],
+            [35, 50], [46, 58], [46, 60], [33, 55], [32, 60]
+        ];
+        ctx.beginPath();
+        ctx.moveTo(right[0][0], right[0][1]);
+        for (let i = 1; i < right.length; i++) ctx.lineTo(right[i][0], right[i][1]);
+        for (let i = right.length - 1; i >= 0; i--) ctx.lineTo(size - right[i][0], right[i][1]);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(255,255,255,1)';
+        ctx.fill();
+
         const tex = new THREE.CanvasTexture(c);
         tex.needsUpdate = true;
         return tex;
@@ -93,7 +117,7 @@ export const LiveTraffic3D = (() => {
         if (map.getLayer(LYR_3D)) return;
         const THREE = window.THREE;
         const self = { visible: false };
-        const glowTex = makeGlowTexture();
+        const glowTex = makePlaneSprite();
 
         const layer = {
             id: LYR_3D, type: 'custom', renderingMode: '3d',
