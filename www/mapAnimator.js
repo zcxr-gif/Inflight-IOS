@@ -33,6 +33,11 @@ const REDRAW_INTERVAL_MS = 40;
 // Don't bother dead-reckoning planes that are barely moving.
 const MIN_ANIMATE_SPEED_KT = 40;
 
+// Live fixes arrive roughly every ~3s. If a flight goes quiet we keep
+// gliding it forward for a short grace window, then hold position so a
+// stale plane never drifts unrealistically far from its last real fix.
+const MAX_EXTRAPOLATION_SEC = 12;
+
 /**
  * Main manager for the Mapbox map.
  */
@@ -228,9 +233,15 @@ export class MapAnimator {
                     continue;
                 }
                 const state = this.animationStates[flightId];
-                const dtSec = (now - state.anchorTime) / 1000;
+                // Real wall-clock seconds since the last true fix. Clamped so a
+                // flight that stops updating holds position instead of gliding
+                // off forever; the next real fix re-anchors it.
+                let dtSec = (now - state.anchorTime) / 1000;
                 if (dtSec <= 0) continue;
+                if (dtSec > MAX_EXTRAPOLATION_SEC) dtSec = MAX_EXTRAPOLATION_SEC;
 
+                // Distance = real ground speed (m/s) x elapsed time, so the
+                // plane tracks at its actual speed over the ground.
                 const dist = state.speedMps * dtSec;
                 feature.geometry.coordinates = this._destinationPoint(
                     state.lat, state.lon, state.headingDeg, dist
