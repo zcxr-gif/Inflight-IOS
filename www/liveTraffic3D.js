@@ -31,9 +31,9 @@ export const LiveTraffic3D = (() => {
     // balloon GPU memory. Beyond this we simply stop adding dots.
     const MAX_3D_DOTS = 4000;
     const ALT_EXAGGERATION = 2.5;   // vertical scale for dot/stem heights
-    const DOT_SIZE_PX = 28;         // on-screen sprite size (no attenuation);
-                                    // a touch larger than the old dot so the
-                                    // plane silhouette stays legible
+    const DOT_SIZE_PX = 32;         // on-screen dot size (no attenuation);
+                                    // larger than the original 22 for a bolder,
+                                    // more visible glowing contact
 
     // Flat 2D layers to hide while the 3D field is active so contacts don't
     // render twice. Missing layers are skipped silently.
@@ -47,6 +47,9 @@ export const LiveTraffic3D = (() => {
     let three = null;
     let visible = false;
     let featuresProvider = null;
+    // Projection we swapped away from when enabling 3D (e.g. 'globe'), so we
+    // can restore it when the field is turned off. null = we didn't change it.
+    let savedProjection = null;
 
     // Altitude -> RGB (0..1), low (cyan) through high (red). Mirrors the
     // replay's altColor01 so live and replay read identically.
@@ -68,43 +71,24 @@ export const LiveTraffic3D = (() => {
         ];
     }
 
-    // Sprite for each contact: a soft glow halo with a crisp top-down plane
-    // silhouette punched into the middle, so the field reads as little
-    // aircraft rather than featureless dots. Drawn in white on transparent —
-    // the per-vertex altitude colour tints it, and additive blending keeps the
-    // luminous "contact" feel of the original dots. The glyph always points
-    // "up" (it's billboarded toward the camera); per-heading rotation isn't
-    // possible with a single batched THREE.Points draw, so this is a generic,
-    // orientation-free plane marker.
-    function makePlaneSprite() {
+    // Soft radial sprite so each point renders as a glowing orb rather than
+    // a hard square, tinted per-aircraft by the vertex colour. A wide, bright
+    // falloff gives each contact a pronounced bloom.
+    function makeGlowTexture() {
         const THREE = window.THREE;
         const size = 64;
         const c = document.createElement('canvas');
         c.width = c.height = size;
         const ctx = c.getContext('2d');
-
-        // 1. Soft glow halo (dimmer than the old pure-dot so the plane reads).
         const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-        g.addColorStop(0, 'rgba(255,255,255,0.42)');
-        g.addColorStop(0.45, 'rgba(255,255,255,0.12)');
+        // Brighter, longer-reaching glow than before: a solid white core that
+        // holds its intensity further out before fading, so the dot blooms.
+        g.addColorStop(0, 'rgba(255,255,255,1)');
+        g.addColorStop(0.35, 'rgba(255,255,255,0.95)');
+        g.addColorStop(0.7, 'rgba(255,255,255,0.45)');
         g.addColorStop(1, 'rgba(255,255,255,0)');
         ctx.fillStyle = g;
         ctx.fillRect(0, 0, size, size);
-
-        // 2. Crisp top-down airliner silhouette, built from a symmetric
-        //    right-hand outline mirrored about the vertical centreline.
-        const right = [
-            [32, 5], [35, 24], [61, 38], [61, 42], [35, 33],
-            [35, 50], [46, 58], [46, 60], [33, 55], [32, 60]
-        ];
-        ctx.beginPath();
-        ctx.moveTo(right[0][0], right[0][1]);
-        for (let i = 1; i < right.length; i++) ctx.lineTo(right[i][0], right[i][1]);
-        for (let i = right.length - 1; i >= 0; i--) ctx.lineTo(size - right[i][0], right[i][1]);
-        ctx.closePath();
-        ctx.fillStyle = 'rgba(255,255,255,1)';
-        ctx.fill();
-
         const tex = new THREE.CanvasTexture(c);
         tex.needsUpdate = true;
         return tex;
@@ -117,7 +101,7 @@ export const LiveTraffic3D = (() => {
         if (map.getLayer(LYR_3D)) return;
         const THREE = window.THREE;
         const self = { visible: false };
-        const glowTex = makePlaneSprite();
+        const glowTex = makeGlowTexture();
 
         const layer = {
             id: LYR_3D, type: 'custom', renderingMode: '3d',
@@ -207,6 +191,26 @@ export const LiveTraffic3D = (() => {
         if (on) ensureLayer();
         visible = on;
         if (three) three.visible = on;
+
+        // The elevated dots are placed with a mercator custom-layer matrix,
+        // which doesn't line up on the curved globe. Mirror the ATC replay:
+        // drop to a flat (mercator) projection while the 3D field is up, then
+        // restore the user's projection (e.g. globe) when it's switched off.
+        if (map && map.setProjection) {
+            try {
+                if (on) {
+                    const cur = (map.getProjection && map.getProjection().name) || 'mercator';
+                    if (cur !== 'mercator') {
+                        savedProjection = cur;
+                        map.setProjection('mercator');
+                    }
+                } else if (savedProjection) {
+                    map.setProjection(savedProjection);
+                    savedProjection = null;
+                }
+            } catch (_) {}
+        }
+
         const flatVis = on ? 'none' : 'visible';
         FLAT_LAYERS.forEach(id => {
             if (map && map.getLayer(id)) {
