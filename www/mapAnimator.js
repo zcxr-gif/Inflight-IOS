@@ -11,13 +11,16 @@
  * coordinates with no interpolation.
  *
  * When "Smooth Cruise Motion" is enabled (setAnimationEnabled(true)),
- * flights that are in steady forward flight (Cruise / level Enroute)
- * are "dead-reckoned" between the ~3s server updates: each animation
- * frame the plane is projected forward along its heading at its
- * ground speed, so it glides instead of jumping. Every server update
- * re-anchors the plane to its true reported position, correcting any
- * prediction drift. All other phases (Ground, Climb, Descent) keep
- * the simple teleport behaviour.
+ * flights in steady forward flight (Cruise / level Enroute) glide
+ * continuously and NEVER stop: every animation frame the plane is
+ * integrated forward along its heading at its ground speed. When a
+ * fresh fix arrives it is not snapped — instead it converges onto the
+ * true track via a correction that is clamped so it can never cancel
+ * the forward motion (it can slow to converge, but never halts or
+ * reverses). With no fresh data the plane keeps gliding forward; the
+ * caller's cleanup pass removes flights that drop off the network.
+ * All other phases (Ground, Climb, Descent) keep the simple teleport
+ * behaviour.
  * ===================================================================
  */
 
@@ -33,21 +36,26 @@ const REDRAW_INTERVAL_MS = 40;
 // Don't bother dead-reckoning planes that are barely moving.
 const MIN_ANIMATE_SPEED_KT = 40;
 
-// Live fixes arrive roughly every ~3s. If a flight goes quiet we keep
-// gliding it forward for a short grace window, then hold position so a
-// stale plane never drifts unrealistically far from its last real fix.
-const MAX_EXTRAPOLATION_SEC = 12;
+// The plane is integrated forward every frame at its ground speed and never
+// pauses. When a fresh fix lands we converge onto the true track with an
+// exponential correction (this time constant), instead of snapping. A higher
+// value corrects more gently.
+const CORRECTION_TAU_S = 1.5;
 
-// When a new fix lands, ease the plane from where it's currently drawn onto
-// the freshly reported track over this window instead of snapping. This
-// removes the visible "jump back" when our prediction overshot or a packet
-// arrived late.
-const CORRECTION_BLEND_MS = 1000;
+// Hard guarantee that the plane NEVER stops: the per-frame correction is
+// clamped to at most this fraction of the forward step, so the net motion is
+// always at least (1 - ratio) of the real ground speed in the heading
+// direction — it can slow to converge, but it never halts or reverses.
+const MAX_CORRECTION_RATIO = 0.8;
 
-// If the gap between the drawn position and the new fix is larger than this,
-// treat it as a real discontinuity (missed data, server teleport) and snap
-// rather than slow-sliding the plane across the map.
-const MAX_CORRECTION_METERS = 10000;
+// Clamp per-frame delta time so returning from a backgrounded tab (where rAF
+// was paused) doesn't teleport the plane forward by the whole gap.
+const MAX_FRAME_DT_S = 1.0;
+
+// A gap larger than this between the drawn position and a new fix is a real
+// discontinuity (missed data, server teleport), so snap instead of taking
+// many seconds to slide across it.
+const MAX_SNAP_METERS = 20000;
 
 /**
  * Main manager for the Mapbox map.
@@ -65,8 +73,13 @@ export class MapAnimator {
 
         // --- Smooth cruise motion state ---
         this.animationEnabled = false;
-        // Per-flight dead-reckoning anchors, keyed by flightId.
-        // { lon, lat, headingDeg, speedMps, anchorTime }
+        // Per-flight motion state, keyed by flightId.
+        // {
+        //   anchorLon, anchorLat, anchorTime,  // last true reported fix + time
+        //   headingDeg, speedMps,              // current velocity
+        //   renderLon, renderLat,              // continuously-integrated drawn position
+        //   lastFrame                          // timestamp of last integration step
+        // }
         this.animationStates = {};
         this._rafId = null;
         this._lastDraw = 0;
@@ -137,18 +150,16 @@ export class MapAnimator {
             const now = performance.now();
             const prev = this.animationStates[flightId];
 
-            let blendFrom = null;
-            let blendStart = null;
-            if (prev && Number.isFinite(prev.renderedLon)) {
+            // Keep the plane wherever it's currently drawn so it never jumps;
+            // the frame loop converges it onto the new true track. Only a huge
+            // discontinuity (missed data / teleport) snaps to the reported spot.
+            if (prev && Number.isFinite(prev.renderLon)) {
                 const drift = this._approxDistanceMeters(
-                    prev.renderedLat, prev.renderedLon, trueLat, trueLon
+                    prev.renderLat, prev.renderLon, trueLat, trueLon
                 );
-                // Smoothly correct small prediction errors; snap big jumps.
-                if (drift <= MAX_CORRECTION_METERS) {
-                    blendFrom = { lon: prev.renderedLon, lat: prev.renderedLat };
-                    blendStart = now;
-                    renderLon = prev.renderedLon;
-                    renderLat = prev.renderedLat;
+                if (drift <= MAX_SNAP_METERS) {
+                    renderLon = prev.renderLon;
+                    renderLat = prev.renderLat;
                 }
             }
 
@@ -156,15 +167,14 @@ export class MapAnimator {
                 // Authoritative (true) anchor + velocity from this fix.
                 anchorLon: trueLon,
                 anchorLat: trueLat,
+                anchorTime: now,
                 headingDeg: Number(newPosition.heading_deg) || 0,
                 speedMps: speedKt * KNOTS_TO_MPS,
-                anchorTime: now,
-                // Last position we drew (drives the next correction).
-                renderedLon: renderLon,
-                renderedLat: renderLat,
-                // Active correction, if any.
-                blendFrom: blendFrom,
-                blendStart: blendStart
+                // Continuously-integrated drawn position.
+                renderLon: renderLon,
+                renderLat: renderLat,
+                // Carry the integration clock so motion stays continuous.
+                lastFrame: (prev && Number.isFinite(prev.lastFrame)) ? prev.lastFrame : now
             };
             this._ensureLoop();
         } else if (this.animationStates[flightId]) {
@@ -272,8 +282,10 @@ export class MapAnimator {
     }
 
     /**
-     * Animation tick: dead-reckon each anchored flight forward and push
-     * the updated positions to the map (throttled to REDRAW_INTERVAL_MS).
+     * Animation tick. Every flight is integrated forward at its ground speed
+     * so it never stops, then nudged toward the true track by a clamped
+     * correction that can never cancel the forward motion. Throttled to
+     * REDRAW_INTERVAL_MS.
      */
     _frame(now) {
         this._rafId = null;
@@ -293,41 +305,50 @@ export class MapAnimator {
                 }
                 const state = this.animationStates[flightId];
 
-                // Real wall-clock seconds since the last true fix. Clamped so a
-                // flight that stops updating holds position instead of gliding
-                // off forever; the next real fix re-anchors it.
-                let dtSec = (now - state.anchorTime) / 1000;
-                if (dtSec < 0) dtSec = 0;
-                if (dtSec > MAX_EXTRAPOLATION_SEC) dtSec = MAX_EXTRAPOLATION_SEC;
+                // Wall-clock seconds since the last drawn frame. Clamped so a
+                // backgrounded tab doesn't fling the plane forward on resume.
+                let dt = (now - state.lastFrame) / 1000;
+                state.lastFrame = now;
+                if (dt <= 0) continue;
+                if (dt > MAX_FRAME_DT_S) dt = MAX_FRAME_DT_S;
 
-                // Predicted position along the reported track. Distance = real
-                // ground speed (m/s) x elapsed time, so the plane tracks at its
-                // actual speed over the ground.
-                const predicted = this._destinationPoint(
-                    state.anchorLat, state.anchorLon, state.headingDeg, state.speedMps * dtSec
+                const fwdMeters = state.speedMps * dt;
+
+                // 1) Always advance forward along the heading — the plane never
+                //    pauses, even with no fresh data (the cleanup pass removes
+                //    flights that genuinely drop off the network).
+                let [lon, lat] = this._destinationPoint(
+                    state.renderLat, state.renderLon, state.headingDeg, fwdMeters
                 );
 
-                let renderLon = predicted[0];
-                let renderLat = predicted[1];
+                // 2) Converge onto the true track. The target is the reported
+                //    fix carried forward at ground speed, so it advances at the
+                //    same rate the drawn plane does; the exponential term just
+                //    closes the residual prediction error.
+                const tElapsed = (now - state.anchorTime) / 1000;
+                const target = this._destinationPoint(
+                    state.anchorLat, state.anchorLon, state.headingDeg, state.speedMps * tElapsed
+                );
+                const k = 1 - Math.exp(-dt / CORRECTION_TAU_S);
+                let cLon = (target[0] - lon) * k;
+                let cLat = (target[1] - lat) * k;
 
-                // If a correction is in progress, ease from the pre-correction
-                // position onto the live track so a late/overshot packet glides
-                // into place instead of snapping back.
-                if (state.blendFrom && state.blendStart !== null) {
-                    const p = (now - state.blendStart) / CORRECTION_BLEND_MS;
-                    if (p >= 1) {
-                        state.blendFrom = null;
-                        state.blendStart = null;
-                    } else {
-                        const e = p * p * (3 - 2 * p); // smoothstep ease
-                        renderLon = state.blendFrom.lon + (predicted[0] - state.blendFrom.lon) * e;
-                        renderLat = state.blendFrom.lat + (predicted[1] - state.blendFrom.lat) * e;
-                    }
+                // Clamp the correction so it can never exceed a fraction of the
+                // forward step — guaranteeing net motion stays forward (the
+                // plane can slow to converge but never stops or reverses).
+                const corrMeters = this._approxDistanceMeters(lat, lon, lat + cLat, lon + cLon);
+                const maxCorr = fwdMeters * MAX_CORRECTION_RATIO;
+                if (corrMeters > maxCorr && corrMeters > 0) {
+                    const scale = maxCorr / corrMeters;
+                    cLon *= scale;
+                    cLat *= scale;
                 }
+                lon += cLon;
+                lat += cLat;
 
-                state.renderedLon = renderLon;
-                state.renderedLat = renderLat;
-                feature.geometry.coordinates = [renderLon, renderLat];
+                state.renderLon = lon;
+                state.renderLat = lat;
+                feature.geometry.coordinates = [lon, lat];
             }
             this._updateMapSource();
         }
