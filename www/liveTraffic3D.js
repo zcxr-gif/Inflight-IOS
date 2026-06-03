@@ -50,6 +50,9 @@ export const LiveTraffic3D = (() => {
     // Projection we swapped away from when enabling 3D (e.g. 'globe'), so we
     // can restore it when the field is turned off. null = we didn't change it.
     let savedProjection = null;
+    // The user's original minZoom, saved while we raise the floor to keep the
+    // flat world filling the viewport. null = we haven't changed it.
+    let savedMinZoom = null;
 
     // Altitude -> RGB (0..1), low (cyan) through high (red). Mirrors the
     // replay's altColor01 so live and replay read identically.
@@ -185,6 +188,27 @@ export const LiveTraffic3D = (() => {
         featuresProvider = provider;
     }
 
+    // Raise the map's minZoom so the flat (mercator) world covers the full
+    // viewport height, preventing the gray void above/below the poles from
+    // showing. The world is 512*2^zoom px tall, so we need 2^zoom >= H/512.
+    function applyFlatMinZoom() {
+        if (!map || !map.setMinZoom) return;
+        try {
+            const el = map.getContainer && map.getContainer();
+            const h = el ? el.clientHeight : 0;
+            if (!h) return;
+            // 1.05 margin guards against fractional rounding / slight pitch.
+            const fillZoom = Math.max(0, Math.log2((h * 1.05) / 512));
+            if (savedMinZoom === null) {
+                savedMinZoom = (map.getMinZoom && map.getMinZoom()) || 0;
+            }
+            map.setMinZoom(fillZoom);
+            if (map.getZoom && map.getZoom() < fillZoom) {
+                map.easeTo({ zoom: fillZoom, duration: 250 });
+            }
+        } catch (_) {}
+    }
+
     // Swap between the flat 2D icons and the 3D dot field.
     function setVisible(on) {
         on = !!on;
@@ -204,9 +228,20 @@ export const LiveTraffic3D = (() => {
                         savedProjection = cur;
                         map.setProjection('mercator');
                     }
-                } else if (savedProjection) {
-                    map.setProjection(savedProjection);
-                    savedProjection = null;
+                    // Flat mercator can't draw the poles, so when zoomed out (or
+                    // panned to the top/bottom edge) the gray void beyond the
+                    // world shows. Raise the zoom floor so the world always
+                    // fills the viewport vertically and the edges stay off-screen.
+                    applyFlatMinZoom();
+                } else {
+                    if (savedProjection) {
+                        map.setProjection(savedProjection);
+                        savedProjection = null;
+                    }
+                    if (savedMinZoom !== null) {
+                        try { map.setMinZoom(savedMinZoom); } catch (_) {}
+                        savedMinZoom = null;
+                    }
                 }
             } catch (_) {}
         }
