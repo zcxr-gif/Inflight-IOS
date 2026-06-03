@@ -38,6 +38,17 @@ const MIN_ANIMATE_SPEED_KT = 40;
 // stale plane never drifts unrealistically far from its last real fix.
 const MAX_EXTRAPOLATION_SEC = 12;
 
+// When a new fix lands, ease the plane from where it's currently drawn onto
+// the freshly reported track over this window instead of snapping. This
+// removes the visible "jump back" when our prediction overshot or a packet
+// arrived late.
+const CORRECTION_BLEND_MS = 1000;
+
+// If the gap between the drawn position and the new fix is larger than this,
+// treat it as a real discontinuity (missed data, server teleport) and snap
+// rather than slow-sliding the plane across the map.
+const MAX_CORRECTION_METERS = 10000;
+
 /**
  * Main manager for the Mapbox map.
  */
@@ -108,38 +119,74 @@ export class MapAnimator {
      */
     updateFlight(newPosition, newProperties) {
         const flightId = newProperties.flightId;
-        const newApiLon = newPosition.lon;
-        const newApiLat = newPosition.lat;
+        const trueLon = newPosition.lon;
+        const trueLat = newPosition.lat;
 
-        // Write the authoritative (true) position into the shared cache.
-        // This is the "teleport" and also acts as the periodic correction
-        // for any dead-reckoned drift.
-        this.currentMapFeatures[flightId] = {
-            type: 'Feature',
-            geometry: {
-                type: 'Point',
-                coordinates: [newApiLon, newApiLat]
-            },
-            properties: newProperties // Includes new heading, phase, etc.
-        };
-
-        // Manage the dead-reckoning anchor for this flight.
         const speedKt = Number(newPosition.gs_kt) || 0;
-        if (this.animationEnabled
+        const eligible = this.animationEnabled
             && this._isCruising(newProperties)
-            && speedKt >= MIN_ANIMATE_SPEED_KT) {
+            && speedKt >= MIN_ANIMATE_SPEED_KT;
+
+        // Position we'll actually draw this instant. For an eligible flight
+        // that's already on screen we keep it where it is and let the frame
+        // loop ease it onto the new track, so it never jumps back.
+        let renderLon = trueLon;
+        let renderLat = trueLat;
+
+        if (eligible) {
+            const now = performance.now();
+            const prev = this.animationStates[flightId];
+
+            let blendFrom = null;
+            let blendStart = null;
+            if (prev && Number.isFinite(prev.renderedLon)) {
+                const drift = this._approxDistanceMeters(
+                    prev.renderedLat, prev.renderedLon, trueLat, trueLon
+                );
+                // Smoothly correct small prediction errors; snap big jumps.
+                if (drift <= MAX_CORRECTION_METERS) {
+                    blendFrom = { lon: prev.renderedLon, lat: prev.renderedLat };
+                    blendStart = now;
+                    renderLon = prev.renderedLon;
+                    renderLat = prev.renderedLat;
+                }
+            }
+
             this.animationStates[flightId] = {
-                lon: newApiLon,
-                lat: newApiLat,
+                // Authoritative (true) anchor + velocity from this fix.
+                anchorLon: trueLon,
+                anchorLat: trueLat,
                 headingDeg: Number(newPosition.heading_deg) || 0,
                 speedMps: speedKt * KNOTS_TO_MPS,
-                anchorTime: performance.now()
+                anchorTime: now,
+                // Last position we drew (drives the next correction).
+                renderedLon: renderLon,
+                renderedLat: renderLat,
+                // Active correction, if any.
+                blendFrom: blendFrom,
+                blendStart: blendStart
             };
             this._ensureLoop();
         } else if (this.animationStates[flightId]) {
             // No longer eligible (e.g. started descending) — stop gliding it.
             delete this.animationStates[flightId];
         }
+
+        // Write into the shared cache. Preserve any feature id assigned
+        // upstream so Mapbox keeps a stable identity for the feature.
+        const prevFeature = this.currentMapFeatures[flightId];
+        const feature = {
+            type: 'Feature',
+            geometry: {
+                type: 'Point',
+                coordinates: [renderLon, renderLat]
+            },
+            properties: newProperties // Includes new heading, phase, etc.
+        };
+        if (prevFeature && prevFeature.id !== undefined) {
+            feature.id = prevFeature.id;
+        }
+        this.currentMapFeatures[flightId] = feature;
 
         // Trigger an immediate update of the map source.
         this._updateMapSource();
@@ -166,6 +213,18 @@ export class MapAnimator {
     _isCruising(properties) {
         const phase = properties && properties.phase;
         return phase === 'Cruise' || phase === 'Enroute';
+    }
+
+    /**
+     * Fast approximate (equirectangular) distance in metres between two
+     * lat/lon points. Plenty accurate for the sub-km correction checks here.
+     */
+    _approxDistanceMeters(lat1, lon1, lat2, lon2) {
+        const R = 6371000;
+        const meanLat = (lat1 + lat2) * 0.5 * Math.PI / 180;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180 * Math.cos(meanLat);
+        return Math.sqrt(dLat * dLat + dLon * dLon) * R;
     }
 
     /**
@@ -233,19 +292,42 @@ export class MapAnimator {
                     continue;
                 }
                 const state = this.animationStates[flightId];
+
                 // Real wall-clock seconds since the last true fix. Clamped so a
                 // flight that stops updating holds position instead of gliding
                 // off forever; the next real fix re-anchors it.
                 let dtSec = (now - state.anchorTime) / 1000;
-                if (dtSec <= 0) continue;
+                if (dtSec < 0) dtSec = 0;
                 if (dtSec > MAX_EXTRAPOLATION_SEC) dtSec = MAX_EXTRAPOLATION_SEC;
 
-                // Distance = real ground speed (m/s) x elapsed time, so the
-                // plane tracks at its actual speed over the ground.
-                const dist = state.speedMps * dtSec;
-                feature.geometry.coordinates = this._destinationPoint(
-                    state.lat, state.lon, state.headingDeg, dist
+                // Predicted position along the reported track. Distance = real
+                // ground speed (m/s) x elapsed time, so the plane tracks at its
+                // actual speed over the ground.
+                const predicted = this._destinationPoint(
+                    state.anchorLat, state.anchorLon, state.headingDeg, state.speedMps * dtSec
                 );
+
+                let renderLon = predicted[0];
+                let renderLat = predicted[1];
+
+                // If a correction is in progress, ease from the pre-correction
+                // position onto the live track so a late/overshot packet glides
+                // into place instead of snapping back.
+                if (state.blendFrom && state.blendStart !== null) {
+                    const p = (now - state.blendStart) / CORRECTION_BLEND_MS;
+                    if (p >= 1) {
+                        state.blendFrom = null;
+                        state.blendStart = null;
+                    } else {
+                        const e = p * p * (3 - 2 * p); // smoothstep ease
+                        renderLon = state.blendFrom.lon + (predicted[0] - state.blendFrom.lon) * e;
+                        renderLat = state.blendFrom.lat + (predicted[1] - state.blendFrom.lat) * e;
+                    }
+                }
+
+                state.renderedLon = renderLon;
+                state.renderedLat = renderLat;
+                feature.geometry.coordinates = [renderLon, renderLat];
             }
             this._updateMapSource();
         }
