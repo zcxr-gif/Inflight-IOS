@@ -101,6 +101,7 @@ renderMobileContainer() {
                         <div class="mobile-section-header">Visibility</div>
                         <div class="m-settings-list">
                             ${this.renderToggle('showAircraftLabels', 'Aircraft Labels', 'fa-tag')}
+                            ${this.renderToggle('smoothCruiseMotion', 'Smooth Cruise Motion', 'fa-forward')}
                             ${this.renderToggle('live3DTraffic', '3D Live Traffic', 'fa-cubes')}
                             ${this.renderToggle('show3DPath', '3D Flown Path', 'fa-cube')}
                             ${this.renderToggle('showNatTracks', 'NAT Tracks', 'fa-route')}
