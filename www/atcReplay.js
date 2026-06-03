@@ -19,8 +19,15 @@ const ATC_SPEED_OPTIONS = [1, 2, 5, 10, 60, 240, 480];
 // aircraft; 'full' draws every track end-to-end; 'off' hides them entirely.
 const PATH_MODES = ['trails', 'full', 'off'];
 const PATH_MODE_STORAGE_KEY = 'atcReplayPathMode';
-// How much flown history (in session time) trails behind each plane.
+// How much flown history (in session time) trails behind each plane. This is
+// the default; the user can retune it live with the path-length slider (see
+// trailWindowMs / TRAIL_WINDOW_STORAGE_KEY).
 const TRAIL_WINDOW_MS = 120000;
+// Slider bounds for the trail/path length, in session ms. The upper bound is
+// clamped to the session duration at open() time so "max" shows the whole path.
+const TRAIL_WINDOW_MIN_MS = 30000;          // 30s — a short, tight comet tail
+let TRAIL_WINDOW_MAX_MS = 1800000;          // 30min ceiling (clamped per session)
+const TRAIL_WINDOW_STORAGE_KEY = 'atcReplayTrailWindowMs';
 // Fallback / minimum coverage radius when the controller payload omits one.
 const DEFAULT_RADIUS_NM = 50;
 // Loss-of-separation alert thresholds (airborne aircraft only).
@@ -56,6 +63,8 @@ export const AtcReplay = (() => {
     let currentMeta = {};           // caller-supplied {airportName, username, userId, apiBase}
     let flightRowEls = {};          // flightId -> list <div> (cached for animation)
     let pathMode = 'trails';        // how flown tracks are drawn (see PATH_MODES)
+    let trailWindowMs = TRAIL_WINDOW_MS; // live trail/path length (slider-driven)
+    let onProStatusChanged = null;  // live pro-status listener (free-look unlock)
     let enforcementCount = null;    // violations the controller issued (null = unknown)
     let freqWinStart = 0;           // abs-ms at the left edge of the freq timeline
     let freqWinSpan = 0;            // width of the freq timeline in ms
@@ -466,6 +475,17 @@ export const AtcReplay = (() => {
             #atc-replay-panel .atcr-seg-btn:hover { color: #fff; }
             #atc-replay-panel .atcr-seg-btn.active { background: rgba(255,255,255,0.15); color: #fff; }
 
+            /* path/trail length slider */
+            #atc-replay-panel .atcr-trail-len { display: flex; align-items: center; gap: 8px; flex: 1 1 200px; min-width: 160px; }
+            #atc-replay-panel .atcr-trail-slider {
+                flex: 1; min-width: 0; -webkit-appearance: none; appearance: none; height: 4px;
+                background: rgba(255,255,255,0.15); border-radius: 4px; outline: none; cursor: pointer;
+            }
+            #atc-replay-panel .atcr-trail-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #7dd3fc; box-shadow: 0 0 8px rgba(125,211,252,0.7); cursor: grab; }
+            #atc-replay-panel .atcr-trail-slider::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: #7dd3fc; border: none; cursor: grab; }
+            #atc-replay-panel .atcr-trail-val { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10px; font-weight: 700; color: #cbd5e1; min-width: 42px; text-align: right; }
+            #atc-replay-panel .atcr-trail-len.disabled { opacity: 0.4; pointer-events: none; }
+
             /* altitude colour legend */
             #atc-replay-panel .atcr-legend { display: flex; align-items: center; gap: 6px; margin-left: auto; font-size: 9px; font-weight: 700; color: #64748b; }
             #atc-replay-panel .atcr-legend-bar { width: 90px; height: 6px; border-radius: 3px; background: linear-gradient(90deg, rgb(56,189,248), rgb(45,212,191), rgb(163,230,53), rgb(250,204,21), rgb(244,63,94)); }
@@ -705,6 +725,15 @@ export const AtcReplay = (() => {
         }
     }
 
+    // The path-length slider only drives the comet trails ('full' already draws
+    // every track end-to-end, 'off' draws nothing), so grey it out unless we're
+    // in Trails mode.
+    function updateTrailLenEnabled() {
+        if (!panelEl) return;
+        const wrap = panelEl.querySelector('[data-trail-len]');
+        if (wrap) wrap.classList.toggle('disabled', pathMode !== 'trails');
+    }
+
     // Build the static path FeatureCollection, altitude-coloured. Rather than a
     // feature-per-segment (which round-caps into a string of blobs), consecutive
     // points sharing an altitude colour are merged into one smoothed polyline,
@@ -757,7 +786,8 @@ export const AtcReplay = (() => {
     const TRAIL_FADE_BANDS = 18;
     function buildTrailFeatures(absT) {
         const features = [];
-        const windowStart = absT - TRAIL_WINDOW_MS;
+        const windowMs = Math.max(1, trailWindowMs);
+        const windowStart = absT - windowMs;
         for (const fl of flights) {
             const pts = fl.points;
             if (!pts.length || absT < pts[0].t || windowStart > pts[pts.length - 1].t) continue;
@@ -771,7 +801,7 @@ export const AtcReplay = (() => {
             // fade + altitude smooth in lock-step with the geometry
             const aug = chain.map(p => [
                 p.lon, p.lat,
-                Math.max(0, Math.min(1, (p.t - windowStart) / TRAIL_WINDOW_MS)),
+                Math.max(0, Math.min(1, (p.t - windowStart) / windowMs)),
                 p.altitude || 0
             ]);
             const sm = smoothCoords(aug, 2); // rebuilt every frame — keep it light
@@ -817,7 +847,17 @@ export const AtcReplay = (() => {
         }
     }
 
+    // Guarded entry point for every frame draw. The replay runs inside a RAF
+    // loop and also off scrub/focus events; letting an exception escape here
+    // would stop the loop dead (and surface as an uncaught error that, on the
+    // iOS web view, can read as a hard crash). Swallow per-frame failures so a
+    // single bad frame can't take the whole replay — or the app — down.
     function renderFrame() {
+        try { renderFrameUnsafe(); }
+        catch (e) { console.warn('[AtcReplay] renderFrame failed:', e); }
+    }
+
+    function renderFrameUnsafe() {
         const absT = spanStart + currentMs;
 
         // 1. resolve every flight's current position
@@ -954,6 +994,17 @@ export const AtcReplay = (() => {
         const pad = (n) => String(n).padStart(2, '0');
         return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
     }
+    // Compact label for the path-length slider. At the very top of its range
+    // (which is clamped to the session length) the whole flown path is shown,
+    // so we call it "Full" rather than a misleading minute count.
+    function fmtTrailLen(ms) {
+        if (ms >= TRAIL_WINDOW_MAX_MS - 1) return 'Full';
+        if (ms >= 60000) {
+            const m = ms / 60000;
+            return (m >= 10 ? Math.round(m) : m.toFixed(1).replace(/\.0$/, '')) + 'm';
+        }
+        return Math.round(ms / 1000) + 's';
+    }
 
     // ---------- panel ----------
     function buildPanel() {
@@ -1056,6 +1107,11 @@ export const AtcReplay = (() => {
                     <button class="atcr-seg-btn${pathMode === 'full' ? ' active' : ''}" data-pathmode="full" title="Draw every track end-to-end"><i class="fa-solid fa-route"></i> Full</button>
                     <button class="atcr-seg-btn${pathMode === 'off' ? ' active' : ''}" data-pathmode="off" title="Hide flown paths"><i class="fa-solid fa-eye-slash"></i> Off</button>
                 </div>
+                <div class="atcr-trail-len${pathMode !== 'trails' ? ' disabled' : ''}" data-trail-len title="How much flown history trails behind each aircraft">
+                    <i class="fa-solid fa-ruler-horizontal" style="color:#64748b;font-size:11px;"></i>
+                    <input type="range" class="atcr-trail-slider" min="${TRAIL_WINDOW_MIN_MS}" max="${TRAIL_WINDOW_MAX_MS}" step="5000" value="${Math.round(trailWindowMs)}">
+                    <span class="atcr-trail-val" data-trail-val>${fmtTrailLen(trailWindowMs)}</span>
+                </div>
                 <div class="atcr-legend" title="Path colour by altitude">
                     <span>0</span>
                     <span class="atcr-legend-bar"></span>
@@ -1117,10 +1173,26 @@ export const AtcReplay = (() => {
                 pathMode = btn.dataset.pathmode;
                 try { localStorage.setItem(PATH_MODE_STORAGE_KEY, pathMode); } catch (_) {}
                 panelEl.querySelectorAll('.atcr-seg-btn[data-pathmode]').forEach(b => b.classList.toggle('active', b === btn));
+                updateTrailLenEnabled();
                 applyPathMode();
                 renderFrame();
             });
         });
+
+        // path/trail length slider — how far the flown history reaches behind
+        // each aircraft. Rebuilds the trails live as you drag.
+        const trailSlider = panelEl.querySelector('.atcr-trail-slider');
+        if (trailSlider) {
+            trailSlider.addEventListener('input', (e) => {
+                trailWindowMs = Math.max(TRAIL_WINDOW_MIN_MS, Math.min(TRAIL_WINDOW_MAX_MS, Number(e.target.value) || TRAIL_WINDOW_MS));
+                const valEl = panelEl.querySelector('[data-trail-val]');
+                if (valEl) valEl.textContent = fmtTrailLen(trailWindowMs);
+                try { localStorage.setItem(TRAIL_WINDOW_STORAGE_KEY, String(Math.round(trailWindowMs))); } catch (_) {}
+                // 'full' draws whole tracks already; the slider drives the trail
+                // comet (and the focused-flight trail) — refresh the live frame.
+                renderFrame();
+            });
+        }
 
         // flight list → focus a flight (highlight its path, dim the rest)
         flightRowEls = {};
@@ -1702,7 +1774,18 @@ export const AtcReplay = (() => {
         setPlayIcon();
     }
 
-    function showToast(msg) {
+    // Surface a short message. Prefer the app's own notification system
+    // (window.showGlobalNotification) so replay messages look and behave like
+    // every other notification in the app, instead of a bespoke floating toast.
+    // Falls back to a minimal inline element only when the host helper is absent
+    // (e.g. the module running standalone outside the app shell).
+    function showToast(msg, type = 'info') {
+        try {
+            if (typeof window.showGlobalNotification === 'function') {
+                window.showGlobalNotification(msg, type);
+                return;
+            }
+        } catch (_) {}
         const t = document.createElement('div');
         t.className = 'atc-replay-toast';
         t.textContent = msg;
@@ -1741,6 +1824,31 @@ export const AtcReplay = (() => {
         try { return typeof window.isInflightPro === 'function' ? !!window.isInflightPro() : false; }
         catch (_) { return false; }
     }
+
+    // Re-paint the free-look button's locked/unlocked state. Pro status is
+    // resolved asynchronously (a Supabase lookup), so the panel can be built
+    // before the entitlement lands — without this, a Pro user who opened the
+    // replay early would stay locked out of 3D until reload. We listen for
+    // `proStatusChanged` and re-run this so the crown/lock clears the moment
+    // the entitlement resolves.
+    function updateFreeLookLock() {
+        if (!panelEl) return;
+        const btn = panelEl.querySelector('.atcr-freelook');
+        if (!btn) return;
+        const pro = isProUser();
+        btn.classList.toggle('locked', !pro);
+        btn.title = pro
+            ? '3D traffic — orbit & tilt to see aircraft at altitude (V)'
+            : '3D traffic — Inflight Pro feature';
+        const crown = btn.querySelector('.atcr-pro-crown');
+        if (pro) {
+            if (crown) crown.remove();
+        } else if (!crown) {
+            const i = document.createElement('i');
+            i.className = 'fa-solid fa-crown atcr-pro-crown';
+            btn.appendChild(i);
+        }
+    }
     function promptUpgrade() {
         showToast('3D traffic view is an Inflight Pro feature.');
         try {
@@ -1755,6 +1863,10 @@ export const AtcReplay = (() => {
         hideLoading();
         unbindKeys();
         unbindMapInteractions();
+        if (onProStatusChanged) {
+            try { window.removeEventListener('proStatusChanged', onProStatusChanged); } catch (_) {}
+            onProStatusChanged = null;
+        }
         exitFreeLook(true);
         restoreLiveTraffic();
         if (map) {
@@ -1781,7 +1893,7 @@ export const AtcReplay = (() => {
 
     async function open(opts) {
         if (!opts || !opts.map || !opts.replayUrl) {
-            showToast('ATC Replay error: missing map or session.');
+            showToast('ATC Replay error: missing map or session.', 'error');
             return false;
         }
         close();
@@ -1794,14 +1906,14 @@ export const AtcReplay = (() => {
         let payload = null;
         try {
             const res = await fetch(opts.replayUrl);
-            if (res.status === 404) { hideLoading(); showToast('This ATC session has expired (data is kept 48h).'); close(); return false; }
+            if (res.status === 404) { hideLoading(); showToast('This ATC session has expired (data is kept 48h).', 'error'); close(); return false; }
             payload = res.ok ? await res.json() : null;
         } catch (e) {
             console.warn('[AtcReplay] fetch failed:', e);
         }
         if (!payload || !payload.ok || !payload.controller) {
             hideLoading();
-            showToast('Could not load ATC session.');
+            showToast('Could not load ATC session.', 'error');
             close();
             return false;
         }
@@ -1834,7 +1946,7 @@ export const AtcReplay = (() => {
         }
         if (!isFinite(start) || !isFinite(end) || end <= start) {
             hideLoading();
-            showToast('No replayable track data in this session window.');
+            showToast('No replayable track data in this session window.', 'error');
             close();
             return false;
         }
@@ -1842,11 +1954,21 @@ export const AtcReplay = (() => {
         totalDurationMs = end - start;
         currentMs = 0;
 
+        // The trail slider tops out at the full session length, so its max ("Full")
+        // shows each aircraft's entire flown path as a comet. Clamp the running
+        // length into the new range and honour the saved preference.
+        TRAIL_WINDOW_MAX_MS = Math.max(TRAIL_WINDOW_MIN_MS + 1, Math.round(totalDurationMs));
+        trailWindowMs = Math.max(TRAIL_WINDOW_MIN_MS, Math.min(TRAIL_WINDOW_MAX_MS, TRAIL_WINDOW_MS));
+
         try {
             const saved = localStorage.getItem(PATH_MODE_STORAGE_KEY);
             if (PATH_MODES.includes(saved)) pathMode = saved;
             const savedAlt = localStorage.getItem(ALT_BAND_STORAGE_KEY);
             if (savedAlt && ALT_BANDS[savedAlt]) altBand = savedAlt;
+            const savedTrail = Number(localStorage.getItem(TRAIL_WINDOW_STORAGE_KEY));
+            if (Number.isFinite(savedTrail) && savedTrail > 0) {
+                trailWindowMs = Math.max(TRAIL_WINDOW_MIN_MS, Math.min(TRAIL_WINDOW_MAX_MS, savedTrail));
+            }
         } catch (_) {}
 
         precomputeConflicts();
@@ -1858,18 +1980,51 @@ export const AtcReplay = (() => {
         loadEnforcement();
         bindKeys();
 
+        // Keep the 3D (free-look) button's lock in sync with the Pro entitlement,
+        // which may still be resolving when the panel opens.
+        updateFreeLookLock();
+        if (!onProStatusChanged) {
+            onProStatusChanged = () => updateFreeLookLock();
+            window.addEventListener('proStatusChanged', onProStatusChanged);
+        }
+        // Nudge a re-check in case the entitlement was never loaded this session.
+        try { if (window.InflightUser && !window.InflightUser.loaded && typeof window.refreshProStatus === 'function') window.refreshProStatus(); } catch (_) {}
+
+        // Adding the map layers / 3D custom layer can throw (style not ready,
+        // WebGL hiccup, missing globals). Guard it so a setup failure surfaces a
+        // notification and tears down cleanly instead of crashing the host app.
         const setup = () => {
-            ensureLayers();
-            applyAltFilter();
-            hideLiveTraffic();
-            fitToAirspace();
-            renderFrame();
-            play();
+            try {
+                ensureLayers();
+                applyAltFilter();
+                hideLiveTraffic();
+                fitToAirspace();
+                renderFrame();
+                play();
+            } catch (e) {
+                console.warn('[AtcReplay] setup failed:', e);
+                showToast('Could not start ATC replay on this device.', 'error');
+                close();
+            }
         };
         if (map.isStyleLoaded && !map.isStyleLoaded()) map.once('idle', setup);
         else setup();
         return true;
     }
+
+    // The whole open() flow is wrapped so any unexpected failure (network, bad
+    // payload shape, map state) becomes a graceful notification rather than an
+    // uncaught rejection.
+    const openUnsafe = open;
+    open = async function (opts) {
+        try { return await openUnsafe(opts); }
+        catch (e) {
+            console.warn('[AtcReplay] open failed:', e);
+            showToast('Could not open ATC replay.', 'error');
+            try { close(); } catch (_) {}
+            return false;
+        }
+    };
 
     return { open, close, isOpen: () => !!panelEl };
 })();

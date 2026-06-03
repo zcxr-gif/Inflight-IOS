@@ -10257,11 +10257,20 @@ function updateTrafficLegendUI() {
             toolbarRow.style.display = 'none';
         }
 
+        // The live 3D dot field (LiveTraffic3D) is a separate THREE custom layer
+        // from the flat sector-ops icons the replay hides internally — so it would
+        // otherwise keep rendering live contacts on top of the historical replay.
+        // Suppress it for the duration (without touching the saved preference) and
+        // restore it on close if it was on.
+        const wasLive3D = (typeof LiveTraffic3D !== 'undefined') && LiveTraffic3D.isVisible();
+        if (wasLive3D) { try { LiveTraffic3D.setVisible(false); } catch (_) {} }
+
         AtcReplay.open({
             map: sectorOpsMap,
             replayUrl,
             meta: { airportName: apt, username: user, userId: uid || null, apiBase: ACARS_SOCKET_URL },
             onClose: () => {
+                if (wasLive3D) { try { LiveTraffic3D.setVisible(true); } catch (_) {} }
                 if (isMobile) {
                     // Re-run the full open flow so the sheet's content mutates and
                     // MobileUIHandler animates it back in (a bare openWindow on an
@@ -13163,6 +13172,17 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
 async function handleAirportClick(icao, event = null, recenter = false) {
     if (!icao) return;
 
+    // The window element is cached during init. If a tap somehow lands before
+    // that (or the node was torn down), re-resolve it — and bail gracefully
+    // rather than dereferencing null below, which on the iOS web view surfaces
+    // as a hard crash instead of a recoverable miss.
+    if (!airportInfoWindow) airportInfoWindow = document.getElementById('airport-info-window');
+    if (!airportInfoWindow) {
+        console.warn('[handleAirportClick] airport window not ready');
+        if (typeof showNotification === 'function') showNotification('Airport info is still loading — try again in a moment.', 'error');
+        return;
+    }
+
     // Claim this as the newest open request. Any in-flight request for a
     // previously tapped airport will see a higher seq and abort its DOM write.
     const requestId = ++airportWindowRequestSeq;
@@ -13188,12 +13208,18 @@ async function handleAirportClick(icao, event = null, recenter = false) {
         }
     }
 
-    // 2. Initialize Map Visuals for the Airport
-    if (typeof plotRoutesFromAirport === 'function') plotRoutesFromAirport(icao);
-    
+    // 2. Initialize Map Visuals for the Airport. These touch map layers /
+    // external managers that can throw on a half-loaded style or WebGL hiccup —
+    // none of them is essential to showing the info window, so isolate failures.
+    try {
+        if (typeof plotRoutesFromAirport === 'function') plotRoutesFromAirport(icao);
+    } catch (e) { console.warn('[handleAirportClick] plotRoutesFromAirport failed:', e); }
+
     const airport = airportsData ? airportsData[icao] : null;
     if (airport && typeof AirportLayoutManager !== 'undefined' && sectorOpsMap) {
-        AirportLayoutManager.plotTaxiways(sectorOpsMap, icao, airport.lat, airport.lon);
+        try {
+            AirportLayoutManager.plotTaxiways(sectorOpsMap, icao, airport.lat, airport.lon);
+        } catch (e) { console.warn('[handleAirportClick] plotTaxiways failed:', e); }
     }
 
     // Travel to the airport when navigated here from a link (e.g. a clickable
