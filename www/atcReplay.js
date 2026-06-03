@@ -847,7 +847,17 @@ export const AtcReplay = (() => {
         }
     }
 
+    // Guarded entry point for every frame draw. The replay runs inside a RAF
+    // loop and also off scrub/focus events; letting an exception escape here
+    // would stop the loop dead (and surface as an uncaught error that, on the
+    // iOS web view, can read as a hard crash). Swallow per-frame failures so a
+    // single bad frame can't take the whole replay — or the app — down.
     function renderFrame() {
+        try { renderFrameUnsafe(); }
+        catch (e) { console.warn('[AtcReplay] renderFrame failed:', e); }
+    }
+
+    function renderFrameUnsafe() {
         const absT = spanStart + currentMs;
 
         // 1. resolve every flight's current position
@@ -1764,7 +1774,18 @@ export const AtcReplay = (() => {
         setPlayIcon();
     }
 
-    function showToast(msg) {
+    // Surface a short message. Prefer the app's own notification system
+    // (window.showGlobalNotification) so replay messages look and behave like
+    // every other notification in the app, instead of a bespoke floating toast.
+    // Falls back to a minimal inline element only when the host helper is absent
+    // (e.g. the module running standalone outside the app shell).
+    function showToast(msg, type = 'info') {
+        try {
+            if (typeof window.showGlobalNotification === 'function') {
+                window.showGlobalNotification(msg, type);
+                return;
+            }
+        } catch (_) {}
         const t = document.createElement('div');
         t.className = 'atc-replay-toast';
         t.textContent = msg;
@@ -1872,7 +1893,7 @@ export const AtcReplay = (() => {
 
     async function open(opts) {
         if (!opts || !opts.map || !opts.replayUrl) {
-            showToast('ATC Replay error: missing map or session.');
+            showToast('ATC Replay error: missing map or session.', 'error');
             return false;
         }
         close();
@@ -1885,14 +1906,14 @@ export const AtcReplay = (() => {
         let payload = null;
         try {
             const res = await fetch(opts.replayUrl);
-            if (res.status === 404) { hideLoading(); showToast('This ATC session has expired (data is kept 48h).'); close(); return false; }
+            if (res.status === 404) { hideLoading(); showToast('This ATC session has expired (data is kept 48h).', 'error'); close(); return false; }
             payload = res.ok ? await res.json() : null;
         } catch (e) {
             console.warn('[AtcReplay] fetch failed:', e);
         }
         if (!payload || !payload.ok || !payload.controller) {
             hideLoading();
-            showToast('Could not load ATC session.');
+            showToast('Could not load ATC session.', 'error');
             close();
             return false;
         }
@@ -1925,7 +1946,7 @@ export const AtcReplay = (() => {
         }
         if (!isFinite(start) || !isFinite(end) || end <= start) {
             hideLoading();
-            showToast('No replayable track data in this session window.');
+            showToast('No replayable track data in this session window.', 'error');
             close();
             return false;
         }
@@ -1969,18 +1990,41 @@ export const AtcReplay = (() => {
         // Nudge a re-check in case the entitlement was never loaded this session.
         try { if (window.InflightUser && !window.InflightUser.loaded && typeof window.refreshProStatus === 'function') window.refreshProStatus(); } catch (_) {}
 
+        // Adding the map layers / 3D custom layer can throw (style not ready,
+        // WebGL hiccup, missing globals). Guard it so a setup failure surfaces a
+        // notification and tears down cleanly instead of crashing the host app.
         const setup = () => {
-            ensureLayers();
-            applyAltFilter();
-            hideLiveTraffic();
-            fitToAirspace();
-            renderFrame();
-            play();
+            try {
+                ensureLayers();
+                applyAltFilter();
+                hideLiveTraffic();
+                fitToAirspace();
+                renderFrame();
+                play();
+            } catch (e) {
+                console.warn('[AtcReplay] setup failed:', e);
+                showToast('Could not start ATC replay on this device.', 'error');
+                close();
+            }
         };
         if (map.isStyleLoaded && !map.isStyleLoaded()) map.once('idle', setup);
         else setup();
         return true;
     }
+
+    // The whole open() flow is wrapped so any unexpected failure (network, bad
+    // payload shape, map state) becomes a graceful notification rather than an
+    // uncaught rejection.
+    const openUnsafe = open;
+    open = async function (opts) {
+        try { return await openUnsafe(opts); }
+        catch (e) {
+            console.warn('[AtcReplay] open failed:', e);
+            showToast('Could not open ATC replay.', 'error');
+            try { close(); } catch (_) {}
+            return false;
+        }
+    };
 
     return { open, close, isOpen: () => !!panelEl };
 })();

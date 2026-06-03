@@ -13172,6 +13172,17 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
 async function handleAirportClick(icao, event = null, recenter = false) {
     if (!icao) return;
 
+    // The window element is cached during init. If a tap somehow lands before
+    // that (or the node was torn down), re-resolve it — and bail gracefully
+    // rather than dereferencing null below, which on the iOS web view surfaces
+    // as a hard crash instead of a recoverable miss.
+    if (!airportInfoWindow) airportInfoWindow = document.getElementById('airport-info-window');
+    if (!airportInfoWindow) {
+        console.warn('[handleAirportClick] airport window not ready');
+        if (typeof showNotification === 'function') showNotification('Airport info is still loading — try again in a moment.', 'error');
+        return;
+    }
+
     // Claim this as the newest open request. Any in-flight request for a
     // previously tapped airport will see a higher seq and abort its DOM write.
     const requestId = ++airportWindowRequestSeq;
@@ -13197,12 +13208,18 @@ async function handleAirportClick(icao, event = null, recenter = false) {
         }
     }
 
-    // 2. Initialize Map Visuals for the Airport
-    if (typeof plotRoutesFromAirport === 'function') plotRoutesFromAirport(icao);
-    
+    // 2. Initialize Map Visuals for the Airport. These touch map layers /
+    // external managers that can throw on a half-loaded style or WebGL hiccup —
+    // none of them is essential to showing the info window, so isolate failures.
+    try {
+        if (typeof plotRoutesFromAirport === 'function') plotRoutesFromAirport(icao);
+    } catch (e) { console.warn('[handleAirportClick] plotRoutesFromAirport failed:', e); }
+
     const airport = airportsData ? airportsData[icao] : null;
     if (airport && typeof AirportLayoutManager !== 'undefined' && sectorOpsMap) {
-        AirportLayoutManager.plotTaxiways(sectorOpsMap, icao, airport.lat, airport.lon);
+        try {
+            AirportLayoutManager.plotTaxiways(sectorOpsMap, icao, airport.lat, airport.lon);
+        } catch (e) { console.warn('[handleAirportClick] plotTaxiways failed:', e); }
     }
 
     // Travel to the airport when navigated here from a link (e.g. a clickable
