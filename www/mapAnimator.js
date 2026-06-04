@@ -117,9 +117,45 @@ export class MapAnimator {
             this.animationStates = {};
             this._stopLoop();
         } else {
+            // Start moving every cruising plane RIGHT AWAY — seed motion from
+            // the data already on the map so nothing waits for its next packet.
+            this._seedFromCurrentFeatures();
             this._ensureLoop();
         }
         console.log(`MapAnimator: smooth cruise motion ${this.animationEnabled ? 'ON' : 'OFF'}.`);
+    }
+
+    /**
+     * Seeds motion state for every cruising flight currently on the map so
+     * they begin gliding immediately (e.g. the instant the toggle is enabled),
+     * without waiting for a fresh socket packet to arrive. Reads heading and
+     * ground speed straight from the feature properties.
+     */
+    _seedFromCurrentFeatures() {
+        const now = performance.now();
+        for (const flightId in this.currentMapFeatures) {
+            const feature = this.currentMapFeatures[flightId];
+            if (!feature || !feature.geometry || !feature.properties) continue;
+            if (this.animationStates[flightId]) continue; // already moving
+
+            const props = feature.properties;
+            const speedKt = Number(props.speed) || 0;
+            if (!this._isCruising(props) || speedKt < MIN_ANIMATE_SPEED_KT) continue;
+
+            const coords = feature.geometry.coordinates;
+            if (!coords || !isFinite(coords[0]) || !isFinite(coords[1])) continue;
+
+            this.animationStates[flightId] = {
+                anchorLon: coords[0],
+                anchorLat: coords[1],
+                anchorTime: now,
+                headingDeg: Number(props.heading) || 0,
+                speedMps: speedKt * KNOTS_TO_MPS,
+                renderLon: coords[0],
+                renderLat: coords[1],
+                lastFrame: now
+            };
+        }
     }
 
     /**
