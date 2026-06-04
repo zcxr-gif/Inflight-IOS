@@ -2,6 +2,8 @@
  * MobileSettingsUI.js - Mobile-optimized Bottom Sheet for Map & Display Settings
  */
 
+import { openLegalDoc } from './firstRunExperience.js';
+
 export const MobileSettingsUI = {
     _isOpen: false,
 
@@ -147,6 +149,8 @@ renderMobileContainer() {
                             <button class="m-setting-pill" data-setting="iconColorMode" data-value="blue">Blue</button>
                             <button class="m-setting-pill" data-setting="iconColorMode" data-value="orange">Orange</button>
                         </div>
+
+                        ${this.renderLegalSection()}
                     </div>
 
                     <div class="sheet-footer">
@@ -200,6 +204,31 @@ renderMobileContainer() {
                         <option value="">All Airlines</option>
                         ${options}
                     </select>
+                </div>
+            </div>
+        `;
+    },
+
+    // Legal documents — the Privacy Policy and Terms of Service. Surfaced here
+    // so users can revisit what they agreed to during onboarding at any time.
+    // Each row opens the doc in the shared in-app slide-over viewer.
+    renderLegalSection() {
+        return `
+            <div class="mobile-section-header">Legal</div>
+            <div class="m-settings-list">
+                <div class="m-setting-row m-legal-row" data-doc="privacy.html" data-title="Privacy Policy">
+                    <div class="m-row-left">
+                        <i class="fa-solid fa-shield-halved"></i>
+                        <span>Privacy Policy</span>
+                    </div>
+                    <div class="m-row-right"><i class="fa-solid fa-chevron-right m-legal-chevron"></i></div>
+                </div>
+                <div class="m-setting-row m-legal-row" data-doc="terms.html" data-title="Terms of Service">
+                    <div class="m-row-left">
+                        <i class="fa-solid fa-file-contract"></i>
+                        <span>Terms of Service</span>
+                    </div>
+                    <div class="m-row-right"><i class="fa-solid fa-chevron-right m-legal-chevron"></i></div>
                 </div>
             </div>
         `;
@@ -411,6 +440,18 @@ refreshProLocks() {
                 btn.parentElement.querySelectorAll('.m-setting-pill').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 if (window.updateMapFilters) window.updateMapFilters();
+            });
+        });
+
+        // Legal document rows — open privacy.html / terms.html in the shared
+        // in-app viewer (layers above this sheet; its back button returns here).
+        sheet.querySelectorAll('.m-legal-row').forEach(row => {
+            row.addEventListener('click', () => {
+                const doc = row.dataset.doc;
+                const title = row.dataset.title || 'Document';
+                if (typeof openLegalDoc === 'function') {
+                    openLegalDoc(doc, title);
+                }
             });
         });
 
@@ -655,6 +696,10 @@ refreshProLocks() {
                     border-radius: 8px; word-break: break-all;
                     line-height: 1.4;
                 }
+
+                .m-legal-row { cursor: pointer; }
+                .m-legal-row:active { background: rgba(255,255,255,0.07); }
+                .m-legal-chevron { color: #52525b; font-size: 0.85rem; }
 
                 .custom-scroll { overflow-y: auto; flex: 1; }
             }

@@ -6,8 +6,8 @@
  *
  * On the very first launch (and again only if the legal documents are
  * re-versioned) this module:
- *   1. Plays a short cinematic intro animation on the live map — a
- *      globe-level pull-back that flies in toward the user's hub.
+ *   1. Plays a short cinematic intro animation on the live map — the whole
+ *      globe, fully zoomed out, gently spinning (no zooming).
  *   2. Fades in a branded, blocking modal where the user must agree to
  *      the Privacy Policy and Terms before the app becomes usable.
  *
@@ -292,11 +292,26 @@ function pickRandomLiveFlights(count) {
     }
     if (!flights.length) return [];
 
-    // getLiveFlightData() returns GeoJSON features; the real map-click handler
-    // passes feature.properties straight to handleAircraftClick, so we do too.
+    // getLiveFlightData() returns GeoJSON features. Mapbox stores nested
+    // properties as JSON *strings*, so feature.properties.aircraft /
+    // .position arrive serialized. The real map-click handlers parse those
+    // back into objects before calling handleAircraftClick — we must do the
+    // same here, otherwise the Standard window's aircraft type/livery come
+    // back empty and its community plane photo never loads in the demo.
     const props = flights
         .map((f) => (f && f.properties) ? f.properties : f)
-        .filter((p) => p && p.flightId);
+        .filter((p) => p && p.flightId)
+        .map((p) => {
+            try {
+                return {
+                    ...p,
+                    position: typeof p.position === 'string' ? JSON.parse(p.position) : p.position,
+                    aircraft: typeof p.aircraft === 'string' ? JSON.parse(p.aircraft) : p.aircraft
+                };
+            } catch (_) {
+                return p;
+            }
+        });
     if (!props.length) return [];
 
     // Prefer en-route flights (full route) up front, then top up with any others.
@@ -367,14 +382,15 @@ function setChromeHidden(hidden) {
 // ---------------------------------------------------------------------------
 
 /**
- * Cinematic intro: start zoomed in tight over the hub, then pull the camera
- * back out to the map's default ("spawn") view with a gentle rotation —
- * an "in to out" reveal. Resolves when the move finishes (or after a hard
+ * Cinematic intro: frame the entire globe — fully zoomed out — and gently
+ * spin the world beneath the onboarding modal. No zooming at all: the camera
+ * stays at the whole-earth zoom and we only rotate the globe's longitude so
+ * the planet slowly turns. Resolves when the spin finishes (or after a hard
  * timeout so we never hang the gate).
  */
 function playIntroAnimation(map) {
     return new Promise((resolve) => {
-        if (!map || typeof map.flyTo !== 'function') {
+        if (!map || typeof map.jumpTo !== 'function') {
             resolve();
             return;
         }
@@ -387,43 +403,46 @@ function playIntroAnimation(map) {
         };
 
         try {
-            // The map's current camera is the default spawn view we want to
-            // settle on at the end of the pull-out.
-            const target = {
-                center: map.getCenter(),
-                zoom: map.getZoom(),
-                bearing: 0,
-                pitch: 0
-            };
+            // Keep the hub's longitude as the starting point so the spin
+            // begins from a familiar slice of the world.
+            let startLon = 0;
+            try { startLon = map.getCenter().lng; } catch (_) { startLon = 0; }
 
-            // Start tight over the hub with a slight bearing offset so the
-            // world visibly rotates as we pull back out.
+            // Zoom 0 on the globe frames the entire world. Bearing/pitch flat
+            // so it reads as a clean, upright planet.
             map.jumpTo({
-                center: target.center,
-                zoom: 9,
-                bearing: 26,
+                center: [startLon, 20],
+                zoom: 0,
+                bearing: 0,
                 pitch: 0
             });
 
+            // Resolve on the spin's moveend (the jumpTo above fires its own
+            // moveend synchronously, before this listener is attached, so the
+            // one we catch is the rotation's).
             map.once('moveend', done);
             // Hard ceiling: never let the gate wait on the map for too long.
-            setTimeout(done, 6800);
+            setTimeout(done, 8000);
 
-            // Small beat at the tight zoom before the camera pulls out.
+            // Spin the globe — longitude only, zoom locked at 0 — with a
+            // steady, constant-speed rotation. A short beat first lets the
+            // jumpTo settle so the spin starts smoothly.
             setTimeout(() => {
                 if (settled) return;
                 try {
-                    map.flyTo({
-                        ...target,
-                        duration: 5200,
-                        curve: 1.42,
-                        speed: 0.5,
+                    map.easeTo({
+                        center: [startLon + 160, 20],
+                        zoom: 0,
+                        bearing: 0,
+                        pitch: 0,
+                        duration: 6500,
+                        easing: (t) => t,
                         essential: true
                     });
                 } catch (_) {
                     done();
                 }
-            }, 450);
+            }, 350);
         } catch (_) {
             done();
         }
@@ -606,6 +625,17 @@ function openDocViewer(src, title) {
 
     document.body.appendChild(viewer);
     requestAnimationFrame(() => viewer.classList.add('fre-doc-open'));
+}
+
+/**
+ * Open a legal document (privacy.html / terms.html) in the same in-app
+ * slide-over viewer the onboarding gate uses. Exported so Settings can offer
+ * the docs too. Safe to call at any time — it injects the viewer styles on
+ * demand (returning users never ran the gate, so the styles may be absent).
+ */
+export function openLegalDoc(src, title) {
+    injectStyles();
+    openDocViewer(src, title);
 }
 
 // ---------------------------------------------------------------------------
