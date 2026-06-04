@@ -22,7 +22,11 @@ export const MobileLandingUI = {
 
                 <div class="mobile-bottom-sheet">
                     <div class="sheet-handle"></div>
-                    
+                    <button class="sheet-nav-text" id="mobile-reset-btn" type="button">Reset</button>
+                    <button class="sheet-close-btn" id="mobile-filters-close" type="button" aria-label="Close">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+
                     <div class="mobile-title">
                         <i class="fa-solid fa-sliders"></i>
                         <span>Tactical Filters</span>
@@ -36,11 +40,6 @@ export const MobileLandingUI = {
                         <div class="mobile-filter-grid">
                             ${this.renderFilterGrid()}
                         </div>
-                    </div>
-
-                    <div class="sheet-footer">
-                        <button id="mobile-reset-btn" class="m-btn m-secondary">Reset</button>
-                        <button id="mobile-apply-btn" class="m-btn m-primary">Apply Changes</button>
                     </div>
                 </div>
             </div>
@@ -83,6 +82,8 @@ export const MobileLandingUI = {
         };
 
         overlay.addEventListener('click', closeUI);
+        document.getElementById('mobile-filters-close')?.addEventListener('click', closeUI);
+        this.attachSwipeToDismiss(sheet, closeUI);
 
         // Grid selection for adding new filters
         document.querySelectorAll('.m-grid-item').forEach(btn => {
@@ -106,15 +107,42 @@ export const MobileLandingUI = {
             }
         });
 
-        document.getElementById('mobile-apply-btn').addEventListener('click', () => {
-            this.parent.dispatchFilterUpdate();
-            closeUI();
-        });
-
+        // Filters apply live (the parent dispatches on every activate/remove/edit,
+        // matching the desktop behaviour) so there is no explicit "Apply" step.
         document.getElementById('mobile-reset-btn').addEventListener('click', () => {
             this.parent._activeFilters = {};
             this.syncActiveRules();
             this.parent.dispatchFilterUpdate();
+        });
+    },
+
+    // iOS-style swipe-down-to-dismiss, dragging from the grabber or title bar.
+    attachSwipeToDismiss(sheet, closeUI) {
+        const grabbers = sheet.querySelectorAll('.sheet-handle, .mobile-title');
+        let startY = 0, delta = 0, dragging = false;
+        const start = (e) => {
+            startY = e.touches ? e.touches[0].clientY : e.clientY;
+            delta = 0; dragging = true;
+            sheet.style.transition = 'none';
+        };
+        const move = (e) => {
+            if (!dragging) return;
+            const y = e.touches ? e.touches[0].clientY : e.clientY;
+            delta = Math.max(0, y - startY);
+            sheet.style.transform = `translateY(${delta}px)`;
+        };
+        const end = () => {
+            if (!dragging) return;
+            dragging = false;
+            sheet.style.transition = '';
+            sheet.style.transform = '';
+            if (delta > 110) closeUI();
+        };
+        grabbers.forEach(g => {
+            g.addEventListener('touchstart', start, { passive: true });
+            g.addEventListener('touchmove', move, { passive: true });
+            g.addEventListener('touchend', end);
+            g.addEventListener('touchcancel', end);
         });
     },
 
@@ -197,14 +225,36 @@ export const MobileLandingUI = {
             .mobile-bottom-sheet.open { transform: translateY(0); }
 
             .sheet-handle { width: 40px; height: 5px; background: rgba(255,255,255,0.2); border-radius: 10px; margin: 12px auto; }
-            
-            .mobile-title { 
+
+            /* iOS-style circular close button */
+            #mobile-tactical-nexus .sheet-close-btn {
+                position: absolute; top: 12px; right: 14px;
+                width: 30px; height: 30px; border-radius: 50%; padding: 0;
+                display: flex; align-items: center; justify-content: center;
+                background: rgba(120,120,128,0.32); color: rgba(235,235,245,0.65);
+                border: none; font-size: 14px; z-index: 5;
+                -webkit-tap-highlight-color: transparent;
+                transition: transform 0.15s ease, background-color 0.15s ease;
+            }
+            #mobile-tactical-nexus .sheet-close-btn:active {
+                transform: scale(0.92); background: rgba(120,120,128,0.5);
+            }
+            /* iOS nav-bar style text action (Reset) */
+            #mobile-tactical-nexus .sheet-nav-text {
+                position: absolute; top: 14px; left: 16px;
+                background: none; border: none; color: #0a84ff;
+                font-size: 16px; font-weight: 400; padding: 4px 2px; z-index: 5;
+                -webkit-tap-highlight-color: transparent;
+            }
+            #mobile-tactical-nexus .sheet-nav-text:active { opacity: 0.5; }
+
+            .mobile-title {
                 padding: 5px 20px 15px; text-align: center; font-weight: 800; color: #38bdf8; 
                 display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 1.1rem;
                 text-transform: uppercase; letter-spacing: 1px;
             }
 
-            .sheet-content { flex: 1; overflow-y: auto; padding: 0 20px 100px; }
+            .sheet-content { flex: 1; overflow-y: auto; padding: 0 20px calc(env(safe-area-inset-bottom, 0px) + 28px); }
             .mobile-section-header { font-size: 0.7rem; font-weight: 900; color: #52525b; text-transform: uppercase; letter-spacing: 1.5px; margin: 25px 0 12px; }
             
             .mobile-filter-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
@@ -246,14 +296,6 @@ export const MobileLandingUI = {
                 width: 100% !important;
             }
 
-            .sheet-footer { 
-                padding: 20px; background: #0a0a0b; border-top: 1px solid rgba(255,255,255,0.05); 
-                display: flex; gap: 12px; position: sticky; bottom: 0;
-            }
-            .m-btn { flex: 1; padding: 16px; border-radius: 14px; font-weight: 700; border: none; font-size: 1rem; }
-            .m-primary { background: #38bdf8; color: #000; }
-            .m-secondary { background: rgba(255,255,255,0.08); color: #fff; }
-            
             .m-empty-text { color: #3f3f46; font-size: 0.9rem; text-align: center; margin: 30px 0; font-style: italic; }
         }
     `;
