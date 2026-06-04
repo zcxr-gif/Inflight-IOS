@@ -1821,8 +1821,29 @@ export const AtcReplay = (() => {
     // The 3D traffic view is an Inflight Pro feature. Source of truth is the
     // app's global helper; if it isn't present we fail closed (locked).
     function isProUser() {
-        try { return typeof window.isInflightPro === 'function' ? !!window.isInflightPro() : false; }
-        catch (_) { return false; }
+        // Match the rest of the app's Pro gating. Every other Pro control —
+        // custom colours, Pro map styles, 3D terrain/buildings, day-night, etc.
+        // — unlocks for any *signed-in* user (see flight.js / MobileSettingsUI,
+        // which gate on `isSignedIn`). The 3D-traffic button was instead using
+        // the strict `window.isInflightPro()` entitlement, which depends on a
+        // Supabase `profiles.is_pro` lookup that usually stays false — so it sat
+        // locked for users who already had every other Pro feature. Treat a true
+        // Inflight Pro entitlement OR simply being signed in as unlocked, and
+        // detect sign-in the same self-contained way the settings panels do: a
+        // Supabase auth token in localStorage.
+        try {
+            if (typeof window.isInflightPro === 'function' && window.isInflightPro()) return true;
+        } catch (_) { /* ignore */ }
+        try {
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && (key.includes('supabase.auth.token') ||
+                            (key.startsWith('sb-') && key.endsWith('-auth-token')))) {
+                    return true;
+                }
+            }
+        } catch (_) { /* storage unavailable */ }
+        return false;
     }
 
     // Re-paint the free-look button's locked/unlocked state. Pro status is
