@@ -10,6 +10,13 @@ export const AircraftViewer3D = {
     _currentPos: { pitch: 0, roll: 0, speed: 450, heading: 45 },
     _currentAlt: 35000,
 
+    // Live Cesium viewer + the observer that watches for its container being
+    // detached. Held on the singleton so destroy() can tear them down — each
+    // Viewer owns a full WebGL context, and iOS WebViews crash once a handful
+    // leak, so cleanup must be deterministic rather than GC-dependent.
+    _viewer: null,
+    _domObserver: null,
+
     updateFlightData(positionObj) {
         if (!positionObj) return;
         this._currentPos.pitch   = positionObj.pitch_deg || 0;
@@ -490,6 +497,12 @@ async init(aircraftName, positionOrAlt = 35000, speedArg = 450, timeOverride = '
         const container = document.getElementById("pui-hero-3d-container");
         if (!container) return;
 
+        // Never stack viewers: free any previous Cesium context before booting
+        // a new one. Repeated mounts without this leak WebGL contexts and
+        // eventually OOM-crash the iOS WebView (the "profile crashes sometimes"
+        // symptom).
+        this.destroy();
+
         let lat = 46.0, lon = 7.5, altitude = 35000, speed = 450, pitch = 0, roll = 0, heading = 45;
         if (typeof positionOrAlt === 'object' && positionOrAlt !== null) {
             lat      = positionOrAlt.lat       ?? 46.0;
@@ -534,8 +547,12 @@ async init(aircraftName, positionOrAlt = 35000, speedArg = 450, timeOverride = '
             creditContainer:      creditDiv,
             shouldAnimate:        true,
             imageryProvider:      false,
-            terrainProvider:      terrainProvider 
+            terrainProvider:      terrainProvider
         });
+
+        // Track the live viewer so destroy() (and the next init) can tear it
+        // down deterministically.
+        this._viewer = viewer;
 
         viewer.scene.backgroundColor = Cesium.Color.BLACK;
 
@@ -713,12 +730,39 @@ async init(aircraftName, positionOrAlt = 35000, speedArg = 450, timeOverride = '
             loaderRemoved = true;
         }, 8000);
 
+        // Safety net: if the host container is ever yanked from the DOM without
+        // an explicit destroy() (e.g. a parent re-render), tear the viewer down
+        // so we don't leak its WebGL context.
         const observer = new MutationObserver(() => {
-            if (!document.contains(container)) {
-                try { viewer.destroy(); } catch (_) {}
-                observer.disconnect();
+            if (this._viewer === viewer && !document.contains(container)) {
+                this.destroy();
             }
         });
         observer.observe(document.body, { childList: true, subtree: true });
+        this._domObserver = observer;
+    },
+
+    /**
+     * Tear down the live Cesium viewer and stop its render loop, releasing the
+     * WebGL context. Safe to call when nothing is mounted. Callers (profile
+     * close, 3D-HUD close, and the start of every init) rely on this to keep
+     * exactly one viewer alive at a time — without it the iOS WebView OOM-
+     * crashes after a few profile opens.
+     */
+    destroy() {
+        try {
+            if (this._domObserver) {
+                this._domObserver.disconnect();
+                this._domObserver = null;
+            }
+        } catch (_) { /* ignore */ }
+
+        try {
+            if (this._viewer && !this._viewer.isDestroyed()) {
+                this._viewer.destroy();
+            }
+        } catch (_) { /* ignore */ }
+
+        this._viewer = null;
     }
 };

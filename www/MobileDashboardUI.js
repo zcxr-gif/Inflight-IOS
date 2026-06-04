@@ -259,7 +259,11 @@ init(supabaseClient) {
         this._isOpen = false;
         document.body.style.overflow = '';
         this._editingFlightId = null;
-        
+
+        // Tear down the 3D HUD (and its Cesium WebGL context) if it was left
+        // open, so it can't leak across dashboard opens and OOM-crash iOS.
+        this._close3DHUD();
+
         if (this._airspaceTimer) {
             clearInterval(this._airspaceTimer);
             this._airspaceTimer = null;
