@@ -382,11 +382,11 @@ function setChromeHidden(hidden) {
 // ---------------------------------------------------------------------------
 
 /**
- * Cinematic intro: frame the entire globe — fully zoomed out — and gently
- * spin the world beneath the onboarding modal. No zooming at all: the camera
- * stays at the whole-earth zoom and we only rotate the globe's longitude so
- * the planet slowly turns. Resolves when the spin finishes (or after a hard
- * timeout so we never hang the gate).
+ * Cinematic intro: frame the globe at a comfortable, partly-zoomed-in level
+ * and gently spin the world beneath the onboarding modal. No zooming during
+ * the animation — the camera holds its zoom and we only rotate the globe's
+ * longitude, slowly, for a brief beat. Resolves when the spin finishes (or
+ * after a hard timeout so we never hang the gate).
  */
 function playIntroAnimation(map) {
     return new Promise((resolve) => {
@@ -402,17 +402,24 @@ function playIntroAnimation(map) {
             resolve();
         };
 
+        // Tuning: a closer framing than the whole-earth view, a gentle spin,
+        // and a short overall duration.
+        const SPIN_ZOOM = 2.1;     // closer than zoom 0 (whole globe) but still clearly a globe
+        const SPIN_DEGREES = 40;   // how far the world turns — small, so the spin reads as slow
+        const SPIN_MS = 3200;      // ~12.5°/s — roughly half the previous speed
+        const START_BEAT_MS = 200; // let the jumpTo settle before the spin starts
+
         try {
             // Keep the hub's longitude as the starting point so the spin
             // begins from a familiar slice of the world.
             let startLon = 0;
             try { startLon = map.getCenter().lng; } catch (_) { startLon = 0; }
 
-            // Zoom 0 on the globe frames the entire world. Bearing/pitch flat
-            // so it reads as a clean, upright planet.
+            // Frame the globe at the spin zoom. Bearing/pitch flat so it reads
+            // as a clean, upright planet.
             map.jumpTo({
                 center: [startLon, 20],
-                zoom: 0,
+                zoom: SPIN_ZOOM,
                 bearing: 0,
                 pitch: 0
             });
@@ -422,27 +429,27 @@ function playIntroAnimation(map) {
             // one we catch is the rotation's).
             map.once('moveend', done);
             // Hard ceiling: never let the gate wait on the map for too long.
-            setTimeout(done, 8000);
+            setTimeout(done, START_BEAT_MS + SPIN_MS + 1200);
 
-            // Spin the globe — longitude only, zoom locked at 0 — with a
-            // steady, constant-speed rotation. A short beat first lets the
-            // jumpTo settle so the spin starts smoothly.
+            // Spin the globe — longitude only, zoom locked — with a steady,
+            // constant-speed rotation. A short beat first lets the jumpTo
+            // settle so the spin starts smoothly.
             setTimeout(() => {
                 if (settled) return;
                 try {
                     map.easeTo({
-                        center: [startLon + 160, 20],
-                        zoom: 0,
+                        center: [startLon + SPIN_DEGREES, 20],
+                        zoom: SPIN_ZOOM,
                         bearing: 0,
                         pitch: 0,
-                        duration: 6500,
+                        duration: SPIN_MS,
                         easing: (t) => t,
                         essential: true
                     });
                 } catch (_) {
                     done();
                 }
-            }, 350);
+            }, START_BEAT_MS);
         } catch (_) {
             done();
         }
