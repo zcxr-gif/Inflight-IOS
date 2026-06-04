@@ -10737,6 +10737,8 @@ function initializeAircraftLayer() {
 
         if (typeof MapAnimator !== 'undefined' && !mapAnimator) {
             mapAnimator = new MapAnimator(sectorOpsMap, 'sector-ops-live-flights-source', currentMapFeatures);
+            // Grow each animated plane's flown path between packets.
+            mapAnimator.onFrame = (states) => updateLiveTrailConnectors(states);
             // Honor the persisted "Smooth Cruise Motion" preference.
             mapAnimator.setAnimationEnabled(!!mapFilters.smoothCruiseMotion);
         }
@@ -10793,6 +10795,43 @@ function initializeAircraftLayer() {
             // before the layer existed) — the auth handler in profileUI.js
             // covers the opposite race direction.
             refreshPilotRelations();
+
+            // --- Live trail connectors ---------------------------------
+            // A single lightweight layer that bridges each animated plane's
+            // last real fix to its smoothly-interpolated position, so the
+            // flown path keeps building up between packets instead of the
+            // plane gliding away from a stale trail end. One short LineString
+            // per visible-trail flight, refreshed each animation frame.
+            if (!sectorOpsMap.getSource('live-trail-connector-source')) {
+                sectorOpsMap.addSource('live-trail-connector-source', {
+                    type: 'geojson',
+                    data: { type: 'FeatureCollection', features: [] },
+                    tolerance: 0
+                });
+            }
+            if (!sectorOpsMap.getLayer('live-trail-connector-layer')) {
+                sectorOpsMap.addLayer({
+                    id: 'live-trail-connector-layer',
+                    type: 'line',
+                    source: 'live-trail-connector-source',
+                    layout: { 'line-join': 'round', 'line-cap': 'round' },
+                    paint: {
+                        'line-width': 3,
+                        'line-opacity': 1,
+                        // Same altitude→color ramp as the flown-path layers so
+                        // the connector blends seamlessly into the trail.
+                        'line-color': [
+                            'interpolate', ['linear'], ['get', 'altitude'],
+                            0, '#94a3b8',
+                            3000, '#c084fc',
+                            12000, '#f59e0b',
+                            20000, '#10b981',
+                            30000, '#38bdf8',
+                            45000, '#0284c7'
+                        ]
+                    }
+                }, 'sector-ops-live-flights-layer');
+            }
 
             sectorOpsMap.on('click', (e) => {
                 console.log("📍 Raw map tap at:", e.point);
@@ -13467,6 +13506,45 @@ function generateSmoothPath(points, tension = 0.5) {
     }
     result.push(points[points.length - 1]);
     return result;
+}
+
+/**
+ * Per-frame updater for the live trail connectors. For every smoothly
+ * animated flight that has a visible flown path, draws a short segment from
+ * its last real fix (the animation anchor) to its interpolated position, so
+ * the trail keeps building up continuously as the plane flies rather than
+ * ending at the last packet. Cheap: one LineString per visible-trail flight.
+ * @param {Object} states - MapAnimator.animationStates, keyed by flightId.
+ */
+function updateLiveTrailConnectors(states) {
+    if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded()) return;
+    const source = sectorOpsMap.getSource('live-trail-connector-source');
+    if (!source) return;
+
+    const features = [];
+    if (states) {
+        for (const flightId in states) {
+            // Only flights with a flown-path layer currently on the map
+            // (selected / pinned) get a connector.
+            const layer = sectorOpsLiveFlightPathLayers[flightId];
+            if (!layer || !layer.flown || !sectorOpsMap.getSource(layer.flown)) continue;
+
+            const s = states[flightId];
+            if (!isFinite(s.anchorLon) || !isFinite(s.renderLon)) continue;
+
+            const altitude = currentMapFeatures[flightId]?.properties?.altitude || 0;
+            features.push({
+                type: 'Feature',
+                properties: { altitude },
+                geometry: {
+                    type: 'LineString',
+                    coordinates: [[s.anchorLon, s.anchorLat], [s.renderLon, s.renderLat]]
+                }
+            });
+        }
+    }
+
+    source.setData({ type: 'FeatureCollection', features });
 }
 
 function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {

@@ -83,6 +83,11 @@ export class MapAnimator {
         this.animationStates = {};
         this._rafId = null;
         this._lastDraw = 0;
+
+        // Optional per-frame hook (set by the host) invoked with the current
+        // animation states after each redraw — used to grow live trail
+        // connectors so flown paths build up between packets.
+        this.onFrame = null;
     }
 
     /**
@@ -116,6 +121,8 @@ export class MapAnimator {
             // will teleport everything back to its true position.
             this.animationStates = {};
             this._stopLoop();
+            // Clear any live trail connectors left on the map.
+            if (typeof this.onFrame === 'function') this.onFrame({});
         } else {
             // Start moving every cruising plane RIGHT AWAY — seed motion from
             // the data already on the map so nothing waits for its next packet.
@@ -387,6 +394,9 @@ export class MapAnimator {
                 feature.geometry.coordinates = [lon, lat];
             }
             this._updateMapSource();
+
+            // Let the host extend live trail connectors to the new positions.
+            if (typeof this.onFrame === 'function') this.onFrame(this.animationStates);
         }
 
         // Keep looping.
