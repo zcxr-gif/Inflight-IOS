@@ -1250,8 +1250,11 @@ disableHudControls() {
         // Populates the active sheet/HUD once the window's content is ready and
         // animates it in. Returns true once it has run so the caller can stop
         // waiting. Factored out of the observer below so it can ALSO be fired
-        // synchronously for windows whose content is already present.
+        // for windows whose content is already present. Guarded so it only
+        // ever populates once per observe() call.
+        let populated = false;
         const tryPopulate = () => {
+            if (populated) return true;
             const mainContent = windowElement.querySelector('.unified-display-main-content');
             const attitudeGroup = mainContent?.querySelector('#attitude_group');
 
@@ -1269,6 +1272,8 @@ disableHudControls() {
             const isSimpleReady = !!simpleIframe;
 
             if (!(isStandardReady || isSimpleReady || isAirportReady)) return false;
+
+            populated = true;
 
             // --- [NEW] Router ---
             if (this.activeMode === 'legacy') {
@@ -1304,15 +1309,6 @@ disableHudControls() {
             return true;
         };
 
-        // Returning from the replay / trip-card overlay re-opens the window
-        // while its content is ALREADY in the DOM — the simple-window iframe is
-        // never torn down, and it pushes live updates into the iframe rather
-        // than mutating the host. In that case no further mutation fires, so the
-        // MutationObserver below would wait forever and the sheet would never
-        // re-animate into view. Populate immediately when the content is already
-        // present so the simple (and regular) window reliably comes back.
-        if (tryPopulate()) return;
-
         this.contentObserver = new MutationObserver((mutationsList, obs) => {
             if (tryPopulate()) {
                 obs.disconnect();
@@ -1324,6 +1320,28 @@ disableHudControls() {
             childList: true,
             subtree: true,
             attributes: true
+        });
+
+        // Safety net for the return-from-overlay case (replay / trip card),
+        // where the window's content — notably the simple-window iframe — is
+        // already in the DOM and will NOT mutate again (the simple window pushes
+        // live updates into the iframe rather than mutating the host), so the
+        // observer above would wait forever and the sheet would never re-animate.
+        //
+        // Deferred to the next frame rather than run synchronously: callers that
+        // are about to rebuild the window (e.g. switching aircraft) reset
+        // innerHTML to a spinner right after openWindow() returns. Running now
+        // would populate against that stale content and prepend a drag handle
+        // that the imminent innerHTML reset would wipe — leaving the sheet
+        // tap-only with no slide handle. By waiting a frame, any such reset (and
+        // the MutationObserver it triggers) wins first; we only step in if the
+        // content is genuinely already settled and the observer never fired.
+        requestAnimationFrame(() => {
+            if (populated || this.activeWindow !== windowElement) return;
+            if (tryPopulate() && this.contentObserver) {
+                this.contentObserver.disconnect();
+                this.contentObserver = null;
+            }
         });
     },
 

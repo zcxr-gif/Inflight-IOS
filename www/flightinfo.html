@@ -269,13 +269,16 @@
         margin-top: 6px; position: relative; overflow: hidden;
     }
 
-    /* HERO — big plane image */
+    /* HERO — big plane image.
+       Match the regular flight window's hero: a fixed aspect ratio with
+       object-fit: cover so the photo fills the frame edge-to-edge (no dark
+       letterbox gaps), just at the simple window's smaller size. */
     .mission-visual-section {
-        position: relative; width: 100%; height: 150px; flex: 0 0 auto;
+        position: relative; width: 100%; aspect-ratio: 21 / 9; flex: 0 0 auto;
         background: #0f172a; overflow: hidden;
     }
     .hero-img {
-        width: 100%; height: 100%; object-fit: contain; object-position: center;
+        width: 100%; height: 100%; object-fit: cover; object-position: center;
         display: block; transition: transform 8s ease; transform: scale(1);
     }
     .unified-mission-card:hover .hero-img { transform: scale(1.03); }
