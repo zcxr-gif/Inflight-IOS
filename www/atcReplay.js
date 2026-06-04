@@ -789,15 +789,42 @@ export const AtcReplay = (() => {
     // aircraft). Each band is a real multi-point polyline — not a string of
     // 2-point segments — so the tail curves cleanly and tapers without blobs.
     const TRAIL_FADE_BANDS = 18;
+
+    // Per-frame trail detail, scaled to playback speed. The comet trails are a
+    // far heavier GeoJSON than the handful of plane points, and Mapbox parses
+    // source data on a worker. At high speed the aircraft jump a long way each
+    // frame, so if the trail source takes an extra frame or two to parse it
+    // visibly drags behind the plane (whose own source parses near-instantly).
+    // Lightening the trail as speed climbs — fewer fade bands, less smoothing,
+    // and a capped/subsampled tail — keeps its payload cheap enough to parse
+    // within the frame, so the comet stays pinned to the aircraft. Normal-speed
+    // playback (≤10×) keeps the full detail unchanged.
+    function trailDetail() {
+        if (speed >= 240) return { bands: 6,  smooth: 0, maxPts: 48 };
+        if (speed >= 60)  return { bands: 10, smooth: 1, maxPts: 96 };
+        return { bands: TRAIL_FADE_BANDS, smooth: 2, maxPts: Infinity };
+    }
+
     function buildTrailFeatures(absT) {
         const features = [];
         const windowMs = Math.max(1, trailWindowMs);
         const windowStart = absT - windowMs;
+        const { bands, smooth, maxPts } = trailDetail();
         for (const fl of flights) {
             const pts = fl.points;
             if (!pts.length || absT < pts[0].t || windowStart > pts[pts.length - 1].t) continue;
             // in-window points, then the live interpolated head
-            const tail = pts.filter(p => p.t >= windowStart && p.t <= absT);
+            let tail = pts.filter(p => p.t >= windowStart && p.t <= absT);
+            // At high speed, evenly subsample a dense tail so the trail rebuild
+            // stays light — always keeping the most recent in-window point so the
+            // line runs cleanly into the head (the plane).
+            if (tail.length > maxPts) {
+                const step = tail.length / maxPts;
+                const reduced = [];
+                for (let i = 0; i < maxPts; i++) reduced.push(tail[Math.floor(i * step)]);
+                if (reduced[reduced.length - 1] !== tail[tail.length - 1]) reduced.push(tail[tail.length - 1]);
+                tail = reduced;
+            }
             const head = positionAt(pts, absT);
             if (!head) continue;
             const chain = tail.concat([head]);
@@ -809,8 +836,8 @@ export const AtcReplay = (() => {
                 Math.max(0, Math.min(1, (p.t - windowStart) / windowMs)),
                 p.altitude || 0
             ]);
-            const sm = smoothCoords(aug, 2); // rebuilt every frame — keep it light
-            const keyOf = (v) => Math.round(v[2] * TRAIL_FADE_BANDS) + '|' + bandColor(v[3]);
+            const sm = smooth > 0 ? smoothCoords(aug, smooth) : aug; // rebuilt every frame — keep it light
+            const keyOf = (v) => Math.round(v[2] * bands) + '|' + bandColor(v[3]);
             let group = [sm[0]];
             let key = keyOf(sm[0]);
             const flush = () => {
