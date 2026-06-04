@@ -724,6 +724,15 @@ init(supabaseClient) {
         document.body.style.overflow = '';
         this._editingFlightId = null;
 
+        // Release the Cesium hero viewer's WebGL context. The overlay stays in
+        // the DOM after close (we only drop the .pui-open class), so without an
+        // explicit teardown the 3D globe keeps rendering and leaks its context
+        // until the WebView OOM-crashes on a later open.
+        if (typeof AircraftViewer3D !== 'undefined' && typeof AircraftViewer3D.destroy === 'function') {
+            AircraftViewer3D.destroy();
+        }
+        this._3dViewerHostKey = null;
+
         if (this._airspaceRefreshTimer) {
             clearInterval(this._airspaceRefreshTimer);
             this._airspaceRefreshTimer = null;

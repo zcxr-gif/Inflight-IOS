@@ -13642,8 +13642,13 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             sessionId = await getValidSessionId();
         }
 
-        const acName = flightProps.aircraft?.aircraftName || '';
-        const livName = flightProps.aircraft?.liveryName || '';
+        // Prefer the nested aircraft object, but fall back to the flat
+        // aircraftName/liveryName fields the live feature also carries. Callers
+        // that pass raw (unparsed) feature properties leave `aircraft` as a
+        // JSON string, which would otherwise yield empty lookups and a missing
+        // plane photo.
+        const acName = flightProps.aircraft?.aircraftName || flightProps.aircraftName || '';
+        const livName = flightProps.aircraft?.liveryName || flightProps.liveryName || '';
 
         const planUrl = `${LIVE_FLIGHTS_API_URL}/${sessionId || 'default'}/${flightProps.flightId}/plan`;
         const historyUrl = `${LIVE_FLIGHTS_API_URL.replace('/flights', '/api/flights')}/${flightProps.flightId}/history`;
@@ -14091,6 +14096,17 @@ let totalDistanceNM = 0;
         photographerName = communityAircraftData.contributorName || 'IF Community';
         if (communityAircraftData.tailNumber) {
             techCardTail = communityAircraftData.tailNumber;
+        }
+    } else if (baseProps.communityImageUrl) {
+        // Fallback to the photo already cached on the live feature (populated
+        // by the background hover-card lookup). Keeps the Standard window's
+        // hero photo in sync with the Simple window, which already uses this
+        // fallback, so the plane image still shows when the synchronous
+        // lookup comes back empty.
+        techCardImagePath = baseProps.communityImageUrl;
+        photographerName = baseProps.contributorName || 'IF Community';
+        if (baseProps.tailNumber) {
+            techCardTail = baseProps.tailNumber;
         }
     }
 
