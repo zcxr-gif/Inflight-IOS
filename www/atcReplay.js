@@ -13,6 +13,11 @@
 //   AtcReplay.close()
 //   AtcReplay.isOpen()
 
+// Shared source of truth for "is this user signed in?" — the same binding the
+// rest of the app gates its Pro controls on (see flight.js). Used by the 3D
+// (free-look) Pro gate so a signed-in pilot is recognised on every platform.
+import { ProfileUI } from './profileUI.js';
+
 const ATC_SPEED_OPTIONS = [1, 2, 5, 10, 60, 240, 480];
 
 // How the flown tracks are drawn. 'trails' fades a comet tail in behind each
@@ -784,15 +789,42 @@ export const AtcReplay = (() => {
     // aircraft). Each band is a real multi-point polyline — not a string of
     // 2-point segments — so the tail curves cleanly and tapers without blobs.
     const TRAIL_FADE_BANDS = 18;
+
+    // Per-frame trail detail, scaled to playback speed. The comet trails are a
+    // far heavier GeoJSON than the handful of plane points, and Mapbox parses
+    // source data on a worker. At high speed the aircraft jump a long way each
+    // frame, so if the trail source takes an extra frame or two to parse it
+    // visibly drags behind the plane (whose own source parses near-instantly).
+    // Lightening the trail as speed climbs — fewer fade bands, less smoothing,
+    // and a capped/subsampled tail — keeps its payload cheap enough to parse
+    // within the frame, so the comet stays pinned to the aircraft. Normal-speed
+    // playback (≤10×) keeps the full detail unchanged.
+    function trailDetail() {
+        if (speed >= 240) return { bands: 6,  smooth: 0, maxPts: 48 };
+        if (speed >= 60)  return { bands: 10, smooth: 1, maxPts: 96 };
+        return { bands: TRAIL_FADE_BANDS, smooth: 2, maxPts: Infinity };
+    }
+
     function buildTrailFeatures(absT) {
         const features = [];
         const windowMs = Math.max(1, trailWindowMs);
         const windowStart = absT - windowMs;
+        const { bands, smooth, maxPts } = trailDetail();
         for (const fl of flights) {
             const pts = fl.points;
             if (!pts.length || absT < pts[0].t || windowStart > pts[pts.length - 1].t) continue;
             // in-window points, then the live interpolated head
-            const tail = pts.filter(p => p.t >= windowStart && p.t <= absT);
+            let tail = pts.filter(p => p.t >= windowStart && p.t <= absT);
+            // At high speed, evenly subsample a dense tail so the trail rebuild
+            // stays light — always keeping the most recent in-window point so the
+            // line runs cleanly into the head (the plane).
+            if (tail.length > maxPts) {
+                const step = tail.length / maxPts;
+                const reduced = [];
+                for (let i = 0; i < maxPts; i++) reduced.push(tail[Math.floor(i * step)]);
+                if (reduced[reduced.length - 1] !== tail[tail.length - 1]) reduced.push(tail[tail.length - 1]);
+                tail = reduced;
+            }
             const head = positionAt(pts, absT);
             if (!head) continue;
             const chain = tail.concat([head]);
@@ -804,8 +836,8 @@ export const AtcReplay = (() => {
                 Math.max(0, Math.min(1, (p.t - windowStart) / windowMs)),
                 p.altitude || 0
             ]);
-            const sm = smoothCoords(aug, 2); // rebuilt every frame — keep it light
-            const keyOf = (v) => Math.round(v[2] * TRAIL_FADE_BANDS) + '|' + bandColor(v[3]);
+            const sm = smooth > 0 ? smoothCoords(aug, smooth) : aug; // rebuilt every frame — keep it light
+            const keyOf = (v) => Math.round(v[2] * bands) + '|' + bandColor(v[3]);
             let group = [sm[0]];
             let key = keyOf(sm[0]);
             const flush = () => {
@@ -1676,6 +1708,20 @@ export const AtcReplay = (() => {
 
     function enterFreeLook() {
         if (!map || isFreeLook) return;
+
+        // Make sure the elevated-traffic layer exists before we commit to the
+        // 3D view. It's normally built in ensureLayers() at open(), but if THREE
+        // hadn't finished loading then (it's pulled from a CDN), `three` is still
+        // null. Build it now, lazily, the way LiveTraffic3D does. If it still
+        // can't be created, stay in the flat radar view and say so — otherwise
+        // set3DVisible() would hide the flat planes and leave an empty map, which
+        // reads as the button "not working".
+        ensureTraffic3D();
+        if (!three) {
+            showToast('3D traffic is still loading — try again in a moment.', 'error');
+            return;
+        }
+
         isFreeLook = true;
 
         // follow and free-look both fight for the camera — only one wins
@@ -1823,22 +1869,35 @@ export const AtcReplay = (() => {
     function isProUser() {
         // Match the rest of the app's Pro gating. Every other Pro control —
         // custom colours, Pro map styles, 3D terrain/buildings, day-night, etc.
-        // — unlocks for any *signed-in* user (see flight.js / MobileSettingsUI,
-        // which gate on `isSignedIn`). The 3D-traffic button was instead using
-        // the strict `window.isInflightPro()` entitlement, which depends on a
-        // Supabase `profiles.is_pro` lookup that usually stays false — so it sat
-        // locked for users who already had every other Pro feature. Treat a true
-        // Inflight Pro entitlement OR simply being signed in as unlocked, and
-        // detect sign-in the same self-contained way the settings panels do: a
-        // Supabase auth token in localStorage.
+        // — unlocks for any *signed-in* user (see flight.js, which gates on
+        // `ProfileUI._currentUser`). The 3D-traffic button first tried the strict
+        // `window.isInflightPro()` entitlement (a Supabase `profiles.is_pro`
+        // lookup that usually stays false), then a localStorage token scan — but
+        // that scan misses the real session: supabase-js can chunk the token
+        // across `sb-<ref>-auth-token.0/.1` keys (none of which end in
+        // `-auth-token`), and native shells may persist it outside localStorage
+        // entirely. So a signed-in Pro user sat locked. Use the app's actual
+        // source of truth — `ProfileUI._currentUser` — exactly like every other
+        // Pro control, with the entitlement + storage probes only as fallbacks.
         try {
             if (typeof window.isInflightPro === 'function' && window.isInflightPro()) return true;
         } catch (_) { /* ignore */ }
+        // The canonical signed-in check used across flight.js.
+        try {
+            if (ProfileUI && ProfileUI._currentUser) return true;
+        } catch (_) { /* ProfileUI not ready */ }
+        // Loose window-global fallbacks (mirrors MobileSettingsUI's probe) for
+        // any context where the module binding above isn't populated yet.
+        try {
+            if (window.currentUser || window.user || window.isLoggedIn || window.session) return true;
+        } catch (_) { /* ignore */ }
+        // Last-ditch: a Supabase auth token in localStorage. Match the chunked
+        // form (`...-auth-token.0`) too, not just the exact key.
         try {
             for (let i = 0; i < localStorage.length; i++) {
                 const key = localStorage.key(i);
                 if (key && (key.includes('supabase.auth.token') ||
-                            (key.startsWith('sb-') && key.endsWith('-auth-token')))) {
+                            (key.startsWith('sb-') && key.includes('-auth-token')))) {
                     return true;
                 }
             }
