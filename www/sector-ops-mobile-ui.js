@@ -1246,14 +1246,18 @@ disableHudControls() {
      */
     observeOriginalWindow(windowElement) {
         if (this.contentObserver) this.contentObserver.disconnect();
-        
-        this.contentObserver = new MutationObserver((mutationsList, obs) => {
+
+        // Populates the active sheet/HUD once the window's content is ready and
+        // animates it in. Returns true once it has run so the caller can stop
+        // waiting. Factored out of the observer below so it can ALSO be fired
+        // synchronously for windows whose content is already present.
+        const tryPopulate = () => {
             const mainContent = windowElement.querySelector('.unified-display-main-content');
             const attitudeGroup = mainContent?.querySelector('#attitude_group');
-            
+
             // --- [NEW CHECK] For Simple Window (Iframe) ---
             const simpleIframe = windowElement.querySelector('#simple-flight-window-frame');
-            
+
             // --- [NEW CHECK] For Airport Window ---
             const isAirportWindow = windowElement.id === 'airport-info-window';
             // Airports might have .airport-overview-panel or similar, but generally if they have children, they are ready.
@@ -1263,47 +1267,61 @@ disableHudControls() {
             const isStandardReady = mainContent && attitudeGroup && attitudeGroup.dataset.initialized === 'true';
             // Condition 2: Simple Iframe is present
             const isSimpleReady = !!simpleIframe;
-            
-            if (isStandardReady || isSimpleReady || isAirportReady) {
-                
-                // --- [NEW] Router ---
-                if (this.activeMode === 'legacy') {
-                    // 1. Populate first (while off-screen)
-                    this.populateLegacySheet(windowElement);
-                    
-                    // 2. NOW, animate it in
-                    if (this.activeWindow) {
-                        setTimeout(() => {
-                            if (this.isSimpleSheetExpandedOnly()) {
-                                // iPad: skip the phone-only peek bar and open
-                                // straight into the expanded "second state".
-                                this.setLegacySheetState('expanded');
-                            } else {
-                                this.activeWindow.classList.add('visible', 'peek');
-                                this.legacySheetState.currentState = 'peek';
-                            }
-                        }, 10);
-                    }
 
-                } else { // 'hud' mode
-                    // 1. Populate first (while off-screen)
-                    this.populateSplitView(windowElement);
-                    
-                    // 2. NOW, animate them in
+            if (!(isStandardReady || isSimpleReady || isAirportReady)) return false;
+
+            // --- [NEW] Router ---
+            if (this.activeMode === 'legacy') {
+                // 1. Populate first (while off-screen)
+                this.populateLegacySheet(windowElement);
+
+                // 2. NOW, animate it in
+                if (this.activeWindow) {
                     setTimeout(() => {
-                        if (this.topWindowEl) this.topWindowEl.classList.add('visible');
-                        if (this.miniIslandEl) this.miniIslandEl.classList.add('island-active');
-                        this.drawerState = 0; // Set initial state
+                        if (this.isSimpleSheetExpandedOnly()) {
+                            // iPad: skip the phone-only peek bar and open
+                            // straight into the expanded "second state".
+                            this.setLegacySheetState('expanded');
+                        } else {
+                            this.activeWindow.classList.add('visible', 'peek');
+                            this.legacySheetState.currentState = 'peek';
+                        }
                     }, 10);
                 }
-                
+
+            } else { // 'hud' mode
+                // 1. Populate first (while off-screen)
+                this.populateSplitView(windowElement);
+
+                // 2. NOW, animate them in
+                setTimeout(() => {
+                    if (this.topWindowEl) this.topWindowEl.classList.add('visible');
+                    if (this.miniIslandEl) this.miniIslandEl.classList.add('island-active');
+                    this.drawerState = 0; // Set initial state
+                }, 10);
+            }
+
+            return true;
+        };
+
+        // Returning from the replay / trip-card overlay re-opens the window
+        // while its content is ALREADY in the DOM — the simple-window iframe is
+        // never torn down, and it pushes live updates into the iframe rather
+        // than mutating the host. In that case no further mutation fires, so the
+        // MutationObserver below would wait forever and the sheet would never
+        // re-animate into view. Populate immediately when the content is already
+        // present so the simple (and regular) window reliably comes back.
+        if (tryPopulate()) return;
+
+        this.contentObserver = new MutationObserver((mutationsList, obs) => {
+            if (tryPopulate()) {
                 obs.disconnect();
                 this.contentObserver = null;
             }
         });
-        
-        this.contentObserver.observe(windowElement, { 
-            childList: true, 
+
+        this.contentObserver.observe(windowElement, {
+            childList: true,
             subtree: true,
             attributes: true
         });
