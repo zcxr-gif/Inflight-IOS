@@ -33,7 +33,9 @@ renderMobileContainer() {
                     </div>
 
                     <div class="sheet-content custom-scroll">
-                        ${this.renderNotificationsSection()}
+
+                        <!-- ====================== MAP ====================== -->
+                        <div class="m-category">Map</div>
 
                         <div class="mobile-section-header">Map Style</div>
                         <div class="settings-mobile-grid">
@@ -42,7 +44,7 @@ renderMobileContainer() {
                             <button class="m-setting-pill" data-setting="mapStyle" data-value="satellite">Satellite</button>
                         </div>
 
-                        <div class="mobile-section-header pro-accent"><i class="fa-solid fa-star"></i> <span class="ios-hide">PRO </span>Map Styles</div>
+                        <div class="mobile-section-header pro-accent"><i class="fa-solid fa-star"></i> <span class="ios-hide">PRO </span>Premium Styles</div>
                         <div class="settings-mobile-grid is-pro-feature">
                             <button class="m-setting-pill" data-setting="mapStyle" data-value="outdoors" data-pro="true">Outdoors</button>
                             <button class="m-setting-pill" data-setting="mapStyle" data-value="nav-dark" data-pro="true">Nav Night</button>
@@ -51,14 +53,15 @@ renderMobileContainer() {
                             <button class="m-setting-pill" data-setting="mapStyle" data-value="traffic-day" data-pro="true">Trfc Day</button>
                         </div>
 
-                        <div class="mobile-section-header pro-accent"><i class="fa-solid fa-star"></i> <span class="ios-hide">PRO </span>3D Environment</div>
+                        <div class="mobile-section-header">Projection &amp; 3D</div>
                         <div class="m-settings-list">
+                            ${this.renderToggle('useFlatMap', 'Flat Map Projection', 'fa-map')}
                             ${this.renderToggle('showTerrain', '3D Terrain (Elevation)', 'fa-mountain', true)}
                             ${this.renderToggle('showBuildings', '3D Buildings', 'fa-city', true)}
                             ${this.renderToggle('showDayNight', 'Day/Night Terminator', 'fa-moon', true)}
                         </div>
 
-                        <div class="mobile-section-header pro-accent"><i class="fa-solid fa-star"></i> <span class="ios-hide">PRO </span>Base Map Elements</div>
+                        <div class="mobile-section-header pro-accent"><i class="fa-solid fa-star"></i> <span class="ios-hide">PRO </span>Base Map Detail</div>
                         <div class="m-settings-list">
                             ${this.renderToggle('showBorders', 'Political Borders', 'fa-earth-americas', true)}
                             ${this.renderToggle('showRoads', 'Roads & Highways', 'fa-road', true)}
@@ -69,7 +72,33 @@ renderMobileContainer() {
                             ${this.renderToggle('showLandUse', 'Parks & Forests', 'fa-tree', true)}
                         </div>
 
-                        <div class="mobile-section-header pro-accent"><i class="fa-solid fa-star"></i> <span class="ios-hide">Pro </span>Aircraft Colors</div>
+                        <!-- ====================== AIRCRAFT ====================== -->
+                        <div class="m-category">Aircraft</div>
+
+                        <div class="mobile-section-header">Plane Icon Size</div>
+                        <div class="m-setting-range-card">
+                            <div class="range-header">
+                                <span>Size</span>
+                                <span id="m-val-planeIconSize">0.05</span>
+                            </div>
+                            <input type="range" class="m-range-input" data-setting="planeIconSize" min="0.01" max="0.15" step="0.01">
+                        </div>
+
+                        <div class="mobile-section-header">Icon Color</div>
+                        <div class="settings-mobile-grid">
+                            <button class="m-setting-pill" data-setting="iconColorMode" data-value="default">White</button>
+                            <button class="m-setting-pill" data-setting="iconColorMode" data-value="blue">Blue</button>
+                            <button class="m-setting-pill" data-setting="iconColorMode" data-value="orange">Orange</button>
+                        </div>
+
+                        <div class="mobile-section-header">Display</div>
+                        <div class="m-settings-list">
+                            ${this.renderToggle('showAircraftLabels', 'Aircraft Labels', 'fa-tag')}
+                            ${this.renderToggle('live3DTraffic', '3D Live Traffic', 'fa-cubes')}
+                            ${this.renderToggle('show3DPath', '3D Flown Path', 'fa-cube')}
+                        </div>
+
+                        <div class="mobile-section-header pro-accent"><i class="fa-solid fa-star"></i> <span class="ios-hide">PRO </span>Custom Colors</div>
                         <div class="m-settings-list">
                             <div class="m-setting-row is-pro-feature">
                                 <div class="m-row-left">
@@ -103,18 +132,10 @@ renderMobileContainer() {
                             </div>
                         </div>
 
-                        <div class="mobile-section-header">Visibility</div>
-                        <div class="m-settings-list">
-                            ${this.renderToggle('showAircraftLabels', 'Aircraft Labels', 'fa-tag')}
-                            ${this.renderToggle('live3DTraffic', '3D Live Traffic', 'fa-cubes')}
-                            ${this.renderToggle('show3DPath', '3D Flown Path', 'fa-cube')}
-                            ${this.renderToggle('showNatTracks', 'NAT Tracks', 'fa-route')}
-                            ${this.renderToggle('showNatLabels', 'NAT Labels', 'fa-font')}
-                            ${this.renderToggle('useFlatMap', 'Flat Map Projection', 'fa-map')}
-                            ${this.renderToggle('useSimpleFlightWindow', 'Simple Flight Info', 'fa-window-maximize')}
-                        </div>
+                        <!-- ====================== FILTERS ====================== -->
+                        <div class="m-category">Filters</div>
 
-                        <div class="mobile-section-header">Aircraft Filters</div>
+                        <div class="mobile-section-header">Traffic</div>
                         <div class="m-settings-list">
                             ${this.renderToggle('showStaffOnly', 'Staff Pilots Only', 'fa-shield-check')}
                             ${this.renderToggle('showVaOnly', 'VA Members Only', 'fa-star')}
@@ -123,7 +144,7 @@ renderMobileContainer() {
                             ${this.renderToggle('hideAllAircraft', 'Hide All Aircraft', 'fa-eye-slash')}
                         </div>
 
-                        <div class="mobile-section-header">ATC & Airport Filters</div>
+                        <div class="mobile-section-header">ATC &amp; Airports</div>
                         <div class="m-settings-list">
                             ${this.renderToggle('useClassicAirportTags', 'Classic Airport Tags', 'fa-tags')}
                             ${this.renderToggle('showUnstaffedAirports', 'Show Unstaffed', 'fa-circle-dot')}
@@ -131,28 +152,31 @@ renderMobileContainer() {
                             ${this.renderToggle('hideAtcMarkers', 'Hide ATC Markers', 'fa-headset')}
                         </div>
 
-                        <div class="mobile-section-header">Flight Plan Display</div>
+                        <!-- ====================== OVERLAYS ====================== -->
+                        <div class="m-category">Overlays</div>
+
+                        <div class="mobile-section-header">Flight Plan Routes</div>
                         <div class="settings-mobile-grid">
                             <button class="m-setting-pill" data-setting="planDisplayMode" data-value="none">None</button>
                             <button class="m-setting-pill" data-setting="planDisplayMode" data-value="direct">Direct</button>
                             <button class="m-setting-pill" data-setting="planDisplayMode" data-value="full">Full Plan</button>
                         </div>
 
-                        <div class="mobile-section-header">Icon Configuration</div>
-                        <div class="m-setting-range-card">
-                            <div class="range-header">
-                                <span>Plane Icon Size</span>
-                                <span id="m-val-planeIconSize">0.05</span>
-                            </div>
-                            <input type="range" class="m-range-input" data-setting="planeIconSize" min="0.01" max="0.15" step="0.01">
+                        <div class="mobile-section-header">Oceanic Tracks</div>
+                        <div class="m-settings-list">
+                            ${this.renderToggle('showNatTracks', 'NAT Tracks', 'fa-route')}
+                            ${this.renderToggle('showNatLabels', 'NAT Labels', 'fa-font')}
                         </div>
 
-                        <div class="mobile-section-header">Global Icon Color Mode</div>
-                        <div class="settings-mobile-grid">
-                            <button class="m-setting-pill" data-setting="iconColorMode" data-value="default">White</button>
-                            <button class="m-setting-pill" data-setting="iconColorMode" data-value="blue">Blue</button>
-                            <button class="m-setting-pill" data-setting="iconColorMode" data-value="orange">Orange</button>
+                        <!-- ====================== GENERAL ====================== -->
+                        <div class="m-category">General</div>
+
+                        <div class="mobile-section-header">Flight Window</div>
+                        <div class="m-settings-list">
+                            ${this.renderToggle('useSimpleFlightWindow', 'Simple Flight Info', 'fa-window-maximize')}
                         </div>
+
+                        ${this.renderNotificationsSection()}
 
                         ${this.renderLegalSection()}
                     </div>
@@ -164,25 +188,24 @@ renderMobileContainer() {
     },
 
     renderNotificationsSection() {
-        // Render unconditionally so we can verify from a screenshot whether
-        // the build picked up these changes. The button is a no-op on
-        // non-iOS (handled in the click listener) but the section header
-        // serves as a visible build-stamp.
+        // Hidden automatically on platforms without the native bridge (see
+        // refreshNotificationStatus), so it only appears in the iOS app.
         return `
-            <div class="mobile-section-header">Notifications <span class="m-build-tag">v5</span></div>
-            <div class="m-settings-list">
-                <div class="m-setting-row" id="m-notif-row">
-                    <div class="m-row-left">
-                        <i class="fa-solid fa-bell" style="color:#38bdf8;"></i>
-                        <span>Push & Live Activity Alerts</span>
+            <div id="m-notif-section">
+                <div class="mobile-section-header">Notifications</div>
+                <div class="m-settings-list">
+                    <div class="m-setting-row" id="m-notif-row">
+                        <div class="m-row-left">
+                            <i class="fa-solid fa-bell" style="color:#38bdf8;"></i>
+                            <span>Push &amp; Live Activity Alerts</span>
+                        </div>
+                        <div class="m-row-right">
+                            <span id="m-notif-status" class="m-notif-status" data-status="loading">Checking…</span>
+                            <button id="m-notif-enable" class="m-btn m-primary m-notif-cta" type="button">Enable</button>
+                        </div>
                     </div>
-                    <div class="m-row-right">
-                        <span id="m-notif-status" class="m-notif-status" data-status="loading">Checking…</span>
-                        <button id="m-notif-enable" class="m-btn m-primary m-notif-cta" type="button">Enable</button>
-                    </div>
+                    <p class="m-notif-help">Shows your live flight on the lock screen and sends arrival alerts.</p>
                 </div>
-                <p class="m-notif-help" id="m-notif-help">Required for lock-screen flight tracking ("this is my flight") and push alerts.</p>
-                <div class="m-notif-diag" id="m-notif-diag"></div>
             </div>
         `;
     },
@@ -472,29 +495,18 @@ refreshProLocks() {
     async refreshNotificationStatus() {
         const pill = document.getElementById('m-notif-status');
         const btn = document.getElementById('m-notif-enable');
-        const diag = document.getElementById('m-notif-diag');
+        const section = document.getElementById('m-notif-section');
         if (!pill || !btn) return;
-
-        // Always render the diagnostic — it's tiny and tells us at a glance
-        // whether the Capacitor bridge is actually wired up.
-        if (diag && window.InflightLiveActivity?.diagnose) {
-            try {
-                const d = window.InflightLiveActivity.diagnose();
-                diag.textContent = `Bridge: ${d.capacitor} • plugin=${d.plugin}` +
-                    (d.pluginMethods ? ` • methods: ${d.pluginMethods}` : '');
-            } catch (e) {
-                diag.textContent = 'Bridge: diagnose threw ' + (e && e.message || e);
-            }
-        }
 
         const hasBridge = !!(window.InflightLiveActivity &&
             typeof window.InflightLiveActivity.getNotificationPermissionStatus === 'function');
         if (!hasBridge) {
-            pill.dataset.status = 'unsupported';
-            pill.textContent = 'No bridge';
-            btn.textContent = 'Enable';
+            // No native bridge (e.g. web preview) — notifications don't apply
+            // here, so hide the whole section rather than show an error state.
+            if (section) section.style.display = 'none';
             return;
         }
+        if (section) section.style.display = '';
 
         let status = 'unknown';
         let granted = false;
@@ -632,7 +644,15 @@ refreshProLocks() {
                     transform: scale(0.92); background: rgba(120,120,128,0.5);
                 }
                 
-                .mobile-section-header { padding: 15px 20px 8px; font-size: 0.7rem; font-weight: 900; color: #71717a; text-transform: uppercase; letter-spacing: 1px; }
+                /* Top-level category divider — gives the sheet a clear order. */
+                .m-category {
+                    margin-top: 18px;
+                    padding: 16px 20px 2px;
+                    border-top: 1px solid rgba(255,255,255,0.07);
+                    font-size: 1.15rem; font-weight: 800; color: #fff; letter-spacing: -0.01em;
+                }
+                .m-category:first-child { margin-top: 0; padding-top: 4px; border-top: none; }
+                .mobile-section-header { padding: 14px 20px 8px; font-size: 0.7rem; font-weight: 900; color: #71717a; text-transform: uppercase; letter-spacing: 1px; }
                 .mobile-section-header.pro-accent { color: #fbbf24; display: flex; align-items: center; gap: 6px; }
                 
                 .settings-mobile-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 0 20px; }
@@ -732,20 +752,6 @@ refreshProLocks() {
                     font-size: 0.78rem; color: #94a3b8;
                     margin: 6px 4px 14px; line-height: 1.4;
                 }
-                .m-build-tag {
-                    font-size: 0.65rem; padding: 2px 6px; margin-left: 6px;
-                    background: rgba(56,189,248,0.18); color: #38bdf8;
-                    border-radius: 999px; letter-spacing: 0.04em;
-                }
-                .m-notif-diag {
-                    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-                    font-size: 0.65rem; color: #64748b;
-                    background: rgba(148,163,184,0.08);
-                    padding: 8px 10px; margin: 4px 4px 14px;
-                    border-radius: 8px; word-break: break-all;
-                    line-height: 1.4;
-                }
-
                 .m-legal-row { cursor: pointer; }
                 .m-legal-row:active { background: rgba(255,255,255,0.07); }
                 .m-legal-chevron { color: #52525b; font-size: 0.85rem; }
