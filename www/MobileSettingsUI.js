@@ -125,6 +125,7 @@ renderMobileContainer() {
 
                         <div class="mobile-section-header">ATC & Airport Filters</div>
                         <div class="m-settings-list">
+                            ${this.renderToggle('useClassicAirportTags', 'Classic Airport Tags', 'fa-tags')}
                             ${this.renderToggle('showUnstaffedAirports', 'Show Unstaffed', 'fa-circle-dot')}
                             ${this.renderToggle('hideNoAtcMarkers', 'Hide No-ATC Dots', 'fa-location-dot')}
                             ${this.renderToggle('hideAtcMarkers', 'Hide ATC Markers', 'fa-headset')}
