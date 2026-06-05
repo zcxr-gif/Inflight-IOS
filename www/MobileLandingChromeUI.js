@@ -177,44 +177,46 @@ export const MobileLandingChromeUI = {
         // --- Inflight tracking sheet (replaces the old Server tab) ---
         const inflightSheet = document.createElement('div');
         inflightSheet.id = 'ios-inflight-sheet';
-        inflightSheet.className = 'ios-sheet-root ios-inflight-root';
+        inflightSheet.className = 'ios-sheet-root ios-sheet-full ios-inflight-root';
         inflightSheet.setAttribute('data-theme', this.parent?._theme || 'dark');
         inflightSheet.innerHTML = `
             <div class="ios-sheet-backdrop" data-dismiss="inflight"></div>
-            <div class="ios-sheet-card ios-inflight-card">
-                <div class="ios-inflight-panel">
-                    <div class="ios-inflight-header">
-                        <div class="ios-inflight-titles">
-                            <span class="ios-inflight-eyebrow">Live Tracking</span>
-                            <span class="ios-inflight-title">Inflight</span>
-                        </div>
-                        <span class="ios-inflight-plan" id="ios-inflight-plan"></span>
+            <div class="ios-sheet-card">
+                <div class="ios-fullsheet-grip"></div>
+                <div class="ios-fullsheet-head">
+                    <div class="ios-fullsheet-titles">
+                        <span class="ios-fullsheet-eyebrow">Live Tracking</span>
+                        <span class="ios-fullsheet-title">Inflight</span>
                     </div>
-                    <div class="ios-inflight-body" id="ios-inflight-body"></div>
+                    <div class="ios-fullsheet-head-right">
+                        <span class="ios-inflight-plan" id="ios-inflight-plan"></span>
+                        <button type="button" class="ios-fullsheet-close" data-dismiss="inflight" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
                 </div>
-                <button type="button" class="ios-sheet-cancel" data-dismiss="inflight">Done</button>
+                <div class="ios-inflight-body ios-fullsheet-body" id="ios-inflight-body"></div>
             </div>
         `;
 
         // --- Active ATC sheet (live controller list) ---
         const atcSheet = document.createElement('div');
         atcSheet.id = 'ios-atc-sheet';
-        atcSheet.className = 'ios-sheet-root ios-atc-root';
+        atcSheet.className = 'ios-sheet-root ios-sheet-full ios-atc-root';
         atcSheet.setAttribute('data-theme', this.parent?._theme || 'dark');
         atcSheet.innerHTML = `
             <div class="ios-sheet-backdrop" data-dismiss="atc"></div>
-            <div class="ios-sheet-card ios-atc-card">
-                <div class="ios-atc-panel">
-                    <div class="ios-atc-header">
-                        <div class="ios-inflight-titles">
-                            <span class="ios-inflight-eyebrow">Live Network</span>
-                            <span class="ios-inflight-title">Active ATC</span>
-                        </div>
-                        <span class="ios-atc-count" id="ios-atc-count">—</span>
+            <div class="ios-sheet-card">
+                <div class="ios-fullsheet-grip"></div>
+                <div class="ios-fullsheet-head">
+                    <div class="ios-fullsheet-titles">
+                        <span class="ios-fullsheet-eyebrow">Live Network</span>
+                        <span class="ios-fullsheet-title">Active ATC</span>
                     </div>
-                    <div class="ios-atc-body" id="ios-atc-body"></div>
+                    <div class="ios-fullsheet-head-right">
+                        <span class="ios-atc-count" id="ios-atc-count">—</span>
+                        <button type="button" class="ios-fullsheet-close" data-dismiss="atc" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
                 </div>
-                <button type="button" class="ios-sheet-cancel" data-dismiss="atc">Done</button>
+                <div class="ios-atc-body ios-fullsheet-body" id="ios-atc-body"></div>
             </div>
         `;
 
@@ -425,6 +427,10 @@ export const MobileLandingChromeUI = {
         });
         this._updateAtcBadge();
 
+        // Swipe-down-to-dismiss on the full sheets (matches Settings).
+        this._attachFullSheetSwipe('ios-atc-sheet', () => this._closeAtcSheet());
+        this._attachFullSheetSwipe('ios-inflight-sheet', () => this._closeInflightSheet());
+
         // --- Server sync (in case other code dispatches serverChange) ---
         window.addEventListener('serverChange', (e) => {
             const name = (e.detail?.server || this.parent?._currentServer || 'Expert');
@@ -622,6 +628,40 @@ export const MobileLandingChromeUI = {
         sheet.classList.remove('is-open');
         document.body.style.overflow = '';
     },
+    // iOS swipe-down-to-dismiss for the full sheets: drag from the grabber or
+    // the title bar to flick the sheet away (the body scrolls normally).
+    _attachFullSheetSwipe(sheetId, closeFn) {
+        const root = document.getElementById(sheetId);
+        if (!root) return;
+        const card = root.querySelector('.ios-sheet-card');
+        const handles = root.querySelectorAll('.ios-fullsheet-grip, .ios-fullsheet-head');
+        if (!card || !handles.length) return;
+        let startY = 0, delta = 0, dragging = false;
+        const start = (e) => {
+            startY = e.touches ? e.touches[0].clientY : e.clientY;
+            delta = 0; dragging = true;
+            card.style.transition = 'none';
+        };
+        const move = (e) => {
+            if (!dragging) return;
+            const y = e.touches ? e.touches[0].clientY : e.clientY;
+            delta = Math.max(0, y - startY);
+            card.style.transform = `translateY(${delta}px)`;
+        };
+        const end = () => {
+            if (!dragging) return;
+            dragging = false;
+            card.style.transition = '';
+            card.style.transform = '';
+            if (delta > 120) { window.InflightHaptics?.tap?.(); closeFn(); }
+        };
+        handles.forEach(h => {
+            h.addEventListener('touchstart', start, { passive: true });
+            h.addEventListener('touchmove', move, { passive: true });
+            h.addEventListener('touchend', end);
+            h.addEventListener('touchcancel', end);
+        });
+    },
     _atcShortCode(type) {
         return ({ 0: 'GND', 1: 'TWR', 2: 'UNI', 3: 'DEL', 4: 'APP', 5: 'DEP', 6: 'CTR', 7: 'ATIS' })[type] || 'ATC';
     },
@@ -653,7 +693,10 @@ export const MobileLandingChromeUI = {
                     <span class="ios-atc-pos">${position}</span>
                     <span class="ios-atc-name">${name}</span>
                 </span>
-                ${dur ? `<span class="ios-atc-dur"><i class="fa-regular fa-clock"></i> ${dur}</span>` : ''}
+                <span class="ios-atc-meta">
+                    ${dur ? `<span class="ios-atc-dur"><i class="fa-regular fa-clock"></i> ${dur}</span>` : ''}
+                    <i class="fa-solid fa-chevron-right ios-atc-chevron"></i>
+                </span>
             </button>`;
     },
     _renderAtcSheet() {
@@ -688,19 +731,23 @@ export const MobileLandingChromeUI = {
         ];
 
         const seen = new Set();
+        const section = (label, count, rowsHtml) => `
+            <div class="ios-atc-section">
+                <div class="ios-atc-section-label"><span>${label}</span><span class="ios-atc-section-count">${count}</span></div>
+                <div class="ios-atc-group-card">${rowsHtml}</div>
+            </div>`;
+
         let html = '';
         groups.forEach(g => {
             const inGroup = facilities.filter(f => g.types.includes(Number(f.type)));
             if (!inGroup.length) return;
             inGroup.forEach(f => seen.add(f));
-            html += `<div class="ios-atc-group">${g.label} · ${inGroup.length}</div>`;
-            html += inGroup.map(f => this._atcRowHTML(f, facilities.indexOf(f))).join('');
+            html += section(g.label, inGroup.length, inGroup.map(f => this._atcRowHTML(f, facilities.indexOf(f))).join(''));
         });
 
         const others = facilities.filter(f => !seen.has(f));
         if (others.length) {
-            html += `<div class="ios-atc-group">Other · ${others.length}</div>`;
-            html += others.map(f => this._atcRowHTML(f, facilities.indexOf(f))).join('');
+            html += section('Other', others.length, others.map(f => this._atcRowHTML(f, facilities.indexOf(f))).join(''));
         }
 
         body.innerHTML = html;
@@ -1488,6 +1535,68 @@ export const MobileLandingChromeUI = {
             }
             .ios-sheet-cancel:active { background: rgba(50, 50, 52, 0.95); }
 
+            /* ============ FULL-HEIGHT SHEET (Inflight, ATC) ============
+               Presents like the Settings sheet — edge-to-edge, anchored to the
+               bottom, slides up — instead of a floating action-sheet card. */
+            .ios-sheet-full .ios-sheet-card {
+                left: 0; right: 0; bottom: 0;
+                width: 100%; max-width: 100%;
+                height: min(88dvh, 820px);
+                display: flex; flex-direction: column;
+                padding: 0;
+                opacity: 1;
+                transform: translateY(101%);
+                border-radius: 22px 22px 0 0;
+                overflow: hidden;
+                background: var(--ios-bg-deep);
+                -webkit-backdrop-filter: var(--ios-blur);
+                backdrop-filter: var(--ios-blur);
+                box-shadow: 0 -10px 44px rgba(0, 0, 0, 0.5);
+                transition: transform 0.42s cubic-bezier(0.16, 1, 0.3, 1);
+            }
+            .ios-sheet-full.is-open .ios-sheet-card { transform: translateY(0); }
+            .ios-fullsheet-grip {
+                flex: 0 0 auto;
+                width: 38px; height: 5px; border-radius: 10px;
+                background: var(--ios-fill-strong);
+                margin: 9px auto 2px;
+                touch-action: none;
+            }
+            .ios-fullsheet-head {
+                flex: 0 0 auto;
+                display: flex; align-items: flex-end; justify-content: space-between;
+                gap: 12px; padding: 8px 20px 14px;
+                border-bottom: 0.5px solid var(--ios-stroke-soft);
+                touch-action: none;
+            }
+            .ios-fullsheet-titles { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+            .ios-fullsheet-eyebrow {
+                font-size: 11px; font-weight: 700; letter-spacing: 0.6px;
+                text-transform: uppercase; color: var(--ios-text-3);
+            }
+            .ios-fullsheet-title {
+                font-size: 26px; font-weight: 800; letter-spacing: -0.5px;
+                color: var(--ios-text); line-height: 1;
+            }
+            .ios-fullsheet-head-right { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+            .ios-fullsheet-close {
+                width: 30px; height: 30px; border-radius: 50%;
+                border: none; display: grid; place-items: center;
+                background: var(--ios-fill); color: var(--ios-text-2);
+                font-size: 15px; cursor: pointer;
+                -webkit-tap-highlight-color: transparent;
+                transition: transform 0.15s ease, background-color 0.15s ease;
+            }
+            .ios-fullsheet-close:active { transform: scale(0.9); background: var(--ios-fill-strong); }
+            .ios-fullsheet-body {
+                flex: 1 1 auto; min-height: 0;
+                overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
+                overscroll-behavior: contain;
+                padding-bottom: max(env(safe-area-inset-bottom, 0px), 18px);
+            }
+            .ios-fullsheet-body::-webkit-scrollbar { width: 0; background: transparent; }
+
             /* ============ INFLIGHT TRACKING SHEET ============ */
             .ios-inflight-panel {
                 background: var(--ios-bg-deep);
@@ -1525,7 +1634,6 @@ export const MobileLandingChromeUI = {
                 background: linear-gradient(135deg, #ffd60a, #ff9f0a);
             }
             .ios-inflight-body {
-                max-height: min(56dvh, 460px);
                 overflow-y: auto;
                 -webkit-overflow-scrolling: touch;
                 overscroll-behavior: contain;
@@ -1607,83 +1715,77 @@ export const MobileLandingChromeUI = {
             .ios-inflight-upsell > .fa-chevron-right { color: var(--ios-text-4); font-size: 13px; }
 
             /* ============ ACTIVE ATC SHEET ============ */
-            .ios-atc-panel {
-                background: var(--ios-bg-deep);
-                -webkit-backdrop-filter: var(--ios-blur);
-                backdrop-filter: var(--ios-blur);
-                border-radius: 18px;
-                overflow: hidden;
-                box-shadow: var(--ios-shadow);
-            }
-            .ios-atc-header {
-                display: flex; align-items: flex-end; justify-content: space-between; gap: 12px;
-                padding: 16px 18px 12px;
-                border-bottom: 0.5px solid var(--ios-stroke-soft);
-            }
             .ios-atc-count {
                 flex: 0 0 auto;
-                font-size: 12px; font-weight: 600; letter-spacing: 0.2px;
-                color: var(--ios-text-2);
-                background: var(--ios-fill);
-                padding: 5px 10px; border-radius: 999px;
+                font-size: 13px; font-weight: 700; letter-spacing: 0.2px;
+                color: var(--ios-accent);
+                background: var(--ios-accent-soft, rgba(10,132,255,0.14));
+                padding: 5px 11px; border-radius: 999px;
                 font-variant-numeric: tabular-nums;
             }
-            .ios-atc-body {
-                max-height: min(58dvh, 480px);
-                overflow-y: auto;
-                -webkit-overflow-scrolling: touch;
-                overscroll-behavior: contain;
-            }
-            .ios-atc-body::-webkit-scrollbar { width: 0; background: transparent; }
-            .ios-atc-group {
-                position: sticky; top: 0; z-index: 2;
-                padding: 9px 16px 6px;
-                font-size: 11px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase;
+            /* iOS "inset grouped" list: a labelled section + a rounded card of rows. */
+            .ios-atc-section { margin: 16px 14px 0; }
+            .ios-atc-section:first-child { margin-top: 12px; }
+            .ios-atc-section-label {
+                display: flex; align-items: center; justify-content: space-between;
+                padding: 0 8px 8px;
+                font-size: 12px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;
                 color: var(--ios-text-3);
-                background: var(--ios-bg-deep);
-                -webkit-backdrop-filter: var(--ios-blur);
-                backdrop-filter: var(--ios-blur);
+            }
+            .ios-atc-section-count {
+                font-size: 11px; font-weight: 700; color: var(--ios-text-4);
+                font-variant-numeric: tabular-nums;
+                background: var(--ios-fill); padding: 2px 8px; border-radius: 999px;
+            }
+            .ios-atc-group-card {
+                background: var(--ios-bg-elev);
+                border: 0.5px solid var(--ios-stroke-soft);
+                border-radius: 16px;
+                overflow: hidden;
+                box-shadow: var(--ios-shadow-card, 0 1px 2px rgba(0,0,0,0.2));
             }
             .ios-atc-row {
                 position: relative;
-                display: flex; align-items: center; gap: 12px;
-                width: 100%; padding: 11px 16px;
+                display: flex; align-items: center; gap: 13px;
+                width: 100%; padding: 12px 14px;
                 background: transparent; border: none; text-align: left;
                 color: var(--ios-text); font-family: inherit; cursor: pointer;
                 -webkit-tap-highlight-color: transparent;
-                transition: background-color 0.16s ease, transform 0.12s cubic-bezier(0.16,1,0.3,1);
+                transition: background-color 0.16s ease;
             }
             .ios-atc-row + .ios-atc-row { border-top: 0.5px solid var(--ios-stroke-soft); }
-            .ios-atc-row:active { background: var(--ios-fill); transform: scale(0.985); }
+            .ios-atc-row:active { background: var(--ios-fill); }
             .ios-atc-badge {
                 flex: 0 0 auto;
-                min-width: 48px; height: 34px; padding: 0 8px;
+                min-width: 50px; height: 38px; padding: 0 9px;
                 display: grid; place-items: center;
-                border-radius: 10px;
-                font-size: 11px; font-weight: 800; letter-spacing: 0.3px;
+                border-radius: 11px;
+                font-size: 12px; font-weight: 800; letter-spacing: 0.4px;
                 font-variant-numeric: tabular-nums;
                 box-shadow: inset 0 0.5px 0 rgba(255,255,255,0.14);
             }
-            .ios-atc-badge.ctr  { color: #ff453a; background: rgba(255, 69, 58, 0.16); }
-            .ios-atc-badge.app  { color: #bf5af2; background: rgba(191, 90, 242, 0.16); }
-            .ios-atc-badge.twr  { color: #ff9f0a; background: rgba(255, 159, 10, 0.16); }
-            .ios-atc-badge.gnd  { color: #0a84ff; background: rgba(10, 132, 255, 0.16); }
-            .ios-atc-badge.atis { color: #30d158; background: rgba(48, 209, 88, 0.16); }
+            .ios-atc-badge.ctr  { color: #ff453a; background: rgba(255, 69, 58, 0.18); }
+            .ios-atc-badge.app  { color: #bf5af2; background: rgba(191, 90, 242, 0.18); }
+            .ios-atc-badge.twr  { color: #ff9f0a; background: rgba(255, 159, 10, 0.18); }
+            .ios-atc-badge.gnd  { color: #0a84ff; background: rgba(10, 132, 255, 0.18); }
+            .ios-atc-badge.atis { color: #30d158; background: rgba(48, 209, 88, 0.18); }
             .ios-atc-badge.obs  { color: var(--ios-text-3); background: var(--ios-fill); }
             .ios-atc-row-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
             .ios-atc-pos {
-                font-size: 15.5px; font-weight: 700; letter-spacing: -0.2px; color: var(--ios-text);
+                font-size: 16px; font-weight: 700; letter-spacing: -0.2px; color: var(--ios-text);
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             }
             .ios-atc-name {
                 font-size: 12.5px; color: var(--ios-text-3);
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             }
+            .ios-atc-meta { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; }
             .ios-atc-dur {
-                flex: 0 0 auto; font-size: 12.5px; font-weight: 600; color: var(--ios-text-2);
+                font-size: 12.5px; font-weight: 600; color: var(--ios-text-2);
                 font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; gap: 5px;
             }
             .ios-atc-dur i { font-size: 11px; color: var(--ios-text-4); }
+            .ios-atc-chevron { font-size: 12px; color: var(--ios-text-4); }
             /* The ATC tab badge is an online-count, not an alert — tint it accent. */
             .ios-tab-badge.is-atc { background: var(--ios-accent); box-shadow: 0 1px 3px rgba(10, 132, 255, 0.4); }
 

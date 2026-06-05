@@ -17570,17 +17570,19 @@ function updateActiveAirportsGlanceLayer() {
                 type: 'symbol',
                 source: ACTIVE_APT_SRC,
                 layout: {
+                    // Crisp white ICAO with the staffed positions below, tinted
+                    // by the top service online (per-section colors, Mapbox v3).
                     'text-field': [
                         'format',
-                        ['get', 'icao'], { 'font-scale': 1.15 },
+                        ['get', 'icao'], { 'font-scale': 1.2, 'text-color': '#ffffff' },
                         '\n', {},
-                        ['get', 'codes'], { 'font-scale': 0.78 }
+                        ['get', 'codes'], { 'font-scale': 0.82, 'text-color': ACTIVE_APT_COLOR }
                     ],
                     'text-font': ['JetBrains Mono Bold', 'Arial Unicode MS Bold'],
                     'text-size': ['interpolate', ['linear'], ['zoom'], 3, 11, 8, 14],
                     'text-offset': [0, -1.1],
                     'text-anchor': 'bottom',
-                    'text-line-height': 1.1,
+                    'text-line-height': 1.25,
                     'text-allow-overlap': false,
                     'text-ignore-placement': false,
                     'text-padding': 4,
@@ -17588,9 +17590,10 @@ function updateActiveAirportsGlanceLayer() {
                     'symbol-sort-key': ['-', 10, ['get', 'rank']]
                 },
                 paint: {
-                    'text-color': ACTIVE_APT_COLOR,
-                    'text-halo-color': 'rgba(8,10,14,0.92)',
-                    'text-halo-width': 1.6,
+                    'text-color': '#ffffff',
+                    'text-halo-color': 'rgba(8,10,14,0.95)',
+                    'text-halo-width': 1.7,
+                    'text-halo-blur': 0.5,
                     'text-opacity': ['interpolate', ['linear'], ['zoom'], 2, 0, 3.2, 1]
                 }
             }, beforeId);
