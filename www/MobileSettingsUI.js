@@ -23,10 +23,13 @@ renderMobileContainer() {
 
                 <div class="mobile-bottom-sheet">
                     <div class="sheet-handle"></div>
-                    
+                    <button class="sheet-close-btn" id="mobile-settings-close" type="button" aria-label="Close">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+
                     <div class="mobile-title">
                         <i class="fa-solid fa-gears"></i>
-                        <span>Map & Display Settings</span>
+                        <span>Map &amp; Display Settings</span>
                     </div>
 
                     <div class="sheet-content custom-scroll">
@@ -151,10 +154,6 @@ renderMobileContainer() {
                         </div>
 
                         ${this.renderLegalSection()}
-                    </div>
-
-                    <div class="sheet-footer">
-                        <button id="mobile-settings-close" class="m-btn m-primary">Done</button>
                     </div>
                 </div>
             </div>
@@ -344,6 +343,7 @@ refreshProLocks() {
 
         overlay.addEventListener('click', closeUI);
         document.getElementById('mobile-settings-close').addEventListener('click', closeUI);
+        this.attachSwipeToDismiss(sheet, closeUI);
 
         // --- Pro Feature Intercept Logic ---
         const iosNative = (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative());
@@ -562,6 +562,38 @@ refreshProLocks() {
         });
     },
 
+    // iOS-style swipe-down-to-dismiss. The user can drag from the grabber or
+    // the title bar to flick the sheet away — the native gesture that replaces
+    // the old explicit "Done" button.
+    attachSwipeToDismiss(sheet, closeUI) {
+        const grabbers = sheet.querySelectorAll('.sheet-handle, .mobile-title');
+        let startY = 0, delta = 0, dragging = false;
+        const start = (e) => {
+            startY = e.touches ? e.touches[0].clientY : e.clientY;
+            delta = 0; dragging = true;
+            sheet.style.transition = 'none';
+        };
+        const move = (e) => {
+            if (!dragging) return;
+            const y = e.touches ? e.touches[0].clientY : e.clientY;
+            delta = Math.max(0, y - startY);
+            sheet.style.transform = `translateY(${delta}px)`;
+        };
+        const end = () => {
+            if (!dragging) return;
+            dragging = false;
+            sheet.style.transition = '';
+            sheet.style.transform = '';
+            if (delta > 110) closeUI();
+        };
+        grabbers.forEach(g => {
+            g.addEventListener('touchstart', start, { passive: true });
+            g.addEventListener('touchmove', move, { passive: true });
+            g.addEventListener('touchend', end);
+            g.addEventListener('touchcancel', end);
+        });
+    },
+
     injectMobileStyles() {
         if (document.getElementById('mobile-settings-styles')) return;
         const css = `
@@ -582,6 +614,20 @@ refreshProLocks() {
                 
                 .sheet-handle { width: 40px; height: 5px; background: rgba(255,255,255,0.2); border-radius: 10px; margin: 12px auto; }
                 .mobile-title { padding: 0 20px 15px; font-size: 1.2rem; font-weight: 800; display: flex; align-items: center; gap: 12px; }
+
+                /* iOS-style circular close button (replaces the old "Done" button) */
+                #mobile-settings-nexus .sheet-close-btn {
+                    position: absolute; top: 12px; right: 14px;
+                    width: 30px; height: 30px; border-radius: 50%; padding: 0;
+                    display: flex; align-items: center; justify-content: center;
+                    background: rgba(120,120,128,0.32); color: rgba(235,235,245,0.65);
+                    border: none; font-size: 14px; z-index: 5;
+                    -webkit-tap-highlight-color: transparent;
+                    transition: transform 0.15s ease, background-color 0.15s ease;
+                }
+                #mobile-settings-nexus .sheet-close-btn:active {
+                    transform: scale(0.92); background: rgba(120,120,128,0.5);
+                }
                 
                 .mobile-section-header { padding: 15px 20px 8px; font-size: 0.7rem; font-weight: 900; color: #71717a; text-transform: uppercase; letter-spacing: 1px; }
                 .mobile-section-header.pro-accent { color: #fbbf24; display: flex; align-items: center; gap: 6px; }
