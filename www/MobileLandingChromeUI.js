@@ -100,6 +100,13 @@ export const MobileLandingChromeUI = {
                     <i class="fa-solid fa-cloud-sun-rain"></i>
                     <span class="ios-tab-label">Weather</span>
                 </button>
+                <button type="button" class="ios-tab" data-action="atc">
+                    <span class="ios-tab-iconwrap">
+                        <i class="fa-solid fa-tower-broadcast"></i>
+                        <span class="ios-tab-badge is-atc" id="ios-tab-atc-dot">0</span>
+                    </span>
+                    <span class="ios-tab-label">ATC</span>
+                </button>
                 <button type="button" class="ios-tab" data-action="filters">
                     <span class="ios-tab-iconwrap">
                         <i class="fa-solid fa-sliders"></i>
@@ -189,11 +196,34 @@ export const MobileLandingChromeUI = {
             </div>
         `;
 
+        // --- Active ATC sheet (live controller list) ---
+        const atcSheet = document.createElement('div');
+        atcSheet.id = 'ios-atc-sheet';
+        atcSheet.className = 'ios-sheet-root ios-atc-root';
+        atcSheet.setAttribute('data-theme', this.parent?._theme || 'dark');
+        atcSheet.innerHTML = `
+            <div class="ios-sheet-backdrop" data-dismiss="atc"></div>
+            <div class="ios-sheet-card ios-atc-card">
+                <div class="ios-atc-panel">
+                    <div class="ios-atc-header">
+                        <div class="ios-inflight-titles">
+                            <span class="ios-inflight-eyebrow">Live Network</span>
+                            <span class="ios-inflight-title">Active ATC</span>
+                        </div>
+                        <span class="ios-atc-count" id="ios-atc-count">—</span>
+                    </div>
+                    <div class="ios-atc-body" id="ios-atc-body"></div>
+                </div>
+                <button type="button" class="ios-sheet-cancel" data-dismiss="atc">Done</button>
+            </div>
+        `;
+
         root.appendChild(topBar);
         root.appendChild(bottomBar);
         mapHost.appendChild(serverSheet);
         mapHost.appendChild(weatherPop);
         mapHost.appendChild(inflightSheet);
+        mapHost.appendChild(atcSheet);
 
         // Move existing search input + clear button into the new shell so
         // every LandingUI handler stays bound.
@@ -231,6 +261,7 @@ export const MobileLandingChromeUI = {
             serverSheet?.setAttribute('data-theme', t);
             weatherPop?.setAttribute('data-theme', t);
             inflightSheetEl?.setAttribute('data-theme', t);
+            document.getElementById('ios-atc-sheet')?.setAttribute('data-theme', t);
         });
 
         // --- Profile ---
@@ -307,6 +338,7 @@ export const MobileLandingChromeUI = {
             const row = e.target.closest('[data-server]');
             if (row) {
                 const val = row.dataset.server;
+                window.InflightHaptics?.select?.();
                 this._selectServer(val);
                 this._closeServerSheet();
             }
@@ -362,9 +394,36 @@ export const MobileLandingChromeUI = {
                 const type = row.dataset.weather;
                 const nowActive = !row.classList.contains('is-on');
                 row.classList.toggle('is-on', nowActive);
+                window.InflightHaptics?.select?.();
                 window.dispatchEvent(new CustomEvent('weatherToggle', { detail: { type, isActive: nowActive } }));
             }
         });
+
+        // --- Active ATC sheet: dismiss + tap a controller to fly there ---
+        const atcSheet = document.getElementById('ios-atc-sheet');
+        atcSheet?.addEventListener('click', (e) => {
+            if (e.target.closest('[data-dismiss="atc"]')) {
+                this._closeAtcSheet();
+                return;
+            }
+            const row = e.target.closest('[data-atc-idx]');
+            if (row) {
+                const idx = Number(row.dataset.atcIdx);
+                const facility = (this._atcFacilities || [])[idx];
+                if (facility && window.InflightATC && typeof window.InflightATC.focus === 'function') {
+                    window.InflightHaptics?.tap?.();
+                    const ok = window.InflightATC.focus(facility);
+                    if (ok) this._closeAtcSheet();
+                }
+            }
+        });
+
+        // Keep the badge + open list fresh as controllers connect / disconnect.
+        window.addEventListener('activeAtcUpdated', () => {
+            this._updateAtcBadge();
+            if (this._atcSheetOpen) this._renderAtcSheet();
+        });
+        this._updateAtcBadge();
 
         // --- Server sync (in case other code dispatches serverChange) ---
         window.addEventListener('serverChange', (e) => {
@@ -391,6 +450,7 @@ export const MobileLandingChromeUI = {
        =========================================================== */
     _handleTab(action, btn) {
         this._setActiveTab(btn);
+        window.InflightHaptics?.tap?.();
         switch (action) {
             case 'inflight':
                 this._openInflightSheet();
@@ -400,6 +460,9 @@ export const MobileLandingChromeUI = {
                 break;
             case 'weather':
                 this._toggleWeatherSheet();
+                break;
+            case 'atc':
+                this._openAtcSheet();
                 break;
             case 'filters':
                 window.dispatchEvent(new CustomEvent('openMobileUI'));
@@ -528,6 +591,119 @@ export const MobileLandingChromeUI = {
         const count = this._trackedFlights().length;
         dot.textContent = count > 9 ? '9+' : String(count);
         dot.classList.toggle('is-on', count > 0);
+    },
+
+    /* ===========================================================
+       Active ATC sheet (live controller list)
+       =========================================================== */
+    _atcFacilitiesLive() {
+        const api = window.InflightATC;
+        return (api && typeof api.getFacilities === 'function') ? api.getFacilities() : [];
+    },
+    _updateAtcBadge() {
+        const dot = document.getElementById('ios-tab-atc-dot');
+        if (!dot) return;
+        const count = this._atcFacilitiesLive().length;
+        dot.textContent = count > 99 ? '99+' : String(count);
+        dot.classList.toggle('is-on', count > 0);
+    },
+    _openAtcSheet() {
+        const sheet = document.getElementById('ios-atc-sheet');
+        if (!sheet) return;
+        this._atcSheetOpen = true;
+        this._renderAtcSheet();
+        sheet.classList.add('is-open');
+        document.body.style.overflow = 'hidden';
+    },
+    _closeAtcSheet() {
+        const sheet = document.getElementById('ios-atc-sheet');
+        if (!sheet) return;
+        this._atcSheetOpen = false;
+        sheet.classList.remove('is-open');
+        document.body.style.overflow = '';
+    },
+    _atcShortCode(type) {
+        return ({ 0: 'GND', 1: 'TWR', 2: 'UNI', 3: 'DEL', 4: 'APP', 5: 'DEP', 6: 'CTR', 7: 'ATIS' })[type] || 'ATC';
+    },
+    _atcTypeClass(type) {
+        if (type === 6) return 'ctr';
+        if (type === 4 || type === 5) return 'app';
+        if (type === 1) return 'twr';
+        if (type === 0 || type === 3) return 'gnd';
+        if (type === 7) return 'atis';
+        return 'obs';
+    },
+    _atcEsc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+            { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+        ));
+    },
+    _atcRowHTML(f, idx) {
+        const api = window.InflightATC;
+        const type = Number(f.type);
+        const code = this._atcShortCode(type);
+        const cls = this._atcTypeClass(type);
+        const position = this._atcEsc(f.callsign || f.airportName || f.fir_id || code);
+        const name = this._atcEsc(f.username || 'Controller');
+        const dur = (api && typeof api.formatDuration === 'function' && f.startTime) ? api.formatDuration(f.startTime) : '';
+        return `
+            <button type="button" class="ios-atc-row" data-atc-idx="${idx}">
+                <span class="ios-atc-badge ${cls}">${code}</span>
+                <span class="ios-atc-row-main">
+                    <span class="ios-atc-pos">${position}</span>
+                    <span class="ios-atc-name">${name}</span>
+                </span>
+                ${dur ? `<span class="ios-atc-dur"><i class="fa-regular fa-clock"></i> ${dur}</span>` : ''}
+            </button>`;
+    },
+    _renderAtcSheet() {
+        const body = document.getElementById('ios-atc-body');
+        const countEl = document.getElementById('ios-atc-count');
+        if (!body) return;
+
+        // Keep a stable flat list so a row's data-atc-idx maps back to a facility.
+        const facilities = this._atcFacilitiesLive();
+        this._atcFacilities = facilities;
+
+        if (countEl) countEl.textContent = facilities.length
+            ? `${facilities.length} online`
+            : 'None online';
+
+        if (!facilities.length) {
+            body.innerHTML = `
+                <div class="ios-inflight-empty">
+                    <i class="fa-solid fa-tower-broadcast"></i>
+                    <p>No controllers online</p>
+                    <span>When ATC connects on this server their positions appear here — tap one to jump straight to it.</span>
+                </div>`;
+            return;
+        }
+
+        const groups = [
+            { label: 'Center', types: [6] },
+            { label: 'Approach / Departure', types: [4, 5] },
+            { label: 'Tower', types: [1] },
+            { label: 'Ground / Delivery', types: [0, 3] },
+            { label: 'ATIS', types: [7] }
+        ];
+
+        const seen = new Set();
+        let html = '';
+        groups.forEach(g => {
+            const inGroup = facilities.filter(f => g.types.includes(Number(f.type)));
+            if (!inGroup.length) return;
+            inGroup.forEach(f => seen.add(f));
+            html += `<div class="ios-atc-group">${g.label} · ${inGroup.length}</div>`;
+            html += inGroup.map(f => this._atcRowHTML(f, facilities.indexOf(f))).join('');
+        });
+
+        const others = facilities.filter(f => !seen.has(f));
+        if (others.length) {
+            html += `<div class="ios-atc-group">Other · ${others.length}</div>`;
+            html += others.map(f => this._atcRowHTML(f, facilities.indexOf(f))).join('');
+        }
+
+        body.innerHTML = html;
     },
 
     // Refresh only the live ETE text nodes (cheap, runs every second while open).
@@ -1429,6 +1605,87 @@ export const MobileLandingChromeUI = {
             .ios-inflight-upsell-title { font-size: 14.5px; font-weight: 600; color: var(--ios-text); }
             .ios-inflight-upsell-sub { font-size: 12px; color: var(--ios-text-3); }
             .ios-inflight-upsell > .fa-chevron-right { color: var(--ios-text-4); font-size: 13px; }
+
+            /* ============ ACTIVE ATC SHEET ============ */
+            .ios-atc-panel {
+                background: var(--ios-bg-deep);
+                -webkit-backdrop-filter: var(--ios-blur);
+                backdrop-filter: var(--ios-blur);
+                border-radius: 18px;
+                overflow: hidden;
+                box-shadow: var(--ios-shadow);
+            }
+            .ios-atc-header {
+                display: flex; align-items: flex-end; justify-content: space-between; gap: 12px;
+                padding: 16px 18px 12px;
+                border-bottom: 0.5px solid var(--ios-stroke-soft);
+            }
+            .ios-atc-count {
+                flex: 0 0 auto;
+                font-size: 12px; font-weight: 600; letter-spacing: 0.2px;
+                color: var(--ios-text-2);
+                background: var(--ios-fill);
+                padding: 5px 10px; border-radius: 999px;
+                font-variant-numeric: tabular-nums;
+            }
+            .ios-atc-body {
+                max-height: min(58dvh, 480px);
+                overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
+                overscroll-behavior: contain;
+            }
+            .ios-atc-body::-webkit-scrollbar { width: 0; background: transparent; }
+            .ios-atc-group {
+                position: sticky; top: 0; z-index: 2;
+                padding: 9px 16px 6px;
+                font-size: 11px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase;
+                color: var(--ios-text-3);
+                background: var(--ios-bg-deep);
+                -webkit-backdrop-filter: var(--ios-blur);
+                backdrop-filter: var(--ios-blur);
+            }
+            .ios-atc-row {
+                position: relative;
+                display: flex; align-items: center; gap: 12px;
+                width: 100%; padding: 11px 16px;
+                background: transparent; border: none; text-align: left;
+                color: var(--ios-text); font-family: inherit; cursor: pointer;
+                -webkit-tap-highlight-color: transparent;
+                transition: background-color 0.16s ease, transform 0.12s cubic-bezier(0.16,1,0.3,1);
+            }
+            .ios-atc-row + .ios-atc-row { border-top: 0.5px solid var(--ios-stroke-soft); }
+            .ios-atc-row:active { background: var(--ios-fill); transform: scale(0.985); }
+            .ios-atc-badge {
+                flex: 0 0 auto;
+                min-width: 48px; height: 34px; padding: 0 8px;
+                display: grid; place-items: center;
+                border-radius: 10px;
+                font-size: 11px; font-weight: 800; letter-spacing: 0.3px;
+                font-variant-numeric: tabular-nums;
+                box-shadow: inset 0 0.5px 0 rgba(255,255,255,0.14);
+            }
+            .ios-atc-badge.ctr  { color: #ff453a; background: rgba(255, 69, 58, 0.16); }
+            .ios-atc-badge.app  { color: #bf5af2; background: rgba(191, 90, 242, 0.16); }
+            .ios-atc-badge.twr  { color: #ff9f0a; background: rgba(255, 159, 10, 0.16); }
+            .ios-atc-badge.gnd  { color: #0a84ff; background: rgba(10, 132, 255, 0.16); }
+            .ios-atc-badge.atis { color: #30d158; background: rgba(48, 209, 88, 0.16); }
+            .ios-atc-badge.obs  { color: var(--ios-text-3); background: var(--ios-fill); }
+            .ios-atc-row-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+            .ios-atc-pos {
+                font-size: 15.5px; font-weight: 700; letter-spacing: -0.2px; color: var(--ios-text);
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            }
+            .ios-atc-name {
+                font-size: 12.5px; color: var(--ios-text-3);
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            }
+            .ios-atc-dur {
+                flex: 0 0 auto; font-size: 12.5px; font-weight: 600; color: var(--ios-text-2);
+                font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; gap: 5px;
+            }
+            .ios-atc-dur i { font-size: 11px; color: var(--ios-text-4); }
+            /* The ATC tab badge is an online-count, not an alert — tint it accent. */
+            .ios-tab-badge.is-atc { background: var(--ios-accent); box-shadow: 0 1px 3px rgba(10, 132, 255, 0.4); }
 
             /* ============ WEATHER POPOVER ============ */
             .ios-popover-root {

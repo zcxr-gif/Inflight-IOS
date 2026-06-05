@@ -483,6 +483,19 @@
     /* SKELETON */
     .skeleton { background:rgba(255,255,255,.03); border-radius:4px; color:transparent !important; animation:pulse 2s infinite; }
     @keyframes pulse { 0%{opacity:.4;} 50%{opacity:.7;} 100%{opacity:.4;} }
+
+    /* --- Wider hosts (iPad / desktop): keep everything in a centered,
+       phone-width column so the card never stretches or looks sparse.
+       Phones (< 560px) are untouched. --- */
+    @media (min-width: 560px) {
+        .scroll-viewport { align-items: center; }
+        .scroll-viewport > * { width: 100%; max-width: 520px; }
+        .ev-header, .action-bar {
+            width: 100%; max-width: 540px; margin-left: auto; margin-right: auto;
+        }
+        .collapsed-bar { max-width: 540px; margin-left: auto; margin-right: auto; }
+        .rh-city { max-width: 200px; }
+    }
     </style>
 </head>
 <body class="collapsed">

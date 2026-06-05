@@ -1007,6 +1007,34 @@ disableHudControls() {
                 border-radius: 16px 16px 0 0 !important;
             }
 
+            /* --- iPad / tablet: present the simple flight window as a centered
+               floating card instead of an edge-to-edge bar. The window's content
+               is laid out for a phone (~380px); stretched across a 768px+ iPad it
+               looked broken — sparse, with truncated route cities and oversized
+               media. Constraining the host to a phone-width card restores the
+               intended layout and matches iPadOS's centered form-sheet style. --- */
+            @media (min-width: 700px) and (max-width: 1024px) {
+                .mobile-legacy-sheet:has(> #simple-flight-window-frame) {
+                    left: 0 !important;
+                    right: 0 !important;
+                    width: min(540px, 92vw) !important;
+                    max-width: 540px !important;
+                    margin-left: auto !important;
+                    margin-right: auto !important;
+                    bottom: max(env(safe-area-inset-bottom, 0px), 14px) !important;
+                    height: min(82dvh, 860px) !important;
+                    max-height: min(82dvh, 860px) !important;
+                    border-radius: 24px !important;
+                    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55) !important;
+                }
+                .mobile-legacy-sheet:has(> #simple-flight-window-frame) > #simple-flight-window-frame {
+                    border-radius: 24px !important;
+                }
+                .mobile-legacy-sheet:has(> #simple-flight-window-frame) .legacy-sheet-handle.simple-mode {
+                    border-radius: 24px 24px 0 0 !important;
+                }
+            }
+
             /* --- [UPDATED] Specific styling for SIMPLE MODE handle (Seamless Overlay) --- */
             /* We also use this for AIRPORTS now, as a floating handle */
             .legacy-sheet-handle.simple-mode {

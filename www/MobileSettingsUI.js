@@ -380,6 +380,7 @@ refreshProLocks() {
             input.addEventListener('change', (e) => {
                 if (e.target.closest('.locked')) return; // Extra layer of protection
 
+                window.InflightHaptics?.select?.();
                 const setting = e.target.dataset.setting;
                 const isPro = e.target.dataset.pro === 'true';
 
@@ -434,6 +435,7 @@ refreshProLocks() {
         // Setting Pills Listener
         sheet.querySelectorAll('.m-setting-pill').forEach(btn => {
             btn.addEventListener('click', () => {
+                window.InflightHaptics?.select?.();
                 const setting = btn.dataset.setting;
                 const value = btn.dataset.value;
                 window.mapFilters[setting] = value;

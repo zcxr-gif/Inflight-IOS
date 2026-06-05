@@ -8085,7 +8085,8 @@ function initializeSectorOpsSocket() {
         if (!data || data.server.toLowerCase() !== currentServerName.toLowerCase()) return;
 
         activeAtcFacilities = data.atc || [];
-        
+        notifyActiveAtcUpdated();
+
         // Filter for Center controllers (Type 6)
         const centerControllers = activeAtcFacilities.filter(f => f.type === 6);
         
@@ -8384,6 +8385,56 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
         const hours = Math.floor(diffMs / 3600000);
         const minutes = Math.floor((diffMs % 3600000) / 60000);
         return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+    }
+
+    // --- Active ATC API ---------------------------------------------------
+    // A small, read-only bridge so the mobile chrome can show a live list of
+    // online controllers without reaching into this module's internals. It
+    // closes over the in-scope ATC state / map / airport DB.
+    window.InflightATC = {
+        // Shallow copy so callers can't mutate our live array.
+        getFacilities() {
+            return Array.isArray(activeAtcFacilities) ? activeAtcFacilities.slice() : [];
+        },
+        typeLabel(typeId) { return atcTypeToString(typeId); },
+        formatDuration(startTime) { return formatAtcDuration(startTime); },
+        // Pan/zoom the map to a controller's position. Centers use their own
+        // lat/lon; airport positions (TWR/GND/APP/etc.) fall back to the
+        // airport database so every row is tappable.
+        focus(facility) {
+            if (!sectorOpsMap || !facility) return false;
+            let center = null;
+            const lat = Number(facility.latitude);
+            const lon = Number(facility.longitude);
+            if (Number.isFinite(lat) && Number.isFinite(lon) && (lat !== 0 || lon !== 0)) {
+                center = [lon, lat];
+            } else if (facility.airportName && airportsData && airportsData[facility.airportName]) {
+                const a = airportsData[facility.airportName];
+                const alat = Number(a.lat);
+                const alon = Number(a.lon ?? a.lng ?? a.longitude);
+                if (Number.isFinite(alat) && Number.isFinite(alon)) center = [alon, alat];
+            }
+            if (!center) return false;
+            try {
+                sectorOpsMap.flyTo({
+                    center,
+                    zoom: facility.type === 6 ? 5 : 9, // centers are wide, fields are close
+                    essential: true,
+                    speed: 1.2
+                });
+                return true;
+            } catch (_) { return false; }
+        }
+    };
+
+    // Let the mobile chrome refresh its controller list / badge the moment new
+    // ATC data lands, from either the socket push or the HTTP poll.
+    function notifyActiveAtcUpdated() {
+        try {
+            window.dispatchEvent(new CustomEvent('activeAtcUpdated', {
+                detail: { count: Array.isArray(activeAtcFacilities) ? activeAtcFacilities.length : 0 }
+            }));
+        } catch (_) {}
     }
 
     // --- [NEW] PFD Constants and Functions ---
@@ -17394,7 +17445,8 @@ async function updateSectorOpsSecondaryData() {
         if (atcRes.ok) {
             const atcData = await atcRes.json();
             activeAtcFacilities = (atcData.ok && Array.isArray(atcData.atc)) ? atcData.atc : [];
-            
+            notifyActiveAtcUpdated();
+
             // --- FIX: Initial draw for FIRs if the map is ready ---
             if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
                 const centerControllers = activeAtcFacilities.filter(f => f.type === 6);
