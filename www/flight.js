@@ -8400,6 +8400,55 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
         getFacilities() {
             return Array.isArray(activeAtcFacilities) ? activeAtcFacilities.slice() : [];
         },
+        // Airport-centric view for the ATC sheet's board: one row per field with
+        // its name, controller count and which positions are open. Staffed
+        // airports come first (busiest first); the network's hub/route airports
+        // are also listed (dimmed, 0 controllers) so the board reads like a
+        // directory even when the network is quiet.
+        getAirportBoard() {
+            const byIcao = new Map();
+            const ensure = (icao) => {
+                if (!byIcao.has(icao)) byIcao.set(icao, { icao, count: 0, types: new Set() });
+                return byIcao.get(icao);
+            };
+            // 1. Online ATC, grouped by field (centers have no airport).
+            (activeAtcFacilities || []).forEach(f => {
+                const icao = f.airportName;
+                const type = Number(f.type);
+                if (!icao || type === 6) return;
+                const e = ensure(icao);
+                e.count++;
+                e.types.add(type);
+            });
+            // 2. Hub/route airports, added in their natural order (dimmed).
+            try {
+                if (typeof ALL_AVAILABLE_ROUTES !== 'undefined' && Array.isArray(ALL_AVAILABLE_ROUTES)) {
+                    ALL_AVAILABLE_ROUTES.forEach(r => {
+                        if (r && r.departure) ensure(r.departure);
+                        if (r && r.arrival) ensure(r.arrival);
+                    });
+                }
+            } catch (_) {}
+
+            const board = [];
+            byIcao.forEach(e => {
+                const apt = (airportsData && airportsData[e.icao]) || {};
+                board.push({
+                    icao: e.icao,
+                    name: apt.name || '',
+                    count: e.count,
+                    atis: e.types.has(7),
+                    gnd: e.types.has(0) || e.types.has(3), // Ground / Delivery
+                    twr: e.types.has(1),
+                    app: e.types.has(4),
+                    dep: e.types.has(5)
+                });
+            });
+            // Stable sort: staffed (count > 0) first by count; ties keep the
+            // insertion order above (online first, then route order).
+            board.sort((a, b) => b.count - a.count);
+            return board.slice(0, 150);
+        },
         typeLabel(typeId) { return atcTypeToString(typeId); },
         formatDuration(startTime) { return formatAtcDuration(startTime); },
         // Pan/zoom the map to a controller's position. Centers use their own

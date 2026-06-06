@@ -401,20 +401,20 @@ export const MobileLandingChromeUI = {
             }
         });
 
-        // --- Active ATC sheet: dismiss + tap a controller to fly there ---
+        // --- Active ATC sheet: dismiss + tap an airport to fly there ---
         const atcSheet = document.getElementById('ios-atc-sheet');
         atcSheet?.addEventListener('click', (e) => {
             if (e.target.closest('[data-dismiss="atc"]')) {
                 this._closeAtcSheet();
                 return;
             }
-            const row = e.target.closest('[data-atc-idx]');
+            const row = e.target.closest('[data-atc-apt]');
             if (row) {
-                const idx = Number(row.dataset.atcIdx);
-                const facility = (this._atcFacilities || [])[idx];
-                if (facility && window.InflightATC && typeof window.InflightATC.focus === 'function') {
+                const idx = Number(row.dataset.atcApt);
+                const apt = (this._atcBoard || [])[idx];
+                if (apt && window.InflightATC && typeof window.InflightATC.focus === 'function') {
                     window.InflightHaptics?.tap?.();
-                    const ok = window.InflightATC.focus(facility);
+                    const ok = window.InflightATC.focus({ airportName: apt.icao, type: 1 });
                     if (ok) this._closeAtcSheet();
                 }
             }
@@ -662,40 +662,35 @@ export const MobileLandingChromeUI = {
             h.addEventListener('touchcancel', end);
         });
     },
-    _atcShortCode(type) {
-        return ({ 0: 'GND', 1: 'TWR', 2: 'UNI', 3: 'DEL', 4: 'APP', 5: 'DEP', 6: 'CTR', 7: 'ATIS' })[type] || 'ATC';
-    },
-    _atcTypeClass(type) {
-        if (type === 6) return 'ctr';
-        if (type === 4 || type === 5) return 'app';
-        if (type === 1) return 'twr';
-        if (type === 0 || type === 3) return 'gnd';
-        if (type === 7) return 'atis';
-        return 'obs';
-    },
     _atcEsc(s) {
         return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
             { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
         ));
     },
-    _atcRowHTML(f, idx) {
+    _atcBoardLive() {
         const api = window.InflightATC;
-        const type = Number(f.type);
-        const code = this._atcShortCode(type);
-        const cls = this._atcTypeClass(type);
-        const position = this._atcEsc(f.callsign || f.airportName || f.fir_id || code);
-        const name = this._atcEsc(f.username || 'Controller');
-        const dur = (api && typeof api.formatDuration === 'function' && f.startTime) ? api.formatDuration(f.startTime) : '';
+        return (api && typeof api.getAirportBoard === 'function') ? api.getAirportBoard() : [];
+    },
+    _atcAirportRowHTML(a, idx) {
+        // Each position column is dimmed by default and lights up when staffed.
+        const col = (label, on, cls) =>
+            `<span class="ios-atc-col${on ? ' on ' + cls : ''}">${label}</span>`;
         return `
-            <button type="button" class="ios-atc-row" data-atc-idx="${idx}">
-                <span class="ios-atc-badge ${cls}">${code}</span>
-                <span class="ios-atc-row-main">
-                    <span class="ios-atc-pos">${position}</span>
-                    <span class="ios-atc-name">${name}</span>
+            <button type="button" class="ios-atc-arow" data-atc-apt="${idx}">
+                <span class="ios-atc-apt">
+                    <span class="ios-atc-icao">${this._atcEsc(a.icao)}</span>
+                    <span class="ios-atc-aptname">${this._atcEsc(a.name || a.icao)}</span>
                 </span>
-                <span class="ios-atc-meta">
-                    ${dur ? `<span class="ios-atc-dur"><i class="fa-regular fa-clock"></i> ${dur}</span>` : ''}
-                    <i class="fa-solid fa-chevron-right ios-atc-chevron"></i>
+                <span class="ios-atc-tower">
+                    <i class="fa-solid fa-tower-broadcast"></i>
+                    <span class="ios-atc-num">${a.count}</span>
+                </span>
+                <span class="ios-atc-cols">
+                    ${col('ATS', a.atis, 'atis')}
+                    ${col('GND', a.gnd, 'gnd')}
+                    ${col('TWR', a.twr, 'twr')}
+                    ${col('APP', a.app, 'app')}
+                    ${col('DEP', a.dep, 'dep')}
                 </span>
             </button>`;
     },
@@ -704,53 +699,25 @@ export const MobileLandingChromeUI = {
         const countEl = document.getElementById('ios-atc-count');
         if (!body) return;
 
-        // Keep a stable flat list so a row's data-atc-idx maps back to a facility.
-        const facilities = this._atcFacilitiesLive();
-        this._atcFacilities = facilities;
+        // Airport board — one row per staffed field; keep a stable list so a
+        // row's data-atc-apt maps back to its airport.
+        const board = this._atcBoardLive();
+        this._atcBoard = board;
 
-        if (countEl) countEl.textContent = facilities.length
-            ? `${facilities.length} online`
-            : 'None online';
+        const total = board.reduce((s, a) => s + (a.count || 0), 0);
+        if (countEl) countEl.textContent = total ? `${total} online` : 'None online';
 
-        if (!facilities.length) {
+        if (!board.length) {
             body.innerHTML = `
                 <div class="ios-inflight-empty">
                     <i class="fa-solid fa-tower-broadcast"></i>
                     <p>No controllers online</p>
-                    <span>When ATC connects on this server their positions appear here — tap one to jump straight to it.</span>
+                    <span>When ATC connects on this server, every staffed airport appears here — tap one to jump to it.</span>
                 </div>`;
             return;
         }
 
-        const groups = [
-            { label: 'Center', types: [6] },
-            { label: 'Approach / Departure', types: [4, 5] },
-            { label: 'Tower', types: [1] },
-            { label: 'Ground / Delivery', types: [0, 3] },
-            { label: 'ATIS', types: [7] }
-        ];
-
-        const seen = new Set();
-        const section = (label, count, rowsHtml) => `
-            <div class="ios-atc-section">
-                <div class="ios-atc-section-label"><span>${label}</span><span class="ios-atc-section-count">${count}</span></div>
-                <div class="ios-atc-group-card">${rowsHtml}</div>
-            </div>`;
-
-        let html = '';
-        groups.forEach(g => {
-            const inGroup = facilities.filter(f => g.types.includes(Number(f.type)));
-            if (!inGroup.length) return;
-            inGroup.forEach(f => seen.add(f));
-            html += section(g.label, inGroup.length, inGroup.map(f => this._atcRowHTML(f, facilities.indexOf(f))).join(''));
-        });
-
-        const others = facilities.filter(f => !seen.has(f));
-        if (others.length) {
-            html += section('Other', others.length, others.map(f => this._atcRowHTML(f, facilities.indexOf(f))).join(''));
-        }
-
-        body.innerHTML = html;
+        body.innerHTML = `<div class="ios-atc-board">${board.map((a, i) => this._atcAirportRowHTML(a, i)).join('')}</div>`;
     },
 
     // Refresh only the live ETE text nodes (cheap, runs every second while open).
@@ -1714,7 +1681,7 @@ export const MobileLandingChromeUI = {
             .ios-inflight-upsell-sub { font-size: 12px; color: var(--ios-text-3); }
             .ios-inflight-upsell > .fa-chevron-right { color: var(--ios-text-4); font-size: 13px; }
 
-            /* ============ ACTIVE ATC SHEET ============ */
+            /* ============ ACTIVE ATC SHEET (airport board) ============ */
             .ios-atc-count {
                 flex: 0 0 auto;
                 font-size: 13px; font-weight: 700; letter-spacing: 0.2px;
@@ -1723,71 +1690,51 @@ export const MobileLandingChromeUI = {
                 padding: 5px 11px; border-radius: 999px;
                 font-variant-numeric: tabular-nums;
             }
-            /* iOS "inset grouped" list: a labelled section + a rounded card of rows. */
-            .ios-atc-section { margin: 16px 14px 0; }
-            .ios-atc-section:first-child { margin-top: 12px; }
-            .ios-atc-section-label {
-                display: flex; align-items: center; justify-content: space-between;
-                padding: 0 8px 8px;
-                font-size: 12px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;
-                color: var(--ios-text-3);
-            }
-            .ios-atc-section-count {
-                font-size: 11px; font-weight: 700; color: var(--ios-text-4);
-                font-variant-numeric: tabular-nums;
-                background: var(--ios-fill); padding: 2px 8px; border-radius: 999px;
-            }
-            .ios-atc-group-card {
+            /* One row per staffed airport: ICAO + name, controller count, and a
+               strip of position columns that light up when that position is open. */
+            .ios-atc-board { display: flex; flex-direction: column; gap: 8px; padding: 12px 12px 4px; }
+            .ios-atc-arow {
+                display: flex; align-items: center; gap: 12px;
+                width: 100%; padding: 13px 14px; text-align: left;
                 background: var(--ios-bg-elev);
                 border: 0.5px solid var(--ios-stroke-soft);
-                border-radius: 16px;
-                overflow: hidden;
-                box-shadow: var(--ios-shadow-card, 0 1px 2px rgba(0,0,0,0.2));
-            }
-            .ios-atc-row {
-                position: relative;
-                display: flex; align-items: center; gap: 13px;
-                width: 100%; padding: 12px 14px;
-                background: transparent; border: none; text-align: left;
+                border-radius: 14px;
                 color: var(--ios-text); font-family: inherit; cursor: pointer;
                 -webkit-tap-highlight-color: transparent;
-                transition: background-color 0.16s ease;
+                transition: background-color 0.16s ease, border-color 0.16s ease, transform 0.12s cubic-bezier(0.16,1,0.3,1);
             }
-            .ios-atc-row + .ios-atc-row { border-top: 0.5px solid var(--ios-stroke-soft); }
-            .ios-atc-row:active { background: var(--ios-fill); }
-            .ios-atc-badge {
-                flex: 0 0 auto;
-                min-width: 50px; height: 38px; padding: 0 9px;
-                display: grid; place-items: center;
-                border-radius: 11px;
-                font-size: 12px; font-weight: 800; letter-spacing: 0.4px;
-                font-variant-numeric: tabular-nums;
-                box-shadow: inset 0 0.5px 0 rgba(255,255,255,0.14);
-            }
-            .ios-atc-badge.ctr  { color: #ff453a; background: rgba(255, 69, 58, 0.18); }
-            .ios-atc-badge.app  { color: #bf5af2; background: rgba(191, 90, 242, 0.18); }
-            .ios-atc-badge.twr  { color: #ff9f0a; background: rgba(255, 159, 10, 0.18); }
-            .ios-atc-badge.gnd  { color: #0a84ff; background: rgba(10, 132, 255, 0.18); }
-            .ios-atc-badge.atis { color: #30d158; background: rgba(48, 209, 88, 0.18); }
-            .ios-atc-badge.obs  { color: var(--ios-text-3); background: var(--ios-fill); }
-            .ios-atc-row-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-            .ios-atc-pos {
-                font-size: 16px; font-weight: 700; letter-spacing: -0.2px; color: var(--ios-text);
-                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-            }
-            .ios-atc-name {
+            .ios-atc-arow:active { background: var(--ios-fill); border-color: var(--ios-stroke); transform: scale(0.99); }
+            .ios-atc-apt { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+            .ios-atc-icao { font-size: 18px; font-weight: 800; letter-spacing: -0.3px; color: var(--ios-text); line-height: 1.05; }
+            .ios-atc-aptname {
                 font-size: 12.5px; color: var(--ios-text-3);
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             }
-            .ios-atc-meta { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; }
-            .ios-atc-dur {
-                font-size: 12.5px; font-weight: 600; color: var(--ios-text-2);
-                font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; gap: 5px;
+            .ios-atc-tower { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 7px; }
+            .ios-atc-tower i { font-size: 14px; color: var(--ios-text-2); }
+            .ios-atc-num { font-size: 15px; font-weight: 700; color: var(--ios-text); font-variant-numeric: tabular-nums; min-width: 10px; }
+            .ios-atc-cols { flex: 0 0 auto; display: flex; align-items: center; gap: 9px; }
+            .ios-atc-col {
+                font-size: 10px; font-weight: 800; letter-spacing: 0.6px;
+                color: var(--ios-text-4); min-width: 30px; text-align: center;
+                transition: color 0.16s ease, text-shadow 0.16s ease;
             }
-            .ios-atc-dur i { font-size: 11px; color: var(--ios-text-4); }
-            .ios-atc-chevron { font-size: 12px; color: var(--ios-text-4); }
+            .ios-atc-col.on.atis { color: #30d158; text-shadow: 0 0 10px rgba(48,209,88,0.45); }
+            .ios-atc-col.on.gnd  { color: #0a84ff; text-shadow: 0 0 10px rgba(10,132,255,0.45); }
+            .ios-atc-col.on.twr  { color: #ff9f0a; text-shadow: 0 0 10px rgba(255,159,10,0.45); }
+            .ios-atc-col.on.app  { color: #bf5af2; text-shadow: 0 0 10px rgba(191,90,242,0.45); }
+            .ios-atc-col.on.dep  { color: #64d2ff; text-shadow: 0 0 10px rgba(100,210,255,0.45); }
             /* The ATC tab badge is an online-count, not an alert — tint it accent. */
             .ios-tab-badge.is-atc { background: var(--ios-accent); box-shadow: 0 1px 3px rgba(10, 132, 255, 0.4); }
+
+            /* Narrow phones: tighten the position columns so the board still fits. */
+            @media (max-width: 430px) {
+                .ios-atc-board { padding: 10px 8px 4px; }
+                .ios-atc-arow { gap: 8px; padding: 12px; }
+                .ios-atc-cols { gap: 5px; }
+                .ios-atc-col { min-width: 26px; font-size: 9.5px; letter-spacing: 0.3px; }
+                .ios-atc-tower i { font-size: 13px; }
+            }
 
             /* ============ WEATHER POPOVER ============ */
             .ios-popover-root {
