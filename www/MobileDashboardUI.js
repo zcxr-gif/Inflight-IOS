@@ -277,8 +277,9 @@ init(supabaseClient) {
 
     switchTab(tabId) {
         if (this._activeTab === tabId) return;
+        window.InflightHaptics?.tap?.();
         this._activeTab = tabId;
-        
+
         if (tabId !== 'flight-plan') {
             this._editingFlightId = null;
         }

@@ -551,6 +551,10 @@ let mapFilters = {
         showAtcAirportsOnly: false,
         hideAtcMarkers: false,
         hideAllAirports: false,
+        // New default: render active (staffed) airports as a fast GPU label
+        // layer that shows staffed positions at a glance. Flip on to restore
+        // the classic DOM airport tags.
+        useClassicAirportTags: false,
         hideNoAtcMarkers: false,
         planDisplayMode: 'none',
         iconColorMode: 'default',
@@ -8085,7 +8089,8 @@ function initializeSectorOpsSocket() {
         if (!data || data.server.toLowerCase() !== currentServerName.toLowerCase()) return;
 
         activeAtcFacilities = data.atc || [];
-        
+        notifyActiveAtcUpdated();
+
         // Filter for Center controllers (Type 6)
         const centerControllers = activeAtcFacilities.filter(f => f.type === 6);
         
@@ -8384,6 +8389,105 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
         const hours = Math.floor(diffMs / 3600000);
         const minutes = Math.floor((diffMs % 3600000) / 60000);
         return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+    }
+
+    // --- Active ATC API ---------------------------------------------------
+    // A small, read-only bridge so the mobile chrome can show a live list of
+    // online controllers without reaching into this module's internals. It
+    // closes over the in-scope ATC state / map / airport DB.
+    window.InflightATC = {
+        // Shallow copy so callers can't mutate our live array.
+        getFacilities() {
+            return Array.isArray(activeAtcFacilities) ? activeAtcFacilities.slice() : [];
+        },
+        // Airport-centric view for the ATC sheet's board: one row per field with
+        // its name, controller count and which positions are open. Staffed
+        // airports come first (busiest first); the network's hub/route airports
+        // are also listed (dimmed, 0 controllers) so the board reads like a
+        // directory even when the network is quiet.
+        getAirportBoard() {
+            const byIcao = new Map();
+            const ensure = (icao) => {
+                if (!byIcao.has(icao)) byIcao.set(icao, { icao, count: 0, types: new Set() });
+                return byIcao.get(icao);
+            };
+            // 1. Online ATC, grouped by field (centers have no airport).
+            (activeAtcFacilities || []).forEach(f => {
+                const icao = f.airportName;
+                const type = Number(f.type);
+                if (!icao || type === 6) return;
+                const e = ensure(icao);
+                e.count++;
+                e.types.add(type);
+            });
+            // 2. Hub/route airports, added in their natural order (dimmed).
+            try {
+                if (typeof ALL_AVAILABLE_ROUTES !== 'undefined' && Array.isArray(ALL_AVAILABLE_ROUTES)) {
+                    ALL_AVAILABLE_ROUTES.forEach(r => {
+                        if (r && r.departure) ensure(r.departure);
+                        if (r && r.arrival) ensure(r.arrival);
+                    });
+                }
+            } catch (_) {}
+
+            const board = [];
+            byIcao.forEach(e => {
+                const apt = (airportsData && airportsData[e.icao]) || {};
+                board.push({
+                    icao: e.icao,
+                    name: apt.name || '',
+                    count: e.count,
+                    atis: e.types.has(7),
+                    gnd: e.types.has(0) || e.types.has(3), // Ground / Delivery
+                    twr: e.types.has(1),
+                    app: e.types.has(4),
+                    dep: e.types.has(5)
+                });
+            });
+            // Stable sort: staffed (count > 0) first by count; ties keep the
+            // insertion order above (online first, then route order).
+            board.sort((a, b) => b.count - a.count);
+            return board.slice(0, 150);
+        },
+        typeLabel(typeId) { return atcTypeToString(typeId); },
+        formatDuration(startTime) { return formatAtcDuration(startTime); },
+        // Pan/zoom the map to a controller's position. Centers use their own
+        // lat/lon; airport positions (TWR/GND/APP/etc.) fall back to the
+        // airport database so every row is tappable.
+        focus(facility) {
+            if (!sectorOpsMap || !facility) return false;
+            let center = null;
+            const lat = Number(facility.latitude);
+            const lon = Number(facility.longitude);
+            if (Number.isFinite(lat) && Number.isFinite(lon) && (lat !== 0 || lon !== 0)) {
+                center = [lon, lat];
+            } else if (facility.airportName && airportsData && airportsData[facility.airportName]) {
+                const a = airportsData[facility.airportName];
+                const alat = Number(a.lat);
+                const alon = Number(a.lon ?? a.lng ?? a.longitude);
+                if (Number.isFinite(alat) && Number.isFinite(alon)) center = [alon, alat];
+            }
+            if (!center) return false;
+            try {
+                sectorOpsMap.flyTo({
+                    center,
+                    zoom: facility.type === 6 ? 5 : 9, // centers are wide, fields are close
+                    essential: true,
+                    speed: 1.2
+                });
+                return true;
+            } catch (_) { return false; }
+        }
+    };
+
+    // Let the mobile chrome refresh its controller list / badge the moment new
+    // ATC data lands, from either the socket push or the HTTP poll.
+    function notifyActiveAtcUpdated() {
+        try {
+            window.dispatchEvent(new CustomEvent('activeAtcUpdated', {
+                detail: { count: Array.isArray(activeAtcFacilities) ? activeAtcFacilities.length : 0 }
+            }));
+        } catch (_) {}
     }
 
     // --- [NEW] PFD Constants and Functions ---
@@ -11756,6 +11860,10 @@ renderCategory(catId) {
                                 <div class="row-label"><i class="fa-solid fa-map-marked-alt"></i> Show Unstaffed Airports</div>
                                 <label class="toggle-switch"><input type="checkbox" id="set-show-unstaffed" ${mapFilters.showUnstaffedAirports ? 'checked' : ''}><span class="toggle-slider"></span></label>
                             </div>
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-tags"></i> Classic Airport Tags</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-classic-airport-tags" ${mapFilters.useClassicAirportTags ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                            </div>
 
                         </div>
 
@@ -12127,6 +12235,7 @@ renderCategory(catId) {
         const ids = {
             'set-hide-atc': 'hideAtcMarkers',
             'set-show-unstaffed': 'showUnstaffedAirports',
+            'set-classic-airport-tags': 'useClassicAirportTags',
             'set-staff-only': 'showStaffOnly',
             'set-va-only': 'showVaOnly',
             'set-labels': 'showAircraftLabels',
@@ -17111,6 +17220,9 @@ function renderAirportMarkers() {
     const showUnstaffed = mapFilters.showUnstaffedAirports;
     const hideNoAtc = mapFilters.hideNoAtcMarkers;
     const hideAtc = mapFilters.hideAtcMarkers;
+    // Glance mode (default): active-ATC airports are drawn by the GPU glance
+    // layer instead of DOM tags. Classic mode keeps the old per-airport tags.
+    const classic = mapFilters.useClassicAirportTags;
 
     // Helper: Identify "Major" airports (Class A/B/C) without explicit class data
     const isMajorAirport = (icao, airport) => {
@@ -17136,7 +17248,9 @@ function renderAirportMarkers() {
     // 2. Manage DOM Markers (Staffed Only)
     Object.keys(airportAndAtcMarkers).forEach(icao => {
         const hasAtc = atcAirportIcaos.has(icao);
-        const shouldBeDom = staffedIcaos.has(icao);
+        // ATC airports only live in the DOM layer when classic tags are on;
+        // otherwise the glance layer owns them.
+        const shouldBeDom = staffedIcaos.has(icao) && (classic || !hasAtc);
         const isFiltered = (hideNoAtc && !hasAtc) || (hideAtc && hasAtc);
         if (!shouldBeDom || isFiltered) {
             airportAndAtcMarkers[icao].marker.remove();
@@ -17153,6 +17267,10 @@ function renderAirportMarkers() {
 
         // Filter unstaffed/minor airports
         if (!hasAtc && !isMajorAirport(icao, airport)) return;
+
+        // In glance mode the GPU layer renders active-ATC airports, so don't
+        // also build a DOM tag for them.
+        if (hasAtc && !classic) return;
 
         if (airportAndAtcMarkers[icao]) {
             // Update existing marker instead of destroying it
@@ -17246,6 +17364,9 @@ function renderAirportMarkers() {
 
     // 3. Update the high-performance background layer
     updateUnstaffedLayer(showUnstaffed, staffedIcaos);
+
+    // 4. Update the active-airport glance layer (active ATC, GPU-rendered)
+    updateActiveAirportsGlanceLayer();
 }
 
 async function updateUnstaffedLayer(show, excludeIcaos) {
@@ -17361,6 +17482,181 @@ async function updateUnstaffedLayer(show, excludeIcaos) {
     }
 }
 
+// ====================================================================
+// Active-airport "glance" layer — GPU symbol/circle layer that replaces the
+// per-airport DOM tags. It shows each staffed airport's ICAO plus the
+// positions that are online (GND / TWR / APP / ATIS) at a glance, colored by
+// the most advanced service present. Because it's a single GeoJSON source
+// updated via setData() there are no DOM nodes to build each refresh, so it
+// stays fast no matter how many fields are staffed. The classic DOM tags are
+// still available via the "Classic Airport Tags" setting.
+// ====================================================================
+const ACTIVE_APT_SRC = 'active-airports-source';
+const ACTIVE_APT_DOT = 'active-airports-dot';
+const ACTIVE_APT_LBL = 'active-airports-label';
+
+// Shared, GPU data-driven color ramp (top service present).
+const ACTIVE_APT_COLOR = [
+    'match', ['get', 'rank'],
+    5, '#bf5af2', // Approach / Departure
+    4, '#ff9f0a', // Tower
+    3, '#0a84ff', // Ground / Delivery
+    2, '#30d158', // ATIS only
+    '#e5e7eb'     // other
+];
+
+// Dedup lock so a single click landing on both the dot and the label layer
+// only opens the airport once.
+let _activeAptClickLock = false;
+function _onActiveAptClick(e) {
+    if (_activeAptClickLock) return;
+    const f = e.features && e.features[0];
+    const icao = f && f.properties && f.properties.icao;
+    if (!icao) return;
+    _activeAptClickLock = true;
+    setTimeout(() => { _activeAptClickLock = false; }, 0);
+    if (typeof handleAirportClick === 'function') handleAirportClick(icao);
+}
+function _onActiveAptEnter() { if (sectorOpsMap) sectorOpsMap.getCanvas().style.cursor = 'pointer'; }
+function _onActiveAptLeave() { if (sectorOpsMap) sectorOpsMap.getCanvas().style.cursor = ''; }
+function wireActiveAirportsLayerEvents() {
+    // off-then-on with stable handlers is idempotent across style reloads.
+    [ACTIVE_APT_DOT, ACTIVE_APT_LBL].forEach(id => {
+        sectorOpsMap.off('click', id, _onActiveAptClick);
+        sectorOpsMap.on('click', id, _onActiveAptClick);
+        sectorOpsMap.off('mouseenter', id, _onActiveAptEnter);
+        sectorOpsMap.on('mouseenter', id, _onActiveAptEnter);
+        sectorOpsMap.off('mouseleave', id, _onActiveAptLeave);
+        sectorOpsMap.on('mouseleave', id, _onActiveAptLeave);
+    });
+}
+
+function updateActiveAirportsGlanceLayer() {
+    if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded()) return;
+
+    const classic = mapFilters.useClassicAirportTags;
+    const hideAtc = mapFilters.hideAtcMarkers;
+
+    const setVisible = (vis) => {
+        [ACTIVE_APT_DOT, ACTIVE_APT_LBL].forEach(id => {
+            if (sectorOpsMap.getLayer(id)) sectorOpsMap.setLayoutProperty(id, 'visibility', vis);
+        });
+    };
+
+    // Classic mode (or ATC hidden): clear + hide the glance layer entirely.
+    if (classic || hideAtc) {
+        if (sectorOpsMap.getSource(ACTIVE_APT_SRC)) {
+            sectorOpsMap.getSource(ACTIVE_APT_SRC).setData({ type: 'FeatureCollection', features: [] });
+        }
+        setVisible('none');
+        return;
+    }
+
+    // Group online facilities by airport (centers have no airport — skip them;
+    // they're drawn as FIR sectors elsewhere).
+    const byAirport = new Map();
+    (activeAtcFacilities || []).forEach(f => {
+        const icao = f.airportName;
+        const type = Number(f.type);
+        if (!icao || type === 6) return;
+        if (!byAirport.has(icao)) byAirport.set(icao, new Set());
+        byAirport.get(icao).add(type);
+    });
+
+    const features = [];
+    byAirport.forEach((types, icao) => {
+        const apt = airportsData[icao];
+        if (!apt || apt.lat == null || apt.lon == null) return;
+
+        const hasGnd = types.has(0) || types.has(3);
+        const hasTwr = types.has(1);
+        const hasApp = types.has(4) || types.has(5);
+        const hasAtis = types.has(7);
+
+        const codes = [];
+        if (hasGnd) codes.push('GND');
+        if (hasTwr) codes.push('TWR');
+        if (hasApp) codes.push('APP');
+        if (hasAtis) codes.push('ATIS');
+        if (!codes.length) codes.push('ATC');
+
+        const rank = hasApp ? 5 : hasTwr ? 4 : hasGnd ? 3 : hasAtis ? 2 : 1;
+
+        features.push({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [apt.lon, apt.lat] },
+            properties: { icao, codes: codes.join('  '), rank }
+        });
+    });
+
+    const data = { type: 'FeatureCollection', features };
+
+    if (sectorOpsMap.getSource(ACTIVE_APT_SRC)) {
+        sectorOpsMap.getSource(ACTIVE_APT_SRC).setData(data);
+    } else {
+        try {
+            sectorOpsMap.addSource(ACTIVE_APT_SRC, { type: 'geojson', data, tolerance: 0 });
+
+            // Place just under the aircraft layer when it exists, else on top.
+            const beforeId = sectorOpsMap.getLayer('sector-ops-live-flights-layer')
+                ? 'sector-ops-live-flights-layer' : undefined;
+
+            sectorOpsMap.addLayer({
+                id: ACTIVE_APT_DOT,
+                type: 'circle',
+                source: ACTIVE_APT_SRC,
+                paint: {
+                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, 3.5, 8, 6],
+                    'circle-color': ACTIVE_APT_COLOR,
+                    'circle-stroke-width': 1.5,
+                    'circle-stroke-color': 'rgba(255,255,255,0.92)',
+                    'circle-opacity': ['interpolate', ['linear'], ['zoom'], 2, 0.25, 4, 1]
+                }
+            }, beforeId);
+
+            sectorOpsMap.addLayer({
+                id: ACTIVE_APT_LBL,
+                type: 'symbol',
+                source: ACTIVE_APT_SRC,
+                layout: {
+                    // Crisp white ICAO with the staffed positions below, tinted
+                    // by the top service online (per-section colors, Mapbox v3).
+                    'text-field': [
+                        'format',
+                        ['get', 'icao'], { 'font-scale': 1.2, 'text-color': '#ffffff' },
+                        '\n', {},
+                        ['get', 'codes'], { 'font-scale': 0.82, 'text-color': ACTIVE_APT_COLOR }
+                    ],
+                    'text-font': ['JetBrains Mono Bold', 'Arial Unicode MS Bold'],
+                    'text-size': ['interpolate', ['linear'], ['zoom'], 3, 11, 8, 14],
+                    'text-offset': [0, -1.1],
+                    'text-anchor': 'bottom',
+                    'text-line-height': 1.25,
+                    'text-allow-overlap': false,
+                    'text-ignore-placement': false,
+                    'text-padding': 4,
+                    // Lower sort key = placed first; advanced services win collisions.
+                    'symbol-sort-key': ['-', 10, ['get', 'rank']]
+                },
+                paint: {
+                    'text-color': '#ffffff',
+                    'text-halo-color': 'rgba(8,10,14,0.95)',
+                    'text-halo-width': 1.7,
+                    'text-halo-blur': 0.5,
+                    'text-opacity': ['interpolate', ['linear'], ['zoom'], 2, 0, 3.2, 1]
+                }
+            }, beforeId);
+
+            wireActiveAirportsLayerEvents();
+        } catch (err) {
+            console.warn('Active-airports glance layer init failed:', err);
+            return;
+        }
+    }
+
+    setVisible('visible');
+}
+
 
 // --- [UPDATED] Fetches ATC & NOTAMs for the CURRENTLY SELECTED SERVER ---
 async function updateSectorOpsSecondaryData() {
@@ -17394,7 +17690,8 @@ async function updateSectorOpsSecondaryData() {
         if (atcRes.ok) {
             const atcData = await atcRes.json();
             activeAtcFacilities = (atcData.ok && Array.isArray(atcData.atc)) ? atcData.atc : [];
-            
+            notifyActiveAtcUpdated();
+
             // --- FIX: Initial draw for FIRs if the map is ready ---
             if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
                 const centerControllers = activeAtcFacilities.filter(f => f.type === 6);
