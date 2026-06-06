@@ -2062,9 +2062,7 @@
 
         .inflight-splash-logo-wrap {
             position: relative;
-            width: 132px;
-            height: 132px;
-            display: flex;
+            display: inline-flex;
             align-items: center;
             justify-content: center;
         }
@@ -2073,56 +2071,23 @@
         .inflight-splash-logo-wrap::before {
             content: '';
             position: absolute;
-            inset: -36px;
+            inset: -56px -52px;
             border-radius: 50%;
-            background: radial-gradient(circle, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0.06) 40%, transparent 72%);
-            filter: blur(10px);
+            background: radial-gradient(ellipse at center, rgba(255, 255, 255, 0.20) 0%, rgba(255, 255, 255, 0.08) 44%, transparent 72%);
+            filter: blur(16px);
             pointer-events: none;
             opacity: 0;
-            animation: inflight-splash-halo-in 1100ms 120ms ease-out forwards;
+            animation: inflight-splash-halo-in 1100ms 140ms ease-out forwards;
         }
         .inflight-splash-logo {
             position: relative;
-            height: 104px;
+            display: block;
+            height: 118px;
             width: auto;
-            filter: drop-shadow(0 10px 30px rgba(0, 0, 0, 0.45));
-            /* The hero: a clean, unhurried fade-in. */
-            animation: inflight-splash-logo-in 900ms 120ms cubic-bezier(0.16, 1, 0.3, 1) both;
-        }
-
-        .inflight-splash-wordmark {
-            font-size: 1.75rem;
-            font-weight: 700;
-            letter-spacing: 0.015em;
-            margin: 0;
-            background: linear-gradient(180deg, #ffffff 0%, #c9ccd1 100%);
-            -webkit-background-clip: text;
-            background-clip: text;
-            -webkit-text-fill-color: transparent;
-            color: #ffffff;
-            animation: inflight-splash-rise 800ms 480ms cubic-bezier(0.16, 1, 0.3, 1) both;
-        }
-
-        .inflight-splash-progress {
-            width: 180px;
-            max-width: 60vw;
-            height: 2px;
-            border-radius: 999px;
-            background: rgba(255, 255, 255, 0.10);
-            overflow: hidden;
-            position: relative;
-            animation: inflight-splash-rise 800ms 640ms cubic-bezier(0.16, 1, 0.3, 1) both;
-        }
-        .inflight-splash-progress::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -40%;
-            width: 40%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.65), transparent);
-            border-radius: 999px;
-            animation: inflight-splash-progress-slide 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+            max-width: 78vw;
+            filter: drop-shadow(0 12px 34px rgba(0, 0, 0, 0.5));
+            /* The hero — and now the only element: a clean, unhurried fade-in. */
+            animation: inflight-splash-logo-in 1000ms 140ms cubic-bezier(0.16, 1, 0.3, 1) both;
         }
 
         @keyframes inflight-splash-fade-out { to { opacity: 0; } }
@@ -2134,26 +2099,14 @@
             from { opacity: 0; }
             to   { opacity: 1; }
         }
-        @keyframes inflight-splash-rise {
-            from { opacity: 0; transform: translateY(8px); }
-            to   { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes inflight-splash-progress-slide {
-            0%   { left: -40%; }
-            100% { left: 100%; }
-        }
 
         @media (max-width: 480px) {
-            .inflight-splash-logo-wrap { width: 116px; height: 116px; }
-            .inflight-splash-logo { height: 90px; }
-            .inflight-splash-wordmark { font-size: 1.55rem; }
+            .inflight-splash-logo { height: 102px; }
         }
 
         @media (prefers-reduced-motion: reduce) {
             #inflight-pro-loader-overlay,
-            .inflight-splash-logo, .inflight-splash-logo-wrap::before,
-            .inflight-splash-wordmark, .inflight-splash-progress,
-            .inflight-splash-progress::after {
+            .inflight-splash-logo, .inflight-splash-logo-wrap::before {
                 animation-duration: 0.001s !important;
                 animation-delay: 0s !important;
                 animation-iteration-count: 1 !important;
@@ -2174,8 +2127,6 @@
             <div class="inflight-splash-logo-wrap">
                 <img src="Images/InflightPro.png" alt="Inflight" class="inflight-splash-logo">
             </div>
-            <h1 class="inflight-splash-wordmark">Inflight</h1>
-            <div class="inflight-splash-progress" aria-hidden="true"></div>
         </div>
     </div>
     <script>
