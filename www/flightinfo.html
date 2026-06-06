@@ -496,6 +496,185 @@
         .collapsed-bar { max-width: 540px; margin-left: auto; margin-right: auto; }
         .rh-city { max-width: 200px; }
     }
+
+    /* ============================================================
+       LAYOUT CUSTOMIZATION
+       `body[data-peek]` chooses how much the collapsed/peek bar shows
+       (small picture <-> bigger picture). `body.hide-*` classes drop
+       individual sections out of the expanded view. Both are driven by
+       the in-window Customize editor and persisted to localStorage.
+       ============================================================ */
+
+    /* --- New collapsed-bar pieces. Hidden by default; revealed per preset. --- */
+    .cb-state, .cb-seat { display: none; }
+    .cb-state {
+        font-family: var(--font-data); font-size: 10px; font-weight: 700;
+        text-transform: uppercase; letter-spacing: .6px;
+        padding: 3px 9px; border-radius: 999px;
+        border: 1px solid currentColor; color: var(--text-secondary);
+        align-items: center; gap: 6px; line-height: 1; flex-shrink: 0;
+    }
+    .cb-state .cb-state-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
+    .cb-state.state-climb { color:#34d399; } .cb-state.state-descend { color:#fbbf24; }
+    .cb-state.state-cruise { color:#38bdf8; } .cb-state.state-ground { color:#a1a1aa; }
+    .cb-state.state-approach { color:#c084fc; } .cb-state.state-pushback { color:#fb923c; }
+    .cb-state.state-enroute { color:#94a3b8; }
+    .cb-seat {
+        font-size: 9px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase;
+        padding: 2px 7px; border-radius: 5px; align-items: center; flex-shrink: 0;
+        background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.05); color: var(--text-dim);
+    }
+    .cb-seat.text-active { color:#4ade80; background:rgba(74,222,128,.1); border-color:rgba(74,222,128,.15); }
+    .cb-seat.text-auto   { color:#facc15; background:rgba(250,204,21,.1); border-color:rgba(250,204,21,.15); }
+    .cb-seat.text-parked { color:#f87171; background:rgba(248,113,113,.1); border-color:rgba(248,113,113,.15); }
+    .cb-seat.text-ap-plus{ color:#818cf8; background:rgba(129,140,248,.1); border-color:rgba(129,140,248,.15); }
+
+    /* Subtle settings affordance in the peek bar (opens the editor directly). */
+    .cb-edit {
+        position: absolute; top: 18px; right: 14px; z-index: 6;
+        width: 30px; height: 30px; border-radius: 50%;
+        display: grid; place-items: center; cursor: pointer;
+        background: rgba(255,255,255,.06); border: 1px solid var(--border-glass);
+        color: var(--text-secondary); font-size: 12px; backdrop-filter: blur(6px);
+        transition: color .2s, background .2s;
+    }
+    .cb-edit:active { transform: scale(.94); }
+    .cb-edit:hover { color: #fff; background: rgba(255,255,255,.12); }
+
+    /* Rich-peek aircraft photo card (mirrors the expanded hero, condensed). */
+    .cb-hero {
+        display: none; position: relative; width: 100%; height: 140px; flex-shrink: 0;
+        border-radius: var(--radius-md); overflow: hidden;
+        background: #0f172a center/cover no-repeat;
+        border: 1px solid var(--border-highlight);
+        box-shadow: 0 8px 22px rgba(0,0,0,.45);
+    }
+    .cb-hero-overlay {
+        position: absolute; inset: 0; display: flex; align-items: flex-end; justify-content: space-between;
+        gap: 10px; padding: 34px 12px 11px;
+        background: linear-gradient(to top, rgba(15,23,42,.95) 0%, rgba(15,23,42,.4) 55%, transparent 100%);
+    }
+    .cb-hero-name { font-size: 14px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 2px 8px rgba(0,0,0,.5); }
+    .cb-hero-sub { font-size: 11px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+    .cb-hero-reg { font-family: var(--font-data); font-size: 11px; font-weight: 600; color: #fff; background: rgba(255,255,255,.14); border: 1px solid var(--border-glass); padding: 4px 9px; border-radius: 7px; flex-shrink: 0; }
+    .cb-hero-credit { position: absolute; top: 8px; left: 8px; font-size: 8px; text-transform: uppercase; letter-spacing: .4px; color: rgba(255,255,255,.8); background: rgba(0,0,0,.5); padding: 2px 6px; border-radius: 5px; }
+
+    /* --- PRESET: MINIMAL — identity + state + route + thin progress only. --- */
+    body[data-peek="minimal"] .cb-thumb,
+    body[data-peek="minimal"] .cb-pilot,
+    body[data-peek="minimal"] .cb-airline,
+    body[data-peek="minimal"] .cb-hero,
+    body[data-peek="minimal"] .cb-city,
+    body[data-peek="minimal"] .cb-prog-labels { display: none; }
+    body[data-peek="minimal"] .cb-state { display: inline-flex; }
+    body[data-peek="minimal"] .collapsed-bar { gap: 12px; }
+
+    /* --- PRESET: STANDARD (default) — adds thumbnail, pilot, airline, cities. --- */
+    body[data-peek="standard"] .cb-state { display: inline-flex; }
+    body[data-peek="standard"] .cb-hero { display: none; }
+
+    /* --- PRESET: RICH — swaps the thumbnail for a full photo card (shared design). --- */
+    body[data-peek="rich"] .cb-thumb,
+    body[data-peek="rich"] .cb-airline { display: none; } /* livery shown on the photo card instead */
+    body[data-peek="rich"] .cb-hero { display: block; }
+    body[data-peek="rich"] .cb-state,
+    body[data-peek="rich"] .cb-seat { display: inline-flex; }
+
+    /* --- Expanded-view section visibility --- */
+    body.hide-hero #hero-container { display: none; }
+    body.hide-times #sec-times { display: none; }
+    body.hide-flightplan #route-card-container,
+    body.hide-flightplan #btn-route { display: none; }
+    body.hide-telemetry #sec-telemetry { display: none; }
+    body.hide-navenv #sec-navenv { display: none; }
+    body.hide-graph #sec-graph { display: none; }
+    body.hide-manifest #profile-anchor { display: none; }
+    /* When the hero is hidden, the mission card's top corners need rounding back. */
+    body.hide-hero .unified-mission-card .route-hero { border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
+
+    /* ============================================================
+       CUSTOMIZE EDITOR — in-window bottom sheet
+       ============================================================ */
+    .customize-sheet {
+        position: fixed; inset: 0; z-index: 200;
+        opacity: 0; visibility: hidden; transition: opacity .28s ease, visibility 0s linear .28s;
+    }
+    .customize-sheet.open { opacity: 1; visibility: visible; transition: opacity .28s ease; }
+    .cs-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.55); backdrop-filter: blur(2px); }
+    .cs-panel {
+        position: absolute; left: 0; right: 0; bottom: 0;
+        max-height: 86%; display: flex; flex-direction: column;
+        background: linear-gradient(135deg, var(--theme-bg-start), var(--theme-bg-end));
+        backdrop-filter: blur(40px) saturate(140%); -webkit-backdrop-filter: blur(40px) saturate(140%);
+        border-top: 1px solid var(--border-highlight);
+        border-radius: 22px 22px 0 0; box-shadow: 0 -20px 50px rgba(0,0,0,.5);
+        transform: translateY(100%); transition: transform .34s var(--ease-out);
+        padding-bottom: env(safe-area-inset-bottom, 12px);
+    }
+    .customize-sheet.open .cs-panel { transform: translateY(0); }
+    .cs-grip { width: 40px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.2); margin: 10px auto 0; flex-shrink: 0; }
+    .cs-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px 8px; flex-shrink: 0; }
+    .cs-title { font-size: 17px; font-weight: 800; color: #fff; letter-spacing: -.3px; }
+    .cs-close { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--border-glass); background: rgba(255,255,255,.06); color: var(--text-secondary); cursor: pointer; display: grid; place-items: center; font-size: 14px; }
+    .cs-close:active { transform: scale(.94); }
+    .cs-body { overflow-y: auto; padding: 4px 20px 20px; display: flex; flex-direction: column; gap: 8px; }
+    .cs-body::-webkit-scrollbar { width: 0; }
+    .cs-group-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); margin: 14px 0 4px 2px; }
+    .cs-group-label:first-child { margin-top: 6px; }
+
+    .cs-peek-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .cs-peek-opt {
+        display: flex; flex-direction: column; align-items: center; gap: 8px;
+        padding: 14px 6px 12px; cursor: pointer;
+        background: var(--bg-panel); border: 1px solid var(--border-glass); border-radius: var(--radius-md);
+        color: var(--text-secondary); transition: border-color .2s, background .2s, color .2s;
+    }
+    .cs-peek-opt:hover { background: rgba(255,255,255,.06); }
+    .cs-peek-opt.active { border-color: var(--color-brand); color: #fff; background: rgba(56,189,248,.08); box-shadow: 0 0 0 1px var(--color-brand); }
+    .cs-peek-glyph { display: flex; flex-direction: column; gap: 3px; width: 40px; align-items: stretch; }
+    .cs-peek-glyph i { height: 4px; border-radius: 2px; background: currentColor; opacity: .35; }
+    .cs-peek-opt.active .cs-peek-glyph i { opacity: 1; }
+    .cs-peek-glyph i.tall { height: 16px; }
+    .cs-peek-glyph i.med { height: 9px; }
+    .cs-peek-name { font-size: 12px; font-weight: 700; }
+    .cs-peek-desc { font-size: 9px; color: var(--text-dim); text-align: center; line-height: 1.25; }
+    .cs-peek-opt.active .cs-peek-desc { color: var(--text-secondary); }
+
+    .cs-toggle {
+        display: flex; align-items: center; gap: 12px; padding: 13px 14px;
+        background: var(--bg-panel); border: 1px solid var(--border-glass); border-radius: var(--radius-sm);
+        cursor: pointer;
+    }
+    .cs-toggle:active { background: rgba(255,255,255,.06); }
+    .cs-toggle-icon { width: 28px; height: 28px; border-radius: 7px; display: grid; place-items: center; background: rgba(255,255,255,.05); color: var(--text-secondary); font-size: 13px; flex-shrink: 0; }
+    .cs-toggle-text { flex: 1; min-width: 0; }
+    .cs-toggle-label { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+    .cs-toggle-sub { font-size: 10px; color: var(--text-dim); margin-top: 1px; }
+    .cs-switch { position: relative; width: 42px; height: 25px; flex-shrink: 0; }
+    .cs-switch input { opacity: 0; width: 0; height: 0; }
+    .cs-switch-track { position: absolute; inset: 0; border-radius: 99px; background: rgba(255,255,255,.12); transition: background .2s; }
+    .cs-switch-track::before { content: ''; position: absolute; top: 3px; left: 3px; width: 19px; height: 19px; border-radius: 50%; background: #fff; transition: transform .22s var(--ease-out); box-shadow: 0 2px 6px rgba(0,0,0,.4); }
+    .cs-switch input:checked + .cs-switch-track { background: var(--color-brand); }
+    .cs-switch input:checked + .cs-switch-track::before { transform: translateX(17px); }
+
+    .cs-reset {
+        margin-top: 14px; padding: 13px; border-radius: var(--radius-sm); cursor: pointer;
+        background: rgba(255,255,255,.04); border: 1px solid var(--border-glass);
+        color: var(--text-secondary); font-family: var(--font-ui); font-size: 12px; font-weight: 700;
+        text-transform: uppercase; letter-spacing: .5px;
+    }
+    .cs-reset:active { background: rgba(255,255,255,.08); }
+
+    /* Header gear that opens the editor from the expanded view. */
+    .ev-header-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+    .ev-gear {
+        width: 34px; height: 34px; border-radius: 50%; cursor: pointer;
+        background: rgba(255,255,255,.05); border: 1px solid var(--border-glass);
+        color: var(--text-secondary); display: grid; place-items: center; font-size: 14px;
+        transition: color .2s, background .2s;
+    }
+    .ev-gear:hover { color: #fff; background: rgba(255,255,255,.1); }
+    .ev-gear:active { transform: scale(.94); }
     </style>
 </head>
 <body class="collapsed">
@@ -505,20 +684,35 @@
          =========================================================== -->
     <div class="collapsed-bar" id="collapsed-bar">
         <div class="cb-grip"></div>
+        <div class="cb-edit" id="cb-edit" title="Customize"><i class="fa-solid fa-sliders"></i></div>
 
         <div class="cb-top">
             <div class="cb-identity">
                 <div class="cb-callsign-row">
                     <span class="cb-callsign" id="c-callsign">----</span>
+                    <span class="cb-state" id="c-state"><span class="cb-state-dot"></span><span id="c-state-text">--</span></span>
                     <span class="cb-chip" id="c-actype" style="display:none;">---</span>
                 </div>
                 <div class="cb-pilot" id="c-pilot">
                     <i class="fa-solid fa-user-astronaut"></i>
                     <span id="c-username">Pilot</span>
+                    <span class="cb-seat" id="c-seat" style="display:none;">---</span>
                 </div>
                 <div class="cb-airline" id="c-airline">Tap for details</div>
             </div>
             <div class="cb-thumb" id="c-thumb"></div>
+        </div>
+
+        <!-- Rich-peek aircraft photo card (shown only when data-peek="rich"). -->
+        <div class="cb-hero" id="c-hero">
+            <span class="cb-hero-credit" id="c-hero-credit" style="display:none;"></span>
+            <div class="cb-hero-overlay">
+                <div style="min-width:0;">
+                    <div class="cb-hero-name" id="c-hero-name">---</div>
+                    <div class="cb-hero-sub" id="c-hero-livery">---</div>
+                </div>
+                <div class="cb-hero-reg" id="c-hero-reg">---</div>
+            </div>
         </div>
 
         <div class="cb-route">
@@ -561,10 +755,15 @@
                     <span id="seat-status-label" class="seat-mini-label" style="display:none;">---</span>
                 </div>
             </div>
-            <div class="flight-state-badge" id="state-badge">
-                <div class="state-indicator-dot" id="state-dot"></div>
-                <i class="fa-solid fa-route state-badge-icon" id="state-icon"></i>
-                <span class="state-text" id="status-text">Standby</span>
+            <div class="ev-header-right">
+                <button class="ev-gear" id="ev-gear" title="Customize layout" aria-label="Customize layout">
+                    <i class="fa-solid fa-sliders"></i>
+                </button>
+                <div class="flight-state-badge" id="state-badge">
+                    <div class="state-indicator-dot" id="state-dot"></div>
+                    <i class="fa-solid fa-route state-badge-icon" id="state-icon"></i>
+                    <span class="state-text" id="status-text">Standby</span>
+                </div>
             </div>
         </header>
 
@@ -607,7 +806,7 @@
                 </div>
 
                 <!-- Times grid -->
-                <div class="times-grid">
+                <div class="times-grid" id="sec-times">
                     <div class="tg-cell">
                         <span class="tg-label" id="dep-label-1">Scheduled</span>
                         <span class="tg-time" id="dep-time-1">--:--</span>
@@ -655,7 +854,7 @@
 
             </div>
 
-            <div>
+            <div id="sec-telemetry">
                 <div class="grid-section-label">Live Telemetry</div>
                 <div class="telemetry-bento">
                     <div class="bento-cell">
@@ -677,7 +876,7 @@
                 </div>
             </div>
 
-            <div>
+            <div id="sec-navenv">
                 <div class="grid-section-label">Navigation &amp; Environment</div>
                 <div class="telemetry-bento">
                     <div class="bento-cell">
@@ -708,7 +907,7 @@
                 </div>
             </div>
 
-            <div>
+            <div id="sec-graph">
                 <div class="grid-section-label">Speed &amp; Altitude</div>
                 <div class="sa-graph-card">
                     <div id="sa-graph" class="sa-graph"></div>
@@ -770,6 +969,81 @@
             <button class="action-btn" id="btn-collapse"><i class="fa-solid fa-chevron-up"></i><span>Collapse</span></button>
         </footer>
 
+    </div>
+
+    <!-- ===========================================================
+         CUSTOMIZE EDITOR
+         =========================================================== -->
+    <div class="customize-sheet" id="customize-sheet" aria-hidden="true">
+        <div class="cs-backdrop" id="cs-backdrop"></div>
+        <div class="cs-panel" role="dialog" aria-label="Customize flight window">
+            <div class="cs-grip"></div>
+            <div class="cs-header">
+                <span class="cs-title">Customize</span>
+                <button class="cs-close" id="cs-close" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="cs-body">
+                <div class="cs-group-label">Peek size — how much shows before you open it</div>
+                <div class="cs-peek-grid" id="cs-peek-grid">
+                    <button class="cs-peek-opt" data-peek="minimal">
+                        <span class="cs-peek-glyph"><i></i><i class="med"></i></span>
+                        <span class="cs-peek-name">Minimal</span>
+                        <span class="cs-peek-desc">Callsign &amp; route</span>
+                    </button>
+                    <button class="cs-peek-opt" data-peek="standard">
+                        <span class="cs-peek-glyph"><i></i><i class="med"></i><i></i></span>
+                        <span class="cs-peek-name">Standard</span>
+                        <span class="cs-peek-desc">Thumbnail &amp; pilot</span>
+                    </button>
+                    <button class="cs-peek-opt" data-peek="rich">
+                        <span class="cs-peek-glyph"><i></i><i class="tall"></i><i></i></span>
+                        <span class="cs-peek-name">Rich</span>
+                        <span class="cs-peek-desc">Big photo card</span>
+                    </button>
+                </div>
+
+                <div class="cs-group-label">Sections — what to show when expanded</div>
+                <div id="cs-toggles">
+                    <label class="cs-toggle">
+                        <span class="cs-toggle-icon"><i class="fa-solid fa-image"></i></span>
+                        <span class="cs-toggle-text"><div class="cs-toggle-label">Aircraft photo</div><div class="cs-toggle-sub">Hero image, livery &amp; registration</div></span>
+                        <span class="cs-switch"><input type="checkbox" data-section="hero"><span class="cs-switch-track"></span></span>
+                    </label>
+                    <label class="cs-toggle">
+                        <span class="cs-toggle-icon"><i class="fa-solid fa-clock"></i></span>
+                        <span class="cs-toggle-text"><div class="cs-toggle-label">Times</div><div class="cs-toggle-sub">Scheduled, actual &amp; estimated</div></span>
+                        <span class="cs-switch"><input type="checkbox" data-section="times"><span class="cs-switch-track"></span></span>
+                    </label>
+                    <label class="cs-toggle">
+                        <span class="cs-toggle-icon"><i class="fa-solid fa-route"></i></span>
+                        <span class="cs-toggle-text"><div class="cs-toggle-label">Flight plan</div><div class="cs-toggle-sub">Waypoint list dropdown</div></span>
+                        <span class="cs-switch"><input type="checkbox" data-section="flightplan"><span class="cs-switch-track"></span></span>
+                    </label>
+                    <label class="cs-toggle">
+                        <span class="cs-toggle-icon"><i class="fa-solid fa-gauge-high"></i></span>
+                        <span class="cs-toggle-text"><div class="cs-toggle-label">Live telemetry</div><div class="cs-toggle-sub">Altitude, speed, VS &amp; heading</div></span>
+                        <span class="cs-switch"><input type="checkbox" data-section="telemetry"><span class="cs-switch-track"></span></span>
+                    </label>
+                    <label class="cs-toggle">
+                        <span class="cs-toggle-icon"><i class="fa-solid fa-compass"></i></span>
+                        <span class="cs-toggle-text"><div class="cs-toggle-label">Navigation &amp; environment</div><div class="cs-toggle-sub">Wind, OAT, position &amp; next fix</div></span>
+                        <span class="cs-switch"><input type="checkbox" data-section="navenv"><span class="cs-switch-track"></span></span>
+                    </label>
+                    <label class="cs-toggle">
+                        <span class="cs-toggle-icon"><i class="fa-solid fa-chart-area"></i></span>
+                        <span class="cs-toggle-text"><div class="cs-toggle-label">Speed &amp; altitude graph</div><div class="cs-toggle-sub">Live profile chart</div></span>
+                        <span class="cs-switch"><input type="checkbox" data-section="graph"><span class="cs-switch-track"></span></span>
+                    </label>
+                    <label class="cs-toggle">
+                        <span class="cs-toggle-icon"><i class="fa-solid fa-user-astronaut"></i></span>
+                        <span class="cs-toggle-text"><div class="cs-toggle-label">Pilot manifest</div><div class="cs-toggle-sub">Grade, XP &amp; violation history</div></span>
+                        <span class="cs-switch"><input type="checkbox" data-section="manifest"><span class="cs-switch-track"></span></span>
+                    </label>
+                </div>
+
+                <button class="cs-reset" id="cs-reset">Reset to defaults</button>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -856,6 +1130,119 @@
         };
 
         // =========================================================
+        // LAYOUT CUSTOMIZATION
+        // A peek preset (how much the collapsed bar shows) + per-section
+        // visibility, persisted to localStorage and applied via
+        // body[data-peek] / body.hide-* classes. The chosen peek height is
+        // reported to the host so the desktop window and the mobile sheet
+        // hug the bar instead of using a fixed detent.
+        // =========================================================
+        const LAYOUT_KEY = 'inflightSimpleLayout';
+        const SECTION_KEYS = ['hero', 'times', 'flightplan', 'telemetry', 'navenv', 'graph', 'manifest'];
+        const PEEK_HEIGHTS = { minimal: 150, standard: 250, rich: 392 };
+        const DEFAULT_LAYOUT = {
+            peek: 'standard',
+            sections: { hero: true, times: true, flightplan: true, telemetry: true, navenv: true, graph: true, manifest: true }
+        };
+        let layout = loadLayout();
+
+        function loadLayout() {
+            try {
+                const saved = JSON.parse(localStorage.getItem(LAYOUT_KEY) || '{}');
+                const peek = PEEK_HEIGHTS[saved.peek] ? saved.peek : DEFAULT_LAYOUT.peek;
+                const sections = Object.assign({}, DEFAULT_LAYOUT.sections);
+                if (saved.sections) SECTION_KEYS.forEach(k => {
+                    if (typeof saved.sections[k] === 'boolean') sections[k] = saved.sections[k];
+                });
+                return { peek, sections };
+            } catch (e) {
+                return { peek: DEFAULT_LAYOUT.peek, sections: Object.assign({}, DEFAULT_LAYOUT.sections) };
+            }
+        }
+        function saveLayout() {
+            try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout)); } catch (e) {}
+        }
+        function reportPeekHeight() {
+            const h = PEEK_HEIGHTS[layout.peek] || PEEK_HEIGHTS.standard;
+            try { window.parent.postMessage({ type: 'SIMPLE_WINDOW_PEEK_HEIGHT', height: h, peek: layout.peek }, '*'); } catch (e) {}
+        }
+        function applyLayout() {
+            body.dataset.peek = layout.peek;
+            SECTION_KEYS.forEach(k => body.classList.toggle('hide-' + k, !layout.sections[k]));
+            reportPeekHeight();
+            syncEditorUI();
+            // A graph that was hidden has no measurable width; redraw once shown.
+            if (currentPhase === 'expanded' && layout.sections.graph) setTimeout(renderSpeedAltGraph, 60);
+        }
+        function syncEditorUI() {
+            document.querySelectorAll('.cs-peek-opt').forEach(btn =>
+                btn.classList.toggle('active', btn.dataset.peek === layout.peek));
+            document.querySelectorAll('#cs-toggles input[data-section]').forEach(inp => {
+                inp.checked = !!layout.sections[inp.dataset.section];
+            });
+        }
+
+        // --- Editor open / close ---
+        const customizeSheet = document.getElementById('customize-sheet');
+        function openCustomize() { syncEditorUI(); customizeSheet.classList.add('open'); customizeSheet.setAttribute('aria-hidden', 'false'); }
+        function closeCustomize() { customizeSheet.classList.remove('open'); customizeSheet.setAttribute('aria-hidden', 'true'); }
+
+        document.getElementById('ev-gear').addEventListener('click', openCustomize);
+        // The editor is a bottom sheet; in the collapsed peek only the top slice
+        // of this iframe is on-screen, so expand first, then open it.
+        document.getElementById('cb-edit').addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (currentPhase !== 'expanded') {
+                setPhase('expanded');
+                setTimeout(openCustomize, 480);
+            } else {
+                openCustomize();
+            }
+        });
+        document.getElementById('cs-close').addEventListener('click', closeCustomize);
+        document.getElementById('cs-backdrop').addEventListener('click', closeCustomize);
+
+        // Peek preset selection
+        document.getElementById('cs-peek-grid').addEventListener('click', (e) => {
+            const opt = e.target.closest('.cs-peek-opt');
+            if (!opt) return;
+            layout.peek = opt.dataset.peek;
+            saveLayout();
+            applyLayout();
+        });
+
+        // Section toggles
+        document.getElementById('cs-toggles').addEventListener('change', (e) => {
+            const inp = e.target.closest('input[data-section]');
+            if (!inp) return;
+            layout.sections[inp.dataset.section] = inp.checked;
+            saveLayout();
+            applyLayout();
+        });
+
+        // Reset
+        document.getElementById('cs-reset').addEventListener('click', () => {
+            layout = { peek: DEFAULT_LAYOUT.peek, sections: Object.assign({}, DEFAULT_LAYOUT.sections) };
+            saveLayout();
+            applyLayout();
+        });
+
+        // Maps an IF flight phase string onto a state-color class. Shared by the
+        // expanded header badge and the collapsed-bar state pill.
+        function phaseStateClass(phase) {
+            const p = (phase || '').toUpperCase();
+            if (p.includes('CRUISE')) return 'state-cruise';
+            if (p.includes('DESCENT')) return 'state-descend';
+            if (p.includes('APPROACH') || p.includes('FINAL') || p.includes('FLARE') || p.includes('LANDING')) return 'state-approach';
+            if (p.includes('PUSHBACK')) return 'state-pushback';
+            if (p.includes('CLIMB') || p.includes('LIFTOFF') || p.includes('TAKEOFF') || p.includes('BOARDING')) return 'state-climb';
+            if (p.includes('TAXI') || p.includes('HOLDING') || p.includes('PARKED') || p.includes('GROUND') || p.includes('LINED UP')) return 'state-ground';
+            return 'state-enroute';
+        }
+
+        applyLayout();
+
+        // =========================================================
         // DATA UPDATE
         // =========================================================
         window.updateFlightInterface = function(data) {
@@ -874,31 +1261,33 @@
             updateText('status-text', phase);
             const badge = document.getElementById('state-badge');
             badge.className = 'flight-state-badge';
-            let stateClass;
-            if (phase.includes('CRUISE')) stateClass = 'state-cruise';
-            else if (phase.includes('DESCENT')) stateClass = 'state-descend';
-            else if (phase.includes('APPROACH') || phase.includes('FINAL') || phase.includes('FLARE') || phase.includes('LANDING')) stateClass = 'state-approach';
-            else if (phase.includes('PUSHBACK')) stateClass = 'state-pushback';
-            else if (phase.includes('CLIMB') || phase.includes('LIFTOFF') || phase.includes('TAKEOFF') || phase.includes('BOARDING')) stateClass = 'state-climb';
-            else if (phase.includes('TAXI') || phase.includes('HOLDING') || phase.includes('PARKED') || phase.includes('GROUND') || phase.includes('LINED UP')) stateClass = 'state-ground';
-            else stateClass = 'state-enroute';
+            const stateClass = phaseStateClass(phase);
             badge.classList.add(stateClass);
+
+            // Mirror the phase onto the collapsed-bar state pill (Rich/Standard peek).
+            const cState = document.getElementById('c-state');
+            if (cState) {
+                cState.className = 'cb-state ' + stateClass;
+                updateText('c-state-text', phase);
+            }
 
             // Phase icon, supplied by the shared classifier.
             const stateIcon = document.getElementById('state-icon');
             if (stateIcon && data.phaseIcon) stateIcon.className = 'fa-solid ' + data.phaseIcon + ' state-badge-icon';
 
-            // Seat status
+            // Seat status — shown in the expanded header and (Rich peek) the bar.
             const seatLabel = document.getElementById('seat-status-label');
-            if (data.pilotState !== undefined) {
+            const cSeat = document.getElementById('c-seat');
+            const seatMap = { 0: ['text-active','ACTIVE'], 1: ['text-auto','AUTO'], 2: ['text-parked','PARKED'], 3: ['text-ap-plus','AP+'] };
+            const seatInfo = (data.pilotState !== undefined) ? seatMap[data.pilotState] : null;
+            if (seatInfo) {
                 seatLabel.style.display = 'inline-block';
-                seatLabel.className = 'seat-mini-label';
-                const map = { 0: ['text-active','ACTIVE'], 1: ['text-auto','AUTO'], 2: ['text-parked','PARKED'], 3: ['text-ap-plus','AP+'] };
-                const m = map[data.pilotState];
-                if (m) { seatLabel.classList.add(m[0]); seatLabel.textContent = m[1]; }
-                else seatLabel.style.display = 'none';
+                seatLabel.className = 'seat-mini-label ' + seatInfo[0];
+                seatLabel.textContent = seatInfo[1];
+                if (cSeat) { cSeat.style.display = 'inline-flex'; cSeat.className = 'cb-seat ' + seatInfo[0]; cSeat.textContent = seatInfo[1]; }
             } else {
                 seatLabel.style.display = 'none';
+                if (cSeat) cSeat.style.display = 'none';
             }
 
             // Aircraft
@@ -909,6 +1298,9 @@
                 updateText('ac-livery', acLivery);
                 updateText('ac-reg', data.aircraft.registration || '---');
                 updateText('c-airline', acLivery);
+                updateText('c-hero-name', acName);
+                updateText('c-hero-livery', acLivery);
+                updateText('c-hero-reg', data.aircraft.registration || '---');
                 const typeChip = document.getElementById('c-actype');
                 if (acName && acName !== 'Unknown Aircraft') {
                     typeChip.textContent = acName;
@@ -925,10 +1317,18 @@
                     if (img.src !== data.images.url) img.src = data.images.url;
                     const thumb = document.getElementById('c-thumb');
                     thumb.style.backgroundImage = `url('${data.images.url}')`;
+                    const cHero = document.getElementById('c-hero');
+                    if (cHero) cHero.style.backgroundImage = `url('${data.images.url}')`;
                 }
                 const creditEl = document.getElementById('ac-credit');
-                if (data.images.credit) { creditEl.textContent = '© ' + data.images.credit; creditEl.style.display = 'block'; }
-                else creditEl.style.display = 'none';
+                const cCredit = document.getElementById('c-hero-credit');
+                if (data.images.credit) {
+                    creditEl.textContent = '© ' + data.images.credit; creditEl.style.display = 'block';
+                    if (cCredit) { cCredit.textContent = '© ' + data.images.credit; cCredit.style.display = 'block'; }
+                } else {
+                    creditEl.style.display = 'none';
+                    if (cCredit) cCredit.style.display = 'none';
+                }
             }
 
             // Telemetry
