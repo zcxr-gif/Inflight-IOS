@@ -2031,19 +2031,22 @@
             justify-content: center;
             padding: 24px;
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            color: #e8eaf6;
+            color: #e9eaec;
+            /* Neutral charcoal — no blue. A faint light vignette lifts the
+               logo off the background without reintroducing a colour cast. */
             background:
-                radial-gradient(ellipse at 50% 38%, rgba(56, 189, 248, 0.18) 0%, transparent 60%),
-                linear-gradient(180deg, #0b1530 0%, #050a18 100%);
+                radial-gradient(ellipse at 50% 42%, rgba(255, 255, 255, 0.06) 0%, transparent 60%),
+                linear-gradient(180deg, #2b2d31 0%, #161719 100%);
             /* opacity: 1 from the start — no fade-in. The whole point of
                inlining is no FOUC, so we can't have the splash arrive
-               semi-transparent and let the body show through it. */
+               semi-transparent and let the body show through it. The
+               LOGO fades in instead, against the solid backdrop. */
             opacity: 1;
             overflow: hidden;
             -webkit-font-smoothing: antialiased;
         }
         #inflight-pro-loader-overlay.is-dismissing {
-            animation: inflight-splash-fade-out 420ms ease-in forwards;
+            animation: inflight-splash-fade-out 460ms ease-in forwards;
         }
 
         .inflight-splash-stack {
@@ -2052,106 +2055,66 @@
             flex-direction: column;
             align-items: center;
             text-align: center;
-            gap: 30px;
+            gap: 28px;
             width: 100%;
             max-width: 360px;
         }
 
         .inflight-splash-logo-wrap {
             position: relative;
-            width: 112px;
-            height: 112px;
-            display: flex;
+            display: inline-flex;
             align-items: center;
             justify-content: center;
         }
+        /* Soft neutral spotlight behind the mark — fades in with the logo
+           and gives the (dark) logo lettering a lighter region to read on. */
         .inflight-splash-logo-wrap::before {
             content: '';
             position: absolute;
-            inset: -28px;
+            inset: -56px -52px;
             border-radius: 50%;
-            background: radial-gradient(circle, rgba(56, 189, 248, 0.32) 0%, transparent 70%);
-            animation: inflight-splash-glow 4.2s ease-in-out infinite;
-            filter: blur(6px);
+            background: radial-gradient(ellipse at center, rgba(255, 255, 255, 0.20) 0%, rgba(255, 255, 255, 0.08) 44%, transparent 72%);
+            filter: blur(16px);
             pointer-events: none;
+            opacity: 0;
+            animation: inflight-splash-halo-in 1100ms 140ms ease-out forwards;
         }
         .inflight-splash-logo {
             position: relative;
-            height: 96px;
+            display: block;
+            height: 118px;
             width: auto;
-            filter: drop-shadow(0 8px 28px rgba(56, 189, 248, 0.35));
-            animation: inflight-splash-logo-in 600ms cubic-bezier(0.16, 1, 0.3, 1) both;
-        }
-
-        .inflight-splash-wordmark {
-            font-size: 1.75rem;
-            font-weight: 700;
-            letter-spacing: 0.01em;
-            color: #ffffff;
-            margin: 0;
-            background: linear-gradient(180deg, #ffffff 0%, #c7d2fe 100%);
-            -webkit-background-clip: text;
-            background-clip: text;
-            -webkit-text-fill-color: transparent;
-            animation: inflight-splash-rise 600ms 160ms cubic-bezier(0.16, 1, 0.3, 1) both;
-        }
-
-        .inflight-splash-progress {
-            width: 180px;
-            max-width: 60vw;
-            height: 2px;
-            border-radius: 999px;
-            background: rgba(148, 163, 184, 0.16);
-            overflow: hidden;
-            position: relative;
-            animation: inflight-splash-rise 600ms 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
-        }
-        .inflight-splash-progress::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -40%;
-            width: 40%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(56, 189, 248, 0.9), transparent);
-            border-radius: 999px;
-            animation: inflight-splash-progress-slide 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+            max-width: 78vw;
+            filter: drop-shadow(0 12px 34px rgba(0, 0, 0, 0.5));
+            /* The hero — and now the only element: a clean, unhurried fade-in. */
+            animation: inflight-splash-logo-in 1000ms 140ms cubic-bezier(0.16, 1, 0.3, 1) both;
         }
 
         @keyframes inflight-splash-fade-out { to { opacity: 0; } }
         @keyframes inflight-splash-logo-in {
-            from { opacity: 0; transform: scale(0.92); }
-            to   { opacity: 1; transform: scale(1); }
+            from { opacity: 0; transform: scale(0.94) translateY(6px); }
+            to   { opacity: 1; transform: scale(1) translateY(0); }
         }
-        @keyframes inflight-splash-rise {
-            from { opacity: 0; transform: translateY(6px); }
-            to   { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes inflight-splash-glow {
-            0%, 100% { opacity: 0.75; }
-            50%      { opacity: 1; }
-        }
-        @keyframes inflight-splash-progress-slide {
-            0%   { left: -40%; }
-            100% { left: 100%; }
+        @keyframes inflight-splash-halo-in {
+            from { opacity: 0; }
+            to   { opacity: 1; }
         }
 
         @media (max-width: 480px) {
-            .inflight-splash-logo-wrap { width: 96px; height: 96px; }
-            .inflight-splash-logo { height: 82px; }
-            .inflight-splash-wordmark { font-size: 1.55rem; }
+            .inflight-splash-logo { height: 102px; }
         }
 
         @media (prefers-reduced-motion: reduce) {
             #inflight-pro-loader-overlay,
-            .inflight-splash-logo, .inflight-splash-logo-wrap::before,
-            .inflight-splash-wordmark, .inflight-splash-progress,
-            .inflight-splash-progress::after {
+            .inflight-splash-logo, .inflight-splash-logo-wrap::before {
                 animation-duration: 0.001s !important;
+                animation-delay: 0s !important;
                 animation-iteration-count: 1 !important;
+                opacity: 1 !important;
             }
         }
     </style>
+
 </head>
 <body>
 
@@ -2164,8 +2127,6 @@
             <div class="inflight-splash-logo-wrap">
                 <img src="Images/InflightPro.png" alt="Inflight" class="inflight-splash-logo">
             </div>
-            <h1 class="inflight-splash-wordmark">Inflight</h1>
-            <div class="inflight-splash-progress" aria-hidden="true"></div>
         </div>
     </div>
     <script>
