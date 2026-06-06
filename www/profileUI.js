@@ -151,6 +151,8 @@ export const ProfileUI = {
     // Accent color presets — applied as CSS variable overrides on the wrapper layer.
     // Each preset supplies the same four vars used throughout the stylesheet.
     _ACCENT_PRESETS: {
+        azure:   { label: 'Sky',     light: { c: '#007aff', h: '#0a84ff', s: 'rgba(0,122,255,0.12)',   g: 'rgba(0,122,255,0.24)'   },
+                                     dark:  { c: '#0a84ff', h: '#409cff', s: 'rgba(10,132,255,0.22)',  g: 'rgba(10,132,255,0.32)'  } },
         caramel: { label: 'Caramel', light: { c: '#b88553', h: '#a87543', s: 'rgba(184,133,83,0.10)',  g: 'rgba(184,133,83,0.18)'  },
                                      dark:  { c: '#d4a574', h: '#e0b384', s: 'rgba(212,165,116,0.14)', g: 'rgba(212,165,116,0.22)' } },
         ocean:   { label: 'Ocean',   light: { c: '#3b7ea8', h: '#2f6c93', s: 'rgba(59,126,168,0.10)',  g: 'rgba(59,126,168,0.18)'  },
