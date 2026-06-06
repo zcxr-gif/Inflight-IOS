@@ -12808,6 +12808,7 @@ window.globalNatTracks = natTracks;
                 event.data.type === 'SIMPLE_WINDOW_STATE' ||
                 event.data.type === 'SIMPLE_WINDOW_ACTION' ||
                 event.data.type === 'SIMPLE_WINDOW_PEEK_HEIGHT' ||
+                event.data.type === 'SIMPLE_WINDOW_EDIT_MODE' ||
                 event.data.type === 'NAVIGATE_TO_AIRPORT'
             )) {
                 handleIframeMessage(event);
@@ -16538,6 +16539,15 @@ async function handleIframeMessage(event) {
                 w.style.height = h + 'px';
                 w.style.maxHeight = h + 'px';
             }
+        }
+        return;
+    }
+
+    // 2b-iii. [NEW] Simple Window layout-edit mode — lock the mobile sheet drag
+    // so rearranging blocks inside the iframe doesn't drag the sheet itself.
+    if (event.data && event.data.type === 'SIMPLE_WINDOW_EDIT_MODE') {
+        if (window.MobileUIHandler && typeof window.MobileUIHandler.setEditLock === 'function') {
+            window.MobileUIHandler.setEditLock(!!event.data.active);
         }
         return;
     }

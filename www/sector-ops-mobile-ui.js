@@ -1723,6 +1723,14 @@ wireUpLegacySheetInteractions(sheetElement, handleElement) {
         return this.isSimpleSheet() ? this.CONFIG.simplePeekHeight : this.CONFIG.legacyPeekHeight;
     },
 
+    // Locks/unlocks the sheet drag gesture while the simple window is in
+    // layout-edit mode (so in-iframe block dragging doesn't drag the sheet).
+    editLocked: false,
+    setEditLock(active) {
+        this.editLocked = !!active;
+        if (active) this.legacySheetState.isDragging = false;
+    },
+
     // The simple window's peek preset (Minimal/Standard/Rich) reports the height
     // its collapsed bar needs. Update the detent + the CSS var that positions the
     // peek transform, and re-snap if we're currently peeking so it's instant.
@@ -1839,7 +1847,10 @@ wireUpLegacySheetInteractions(sheetElement, handleElement) {
 // --- [NEW] Legacy Sheet Swipe Handlers ---
     handleLegacyTouchStart(e) {
         if (this.activeMode !== 'legacy' || !this.activeWindow) return;
-        
+        // While the simple window is in layout-edit mode, the sheet gesture is
+        // locked so dragging blocks inside the iframe doesn't move the sheet.
+        if (this.editLocked) return;
+
         // Prevent drag if touching a button so clicks work perfectly
         const interactiveSelectors = [
             '.overview-actions', '.close-btn', 'button', 'a', '[role="button"]', 
