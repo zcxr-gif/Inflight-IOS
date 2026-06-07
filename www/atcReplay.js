@@ -56,6 +56,10 @@ export const AtcReplay = (() => {
     let isScrubbing = false;
     let lastTickWall = 0;
     let rafHandle = null;
+    // Smoothed cost (ms) of a single rendered frame. Drives the adaptive trail
+    // budget below so a frame that's running hot automatically sheds trail detail
+    // instead of piling up work until the iOS web view is watchdog-killed.
+    let frameMsEMA = 16;
 
     // map artifacts we own (and must tear down)
     let panelEl = null;
@@ -73,6 +77,8 @@ export const AtcReplay = (() => {
     let enforcementCount = null;    // violations the controller issued (null = unknown)
     let freqWinStart = 0;           // abs-ms at the left edge of the freq timeline
     let freqWinSpan = 0;            // width of the freq timeline in ms
+    let freqBars = [];              // cached freq bars (+parsed window) for the per-frame sweep
+    let freqPlayheads = [];         // cached freq playhead nodes
     let isLooping = false;          // restart at the end instead of stopping
     let isCollapsed = false;        // panel collapsed to a slim playback bar
     const COLLAPSE_STORAGE_KEY = 'atcReplayCollapsed';
@@ -805,33 +811,83 @@ export const AtcReplay = (() => {
         return { bands: TRAIL_FADE_BANDS, smooth: 2, maxPts: Infinity };
     }
 
+    // Trail rebuild is the heaviest per-frame work, so it's bounded two ways:
+    //   • a shared point budget split across every aircraft with a tail this
+    //     frame, so a packed sector can't multiply the cost by the traffic count;
+    //   • an adaptive multiplier driven by the measured frame cost, so a device
+    //     that's falling behind sheds detail before it falls over.
+    // Together these are what stop speed-up + heavy traffic from piling up work
+    // until the web view is killed.
+    const TRAIL_POINT_BUDGET = 3000;          // total in-window tail points / frame (at full load)
+    const TRAIL_MAX_PTS_PER_FLIGHT = 256;     // ceiling for any single aircraft's tail
+
+    // First index whose timestamp is >= t (binary search; points are time-sorted).
+    // Lets the trail window each track without scanning all of its points.
+    function firstIndexAtOrAfter(points, t) {
+        let lo = 0, hi = points.length;
+        while (lo < hi) {
+            const mid = (lo + hi) >> 1;
+            if (points[mid].t < t) lo = mid + 1; else hi = mid;
+        }
+        return lo;
+    }
+
     function buildTrailFeatures(absT) {
         const features = [];
         const windowMs = Math.max(1, trailWindowMs);
         const windowStart = absT - windowMs;
         const { bands, smooth, maxPts } = trailDetail();
+
+        // First pass: count the aircraft that actually have a tail in this window
+        // (touching only track endpoints) so the point budget can be shared out.
+        let activeWindow = 0;
         for (const fl of flights) {
             const pts = fl.points;
-            if (!pts.length || absT < pts[0].t || windowStart > pts[pts.length - 1].t) continue;
-            // in-window points, then the live interpolated head
-            let tail = pts.filter(p => p.t >= windowStart && p.t <= absT);
-            // At high speed, evenly subsample a dense tail so the trail rebuild
-            // stays light — always keeping the most recent in-window point so the
-            // line runs cleanly into the head (the plane).
-            if (tail.length > maxPts) {
-                const step = tail.length / maxPts;
-                const reduced = [];
-                for (let i = 0; i < maxPts; i++) reduced.push(tail[Math.floor(i * step)]);
-                if (reduced[reduced.length - 1] !== tail[tail.length - 1]) reduced.push(tail[tail.length - 1]);
-                tail = reduced;
-            }
+            if (pts.length < 2 || absT < pts[0].t || windowStart > pts[pts.length - 1].t) continue;
+            activeWindow++;
+        }
+        if (!activeWindow) return { type: 'FeatureCollection', features };
+
+        // Shrink the budget when frames are running long, then split it evenly so
+        // the total tail work is roughly constant no matter how many planes fly.
+        const load = Math.max(0.25, Math.min(1, 16 / Math.max(1, frameMsEMA)));
+        const budget = Math.max(400, Math.floor(TRAIL_POINT_BUDGET * load));
+        const perFlightCap = Math.max(
+            8, Math.min(maxPts, TRAIL_MAX_PTS_PER_FLIGHT, Math.floor(budget / activeWindow))
+        );
+
+        for (const fl of flights) {
+            const pts = fl.points;
+            if (pts.length < 2 || absT < pts[0].t || windowStart > pts[pts.length - 1].t) continue;
             const head = positionAt(pts, absT);
-            if (!head) continue;
-            const chain = tail.concat([head]);
-            if (chain.length < 2) continue;
+            if (!head) continue; // flight isn't airborne at this instant
+
+            // Window the track by binary search instead of filtering every point
+            // each frame — the old O(total points) scan was the cost that piled up
+            // under speed-up + heavy traffic.
+            const startIdx = firstIndexAtOrAfter(pts, windowStart);
+            let endIdx = firstIndexAtOrAfter(pts, absT);
+            while (endIdx < pts.length && pts[endIdx].t <= absT) endIdx++;
+            const count = endIdx - startIdx;
+            if (count < 1) continue;
+
+            // In-window slice, subsampled to the per-flight cap. The most recent
+            // point is always kept so the tail runs cleanly into the live head.
+            let tail;
+            if (count <= perFlightCap) {
+                tail = pts.slice(startIdx, endIdx);
+            } else {
+                tail = [];
+                const step = count / perFlightCap;
+                for (let i = 0; i < perFlightCap; i++) tail.push(pts[startIdx + Math.floor(i * step)]);
+                if (tail[tail.length - 1] !== pts[endIdx - 1]) tail.push(pts[endIdx - 1]);
+            }
+            tail.push(head); // tail is always a fresh array, safe to extend in place
+            if (tail.length < 2) continue;
+
             // augment each vertex with [lon, lat, fade(0..1), altitude] so the
             // fade + altitude smooth in lock-step with the geometry
-            const aug = chain.map(p => [
+            const aug = tail.map(p => [
                 p.lon, p.lat,
                 Math.max(0, Math.min(1, (p.t - windowStart) / windowMs)),
                 p.altitude || 0
@@ -885,8 +941,12 @@ export const AtcReplay = (() => {
     // iOS web view, can read as a hard crash). Swallow per-frame failures so a
     // single bad frame can't take the whole replay — or the app — down.
     function renderFrame() {
+        const t0 = performance.now();
         try { renderFrameUnsafe(); }
         catch (e) { console.warn('[AtcReplay] renderFrame failed:', e); }
+        // Track how long the frame actually took so the trail budget can adapt to
+        // the device + traffic load (see buildTrailFeatures).
+        frameMsEMA = frameMsEMA * 0.9 + (performance.now() - t0) * 0.1;
     }
 
     function renderFrameUnsafe() {
@@ -952,21 +1012,30 @@ export const AtcReplay = (() => {
     }
 
     // Pairwise loss-of-separation test for the airborne aircraft in the frame.
+    // Candidates are sorted south→north so we can sweep-and-prune: once a later
+    // aircraft is more than the conflict radius north of the current one, every
+    // aircraft after it is too (the list is sorted), so we stop scanning. That
+    // turns the old all-pairs O(n²) scan — which spiked the frame cost on a packed
+    // sector — into roughly O(n log n).
     function detectConflicts(active) {
         const set = new Set();
-        for (let i = 0; i < active.length; i++) {
-            const a = active[i].pos;
-            if ((a.altitude || 0) < 500) continue; // skip ground/parked
-            for (let j = i + 1; j < active.length; j++) {
-                const b = active[j].pos;
-                if ((b.altitude || 0) < 500) continue;
+        const air = [];
+        for (const a of active) if ((a.pos.altitude || 0) >= 500) air.push(a); // airborne only
+        if (air.length < 2) return set;
+        air.sort((p, q) => p.pos.lat - q.pos.lat);
+        const latGate = CONFLICT_NM / 60; // ° latitude beyond which no conflict is possible
+        for (let i = 0; i < air.length; i++) {
+            const a = air[i].pos;
+            for (let j = i + 1; j < air.length; j++) {
+                const b = air[j].pos;
+                if (b.lat - a.lat > latGate) break; // sorted: nothing further can be in range
                 if (Math.abs((a.altitude || 0) - (b.altitude || 0)) >= CONFLICT_FT) continue;
                 const midLat = ((a.lat + b.lat) / 2) * Math.PI / 180;
                 const dLat = (a.lat - b.lat) * 60;
                 const dLon = (a.lon - b.lon) * 60 * Math.cos(midLat);
                 if (Math.hypot(dLat, dLon) < CONFLICT_NM) {
-                    set.add(active[i].fl.flightId);
-                    set.add(active[j].fl.flightId);
+                    set.add(air[i].fl.flightId);
+                    set.add(air[j].fl.flightId);
                 }
             }
         }
@@ -1007,11 +1076,9 @@ export const AtcReplay = (() => {
     function updateFreqTimeline(absT) {
         if (!panelEl || !freqWinSpan) return;
         const pct = Math.max(0, Math.min(100, ((absT - freqWinStart) / freqWinSpan) * 100));
-        panelEl.querySelectorAll('.atcr-freq-playhead').forEach(ph => { ph.style.left = pct + '%'; });
-        panelEl.querySelectorAll('.atcr-freq-bar').forEach(bar => {
-            const fs = Number(bar.dataset.fs), fe = Number(bar.dataset.fe);
-            bar.classList.toggle('on-air', absT >= fs && absT <= fe);
-        });
+        const left = pct + '%';
+        for (const ph of freqPlayheads) ph.style.left = left;
+        for (const b of freqBars) b.el.classList.toggle('on-air', absT >= b.fs && absT <= b.fe);
     }
 
     // ---------- formatting ----------
@@ -1165,6 +1232,12 @@ export const AtcReplay = (() => {
         `;
         document.body.appendChild(panelEl);
         bindPanelEvents();
+        // Cache the freq-timeline nodes once so the per-frame playhead sweep in
+        // updateFreqTimeline() doesn't re-query (and re-iterate) the DOM 60×/sec.
+        freqPlayheads = Array.from(panelEl.querySelectorAll('.atcr-freq-playhead'));
+        freqBars = Array.from(panelEl.querySelectorAll('.atcr-freq-bar')).map(bar => ({
+            el: bar, fs: Number(bar.dataset.fs), fe: Number(bar.dataset.fe)
+        }));
         return panelEl;
     }
 
@@ -1426,7 +1499,10 @@ export const AtcReplay = (() => {
     function precomputeConflicts() {
         conflictIntervals = [];
         if (!flights.length || !totalDurationMs) return;
-        const STEP = Math.max(2000, totalDurationMs / 400);
+        // Fewer probes on a crowded roster so this one-time pre-scan can't stall
+        // open() (each probe positions every aircraft + runs the pair check).
+        const samples = flights.length > 150 ? 200 : 400;
+        const STEP = Math.max(2000, totalDurationMs / samples);
         let curStart = null;
         for (let t = 0; t <= totalDurationMs; t += STEP) {
             const absT = spanStart + t;
@@ -1961,7 +2037,9 @@ export const AtcReplay = (() => {
         if (panelEl) { panelEl.remove(); panelEl = null; }
 
         controller = null; flights = []; currentMeta = {}; flightRowEls = {};
+        freqBars = []; freqPlayheads = [];
         spanStart = 0; totalDurationMs = 0; currentMs = 0; speed = 1;
+        frameMsEMA = 16;
         isScrubbing = false; focusedFlightId = null; isFollowing = false;
         isFreeLook = false; preFreeLookCam = null; preFreeLookGestures = null; three = null;
         enforcementCount = null; isLooping = false; isCollapsed = false;
