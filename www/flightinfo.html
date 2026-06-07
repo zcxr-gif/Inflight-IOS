@@ -45,6 +45,24 @@
         --font-data: 'JetBrains Mono', monospace;
 
         --ease-out: cubic-bezier(0.215, 0.61, 0.355, 1);
+
+        /* --- CUSTOMIZATION TOKENS (overridden live by the layout studio) --- */
+        --card-bg: rgba(24, 24, 27, 0.92);   /* surface for route/times/progress/cards */
+        --blur-amount: 40px;                  /* backdrop blur strength */
+        --text-scale: 1;                      /* global type multiplier */
+        --photo-dim: 0;                       /* extra darken layer over the hero photo (0–0.8) */
+        --font-num: var(--font-data);         /* font used for numeric readouts */
+        --tel-cols: 2;                        /* Live Telemetry grid columns */
+        --nav-cols: 2;                        /* Nav & Environment grid columns */
+
+        /* Flight-state palette as "r,g,b" channels so color + tint + border all theme. */
+        --state-climb: 52, 211, 153;
+        --state-descend: 251, 191, 36;
+        --state-cruise: 56, 189, 248;
+        --state-ground: 161, 161, 170;
+        --state-approach: 192, 132, 252;
+        --state-pushback: 251, 146, 60;
+        --state-enroute: 148, 163, 184;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -89,8 +107,8 @@
            keeps the content clear of the floating drag handle / grip. */
         justify-content: flex-start;
         background: linear-gradient(135deg, var(--theme-bg-start), var(--theme-bg-end));
-        backdrop-filter: blur(40px) saturate(140%);
-        -webkit-backdrop-filter: blur(40px) saturate(140%);
+        backdrop-filter: blur(var(--blur-amount)) saturate(140%);
+        -webkit-backdrop-filter: blur(var(--blur-amount)) saturate(140%);
         padding: 26px 16px 16px;
         gap: 14px;
         cursor: pointer;
@@ -197,8 +215,8 @@
         display: flex;
         flex-direction: column;
         background: linear-gradient(135deg, var(--theme-bg-start), var(--theme-bg-end));
-        backdrop-filter: blur(40px) saturate(140%);
-        -webkit-backdrop-filter: blur(40px) saturate(140%);
+        backdrop-filter: blur(var(--blur-amount)) saturate(140%);
+        -webkit-backdrop-filter: blur(var(--blur-amount)) saturate(140%);
         position: absolute; inset: 0;
         background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
     }
@@ -239,13 +257,13 @@
         color: var(--text-secondary); box-shadow: 0 4px 12px rgba(0,0,0,.2); flex-shrink: 0;
     }
     .state-indicator-dot { width:6px; height:6px; border-radius:50%; box-shadow:0 0 8px currentColor; background:currentColor; }
-    .state-climb { color:#34d399; border-color:rgba(52,211,153,.2); background:rgba(52,211,153,.05); }
-    .state-descend { color:#fbbf24; border-color:rgba(251,191,36,.2); background:rgba(251,191,36,.05); }
-    .state-cruise { color:#38bdf8; border-color:rgba(56,189,248,.2); background:rgba(56,189,248,.05); }
-    .state-ground { color:#a1a1aa; border-color:rgba(161,161,170,.2); background:rgba(161,161,170,.05); }
-    .state-approach { color:#c084fc; border-color:rgba(192,132,252,.2); background:rgba(192,132,252,.05); }
-    .state-pushback { color:#fb923c; border-color:rgba(251,146,60,.2); background:rgba(251,146,60,.05); }
-    .state-enroute { color:#94a3b8; border-color:rgba(148,163,184,.2); background:rgba(148,163,184,.05); }
+    .state-climb { color:rgb(var(--state-climb)); border-color:rgba(var(--state-climb),.2); background:rgba(var(--state-climb),.05); }
+    .state-descend { color:rgb(var(--state-descend)); border-color:rgba(var(--state-descend),.2); background:rgba(var(--state-descend),.05); }
+    .state-cruise { color:rgb(var(--state-cruise)); border-color:rgba(var(--state-cruise),.2); background:rgba(var(--state-cruise),.05); }
+    .state-ground { color:rgb(var(--state-ground)); border-color:rgba(var(--state-ground),.2); background:rgba(var(--state-ground),.05); }
+    .state-approach { color:rgb(var(--state-approach)); border-color:rgba(var(--state-approach),.2); background:rgba(var(--state-approach),.05); }
+    .state-pushback { color:rgb(var(--state-pushback)); border-color:rgba(var(--state-pushback),.2); background:rgba(var(--state-pushback),.05); }
+    .state-enroute { color:rgb(var(--state-enroute)); border-color:rgba(var(--state-enroute),.2); background:rgba(var(--state-enroute),.05); }
     .state-badge-icon { font-size:9px; }
 
     /* Scroll area */
@@ -261,13 +279,7 @@
        route, times and progress. Pin every child to its natural height and let
        the viewport scroll instead. */
     .scroll-viewport > * { flex-shrink: 0; }
-
-    .unified-mission-card {
-        border-radius: var(--radius-lg); border: 1px solid var(--border-glass);
-        box-shadow: 0 20px 40px -10px rgba(0,0,0,.6);
-        display: flex; flex-direction: column; background: var(--bg-panel);
-        margin-top: 6px; position: relative; overflow: hidden;
-    }
+    .scroll-viewport > .sw-block[data-block="hero"] { margin-top: 6px; }
 
     /* HERO — big plane image.
        Match the regular flight window's hero: a fixed aspect ratio with
@@ -281,7 +293,7 @@
         width: 100%; height: 100%; object-fit: cover; object-position: center;
         display: block; transition: transform 8s ease; transform: scale(1);
     }
-    .unified-mission-card:hover .hero-img { transform: scale(1.03); }
+    .sw-block[data-block="hero"]:hover .hero-img { transform: scale(1.03); }
     .photo-credit {
         position: absolute; top: 10px; left: 10px; font-size: 9px;
         color: rgba(255,255,255,.75); background: rgba(0,0,0,.5); padding: 3px 8px;
@@ -319,7 +331,7 @@
     .route-hero {
         display: flex; align-items: center; justify-content: space-between;
         padding: 22px 18px 18px; gap: 12px;
-        background: rgba(24,24,27,.92); border-top: 1px solid rgba(255,255,255,.05);
+        background: var(--card-bg); border-top: 1px solid rgba(255,255,255,.05);
     }
     .rh-port { min-width: 0; text-align: center; }
     .rh-icao { font-size: 44px; font-weight: 900; line-height: .95; letter-spacing: -2px; color: #fff; }
@@ -340,7 +352,7 @@
     /* TIMES GRID (Scheduled / Actual / Estimated) */
     .times-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border-glass); }
     .tg-cell {
-        background: rgba(24,24,27,.92); padding: 12px 16px;
+        background: var(--card-bg); padding: 12px 16px;
         display: flex; align-items: center; justify-content: space-between; gap: 8px;
     }
     .tg-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--text-dim); }
@@ -349,7 +361,7 @@
 
     /* progress under times */
     .route-progress-row {
-        padding: 16px 18px 18px; background: rgba(24,24,27,.92);
+        padding: 16px 18px 18px; background: var(--card-bg);
         border-top: 1px solid rgba(255,255,255,.05);
     }
     .rp-track { position: relative; height: 4px; border-radius: 2px; background: rgba(255,255,255,.10); }
@@ -359,7 +371,7 @@
     .rp-labels .mono { font-family: var(--font-data); }
 
     /* ROUTE / WAYPOINTS dropdown */
-    .mission-route-section { background: rgba(24,24,27,.92); position: relative; }
+    .mission-route-section { background: var(--card-bg); position: relative; }
     .route-visual-header {
         padding: 14px 18px; display: flex; align-items: center; justify-content: center; gap: 10px;
         cursor: pointer; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;
@@ -496,6 +508,389 @@
         .collapsed-bar { max-width: 540px; margin-left: auto; margin-right: auto; }
         .rh-city { max-width: 200px; }
     }
+
+    /* ============================================================
+       LAYOUT CUSTOMIZATION
+       `body[data-peek]` chooses how much the collapsed/peek bar shows
+       (small picture <-> bigger picture). `body.hide-*` classes drop
+       individual sections out of the expanded view. Both are driven by
+       the in-window Customize editor and persisted to localStorage.
+       ============================================================ */
+
+    /* --- New collapsed-bar pieces. Hidden by default; revealed per preset. --- */
+    .cb-state, .cb-seat { display: none; }
+    .cb-state {
+        font-family: var(--font-data); font-size: 10px; font-weight: 700;
+        text-transform: uppercase; letter-spacing: .6px;
+        padding: 3px 9px; border-radius: 999px;
+        border: 1px solid currentColor; color: var(--text-secondary);
+        align-items: center; gap: 6px; line-height: 1; flex-shrink: 0;
+    }
+    .cb-state .cb-state-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
+    .cb-state.state-climb { color:rgb(var(--state-climb)); } .cb-state.state-descend { color:rgb(var(--state-descend)); }
+    .cb-state.state-cruise { color:rgb(var(--state-cruise)); } .cb-state.state-ground { color:rgb(var(--state-ground)); }
+    .cb-state.state-approach { color:rgb(var(--state-approach)); } .cb-state.state-pushback { color:rgb(var(--state-pushback)); }
+    .cb-state.state-enroute { color:rgb(var(--state-enroute)); }
+    .cb-seat {
+        font-size: 9px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase;
+        padding: 2px 7px; border-radius: 5px; align-items: center; flex-shrink: 0;
+        background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.05); color: var(--text-dim);
+    }
+    .cb-seat.text-active { color:#4ade80; background:rgba(74,222,128,.1); border-color:rgba(74,222,128,.15); }
+    .cb-seat.text-auto   { color:#facc15; background:rgba(250,204,21,.1); border-color:rgba(250,204,21,.15); }
+    .cb-seat.text-parked { color:#f87171; background:rgba(248,113,113,.1); border-color:rgba(248,113,113,.15); }
+    .cb-seat.text-ap-plus{ color:#818cf8; background:rgba(129,140,248,.1); border-color:rgba(129,140,248,.15); }
+
+    /* Subtle settings affordance in the peek bar (opens the editor directly). */
+    .cb-edit {
+        position: absolute; top: 18px; right: 14px; z-index: 6;
+        width: 30px; height: 30px; border-radius: 50%;
+        display: grid; place-items: center; cursor: pointer;
+        background: rgba(255,255,255,.06); border: 1px solid var(--border-glass);
+        color: var(--text-secondary); font-size: 12px; backdrop-filter: blur(6px);
+        transition: color .2s, background .2s;
+    }
+    .cb-edit:active { transform: scale(.94); }
+    .cb-edit:hover { color: #fff; background: rgba(255,255,255,.12); }
+
+    /* Rich-peek aircraft photo card (mirrors the expanded hero, condensed). */
+    .cb-hero {
+        display: none; position: relative; width: 100%; height: 140px; flex-shrink: 0;
+        border-radius: var(--radius-md); overflow: hidden;
+        background: #0f172a center/cover no-repeat;
+        border: 1px solid var(--border-highlight);
+        box-shadow: 0 8px 22px rgba(0,0,0,.45);
+    }
+    .cb-hero-overlay {
+        position: absolute; inset: 0; display: flex; align-items: flex-end; justify-content: space-between;
+        gap: 10px; padding: 34px 12px 11px;
+        background: linear-gradient(to top, rgba(15,23,42,.95) 0%, rgba(15,23,42,.4) 55%, transparent 100%);
+    }
+    .cb-hero-name { font-size: 14px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 2px 8px rgba(0,0,0,.5); }
+    .cb-hero-sub { font-size: 11px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+    .cb-hero-reg { font-family: var(--font-data); font-size: 11px; font-weight: 600; color: #fff; background: rgba(255,255,255,.14); border: 1px solid var(--border-glass); padding: 4px 9px; border-radius: 7px; flex-shrink: 0; }
+    .cb-hero-credit { position: absolute; top: 8px; left: 8px; font-size: 8px; text-transform: uppercase; letter-spacing: .4px; color: rgba(255,255,255,.8); background: rgba(0,0,0,.5); padding: 2px 6px; border-radius: 5px; }
+
+    /* --- PRESET: MINIMAL — identity + state + route + thin progress only. --- */
+    body[data-peek="minimal"] .cb-thumb,
+    body[data-peek="minimal"] .cb-pilot,
+    body[data-peek="minimal"] .cb-airline,
+    body[data-peek="minimal"] .cb-hero,
+    body[data-peek="minimal"] .cb-city,
+    body[data-peek="minimal"] .cb-prog-labels { display: none; }
+    body[data-peek="minimal"] .cb-state { display: inline-flex; }
+    body[data-peek="minimal"] .collapsed-bar { gap: 12px; }
+
+    /* --- PRESET: STANDARD (default) — adds thumbnail, pilot, airline, cities. --- */
+    body[data-peek="standard"] .cb-state { display: inline-flex; }
+    body[data-peek="standard"] .cb-hero { display: none; }
+
+    /* --- PRESET: RICH — swaps the thumbnail for a full photo card (shared design). --- */
+    body[data-peek="rich"] .cb-thumb,
+    body[data-peek="rich"] .cb-airline { display: none; } /* livery shown on the photo card instead */
+    body[data-peek="rich"] .cb-hero { display: block; }
+    body[data-peek="rich"] .cb-state,
+    body[data-peek="rich"] .cb-seat { display: inline-flex; }
+
+    /* --- Expanded-view section visibility (whole blocks) --- */
+    body.hide-hero      .sw-block[data-block="hero"],
+    body.hide-times     .sw-block[data-block="times"],
+    body.hide-flightplan .sw-block[data-block="flightplan"],
+    body.hide-flightplan #btn-route,
+    body.hide-telemetry .sw-block[data-block="telemetry"],
+    body.hide-navenv    .sw-block[data-block="navenv"],
+    body.hide-graph     .sw-block[data-block="graph"],
+    body.hide-manifest  .sw-block[data-block="manifest"] { display: none; }
+    /* Editing always reveals every block (even toggled-off ones) so they can be
+       re-ordered / re-enabled in place. */
+    body.editing .sw-block { display: block !important; }
+
+    /* Per-grid column counts (studio "columns" control). */
+    #sec-telemetry .telemetry-bento { grid-template-columns: repeat(var(--tel-cols, 2), 1fr); }
+    #sec-navenv .telemetry-bento { grid-template-columns: repeat(var(--nav-cols, 2), 1fr); }
+    /* A metric hidden via the studio. */
+    .bento-cell.metric-off { display: none; }
+
+    /* ============================================================
+       CUSTOMIZE EDITOR — in-window bottom sheet
+       ============================================================ */
+    .customize-sheet {
+        position: fixed; inset: 0; z-index: 200;
+        opacity: 0; visibility: hidden; transition: opacity .28s ease, visibility 0s linear .28s;
+    }
+    .customize-sheet.open { opacity: 1; visibility: visible; transition: opacity .28s ease; }
+    .cs-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.55); backdrop-filter: blur(2px); }
+    .cs-panel {
+        position: absolute; left: 0; right: 0; bottom: 0;
+        max-height: 86%; display: flex; flex-direction: column;
+        background: linear-gradient(135deg, var(--theme-bg-start), var(--theme-bg-end));
+        backdrop-filter: blur(var(--blur-amount)) saturate(140%); -webkit-backdrop-filter: blur(var(--blur-amount)) saturate(140%);
+        border-top: 1px solid var(--border-highlight);
+        border-radius: 22px 22px 0 0; box-shadow: 0 -20px 50px rgba(0,0,0,.5);
+        transform: translateY(100%); transition: transform .34s var(--ease-out);
+        padding-bottom: env(safe-area-inset-bottom, 12px);
+    }
+    .customize-sheet.open .cs-panel { transform: translateY(0); }
+    .cs-grip { width: 40px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.2); margin: 10px auto 0; flex-shrink: 0; }
+    .cs-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px 8px; flex-shrink: 0; }
+    .cs-title { font-size: 17px; font-weight: 800; color: #fff; letter-spacing: -.3px; }
+    .cs-close { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--border-glass); background: rgba(255,255,255,.06); color: var(--text-secondary); cursor: pointer; display: grid; place-items: center; font-size: 14px; }
+    .cs-close:active { transform: scale(.94); }
+    .cs-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 4px 20px 20px; display: flex; flex-direction: column; gap: 8px; }
+    .cs-body::-webkit-scrollbar { width: 0; }
+    .cs-group-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); margin: 14px 0 4px 2px; }
+    .cs-group-label:first-child { margin-top: 6px; }
+
+    .cs-peek-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .cs-peek-opt {
+        display: flex; flex-direction: column; align-items: center; gap: 8px;
+        padding: 14px 6px 12px; cursor: pointer;
+        background: var(--bg-panel); border: 1px solid var(--border-glass); border-radius: var(--radius-md);
+        color: var(--text-secondary); transition: border-color .2s, background .2s, color .2s;
+    }
+    .cs-peek-opt:hover { background: rgba(255,255,255,.06); }
+    .cs-peek-opt.active { border-color: var(--color-brand); color: #fff; background: rgba(56,189,248,.08); box-shadow: 0 0 0 1px var(--color-brand); }
+    .cs-peek-glyph { display: flex; flex-direction: column; gap: 3px; width: 40px; align-items: stretch; }
+    .cs-peek-glyph i { height: 4px; border-radius: 2px; background: currentColor; opacity: .35; }
+    .cs-peek-opt.active .cs-peek-glyph i { opacity: 1; }
+    .cs-peek-glyph i.tall { height: 16px; }
+    .cs-peek-glyph i.med { height: 9px; }
+    .cs-peek-name { font-size: 12px; font-weight: 700; }
+    .cs-peek-desc { font-size: 9px; color: var(--text-dim); text-align: center; line-height: 1.25; }
+    .cs-peek-opt.active .cs-peek-desc { color: var(--text-secondary); }
+
+    .cs-toggle {
+        display: flex; align-items: center; gap: 12px; padding: 13px 14px;
+        background: var(--bg-panel); border: 1px solid var(--border-glass); border-radius: var(--radius-sm);
+        cursor: pointer;
+    }
+    .cs-toggle:active { background: rgba(255,255,255,.06); }
+    .cs-toggle-icon { width: 28px; height: 28px; border-radius: 7px; display: grid; place-items: center; background: rgba(255,255,255,.05); color: var(--text-secondary); font-size: 13px; flex-shrink: 0; }
+    .cs-toggle-text { flex: 1; min-width: 0; }
+    .cs-toggle-label { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+    .cs-toggle-sub { font-size: 10px; color: var(--text-dim); margin-top: 1px; }
+    .cs-switch { position: relative; width: 42px; height: 25px; flex-shrink: 0; }
+    .cs-switch input { opacity: 0; width: 0; height: 0; }
+    .cs-switch-track { position: absolute; inset: 0; border-radius: 99px; background: rgba(255,255,255,.12); transition: background .2s; }
+    .cs-switch-track::before { content: ''; position: absolute; top: 3px; left: 3px; width: 19px; height: 19px; border-radius: 50%; background: #fff; transition: transform .22s var(--ease-out); box-shadow: 0 2px 6px rgba(0,0,0,.4); }
+    .cs-switch input:checked + .cs-switch-track { background: var(--color-brand); }
+    .cs-switch input:checked + .cs-switch-track::before { transform: translateX(17px); }
+
+    .cs-reset {
+        margin-top: 14px; padding: 13px; border-radius: var(--radius-sm); cursor: pointer;
+        background: rgba(255,255,255,.04); border: 1px solid var(--border-glass);
+        color: var(--text-secondary); font-family: var(--font-ui); font-size: 12px; font-weight: 700;
+        text-transform: uppercase; letter-spacing: .5px;
+    }
+    .cs-reset:active { background: rgba(255,255,255,.08); }
+
+    /* Header gear that opens the editor from the expanded view. */
+    .ev-header-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+    .ev-gear {
+        width: 34px; height: 34px; border-radius: 50%; cursor: pointer;
+        background: rgba(255,255,255,.05); border: 1px solid var(--border-glass);
+        color: var(--text-secondary); display: grid; place-items: center; font-size: 14px;
+        transition: color .2s, background .2s;
+    }
+    .ev-gear:hover { color: #fff; background: rgba(255,255,255,.1); }
+    .ev-gear:active { transform: scale(.94); }
+
+    /* ============================================================
+       TYPE SCALE — multiply key sizes by --text-scale so the studio's
+       text-size control affects the headline elements uniformly.
+       ============================================================ */
+    .cb-callsign { font-size: calc(22px * var(--text-scale)); }
+    .cb-icao { font-size: calc(30px * var(--text-scale)); }
+    .cb-city, .cb-state, .cb-seat { font-size: calc(10.5px * var(--text-scale)); }
+    .cb-hero-name { font-size: calc(14px * var(--text-scale)); }
+    .ev-callsign { font-size: calc(28px * var(--text-scale)); }
+    .flight-state-badge { font-size: calc(10px * var(--text-scale)); }
+    .rh-icao { font-size: calc(44px * var(--text-scale)); }
+    .rh-city { font-size: calc(12px * var(--text-scale)); }
+    .tg-time { font-size: calc(17px * var(--text-scale)); }
+    .tg-label { font-size: calc(10px * var(--text-scale)); }
+    .grid-section-label { font-size: calc(10px * var(--text-scale)); }
+    .cell-label { font-size: calc(10px * var(--text-scale)); }
+    .cell-data { font-size: calc(24px * var(--text-scale)); }
+    .rp-labels { font-size: calc(12px * var(--text-scale)); }
+    .wp-ident { font-size: calc(14px * var(--text-scale)); }
+    .pp-name { font-size: calc(18px * var(--text-scale)); }
+    .grade-val { font-size: calc(28px * var(--text-scale)); }
+    .p-stat-val { font-size: calc(15px * var(--text-scale)); }
+
+    /* Numeric readouts honor the chosen number font (mono toggle). */
+    .cell-data, .tg-time, .rh-icao, .cb-icao, .grade-val, .p-stat-val, .rp-labels .mono { font-family: var(--font-num); }
+
+    /* --- DENSITY: compact tightens spacing throughout. --- */
+    body[data-density="compact"] .scroll-viewport { gap: 7px; }
+    body[data-density="compact"] .bento-cell { padding: 11px; min-height: 70px; }
+    body[data-density="compact"] .telemetry-bento { gap: 6px; }
+    body[data-density="compact"] .route-hero { padding: 14px 14px 12px; }
+    body[data-density="compact"] .route-progress-row { padding: 12px 14px; }
+    body[data-density="compact"] .tg-cell { padding: 9px 14px; }
+    body[data-density="compact"] .grid-section-label { margin: 8px 0 5px 4px; }
+    body[data-density="compact"] .ev-header { padding: 16px 16px 8px; }
+
+    /* --- GLOW off: drop the decorative text/dot halos. --- */
+    body.no-glow .rh-icao, body.no-glow .cb-callsign, body.no-glow .ev-callsign,
+    body.no-glow .text-highlight, body.no-glow .cb-icao { text-shadow: none; }
+    body.no-glow .state-indicator-dot, body.no-glow .cb-state-dot { box-shadow: none; }
+
+    /* Extra darkening layer over the hero photo (studio "photo dim"). */
+    .hero-dim { position: absolute; inset: 0; background: #000; opacity: var(--photo-dim); pointer-events: none; z-index: 2; }
+
+    /* ============================================================
+       FLAT, REORDERABLE BLOCKS
+       Each expanded section is an independent, individually styleable
+       card so the studio can drag them into any order. IDs inside are
+       unchanged so live data keeps binding.
+       ============================================================ */
+    .sw-block { position: relative; }
+    /* Give the route/times/progress/flightplan blocks the card surface +
+       rounded corners now that they're no longer fused in one card. */
+    .sw-block[data-block="route"] .route-hero,
+    .sw-block[data-block="times"] .times-grid,
+    .sw-block[data-block="progress"] .route-progress-row,
+    .sw-block[data-block="flightplan"] .mission-route-section {
+        border-radius: var(--radius-lg); border: 1px solid var(--border-glass); overflow: hidden;
+    }
+    .sw-block[data-block="hero"] .mission-visual-section { border-radius: var(--radius-lg); }
+    .sw-block[data-block="times"] .times-grid { border-top: none; }
+    .sw-block[data-block="progress"] .route-progress-row,
+    .sw-block[data-block="route"] .route-hero { border-top: none; }
+
+    /* Drag handle — hidden until edit mode. */
+    .sw-drag-handle {
+        display: none; position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+        z-index: 30; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 99px;
+        background: rgba(0,0,0,.6); border: 1px solid var(--border-highlight); color: #fff;
+        font-size: 11px; font-weight: 700; cursor: grab; backdrop-filter: blur(6px);
+        touch-action: none; user-select: none;
+    }
+    .sw-drag-handle i { font-size: 10px; opacity: .8; }
+
+    /* Edit mode: outline every block, reveal handles, dim live chrome. */
+    body.editing .sw-block {
+        outline: 1px dashed rgba(255,255,255,.25); outline-offset: 2px;
+        border-radius: var(--radius-lg); min-height: 54px;
+        transition: transform .18s ease, opacity .18s ease;
+    }
+    body.editing .sw-block .sw-drag-handle { display: inline-flex; }
+    body.editing .scroll-viewport { padding-top: 14px; }
+    /* Pointer events on inner controls are suppressed so taps don't toggle
+       dropdowns / scroll the route while you're rearranging. */
+    body.editing .sw-block > *:not(.sw-drag-handle) { pointer-events: none; }
+    .sw-block.sw-dragging { opacity: .9; z-index: 50; box-shadow: 0 18px 40px rgba(0,0,0,.6); cursor: grabbing; }
+    .sw-block.sw-placeholder { opacity: 0; }
+
+    /* Floating Done bar shown while editing the live layout. */
+    .edit-banner {
+        position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+        transform: translateX(-50%) translateY(140%); z-index: 180;
+        display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 18px;
+        background: linear-gradient(135deg, var(--theme-bg-start), var(--theme-bg-end));
+        border: 1px solid var(--border-highlight); border-radius: 99px;
+        box-shadow: 0 14px 40px rgba(0,0,0,.5); backdrop-filter: blur(var(--blur-amount));
+        transition: transform .3s var(--ease-out);
+    }
+    body.editing .edit-banner { transform: translateX(-50%) translateY(0); }
+    .edit-banner span { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+    .edit-banner button {
+        border: none; border-radius: 99px; padding: 8px 18px; cursor: pointer;
+        background: var(--color-brand); color: #04121c; font-weight: 800; font-size: 12px;
+        text-transform: uppercase; letter-spacing: .5px;
+    }
+    .edit-banner button:active { transform: scale(.96); }
+
+    /* ============================================================
+       STUDIO CONTROLS (tabs + rows + pickers)
+       ============================================================ */
+    .cs-tabs {
+        display: flex; gap: 4px; padding: 4px 14px 10px; flex-shrink: 0;
+        border-bottom: 1px solid var(--border-glass);
+    }
+    .cs-tab {
+        flex: 1; padding: 9px 4px; border: none; cursor: pointer; border-radius: 10px;
+        background: transparent; color: var(--text-dim);
+        font-family: var(--font-ui); font-size: 11px; font-weight: 700;
+        display: flex; flex-direction: column; align-items: center; gap: 4px; transition: color .2s, background .2s;
+    }
+    .cs-tab i { font-size: 13px; }
+    .cs-tab.active { color: #fff; background: rgba(255,255,255,.07); }
+    .cs-pane { display: none; flex-direction: column; gap: 8px; }
+    .cs-pane.active { display: flex; }
+
+    .cs-row { display: flex; align-items: center; gap: 12px; min-height: 40px; padding: 4px 2px; }
+    .cs-row-label { flex: 1; font-size: 13px; font-weight: 600; color: var(--text-primary); }
+    .cs-row-val { font-family: var(--font-data); font-size: 12px; color: var(--text-secondary); min-width: 38px; text-align: right; }
+
+    .cs-color {
+        -webkit-appearance: none; appearance: none; width: 46px; height: 30px; padding: 0;
+        border: 1px solid var(--border-highlight); border-radius: 8px; background: none; cursor: pointer; flex-shrink: 0;
+    }
+    .cs-color::-webkit-color-swatch-wrapper { padding: 2px; }
+    .cs-color::-webkit-color-swatch { border: none; border-radius: 6px; }
+
+    .cs-range {
+        -webkit-appearance: none; appearance: none; flex: 1.4; height: 4px; border-radius: 2px;
+        background: rgba(255,255,255,.15); outline: none;
+    }
+    .cs-range::-webkit-slider-thumb {
+        -webkit-appearance: none; appearance: none; width: 18px; height: 18px; border-radius: 50%;
+        background: var(--color-brand); cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,.4);
+    }
+
+    .cs-seg { display: inline-flex; background: rgba(255,255,255,.05); border: 1px solid var(--border-glass); border-radius: 9px; padding: 3px; gap: 3px; }
+    .cs-seg button {
+        border: none; background: transparent; cursor: pointer; padding: 6px 14px; border-radius: 7px;
+        color: var(--text-secondary); font-family: var(--font-ui); font-size: 12px; font-weight: 700; transition: background .2s, color .2s;
+    }
+    .cs-seg button.active { background: var(--color-brand); color: #04121c; }
+
+    .cs-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+    .cs-chip {
+        border: 1px solid var(--border-glass); background: rgba(255,255,255,.04); cursor: pointer;
+        padding: 8px 13px; border-radius: 99px; color: var(--text-dim);
+        font-family: var(--font-ui); font-size: 12px; font-weight: 600; transition: all .18s;
+    }
+    .cs-chip.active { color: #fff; border-color: var(--color-brand); background: rgba(56,189,248,.14); }
+    .cs-chip::before { content: '\f00d'; font-family: 'Font Awesome 6 Free'; font-weight: 900; font-size: 9px; margin-right: 6px; opacity: .5; }
+    .cs-chip.active::before { content: '\f00c'; opacity: 1; color: var(--color-brand); }
+
+    .cs-state-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .cs-state-chip {
+        display: flex; align-items: center; gap: 10px; padding: 8px 12px; cursor: pointer;
+        background: var(--bg-panel); border: 1px solid var(--border-glass); border-radius: var(--radius-sm);
+    }
+    .cs-state-chip span { font-size: 12px; font-weight: 600; color: var(--text-primary); }
+
+    .cs-theme-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .cs-theme {
+        display: flex; flex-direction: column; align-items: center; gap: 7px; padding: 12px 4px; cursor: pointer;
+        background: var(--bg-panel); border: 1px solid var(--border-glass); border-radius: var(--radius-md);
+        color: var(--text-secondary); font-size: 11px; font-weight: 700; transition: border-color .2s;
+    }
+    .cs-theme:hover { border-color: var(--border-highlight); color: #fff; }
+    .cs-theme-sw { width: 100%; height: 30px; border-radius: 7px; border: 1px solid rgba(255,255,255,.12); }
+
+    .cs-bigbtn {
+        display: flex; align-items: center; justify-content: center; gap: 8px;
+        padding: 13px; border-radius: var(--radius-sm); cursor: pointer; width: 100%;
+        background: rgba(255,255,255,.05); border: 1px solid var(--border-highlight);
+        color: var(--text-primary); font-family: var(--font-ui); font-size: 13px; font-weight: 700;
+    }
+    .cs-bigbtn:active { transform: scale(.99); background: rgba(255,255,255,.09); }
+
+    .cs-saved-list { display: flex; flex-direction: column; gap: 6px; }
+    .cs-empty { font-size: 12px; color: var(--text-dim); font-style: italic; padding: 6px 2px; }
+    .cs-saved-item { display: flex; align-items: center; gap: 8px; padding: 10px 12px; background: var(--bg-panel); border: 1px solid var(--border-glass); border-radius: var(--radius-sm); }
+    .cs-saved-item .name { flex: 1; font-size: 13px; font-weight: 600; color: var(--text-primary); cursor: pointer; }
+    .cs-saved-item button { border: none; background: rgba(255,255,255,.06); color: var(--text-secondary); width: 28px; height: 28px; border-radius: 7px; cursor: pointer; }
+    .cs-saved-item button.apply { color: var(--color-brand); }
+
+    .cs-share-row { display: flex; gap: 6px; }
+    .cs-code { flex: 1; min-width: 0; background: var(--bg-panel); border: 1px solid var(--border-glass); border-radius: 8px; color: var(--text-secondary); font-family: var(--font-data); font-size: 11px; padding: 8px 10px; }
+    .cs-mini { border: 1px solid var(--border-highlight); background: rgba(255,255,255,.05); color: var(--text-primary); border-radius: 8px; padding: 8px 12px; font-size: 11px; font-weight: 700; cursor: pointer; }
     </style>
 </head>
 <body class="collapsed">
@@ -505,20 +900,35 @@
          =========================================================== -->
     <div class="collapsed-bar" id="collapsed-bar">
         <div class="cb-grip"></div>
+        <div class="cb-edit" id="cb-edit" title="Customize"><i class="fa-solid fa-sliders"></i></div>
 
         <div class="cb-top">
             <div class="cb-identity">
                 <div class="cb-callsign-row">
                     <span class="cb-callsign" id="c-callsign">----</span>
+                    <span class="cb-state" id="c-state"><span class="cb-state-dot"></span><span id="c-state-text">--</span></span>
                     <span class="cb-chip" id="c-actype" style="display:none;">---</span>
                 </div>
                 <div class="cb-pilot" id="c-pilot">
                     <i class="fa-solid fa-user-astronaut"></i>
                     <span id="c-username">Pilot</span>
+                    <span class="cb-seat" id="c-seat" style="display:none;">---</span>
                 </div>
                 <div class="cb-airline" id="c-airline">Tap for details</div>
             </div>
             <div class="cb-thumb" id="c-thumb"></div>
+        </div>
+
+        <!-- Rich-peek aircraft photo card (shown only when data-peek="rich"). -->
+        <div class="cb-hero" id="c-hero">
+            <span class="cb-hero-credit" id="c-hero-credit" style="display:none;"></span>
+            <div class="cb-hero-overlay">
+                <div style="min-width:0;">
+                    <div class="cb-hero-name" id="c-hero-name">---</div>
+                    <div class="cb-hero-sub" id="c-hero-livery">---</div>
+                </div>
+                <div class="cb-hero-reg" id="c-hero-reg">---</div>
+            </div>
         </div>
 
         <div class="cb-route">
@@ -561,21 +971,27 @@
                     <span id="seat-status-label" class="seat-mini-label" style="display:none;">---</span>
                 </div>
             </div>
-            <div class="flight-state-badge" id="state-badge">
-                <div class="state-indicator-dot" id="state-dot"></div>
-                <i class="fa-solid fa-route state-badge-icon" id="state-icon"></i>
-                <span class="state-text" id="status-text">Standby</span>
+            <div class="ev-header-right">
+                <button class="ev-gear" id="ev-gear" title="Customize layout" aria-label="Customize layout">
+                    <i class="fa-solid fa-sliders"></i>
+                </button>
+                <div class="flight-state-badge" id="state-badge">
+                    <div class="state-indicator-dot" id="state-dot"></div>
+                    <i class="fa-solid fa-route state-badge-icon" id="state-icon"></i>
+                    <span class="state-text" id="status-text">Standby</span>
+                </div>
             </div>
         </header>
 
         <div class="scroll-viewport">
 
-            <div class="unified-mission-card">
-
-                <!-- BIG plane hero -->
+            <!-- BIG plane hero -->
+            <div class="sw-block" data-block="hero">
+                <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Aircraft</div>
                 <div class="mission-visual-section skeleton" id="hero-container">
                     <img id="ac-photo" class="hero-img" src="" style="display:none;"
                          onload="this.style.display='block'; this.parentElement.classList.remove('skeleton');">
+                    <div class="hero-dim"></div>
                     <div id="ac-credit" class="photo-credit" style="display:none;"></div>
                     <div class="hero-collapse-btn" id="hero-collapse-btn">
                         <i class="fa-solid fa-chevron-up"></i> Less info
@@ -588,8 +1004,11 @@
                         <div class="ac-reg-badge" id="ac-reg">---</div>
                     </div>
                 </div>
+            </div>
 
-                <!-- BIG route -->
+            <!-- BIG route -->
+            <div class="sw-block" data-block="route">
+                <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Route</div>
                 <div class="route-hero">
                     <div class="rh-port origin">
                         <div class="rh-icao" id="dep-icao">---</div>
@@ -605,9 +1024,12 @@
                         <img id="arr-flag" src="" alt="" style="display:none;">
                     </div>
                 </div>
+            </div>
 
-                <!-- Times grid -->
-                <div class="times-grid">
+            <!-- Times grid -->
+            <div class="sw-block" data-block="times">
+                <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Times</div>
+                <div class="times-grid" id="sec-times">
                     <div class="tg-cell">
                         <span class="tg-label" id="dep-label-1">Scheduled</span>
                         <span class="tg-time" id="dep-time-1">--:--</span>
@@ -625,8 +1047,11 @@
                         <span class="tg-time"><span class="tg-dot" id="arr-dot" style="display:none;"></span><span id="arr-time-2">--:--</span></span>
                     </div>
                 </div>
+            </div>
 
-                <!-- progress -->
+            <!-- progress -->
+            <div class="sw-block" data-block="progress">
+                <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Progress</div>
                 <div class="route-progress-row">
                     <div class="rp-track">
                         <div class="rp-fill" id="route-progress"></div>
@@ -637,8 +1062,11 @@
                         <span><span class="mono" id="dist-remaining">----</span> · <span id="arrive-in">--</span></span>
                     </div>
                 </div>
+            </div>
 
-                <!-- waypoints -->
+            <!-- waypoints -->
+            <div class="sw-block" data-block="flightplan">
+                <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Flight Plan</div>
                 <div class="mission-route-section" id="route-card-container">
                     <div class="route-visual-header" id="route-toggle-btn">
                         <i class="fa-solid fa-route"></i> Flight Plan
@@ -652,70 +1080,73 @@
                         </div>
                     </div>
                 </div>
-
             </div>
 
-            <div>
+            <div class="sw-block" data-block="telemetry" id="sec-telemetry">
+                <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Telemetry</div>
                 <div class="grid-section-label">Live Telemetry</div>
                 <div class="telemetry-bento">
-                    <div class="bento-cell">
+                    <div class="bento-cell" data-metric="alt">
                         <div class="cell-header"><span class="cell-label">Altitude</span><i class="fa-solid fa-cloud cell-icon"></i></div>
                         <div class="cell-data"><span id="val-alt">---</span><span class="cell-unit">ft</span></div>
                     </div>
-                    <div class="bento-cell">
+                    <div class="bento-cell" data-metric="spd">
                         <div class="cell-header"><span class="cell-label">GND Speed</span><i class="fa-solid fa-gauge-high cell-icon"></i></div>
                         <div class="cell-data"><span id="val-spd">---</span><span class="cell-unit">kts</span></div>
                     </div>
-                    <div class="bento-cell">
+                    <div class="bento-cell" data-metric="vs">
                         <div class="cell-header"><span class="cell-label">Vertical</span><i class="fa-solid fa-elevator cell-icon"></i></div>
                         <div class="cell-data cell-vs-graphic"><i id="val-vs-arrow" class="fa-solid fa-minus vs-arrow"></i><span id="val-vs">0</span><span class="cell-unit">fpm</span></div>
                     </div>
-                    <div class="bento-cell">
+                    <div class="bento-cell" data-metric="hdg">
                         <div class="cell-header"><span class="cell-label">Heading</span><i class="fa-regular fa-compass cell-icon"></i></div>
                         <div class="cell-data"><span id="val-hdg">---</span><span class="cell-unit">°</span></div>
                     </div>
                 </div>
             </div>
 
-            <div>
+            <div class="sw-block" data-block="navenv" id="sec-navenv">
+                <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Nav &amp; Env</div>
                 <div class="grid-section-label">Navigation &amp; Environment</div>
                 <div class="telemetry-bento">
-                    <div class="bento-cell">
+                    <div class="bento-cell" data-metric="tas">
                         <div class="cell-header"><span class="cell-label">True Airspeed</span><i class="fa-solid fa-wind cell-icon"></i></div>
                         <div class="cell-data"><span id="val-tas">---</span><span class="cell-unit">kts</span></div>
                     </div>
-                    <div class="bento-cell">
+                    <div class="bento-cell" data-metric="oat">
                         <div class="cell-header"><span class="cell-label">OAT</span><i class="fa-solid fa-temperature-half cell-icon"></i></div>
                         <div class="cell-data"><span id="val-oat">---</span><span class="cell-unit">°C</span></div>
                     </div>
-                    <div class="bento-cell">
+                    <div class="bento-cell" data-metric="wind">
                         <div class="cell-header"><span class="cell-label">Wind</span><i class="fa-solid fa-location-arrow cell-icon"></i></div>
                         <div class="cell-data" style="font-size:18px;"><span id="val-wind">---</span></div>
                     </div>
-                    <div class="bento-cell">
+                    <div class="bento-cell" data-metric="dtg">
                         <div class="cell-header"><span class="cell-label">To Destination</span><i class="fa-solid fa-flag-checkered cell-icon"></i></div>
                         <div class="cell-data"><span id="val-dtg">---</span><span class="cell-unit">nm</span></div>
                     </div>
-                    <div class="bento-cell">
+                    <div class="bento-cell" data-metric="nextwp">
                         <div class="cell-header"><span class="cell-label">Next Waypoint</span><i class="fa-solid fa-diamond-turn-right cell-icon"></i></div>
                         <div class="cell-data" style="font-size:16px;"><span id="val-nextwp">---</span></div>
                         <div class="cell-unit" id="val-nextwp-dist" style="margin-top:4px;"></div>
                     </div>
-                    <div class="bento-cell">
+                    <div class="bento-cell" data-metric="pos">
                         <div class="cell-header"><span class="cell-label">Position</span><i class="fa-solid fa-crosshairs cell-icon"></i></div>
                         <div class="cell-data" style="font-size:13px; line-height:1.4;"><span id="val-pos">---</span></div>
                     </div>
                 </div>
             </div>
 
-            <div>
+            <div class="sw-block" data-block="graph" id="sec-graph">
+                <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Graph</div>
                 <div class="grid-section-label">Speed &amp; Altitude</div>
                 <div class="sa-graph-card">
                     <div id="sa-graph" class="sa-graph"></div>
                 </div>
             </div>
 
-            <div id="profile-anchor">
+            <div class="sw-block" data-block="manifest" id="profile-anchor">
+                <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Manifest</div>
                 <div class="grid-section-label">Pilot Manifest</div>
                 <div class="profile-card">
                     <div class="profile-pilot-head">
@@ -770,6 +1201,163 @@
             <button class="action-btn" id="btn-collapse"><i class="fa-solid fa-chevron-up"></i><span>Collapse</span></button>
         </footer>
 
+    </div>
+
+    <!-- Floating bar shown while rearranging blocks in place. -->
+    <div class="edit-banner" id="edit-banner">
+        <span><i class="fa-solid fa-up-down-left-right"></i> Drag the blocks to reorder</span>
+        <button id="edit-done">Done</button>
+    </div>
+
+    <!-- ===========================================================
+         CUSTOMIZE EDITOR
+         =========================================================== -->
+    <div class="customize-sheet" id="customize-sheet" aria-hidden="true">
+        <div class="cs-backdrop" id="cs-backdrop"></div>
+        <div class="cs-panel" role="dialog" aria-label="Customize flight window">
+            <div class="cs-grip"></div>
+            <div class="cs-header">
+                <span class="cs-title">Customize</span>
+                <button class="cs-close" id="cs-close" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="cs-tabs" id="cs-tabs">
+                <button class="cs-tab active" data-tab="style"><i class="fa-solid fa-palette"></i> Style</button>
+                <button class="cs-tab" data-tab="text"><i class="fa-solid fa-font"></i> Text</button>
+                <button class="cs-tab" data-tab="layout"><i class="fa-solid fa-table-cells-large"></i> Layout</button>
+                <button class="cs-tab" data-tab="presets"><i class="fa-solid fa-swatchbook"></i> Presets</button>
+            </div>
+
+            <div class="cs-body">
+
+                <!-- ===== STYLE ===== -->
+                <div class="cs-pane active" data-pane="style">
+                    <div class="cs-group-label">Background</div>
+                    <label class="cs-row"><span class="cs-row-label">Gradient top</span><input type="color" class="cs-color" data-style="bgStart"></label>
+                    <label class="cs-row"><span class="cs-row-label">Gradient bottom</span><input type="color" class="cs-color" data-style="bgEnd"></label>
+                    <div class="cs-row"><span class="cs-row-label">Opacity</span><input type="range" class="cs-range" data-style="bgOpacity" min="40" max="100" step="1"><span class="cs-row-val" data-valfor="bgOpacity"></span></div>
+                    <div class="cs-row"><span class="cs-row-label">Blur</span><input type="range" class="cs-range" data-style="blur" min="0" max="60" step="2"><span class="cs-row-val" data-valfor="blur"></span></div>
+
+                    <div class="cs-group-label">Accent &amp; text</div>
+                    <label class="cs-row"><span class="cs-row-label">Accent</span><input type="color" class="cs-color" data-style="accent"></label>
+                    <label class="cs-row"><span class="cs-row-label">Primary text</span><input type="color" class="cs-color" data-style="textPrimary"></label>
+                    <label class="cs-row"><span class="cs-row-label">Secondary text</span><input type="color" class="cs-color" data-style="textSecondary"></label>
+
+                    <div class="cs-group-label">Surface</div>
+                    <label class="cs-row"><span class="cs-row-label">Card colour</span><input type="color" class="cs-color" data-style="cardBg"></label>
+                    <div class="cs-row"><span class="cs-row-label">Corner radius</span><input type="range" class="cs-range" data-style="radius" min="0" max="28" step="2"><span class="cs-row-val" data-valfor="radius"></span></div>
+                    <div class="cs-row"><span class="cs-row-label">Photo dim</span><input type="range" class="cs-range" data-style="photoDim" min="0" max="80" step="5"><span class="cs-row-val" data-valfor="photoDim"></span></div>
+                    <label class="cs-row"><span class="cs-row-label">Accent glow</span><span class="cs-switch"><input type="checkbox" data-style="glow"><span class="cs-switch-track"></span></span></label>
+
+                    <div class="cs-group-label">Flight-state colours</div>
+                    <div class="cs-state-grid" id="cs-state-grid">
+                        <label class="cs-state-chip"><input type="color" class="cs-color" data-state="climb"><span>Climb</span></label>
+                        <label class="cs-state-chip"><input type="color" class="cs-color" data-state="cruise"><span>Cruise</span></label>
+                        <label class="cs-state-chip"><input type="color" class="cs-color" data-state="descend"><span>Descend</span></label>
+                        <label class="cs-state-chip"><input type="color" class="cs-color" data-state="approach"><span>Approach</span></label>
+                        <label class="cs-state-chip"><input type="color" class="cs-color" data-state="ground"><span>Ground</span></label>
+                        <label class="cs-state-chip"><input type="color" class="cs-color" data-state="pushback"><span>Pushback</span></label>
+                        <label class="cs-state-chip"><input type="color" class="cs-color" data-state="enroute"><span>Enroute</span></label>
+                    </div>
+                </div>
+
+                <!-- ===== TEXT ===== -->
+                <div class="cs-pane" data-pane="text">
+                    <div class="cs-group-label">Text size</div>
+                    <div class="cs-row"><span class="cs-row-label">Scale</span><input type="range" class="cs-range" data-text="scale" min="0.8" max="1.4" step="0.05"><span class="cs-row-val" data-valfor="scale"></span></div>
+                    <div class="cs-group-label">Spacing</div>
+                    <div class="cs-row"><span class="cs-row-label">Density</span>
+                        <div class="cs-seg" data-seg="density">
+                            <button data-val="comfortable">Comfort</button>
+                            <button data-val="compact">Compact</button>
+                        </div>
+                    </div>
+                    <div class="cs-group-label">Fonts</div>
+                    <div class="cs-row"><span class="cs-row-label">Interface</span>
+                        <div class="cs-seg" data-seg="font">
+                            <button data-val="inter">Inter</button>
+                            <button data-val="system">System</button>
+                            <button data-val="mono">Mono</button>
+                        </div>
+                    </div>
+                    <label class="cs-row"><span class="cs-row-label">Mono numbers</span><span class="cs-switch"><input type="checkbox" data-text="monoNumbers"><span class="cs-switch-track"></span></span></label>
+                </div>
+
+                <!-- ===== LAYOUT ===== -->
+                <div class="cs-pane" data-pane="layout">
+                    <div class="cs-group-label">Peek size — how much shows before you open it</div>
+                    <div class="cs-peek-grid" id="cs-peek-grid">
+                        <button class="cs-peek-opt" data-peek="minimal"><span class="cs-peek-glyph"><i></i><i class="med"></i></span><span class="cs-peek-name">Minimal</span><span class="cs-peek-desc">Callsign &amp; route</span></button>
+                        <button class="cs-peek-opt" data-peek="standard"><span class="cs-peek-glyph"><i></i><i class="med"></i><i></i></span><span class="cs-peek-name">Standard</span><span class="cs-peek-desc">Thumbnail &amp; pilot</span></button>
+                        <button class="cs-peek-opt" data-peek="rich"><span class="cs-peek-glyph"><i></i><i class="tall"></i><i></i></span><span class="cs-peek-name">Rich</span><span class="cs-peek-desc">Big photo card</span></button>
+                    </div>
+
+                    <div class="cs-group-label">Arrange — drag the blocks into any order</div>
+                    <button class="cs-bigbtn" id="cs-edit-layout"><i class="fa-solid fa-up-down-left-right"></i> Rearrange sections</button>
+
+                    <div class="cs-group-label">Sections — what to show</div>
+                    <div id="cs-toggles">
+                        <label class="cs-toggle"><span class="cs-toggle-icon"><i class="fa-solid fa-image"></i></span><span class="cs-toggle-text"><div class="cs-toggle-label">Aircraft photo</div></span><span class="cs-switch"><input type="checkbox" data-section="hero"><span class="cs-switch-track"></span></span></label>
+                        <label class="cs-toggle"><span class="cs-toggle-icon"><i class="fa-solid fa-clock"></i></span><span class="cs-toggle-text"><div class="cs-toggle-label">Times</div></span><span class="cs-switch"><input type="checkbox" data-section="times"><span class="cs-switch-track"></span></span></label>
+                        <label class="cs-toggle"><span class="cs-toggle-icon"><i class="fa-solid fa-route"></i></span><span class="cs-toggle-text"><div class="cs-toggle-label">Flight plan</div></span><span class="cs-switch"><input type="checkbox" data-section="flightplan"><span class="cs-switch-track"></span></span></label>
+                        <label class="cs-toggle"><span class="cs-toggle-icon"><i class="fa-solid fa-gauge-high"></i></span><span class="cs-toggle-text"><div class="cs-toggle-label">Live telemetry</div></span><span class="cs-switch"><input type="checkbox" data-section="telemetry"><span class="cs-switch-track"></span></span></label>
+                        <label class="cs-toggle"><span class="cs-toggle-icon"><i class="fa-solid fa-compass"></i></span><span class="cs-toggle-text"><div class="cs-toggle-label">Navigation &amp; environment</div></span><span class="cs-switch"><input type="checkbox" data-section="navenv"><span class="cs-switch-track"></span></span></label>
+                        <label class="cs-toggle"><span class="cs-toggle-icon"><i class="fa-solid fa-chart-area"></i></span><span class="cs-toggle-text"><div class="cs-toggle-label">Speed &amp; altitude graph</div></span><span class="cs-switch"><input type="checkbox" data-section="graph"><span class="cs-switch-track"></span></span></label>
+                        <label class="cs-toggle"><span class="cs-toggle-icon"><i class="fa-solid fa-user-astronaut"></i></span><span class="cs-toggle-text"><div class="cs-toggle-label">Pilot manifest</div></span><span class="cs-switch"><input type="checkbox" data-section="manifest"><span class="cs-switch-track"></span></span></label>
+                    </div>
+
+                    <div class="cs-group-label">Telemetry readouts</div>
+                    <div class="cs-chips" data-metricset="telemetry">
+                        <button class="cs-chip" data-metric="alt">Altitude</button>
+                        <button class="cs-chip" data-metric="spd">GND Speed</button>
+                        <button class="cs-chip" data-metric="vs">Vertical</button>
+                        <button class="cs-chip" data-metric="hdg">Heading</button>
+                    </div>
+                    <div class="cs-row"><span class="cs-row-label">Columns</span>
+                        <div class="cs-seg" data-seg="telCols"><button data-val="1">1</button><button data-val="2">2</button></div>
+                    </div>
+
+                    <div class="cs-group-label">Nav &amp; Environment readouts</div>
+                    <div class="cs-chips" data-metricset="navenv">
+                        <button class="cs-chip" data-metric="tas">True Airspeed</button>
+                        <button class="cs-chip" data-metric="oat">OAT</button>
+                        <button class="cs-chip" data-metric="wind">Wind</button>
+                        <button class="cs-chip" data-metric="dtg">To Dest</button>
+                        <button class="cs-chip" data-metric="nextwp">Next WP</button>
+                        <button class="cs-chip" data-metric="pos">Position</button>
+                    </div>
+                    <div class="cs-row"><span class="cs-row-label">Columns</span>
+                        <div class="cs-seg" data-seg="navCols"><button data-val="1">1</button><button data-val="2">2</button></div>
+                    </div>
+                </div>
+
+                <!-- ===== PRESETS ===== -->
+                <div class="cs-pane" data-pane="presets">
+                    <div class="cs-group-label">Theme presets</div>
+                    <div class="cs-theme-grid" id="cs-theme-grid">
+                        <button class="cs-theme" data-theme="carbon"><span class="cs-theme-sw" style="background:linear-gradient(135deg,#18181b,#27272a)"></span>Carbon</button>
+                        <button class="cs-theme" data-theme="midnight"><span class="cs-theme-sw" style="background:linear-gradient(135deg,#0b1220,#1e3a5f)"></span>Midnight</button>
+                        <button class="cs-theme" data-theme="slate"><span class="cs-theme-sw" style="background:linear-gradient(135deg,#1e293b,#334155)"></span>Slate</button>
+                        <button class="cs-theme" data-theme="mono"><span class="cs-theme-sw" style="background:linear-gradient(135deg,#111,#2b2b2b)"></span>Mono</button>
+                        <button class="cs-theme" data-theme="light"><span class="cs-theme-sw" style="background:linear-gradient(135deg,#e7e7ea,#cfcfd6)"></span>Light</button>
+                        <button class="cs-theme" data-theme="sunset"><span class="cs-theme-sw" style="background:linear-gradient(135deg,#2b1331,#7a2d4d)"></span>Sunset</button>
+                    </div>
+
+                    <div class="cs-group-label">My presets</div>
+                    <div id="cs-saved-list" class="cs-saved-list"><div class="cs-empty">No saved presets yet.</div></div>
+                    <button class="cs-bigbtn" id="cs-save-preset"><i class="fa-solid fa-bookmark"></i> Save current as preset</button>
+
+                    <div class="cs-group-label">Share</div>
+                    <div class="cs-share-row">
+                        <input type="text" id="cs-code" class="cs-code" placeholder="Paste a layout code…" spellcheck="false">
+                        <button class="cs-mini" id="cs-import">Import</button>
+                        <button class="cs-mini" id="cs-export">Copy</button>
+                    </div>
+
+                    <button class="cs-reset" id="cs-reset">Reset everything to defaults</button>
+                </div>
+
+            </div>
+        </div>
     </div>
 
     <script>
@@ -856,6 +1444,387 @@
         };
 
         // =========================================================
+        // LAYOUT STUDIO
+        // Full customization for the simple window: peek size, per-section
+        // visibility + free drag-reorder, per-metric selection + columns,
+        // full theming (background / accent / text / surface / flight-state
+        // colours), text size / density / fonts, theme presets, saved presets
+        // and shareable codes. Everything is applied through CSS custom
+        // properties + body data-attributes and persisted to localStorage.
+        // =========================================================
+        const LAYOUT_KEY = 'inflightSimpleLayout';
+        const PRESETS_KEY = 'inflightSimplePresets';
+        const SECTION_KEYS = ['hero', 'times', 'flightplan', 'telemetry', 'navenv', 'graph', 'manifest'];
+        const PEEK_HEIGHTS = { minimal: 150, standard: 250, rich: 392 };
+        const METRICS = { telemetry: ['alt', 'spd', 'vs', 'hdg'], navenv: ['tas', 'oat', 'wind', 'dtg', 'nextwp', 'pos'] };
+        const STATE_KEYS = ['climb', 'descend', 'cruise', 'ground', 'approach', 'pushback', 'enroute'];
+
+        const DEFAULTS = {
+            peek: 'standard',
+            sections: { hero: true, times: true, flightplan: true, telemetry: true, navenv: true, graph: true, manifest: true },
+            order: ['hero', 'route', 'times', 'progress', 'flightplan', 'telemetry', 'navenv', 'graph', 'manifest'],
+            metrics: { telemetry: { alt: true, spd: true, vs: true, hdg: true }, navenv: { tas: true, oat: true, wind: true, dtg: true, nextwp: true, pos: true } },
+            cols: { telemetry: 2, navenv: 2 },
+            style: {
+                bgStart: '#18181b', bgEnd: '#18181b', bgOpacity: 92, blur: 40, photoDim: 0,
+                accent: '#38bdf8', textPrimary: '#fafafa', textSecondary: '#a1a1aa',
+                cardBg: '#18181b', radius: 20, glow: true,
+                states: { climb: '#34d399', descend: '#fbbf24', cruise: '#38bdf8', ground: '#a1a1aa', approach: '#c084fc', pushback: '#fb923c', enroute: '#94a3b8' }
+            },
+            text: { scale: 1, density: 'comfortable', font: 'inter', monoNumbers: true }
+        };
+
+        const THEMES = {
+            carbon:   { bgStart: '#18181b', bgEnd: '#27272a', bgOpacity: 92, accent: '#38bdf8', textPrimary: '#fafafa', textSecondary: '#a1a1aa', cardBg: '#18181b' },
+            midnight: { bgStart: '#0b1220', bgEnd: '#1e3a5f', bgOpacity: 94, accent: '#60a5fa', textPrimary: '#eaf2ff', textSecondary: '#9db4d4', cardBg: '#0f1b2e' },
+            slate:    { bgStart: '#1e293b', bgEnd: '#334155', bgOpacity: 94, accent: '#38bdf8', textPrimary: '#f1f5f9', textSecondary: '#94a3b8', cardBg: '#1e293b' },
+            mono:     { bgStart: '#111111', bgEnd: '#2b2b2b', bgOpacity: 94, accent: '#e4e4e7', textPrimary: '#fafafa', textSecondary: '#a1a1aa', cardBg: '#1a1a1a' },
+            light:    { bgStart: '#e7e7ea', bgEnd: '#cfcfd6', bgOpacity: 100, accent: '#2563eb', textPrimary: '#18181b', textSecondary: '#52525b', cardBg: '#ffffff' },
+            sunset:   { bgStart: '#2b1331', bgEnd: '#7a2d4d', bgOpacity: 95, accent: '#fb7185', textPrimary: '#fff1f5', textSecondary: '#d8a7b8', cardBg: '#241026' }
+        };
+
+        const root = document.documentElement;
+        const viewport = document.querySelector('.scroll-viewport');
+        const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+        const deepClone = (o) => JSON.parse(JSON.stringify(o));
+
+        function hexToRgb(hex) {
+            const h = String(hex || '').replace('#', '');
+            const f = h.length === 3 ? h.split('').map(c => c + c).join('') : h;
+            return { r: parseInt(f.slice(0, 2), 16) || 0, g: parseInt(f.slice(2, 4), 16) || 0, b: parseInt(f.slice(4, 6), 16) || 0 };
+        }
+        const hexChannels = (hex) => { const c = hexToRgb(hex); return `${c.r}, ${c.g}, ${c.b}`; };
+        const hexToRgba = (hex, opacityPct) => { const c = hexToRgb(hex); return `rgba(${c.r}, ${c.g}, ${c.b}, ${clamp(opacityPct, 0, 100) / 100})`; };
+
+        // Build a complete prefs object from possibly-partial/older saved data.
+        function coercePrefs(saved) {
+            const p = deepClone(DEFAULTS);
+            if (!saved || typeof saved !== 'object') return p;
+            if (PEEK_HEIGHTS[saved.peek]) p.peek = saved.peek;
+            if (saved.sections) SECTION_KEYS.forEach(k => { if (typeof saved.sections[k] === 'boolean') p.sections[k] = saved.sections[k]; });
+            if (Array.isArray(saved.order)) {
+                const seen = saved.order.filter(n => DEFAULTS.order.includes(n));
+                DEFAULTS.order.forEach(n => { if (!seen.includes(n)) seen.push(n); });
+                p.order = seen;
+            }
+            if (saved.metrics) ['telemetry', 'navenv'].forEach(set => {
+                if (saved.metrics[set]) METRICS[set].forEach(m => { if (typeof saved.metrics[set][m] === 'boolean') p.metrics[set][m] = saved.metrics[set][m]; });
+            });
+            if (saved.cols) { p.cols.telemetry = clamp(parseInt(saved.cols.telemetry, 10) || 2, 1, 2); p.cols.navenv = clamp(parseInt(saved.cols.navenv, 10) || 2, 1, 2); }
+            if (saved.style) {
+                Object.keys(p.style).forEach(k => { if (k !== 'states' && saved.style[k] !== undefined) p.style[k] = saved.style[k]; });
+                if (saved.style.states) STATE_KEYS.forEach(k => { if (saved.style.states[k]) p.style.states[k] = saved.style.states[k]; });
+            }
+            if (saved.text) Object.keys(p.text).forEach(k => { if (saved.text[k] !== undefined) p.text[k] = saved.text[k]; });
+            return p;
+        }
+
+        let prefs = loadPrefs();
+        function loadPrefs() {
+            try { return coercePrefs(JSON.parse(localStorage.getItem(LAYOUT_KEY) || '{}')); }
+            catch (e) { return deepClone(DEFAULTS); }
+        }
+        function savePrefs() { try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(prefs)); } catch (e) {} }
+
+        function reportPeekHeight() {
+            const h = PEEK_HEIGHTS[prefs.peek] || PEEK_HEIGHTS.standard;
+            try { window.parent.postMessage({ type: 'SIMPLE_WINDOW_PEEK_HEIGHT', height: h, peek: prefs.peek }, '*'); } catch (e) {}
+        }
+
+        // ---- Appliers (granular so live edits stay cheap) ----
+        function applyPeek() { body.dataset.peek = prefs.peek; reportPeekHeight(); }
+        function applySections() {
+            SECTION_KEYS.forEach(k => body.classList.toggle('hide-' + k, !prefs.sections[k]));
+            if (currentPhase === 'expanded' && prefs.sections.graph) setTimeout(renderSpeedAltGraph, 60);
+        }
+        function applyOrder() {
+            prefs.order.forEach(name => {
+                const el = viewport.querySelector('.sw-block[data-block="' + name + '"]');
+                if (el) viewport.appendChild(el); // appending in sequence sets DOM (visual) order
+            });
+        }
+        function applyCols() {
+            root.style.setProperty('--tel-cols', prefs.cols.telemetry);
+            root.style.setProperty('--nav-cols', prefs.cols.navenv);
+        }
+        function applyMetrics() {
+            ['telemetry', 'navenv'].forEach(set => {
+                const block = viewport.querySelector('.sw-block[data-block="' + set + '"]');
+                if (!block) return;
+                block.querySelectorAll('.bento-cell[data-metric]').forEach(cell => {
+                    cell.classList.toggle('metric-off', !prefs.metrics[set][cell.dataset.metric]);
+                });
+            });
+            applyCols();
+        }
+        function applyStyle() {
+            const s = prefs.style;
+            root.style.setProperty('--theme-bg-start', hexToRgba(s.bgStart, s.bgOpacity));
+            root.style.setProperty('--theme-bg-end', hexToRgba(s.bgEnd, s.bgOpacity));
+            root.style.setProperty('--blur-amount', s.blur + 'px');
+            root.style.setProperty('--photo-dim', (s.photoDim / 100));
+            root.style.setProperty('--color-brand', s.accent);
+            root.style.setProperty('--text-primary', s.textPrimary);
+            root.style.setProperty('--text-secondary', s.textSecondary);
+            root.style.setProperty('--card-bg', hexToRgba(s.cardBg, 92));
+            root.style.setProperty('--radius-lg', s.radius + 'px');
+            root.style.setProperty('--radius-md', Math.round(s.radius * 0.6) + 'px');
+            root.style.setProperty('--radius-sm', Math.round(s.radius * 0.4) + 'px');
+            body.classList.toggle('no-glow', !s.glow);
+            STATE_KEYS.forEach(k => root.style.setProperty('--state-' + k, hexChannels(s.states[k])));
+        }
+        function applyText() {
+            const t = prefs.text;
+            root.style.setProperty('--text-scale', t.scale);
+            body.dataset.density = t.density;
+            const fonts = {
+                inter: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+                system: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+                mono: "'JetBrains Mono', 'Consolas', monospace"
+            };
+            root.style.setProperty('--font-ui', fonts[t.font] || fonts.inter);
+            root.style.setProperty('--font-num', t.monoNumbers ? "'JetBrains Mono', monospace" : 'var(--font-ui)');
+        }
+        function applyAll() {
+            applyPeek(); applySections(); applyOrder(); applyMetrics(); applyStyle(); applyText();
+            syncEditorUI();
+        }
+
+        // ---- Editor reflection ----
+        function fmtVal(key, v) {
+            if (key === 'scale') return Number(v).toFixed(2) + 'x';
+            if (key === 'bgOpacity' || key === 'photoDim') return Math.round(v) + '%';
+            return Math.round(v) + 'px';
+        }
+        function syncEditorUI() {
+            document.querySelectorAll('.cs-peek-opt').forEach(b => b.classList.toggle('active', b.dataset.peek === prefs.peek));
+            document.querySelectorAll('#cs-toggles input[data-section]').forEach(i => { i.checked = !!prefs.sections[i.dataset.section]; });
+            document.querySelectorAll('.cs-color[data-style]').forEach(i => { if (prefs.style[i.dataset.style]) i.value = prefs.style[i.dataset.style]; });
+            document.querySelectorAll('.cs-color[data-state]').forEach(i => { i.value = prefs.style.states[i.dataset.state]; });
+            document.querySelectorAll('.cs-range[data-style]').forEach(i => { i.value = prefs.style[i.dataset.style]; });
+            document.querySelectorAll('.cs-range[data-text]').forEach(i => { i.value = prefs.text[i.dataset.text]; });
+            document.querySelectorAll('[data-valfor]').forEach(el => {
+                const k = el.dataset.valfor;
+                const v = (k in prefs.style) ? prefs.style[k] : prefs.text[k];
+                if (v !== undefined) el.textContent = fmtVal(k, v);
+            });
+            const glow = document.querySelector('input[data-style="glow"]'); if (glow) glow.checked = !!prefs.style.glow;
+            const mono = document.querySelector('input[data-text="monoNumbers"]'); if (mono) mono.checked = !!prefs.text.monoNumbers;
+            setSegActive('density', prefs.text.density);
+            setSegActive('font', prefs.text.font);
+            setSegActive('telCols', String(prefs.cols.telemetry));
+            setSegActive('navCols', String(prefs.cols.navenv));
+            ['telemetry', 'navenv'].forEach(set => {
+                document.querySelectorAll('[data-metricset="' + set + '"] .cs-chip[data-metric]').forEach(c =>
+                    c.classList.toggle('active', !!prefs.metrics[set][c.dataset.metric]));
+            });
+        }
+        function setSegActive(group, val) {
+            const seg = document.querySelector('.cs-seg[data-seg="' + group + '"]');
+            if (!seg) return;
+            seg.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.val === val));
+        }
+
+        // ---- Editor open / close + tabs ----
+        const customizeSheet = document.getElementById('customize-sheet');
+        function openCustomize() { syncEditorUI(); renderSavedList(); customizeSheet.classList.add('open'); customizeSheet.setAttribute('aria-hidden', 'false'); }
+        function closeCustomize() { customizeSheet.classList.remove('open'); customizeSheet.setAttribute('aria-hidden', 'true'); }
+        function selectTab(name) {
+            document.querySelectorAll('.cs-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+            document.querySelectorAll('.cs-pane').forEach(p => p.classList.toggle('active', p.dataset.pane === name));
+        }
+
+        document.getElementById('ev-gear').addEventListener('click', openCustomize);
+        document.getElementById('cb-edit').addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (currentPhase !== 'expanded') { setPhase('expanded'); setTimeout(openCustomize, 480); }
+            else openCustomize();
+        });
+        document.getElementById('cs-close').addEventListener('click', closeCustomize);
+        document.getElementById('cs-backdrop').addEventListener('click', closeCustomize);
+
+        // Live numeric/colour edits
+        customizeSheet.addEventListener('input', (e) => {
+            const col = e.target.closest('.cs-color');
+            if (col) {
+                if (col.dataset.style) { prefs.style[col.dataset.style] = col.value; applyStyle(); }
+                else if (col.dataset.state) { prefs.style.states[col.dataset.state] = col.value; applyStyle(); }
+                savePrefs(); return;
+            }
+            const rng = e.target.closest('.cs-range');
+            if (rng) {
+                const v = parseFloat(rng.value);
+                if (rng.dataset.style) { prefs.style[rng.dataset.style] = v; applyStyle(); }
+                else if (rng.dataset.text) { prefs.text[rng.dataset.text] = v; applyText(); }
+                const lbl = document.querySelector('[data-valfor="' + (rng.dataset.style || rng.dataset.text) + '"]');
+                if (lbl) lbl.textContent = fmtVal(rng.dataset.style || rng.dataset.text, v);
+                savePrefs(); return;
+            }
+        });
+
+        // Toggles / switches
+        customizeSheet.addEventListener('change', (e) => {
+            const sec = e.target.closest('input[data-section]');
+            if (sec) { prefs.sections[sec.dataset.section] = sec.checked; applySections(); savePrefs(); return; }
+            const glow = e.target.closest('input[data-style="glow"]');
+            if (glow) { prefs.style.glow = glow.checked; applyStyle(); savePrefs(); return; }
+            const mono = e.target.closest('input[data-text="monoNumbers"]');
+            if (mono) { prefs.text.monoNumbers = mono.checked; applyText(); savePrefs(); return; }
+        });
+
+        // Clicks: tabs, segments, peek, metric chips, themes, presets, share, reset, edit
+        customizeSheet.addEventListener('click', (e) => {
+            const tab = e.target.closest('.cs-tab'); if (tab) { selectTab(tab.dataset.tab); return; }
+            const seg = e.target.closest('.cs-seg button'); if (seg) {
+                const group = seg.closest('.cs-seg').dataset.seg, val = seg.dataset.val;
+                if (group === 'density') { prefs.text.density = val; applyText(); }
+                else if (group === 'font') { prefs.text.font = val; applyText(); }
+                else if (group === 'telCols') { prefs.cols.telemetry = parseInt(val, 10); applyCols(); }
+                else if (group === 'navCols') { prefs.cols.navenv = parseInt(val, 10); applyCols(); }
+                savePrefs(); syncEditorUI(); return;
+            }
+            const peek = e.target.closest('.cs-peek-opt'); if (peek) { prefs.peek = peek.dataset.peek; applyPeek(); savePrefs(); syncEditorUI(); return; }
+            const chip = e.target.closest('.cs-chip[data-metric]'); if (chip) {
+                const set = chip.closest('[data-metricset]').dataset.metricset, m = chip.dataset.metric;
+                prefs.metrics[set][m] = !prefs.metrics[set][m]; applyMetrics(); savePrefs(); syncEditorUI(); return;
+            }
+            const theme = e.target.closest('.cs-theme'); if (theme) { applyThemePreset(theme.dataset.theme); return; }
+            const edit = e.target.closest('#cs-edit-layout'); if (edit) { enterEditMode(); return; }
+            const save = e.target.closest('#cs-save-preset'); if (save) { savePresetFlow(); return; }
+            const imp = e.target.closest('#cs-import'); if (imp) { importCode(); return; }
+            const exp = e.target.closest('#cs-export'); if (exp) { exportCode(); return; }
+            const reset = e.target.closest('#cs-reset'); if (reset) { prefs = deepClone(DEFAULTS); savePrefs(); applyAll(); return; }
+            const applyItem = e.target.closest('.cs-saved-item .apply, .cs-saved-item .name');
+            if (applyItem) { applySavedPreset(applyItem.closest('.cs-saved-item').dataset.id); return; }
+            const delItem = e.target.closest('.cs-saved-item .del');
+            if (delItem) { deleteSavedPreset(delItem.closest('.cs-saved-item').dataset.id); return; }
+        });
+
+        function applyThemePreset(name) {
+            const t = THEMES[name]; if (!t) return;
+            Object.assign(prefs.style, t);
+            applyStyle(); savePrefs(); syncEditorUI();
+        }
+
+        // ---- Saved presets ----
+        function loadPresetList() { try { return JSON.parse(localStorage.getItem(PRESETS_KEY) || '[]'); } catch (e) { return []; } }
+        function savePresetList(list) { try { localStorage.setItem(PRESETS_KEY, JSON.stringify(list)); } catch (e) {} }
+        function renderSavedList() {
+            const host = document.getElementById('cs-saved-list');
+            if (!host) return;
+            const list = loadPresetList();
+            if (!list.length) { host.innerHTML = '<div class="cs-empty">No saved presets yet.</div>'; return; }
+            host.innerHTML = list.map(it =>
+                `<div class="cs-saved-item" data-id="${it.id}"><span class="name">${(it.name || 'Preset').replace(/[<>&]/g, '')}</span>` +
+                `<button class="apply" title="Apply"><i class="fa-solid fa-check"></i></button>` +
+                `<button class="del" title="Delete"><i class="fa-solid fa-trash"></i></button></div>`).join('');
+        }
+        function savePresetFlow() {
+            const name = (window.prompt('Name this layout preset:', 'My layout') || '').trim();
+            if (!name) return;
+            const list = loadPresetList();
+            list.push({ id: Date.now().toString(36), name, data: deepClone(prefs) });
+            savePresetList(list); renderSavedList();
+        }
+        function applySavedPreset(id) {
+            const it = loadPresetList().find(x => x.id === id);
+            if (!it) return;
+            prefs = coercePrefs(it.data); savePrefs(); applyAll();
+        }
+        function deleteSavedPreset(id) {
+            savePresetList(loadPresetList().filter(x => x.id !== id)); renderSavedList();
+        }
+
+        // ---- Share codes ----
+        function exportCode() {
+            try {
+                const code = btoa(encodeURIComponent(JSON.stringify(prefs)));
+                const input = document.getElementById('cs-code');
+                input.value = code; input.select();
+                if (navigator.clipboard) navigator.clipboard.writeText(code).catch(() => {});
+                else { try { document.execCommand('copy'); } catch (e) {} }
+            } catch (e) {}
+        }
+        function importCode() {
+            const input = document.getElementById('cs-code');
+            const code = (input.value || '').trim();
+            if (!code) return;
+            try {
+                const parsed = JSON.parse(decodeURIComponent(atob(code)));
+                prefs = coercePrefs(parsed); savePrefs(); applyAll();
+            } catch (e) { input.value = ''; input.placeholder = 'Invalid code'; }
+        }
+
+        // ---- In-place drag reorder (edit mode) ----
+        let editing = false;
+        function setSheetLock(active) { try { window.parent.postMessage({ type: 'SIMPLE_WINDOW_EDIT_MODE', active: !!active }, '*'); } catch (e) {} }
+        function enterEditMode() {
+            if (currentPhase !== 'expanded') setPhase('expanded');
+            editing = true; body.classList.add('editing'); setSheetLock(true); closeCustomize();
+        }
+        function exitEditMode() { editing = false; body.classList.remove('editing'); setSheetLock(false); }
+        document.getElementById('edit-done').addEventListener('click', exitEditMode);
+
+        let drag = null;
+        viewport.addEventListener('pointerdown', (e) => {
+            if (!editing) return;
+            const handle = e.target.closest('.sw-drag-handle');
+            if (!handle) return;
+            const el = handle.closest('.sw-block');
+            if (!el) return;
+            e.preventDefault();
+            const rect = el.getBoundingClientRect();
+            const ph = document.createElement('div');
+            ph.className = 'sw-block sw-placeholder';
+            ph.style.height = rect.height + 'px';
+            el.parentNode.insertBefore(ph, el);
+            el.classList.add('sw-dragging');
+            Object.assign(el.style, { position: 'fixed', zIndex: 60, width: rect.width + 'px', left: rect.left + 'px', top: rect.top + 'px', pointerEvents: 'none' });
+            drag = { el, ph, offsetY: e.clientY - rect.top, pointerId: e.pointerId, handle };
+            try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+        });
+        document.addEventListener('pointermove', (e) => {
+            if (!drag) return;
+            e.preventDefault();
+            drag.el.style.top = (e.clientY - drag.offsetY) + 'px';
+            const sibs = [...viewport.querySelectorAll('.sw-block:not(.sw-dragging):not(.sw-placeholder)')];
+            let before = null;
+            for (const s of sibs) { const r = s.getBoundingClientRect(); if (e.clientY < r.top + r.height / 2) { before = s; break; } }
+            if (before) viewport.insertBefore(drag.ph, before); else viewport.appendChild(drag.ph);
+            const vr = viewport.getBoundingClientRect();
+            if (e.clientY < vr.top + 56) viewport.scrollTop -= 10;
+            else if (e.clientY > vr.bottom - 56) viewport.scrollTop += 10;
+        });
+        function endDrag() {
+            if (!drag) return;
+            const { el, ph, handle, pointerId } = drag;
+            viewport.insertBefore(el, ph); ph.remove();
+            el.classList.remove('sw-dragging');
+            ['position', 'zIndex', 'width', 'left', 'top', 'pointerEvents'].forEach(p => el.style[p] = '');
+            try { handle.releasePointerCapture(pointerId); } catch (_) {}
+            drag = null;
+            prefs.order = [...viewport.querySelectorAll('.sw-block')].map(b => b.dataset.block).filter(Boolean);
+            savePrefs();
+        }
+        document.addEventListener('pointerup', endDrag);
+        document.addEventListener('pointercancel', endDrag);
+
+        // Maps an IF flight phase string onto a state-color class. Shared by the
+        // expanded header badge and the collapsed-bar state pill.
+        function phaseStateClass(phase) {
+            const p = (phase || '').toUpperCase();
+            if (p.includes('CRUISE')) return 'state-cruise';
+            if (p.includes('DESCENT')) return 'state-descend';
+            if (p.includes('APPROACH') || p.includes('FINAL') || p.includes('FLARE') || p.includes('LANDING')) return 'state-approach';
+            if (p.includes('PUSHBACK')) return 'state-pushback';
+            if (p.includes('CLIMB') || p.includes('LIFTOFF') || p.includes('TAKEOFF') || p.includes('BOARDING')) return 'state-climb';
+            if (p.includes('TAXI') || p.includes('HOLDING') || p.includes('PARKED') || p.includes('GROUND') || p.includes('LINED UP')) return 'state-ground';
+            return 'state-enroute';
+        }
+
+        applyAll();
+
+        // =========================================================
         // DATA UPDATE
         // =========================================================
         window.updateFlightInterface = function(data) {
@@ -874,31 +1843,33 @@
             updateText('status-text', phase);
             const badge = document.getElementById('state-badge');
             badge.className = 'flight-state-badge';
-            let stateClass;
-            if (phase.includes('CRUISE')) stateClass = 'state-cruise';
-            else if (phase.includes('DESCENT')) stateClass = 'state-descend';
-            else if (phase.includes('APPROACH') || phase.includes('FINAL') || phase.includes('FLARE') || phase.includes('LANDING')) stateClass = 'state-approach';
-            else if (phase.includes('PUSHBACK')) stateClass = 'state-pushback';
-            else if (phase.includes('CLIMB') || phase.includes('LIFTOFF') || phase.includes('TAKEOFF') || phase.includes('BOARDING')) stateClass = 'state-climb';
-            else if (phase.includes('TAXI') || phase.includes('HOLDING') || phase.includes('PARKED') || phase.includes('GROUND') || phase.includes('LINED UP')) stateClass = 'state-ground';
-            else stateClass = 'state-enroute';
+            const stateClass = phaseStateClass(phase);
             badge.classList.add(stateClass);
+
+            // Mirror the phase onto the collapsed-bar state pill (Rich/Standard peek).
+            const cState = document.getElementById('c-state');
+            if (cState) {
+                cState.className = 'cb-state ' + stateClass;
+                updateText('c-state-text', phase);
+            }
 
             // Phase icon, supplied by the shared classifier.
             const stateIcon = document.getElementById('state-icon');
             if (stateIcon && data.phaseIcon) stateIcon.className = 'fa-solid ' + data.phaseIcon + ' state-badge-icon';
 
-            // Seat status
+            // Seat status — shown in the expanded header and (Rich peek) the bar.
             const seatLabel = document.getElementById('seat-status-label');
-            if (data.pilotState !== undefined) {
+            const cSeat = document.getElementById('c-seat');
+            const seatMap = { 0: ['text-active','ACTIVE'], 1: ['text-auto','AUTO'], 2: ['text-parked','PARKED'], 3: ['text-ap-plus','AP+'] };
+            const seatInfo = (data.pilotState !== undefined) ? seatMap[data.pilotState] : null;
+            if (seatInfo) {
                 seatLabel.style.display = 'inline-block';
-                seatLabel.className = 'seat-mini-label';
-                const map = { 0: ['text-active','ACTIVE'], 1: ['text-auto','AUTO'], 2: ['text-parked','PARKED'], 3: ['text-ap-plus','AP+'] };
-                const m = map[data.pilotState];
-                if (m) { seatLabel.classList.add(m[0]); seatLabel.textContent = m[1]; }
-                else seatLabel.style.display = 'none';
+                seatLabel.className = 'seat-mini-label ' + seatInfo[0];
+                seatLabel.textContent = seatInfo[1];
+                if (cSeat) { cSeat.style.display = 'inline-flex'; cSeat.className = 'cb-seat ' + seatInfo[0]; cSeat.textContent = seatInfo[1]; }
             } else {
                 seatLabel.style.display = 'none';
+                if (cSeat) cSeat.style.display = 'none';
             }
 
             // Aircraft
@@ -909,6 +1880,9 @@
                 updateText('ac-livery', acLivery);
                 updateText('ac-reg', data.aircraft.registration || '---');
                 updateText('c-airline', acLivery);
+                updateText('c-hero-name', acName);
+                updateText('c-hero-livery', acLivery);
+                updateText('c-hero-reg', data.aircraft.registration || '---');
                 const typeChip = document.getElementById('c-actype');
                 if (acName && acName !== 'Unknown Aircraft') {
                     typeChip.textContent = acName;
@@ -925,10 +1899,18 @@
                     if (img.src !== data.images.url) img.src = data.images.url;
                     const thumb = document.getElementById('c-thumb');
                     thumb.style.backgroundImage = `url('${data.images.url}')`;
+                    const cHero = document.getElementById('c-hero');
+                    if (cHero) cHero.style.backgroundImage = `url('${data.images.url}')`;
                 }
                 const creditEl = document.getElementById('ac-credit');
-                if (data.images.credit) { creditEl.textContent = '© ' + data.images.credit; creditEl.style.display = 'block'; }
-                else creditEl.style.display = 'none';
+                const cCredit = document.getElementById('c-hero-credit');
+                if (data.images.credit) {
+                    creditEl.textContent = '© ' + data.images.credit; creditEl.style.display = 'block';
+                    if (cCredit) { cCredit.textContent = '© ' + data.images.credit; cCredit.style.display = 'block'; }
+                } else {
+                    creditEl.style.display = 'none';
+                    if (cCredit) cCredit.style.display = 'none';
+                }
             }
 
             // Telemetry
@@ -1144,19 +2126,6 @@
         }
 
         // =========================================================
-        // THEME
-        // =========================================================
-        function hexToRgba(hex, alpha) {
-            const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
-            return `rgba(${r}, ${g}, ${b}, ${alpha/100})`;
-        }
-        function applyTheme(startHex, endHex, opacity) {
-            const root = document.documentElement;
-            root.style.setProperty('--theme-bg-start', hexToRgba(startHex, opacity));
-            root.style.setProperty('--theme-bg-end', hexToRgba(endHex, opacity));
-        }
-
-        // =========================================================
         // MESSAGES
         // =========================================================
         window.addEventListener('message', (event) => {
@@ -1164,11 +2133,11 @@
             if (!d) return;
             if (d.type === 'FLIGHT_DATA_UPDATE') {
                 window.updateFlightInterface(d.payload);
-                if (d.payload && d.payload.theme) applyTheme(d.payload.theme.start, d.payload.theme.end, d.payload.theme.opacity);
+                // Background/theme is owned by the layout studio (applyStyle), so
+                // the host's per-tick theme payload is intentionally ignored here.
             }
             if (d.type === 'PILOT_STATS_DATA') window.updatePilotProfile(d.payload && d.payload.profile);
             if (d.type === 'PILOT_STATS_ERROR') window.showPilotProfileError(d.message);
-            if (d.type === 'THEME_UPDATE') applyTheme(d.payload.start, d.payload.end, d.payload.opacity);
             // Parent can force a phase (e.g. mobile sheet swipe).
             if (d.type === 'SET_PHASE') setPhase(d.phase === 'expanded' ? 'expanded' : 'collapsed');
         });

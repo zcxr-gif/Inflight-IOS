@@ -10989,6 +10989,28 @@ function initializeAircraftLayer() {
 
 
 /**
+ * --- [NEW] Prime the collapsed peek height from the saved layout preset. ---
+ * Runs before the sheet first snaps to peek so the bar opens at the right
+ * height instead of starting at the default and jumping once the iframe loads
+ * and re-confirms via SIMPLE_WINDOW_PEEK_HEIGHT. The height table mirrors
+ * PEEK_HEIGHTS in flightinfo.html (the source of truth).
+ */
+function primeSimpleWindowPeekHeight() {
+    const HEIGHTS = { minimal: 150, standard: 250, rich: 392 };
+    let peek = 'standard';
+    try {
+        const saved = JSON.parse(localStorage.getItem('inflightSimpleLayout') || '{}');
+        if (saved && HEIGHTS[saved.peek]) peek = saved.peek;
+    } catch (e) { /* default standard */ }
+    const h = HEIGHTS[peek];
+    window.__simpleWindowPeekHeight = h;
+    if (window.MobileUIHandler && window.MobileUIHandler.CONFIG) {
+        window.MobileUIHandler.CONFIG.simplePeekHeight = h;
+    }
+    return h;
+}
+
+/**
  * --- [NEW] Resize / reposition the simple-window host for its collapsed vs expanded phase. ---
  * Desktop: the floating #aircraft-info-window grows from a compact bar to the full panel.
  * Mobile: drive the existing legacy-sheet peek/expanded snap points.
@@ -11019,9 +11041,12 @@ function applySimpleWindowPhase(phase) {
         windowEl.style.height = 'min(760px, calc(100vh - 40px))';
         windowEl.style.maxHeight = 'calc(100vh - 40px)';
     } else {
+        // Collapsed bar height tracks the chosen peek preset (reported by the
+        // iframe via SIMPLE_WINDOW_PEEK_HEIGHT); falls back to the classic 236.
+        const peekH = window.__simpleWindowPeekHeight || 236;
         windowEl.style.width = '380px';
-        windowEl.style.height = '236px';       // compact bar only
-        windowEl.style.maxHeight = '236px';
+        windowEl.style.height = peekH + 'px';   // compact bar only
+        windowEl.style.maxHeight = peekH + 'px';
     }
 }
 
@@ -12781,7 +12806,10 @@ window.globalNatTracks = natTracks;
             if (event.data && (
                 event.data.type === 'REQUEST_PILOT_STATS' ||
                 event.data.type === 'SIMPLE_WINDOW_STATE' ||
-                event.data.type === 'SIMPLE_WINDOW_ACTION'
+                event.data.type === 'SIMPLE_WINDOW_ACTION' ||
+                event.data.type === 'SIMPLE_WINDOW_PEEK_HEIGHT' ||
+                event.data.type === 'SIMPLE_WINDOW_EDIT_MODE' ||
+                event.data.type === 'NAVIGATE_TO_AIRPORT'
             )) {
                 handleIframeMessage(event);
             }
@@ -13808,7 +13836,9 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         if (typeof mapFilters !== 'undefined' && mapFilters.useSimpleFlightWindow) {
             // Cache filed-plan data so the live-update path can compute SCHEDULED/ACTUAL times too.
             cachedFlightDataForStatsView = { flightProps, plan, filedPlanData };
-            // Start in the compact (collapsed) phase; the iframe asks us to resize on expand.
+            // Prime the peek height from the saved layout preset, then start in the
+            // compact (collapsed) phase; the iframe re-confirms once it loads.
+            primeSimpleWindowPeekHeight();
             applySimpleWindowPhase('collapsed');
             windowEl.innerHTML = `<iframe id="simple-flight-window-frame" src="flightinfo.html" style="width:100%; flex-grow: 1; border:none;" scrolling="no"></iframe>`;
             const simpleData = formatDataForSimpleWindow(flightProps, plan, [], communityAircraftData, filedPlanData);
@@ -16489,6 +16519,36 @@ async function handleIframeMessage(event) {
     // 2b. [NEW] Simple Window action buttons (replay / trip card / follow).
     if (event.data && event.data.type === 'SIMPLE_WINDOW_ACTION') {
         handleSimpleWindowAction(event.data.action);
+        return;
+    }
+
+    // 2b-ii. [NEW] Simple Window peek-size customization. The chosen peek
+    // preset reports the height its collapsed bar wants; size the host (desktop)
+    // or the mobile sheet detent to match so the bar isn't clipped or padded.
+    if (event.data && event.data.type === 'SIMPLE_WINDOW_PEEK_HEIGHT') {
+        const h = Math.max(120, Math.min(parseInt(event.data.height, 10) || 236, 900));
+        window.__simpleWindowPeekHeight = h;
+        const onMobile = !!(window.MobileUIHandler && typeof window.MobileUIHandler.isMobile === 'function'
+            && window.MobileUIHandler.isMobile());
+        if (onMobile && window.MobileUIHandler && typeof window.MobileUIHandler.setSimplePeekHeight === 'function') {
+            window.MobileUIHandler.setSimplePeekHeight(h);
+        } else {
+            // Desktop: only resize while collapsed; the expanded panel owns its own size.
+            const w = document.getElementById('aircraft-info-window');
+            if (w && w.classList.contains('simple-collapsed')) {
+                w.style.height = h + 'px';
+                w.style.maxHeight = h + 'px';
+            }
+        }
+        return;
+    }
+
+    // 2b-iii. [NEW] Simple Window layout-edit mode — lock the mobile sheet drag
+    // so rearranging blocks inside the iframe doesn't drag the sheet itself.
+    if (event.data && event.data.type === 'SIMPLE_WINDOW_EDIT_MODE') {
+        if (window.MobileUIHandler && typeof window.MobileUIHandler.setEditLock === 'function') {
+            window.MobileUIHandler.setEditLock(!!event.data.active);
+        }
         return;
     }
 

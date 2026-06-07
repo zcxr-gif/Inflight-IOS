@@ -1316,6 +1316,12 @@ disableHudControls() {
                             // straight into the expanded "second state".
                             this.setLegacySheetState('expanded');
                         } else {
+                            // Size the peek detent to the simple window's saved
+                            // preset (primed on the host before open) so the bar
+                            // opens at the right height immediately.
+                            if (this.isSimpleSheet()) {
+                                this.activeWindow.style.setProperty('--legacy-peek-height', this.getPeekHeight() + 'px');
+                            }
                             this.activeWindow.classList.add('visible', 'peek');
                             this.legacySheetState.currentState = 'peek';
                         }
@@ -1717,6 +1723,29 @@ wireUpLegacySheetInteractions(sheetElement, handleElement) {
         return this.isSimpleSheet() ? this.CONFIG.simplePeekHeight : this.CONFIG.legacyPeekHeight;
     },
 
+    // Locks/unlocks the sheet drag gesture while the simple window is in
+    // layout-edit mode (so in-iframe block dragging doesn't drag the sheet).
+    editLocked: false,
+    setEditLock(active) {
+        this.editLocked = !!active;
+        if (active) this.legacySheetState.isDragging = false;
+    },
+
+    // The simple window's peek preset (Minimal/Standard/Rich) reports the height
+    // its collapsed bar needs. Update the detent + the CSS var that positions the
+    // peek transform, and re-snap if we're currently peeking so it's instant.
+    setSimplePeekHeight(px) {
+        const h = Math.max(120, Math.min(parseInt(px, 10) || this.CONFIG.simplePeekHeight, Math.round(window.innerHeight * 0.85)));
+        this.CONFIG.simplePeekHeight = h;
+        if (this.isSimpleSheet() && this.activeWindow) {
+            // Inline custom property wins over the stylesheet's --legacy-peek-height.
+            this.activeWindow.style.setProperty('--legacy-peek-height', h + 'px');
+            if (this.legacySheetState.currentState === 'peek' && !this.isSimpleSheetExpandedOnly()) {
+                this.setLegacySheetState('peek');
+            }
+        }
+    },
+
     // Keep the iframe's content phase in sync with the host sheet so dragging
     // the sheet up/down morphs small <-> big info (no tap required).
     syncSimpleIframePhase(targetState) {
@@ -1752,6 +1781,11 @@ wireUpLegacySheetInteractions(sheetElement, handleElement) {
             this.syncSimpleIframePhase('expanded');
 
         } else if (targetState === 'peek') {
+            // Keep the CSS var that drives the peek transform in sync with the
+            // current detent (the simple window's preset can change it live).
+            if (this.isSimpleSheet()) {
+                this.activeWindow.style.setProperty('--legacy-peek-height', this.getPeekHeight() + 'px');
+            }
             this.activeWindow.classList.add('visible', 'peek');
             if (this.overlayEl) this.overlayEl.classList.remove('visible');
 
@@ -1813,7 +1847,10 @@ wireUpLegacySheetInteractions(sheetElement, handleElement) {
 // --- [NEW] Legacy Sheet Swipe Handlers ---
     handleLegacyTouchStart(e) {
         if (this.activeMode !== 'legacy' || !this.activeWindow) return;
-        
+        // While the simple window is in layout-edit mode, the sheet gesture is
+        // locked so dragging blocks inside the iframe doesn't move the sheet.
+        if (this.editLocked) return;
+
         // Prevent drag if touching a button so clicks work perfectly
         const interactiveSelectors = [
             '.overview-actions', '.close-btn', 'button', 'a', '[role="button"]', 
