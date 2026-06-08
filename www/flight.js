@@ -10948,7 +10948,7 @@ function initializeAircraftLayer() {
 
         // 3D live-traffic dot field (toggled from the map toolbar / Settings).
         // Reads the same shared feature cache the flat symbol layer does.
-        LiveTraffic3D.init(sectorOpsMap, () => Object.values(currentMapFeatures));
+        LiveTraffic3D.init(sectorOpsMap, () => Object.values(currentMapFeatures), () => currentFlightInWindow);
         if (mapFilters.live3DTraffic) LiveTraffic3D.setVisible(true);
 
         const initialIconSize = parseFloat(mapFilters.planeIconSize) || 0.15;
