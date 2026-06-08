@@ -557,8 +557,22 @@ let mapFilters = {
         useClassicAirportTags: false,
         hideNoAtcMarkers: false,
         planDisplayMode: 'none',
+        mapStyle: 'dark',
         iconColorMode: 'default',
         showAircraftLabels: false,
+        // Aircraft label designer — pick exactly which rows appear in the
+        // on-map tag. Read by getAircraftLabelTextField() to build the Mapbox
+        // `format` expression dynamically. See applyAircraftLabelStyle().
+        labelConfig: {
+            callsign: true,
+            aircraftType: true,
+            altSpeed: true,
+            route: false,
+            registration: false,
+            pilot: false
+        },
+        labelScale: 1,            // 0.8–1.4 multiplier on base text size
+        labelTheme: 'default',    // default | cyan | amber | mono | contrast (pro)
         useFlatMap: false,
         useSimpleFlightWindow: false,
         planeIconSize: 0.15,
@@ -6734,17 +6748,102 @@ function onAirlineSearchResultClick(arg) {
 }
 window.onAirlineSearchResultClick = onAirlineSearchResultClick;
 
-function updateAircraftLabelVisibility() {
-    if (!sectorOpsMap || !sectorOpsMap.getLayer('sector-ops-live-flights-labels')) {
-        return;
+const AIRCRAFT_LABEL_LAYER_ID = 'sector-ops-live-flights-labels';
+
+// Default rows when no saved config exists yet. Mirrors the mapFilters
+// default above so the on-map tag and the settings preview always agree.
+const DEFAULT_LABEL_CONFIG = {
+    callsign: true,
+    aircraftType: true,
+    altSpeed: true,
+    route: false,
+    registration: false,
+    pilot: false
+};
+
+// Halo/text color palettes for the label themes. `contrast` is a pro-only
+// high-legibility chip (dark text on a bright halo).
+const AIRCRAFT_LABEL_THEMES = {
+    default:  { text: '#ffffff', halo: 'rgba(15, 23, 42, 0.9)', haloWidth: 2 },
+    cyan:     { text: '#7dd3fc', halo: 'rgba(8, 47, 73, 0.92)', haloWidth: 2 },
+    amber:    { text: '#fcd34d', halo: 'rgba(69, 26, 3, 0.92)', haloWidth: 2 },
+    mono:     { text: '#e4e4e7', halo: 'rgba(0, 0, 0, 0.85)',   haloWidth: 1.5 },
+    contrast: { text: '#0b1120', halo: 'rgba(226, 232, 240, 0.95)', haloWidth: 2.4 }
+};
+
+/**
+ * Builds the Mapbox GL `format` expression for the live-aircraft label from
+ * the user's chosen rows (mapFilters.labelConfig). Each enabled row becomes a
+ * line in the stacked tag, scaled relative to the layer's base text-size.
+ */
+function getAircraftLabelTextField() {
+    const cfg = Object.assign({}, DEFAULT_LABEL_CONFIG, mapFilters.labelConfig || {});
+
+    const rows = [];
+    if (cfg.callsign)     rows.push({ expr: ['coalesce', ['get', 'callsign'], ''], scale: 1.15 });
+    if (cfg.pilot)        rows.push({ expr: ['coalesce', ['get', 'username'], ''], scale: 0.82 });
+    if (cfg.aircraftType) rows.push({ expr: ['coalesce', ['get', 'aircraftName'], ''], scale: 0.82 });
+    if (cfg.registration) rows.push({ expr: ['coalesce', ['get', 'registration'], ''], scale: 0.78 });
+    if (cfg.route) {
+        rows.push({
+            expr: ['concat',
+                ['coalesce', ['get', 'departureIcao'], '----'], '  →  ',
+                ['coalesce', ['get', 'arrivalIcao'], '----']],
+            scale: 0.78
+        });
     }
-    
-    // Use setLayoutProperty to change the layer's visibility
+    if (cfg.altSpeed) {
+        rows.push({
+            expr: ['concat',
+                ['to-string', ['coalesce', ['get', 'altitude'], 0]], ' ft  ·  ',
+                ['to-string', ['coalesce', ['get', 'speed'], 0]], ' kts'],
+            scale: 0.78
+        });
+    }
+
+    // Never let the tag collapse to nothing — always show the callsign.
+    if (!rows.length) rows.push({ expr: ['coalesce', ['get', 'callsign'], ''], scale: 1.15 });
+
+    const fmt = ['format'];
+    rows.forEach((row, i) => {
+        if (i > 0) fmt.push('\n', {});
+        fmt.push(row.expr, { 'font-scale': row.scale });
+    });
+    return fmt;
+}
+window.getAircraftLabelTextField = getAircraftLabelTextField;
+
+/**
+ * Applies every live-aircraft label preference (visibility, chosen rows,
+ * size, color theme) to the map layer in one pass. Safe to call before the
+ * layer exists — it simply no-ops until the map is ready.
+ */
+function applyAircraftLabelStyle() {
+    if (!sectorOpsMap || !sectorOpsMap.getLayer(AIRCRAFT_LABEL_LAYER_ID)) return;
+
     sectorOpsMap.setLayoutProperty(
-        'sector-ops-live-flights-labels',
+        AIRCRAFT_LABEL_LAYER_ID,
         'visibility',
         mapFilters.showAircraftLabels ? 'visible' : 'none'
     );
+    if (!mapFilters.showAircraftLabels) return;
+
+    sectorOpsMap.setLayoutProperty(AIRCRAFT_LABEL_LAYER_ID, 'text-field', getAircraftLabelTextField());
+
+    const scale = Math.min(1.6, Math.max(0.7, parseFloat(mapFilters.labelScale) || 1));
+    sectorOpsMap.setLayoutProperty(AIRCRAFT_LABEL_LAYER_ID, 'text-size', 11 * scale);
+
+    const theme = AIRCRAFT_LABEL_THEMES[mapFilters.labelTheme] || AIRCRAFT_LABEL_THEMES.default;
+    sectorOpsMap.setPaintProperty(AIRCRAFT_LABEL_LAYER_ID, 'text-color', theme.text);
+    sectorOpsMap.setPaintProperty(AIRCRAFT_LABEL_LAYER_ID, 'text-halo-color', theme.halo);
+    sectorOpsMap.setPaintProperty(AIRCRAFT_LABEL_LAYER_ID, 'text-halo-width', theme.haloWidth);
+}
+window.applyAircraftLabelStyle = applyAircraftLabelStyle;
+
+// Back-compat alias — older call sites only toggled visibility; route them
+// through the full style applier so row/size/theme changes take effect too.
+function updateAircraftLabelVisibility() {
+    applyAircraftLabelStyle();
 }
 
 /**
@@ -7088,15 +7187,19 @@ function updateAircraftLayerFilter() {
     }
 
     if (tactical.country && tactical.country !== 'All Countries') {
-    // Extract prefix from UI string "United States (N)" -> "N"
-    const prefix = tactical.country.match(/\((.*?)\)/)[1];
-    
-    // FIX: Prioritize the community 'tailNumber' over the system 'registration'
-    filter.push([
-        '==', 
-        ['slice', ['coalesce', ['get', 'tailNumber'], ['get', 'registration'], ''], 0, prefix.length], 
-        prefix
-    ]);
+    // Extract prefix from UI string "United States (N)" -> "N". Guard against
+    // free-typed values that omit the "(PREFIX)" part so we never throw.
+    const countryMatch = tactical.country.match(/\((.*?)\)/);
+    if (countryMatch) {
+        const prefix = countryMatch[1];
+
+        // FIX: Prioritize the community 'tailNumber' over the system 'registration'
+        filter.push([
+            '==',
+            ['slice', ['coalesce', ['get', 'tailNumber'], ['get', 'registration'], ''], 0, prefix.length],
+            prefix
+        ]);
+    }
 }
 
     // Existing Filters (Departure/Arrival/Phase/etc.)
@@ -7108,6 +7211,12 @@ function updateAircraftLayerFilter() {
     // [Keep your existing range check logic here]
 
     sectorOpsMap.setFilter('sector-ops-live-flights-layer', filter);
+
+    // Keep the label layer in lock-step with the icon layer so filtered-out
+    // aircraft don't leave orphaned tags floating on the map.
+    if (sectorOpsMap.getLayer(AIRCRAFT_LABEL_LAYER_ID)) {
+        sectorOpsMap.setFilter(AIRCRAFT_LABEL_LAYER_ID, filter);
+    }
 }
 
     /**
@@ -10954,33 +11063,28 @@ function initializeAircraftLayer() {
             });
         }
 
-        if (!sectorOpsMap.getLayer('sector-ops-live-flights-labels')) {
+        if (!sectorOpsMap.getLayer(AIRCRAFT_LABEL_LAYER_ID)) {
+            const labelScale = Math.min(1.6, Math.max(0.7, parseFloat(mapFilters.labelScale) || 1));
+            const labelTheme = AIRCRAFT_LABEL_THEMES[mapFilters.labelTheme] || AIRCRAFT_LABEL_THEMES.default;
             sectorOpsMap.addLayer({
-                id: 'sector-ops-live-flights-labels',
+                id: AIRCRAFT_LABEL_LAYER_ID,
                 type: 'symbol',
                 source: 'sector-ops-live-flights-source',
                 minzoom: 6.5,
                 layout: {
                     'visibility': mapFilters.showAircraftLabels ? 'visible' : 'none',
-                    'text-field': [
-                        'format',
-                        ['get', 'callsign'], { 'font-scale': 1.1 }, '\n',
-                        {},
-                        ['get', 'aircraftName'], { 'font-scale': 0.8 }, '\n',
-                        {},
-                        ['concat', ['get', 'altitude'], ' ft | ', ['get', 'speed'], ' kts'], { 'font-scale': 0.8 }
-                    ],
+                    'text-field': getAircraftLabelTextField(),
                     'text-font': ['Inter Regular', 'Arial Unicode MS Regular'],
-                    'text-size': 11,
+                    'text-size': 11 * labelScale,
                     'text-offset': [0, 1.5],
                     'text-anchor': 'top',
                     'text-allow-overlap': false,
                     'text-ignore-placement': false
                 },
                 paint: {
-                    'text-color': '#ffffff',
-                    'text-halo-color': 'rgba(15, 23, 42, 0.9)',
-                    'text-halo-width': 2,
+                    'text-color': labelTheme.text,
+                    'text-halo-color': labelTheme.halo,
+                    'text-halo-width': labelTheme.haloWidth,
                     'text-halo-blur': 1
                 }
             });
