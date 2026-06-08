@@ -7187,15 +7187,19 @@ function updateAircraftLayerFilter() {
     }
 
     if (tactical.country && tactical.country !== 'All Countries') {
-    // Extract prefix from UI string "United States (N)" -> "N"
-    const prefix = tactical.country.match(/\((.*?)\)/)[1];
-    
-    // FIX: Prioritize the community 'tailNumber' over the system 'registration'
-    filter.push([
-        '==', 
-        ['slice', ['coalesce', ['get', 'tailNumber'], ['get', 'registration'], ''], 0, prefix.length], 
-        prefix
-    ]);
+    // Extract prefix from UI string "United States (N)" -> "N". Guard against
+    // free-typed values that omit the "(PREFIX)" part so we never throw.
+    const countryMatch = tactical.country.match(/\((.*?)\)/);
+    if (countryMatch) {
+        const prefix = countryMatch[1];
+
+        // FIX: Prioritize the community 'tailNumber' over the system 'registration'
+        filter.push([
+            '==',
+            ['slice', ['coalesce', ['get', 'tailNumber'], ['get', 'registration'], ''], 0, prefix.length],
+            prefix
+        ]);
+    }
 }
 
     // Existing Filters (Departure/Arrival/Phase/etc.)
@@ -7207,6 +7211,12 @@ function updateAircraftLayerFilter() {
     // [Keep your existing range check logic here]
 
     sectorOpsMap.setFilter('sector-ops-live-flights-layer', filter);
+
+    // Keep the label layer in lock-step with the icon layer so filtered-out
+    // aircraft don't leave orphaned tags floating on the map.
+    if (sectorOpsMap.getLayer(AIRCRAFT_LABEL_LAYER_ID)) {
+        sectorOpsMap.setFilter(AIRCRAFT_LABEL_LAYER_ID, filter);
+    }
 }
 
     /**

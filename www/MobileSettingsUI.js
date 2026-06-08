@@ -55,6 +55,83 @@ const LABEL_THEME_DEFS = [
     { value: 'contrast', label: 'Contrast', text: '#0b1120', halo: 'rgba(226,232,240,0.95)', pro: true }
 ];
 
+// --- Filter preset catalogues -------------------------------------------
+// All of these feed combobox dropdowns where the user can either pick a
+// preset or free-type their own value. Values are written into
+// mapFilters.tactical.* and consumed by updateAircraftLayerFilter() in
+// flight.js. Substring matches (type/airline/callsign) just need to appear
+// anywhere in the corresponding aircraft property.
+
+const AIRCRAFT_TYPE_PRESETS = [
+    { label: 'Airbus A320', value: 'A320' }, { label: 'Airbus A321', value: 'A321' },
+    { label: 'Airbus A319', value: 'A319' }, { label: 'Airbus A330', value: 'A330' },
+    { label: 'Airbus A350', value: 'A350' }, { label: 'Airbus A380', value: 'A380' },
+    { label: 'Boeing 737', value: '737' },   { label: 'Boeing 747', value: '747' },
+    { label: 'Boeing 757', value: '757' },   { label: 'Boeing 767', value: '767' },
+    { label: 'Boeing 777', value: '777' },   { label: 'Boeing 787', value: '787' },
+    { label: 'Embraer E-Jet', value: 'E1' }, { label: 'Bombardier CRJ', value: 'CRJ' },
+    { label: 'Cessna 172', value: 'C172' },  { label: 'Cessna Citation', value: 'Citation' },
+    { label: 'Concorde', value: 'Concorde' }
+];
+
+const AIRLINE_PRESETS = [
+    { label: 'Delta', value: 'Delta' }, { label: 'United', value: 'United' },
+    { label: 'American', value: 'American' }, { label: 'Southwest', value: 'Southwest' },
+    { label: 'JetBlue', value: 'JetBlue' }, { label: 'Alaska', value: 'Alaska' },
+    { label: 'British Airways', value: 'British' }, { label: 'Lufthansa', value: 'Lufthansa' },
+    { label: 'Air France', value: 'Air France' }, { label: 'KLM', value: 'KLM' },
+    { label: 'Emirates', value: 'Emirates' }, { label: 'Qatar Airways', value: 'Qatar' },
+    { label: 'Etihad', value: 'Etihad' }, { label: 'Singapore', value: 'Singapore' },
+    { label: 'Qantas', value: 'Qantas' }, { label: 'Ryanair', value: 'Ryanair' },
+    { label: 'easyJet', value: 'easyJet' }, { label: 'Turkish', value: 'Turkish' },
+    { label: 'ANA', value: 'ANA' }, { label: 'Japan Airlines', value: 'Japan Airlines' }
+];
+
+const AIRPORT_PRESETS = [
+    { label: 'KJFK — New York', value: 'KJFK' }, { label: 'KLAX — Los Angeles', value: 'KLAX' },
+    { label: 'KSFO — San Francisco', value: 'KSFO' }, { label: 'KORD — Chicago', value: 'KORD' },
+    { label: 'KATL — Atlanta', value: 'KATL' }, { label: 'KMIA — Miami', value: 'KMIA' },
+    { label: 'EGLL — London Heathrow', value: 'EGLL' }, { label: 'LFPG — Paris CDG', value: 'LFPG' },
+    { label: 'EHAM — Amsterdam', value: 'EHAM' }, { label: 'EDDF — Frankfurt', value: 'EDDF' },
+    { label: 'LEMD — Madrid', value: 'LEMD' }, { label: 'LIRF — Rome', value: 'LIRF' },
+    { label: 'OMDB — Dubai', value: 'OMDB' }, { label: 'OTHH — Doha', value: 'OTHH' },
+    { label: 'VHHH — Hong Kong', value: 'VHHH' }, { label: 'RJTT — Tokyo Haneda', value: 'RJTT' },
+    { label: 'WSSS — Singapore', value: 'WSSS' }, { label: 'YSSY — Sydney', value: 'YSSY' }
+];
+
+const COUNTRY_PRESETS = [
+    { label: 'United States', value: 'United States (N)' },
+    { label: 'United Kingdom', value: 'United Kingdom (G)' },
+    { label: 'Germany', value: 'Germany (D)' },
+    { label: 'France', value: 'France (F)' },
+    { label: 'Canada', value: 'Canada (C)' },
+    { label: 'Australia', value: 'Australia (VH)' },
+    { label: 'Japan', value: 'Japan (JA)' },
+    { label: 'China', value: 'China (B)' },
+    { label: 'Brazil', value: 'Brazil (PP)' },
+    { label: 'Netherlands', value: 'Netherlands (PH)' },
+    { label: 'Ireland', value: 'Ireland (EI)' },
+    { label: 'Spain', value: 'Spain (EC)' },
+    { label: 'Italy', value: 'Italy (I)' },
+    { label: 'UAE', value: 'UAE (A6)' }
+];
+
+const CATEGORY_OPTIONS = [
+    { label: 'Heavy', value: 'Heavy' }, { label: 'Widebody', value: 'Widebody' },
+    { label: 'Narrowbody', value: 'Narrowbody' }, { label: 'GA', value: 'GA' }
+];
+
+const PHASE_OPTIONS = [
+    { label: 'Ground', value: 'Ground' }, { label: 'Climb', value: 'Climb' },
+    { label: 'Cruise', value: 'Cruise' }, { label: 'Enroute', value: 'Enroute' },
+    { label: 'Descent', value: 'Descent' }
+];
+
+// Tactical keys persisted under mapFilters.tactical — used for the active
+// filter count badge and the Reset action.
+const TACTICAL_KEYS = ['type', 'livery', 'airline', 'category', 'phase',
+    'departureIcao', 'arrivalIcao', 'callsign', 'country', 'altitude', 'speed'];
+
 export const MobileSettingsUI = {
     _isOpen: false,
     _activeTab: 'map',
@@ -124,7 +201,7 @@ export const MobileSettingsUI = {
                         <button class="m-tab active" data-tab="map" type="button"><i class="fa-solid fa-map"></i><span>Map</span></button>
                         <button class="m-tab" data-tab="aircraft" type="button"><i class="fa-solid fa-plane-up"></i><span>Aircraft</span></button>
                         <button class="m-tab" data-tab="labels" type="button"><i class="fa-solid fa-tag"></i><span>Labels</span></button>
-                        <button class="m-tab" data-tab="filters" type="button"><i class="fa-solid fa-filter"></i><span>Filters</span></button>
+                        <button class="m-tab" data-tab="filters" type="button"><i class="fa-solid fa-filter"></i><span>Filters</span><span class="m-tab-badge" id="m-filters-badge"></span></button>
                         <button class="m-tab" data-tab="general" type="button"><i class="fa-solid fa-gear"></i><span>More</span></button>
                     </div>
 
@@ -201,35 +278,7 @@ export const MobileSettingsUI = {
 
                         <!-- ====================== FILTERS ====================== -->
                         <div class="m-panel" data-panel="filters">
-                            <div class="mobile-section-header">Traffic</div>
-                            <div class="m-settings-list">
-                                ${this.renderToggle('showStaffOnly', 'Staff Pilots Only', 'fa-shield-check')}
-                                ${this.renderToggle('showVaOnly', 'VA Members Only', 'fa-star')}
-                                ${this.renderVaFilterRow()}
-                                ${this.renderToggle('showGroupFlights', 'Show Group Flights', 'fa-users')}
-                                ${this.renderToggle('hideAllAircraft', 'Hide All Aircraft', 'fa-eye-slash')}
-                            </div>
-
-                            <div class="mobile-section-header">ATC &amp; Airports</div>
-                            <div class="m-settings-list">
-                                ${this.renderToggle('useClassicAirportTags', 'Classic Airport Tags', 'fa-tags')}
-                                ${this.renderToggle('showUnstaffedAirports', 'Show Unstaffed', 'fa-circle-dot')}
-                                ${this.renderToggle('hideNoAtcMarkers', 'Hide No-ATC Dots', 'fa-location-dot')}
-                                ${this.renderToggle('hideAtcMarkers', 'Hide ATC Markers', 'fa-headset')}
-                            </div>
-
-                            <div class="mobile-section-header">Flight Plan Routes</div>
-                            <div class="settings-mobile-grid">
-                                <button class="m-setting-pill" data-setting="planDisplayMode" data-value="none">None</button>
-                                <button class="m-setting-pill" data-setting="planDisplayMode" data-value="direct">Direct</button>
-                                <button class="m-setting-pill" data-setting="planDisplayMode" data-value="full">Full Plan</button>
-                            </div>
-
-                            <div class="mobile-section-header">Oceanic Tracks</div>
-                            <div class="m-settings-list">
-                                ${this.renderToggle('showNatTracks', 'NAT Tracks', 'fa-route')}
-                                ${this.renderToggle('showNatLabels', 'NAT Labels', 'fa-font')}
-                            </div>
+                            ${this.renderFiltersPanel()}
                         </div>
 
                         <!-- ====================== GENERAL ====================== -->
@@ -249,6 +298,128 @@ export const MobileSettingsUI = {
         `;
 
         document.body.insertAdjacentHTML('beforeend', html);
+    },
+
+    // ---- Filters tab -----------------------------------------------------
+    // A full tactical filter board: quick toggles, plus combobox/pill/range
+    // controls that write into mapFilters.tactical and re-run the live filter.
+    renderFiltersPanel() {
+        return `
+            <div class="m-filter-bar">
+                <span class="m-filter-count" id="m-filter-count">No filters active</span>
+                <button class="m-filter-reset" id="m-filter-reset" type="button">
+                    <i class="fa-solid fa-rotate-left"></i> Reset
+                </button>
+            </div>
+
+            <div class="mobile-section-header">Traffic</div>
+            <div class="m-settings-list">
+                ${this.renderToggle('showStaffOnly', 'Staff Pilots Only', 'fa-shield-check')}
+                ${this.renderToggle('showVaOnly', 'VA Members Only', 'fa-star')}
+                ${this.renderVaFilterRow()}
+                ${this.renderToggle('showGroupFlights', 'Show Group Flights', 'fa-users')}
+                ${this.renderToggle('hideAllAircraft', 'Hide All Aircraft', 'fa-eye-slash')}
+            </div>
+
+            <div class="mobile-section-header">Aircraft &amp; Airline</div>
+            <div class="m-combo-list">
+                ${this.renderCombo('type', 'Aircraft Type', 'fa-plane', 'e.g. A320, 787…', AIRCRAFT_TYPE_PRESETS)}
+                ${this.renderCombo('livery', 'Airline / Livery', 'fa-building', 'e.g. Delta, Emirates…', AIRLINE_PRESETS)}
+                ${this.renderCombo('airline', 'Callsign Prefix', 'fa-hashtag', 'e.g. DAL, BAW…', [])}
+            </div>
+
+            <div class="mobile-section-header">Category</div>
+            ${this.renderTacticalPills('category', CATEGORY_OPTIONS)}
+
+            <div class="mobile-section-header">Flight Phase</div>
+            ${this.renderTacticalPills('phase', PHASE_OPTIONS)}
+
+            <div class="mobile-section-header">Route</div>
+            <div class="m-combo-list">
+                ${this.renderCombo('departureIcao', 'Departure', 'fa-plane-departure', 'ICAO e.g. KJFK', AIRPORT_PRESETS)}
+                ${this.renderCombo('arrivalIcao', 'Arrival', 'fa-plane-arrival', 'ICAO e.g. EGLL', AIRPORT_PRESETS)}
+            </div>
+
+            <div class="mobile-section-header">Performance</div>
+            <div class="m-combo-list">
+                ${this.renderRangeRow('altitude', 'Altitude', 'fa-gauge-high', 'ft')}
+                ${this.renderRangeRow('speed', 'Ground Speed', 'fa-wind', 'kts')}
+            </div>
+
+            <div class="mobile-section-header">Identity</div>
+            <div class="m-combo-list">
+                ${this.renderCombo('callsign', 'Callsign Search', 'fa-magnifying-glass', 'e.g. UAL482', [])}
+                ${this.renderCombo('country', 'Registration Country', 'fa-flag', 'Pick a country…', COUNTRY_PRESETS, true)}
+            </div>
+
+            <div class="mobile-section-header">ATC &amp; Airports</div>
+            <div class="m-settings-list">
+                ${this.renderToggle('useClassicAirportTags', 'Classic Airport Tags', 'fa-tags')}
+                ${this.renderToggle('showUnstaffedAirports', 'Show Unstaffed', 'fa-circle-dot')}
+                ${this.renderToggle('hideNoAtcMarkers', 'Hide No-ATC Dots', 'fa-location-dot')}
+                ${this.renderToggle('hideAtcMarkers', 'Hide ATC Markers', 'fa-headset')}
+            </div>
+
+            <div class="mobile-section-header">Flight Plan Routes</div>
+            <div class="settings-mobile-grid">
+                <button class="m-setting-pill" data-setting="planDisplayMode" data-value="none">None</button>
+                <button class="m-setting-pill" data-setting="planDisplayMode" data-value="direct">Direct</button>
+                <button class="m-setting-pill" data-setting="planDisplayMode" data-value="full">Full Plan</button>
+            </div>
+
+            <div class="mobile-section-header">Oceanic Tracks</div>
+            <div class="m-settings-list">
+                ${this.renderToggle('showNatTracks', 'NAT Tracks', 'fa-route')}
+                ${this.renderToggle('showNatLabels', 'NAT Labels', 'fa-font')}
+            </div>
+        `;
+    },
+
+    // A combobox: free-type input + a tap-to-pick preset dropdown. When
+    // `presetOnly` is true the input is read-only and values come solely from
+    // the menu (used for Country, whose value must carry a "(PREFIX)").
+    renderCombo(key, label, icon, placeholder, presets, presetOnly = false) {
+        const opts = presets.map(p =>
+            `<button class="m-combo-opt" type="button" data-value="${p.value}">${p.label}</button>`
+        ).join('');
+        const hasMenu = presets.length > 0;
+        return `
+            <div class="m-combo ${presetOnly ? 'is-preset-only' : ''}" data-tactical="${key}">
+                <div class="m-combo-label"><i class="fa-solid ${icon}"></i><span>${label}</span></div>
+                <div class="m-combo-control">
+                    <input type="text" class="m-combo-input" data-tactical="${key}"
+                           placeholder="${placeholder}" ${presetOnly ? 'readonly' : ''}
+                           autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+                    ${hasMenu ? '<button class="m-combo-caret" type="button" tabindex="-1"><i class="fa-solid fa-chevron-down"></i></button>' : ''}
+                    <button class="m-combo-clear" type="button" tabindex="-1"><i class="fa-solid fa-xmark"></i></button>
+                    ${hasMenu ? `<div class="m-combo-menu">${opts}</div>` : ''}
+                </div>
+            </div>
+        `;
+    },
+
+    // Pill row for enum tactical filters (category, phase). The leading "All"
+    // pill clears the filter.
+    renderTacticalPills(key, options) {
+        const pills = [`<button class="m-tac-pill active" data-tactical="${key}" data-value="" type="button">All</button>`]
+            .concat(options.map(o =>
+                `<button class="m-tac-pill" data-tactical="${key}" data-value="${o.value}" type="button">${o.label}</button>`
+            )).join('');
+        return `<div class="m-tac-pill-row">${pills}</div>`;
+    },
+
+    // Min/Max numeric range written to mapFilters.tactical[key] = {min, max}.
+    renderRangeRow(key, label, icon, unit) {
+        return `
+            <div class="m-range-row" data-tactical-range="${key}">
+                <div class="m-combo-label"><i class="fa-solid ${icon}"></i><span>${label} <small>(${unit})</small></span></div>
+                <div class="m-range-inputs">
+                    <input type="number" inputmode="numeric" class="m-range-num" data-bound="min" placeholder="Min">
+                    <span class="m-range-dash">–</span>
+                    <input type="number" inputmode="numeric" class="m-range-num" data-bound="max" placeholder="Max">
+                </div>
+            </div>
+        `;
     },
 
     // The aircraft-label designer: master toggle, a live preview that mirrors
@@ -450,6 +621,88 @@ export const MobileSettingsUI = {
         container.querySelectorAll('.m-panel').forEach(p => p.classList.toggle('active', p.dataset.panel === tab));
         const content = container.querySelector('.sheet-content');
         if (content) content.scrollTop = 0;
+    },
+
+    // Writes (or clears) a single tactical filter and re-runs the live map
+    // filter + persistence + badge refresh.
+    setTactical(key, value) {
+        if (!window.mapFilters) return;
+        if (!window.mapFilters.tactical) window.mapFilters.tactical = {};
+        const v = (value || '').trim();
+        if (v === '') {
+            delete window.mapFilters.tactical[key];
+        } else {
+            window.mapFilters.tactical[key] = v;
+        }
+        if (window.updateMapFilters) window.updateMapFilters();
+        if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
+        this.updateFilterBadge();
+    },
+
+    // Min/Max range tactical filter — stored as { min, max } with '' meaning
+    // "unbounded" (matches the parser in updateAircraftLayerFilter).
+    setTacticalRange(key, bound, value) {
+        if (!window.mapFilters) return;
+        if (!window.mapFilters.tactical) window.mapFilters.tactical = {};
+        const t = window.mapFilters.tactical;
+        if (!t[key]) t[key] = { min: '', max: '' };
+        t[key][bound] = (value === null || value === undefined) ? '' : String(value).trim();
+        // Drop the object entirely once both bounds are clear so it doesn't
+        // count as an active filter.
+        if (t[key].min === '' && t[key].max === '') delete t[key];
+        if (window.updateMapFilters) window.updateMapFilters();
+        if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
+        this.updateFilterBadge();
+    },
+
+    // Counts active tactical filters and reflects it in the tab badge + the
+    // in-panel summary line.
+    countActiveTactical() {
+        const t = (window.mapFilters && window.mapFilters.tactical) || {};
+        let n = 0;
+        TACTICAL_KEYS.forEach(k => {
+            const v = t[k];
+            if (v === undefined || v === null) return;
+            if (typeof v === 'object') {
+                if ((v.min !== undefined && v.min !== '') || (v.max !== undefined && v.max !== '')) n++;
+            } else if (String(v).trim() !== '') {
+                n++;
+            }
+        });
+        return n;
+    },
+
+    updateFilterBadge() {
+        const n = this.countActiveTactical();
+        const badge = document.getElementById('m-filters-badge');
+        if (badge) {
+            badge.textContent = n || '';
+            badge.classList.toggle('visible', n > 0);
+        }
+        const count = document.getElementById('m-filter-count');
+        if (count) {
+            count.textContent = n === 0 ? 'No filters active'
+                : `${n} active filter${n === 1 ? '' : 's'}`;
+            count.classList.toggle('has-filters', n > 0);
+        }
+        const reset = document.getElementById('m-filter-reset');
+        if (reset) reset.classList.toggle('visible', n > 0);
+    },
+
+    resetTacticalFilters() {
+        if (window.mapFilters) window.mapFilters.tactical = {};
+        const container = document.getElementById('mobile-settings-nexus');
+        if (container) {
+            container.querySelectorAll('.m-combo-input').forEach(i => { i.value = ''; });
+            container.querySelectorAll('.m-range-num').forEach(i => { i.value = ''; });
+            container.querySelectorAll('.m-tac-pill').forEach(p => {
+                p.classList.toggle('active', p.dataset.value === '');
+            });
+            container.querySelectorAll('.m-combo').forEach(c => c.classList.remove('has-value'));
+        }
+        if (window.updateMapFilters) window.updateMapFilters();
+        if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
+        this.updateFilterBadge();
     },
 
     attachMobileListeners() {
@@ -677,6 +930,95 @@ export const MobileSettingsUI = {
             });
         });
 
+        // ---- Tactical filter combobox inputs ----
+        sheet.querySelectorAll('.m-combo').forEach(combo => {
+            const key = combo.dataset.tactical;
+            const input = combo.querySelector('.m-combo-input');
+            const menu = combo.querySelector('.m-combo-menu');
+            const caret = combo.querySelector('.m-combo-caret');
+            const clear = combo.querySelector('.m-combo-clear');
+            const presetOnly = combo.classList.contains('is-preset-only');
+
+            const markValue = () => combo.classList.toggle('has-value', !!input.value.trim());
+
+            const filterMenu = () => {
+                if (!menu) return;
+                const q = input.value.trim().toLowerCase();
+                menu.querySelectorAll('.m-combo-opt').forEach(opt => {
+                    const match = !q || opt.textContent.toLowerCase().includes(q) ||
+                        (opt.dataset.value || '').toLowerCase().includes(q);
+                    opt.style.display = match ? '' : 'none';
+                });
+            };
+            const openMenu = () => { if (menu) { filterMenu(); combo.classList.add('open'); } };
+            const closeMenu = () => combo.classList.remove('open');
+
+            if (!presetOnly) {
+                input.addEventListener('input', () => {
+                    markValue();
+                    filterMenu();
+                    combo.classList.add('open');
+                    this.setTactical(key, input.value);
+                });
+            }
+            input.addEventListener('focus', openMenu);
+            // Delay so an option tap registers before the menu collapses.
+            input.addEventListener('blur', () => setTimeout(closeMenu, 180));
+
+            if (caret) caret.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                combo.classList.contains('open') ? closeMenu() : (input.focus(), openMenu());
+            });
+
+            if (clear) clear.addEventListener('click', () => {
+                input.value = '';
+                markValue();
+                this.setTactical(key, '');
+                closeMenu();
+            });
+
+            if (menu) menu.querySelectorAll('.m-combo-opt').forEach(opt => {
+                // mousedown fires before the input blur, so the value sticks.
+                opt.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    window.InflightHaptics?.select?.();
+                    input.value = opt.dataset.value;
+                    markValue();
+                    this.setTactical(key, opt.dataset.value);
+                    closeMenu();
+                });
+            });
+        });
+
+        // ---- Tactical pill rows (category / phase) ----
+        sheet.querySelectorAll('.m-tac-pill').forEach(pill => {
+            pill.addEventListener('click', () => {
+                window.InflightHaptics?.select?.();
+                const key = pill.dataset.tactical;
+                const value = pill.dataset.value;
+                pill.parentElement.querySelectorAll('.m-tac-pill').forEach(p => p.classList.remove('active'));
+                pill.classList.add('active');
+                this.setTactical(key, value);
+            });
+        });
+
+        // ---- Tactical numeric ranges (altitude / speed) ----
+        sheet.querySelectorAll('.m-range-row').forEach(row => {
+            const key = row.dataset.tacticalRange;
+            row.querySelectorAll('.m-range-num').forEach(num => {
+                num.addEventListener('input', () => {
+                    this.setTacticalRange(key, num.dataset.bound, num.value);
+                });
+            });
+        });
+
+        // ---- Reset all tactical filters ----
+        const resetBtn = document.getElementById('m-filter-reset');
+        if (resetBtn) resetBtn.addEventListener('click', () => {
+            window.InflightHaptics?.select?.();
+            this.resetTacticalFilters();
+        });
+
         // Legal document rows — open privacy.html / terms.html in the shared
         // in-app viewer (layers above this sheet; its back button returns here).
         sheet.querySelectorAll('.m-legal-row').forEach(row => {
@@ -833,6 +1175,32 @@ export const MobileSettingsUI = {
                 btn.classList.remove('active');
             }
         });
+
+        // Tactical filters → comboboxes, pills, ranges
+        const tactical = filters.tactical || {};
+        container.querySelectorAll('.m-combo').forEach(combo => {
+            const key = combo.dataset.tactical;
+            const input = combo.querySelector('.m-combo-input');
+            const val = tactical[key];
+            if (input) {
+                input.value = (val !== undefined && val !== null && typeof val !== 'object') ? val : '';
+                combo.classList.toggle('has-value', !!input.value.trim());
+            }
+        });
+        container.querySelectorAll('.m-tac-pill').forEach(pill => {
+            const key = pill.dataset.tactical;
+            const current = tactical[key] || '';
+            pill.classList.toggle('active', pill.dataset.value === current);
+        });
+        container.querySelectorAll('.m-range-row').forEach(row => {
+            const key = row.dataset.tacticalRange;
+            const range = tactical[key] || {};
+            row.querySelectorAll('.m-range-num').forEach(num => {
+                const b = num.dataset.bound;
+                num.value = (range[b] !== undefined && range[b] !== null) ? range[b] : '';
+            });
+        });
+        this.updateFilterBadge();
 
         this.updateLabelPreview();
     },
@@ -1100,6 +1468,100 @@ export const MobileSettingsUI = {
                 .m-legal-row { cursor: pointer; }
                 .m-legal-row:active { background: rgba(255,255,255,0.07); }
                 .m-legal-chevron { color: #52525b; font-size: 0.85rem; }
+
+                /* ---- Filters tab ---- */
+                .m-tab { position: relative; }
+                .m-tab-badge {
+                    display: none; position: absolute; top: 2px; right: calc(50% - 22px);
+                    min-width: 15px; height: 15px; padding: 0 4px; border-radius: 999px;
+                    background: #38bdf8; color: #000; font-size: 0.58rem; font-weight: 900;
+                    align-items: center; justify-content: center; line-height: 15px;
+                }
+                .m-tab-badge.visible { display: flex; }
+
+                .m-filter-bar {
+                    display: flex; align-items: center; justify-content: space-between;
+                    margin: 4px 20px 0; padding: 10px 14px; border-radius: 12px;
+                    background: rgba(56,189,248,0.08); border: 1px solid rgba(56,189,248,0.18);
+                }
+                .m-filter-count { font-size: 0.78rem; font-weight: 700; color: #71717a; }
+                .m-filter-count.has-filters { color: #7dd3fc; }
+                .m-filter-reset {
+                    background: rgba(255,255,255,0.06); border: none; color: #f87171;
+                    font-size: 0.75rem; font-weight: 700; padding: 6px 12px; border-radius: 999px;
+                    opacity: 0; pointer-events: none; transition: 0.2s; -webkit-tap-highlight-color: transparent;
+                }
+                .m-filter-reset.visible { opacity: 1; pointer-events: auto; }
+                .m-filter-reset i { margin-right: 4px; }
+
+                .m-combo-list { padding: 0 20px; display: flex; flex-direction: column; gap: 10px; }
+
+                .m-combo { position: relative; }
+                .m-combo-label, .m-range-row .m-combo-label {
+                    display: flex; align-items: center; gap: 10px; font-size: 0.78rem;
+                    font-weight: 600; color: #d4d4d8; margin-bottom: 6px;
+                }
+                .m-combo-label i { color: #38bdf8; width: 15px; text-align: center; }
+                .m-combo-label small { color: #71717a; font-weight: 500; }
+
+                .m-combo-control { position: relative; }
+                .m-combo-input {
+                    width: 100%; box-sizing: border-box; padding: 12px 64px 12px 14px;
+                    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12);
+                    border-radius: 12px; color: #fff; font-size: 0.9rem; font-weight: 600;
+                    -webkit-appearance: none;
+                }
+                .m-combo-input::placeholder { color: #52525b; font-weight: 500; }
+                .m-combo.has-value .m-combo-input { border-color: rgba(56,189,248,0.5); }
+                .m-combo-input:focus { outline: none; border-color: #38bdf8; background: rgba(56,189,248,0.06); }
+
+                .m-combo-caret, .m-combo-clear {
+                    position: absolute; top: 50%; transform: translateY(-50%);
+                    background: transparent; border: none; color: #71717a;
+                    width: 28px; height: 28px; border-radius: 8px; font-size: 0.8rem;
+                    display: flex; align-items: center; justify-content: center;
+                }
+                .m-combo-caret { right: 6px; transition: transform 0.2s; }
+                .m-combo.open .m-combo-caret { transform: translateY(-50%) rotate(180deg); }
+                .m-combo-clear { right: 34px; display: none; color: #a1a1aa; }
+                .m-combo.has-value .m-combo-clear { display: flex; }
+                .m-combo.is-preset-only .m-combo-input { padding-right: 64px; }
+
+                .m-combo-menu {
+                    display: none; position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+                    max-height: 210px; overflow-y: auto; z-index: 20;
+                    background: #18181b; border: 1px solid rgba(255,255,255,0.14);
+                    border-radius: 12px; padding: 6px; box-shadow: 0 12px 30px rgba(0,0,0,0.55);
+                }
+                .m-combo.open .m-combo-menu { display: block; }
+                .m-combo-opt {
+                    display: block; width: 100%; text-align: left; background: transparent;
+                    border: none; color: #d4d4d8; padding: 10px 12px; border-radius: 8px;
+                    font-size: 0.85rem; font-weight: 600; -webkit-tap-highlight-color: transparent;
+                }
+                .m-combo-opt:active { background: rgba(56,189,248,0.18); color: #fff; }
+
+                .m-tac-pill-row {
+                    display: flex; flex-wrap: wrap; gap: 8px; padding: 0 20px;
+                }
+                .m-tac-pill {
+                    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+                    color: #a1a1aa; padding: 9px 16px; border-radius: 999px; font-weight: 700;
+                    font-size: 0.8rem; -webkit-tap-highlight-color: transparent;
+                }
+                .m-tac-pill.active { background: #38bdf8; color: #000; border-color: #38bdf8; }
+
+                .m-range-row { }
+                .m-range-inputs { display: flex; align-items: center; gap: 10px; }
+                .m-range-num {
+                    flex: 1; min-width: 0; box-sizing: border-box; padding: 11px 12px;
+                    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12);
+                    border-radius: 12px; color: #fff; font-size: 0.9rem; font-weight: 600;
+                    text-align: center; -webkit-appearance: none;
+                }
+                .m-range-num::placeholder { color: #52525b; font-weight: 500; }
+                .m-range-num:focus { outline: none; border-color: #38bdf8; background: rgba(56,189,248,0.06); }
+                .m-range-dash { color: #52525b; font-weight: 700; }
 
                 .custom-scroll { overflow-y: auto; flex: 1; }
             }
