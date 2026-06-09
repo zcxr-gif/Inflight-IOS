@@ -112,6 +112,18 @@ async function loadSpriteSheetAndGenerateIcons(map) {
         if (!map.hasImage(`icon-${iconKey}`)) {
             const baseImageData = baseCtx.getImageData(pixelX, pixelY, pixelW, pixelH);
             map.addImage(`icon-${iconKey}`, baseImageData, { pixelRatio: pRatio, sdf: true });
+
+            // Also register a NON-SDF "natural" twin of every base icon (skip the
+            // `_S` hover/selected sprites — those always render tinted). In the
+            // White plane color mode we draw the un-highlighted traffic from this
+            // full-detail sprite instead of the flat SDF silhouette, and only the
+            // aircraft that actually need a color (your plane, watchlist, traffic
+            // highlight) fall back to the tintable SDF icon. See
+            // getIconImageExpression().
+            if (!iconKey.endsWith('_S') && !map.hasImage(`icon-${iconKey}-nat`)) {
+                const natImageData = baseCtx.getImageData(pixelX, pixelY, pixelW, pixelH);
+                map.addImage(`icon-${iconKey}-nat`, natImageData, { pixelRatio: pRatio, sdf: false });
+            }
         }
         
         if (performance.now() - executionStartTime > FRAME_BUDGET_MS) {
@@ -175,8 +187,30 @@ function applyTrafficHighlighting() {
 }
 
 function getIconImageExpression() {
-    // With SDF GPU tinting, dynamic color suffixes are no longer needed
-    return ['concat', 'icon-', ['coalesce', ['get', 'category'], 'B737']];
+    const cat = ['coalesce', ['get', 'category'], 'B737'];
+
+    // mapFilters lives inside the DOMContentLoaded closure; this helper is at
+    // module scope and only runs after init, so read it off window.
+    const colorMode = (window.mapFilters && window.mapFilters.iconColorMode) || 'default';
+
+    // In any colored mode (Blue / Orange / custom) every aircraft is tinted, so
+    // they all use the SDF silhouette that `icon-color` can recolor.
+    if (colorMode !== 'default') {
+        return ['concat', 'icon-', cat];
+    }
+
+    // White ("Default") mode: render the bulk of traffic from the full-detail,
+    // NON-SDF sprite (which ignores icon-color and keeps its natural look) and
+    // only fall back to the tintable SDF icon for the aircraft that genuinely
+    // need a color — the logged-in pilot, watchlist pilots, and the airport
+    // traffic highlight. Everything else stays a clean white plane.
+    const needsTint = ['any',
+        ['==', ['get', 'pilotRelation'], 'user'],
+        ['==', ['get', 'pilotRelation'], 'watchlist'],
+        ['==', ['get', 'trafficType'], 'inbound'],
+        ['==', ['get', 'trafficType'], 'outbound']
+    ];
+    return ['concat', 'icon-', cat, ['case', needsTint, '', '-nat']];
 }
 
 function getHoverIconImageExpression() {
@@ -11620,7 +11654,6 @@ const SettingsUI = {
         airspace: { label: "Filters", icon: "fa-tower-broadcast" },
         visuals: { label: "Visuals", icon: "fa-eye" },
         pro_layers: { label: (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) ? "Layers" : "Pro Layers", icon: "fa-layer-group" },
-        interface: { label: "Interface", icon: "fa-tablet-screen-button" },
         theme: { label: "Theme", icon: "fa-palette" }
     },
 
@@ -11982,14 +12015,6 @@ renderCategory(catId) {
                         <div class="settings-section">
                             <label class="config-header">Network Visibility</label>
                             <div class="settings-row">
-                                <div class="row-label"><i class="fa-solid fa-tower-broadcast"></i> Hide Staffed Airports</div>
-                                <label class="toggle-switch"><input type="checkbox" id="set-hide-atc" ${mapFilters.hideAtcMarkers ? 'checked' : ''}><span class="toggle-slider"></span></label>
-                            </div>
-                            <div class="settings-row">
-                                <div class="row-label"><i class="fa-solid fa-map-marked-alt"></i> Show Unstaffed Airports</div>
-                                <label class="toggle-switch"><input type="checkbox" id="set-show-unstaffed" ${mapFilters.showUnstaffedAirports ? 'checked' : ''}><span class="toggle-slider"></span></label>
-                            </div>
-                            <div class="settings-row">
                                 <div class="row-label"><i class="fa-solid fa-tags"></i> Classic Airport Tags</div>
                                 <label class="toggle-switch"><input type="checkbox" id="set-classic-airport-tags" ${mapFilters.useClassicAirportTags ? 'checked' : ''}><span class="toggle-slider"></span></label>
                             </div>
@@ -12136,11 +12161,6 @@ renderCategory(catId) {
 
                         <div class="settings-section">
                             <label class="config-header">Aircraft Display</label>
-                            
-                            <div class="settings-row">
-                                <div class="row-label"><i class="fa-solid fa-tags"></i> Aircraft Labels</div>
-                                <label class="toggle-switch"><input type="checkbox" id="set-labels" ${mapFilters.showAircraftLabels ? 'checked' : ''}><span class="toggle-slider"></span></label>
-                            </div>
 
                             <div class="settings-row">
                                 <div class="row-label"><i class="fa-solid fa-cube"></i> 3D Traffic View</div>
@@ -12156,36 +12176,19 @@ renderCategory(catId) {
                                 </div>
                                 <input type="range" id="set-plane-size" min="0.1" max="1.0" step="0.05" value="${mapFilters.planeIconSize}" style="width: 100%;">
                             </div>
-                            
-                        </div>
 
-                        <div class="settings-section">
-                            <label class="config-header">Map & Projection</label>
                             <div class="settings-row">
-                                <div class="row-label">Map Style</div>
+                                <div class="row-label"><i class="fa-solid fa-route"></i> Flight Plan</div>
                                 <div class="input-wrapper select-wrapper">
-                                    <select id="set-map-style" class="row-input-select">
-                                        <optgroup label="Standard Maps">
-                                            <option value="dark" ${mapFilters.mapStyle === 'dark' ? 'selected' : ''}>Dark (Default)</option>
-                                            <option value="light" ${mapFilters.mapStyle === 'light' ? 'selected' : ''}>Light</option>
-                                            <option value="satellite" ${mapFilters.mapStyle === 'satellite' ? 'selected' : ''}>Satellite</option>
-                                        </optgroup>
-                                        <optgroup label="Pro Series ✦" ${!isSignedIn ? 'disabled' : ''}>
-                                            <option value="outdoors" ${mapFilters.mapStyle === 'outdoors' ? 'selected' : ''}>Aviation Outdoors</option>
-                                            <option value="nav-dark" ${mapFilters.mapStyle === 'nav-dark' ? 'selected' : ''}>Navigation (Night)</option>
-                                            <option value="nav-light" ${mapFilters.mapStyle === 'nav-light' ? 'selected' : ''}>Navigation (Day)</option>
-                                            <option value="traffic-night" ${mapFilters.mapStyle === 'traffic-night' ? 'selected' : ''}>Traffic Flow (Night)</option>
-                                            <option value="traffic-day" ${mapFilters.mapStyle === 'traffic-day' ? 'selected' : ''}>Traffic Flow (Day)</option>
-                                        </optgroup>
+                                    <select id="set-plan-mode" class="row-input-select">
+                                        <option value="none" ${mapFilters.planDisplayMode === 'none' ? 'selected' : ''}>Hide Plan</option>
+                                        <option value="direct" ${mapFilters.planDisplayMode === 'direct' ? 'selected' : ''}>Direct to Destination</option>
+                                        <option value="full" ${mapFilters.planDisplayMode === 'full' ? 'selected' : ''}>Full Filed Plan</option>
                                     </select>
                                 </div>
                             </div>
-                            <div class="settings-row">
-                                <div class="row-label"><i class="fa-solid fa-map"></i> Flat Map Projection</div>
-                                <label class="toggle-switch"><input type="checkbox" id="set-flat-map" ${mapFilters.useFlatMap ? 'checked' : ''}><span class="toggle-slider"></span></label>
-                            </div>
-                        </div>
 
+                        </div>
 
                         <div class="settings-section">
                             <label class="config-header">Routes & Tracks</label>
@@ -12217,27 +12220,6 @@ renderCategory(catId) {
                                 <i class="fa-solid fa-circle-info" style="font-size: 0.6rem; margin-right: 4px;"></i>
                                 Note: This feature is experimental and may be broken at times.
                             </p>
-                        </div>
-                    `;
-                    break;
-                case 'interface':
-                    html = `
-                        <div class="settings-section">
-                            <label class="config-header">User Interface</label>
-                            <div class="settings-row">
-                                <div class="row-label"><i class="fa-solid fa-tablet-button"></i> Simple Flight Window</div>
-                                <label class="toggle-switch"><input type="checkbox" id="set-simple-win" ${mapFilters.useSimpleFlightWindow ? 'checked' : ''}><span class="toggle-slider"></span></label>
-                            </div>
-                            <div class="settings-row">
-                                <div class="row-label">Flight Plan Mode</div>
-                                <div class="input-wrapper select-wrapper">
-                                    <select id="set-plan-mode" class="row-input-select">
-                                        <option value="none" ${mapFilters.planDisplayMode === 'none' ? 'selected' : ''}>Hide Plan</option>
-                                        <option value="direct" ${mapFilters.planDisplayMode === 'direct' ? 'selected' : ''}>Direct to Destination</option>
-                                        <option value="full" ${mapFilters.planDisplayMode === 'full' ? 'selected' : ''}>Full Filed Plan</option>
-                                    </select>
-                                </div>
-                            </div>
                         </div>
                     `;
                     break;
@@ -12362,16 +12344,11 @@ renderCategory(catId) {
 
         // --- 2. Define General Settings IDs ---
         const ids = {
-            'set-hide-atc': 'hideAtcMarkers',
-            'set-show-unstaffed': 'showUnstaffedAirports',
             'set-classic-airport-tags': 'useClassicAirportTags',
             'set-staff-only': 'showStaffOnly',
             'set-va-only': 'showVaOnly',
-            'set-labels': 'showAircraftLabels',
-            'set-flat-map': 'useFlatMap',
             'set-nat-tracks': 'showNatTracks',
             'set-nat-labels': 'showNatLabels',
-            'set-simple-win': 'useSimpleFlightWindow',
             'setting-toggle-3dpath': 'show3DPath'
         };
 
@@ -12402,12 +12379,6 @@ renderCategory(catId) {
         const live3dToggle = document.getElementById('set-3d-traffic');
         if (live3dToggle) {
             live3dToggle.addEventListener('change', (e) => setLive3DTraffic(e.target.checked));
-        }
-
-        // Map Style Select
-        const mapStyleSelect = document.getElementById('set-map-style');
-        if (mapStyleSelect) {
-            mapStyleSelect.addEventListener('change', (e) => update('mapStyle', e.target.value));
         }
 
         // Virtual Airline Filter Select
@@ -12497,7 +12468,14 @@ if (upgradeBtn) {
         // Flight Plan Mode Select
         const planModeSelect = document.getElementById('set-plan-mode');
         if (planModeSelect) {
-            planModeSelect.addEventListener('change', (e) => update('planDisplayMode', e.target.value));
+            planModeSelect.addEventListener('change', (e) => {
+                update('planDisplayMode', e.target.value);
+                // Redraw the currently-selected flight's plan immediately so the
+                // change is visible without waiting for the next data tick.
+                if (currentFlightInWindow && cachedFlightDataForStatsView && cachedFlightDataForStatsView.plan) {
+                    updateFlightPlanLayer(currentFlightInWindow, cachedFlightDataForStatsView.plan, currentAircraftPositionForGeocode);
+                }
+            });
         }
 
         // Theme Configuration
@@ -12752,24 +12730,6 @@ if (upgradeBtn) {
                             </li>
                         </ul>
                         
-                        <div class="filter-section-divider">
-                            <span class="filter-section-title">Active Flight Plan Display</span>
-                        </div>
-                        <ul class="filter-toggle-list" id="plan-filter-group" style="padding-top: 8px;">
-                            <li class="filter-radio-item">
-                                <input type="radio" id="plan-filter-none" name="plan-display-mode" value="none" checked>
-                                <label for="plan-filter-none"><i class="fa-solid fa-eye-slash"></i> Hide Plan</label>
-                            </li>
-                            <li class="filter-radio-item">
-                                <input type="radio" id="plan-filter-direct" name="plan-display-mode" value="direct">
-                                <label for="plan-filter-direct"><i class="fa-solid fa-route"></i> Direct to Destination</label>
-                            </li>
-                            <li class="filter-radio-item">
-                                <input type="radio" id="plan-filter-full" name="plan-display-mode" value="full">
-                                <label for="plan-filter-full"><i class="fa-solid fa-diagram-project"></i> Full Filed Plan</label>
-                            </li>
-                        </ul>
-
                         <div class="mobile-only-filter-section">
                             <div class="filter-section-divider">
                                 <span class="filter-section-title">Mobile Display Mode</span>
@@ -17045,9 +17005,6 @@ if (flatMapToggle) {
         const colorRadio = document.querySelector(`input[name="icon-color-mode"][value="${mapFilters.iconColorMode}"]`);
         if (colorRadio) colorRadio.checked = true;
 
-        const planRadio = document.querySelector(`input[name="plan-display-mode"][value="${mapFilters.planDisplayMode}"]`);
-        if (planRadio) planRadio.checked = true;
-
         // Colors
         document.getElementById('theme-color-start').value = mapFilters.themeStartColor || '#121426';
         document.getElementById('theme-color-end').value = mapFilters.themeEndColor || '#121426';
@@ -17216,22 +17173,14 @@ if (flatMapToggle) {
         } else if (target.name === 'icon-color-mode') {
             mapFilters.iconColorMode = target.value;
             saveFiltersToLocalStorage();
-            // Re-render aircraft icons by updating layer property
+            // Re-render aircraft icons. Switching White <-> colored swaps which
+            // icon (natural vs. SDF) each plane uses, so update icon-image too,
+            // not just the tint.
             if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
+                sectorOpsMap.setLayoutProperty('sector-ops-live-flights-layer', 'icon-image', getIconImageExpression());
                 sectorOpsMap.setPaintProperty('sector-ops-live-flights-layer', 'icon-color', getPremiumColorExpression());
                 if (sectorOpsMap.getLayer('sector-ops-live-flights-hover-layer')) {
                     sectorOpsMap.setPaintProperty('sector-ops-live-flights-hover-layer', 'icon-color', getPremiumColorExpression());
-                }
-            }
-        } else if (target.name === 'plan-display-mode') {
-            mapFilters.planDisplayMode = target.value;
-            saveFiltersToLocalStorage();
-            // Trigger an update for the currently selected flight
-            if (currentFlightInWindow) {
-                // Just re-run the socket update logic for the single flight to redraw the line
-                // or clear/redraw immediately
-                if (cachedFlightDataForStatsView && cachedFlightDataForStatsView.plan) {
-                     updateFlightPlanLayer(currentFlightInWindow, cachedFlightDataForStatsView.plan, currentAircraftPositionForGeocode);
                 }
             }
         } else if (target.name === 'mobile-display-mode') {
