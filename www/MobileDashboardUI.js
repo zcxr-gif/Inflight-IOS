@@ -736,12 +736,35 @@ init(supabaseClient) {
         `;
     },
 
+    _navIcon() {
+        return ({
+            dashboard:         'fa-solid fa-house',
+            'career-deep-dive':'fa-solid fa-id-card',
+            'airspace-intel':  'fa-solid fa-tower-broadcast',
+            'flight-plan':     'fa-solid fa-route',
+            watchlist:         'fa-solid fa-binoculars',
+            settings:          'fa-solid fa-sliders',
+        })[this._activeTab] || 'fa-solid fa-circle';
+    },
+
     _renderLargeTitle() {
         if (this._activeTab === 'onboarding') return '';
+        // The dashboard provides its own gradient pilot-status hero, so the
+        // generic large title is suppressed there to avoid a doubled header.
+        if (this._activeTab === 'dashboard') {
+            // Keep a hidden marker element so the nav-bar collapse logic still
+            // has a reference point to measure against while scrolling.
+            return `<h1 class="mdui-large-title" style="position:absolute;height:0;width:0;overflow:hidden;opacity:0;margin:0;padding:0;" aria-hidden="true">${this._navTitle()}</h1>`;
+        }
         return `
             <div class="mdui-large-title-wrap">
-                <h1 class="mdui-large-title">${this._navTitle()}</h1>
-                <p class="mdui-large-subtitle">${this._navSubtitle()}</p>
+                <div class="mdui-lt-row">
+                    <span class="mdui-lt-icon"><i class="${this._navIcon()}"></i></span>
+                    <div class="mdui-lt-text">
+                        <h1 class="mdui-large-title">${this._navTitle()}</h1>
+                        <p class="mdui-large-subtitle">${this._navSubtitle()}</p>
+                    </div>
+                </div>
             </div>
         `;
     },
@@ -3245,6 +3268,14 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             }
 
             .mdui-large-title-wrap { padding: 6px var(--mdui-page-pad) 16px; }
+            .mdui-lt-row { display: flex; align-items: center; gap: 14px; }
+            .mdui-lt-text { min-width: 0; }
+            .mdui-lt-icon {
+                flex: 0 0 auto; width: 50px; height: 50px; border-radius: 16px;
+                display: grid; place-items: center; font-size: 21px; color: #fff;
+                background: linear-gradient(160deg, var(--mdui-accent-hover), var(--mdui-accent));
+                box-shadow: 0 8px 20px -6px var(--mdui-accent-glow), inset 0 0.5px 0 rgba(255,255,255,0.4);
+            }
             .mdui-large-title {
                 margin: 0; padding: 0;
                 font-size: 36px; font-weight: 800;
