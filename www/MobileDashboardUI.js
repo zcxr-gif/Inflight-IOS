@@ -825,20 +825,53 @@ _tabOnboarding() {
         const dateStr   = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
         const ifUsername = user?.user_metadata?.if_username || '';
 
-        let statPills = '';
-        if (this._ifData.stats) {
-            const g = this._ifData.stats.gradeDetails?.gradeIndex;
-            const x = this._ifData.stats.totalXP?.toLocaleString();
-            const f = this._ifData.logbookTotal?.toLocaleString();
-            statPills = `
-                <div class="mdui-stat-strip">
-                    ${g ? `<span>Grade ${g}</span><span class="mdui-strip-sep">·</span>` : ''}
-                    ${x ? `<span>${x} XP</span><span class="mdui-strip-sep">·</span>` : ''}
-                    ${f ? `<span>${f} flights</span>` : ''}
-                </div>`;
-        } else if (this._ifData.loading) {
-            statPills = `<div class="mdui-stat-strip"><span style="opacity:0.4;">Loading pilot data…</span></div>`;
-        }
+        // ── Pilot status hero ──────────────────────────────────────────────
+        const initials = name.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2) || 'C';
+        const stats    = this._ifData.stats;
+        const fmtNum   = (n) => {
+            if (n == null) return null;
+            if (n >= 1_000_000) return (n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1).replace(/\.0$/, '') + 'M';
+            if (n >= 10_000)    return Math.round(n / 1000) + 'K';
+            return n.toLocaleString();
+        };
+
+        const gradeVal = stats?.gradeDetails?.gradeIndex;
+        const xpVal    = fmtNum(stats?.totalXP);
+        const flightsVal = fmtNum(this._ifData.logbookTotal);
+        const landingsVal = fmtNum(stats?.landingCount);
+        const hoursVal = stats?.onlineFlightTime != null ? Math.round(stats.onlineFlightTime / 60).toLocaleString() : null;
+
+        const handleLine = ifUsername
+            ? `<span class="mdui-hero-handle"><i class="fa-solid fa-plane" style="font-size:11px;opacity:0.8;"></i>${ifUsername}</span>`
+            : `<span class="mdui-hero-handle"><i class="fa-solid fa-link-slash" style="font-size:11px;opacity:0.8;"></i>Link IF account in Settings</span>`;
+
+        const gradeChip = gradeVal != null
+            ? `<div class="mdui-hero-grade"><span>Grade</span><strong>${gradeVal}</strong></div>`
+            : '';
+
+        const tile = (val, lbl) => `
+            <div class="mdui-hero-tile">
+                <span class="val">${val != null ? val : (this._ifData.loading ? '<span class="mdui-hero-skel" style="width:34px;"></span>' : '—')}</span>
+                <span class="lbl">${lbl}</span>
+            </div>`;
+
+        const heroHTML = `
+            <div class="mdui-hero-card">
+                <div class="mdui-hero-eyebrow">${dateStr}</div>
+                <div class="mdui-hero-top">
+                    <div class="mdui-hero-avatar">${initials}</div>
+                    <div class="mdui-hero-id">
+                        <div class="mdui-hero-name">${greeting}, ${firstName}</div>
+                        ${handleLine}
+                    </div>
+                    ${gradeChip}
+                </div>
+                <div class="mdui-hero-stats">
+                    ${tile(xpVal, 'Total XP')}
+                    ${tile(flightsVal, 'Flights')}
+                    ${tile(landingsVal != null ? landingsVal : hoursVal, landingsVal != null ? 'Landings' : 'Hours')}
+                </div>
+            </div>`;
 
         let recentHTML = '';
         if (!ifUsername) {
@@ -955,13 +988,7 @@ _tabOnboarding() {
 
         return `
             <div class="mdui-fade-up">
-                <div class="mdui-greeting-hero">
-                    <div class="mdui-greeting-text">
-                        <div class="mdui-greeting-date">${dateStr}</div>
-                        <h2 class="mdui-greeting-name">${greeting}, ${firstName}.</h2>
-                        ${statPills}
-                    </div>
-                </div>
+                ${heroHTML}
 
                 <div id="mdui-live-banner"></div>
 
@@ -3717,6 +3744,69 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             }
             .mdui-stat-strip span:not(.mdui-strip-sep) { color: var(--mdui-text); font-weight: 600; }
             .mdui-strip-sep { opacity: 0.35; }
+
+            /* Pilot status hero — the headline card on the dashboard */
+            .mdui-hero-card {
+                position: relative; overflow: hidden;
+                border-radius: var(--mdui-radius-xl);
+                padding: 20px 18px 16px;
+                margin: 2px 0 22px;
+                color: #fff;
+                background:
+                    radial-gradient(120% 120% at 0% 0%, rgba(255,255,255,0.22), transparent 55%),
+                    linear-gradient(150deg, var(--mdui-accent-hover), var(--mdui-accent) 62%, color-mix(in srgb, var(--mdui-accent) 70%, #000) 100%);
+                box-shadow: 0 16px 40px -14px var(--mdui-accent-glow), inset 0 0.5px 0 rgba(255,255,255,0.4);
+            }
+            .mdui-hero-card::after {
+                content: ""; position: absolute; right: -40px; top: -60px;
+                width: 200px; height: 200px; border-radius: 50%;
+                background: radial-gradient(circle, rgba(255,255,255,0.18), transparent 70%);
+                pointer-events: none;
+            }
+            .mdui-hero-eyebrow {
+                position: relative; z-index: 1;
+                font-size: 12px; font-weight: 700; letter-spacing: 0.04em;
+                text-transform: uppercase; color: rgba(255,255,255,0.78);
+                margin-bottom: 10px;
+            }
+            .mdui-hero-top { position: relative; z-index: 1; display: flex; align-items: center; gap: 14px; }
+            .mdui-hero-avatar {
+                flex: 0 0 auto; width: 56px; height: 56px; border-radius: 50%;
+                display: grid; place-items: center;
+                background: rgba(255,255,255,0.2);
+                -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+                border: 1px solid rgba(255,255,255,0.35);
+                color: #fff; font-size: 21px; font-weight: 700;
+                box-shadow: inset 0 0.5px 0 rgba(255,255,255,0.4);
+            }
+            .mdui-hero-id { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+            .mdui-hero-name { font-size: 23px; font-weight: 800; letter-spacing: -0.6px; line-height: 1.1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .mdui-hero-handle { font-size: 13.5px; font-weight: 500; color: rgba(255,255,255,0.82); letter-spacing: -0.1px; display: inline-flex; align-items: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .mdui-hero-grade {
+                flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; gap: 1px;
+                min-width: 52px; padding: 8px 12px; border-radius: 15px;
+                background: rgba(255,255,255,0.18);
+                -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+                border: 0.5px solid rgba(255,255,255,0.3);
+            }
+            .mdui-hero-grade span { font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255,255,255,0.8); }
+            .mdui-hero-grade strong { font-size: 22px; font-weight: 800; line-height: 1; }
+            .mdui-hero-stats {
+                position: relative; z-index: 1;
+                display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+                margin-top: 16px;
+            }
+            .mdui-hero-tile {
+                display: flex; flex-direction: column; align-items: center; gap: 3px;
+                padding: 11px 6px; border-radius: 15px;
+                background: rgba(255,255,255,0.15);
+                -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+                border: 0.5px solid rgba(255,255,255,0.22);
+                min-width: 0;
+            }
+            .mdui-hero-tile .val { font-size: 18px; font-weight: 800; letter-spacing: -0.4px; line-height: 1; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .mdui-hero-tile .lbl { font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: rgba(255,255,255,0.8); }
+            .mdui-hero-skel { height: 13px; border-radius: 5px; background: rgba(255,255,255,0.25); }
 
             /* Next-departure mini route (inside a list group) */
             .mdui-dispatch-mini { padding: 0 16px 16px; }
