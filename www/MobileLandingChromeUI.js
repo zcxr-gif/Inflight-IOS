@@ -1151,10 +1151,13 @@ export const MobileLandingChromeUI = {
                 padding: 6px !important;
                 border: 0.5px solid var(--ios-stroke) !important;
                 border-radius: 22px !important;
-                background: var(--ios-bg-deep) !important;
+                /* Near-solid fill: over the busy live map a translucent card left
+                   results barely legible, so we use an opaque surface and keep the
+                   blur only for the soft edge feel. */
+                background: rgba(24, 24, 27, 0.97) !important;
                 -webkit-backdrop-filter: var(--ios-blur) !important;
                 backdrop-filter: var(--ios-blur) !important;
-                box-shadow: var(--ios-shadow) !important;
+                box-shadow: var(--ios-shadow), 0 12px 40px rgba(0, 0, 0, 0.55) !important;
                 overflow-y: auto !important;
                 -webkit-overflow-scrolling: touch !important;
                 overscroll-behavior: contain !important;
@@ -1163,7 +1166,8 @@ export const MobileLandingChromeUI = {
                 visibility: visible !important;
             }
             #inflight-tactical-ui[data-theme="light"] #blade-search-results {
-                background: var(--ios-bg-deep) !important;
+                background: rgba(252, 252, 254, 0.98) !important;
+                box-shadow: var(--ios-shadow), 0 12px 40px rgba(0, 0, 0, 0.18) !important;
             }
             /* Hide native scrollbar — iOS aesthetic. */
             #inflight-tactical-ui #blade-search-results::-webkit-scrollbar {
@@ -1263,6 +1267,49 @@ export const MobileLandingChromeUI = {
                 font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
                 font-size: 14px !important;
             }
+
+            /* ---- Expandable flight result drawer (iOS palette) ---- */
+            #inflight-tactical-ui .premium-flight-wrap.detail-open {
+                background: var(--ios-fill) !important;
+                border-radius: 14px !important;
+            }
+            #inflight-tactical-ui .res-expand-btn {
+                width: 30px !important;
+                height: 30px !important;
+                background: var(--ios-fill) !important;
+                color: var(--ios-text-3) !important;
+                border-radius: 9px !important;
+            }
+            #inflight-tactical-ui .premium-flight-wrap.detail-open .res-expand-btn {
+                color: var(--ios-text) !important;
+            }
+            #inflight-tactical-ui .res-detail-grid {
+                padding: 4px 14px 12px 40px !important;
+                gap: 9px 14px !important;
+            }
+            #inflight-tactical-ui .res-dt-k {
+                color: var(--ios-text-4) !important;
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
+            }
+            #inflight-tactical-ui .res-dt-v {
+                color: var(--ios-text) !important;
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
+            }
+            #inflight-tactical-ui .res-dt-u, #inflight-tactical-ui .res-dt-arrow {
+                color: var(--ios-text-3) !important;
+            }
+            #inflight-tactical-ui .res-replay-btn {
+                margin: 0 14px 12px 40px !important;
+                padding: 11px 13px !important;
+                background: var(--ios-fill) !important;
+                border: 0.5px solid var(--ios-stroke) !important;
+                border-radius: 12px !important;
+                color: var(--ios-text) !important;
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
+                font-size: 14px !important;
+            }
+            #inflight-tactical-ui .res-replay-btn:active { background: var(--ios-fill-strong) !important; }
+            #inflight-tactical-ui .res-replay-btn > i { color: var(--ios-accent) !important; }
 
             /* ============ BOTTOM TAB BAR — native glass stadium ============ */
             #ios-landing-tabbar {
