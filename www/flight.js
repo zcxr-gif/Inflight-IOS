@@ -14101,14 +14101,26 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         if (typeof mapFilters !== 'undefined' && mapFilters.useSimpleFlightWindow) {
             // Cache filed-plan data so the live-update path can compute SCHEDULED/ACTUAL times too.
             cachedFlightDataForStatsView = { flightProps, plan, filedPlanData };
-            // Prime the peek height from the saved layout preset, then start in the
-            // compact (collapsed) phase; the iframe re-confirms once it loads.
+            // Prime the peek height from the saved layout preset, then choose the
+            // opening phase. Mobile starts in the compact (collapsed) peek bar that
+            // expands on tap. Desktop has no bottom-sheet/peek concept, so it opens
+            // straight into the full information window instead of the peek state.
             primeSimpleWindowPeekHeight();
-            applySimpleWindowPhase('collapsed');
+            const onMobile = !!(window.MobileUIHandler && typeof window.MobileUIHandler.isMobile === 'function'
+                && window.MobileUIHandler.isMobile());
+            const initialPhase = onMobile ? 'collapsed' : 'expanded';
+            applySimpleWindowPhase(initialPhase);
             windowEl.innerHTML = `<iframe id="simple-flight-window-frame" src="flightinfo.html" style="width:100%; flex-grow: 1; border:none;" scrolling="no"></iframe>`;
             const simpleData = formatDataForSimpleWindow(flightProps, plan, [], communityAircraftData, filedPlanData);
             const iframe = document.getElementById('simple-flight-window-frame');
-            iframe.onload = () => iframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: simpleData }, '*');
+            iframe.onload = () => {
+                iframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: simpleData }, '*');
+                // The iframe defaults to its collapsed body class; on desktop force it
+                // into the expanded full-info layout to match the host phase above.
+                if (initialPhase === 'expanded') {
+                    iframe.contentWindow.postMessage({ type: 'SET_PHASE', phase: 'expanded' }, '*');
+                }
+            };
         } else if (typeof populateAircraftInfoWindow === 'function') {
             populateAircraftInfoWindow(flightProps, plan, [], communityAircraftData, filedPlanData);
         }
