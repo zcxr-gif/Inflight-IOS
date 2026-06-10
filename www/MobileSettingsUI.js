@@ -136,6 +136,13 @@ export const MobileSettingsUI = {
     _isOpen: false,
     _activeTab: 'map',
 
+    // Read-only accessors so other hosts (the desktop Global Settings modal in
+    // flight.js) can build their own label designer / style picker from the
+    // same definitions instead of duplicating them.
+    getLabelFieldDefs() { return LABEL_FIELD_DEFS; },
+    getLabelThemeDefs() { return LABEL_THEME_DEFS; },
+    getLabelPreviewSample() { return LABEL_PREVIEW_SAMPLE; },
+
     init() {
         this.injectMobileStyles();
         this.renderMobileContainer();
@@ -720,14 +727,17 @@ export const MobileSettingsUI = {
 
     updateFilterBadge() {
         const n = this.countActiveTactical();
-        const count = document.getElementById('m-filter-count');
-        if (count) {
+        // Class-based lookups: the tactical board is hosted both in the mobile
+        // Filters sheet and the desktop Global Settings modal, so the count /
+        // reset elements can exist more than once.
+        document.querySelectorAll('.m-filter-count').forEach(count => {
             count.textContent = n === 0 ? 'No filters active'
                 : `${n} active filter${n === 1 ? '' : 's'}`;
             count.classList.toggle('has-filters', n > 0);
-        }
-        const reset = document.getElementById('m-filter-reset');
-        if (reset) reset.classList.toggle('visible', n > 0);
+        });
+        document.querySelectorAll('.m-filter-reset').forEach(reset => {
+            reset.classList.toggle('visible', n > 0);
+        });
 
         // Keep the bottom-bar Filters tab dot in sync (the board now writes
         // mapFilters.tactical directly rather than via the old landing engine).
@@ -736,6 +746,10 @@ export const MobileSettingsUI = {
             dot.textContent = n > 9 ? '9+' : String(n);
             dot.classList.toggle('is-on', n > 0);
         }
+        // Desktop landing chrome's Filters orb dot, when present (it is
+        // shown/hidden via opacity — see .active-pulse-dot in landingUI.js).
+        const deskDot = document.getElementById('filter-active-dot');
+        if (deskDot) deskDot.style.opacity = n > 0 ? '1' : '0';
     },
 
     resetTacticalFilters(root) {

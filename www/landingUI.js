@@ -678,6 +678,14 @@ export const LandingUI = {
                             </button>
                         </div>
 
+                        <div class="nexus-orb-wrapper desktop-only-tab">
+                            <button class="orb-btn" id="tile-atc" aria-label="Active ATC">
+                                <i class="fa-solid fa-tower-broadcast"></i>
+                                <span class="tab-label">ATC</span>
+                                <div id="atc-active-dot" class="active-pulse-dot"></div>
+                            </button>
+                        </div>
+
                         <div class="nexus-orb-wrapper">
                             <div class="nexus-preview-tooltip" id="settings-preview-tooltip"></div>
                             <button class="orb-btn" id="tile-settings" aria-label="Settings">
@@ -740,12 +748,24 @@ export const LandingUI = {
             if (window.innerWidth <= 768) {
                 window.dispatchEvent(new CustomEvent('openMobileUI'));
             } else {
-                toggleModal(true);
+                // Desktop: the tactical filter board now lives in the Global
+                // Settings modal's Filters tab (same board as mobile).
+                window.dispatchEvent(new CustomEvent('openSettings', { detail: { category: 'airspace' } }));
             }
         });
 
         settingsBtn?.addEventListener('click', () => {
             window.dispatchEvent(new CustomEvent('openSettings'));
+        });
+
+        // Desktop Active ATC board (mirrors the mobile bottom-bar ATC tab).
+        const atcBtn = document.getElementById('tile-atc');
+        atcBtn?.addEventListener('click', () => {
+            window.dispatchEvent(new CustomEvent('openAtcBoard'));
+        });
+        window.addEventListener('activeAtcUpdated', (e) => {
+            const dot = document.getElementById('atc-active-dot');
+            if (dot) dot.style.opacity = (e.detail && e.detail.count > 0) ? '1' : '0';
         });
 
         window.addEventListener('keydown', (e) => {
@@ -1731,6 +1751,11 @@ export const LandingUI = {
             /* Tab labels + Server tab are mobile-only (FR24 bottom bar) */
             .tab-label { display: none; }
             .mobile-only-tab { display: none; }
+            /* The ATC orb is desktop-only — mobile has its own ATC tab in the
+               iOS bottom bar (MobileLandingChromeUI). */
+            @media (max-width: 768px) {
+                .desktop-only-tab { display: none !important; }
+            }
             .nexus-preview-tooltip {
                 position: absolute;
                 bottom: calc(100% + 20px);
