@@ -139,6 +139,15 @@ export const LandingUI = {
         return text.replace(regex, '<span class="premium-highlight">$1</span>');
     },
 
+    // Parse the `position` blob (it can arrive as a JSON string or object) so the
+    // expanded detail can show live speed/heading without re-querying the map.
+    _safePosition(p) {
+        const pos = (typeof p.position === 'string')
+            ? (() => { try { return JSON.parse(p.position); } catch { return {}; } })()
+            : (p.position || {});
+        return pos || {};
+    },
+
     _renderFlightRow(entry, idx, query) {
         const f = entry.feature;
         const p = f.properties || {};
@@ -146,25 +155,113 @@ export const LandingUI = {
         const acName = acData.aircraftName || p.aircraftName || '---';
         const lat = f.geometry?.coordinates?.[1];
         const lon = f.geometry?.coordinates?.[0];
+
+        // Extra detail surfaced when the row is expanded.
+        const pos = this._safePosition(p);
+        const username = p.username || 'Anonymous';
+        const livName = acData.liveryName || p.liveryName || '';
+        const reg = acData.registration || p.registration || '';
+        const dep = p.departureIcao || '—';
+        const arr = p.arrivalIcao || '—';
+        const spd = Math.round(pos.gs_kt || pos.speed || 0);
+        const hdg = Math.round(pos.heading ?? pos.hdg ?? p.heading ?? 0);
+        const fid = p.flightId;
+        // Escaped form for inline string args (callsign/username can contain quotes).
+        const usernameArg = String(username).replace(/'/g, "\\'");
+
+        const detailItem = (k, v) => `<div class="res-dt"><span class="res-dt-k">${k}</span><span class="res-dt-v">${v}</span></div>`;
+
         return `
-            <div class="premium-result-item ${this._searchCursorIndex === idx ? 'selected' : ''}"
-                 data-index="${idx}"
-                 onclick="LandingUI.executeSearchClick('${p.flightId}', ${lat}, ${lon})">
-                <div class="res-meta-icon"><i class="fa-solid fa-circle"></i></div>
-                <div class="res-info-main">
-                    <div class="res-primary-row">
-                        <span class="res-callsign">${this.highlightText(p.callsign || 'N/A', query)}</span>
-                        <span class="res-pill">${this.highlightText(acName, query)}</span>
+            <div class="premium-flight-wrap" data-flight-wrap="${fid}">
+                <div class="premium-result-item premium-flight-row ${this._searchCursorIndex === idx ? 'selected' : ''}"
+                     data-index="${idx}"
+                     onclick="LandingUI.executeSearchClick('${fid}', ${lat}, ${lon})">
+                    <div class="res-meta-icon"><i class="fa-solid fa-circle"></i></div>
+                    <div class="res-info-main">
+                        <div class="res-primary-row">
+                            <span class="res-callsign">${this.highlightText(p.callsign || 'N/A', query)}</span>
+                            <span class="res-pill">${this.highlightText(acName, query)}</span>
+                        </div>
+                        <div class="res-secondary-row">
+                            <span class="res-pilot">${this.highlightText(username, query)}</span>
+                        </div>
                     </div>
-                    <div class="res-secondary-row">
-                        <span class="res-pilot">${this.highlightText(p.username || 'Anonymous', query)}</span>
+                    <div class="res-stats">
+                        <span class="res-altitude">${Math.round(p.altitude || pos.alt_ft || 0).toLocaleString()}<span>ft</span></span>
                     </div>
+                    <button type="button" class="res-expand-btn" aria-label="More info" aria-expanded="false"
+                            onclick="LandingUI.toggleResultDetail(event)">
+                        <i class="fa-solid fa-chevron-down"></i>
+                    </button>
                 </div>
-                <div class="res-stats">
-                    <span class="res-altitude">${Math.round(p.altitude || 0).toLocaleString()}<span>ft</span></span>
+                <div class="res-detail">
+                    <div class="res-detail-grid">
+                        ${detailItem('Route', `${dep} <i class="fa-solid fa-arrow-right-long res-dt-arrow"></i> ${arr}`)}
+                        ${detailItem('Speed', `${spd} <span class="res-dt-u">kt</span>`)}
+                        ${detailItem('Heading', `${hdg}<span class="res-dt-u">°</span>`)}
+                        ${detailItem('Pilot', username)}
+                        ${livName ? detailItem('Livery', livName) : ''}
+                        ${reg ? detailItem('Reg', reg) : ''}
+                    </div>
+                    <button type="button" class="res-replay-btn"
+                            onclick="LandingUI.replayUserFlight(event, '${fid}', '${usernameArg}')">
+                        <i class="fa-solid fa-clock-rotate-left"></i>
+                        <span class="res-replay-label">Replay this flight</span>
+                        <span class="res-pro-badge"><i class="fa-solid fa-crown"></i> PRO</span>
+                    </button>
                 </div>
             </div>
         `;
+    },
+
+    // Expand/collapse a flight result's detail drawer. Stops propagation so the
+    // chevron tap doesn't also fire the row's fly-to handler.
+    toggleResultDetail(event) {
+        event.stopPropagation();
+        const wrap = event.currentTarget.closest('.premium-flight-wrap');
+        if (!wrap) return;
+        const open = wrap.classList.toggle('detail-open');
+        const btn = wrap.querySelector('.res-expand-btn');
+        if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    },
+
+    _isPro() {
+        return (typeof window !== 'undefined' && typeof window.isInflightPro === 'function')
+            ? window.isInflightPro()
+            : false;
+    },
+
+    // Open the standard Pro upsell flow (mirrors the rest of the app: AuthUI
+    // modal + a broadcast event other surfaces can hook).
+    _requestProUpgrade(source) {
+        try {
+            window.dispatchEvent(new CustomEvent('pro-upgrade-requested', {
+                bubbles: true, cancelable: true, detail: { source }
+            }));
+        } catch (_) {}
+        try {
+            if (window.AuthUI && typeof window.AuthUI.open === 'function') window.AuthUI.open();
+        } catch (_) {}
+    },
+
+    // Replay a specific pilot's flight straight from the search result.
+    // PRO-gated. The underlying per-user replay capability does not exist yet,
+    // so this is the wired-up entry point: it gates on Pro and hands off to
+    // `window.startUserFlightReplay` once that function is implemented.
+    replayUserFlight(event, flightId, username) {
+        event.stopPropagation();
+        if (!this._isPro()) {
+            this._requestProUpgrade('search-result-replay');
+            return;
+        }
+        // TODO: wire up once per-user flight replay exists. Intended behaviour:
+        // load and play back `username`'s flight `flightId`.
+        if (typeof window.startUserFlightReplay === 'function') {
+            window.startUserFlightReplay(flightId, username);
+            this._closeBladeSearch();
+        } else if (typeof window.showNotification === 'function') {
+            window.showNotification(`Flight replay for ${username || 'this pilot'} is coming soon.`, 'info');
+        }
     },
 
     _renderAirportRow(entry, query) {
@@ -1106,6 +1203,94 @@ export const LandingUI = {
                 color: var(--lui-text-dim);
                 font-size: 13px;
             }
+
+            /* ---- Expandable flight result drawer ---- */
+            .premium-flight-wrap { border-radius: 8px; }
+            .premium-flight-wrap + .premium-flight-wrap { margin-top: 2px; }
+            .premium-flight-row { position: relative; }
+            .res-expand-btn {
+                flex: 0 0 auto;
+                width: 30px;
+                height: 30px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                margin-left: 4px;
+                border: none;
+                border-radius: 8px;
+                background: var(--lui-hover-bg);
+                color: var(--lui-text-muted);
+                cursor: pointer;
+                transition: transform 0.2s ease, background 0.15s ease, color 0.15s ease;
+            }
+            .res-expand-btn:hover { color: var(--lui-text-main); }
+            .premium-flight-wrap.detail-open .res-expand-btn { transform: rotate(180deg); color: var(--lui-text-main); }
+
+            .res-detail {
+                display: grid;
+                grid-template-rows: 0fr;
+                overflow: hidden;
+                transition: grid-template-rows 0.22s ease;
+            }
+            .res-detail > * { min-height: 0; }
+            .premium-flight-wrap.detail-open .res-detail { grid-template-rows: 1fr; }
+
+            .res-detail-grid {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 8px 14px;
+                padding: 6px 16px 10px 38px;
+            }
+            .res-dt { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+            .res-dt-k {
+                font-size: 9.5px;
+                font-weight: 700;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                color: var(--lui-text-dim);
+            }
+            .res-dt-v {
+                font-size: 13px;
+                font-weight: 600;
+                color: var(--lui-text-main);
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .res-dt-u { font-weight: 400; color: var(--lui-text-dim); font-size: 11px; }
+            .res-dt-arrow { font-size: 10px; color: var(--lui-text-dim); margin: 0 2px; }
+
+            .res-replay-btn {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                margin: 0 8px 8px 38px;
+                padding: 9px 12px;
+                border: 1px solid var(--lui-border-light);
+                border-radius: 10px;
+                background: var(--lui-hover-bg);
+                color: var(--lui-text-main);
+                font-size: 13px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: background 0.15s ease, transform 0.1s ease;
+            }
+            .res-replay-btn:active { transform: scale(0.98); }
+            .res-replay-btn > i { color: var(--lui-accent); font-size: 13px; }
+            .res-replay-label { flex: 1 1 auto; text-align: left; }
+            .res-pro-badge {
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+                font-size: 9.5px;
+                font-weight: 800;
+                letter-spacing: 0.04em;
+                color: #1a1205;
+                background: linear-gradient(135deg, #fbbf24, #f59e0b);
+                padding: 2px 7px;
+                border-radius: 999px;
+            }
+            .res-pro-badge > i { font-size: 8.5px; }
 
             .blade-results-section + .blade-results-section {
                 border-top: 1px solid var(--lui-border-base);
