@@ -1,13 +1,14 @@
 /**
  * searchEngine.js
  *
- * Categorized global search over three live datasets:
+ * Categorized global search over four live datasets:
  *   - Live flights  (from currentMapFeatures via window.getLiveFlightData)
+ *   - Pilots        (deduped usernames of currently-connected flights)
  *   - Airports      (from airportsData; indexed once, refreshed on change)
  *   - Airlines      (derived dynamically from active liveryName values)
  *
  * Pure logic — no DOM. Consumers pass a query string and get back
- *   { flights: [...], airports: [...], airlines: [...] }
+ *   { flights: [...], users: [...], airports: [...], airlines: [...] }
  * with each list pre-ranked and capped.
  */
 
@@ -67,7 +68,7 @@ function buildAirportIndex(airportsData) {
     return _airportIndex;
 }
 
-function searchFlights(query, flights) {
+function searchFlights(query, flights, airportsData) {
     const results = [];
     for (const f of flights) {
         const p = f.properties || {};
@@ -84,10 +85,39 @@ function searchFlights(query, flights) {
 
         const r = bestRank([callsign, username, reg, acName, livName], query);
         if (r !== Infinity) {
-            results.push({ rank: r, feature: f, callsign, username, livName, acName });
+            // Join airport display names so the UI can show "Tokyo HND — Toronto YYZ"
+            // style route banners without holding its own copy of airportsData.
+            const dep = upper(p.departureIcao || '');
+            const arr = upper(p.arrivalIcao || '');
+            const depName = (dep && airportsData?.[dep]?.name) || '';
+            const arrName = (arr && airportsData?.[arr]?.name) || '';
+            results.push({ rank: r, feature: f, callsign, username, livName, acName, depName, arrName });
         }
     }
     results.sort((a, b) => a.rank - b.rank);
+    return results.slice(0, PER_CATEGORY_CAP);
+}
+
+// Pilots: dedupe usernames across live flights so one entry per connected user.
+// Each result carries the user's current flight feature for the live-status row.
+function searchUsers(query, flights) {
+    const byUser = new Map();
+    for (const f of flights) {
+        const p = f.properties || {};
+        const username = (p.username || '').trim();
+        if (!username || /^anonymous$/i.test(username)) continue;
+
+        const r = rankMatch(username, query);
+        if (r === Infinity) continue;
+
+        const key = username.toLowerCase();
+        const existing = byUser.get(key);
+        if (!existing || r < existing.rank) {
+            byUser.set(key, { rank: r, username, userId: p.userId || null, feature: f });
+        }
+    }
+    const results = [...byUser.values()];
+    results.sort((a, b) => a.rank - b.rank || a.username.length - b.username.length);
     return results.slice(0, PER_CATEGORY_CAP);
 }
 
@@ -143,18 +173,19 @@ function searchAirlines(query, flights) {
  * @param {Object} ctx
  * @param {Object} ctx.airportsData - keyed by ICAO
  * @param {Array}  ctx.flights      - GeoJSON features from currentMapFeatures
- * @returns {{flights: Array, airports: Array, airlines: Array, query: string}}
+ * @returns {{flights: Array, users: Array, airports: Array, airlines: Array, query: string}}
  */
 export function runSearch(query, ctx) {
     const q = (query || '').trim();
-    if (q.length < 2) return { flights: [], airports: [], airlines: [], query: q };
+    if (q.length < 2) return { flights: [], users: [], airports: [], airlines: [], query: q };
 
     const airportIndex = buildAirportIndex(ctx.airportsData || {});
     const flights = ctx.flights || [];
 
     return {
         query: q,
-        flights: searchFlights(q, flights),
+        flights: searchFlights(q, flights, ctx.airportsData || {}),
+        users: searchUsers(q, flights),
         airports: searchAirports(q, airportIndex),
         airlines: searchAirlines(q, flights),
     };

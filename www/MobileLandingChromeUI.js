@@ -1402,6 +1402,88 @@ export const MobileLandingChromeUI = {
             #inflight-tactical-ui .res-replay-btn:active { background: var(--ios-fill-strong) !important; }
             #inflight-tactical-ui .res-replay-btn > i { color: var(--ios-accent) !important; }
 
+            /* ---- Rich flight detail card: route banner, status, pilot, actions ----
+               On mobile the expanded detail reads as one full-width inset card,
+               so the 38px desktop indent collapses to the 12px card gutter. */
+            #inflight-tactical-ui .res-route-banner {
+                margin: 8px 12px 4px !important;
+                padding: 12px 14px !important;
+                background: var(--ios-fill) !important;
+                border: 0.5px solid var(--ios-stroke-soft) !important;
+                border-radius: 14px !important;
+            }
+            #inflight-tactical-ui .res-route-code {
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
+                font-size: 19px !important;
+                color: var(--ios-text) !important;
+            }
+            #inflight-tactical-ui .res-route-name {
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
+                color: var(--ios-text-3) !important;
+            }
+            #inflight-tactical-ui .res-route-mid { color: var(--ios-text-4) !important; }
+            #inflight-tactical-ui .res-route-line {
+                background: linear-gradient(90deg, transparent, var(--ios-stroke), transparent) !important;
+            }
+            #inflight-tactical-ui .res-status-line {
+                margin: 6px 14px 2px !important;
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
+            }
+            #inflight-tactical-ui .res-pilot-link {
+                margin: 8px 12px 0 !important;
+                padding: 10px 13px !important;
+                background: var(--ios-fill) !important;
+                border: 0.5px solid var(--ios-stroke-soft) !important;
+                border-radius: 14px !important;
+            }
+            #inflight-tactical-ui .res-pilot-link:active { background: var(--ios-fill-strong) !important; }
+            #inflight-tactical-ui .res-pilot-link-name {
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
+                font-size: 14px !important;
+                color: var(--ios-text) !important;
+            }
+            #inflight-tactical-ui .res-pilot-link-sub {
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
+                color: var(--ios-text-3) !important;
+            }
+            #inflight-tactical-ui .res-pilot-link-chev { color: var(--ios-text-4) !important; }
+            #inflight-tactical-ui .res-action-bar { margin: 8px 12px 12px !important; }
+            #inflight-tactical-ui .res-action-btn {
+                padding: 12px !important;
+                background: var(--ios-fill) !important;
+                border: 0.5px solid var(--ios-stroke) !important;
+                border-radius: 12px !important;
+                color: var(--ios-text) !important;
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
+                font-size: 13.5px !important;
+            }
+            #inflight-tactical-ui .res-action-btn:active { background: var(--ios-fill-strong) !important; }
+            #inflight-tactical-ui .res-action-btn.is-primary {
+                background: var(--ios-accent) !important;
+                border-color: var(--ios-accent) !important;
+                color: #fff !important;
+            }
+            #inflight-tactical-ui .res-detail-grid {
+                padding: 8px 16px 6px !important;
+            }
+
+            /* ---- Pilot rows + offline network lookup ---- */
+            #inflight-tactical-ui .res-user-avatar {
+                width: 36px !important;
+                height: 36px !important;
+                font-size: 12.5px !important;
+            }
+            #inflight-tactical-ui .res-user-avatar.is-lookup {
+                background: var(--ios-fill) !important;
+                color: var(--ios-text-3) !important;
+                border: 1px dashed var(--ios-stroke) !important;
+            }
+            #inflight-tactical-ui .res-user-chev { color: var(--ios-text-4) !important; }
+            #inflight-tactical-ui .res-user-lookup-row .res-callsign {
+                font-weight: 500 !important;
+                color: var(--ios-accent) !important;
+            }
+
             /* ============ BOTTOM TAB BAR — native glass stadium ============ */
             #ios-landing-tabbar {
                 position: fixed;

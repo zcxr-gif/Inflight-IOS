@@ -6,7 +6,7 @@ export const LandingUI = {
     _currentServer: 'Expert', 
     _searchCursorIndex: -1,
     _currentMatches: [],
-    _currentResults: { flights: [], airports: [], airlines: [] },
+    _currentResults: { flights: [], users: [], airports: [], airlines: [] },
     _theme: localStorage.getItem('pui-theme') || 'dark',
 
     filterGroups: {
@@ -104,7 +104,7 @@ export const LandingUI = {
 
         if (!query || query.length < 2) {
             this._currentMatches = [];
-            this._currentResults = { flights: [], airports: [], airlines: [] };
+            this._currentResults = { flights: [], users: [], airports: [], airlines: [] };
             this._searchCursorIndex = -1;
             if (resultsContainer) {
                 resultsContainer.innerHTML = '';
@@ -116,19 +116,16 @@ export const LandingUI = {
 
         const results = (typeof window.runGlobalSearch === 'function')
             ? window.runGlobalSearch(query)
-            : { flights: [], airports: [], airlines: [] };
+            : { flights: [], users: [], airports: [], airlines: [] };
 
         this._currentResults = results;
         // Keep flight matches around for keyboard nav (arrows + Enter).
         this._currentMatches = (results.flights || []).map(r => r.feature);
         this._searchCursorIndex = -1;
 
-        const total = (results.flights?.length || 0) + (results.airports?.length || 0) + (results.airlines?.length || 0);
-        if (total > 0 && searchBlade) {
-            searchBlade.classList.add('has-results');
-        } else if (searchBlade) {
-            searchBlade.classList.remove('has-results');
-        }
+        // The Pilots section always carries the offline network-lookup row, so
+        // the dropdown stays open (with that row) even when nothing live matches.
+        if (searchBlade) searchBlade.classList.add('has-results');
 
         this.renderSearchResults(query);
     },
@@ -148,6 +145,33 @@ export const LandingUI = {
         return pos || {};
     },
 
+    // Minimal HTML escape for live-data strings (usernames, liveries) rendered
+    // into the dropdown markup.
+    _esc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    },
+
+    // Two-letter avatar monogram for a username.
+    _initials(name) {
+        const parts = String(name || '?').trim().split(/[\s_\-.]+/).filter(Boolean);
+        if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+        return String(name || '?').slice(0, 2).toUpperCase();
+    },
+
+    // Coarse flight phase from live telemetry — enough for the status line.
+    _flightStatus(pos, altitude) {
+        const gs = Math.round(pos.gs_kt || pos.speed || 0);
+        const vs = Math.round(pos.vs_fpm || 0);
+        const alt = Math.round(altitude || pos.alt_ft || 0);
+        const altLabel = alt >= 18000 ? `FL${Math.round(alt / 100)}` : `${alt.toLocaleString()} ft`;
+        if (gs < 40) return { label: 'On the ground', icon: 'fa-plane-circle-exclamation', cls: 'is-ground' };
+        if (vs > 300) return { label: `Climbing through ${altLabel}`, icon: 'fa-plane-up', cls: 'is-climb' };
+        if (vs < -300) return { label: `Descending through ${altLabel}`, icon: 'fa-plane-arrival', cls: 'is-descent' };
+        return { label: `Cruising at ${altLabel}`, icon: 'fa-plane', cls: 'is-cruise' };
+    },
+
     _renderFlightRow(entry, idx, query) {
         const f = entry.feature;
         const p = f.properties || {};
@@ -161,13 +185,16 @@ export const LandingUI = {
         const username = p.username || 'Anonymous';
         const livName = acData.liveryName || p.liveryName || '';
         const reg = acData.registration || p.registration || '';
-        const dep = p.departureIcao || '—';
-        const arr = p.arrivalIcao || '—';
+        const dep = (p.departureIcao || '').toUpperCase();
+        const arr = (p.arrivalIcao || '').toUpperCase();
         const spd = Math.round(pos.gs_kt || pos.speed || 0);
         const hdg = Math.round(pos.heading ?? pos.hdg ?? p.heading ?? 0);
+        const vs = Math.round(pos.vs_fpm || 0);
+        const alt = Math.round(p.altitude || pos.alt_ft || 0);
         const fid = p.flightId;
+        const status = this._flightStatus(pos, alt);
         // Escaped form for inline string args (callsign/username can contain quotes).
-        const usernameArg = String(username).replace(/'/g, "\\'");
+        const usernameArg = this._esc(String(username).replace(/'/g, "\\'"));
 
         const detailItem = (k, v) => `<div class="res-dt"><span class="res-dt-k">${k}</span><span class="res-dt-v">${v}</span></div>`;
 
@@ -179,15 +206,17 @@ export const LandingUI = {
                     <div class="res-meta-icon"><i class="fa-solid fa-circle"></i></div>
                     <div class="res-info-main">
                         <div class="res-primary-row">
-                            <span class="res-callsign">${this.highlightText(p.callsign || 'N/A', query)}</span>
-                            <span class="res-pill">${this.highlightText(acName, query)}</span>
+                            <span class="res-callsign">${this.highlightText(this._esc(p.callsign || 'N/A'), query)}</span>
+                            <span class="res-pill">${this.highlightText(this._esc(acName), query)}</span>
+                            ${reg ? `<span class="res-pill res-pill-reg">${this.highlightText(this._esc(reg), query)}</span>` : ''}
                         </div>
                         <div class="res-secondary-row">
-                            <span class="res-pilot">${this.highlightText(username, query)}</span>
+                            <span class="res-pilot">${this.highlightText(this._esc(username), query)}</span>
                         </div>
                     </div>
                     <div class="res-stats">
-                        <span class="res-altitude">${Math.round(p.altitude || pos.alt_ft || 0).toLocaleString()}<span>ft</span></span>
+                        <span class="res-live-pill"><i class="fa-solid fa-plane"></i> LIVE</span>
+                        <span class="res-altitude">${alt.toLocaleString()}<span>ft</span></span>
                     </div>
                     <button type="button" class="res-expand-btn" aria-label="More info" aria-expanded="false"
                             onclick="LandingUI.toggleResultDetail(event)">
@@ -195,21 +224,102 @@ export const LandingUI = {
                     </button>
                 </div>
                 <div class="res-detail">
-                    <div class="res-detail-grid">
-                        ${detailItem('Route', `${dep} <i class="fa-solid fa-arrow-right-long res-dt-arrow"></i> ${arr}`)}
-                        ${detailItem('Speed', `${spd} <span class="res-dt-u">kt</span>`)}
-                        ${detailItem('Heading', `${hdg}<span class="res-dt-u">°</span>`)}
-                        ${detailItem('Pilot', username)}
-                        ${livName ? detailItem('Livery', livName) : ''}
-                        ${reg ? detailItem('Reg', reg) : ''}
+                    <div class="res-detail-inner">
+                        <div class="res-route-banner">
+                            <div class="res-route-ep">
+                                <span class="res-route-code">${this._esc(dep || '—')}</span>
+                                <span class="res-route-name">${this._esc(entry.depName || 'Departure')}</span>
+                            </div>
+                            <div class="res-route-mid">
+                                <span class="res-route-line"></span>
+                                <i class="fa-solid fa-plane"></i>
+                                <span class="res-route-line"></span>
+                            </div>
+                            <div class="res-route-ep is-arr">
+                                <span class="res-route-code">${this._esc(arr || '—')}</span>
+                                <span class="res-route-name">${this._esc(entry.arrName || 'Arrival')}</span>
+                            </div>
+                        </div>
+                        <div class="res-status-line ${status.cls}">
+                            <i class="fa-solid ${status.icon}"></i>
+                            <span>${status.label}</span>
+                        </div>
+                        <div class="res-detail-grid">
+                            ${detailItem('Altitude', `${alt.toLocaleString()} <span class="res-dt-u">ft</span>`)}
+                            ${detailItem('Ground speed', `${spd} <span class="res-dt-u">kt</span>`)}
+                            ${detailItem('Heading', `${hdg}<span class="res-dt-u">°</span>`)}
+                            ${detailItem('Vert. speed', `${vs.toLocaleString()} <span class="res-dt-u">fpm</span>`)}
+                            ${livName ? detailItem('Airline / Livery', this._esc(livName)) : ''}
+                            ${detailItem('Aircraft', this._esc(acName))}
+                        </div>
+                        <button type="button" class="res-pilot-link" onclick="LandingUI.openUserProfileFromFlight(event, ${idx})">
+                            <span class="res-user-avatar">${this._esc(this._initials(username))}</span>
+                            <span class="res-pilot-link-text">
+                                <span class="res-pilot-link-name">${this._esc(username)}</span>
+                                <span class="res-pilot-link-sub">View pilot profile &amp; stats</span>
+                            </span>
+                            <i class="fa-solid fa-chevron-right res-pilot-link-chev"></i>
+                        </button>
+                        <div class="res-action-bar">
+                            <button type="button" class="res-action-btn is-primary"
+                                    onclick="LandingUI.executeSearchClick('${fid}', ${lat}, ${lon})">
+                                <i class="fa-solid fa-location-arrow"></i>
+                                <span>Show on map</span>
+                            </button>
+                            <button type="button" class="res-action-btn"
+                                    onclick="LandingUI.replayUserFlight(event, '${fid}', '${usernameArg}')">
+                                <i class="fa-solid fa-clock-rotate-left"></i>
+                                <span>Replay</span>
+                                <span class="res-pro-badge"><i class="fa-solid fa-crown"></i> PRO</span>
+                            </button>
+                        </div>
                     </div>
-                    <button type="button" class="res-replay-btn"
-                            onclick="LandingUI.replayUserFlight(event, '${fid}', '${usernameArg}')">
-                        <i class="fa-solid fa-clock-rotate-left"></i>
-                        <span class="res-replay-label">Replay this flight</span>
-                        <span class="res-pro-badge"><i class="fa-solid fa-crown"></i> PRO</span>
-                    </button>
                 </div>
+            </div>
+        `;
+    },
+
+    _renderUserRow(entry, idx, query) {
+        const p = entry.feature?.properties || {};
+        const acData = (typeof p.aircraft === 'string') ? (() => { try { return JSON.parse(p.aircraft); } catch { return {}; } })() : (p.aircraft || {});
+        const acName = acData.aircraftName || p.aircraftName || '';
+        const callsign = p.callsign || '';
+        const sub = callsign
+            ? `Flying ${this._esc(callsign)}${acName ? ' · ' + this._esc(acName) : ''}`
+            : 'Connected to the network';
+
+        return `
+            <div class="premium-result-item res-user-row" onclick="LandingUI.openUserProfileFromResult(event, ${idx})">
+                <span class="res-user-avatar">${this._esc(this._initials(entry.username))}</span>
+                <div class="res-info-main">
+                    <div class="res-primary-row">
+                        <span class="res-callsign">${this.highlightText(this._esc(entry.username), query)}</span>
+                        <span class="res-live-pill"><i class="fa-solid fa-plane"></i> LIVE</span>
+                    </div>
+                    <div class="res-secondary-row">
+                        <span class="res-pilot">${sub}</span>
+                    </div>
+                </div>
+                <i class="fa-solid fa-chevron-right res-user-chev"></i>
+            </div>
+        `;
+    },
+
+    // Persistent footer row of the Pilots section: looks the typed name up on
+    // the network (works for OFFLINE users too — resolved via the backend).
+    _renderUserLookupRow(query) {
+        return `
+            <div class="premium-result-item res-user-lookup-row" onclick="LandingUI.lookupUserProfile(event)">
+                <span class="res-user-avatar is-lookup"><i class="fa-solid fa-magnifying-glass"></i></span>
+                <div class="res-info-main">
+                    <div class="res-primary-row">
+                        <span class="res-callsign">Search &ldquo;${this._esc(query)}&rdquo; on the network</span>
+                    </div>
+                    <div class="res-secondary-row">
+                        <span class="res-pilot">Find offline pilots by exact community username</span>
+                    </div>
+                </div>
+                <i class="fa-solid fa-chevron-right res-user-chev"></i>
             </div>
         `;
     },
@@ -315,19 +425,65 @@ export const LandingUI = {
         const container = document.getElementById('blade-search-results');
         if (!container) return;
 
-        const r = this._currentResults || { flights: [], airports: [], airlines: [] };
-        const total = (r.flights?.length || 0) + (r.airports?.length || 0) + (r.airlines?.length || 0);
+        const r = this._currentResults || { flights: [], users: [], airports: [], airlines: [] };
+        const total = (r.flights?.length || 0) + (r.users?.length || 0) + (r.airports?.length || 0) + (r.airlines?.length || 0);
+
+        // Pilots section always ends with the offline network-lookup row, so
+        // even a zero-hit query still offers a way forward.
+        const pilotRows = [
+            ...(r.users || []).map((e, i) => this._renderUserRow(e, i, query)),
+            this._renderUserLookupRow(query),
+        ];
 
         if (total === 0) {
-            container.innerHTML = `<div class="premium-empty-state"><p>No matches found</p></div>`;
+            container.innerHTML = [
+                `<div class="premium-empty-state"><p>No live matches found</p></div>`,
+                this._renderSection('Pilots', pilotRows),
+            ].join('');
         } else {
             container.innerHTML = [
                 this._renderSection('Live flights', (r.flights || []).map((e, i) => this._renderFlightRow(e, i, query))),
+                this._renderSection('Pilots', pilotRows),
                 this._renderSection('Airports', (r.airports || []).map(e => this._renderAirportRow(e, query))),
                 this._renderSection('Airlines', (r.airlines || []).map(e => this._renderAirlineRow(e, query))),
             ].join('');
         }
         container.classList.add('visible');
+    },
+
+    // ─── Pilot profile entry points ─────────────────────────────────────────
+
+    // Open the full user-profile page for a username (live or offline).
+    openUserProfile(username, userId = null) {
+        if (!username) return;
+        try { window.InflightHaptics?.select?.(); } catch (_) {}
+        this._closeBladeSearch();
+        import('./UserProfileUI.js')
+            .then(m => m.UserProfileUI.open({ username, userId }))
+            .catch(err => console.error('Failed to load UserProfileUI:', err));
+    },
+
+    // From a Pilots-section row (index into the current users results).
+    openUserProfileFromResult(event, idx) {
+        event.stopPropagation();
+        const entry = this._currentResults?.users?.[idx];
+        if (entry) this.openUserProfile(entry.username, entry.userId);
+    },
+
+    // From the pilot link inside an expanded flight result.
+    openUserProfileFromFlight(event, idx) {
+        event.stopPropagation();
+        const p = this._currentResults?.flights?.[idx]?.feature?.properties;
+        if (p?.username) this.openUserProfile(p.username, p.userId || null);
+    },
+
+    // The "Search <query> on the network" row — works for offline users; the
+    // profile page resolves the name via the backend and shows a not-found
+    // state if it doesn't exist.
+    lookupUserProfile(event) {
+        event?.stopPropagation?.();
+        const q = (document.getElementById('blade-search-input')?.value || '').trim();
+        if (q) this.openUserProfile(q);
     },
 
     _closeBladeSearch() {
@@ -343,7 +499,7 @@ export const LandingUI = {
         document.getElementById('inflight-tactical-ui')?.classList.remove('mobile-search-active');
         this._syncSearchActive();
         this._currentMatches = [];
-        this._currentResults = { flights: [], airports: [], airlines: [] };
+        this._currentResults = { flights: [], users: [], airports: [], airlines: [] };
         this._searchCursorIndex = -1;
     },
 
@@ -403,7 +559,7 @@ export const LandingUI = {
                     <div class="top-right-actions">
                         <div class="search-blade">
                             <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                            <input type="text" id="blade-search-input" placeholder="Search flights, airports, airlines"
+                            <input type="text" id="blade-search-input" placeholder="Search flights, pilots, airports"
                                    autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
                                    inputmode="search" enterkeyhint="search">
                             <button type="button" id="blade-search-clear" class="search-clear-btn" aria-label="Clear search"><i class="fa-solid fa-circle-xmark"></i></button>
@@ -1291,6 +1447,173 @@ export const LandingUI = {
                 border-radius: 999px;
             }
             .res-pro-badge > i { font-size: 8.5px; }
+
+            /* ---- Rich flight detail card (route banner + status + actions) ---- */
+            .res-detail-inner { display: flex; flex-direction: column; }
+            .res-pill-reg { text-transform: none; }
+            .res-stats { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+            .res-live-pill {
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+                font-size: 9px;
+                font-weight: 800;
+                letter-spacing: 0.06em;
+                color: #052e14;
+                background: linear-gradient(135deg, #4ade80, #22c55e);
+                padding: 2px 7px;
+                border-radius: 999px;
+            }
+            .res-live-pill > i { font-size: 8px; }
+
+            .res-route-banner {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                margin: 6px 14px 4px 38px;
+                padding: 10px 12px;
+                background: var(--lui-hover-bg);
+                border: 1px solid var(--lui-border-light);
+                border-radius: 12px;
+            }
+            .res-route-ep {
+                flex: 1 1 0;
+                min-width: 0;
+                display: flex;
+                flex-direction: column;
+                gap: 1px;
+            }
+            .res-route-ep.is-arr { text-align: right; align-items: flex-end; }
+            .res-route-code {
+                font-size: 17px;
+                font-weight: 800;
+                letter-spacing: 0.02em;
+                color: var(--lui-text-main);
+            }
+            .res-route-name {
+                font-size: 10.5px;
+                font-weight: 500;
+                color: var(--lui-text-muted);
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                max-width: 100%;
+            }
+            .res-route-mid {
+                flex: 1.2 1 0;
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                color: var(--lui-text-dim);
+            }
+            .res-route-mid > i { font-size: 11px; flex: 0 0 auto; }
+            .res-route-line {
+                flex: 1 1 auto;
+                height: 1px;
+                background: linear-gradient(90deg, transparent, var(--lui-border-strong), transparent);
+            }
+
+            .res-status-line {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                margin: 4px 14px 2px 38px;
+                font-size: 12px;
+                font-weight: 700;
+                color: #22c55e;
+            }
+            .res-status-line > i { font-size: 11px; }
+            .res-status-line.is-ground { color: var(--lui-text-muted); }
+            .res-status-line.is-climb { color: #38bdf8; }
+            .res-status-line.is-descent { color: #fbbf24; }
+
+            .res-pilot-link {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                margin: 6px 14px 0 38px;
+                padding: 8px 12px;
+                border: 1px solid var(--lui-border-light);
+                border-radius: 12px;
+                background: var(--lui-hover-bg);
+                color: var(--lui-text-main);
+                cursor: pointer;
+                text-align: left;
+                transition: background 0.15s ease, transform 0.1s ease;
+            }
+            .res-pilot-link:active { transform: scale(0.98); }
+            .res-pilot-link-text {
+                flex: 1 1 auto;
+                min-width: 0;
+                display: flex;
+                flex-direction: column;
+                gap: 1px;
+            }
+            .res-pilot-link-name {
+                font-size: 13px;
+                font-weight: 700;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .res-pilot-link-sub {
+                font-size: 10.5px;
+                font-weight: 500;
+                color: var(--lui-text-muted);
+            }
+            .res-pilot-link-chev { font-size: 11px; color: var(--lui-text-dim); }
+
+            .res-action-bar {
+                display: flex;
+                gap: 8px;
+                margin: 8px 14px 12px 38px;
+            }
+            .res-action-btn {
+                flex: 1 1 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
+                padding: 10px 12px;
+                border: 1px solid var(--lui-border-light);
+                border-radius: 10px;
+                background: var(--lui-hover-bg);
+                color: var(--lui-text-main);
+                font-size: 12.5px;
+                font-weight: 700;
+                cursor: pointer;
+                transition: background 0.15s ease, transform 0.1s ease;
+            }
+            .res-action-btn:active { transform: scale(0.97); }
+            .res-action-btn > i { font-size: 12px; }
+            .res-action-btn.is-primary {
+                background: var(--lui-accent);
+                border-color: var(--lui-accent);
+                color: #fff;
+            }
+            .res-action-btn .res-pro-badge { margin-left: 2px; }
+
+            /* ---- Pilot rows (live users + offline network lookup) ---- */
+            .res-user-avatar {
+                flex: 0 0 auto;
+                display: grid;
+                place-items: center;
+                width: 34px;
+                height: 34px;
+                border-radius: 50%;
+                background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+                color: #fff;
+                font-size: 12px;
+                font-weight: 800;
+                letter-spacing: 0.03em;
+            }
+            .res-user-avatar.is-lookup {
+                background: var(--lui-hover-bg);
+                color: var(--lui-text-muted);
+                border: 1px dashed var(--lui-border-strong);
+                font-size: 12px;
+            }
+            .res-user-chev { font-size: 11px; color: var(--lui-text-dim); }
 
             .blade-results-section + .blade-results-section {
                 border-top: 1px solid var(--lui-border-base);
