@@ -225,6 +225,10 @@ export const LandingUI = {
                 </div>
                 <div class="res-detail">
                     <div class="res-detail-inner">
+                        ${reg ? `<div class="res-photo" data-photo-reg="${this._esc(reg)}" hidden>
+                            <img alt="${this._esc(acName)} ${this._esc(reg)}" />
+                            <span class="res-photo-credit"></span>
+                        </div>` : ''}
                         <div class="res-route-banner">
                             <div class="res-route-ep">
                                 <span class="res-route-code">${this._esc(dep || '—')}</span>
@@ -333,6 +337,25 @@ export const LandingUI = {
         const open = wrap.classList.toggle('detail-open');
         const btn = wrap.querySelector('.res-expand-btn');
         if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        if (open) this._hydrateResultPhoto(wrap);
+    },
+
+    // Lazily resolve a real aircraft photo for an expanded flight result; reveal
+    // the slot only on a hit so misses leave no broken-image gap.
+    _hydrateResultPhoto(wrap) {
+        const slot = wrap.querySelector('.res-photo[data-photo-reg]');
+        if (!slot || slot.dataset.photoLoaded) return;
+        if (typeof window.InflightAircraftPhoto?.get !== 'function') return;
+        slot.dataset.photoLoaded = '1';
+        const reg = slot.getAttribute('data-photo-reg');
+        window.InflightAircraftPhoto.get(reg).then(photo => {
+            if (!photo) return;
+            const img = slot.querySelector('img');
+            const credit = slot.querySelector('.res-photo-credit');
+            if (img) img.src = photo.src;
+            if (credit && photo.photographer) credit.textContent = `© ${photo.photographer}`;
+            slot.hidden = false;
+        });
     },
 
     _isPro() {
@@ -1450,6 +1473,26 @@ export const LandingUI = {
 
             /* ---- Rich flight detail card (route banner + status + actions) ---- */
             .res-detail-inner { display: flex; flex-direction: column; }
+            .res-photo {
+                position: relative;
+                margin: 6px 14px 2px 38px;
+                aspect-ratio: 16 / 9;
+                border-radius: 12px;
+                overflow: hidden;
+                background: var(--lui-hover-bg);
+            }
+            .res-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+            .res-photo-credit {
+                position: absolute;
+                right: 7px;
+                bottom: 6px;
+                font-size: 9px;
+                font-weight: 600;
+                color: rgba(255, 255, 255, 0.85);
+                background: rgba(0, 0, 0, 0.45);
+                padding: 2px 6px;
+                border-radius: 999px;
+            }
             .res-pill-reg { text-transform: none; }
             .res-stats { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
             .res-live-pill {

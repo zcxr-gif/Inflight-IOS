@@ -42,9 +42,12 @@ export const UserProfileUI = {
         this._injectStyles();
         this._buildShell();
 
+        const name = String(username).trim();
+        const liveFeature = this._findLiveFlight(name);
+
         this._data = {
-            username: String(username).trim(),
-            userId,
+            username: name,
+            userId: userId || liveFeature?.properties?.userId || null,
             loading: true,
             error: null,
             stats: null,
@@ -53,13 +56,33 @@ export const UserProfileUI = {
             logbookPage: 1,
             logbookTotalPages: 1,
             loadingMore: false,
-            liveFeature: null,
+            expandedFlights: new Set(),
+            liveFeature,
         };
 
         const root = document.getElementById('user-profile-sheet');
         root.setAttribute('data-theme', localStorage.getItem('pui-theme') || 'dark');
+
+        // When the pilot is airborne, present as a shorter peek sheet over a
+        // transparent backdrop and fly the live map to their aircraft — so the
+        // plane is visible above the sheet, FlightAware-style. The camera is
+        // bookmarked first and restored verbatim on close.
+        const isLive = !!liveFeature;
+        root.classList.toggle('is-live-preview', isLive);
+        if (isLive) {
+            this._cameraPreviewed = false;
+            try {
+                window.InflightMapCamera?.save?.();
+                const coords = liveFeature.geometry?.coordinates;
+                window.InflightMapCamera?.preview?.(coords, { zoom: 7.5, bottomInsetPx: Math.round(window.innerHeight * 0.6) });
+                this._cameraPreviewed = true;
+            } catch (_) {}
+        }
+
         root.classList.add('is-open');
-        document.documentElement.classList.add('ups-lock-scroll');
+        // Lock page scroll only for the full (offline) sheet; the live peek
+        // leaves the map interactive behind it.
+        document.documentElement.classList.toggle('ups-lock-scroll', !isLive);
         this._isOpen = true;
         try { window.InflightHaptics?.select?.(); } catch (_) {}
 
@@ -73,6 +96,12 @@ export const UserProfileUI = {
         document.documentElement.classList.remove('ups-lock-scroll');
         this._isOpen = false;
         this._loadToken++; // invalidate any in-flight fetches
+
+        // Snap the live map back to exactly where the user left it.
+        if (this._cameraPreviewed) {
+            this._cameraPreviewed = false;
+            try { window.InflightMapCamera?.restore?.(); } catch (_) {}
+        }
     },
 
     /* ─────────────────────────── Data layer ─────────────────────────── */
@@ -218,6 +247,35 @@ export const UserProfileUI = {
         return `${Math.floor(m / 60)}h ${m % 60}m`;
     },
 
+    _formatFuel(kg) {
+        if (kg == null || isNaN(kg) || kg <= 0) return null;
+        if (kg >= 1000) return `${(kg / 1000).toFixed(1)} t`;
+        return `${Math.round(kg).toLocaleString()} kg`;
+    },
+
+    // Touchdown quality band from vertical speed (fpm).
+    _rateLanding(vs) {
+        const v = Math.abs(Number(vs) || 0);
+        if (v <= 100) return { label: 'Butter', cls: 'is-butter' };
+        if (v <= 250) return { label: 'Smooth', cls: 'is-smooth' };
+        if (v <= 500) return { label: 'Firm', cls: 'is-firm' };
+        return { label: 'Hard', cls: 'is-hard' };
+    },
+
+    _bestLanding(landingStats) {
+        if (!Array.isArray(landingStats) || !landingStats.length) return null;
+        let best = landingStats[0];
+        for (const ls of landingStats) {
+            if (Math.abs(ls.verticalSpeed || 0) < Math.abs(best.verticalSpeed || 0)) best = ls;
+        }
+        return { count: landingStats.length, best };
+    },
+
+    _serverName(flight) {
+        const map = { 0: 'Solo', 1: 'Casual', 2: 'Training', 3: 'Expert', 4: 'Private' };
+        return flight.server || map[flight.worldType] || '';
+    },
+
     _formatDate(iso) {
         if (!iso) return '—';
         const dt = new Date(iso.endsWith('Z') ? iso : iso + 'Z');
@@ -321,6 +379,37 @@ export const UserProfileUI = {
                 <i class="fa-solid fa-arrow-up-right-from-square ups-community-ext"></i>
             </a>`,
         ].join('');
+
+        this._hydratePhotos();
+    },
+
+    // Lazily resolve real aircraft photos for any [data-photo-reg] slot in the
+    // current render and reveal them only on a hit (otherwise the slot stays
+    // collapsed — no broken-image placeholder).
+    _hydratePhotos() {
+        const body = document.getElementById('ups-body');
+        if (!body || typeof window.InflightAircraftPhoto?.get !== 'function') return;
+        body.querySelectorAll('[data-photo-reg]').forEach(slot => {
+            if (slot.dataset.photoLoaded) return;
+            slot.dataset.photoLoaded = '1';
+            const reg = slot.getAttribute('data-photo-reg');
+            window.InflightAircraftPhoto.get(reg).then(photo => {
+                if (!photo || !this._isOpen) return;
+                const img = slot.querySelector('img');
+                const credit = slot.querySelector('.ups-photo-credit');
+                if (img) img.src = photo.src;
+                if (credit && photo.photographer) credit.textContent = `© ${photo.photographer}`;
+                slot.hidden = false;
+            });
+        });
+    },
+
+    toggleLogFlight(key) {
+        const d = this._data;
+        if (!d) return;
+        if (d.expandedFlights.has(key)) d.expandedFlights.delete(key);
+        else d.expandedFlights.add(key);
+        this._render();
     },
 
     _renderLiveCard() {
@@ -336,17 +425,30 @@ export const UserProfileUI = {
         const status = this._liveStatus(pos, alt);
         const acName = ac.aircraftName || p.aircraftName || '';
         const livName = ac.liveryName || p.liveryName || '';
+        const reg = ac.registration || p.registration || '';
+        const hdg = Math.round(pos.heading ?? pos.hdg ?? p.heading ?? 0);
+        const vs = Math.round(pos.vs_fpm || 0);
+
+        // Photo slot is hydrated after render (see _hydratePhotos). data-reg drives
+        // the lazy Planespotters lookup; it stays hidden until a hit comes back.
+        const photoSlot = reg
+            ? `<div class="ups-live-photo" data-photo-reg="${this._esc(reg)}" hidden>
+                   <img alt="${this._esc(acName)} ${this._esc(reg)}" />
+                   <span class="ups-photo-credit"></span>
+               </div>`
+            : '';
 
         return `
             <div class="ups-section">
                 <div class="ups-section-title">Current flight</div>
                 <div class="ups-live-card">
+                    ${photoSlot}
                     <div class="ups-live-top">
                         <span class="ups-live-callsign">${this._esc(p.callsign || 'N/A')}</span>
                         ${acName ? `<span class="ups-chip">${this._esc(acName)}</span>` : ''}
                         <span class="ups-live-badge"><i class="fa-solid fa-plane"></i> LIVE</span>
                     </div>
-                    ${livName ? `<div class="ups-live-livery">${this._esc(livName)}</div>` : ''}
+                    ${livName ? `<div class="ups-live-livery">${this._esc(livName)}${reg ? ` · <span class="ups-live-reg">${this._esc(reg)}</span>` : ''}</div>` : (reg ? `<div class="ups-live-livery"><span class="ups-live-reg">${this._esc(reg)}</span></div>` : '')}
                     <div class="ups-live-route">
                         <span class="ups-live-icao">${this._esc(dep)}</span>
                         <span class="ups-live-track"><span></span><i class="fa-solid fa-plane"></i><span></span></span>
@@ -355,6 +457,8 @@ export const UserProfileUI = {
                     <div class="ups-live-stats">
                         <span class="ups-live-stat"><em>${alt.toLocaleString()}</em> ft</span>
                         <span class="ups-live-stat"><em>${gs}</em> kt</span>
+                        <span class="ups-live-stat"><em>${hdg}</em>°</span>
+                        <span class="ups-live-stat"><em>${vs.toLocaleString()}</em> fpm</span>
                         <span class="ups-live-status ${status.cls}">${status.label}</span>
                     </div>
                     <button type="button" class="ups-live-mapbtn" onclick="UserProfileUI.showOnMap()">
@@ -432,21 +536,73 @@ export const UserProfileUI = {
             `;
         }
 
-        const rows = flights.map(fl => {
+        const rows = flights.map((fl, i) => {
             const { aircraft, livery } = this._resolveAircraft(fl);
-            const dep = (fl.originAirport || '—').toUpperCase();
-            const arr = (fl.destinationAirport || '—').toUpperCase();
-            const sub = [aircraft, livery].filter(Boolean).join(' · ') || (fl.server || '');
+            const dep = (fl.originAirport || 'VFR').toUpperCase();
+            const arr = (fl.destinationAirport || 'LOCAL').toUpperCase();
+            const acLine = [aircraft, livery].filter(Boolean).join(' · ');
+            const server = this._serverName(fl);
+            const key = fl.id || `flt-${i}`;
+            const expanded = d.expandedFlights.has(key);
+
+            // Richer per-flight telemetry now pulled through: day/night split, XP,
+            // fuel burn, landing count + best-touchdown quality.
+            const xp = Number(fl.xp || 0);
+            const fuel = this._formatFuel(fl.fuelUsedKg);
+            const dayMin = Number(fl.dayTime || 0);
+            const nightMin = Number(fl.nightTime || 0);
+            const landingStats = Array.isArray(fl.landingStats) ? fl.landingStats : [];
+            const landingCount = fl.landingCount ?? landingStats.length;
+            const best = this._bestLanding(landingStats);
+            const hasVio = Array.isArray(fl.violations) && fl.violations.length > 0;
+
+            const chip = (label, value) => value || value === 0
+                ? `<span class="ups-log-chip"><em>${value}</em>${label}</span>` : '';
+
+            const chips = [
+                chip(' XP', xp ? xp.toLocaleString() : ''),
+                landingCount ? chip(landingCount === 1 ? ' landing' : ' landings', landingCount) : '',
+                fuel ? `<span class="ups-log-chip"><em>${fuel}</em> fuel</span>` : '',
+                nightMin > 0 ? `<span class="ups-log-chip"><i class="fa-solid fa-moon"></i> ${this._formatMinutes(nightMin)}</span>` : '',
+                dayMin > 0 && nightMin > 0 ? `<span class="ups-log-chip"><i class="fa-solid fa-sun"></i> ${this._formatMinutes(dayMin)}</span>` : '',
+                best ? `<span class="ups-log-chip ${this._rateLanding(best.best.verticalSpeed).cls}"><em>${Math.round(best.best.verticalSpeed || 0)}</em> fpm · ${this._rateLanding(best.best.verticalSpeed).label}</span>` : '',
+            ].filter(Boolean).join('');
+
+            // Expandable per-touchdown telemetry, mirroring the career dossier.
+            const landingDetail = best ? landingStats.map((ls, idx) => `
+                <div class="ups-td-row">
+                    <div class="ups-td-head">
+                        <span class="ups-td-idx">#${idx + 1}</span>
+                        <span class="ups-log-chip ${this._rateLanding(ls.verticalSpeed).cls}">${this._rateLanding(ls.verticalSpeed).label}</span>
+                    </div>
+                    <div class="ups-td-metrics">
+                        <span><b>${Math.round(ls.verticalSpeed || 0)}</b> fpm</span>
+                        <span><b>${(Number(ls.maxGForce) || 0).toFixed(2)}</b> G</span>
+                        <span><b>${Math.round(ls.groundSpeed || 0)}</b> kt</span>
+                        <span><b>${Math.round(ls.centerlineDistance || 0)}</b> m CL</span>
+                        <span><b>${Math.round(ls.groundRollDistance || 0)}</b> m roll</span>
+                    </div>
+                </div>`).join('') : '';
+
             return `
-                <div class="ups-log-row">
-                    <div class="ups-log-route">
-                        <span class="ups-log-icaos">${this._esc(dep)} <i class="fa-solid fa-arrow-right-long"></i> ${this._esc(arr)}</span>
-                        <span class="ups-log-sub">${this._esc(fl.callsign || '')}${sub ? ' · ' + this._esc(sub) : ''}</span>
+                <div class="ups-log-entry ${expanded ? 'is-expanded' : ''}">
+                    <div class="ups-log-row ${landingDetail ? 'is-tappable' : ''} ${hasVio ? 'has-vio' : ''}"
+                         ${landingDetail ? `onclick="UserProfileUI.toggleLogFlight('${key}')"` : ''}>
+                        <div class="ups-log-main">
+                            <div class="ups-log-route">
+                                <span class="ups-log-icaos">${this._esc(dep)} <i class="fa-solid fa-arrow-right-long"></i> ${this._esc(arr)}</span>
+                                ${hasVio ? `<span class="ups-log-vio"><i class="fa-solid fa-triangle-exclamation"></i></span>` : ''}
+                            </div>
+                            <span class="ups-log-sub">${this._esc(fl.callsign || '')}${acLine ? ' · ' + this._esc(acLine) : ''}${server ? ' · ' + this._esc(server) : ''}</span>
+                            ${chips ? `<div class="ups-log-chips">${chips}</div>` : ''}
+                        </div>
+                        <div class="ups-log-meta">
+                            <span class="ups-log-time">${this._formatMinutes(fl.totalTime)}</span>
+                            <span class="ups-log-date">${this._formatDate(fl.created)}</span>
+                            ${landingDetail ? `<i class="fa-solid fa-chevron-down ups-log-chev"></i>` : ''}
+                        </div>
                     </div>
-                    <div class="ups-log-meta">
-                        <span class="ups-log-time">${this._formatMinutes(fl.totalTime)}</span>
-                        <span class="ups-log-date">${this._formatDate(fl.created)}</span>
-                    </div>
+                    ${landingDetail ? `<div class="ups-log-detail">${landingDetail}</div>` : ''}
                 </div>
             `;
         }).join('');
@@ -587,6 +743,26 @@ export const UserProfileUI = {
                 background: rgba(0, 0, 0, 0.4);
                 -webkit-backdrop-filter: blur(3px);
                 backdrop-filter: blur(3px);
+                transition: background 0.3s ease, backdrop-filter 0.3s ease;
+            }
+            /* Live peek: don't dim/cover the map — let the flight show above the
+               sheet and stay tappable. Only the lower sheet area is opaque. */
+            .ups-root.is-live-preview .ups-backdrop {
+                background: transparent;
+                -webkit-backdrop-filter: none;
+                backdrop-filter: none;
+                pointer-events: none;
+            }
+            .ups-root.is-live-preview .ups-card {
+                height: min(62dvh, 600px);
+                background: linear-gradient(to bottom,
+                    color-mix(in srgb, var(--ups-bg) 82%, transparent),
+                    var(--ups-bg) 22%);
+            }
+            @media (min-width: 769px) {
+                /* Desktop keeps the centered dialog even for live flights. */
+                .ups-root.is-live-preview .ups-card { height: min(82vh, 780px); background: var(--ups-bg); }
+                .ups-root.is-live-preview .ups-backdrop { background: rgba(0,0,0,0.4); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); pointer-events: auto; }
             }
 
             .ups-card {
@@ -735,6 +911,33 @@ export const UserProfileUI = {
                     var(--ups-fill);
                 overflow: hidden;
             }
+            .ups-live-photo {
+                position: relative;
+                margin: -14px -14px 12px;
+                aspect-ratio: 16 / 9;
+                overflow: hidden;
+                background: var(--ups-fill);
+            }
+            .ups-live-photo img {
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+                display: block;
+            }
+            .ups-photo-credit {
+                position: absolute;
+                right: 8px;
+                bottom: 6px;
+                font-size: 9.5px;
+                font-weight: 600;
+                color: rgba(255, 255, 255, 0.85);
+                background: rgba(0, 0, 0, 0.45);
+                padding: 2px 7px;
+                border-radius: 999px;
+                -webkit-backdrop-filter: blur(4px);
+                backdrop-filter: blur(4px);
+            }
+            .ups-live-reg { font-weight: 700; color: var(--ups-text-2); }
             .ups-live-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
             .ups-live-callsign { font-size: 19px; font-weight: 800; letter-spacing: -0.2px; }
             .ups-chip {
@@ -881,17 +1084,22 @@ export const UserProfileUI = {
                 overflow: hidden;
                 background: var(--ups-fill);
             }
+            .ups-log-entry + .ups-log-entry { border-top: 0.5px solid var(--ups-stroke-soft); }
             .ups-log-row {
                 display: flex;
-                align-items: center;
+                align-items: flex-start;
                 justify-content: space-between;
                 gap: 12px;
-                padding: 11px 14px;
+                padding: 12px 14px;
             }
-            .ups-log-row + .ups-log-row { border-top: 0.5px solid var(--ups-stroke-soft); }
-            .ups-log-route { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+            .ups-log-row.is-tappable { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+            .ups-log-row.is-tappable:active { background: var(--ups-fill); }
+            .ups-log-row.has-vio { box-shadow: inset 3px 0 0 var(--ups-warning); }
+            .ups-log-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1 1 auto; }
+            .ups-log-route { display: flex; align-items: center; gap: 8px; min-width: 0; }
             .ups-log-icaos { font-size: 14px; font-weight: 700; letter-spacing: 0.01em; }
             .ups-log-icaos > i { font-size: 10px; color: var(--ups-text-4); margin: 0 3px; }
+            .ups-log-vio { color: var(--ups-warning); font-size: 11px; }
             .ups-log-sub {
                 font-size: 11px;
                 color: var(--ups-text-3);
@@ -899,6 +1107,25 @@ export const UserProfileUI = {
                 overflow: hidden;
                 text-overflow: ellipsis;
             }
+            .ups-log-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 2px; }
+            .ups-log-chip {
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+                font-size: 10px;
+                font-weight: 600;
+                color: var(--ups-text-3);
+                background: var(--ups-fill-strong);
+                padding: 2.5px 7px;
+                border-radius: 7px;
+            }
+            .ups-log-chip em { font-style: normal; font-weight: 800; color: var(--ups-text); }
+            .ups-log-chip.is-butter { color: #0a84ff; }
+            .ups-log-chip.is-smooth { color: var(--ups-success); }
+            .ups-log-chip.is-firm { color: var(--ups-warning); }
+            .ups-log-chip.is-hard { color: var(--ups-danger); }
+            .ups-log-chip.is-butter em, .ups-log-chip.is-smooth em,
+            .ups-log-chip.is-firm em, .ups-log-chip.is-hard em { color: inherit; }
             .ups-log-meta {
                 flex: 0 0 auto;
                 display: flex;
@@ -908,6 +1135,25 @@ export const UserProfileUI = {
             }
             .ups-log-time { font-size: 12.5px; font-weight: 700; }
             .ups-log-date { font-size: 10.5px; color: var(--ups-text-4); }
+            .ups-log-chev {
+                font-size: 10px;
+                color: var(--ups-text-4);
+                margin-top: 2px;
+                transition: transform 0.22s ease;
+            }
+            .ups-log-entry.is-expanded .ups-log-chev { transform: rotate(180deg); }
+            .ups-log-detail {
+                display: grid;
+                grid-template-rows: 0fr;
+                transition: grid-template-rows 0.24s ease;
+            }
+            .ups-log-detail > * { min-height: 0; overflow: hidden; }
+            .ups-log-entry.is-expanded .ups-log-detail { grid-template-rows: 1fr; }
+            .ups-td-row { padding: 8px 14px 8px 26px; border-top: 0.5px dashed var(--ups-stroke-soft); }
+            .ups-td-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+            .ups-td-idx { font-size: 11px; font-weight: 800; color: var(--ups-text-3); }
+            .ups-td-metrics { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11px; color: var(--ups-text-3); }
+            .ups-td-metrics b { color: var(--ups-text); font-weight: 700; }
             .ups-loadmore {
                 display: block;
                 width: 100%;

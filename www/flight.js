@@ -13161,6 +13161,51 @@ function initializeSectorOpsMap(centerICAO) {
         // map.getCanvas().toDataURL().
     });
 
+    // ── Map camera bookmark API ────────────────────────────────────────────
+    // Lets overlays (e.g. the pilot profile sheet) temporarily fly the map to a
+    // live flight while the user reads their stats, then snap the camera back to
+    // exactly where the user left it once the overlay closes.
+    window.InflightMapCamera = {
+        _saved: null,
+        save() {
+            if (!sectorOpsMap) return;
+            this._saved = {
+                center: sectorOpsMap.getCenter(),
+                zoom: sectorOpsMap.getZoom(),
+                bearing: sectorOpsMap.getBearing(),
+                pitch: sectorOpsMap.getPitch(),
+            };
+        },
+        // Fly to a coordinate, offset upward so the aircraft sits in the visible
+        // band of map above a bottom sheet (sheet covers the lower portion).
+        preview(coords, { zoom = 8, bottomInsetPx = 0 } = {}) {
+            if (!sectorOpsMap || !coords) return;
+            try {
+                sectorOpsMap.flyTo({
+                    center: coords,
+                    zoom,
+                    pitch: 0,
+                    bearing: 0,
+                    offset: [0, bottomInsetPx ? -bottomInsetPx / 2 : 0],
+                    speed: 1.1,
+                    curve: 1.4,
+                    essential: true,
+                });
+            } catch (_) {}
+        },
+        restore() {
+            if (!sectorOpsMap || !this._saved) return;
+            const s = this._saved;
+            try {
+                sectorOpsMap.flyTo({
+                    center: s.center, zoom: s.zoom, bearing: s.bearing, pitch: s.pitch,
+                    speed: 1.2, curve: 1.4, essential: true,
+                });
+            } catch (_) {}
+            this._saved = null;
+        },
+    };
+
     sectorOpsMap.on('style.load', async () => {
     console.log("Map style reloading. Rebuilding layers...");
 
