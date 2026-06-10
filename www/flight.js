@@ -7243,6 +7243,69 @@ function retagAirportRadius() {
     }
 }
 
+// Floating compass button: appears only when the map has been rotated or
+// tilted (e.g. an accidental two-finger twist) and snaps the view back to
+// north / level on tap — the familiar Apple/Google Maps behaviour. The needle
+// counter-rotates with the map bearing so it always points to true north.
+function setupResetNorthButton() {
+    if (!sectorOpsMap) return;
+    const mapContainer = document.getElementById('sector-ops-map-fullscreen');
+    if (!mapContainer || document.getElementById('reset-north-btn')) return;
+
+    if (!document.getElementById('reset-north-style')) {
+        const style = document.createElement('style');
+        style.id = 'reset-north-style';
+        style.textContent = `
+            .reset-north-btn {
+                position: absolute;
+                top: calc(env(safe-area-inset-top, 0px) + 76px);
+                right: 14px;
+                width: 42px; height: 42px;
+                display: flex; align-items: center; justify-content: center;
+                border-radius: 50%;
+                background: rgba(15, 23, 42, 0.55);
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                color: #fff; font-size: 1.15rem;
+                backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+                box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+                z-index: 55; cursor: pointer;
+                opacity: 0; transform: scale(0.8); pointer-events: none;
+                transition: opacity 0.25s ease, transform 0.25s ease;
+            }
+            .reset-north-btn.visible { opacity: 1; transform: scale(1); pointer-events: auto; }
+            .reset-north-btn:active { background: rgba(56, 189, 248, 0.35); }
+            .reset-north-needle { transition: transform 0.1s linear; }
+        `;
+        document.head.appendChild(style);
+    }
+
+    const btn = document.createElement('button');
+    btn.id = 'reset-north-btn';
+    btn.className = 'reset-north-btn';
+    btn.type = 'button';
+    btn.title = 'Reset to North';
+    btn.setAttribute('aria-label', 'Reset map orientation to North');
+    btn.innerHTML = `<i class="fa-solid fa-compass reset-north-needle"></i>`;
+    mapContainer.appendChild(btn);
+
+    const needle = btn.querySelector('.reset-north-needle');
+    const sync = () => {
+        const bearing = sectorOpsMap.getBearing();
+        const pitch = sectorOpsMap.getPitch();
+        needle.style.transform = `rotate(${-bearing}deg)`;
+        btn.classList.toggle('visible', Math.abs(bearing) > 1 || pitch > 1);
+    };
+
+    sectorOpsMap.on('rotate', sync);
+    sectorOpsMap.on('pitch', sync);
+    sync();
+
+    btn.addEventListener('click', () => {
+        window.InflightHaptics?.select?.();
+        sectorOpsMap.easeTo({ bearing: 0, pitch: 0, duration: 500, essential: true });
+    });
+}
+
 function updateAircraftLayerFilter() {
     if (!sectorOpsMap || !sectorOpsMap.getLayer('sector-ops-live-flights-layer')) return;
 
@@ -13115,6 +13178,7 @@ function initializeSectorOpsMap(centerICAO) {
     return new Promise(resolve => {
         sectorOpsMap.on('load', async () => {
             GroupFlightManager.init(sectorOpsMap);
+            setupResetNorthButton();
             await setupMapLayersAndFog();
             // [PERF FIX] Removed two redundant initializeMapBoundaries calls
             // here — setupMapLayersAndFog() already invokes it internally,
