@@ -201,7 +201,7 @@ export const MobileSettingsUI = {
                         <button class="m-tab active" data-tab="map" type="button"><i class="fa-solid fa-map"></i><span>Map</span></button>
                         <button class="m-tab" data-tab="aircraft" type="button"><i class="fa-solid fa-plane-up"></i><span>Aircraft</span></button>
                         <button class="m-tab" data-tab="labels" type="button"><i class="fa-solid fa-tag"></i><span>Labels</span></button>
-                        <button class="m-tab" data-tab="filters" type="button"><i class="fa-solid fa-filter"></i><span>Filters</span><span class="m-tab-badge" id="m-filters-badge"></span></button>
+                        <button class="m-tab" data-tab="filters" type="button"><i class="fa-solid fa-layer-group"></i><span>Overlays</span></button>
                         <button class="m-tab" data-tab="general" type="button"><i class="fa-solid fa-gear"></i><span>More</span></button>
                     </div>
 
@@ -300,10 +300,43 @@ export const MobileSettingsUI = {
         document.body.insertAdjacentHTML('beforeend', html);
     },
 
-    // ---- Filters tab -----------------------------------------------------
-    // A full tactical filter board: quick toggles, plus combobox/pill/range
-    // controls that write into mapFilters.tactical and re-run the live filter.
+    // ---- Settings "Overlays" tab ----------------------------------------
+    // The non-tactical map overlays that stay in Settings. The tactical filter
+    // board (aircraft/route/performance/etc.) now lives in the bottom-bar
+    // Filters tab — see renderTacticalBoard(), rendered by MobileLandingUI.
     renderFiltersPanel() {
+        return `
+            <div class="mobile-section-header">ATC &amp; Airports</div>
+            <div class="m-settings-list">
+                ${this.renderToggle('useClassicAirportTags', 'Classic Airport Tags', 'fa-tags')}
+                ${this.renderToggle('showUnstaffedAirports', 'Show Unstaffed', 'fa-circle-dot')}
+                ${this.renderToggle('hideNoAtcMarkers', 'Hide No-ATC Dots', 'fa-location-dot')}
+                ${this.renderToggle('hideAtcMarkers', 'Hide ATC Markers', 'fa-headset')}
+            </div>
+
+            <div class="mobile-section-header">Flight Plan Routes</div>
+            <div class="settings-mobile-grid">
+                <button class="m-setting-pill" data-setting="planDisplayMode" data-value="none">None</button>
+                <button class="m-setting-pill" data-setting="planDisplayMode" data-value="direct">Direct</button>
+                <button class="m-setting-pill" data-setting="planDisplayMode" data-value="full">Full Plan</button>
+            </div>
+
+            <div class="mobile-section-header">Oceanic Tracks</div>
+            <div class="m-settings-list">
+                ${this.renderToggle('showNatTracks', 'NAT Tracks', 'fa-route')}
+                ${this.renderToggle('showNatLabels', 'NAT Labels', 'fa-font')}
+            </div>
+        `;
+    },
+
+    // ---- Tactical filter board (shared) ----------------------------------
+    // The full tactical filter board: quick toggles + combobox/pill/range
+    // controls + the airport-proximity filter. All controls write into
+    // mapFilters.tactical and re-run the live map filter. Rendered into the
+    // bottom-bar Filters sheet (MobileLandingUI) and wired with
+    // attachTacticalHandlers(root) / syncTacticalControls(root) so a single
+    // implementation drives the board wherever it's hosted.
+    renderTacticalBoard() {
         return `
             <div class="m-filter-bar">
                 <span class="m-filter-count" id="m-filter-count">No filters active</span>
@@ -340,6 +373,11 @@ export const MobileSettingsUI = {
                 ${this.renderCombo('arrivalIcao', 'Arrival', 'fa-plane-arrival', 'ICAO e.g. EGLL', AIRPORT_PRESETS)}
             </div>
 
+            <div class="mobile-section-header">Proximity</div>
+            <div class="m-combo-list">
+                ${this.renderAirportRadius()}
+            </div>
+
             <div class="mobile-section-header">Performance</div>
             <div class="m-combo-list">
                 ${this.renderRangeRow('altitude', 'Altitude', 'fa-gauge-high', 'ft')}
@@ -351,26 +389,32 @@ export const MobileSettingsUI = {
                 ${this.renderCombo('callsign', 'Callsign Search', 'fa-magnifying-glass', 'e.g. UAL482', [])}
                 ${this.renderCombo('country', 'Registration Country', 'fa-flag', 'Pick a country…', COUNTRY_PRESETS, true)}
             </div>
+        `;
+    },
 
-            <div class="mobile-section-header">ATC &amp; Airports</div>
-            <div class="m-settings-list">
-                ${this.renderToggle('useClassicAirportTags', 'Classic Airport Tags', 'fa-tags')}
-                ${this.renderToggle('showUnstaffedAirports', 'Show Unstaffed', 'fa-circle-dot')}
-                ${this.renderToggle('hideNoAtcMarkers', 'Hide No-ATC Dots', 'fa-location-dot')}
-                ${this.renderToggle('hideAtcMarkers', 'Hide ATC Markers', 'fa-headset')}
+    // Airport-proximity control: an ICAO combobox (free-type or pick a preset)
+    // plus a radius in nautical miles. Together they write
+    // mapFilters.tactical.airportRadius = { icao, radiusNm }.
+    renderAirportRadius() {
+        const opts = AIRPORT_PRESETS.map(p =>
+            `<button class="m-combo-opt" type="button" data-value="${p.value}">${p.label}</button>`
+        ).join('');
+        return `
+            <div class="m-combo m-apt-radius-combo" data-airport-radius>
+                <div class="m-combo-label"><i class="fa-solid fa-location-crosshairs"></i><span>Within Radius of Airport</span></div>
+                <div class="m-combo-control">
+                    <input type="text" class="m-combo-input m-apt-radius-icao" placeholder="ICAO e.g. KJFK"
+                           autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false">
+                    <button class="m-combo-caret" type="button" tabindex="-1"><i class="fa-solid fa-chevron-down"></i></button>
+                    <button class="m-combo-clear" type="button" tabindex="-1"><i class="fa-solid fa-xmark"></i></button>
+                    <div class="m-combo-menu">${opts}</div>
+                </div>
             </div>
-
-            <div class="mobile-section-header">Flight Plan Routes</div>
-            <div class="settings-mobile-grid">
-                <button class="m-setting-pill" data-setting="planDisplayMode" data-value="none">None</button>
-                <button class="m-setting-pill" data-setting="planDisplayMode" data-value="direct">Direct</button>
-                <button class="m-setting-pill" data-setting="planDisplayMode" data-value="full">Full Plan</button>
-            </div>
-
-            <div class="mobile-section-header">Oceanic Tracks</div>
-            <div class="m-settings-list">
-                ${this.renderToggle('showNatTracks', 'NAT Tracks', 'fa-route')}
-                ${this.renderToggle('showNatLabels', 'NAT Labels', 'fa-font')}
+            <div class="m-range-row m-apt-radius-row">
+                <div class="m-combo-label"><i class="fa-solid fa-ruler-horizontal"></i><span>Radius <small>(nm)</small></span></div>
+                <div class="m-range-inputs">
+                    <input type="number" inputmode="numeric" class="m-range-num m-apt-radius-num" placeholder="e.g. 50">
+                </div>
             </div>
         `;
     },
@@ -669,16 +713,13 @@ export const MobileSettingsUI = {
                 n++;
             }
         });
+        // Airport-proximity filter counts as one active rule.
+        if (t.airportRadius && t.airportRadius.icao && t.airportRadius.radiusNm) n++;
         return n;
     },
 
     updateFilterBadge() {
         const n = this.countActiveTactical();
-        const badge = document.getElementById('m-filters-badge');
-        if (badge) {
-            badge.textContent = n || '';
-            badge.classList.toggle('visible', n > 0);
-        }
         const count = document.getElementById('m-filter-count');
         if (count) {
             count.textContent = n === 0 ? 'No filters active'
@@ -687,11 +728,19 @@ export const MobileSettingsUI = {
         }
         const reset = document.getElementById('m-filter-reset');
         if (reset) reset.classList.toggle('visible', n > 0);
+
+        // Keep the bottom-bar Filters tab dot in sync (the board now writes
+        // mapFilters.tactical directly rather than via the old landing engine).
+        const dot = document.getElementById('ios-tab-filter-dot');
+        if (dot) {
+            dot.textContent = n > 9 ? '9+' : String(n);
+            dot.classList.toggle('is-on', n > 0);
+        }
     },
 
-    resetTacticalFilters() {
+    resetTacticalFilters(root) {
         if (window.mapFilters) window.mapFilters.tactical = {};
-        const container = document.getElementById('mobile-settings-nexus');
+        const container = root || document.getElementById('mobile-tactical-nexus');
         if (container) {
             container.querySelectorAll('.m-combo-input').forEach(i => { i.value = ''; });
             container.querySelectorAll('.m-range-num').forEach(i => { i.value = ''; });
@@ -702,6 +751,218 @@ export const MobileSettingsUI = {
         }
         if (window.updateMapFilters) window.updateMapFilters();
         if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
+        this.updateFilterBadge();
+    },
+
+    // Read the proximity inputs out of `root` and commit (or clear)
+    // mapFilters.tactical.airportRadius, then re-run the live filter.
+    commitAirportRadius(root) {
+        if (!root) return;
+        if (!window.mapFilters) return;
+        if (!window.mapFilters.tactical) window.mapFilters.tactical = {};
+        const icaoInput = root.querySelector('.m-apt-radius-icao');
+        const numInput = root.querySelector('.m-apt-radius-num');
+        const icao = ((icaoInput && icaoInput.value) || '').trim().toUpperCase();
+        const radiusNm = parseFloat(numInput && numInput.value);
+
+        if (icao && radiusNm > 0) {
+            window.mapFilters.tactical.airportRadius = { icao, radiusNm };
+        } else {
+            delete window.mapFilters.tactical.airportRadius;
+        }
+        if (window.updateMapFilters) window.updateMapFilters();
+        if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
+        this.updateFilterBadge();
+    },
+
+    // Wire every control in the tactical board, scoped to `root` so the same
+    // board works wherever it's hosted (the bottom-bar Filters sheet). Bound
+    // once per root — guarded against double-binding.
+    attachTacticalHandlers(root) {
+        if (!root || root.dataset.tacticalBound === '1') return;
+        root.dataset.tacticalBound = '1';
+
+        // Traffic quick toggles (write mapFilters[setting] directly).
+        root.querySelectorAll('input[type="checkbox"][data-setting]').forEach(input => {
+            input.addEventListener('change', (e) => {
+                if (e.target.closest('.locked')) return;
+                window.InflightHaptics?.select?.();
+                window.mapFilters[e.target.dataset.setting] = e.target.checked;
+                if (window.updateMapFilters) window.updateMapFilters();
+                if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
+                this.updateFilterBadge();
+            });
+        });
+
+        // VA dropdown (and any other select[data-setting]).
+        root.querySelectorAll('select[data-setting]').forEach(sel => {
+            sel.addEventListener('change', (e) => {
+                window.mapFilters[e.target.dataset.setting] = e.target.value;
+                if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
+                if (window.updateMapFilters) window.updateMapFilters();
+            });
+        });
+
+        // Tactical comboboxes (free-type + preset menu).
+        root.querySelectorAll('.m-combo[data-tactical]').forEach(combo => {
+            const key = combo.dataset.tactical;
+            const input = combo.querySelector('.m-combo-input');
+            const menu = combo.querySelector('.m-combo-menu');
+            const caret = combo.querySelector('.m-combo-caret');
+            const clear = combo.querySelector('.m-combo-clear');
+            const presetOnly = combo.classList.contains('is-preset-only');
+            const markValue = () => combo.classList.toggle('has-value', !!input.value.trim());
+            const filterMenu = () => {
+                if (!menu) return;
+                const q = input.value.trim().toLowerCase();
+                menu.querySelectorAll('.m-combo-opt').forEach(opt => {
+                    const match = !q || opt.textContent.toLowerCase().includes(q) ||
+                        (opt.dataset.value || '').toLowerCase().includes(q);
+                    opt.style.display = match ? '' : 'none';
+                });
+            };
+            const openMenu = () => { if (menu) { filterMenu(); combo.classList.add('open'); } };
+            const closeMenu = () => combo.classList.remove('open');
+
+            if (!presetOnly) {
+                input.addEventListener('input', () => {
+                    markValue(); filterMenu(); combo.classList.add('open');
+                    this.setTactical(key, input.value);
+                });
+            }
+            input.addEventListener('focus', openMenu);
+            input.addEventListener('blur', () => setTimeout(closeMenu, 180));
+            if (caret) caret.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                combo.classList.contains('open') ? closeMenu() : (input.focus(), openMenu());
+            });
+            if (clear) clear.addEventListener('click', () => {
+                input.value = ''; markValue(); this.setTactical(key, ''); closeMenu();
+            });
+            if (menu) menu.querySelectorAll('.m-combo-opt').forEach(opt => {
+                opt.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    window.InflightHaptics?.select?.();
+                    input.value = opt.dataset.value; markValue();
+                    this.setTactical(key, opt.dataset.value); closeMenu();
+                });
+            });
+        });
+
+        // Tactical pill rows (category / phase).
+        root.querySelectorAll('.m-tac-pill').forEach(pill => {
+            pill.addEventListener('click', () => {
+                window.InflightHaptics?.select?.();
+                pill.parentElement.querySelectorAll('.m-tac-pill').forEach(p => p.classList.remove('active'));
+                pill.classList.add('active');
+                this.setTactical(pill.dataset.tactical, pill.dataset.value);
+            });
+        });
+
+        // Tactical numeric ranges (altitude / speed).
+        root.querySelectorAll('.m-range-row[data-tactical-range]').forEach(row => {
+            const key = row.dataset.tacticalRange;
+            row.querySelectorAll('.m-range-num').forEach(num => {
+                num.addEventListener('input', () => this.setTacticalRange(key, num.dataset.bound, num.value));
+            });
+        });
+
+        // Airport-proximity combobox + radius.
+        const aptCombo = root.querySelector('.m-apt-radius-combo');
+        if (aptCombo) {
+            const input = aptCombo.querySelector('.m-apt-radius-icao');
+            const menu = aptCombo.querySelector('.m-combo-menu');
+            const caret = aptCombo.querySelector('.m-combo-caret');
+            const clear = aptCombo.querySelector('.m-combo-clear');
+            const markValue = () => aptCombo.classList.toggle('has-value', !!input.value.trim());
+            const filterMenu = () => {
+                if (!menu) return;
+                const q = input.value.trim().toLowerCase();
+                menu.querySelectorAll('.m-combo-opt').forEach(opt => {
+                    const match = !q || opt.textContent.toLowerCase().includes(q) ||
+                        (opt.dataset.value || '').toLowerCase().includes(q);
+                    opt.style.display = match ? '' : 'none';
+                });
+            };
+            const openMenu = () => { if (menu) { filterMenu(); aptCombo.classList.add('open'); } };
+            const closeMenu = () => aptCombo.classList.remove('open');
+
+            input.addEventListener('input', () => {
+                markValue(); filterMenu(); aptCombo.classList.add('open');
+                this.commitAirportRadius(root);
+            });
+            input.addEventListener('focus', openMenu);
+            input.addEventListener('blur', () => setTimeout(closeMenu, 180));
+            if (caret) caret.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                aptCombo.classList.contains('open') ? closeMenu() : (input.focus(), openMenu());
+            });
+            if (clear) clear.addEventListener('click', () => {
+                input.value = ''; markValue(); this.commitAirportRadius(root); closeMenu();
+            });
+            if (menu) menu.querySelectorAll('.m-combo-opt').forEach(opt => {
+                opt.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    window.InflightHaptics?.select?.();
+                    input.value = opt.dataset.value; markValue();
+                    this.commitAirportRadius(root); closeMenu();
+                });
+            });
+        }
+        const aptNum = root.querySelector('.m-apt-radius-num');
+        if (aptNum) aptNum.addEventListener('input', () => this.commitAirportRadius(root));
+
+        // Reset.
+        const resetBtn = root.querySelector('#m-filter-reset');
+        if (resetBtn) resetBtn.addEventListener('click', () => {
+            window.InflightHaptics?.select?.();
+            this.resetTacticalFilters(root);
+        });
+    },
+
+    // Reflect the current mapFilters/tactical state into the board's controls.
+    syncTacticalControls(root) {
+        if (!root) return;
+        const filters = window.mapFilters || {};
+        const tactical = filters.tactical || {};
+
+        root.querySelectorAll('input[type="checkbox"][data-setting]').forEach(input => {
+            input.checked = !!filters[input.dataset.setting];
+        });
+        root.querySelectorAll('select[data-setting]').forEach(sel => {
+            sel.value = filters[sel.dataset.setting] || '';
+        });
+        root.querySelectorAll('.m-combo[data-tactical]').forEach(combo => {
+            const input = combo.querySelector('.m-combo-input');
+            const val = tactical[combo.dataset.tactical];
+            if (input) {
+                input.value = (val !== undefined && val !== null && typeof val !== 'object') ? val : '';
+                combo.classList.toggle('has-value', !!input.value.trim());
+            }
+        });
+        root.querySelectorAll('.m-tac-pill').forEach(pill => {
+            const current = tactical[pill.dataset.tactical] || '';
+            pill.classList.toggle('active', pill.dataset.value === current);
+        });
+        root.querySelectorAll('.m-range-row[data-tactical-range]').forEach(row => {
+            const range = tactical[row.dataset.tacticalRange] || {};
+            row.querySelectorAll('.m-range-num').forEach(num => {
+                const b = num.dataset.bound;
+                num.value = (range[b] !== undefined && range[b] !== null) ? range[b] : '';
+            });
+        });
+
+        // Airport-proximity inputs.
+        const ar = tactical.airportRadius || {};
+        const aptIcao = root.querySelector('.m-apt-radius-icao');
+        const aptNum = root.querySelector('.m-apt-radius-num');
+        if (aptIcao) {
+            aptIcao.value = ar.icao || '';
+            const c = root.querySelector('.m-apt-radius-combo');
+            if (c) c.classList.toggle('has-value', !!aptIcao.value.trim());
+        }
+        if (aptNum) aptNum.value = (ar.radiusNm !== undefined && ar.radiusNm !== null) ? ar.radiusNm : '';
+
         this.updateFilterBadge();
     },
 

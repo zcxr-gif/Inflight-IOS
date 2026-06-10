@@ -846,9 +846,23 @@ export const MobileLandingChromeUI = {
     _syncFilterDot() {
         const dot = document.getElementById('ios-tab-filter-dot');
         if (!dot) return;
-        const count = (this.parent && this.parent._activeFilters)
-            ? Object.keys(this.parent._activeFilters).length
-            : 0;
+        // The Filters tab now drives mapFilters.tactical (via the shared board),
+        // so count active tactical rules. Fall back to the legacy _activeFilters
+        // engine (still used by the desktop landing modal) when tactical is empty.
+        const t = (window.mapFilters && window.mapFilters.tactical) || {};
+        let count = Object.keys(t).filter(k => {
+            const v = t[k];
+            if (v === undefined || v === null) return false;
+            if (typeof v === 'object') {
+                return (v.min !== undefined && v.min !== '') ||
+                       (v.max !== undefined && v.max !== '') ||
+                       (v.icao && v.radiusNm); // airportRadius
+            }
+            return String(v).trim() !== '';
+        }).length;
+        if (count === 0 && this.parent && this.parent._activeFilters) {
+            count = Object.keys(this.parent._activeFilters).length;
+        }
         dot.textContent = count > 9 ? '9+' : String(count);
         dot.classList.toggle('is-on', count > 0);
     },

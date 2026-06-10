@@ -7216,6 +7216,33 @@ function setLiveFlightsFilter(filter) {
     }
 }
 
+// Re-compute the airport-radius (__inRadius) tag for every cached feature and
+// push the result to the source. Called when the proximity filter changes so
+// it takes effect immediately, without waiting for the next polling tick.
+function retagAirportRadius() {
+    const ar = mapFilters.tactical && mapFilters.tactical.airportRadius;
+    const apt = (ar && ar.icao && typeof airportsData !== 'undefined') ? airportsData[ar.icao] : null;
+    const radiusKm = (ar && ar.radiusNm) ? ar.radiusNm * 1.852 : 0;
+
+    Object.values(currentMapFeatures).forEach(f => {
+        if (!apt || !radiusKm) { f.properties.__inRadius = 1; return; }
+        try {
+            const pos = JSON.parse(f.properties.position);
+            const km = getDistanceKm(pos.lat, pos.lon, apt.lat, apt.lon);
+            f.properties.__inRadius = (km <= radiusKm) ? 1 : 0;
+        } catch (_) {
+            f.properties.__inRadius = 1;
+        }
+    });
+
+    if (sectorOpsMap && sectorOpsMap.getSource && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
+        sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
+            type: 'FeatureCollection',
+            features: Object.values(currentMapFeatures)
+        });
+    }
+}
+
 function updateAircraftLayerFilter() {
     if (!sectorOpsMap || !sectorOpsMap.getLayer('sector-ops-live-flights-layer')) return;
 
@@ -7238,6 +7265,16 @@ function updateAircraftLayerFilter() {
 
     // 2. Tactical Filters (Injected from landingUI.js)
     const tactical = mapFilters.tactical || {};
+
+    // --- Airport proximity (radius) filter ---
+    // Keeps only aircraft within `radiusNm` of the chosen airport. Distance is
+    // pre-computed per feature into the __inRadius property (here, for instant
+    // response, and in the polling loop for moving traffic).
+    const ar = tactical.airportRadius;
+    if (ar && ar.icao && ar.radiusNm) {
+        retagAirportRadius();
+        filter.push(['==', ['get', '__inRadius'], 1]);
+    }
 
     // --- Intelligent Aircraft Type Matching ---
     // Matches if user types "A38" and the aircraft is "Airbus A380-800"
@@ -8031,6 +8068,19 @@ function handleSocketFlightUpdate(data) {
                     if (window.currentAirportTraffic.out.includes(flightId)) return 'outbound';
                 }
                 return 'none';
+            })(),
+
+            // Airport-radius (proximity) filter tag. 1 = keep, 0 = outside the
+            // chosen airport's radius. When the filter is inactive every plane
+            // is tagged 1 so the Mapbox filter (added only while active) is a
+            // no-op. Mirrored by retagAirportRadius() for instant updates.
+            __inRadius: (() => {
+                const ar = mapFilters.tactical && mapFilters.tactical.airportRadius;
+                if (!ar || !ar.icao || !ar.radiusNm) return 1;
+                const apt = (typeof airportsData !== 'undefined') ? airportsData[ar.icao] : null;
+                if (!apt) return 1;
+                const km = getDistanceKm(flight.position.lat, flight.position.lon, apt.lat, apt.lon);
+                return (km <= ar.radiusNm * 1.852) ? 1 : 0;
             })(),
 
             // --- PREMIUM VISIBILITY FEATURE ---
