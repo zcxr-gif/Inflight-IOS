@@ -12152,12 +12152,17 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
 
 const SettingsUI = {
     _isVisible: false,
-    _currentCategory: 'airspace',
+    _currentCategory: 'map',
 
+    // Mirrors the mobile settings sheet's tab structure (MobileSettingsUI):
+    // Map / Aircraft / Labels / Overlays, plus the shared tactical filter
+    // board under Filters and the desktop-only window Theme tab.
     categories: {
-        airspace: { label: "Filters", icon: "fa-tower-broadcast" },
-        visuals: { label: "Visuals", icon: "fa-eye" },
-        pro_layers: { label: (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) ? "Layers" : "Pro Layers", icon: "fa-layer-group" },
+        map: { label: "Map", icon: "fa-map" },
+        aircraft: { label: "Aircraft", icon: "fa-plane-up" },
+        labels: { label: "Labels", icon: "fa-tag" },
+        overlays: { label: "Overlays", icon: "fa-layer-group" },
+        airspace: { label: "Filters", icon: "fa-sliders" },
         theme: { label: "Theme", icon: "fa-palette" }
     },
 
@@ -12382,6 +12387,381 @@ const SettingsUI = {
             }
             #global-settings-modal-overlay .custom-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.15); }
 
+            /* === Ported mobile components (style cards / tactical board /
+                   label designer) restyled for the desktop modal === */
+            #global-settings-modal-overlay .mobile-section-header {
+                font-size: 0.7rem;
+                font-weight: 700;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                color: #71717a;
+                margin: 18px 0 8px;
+            }
+            #global-settings-modal-overlay .mobile-section-header:first-child { margin-top: 0; }
+            #global-settings-modal-overlay .mobile-section-header.pro-accent { color: #fbbf24; }
+
+            /* Map style preview cards */
+            #global-settings-modal-overlay .m-style-grid {
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                gap: 10px;
+            }
+            #global-settings-modal-overlay .m-style-card {
+                background: transparent;
+                border: none;
+                padding: 0;
+                cursor: pointer;
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+                font-family: inherit;
+            }
+            #global-settings-modal-overlay .m-style-thumb {
+                position: relative;
+                display: block;
+                aspect-ratio: 16 / 10;
+                border-radius: 10px;
+                border: 2px solid rgba(255, 255, 255, 0.08);
+                overflow: hidden;
+                transition: border-color 0.15s ease, box-shadow 0.15s ease;
+            }
+            #global-settings-modal-overlay .m-style-card:hover .m-style-thumb { border-color: rgba(255, 255, 255, 0.25); }
+            #global-settings-modal-overlay .m-style-card.active .m-style-thumb {
+                border-color: #38bdf8;
+                box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.35);
+            }
+            #global-settings-modal-overlay .m-style-check {
+                position: absolute;
+                bottom: 6px;
+                right: 6px;
+                width: 20px;
+                height: 20px;
+                border-radius: 50%;
+                background: #38bdf8;
+                color: #0b1120;
+                display: grid;
+                place-items: center;
+                font-size: 0.6rem;
+                opacity: 0;
+                transform: scale(0.5);
+                transition: all 0.15s ease;
+            }
+            #global-settings-modal-overlay .m-style-card.active .m-style-check { opacity: 1; transform: scale(1); }
+            #global-settings-modal-overlay .m-style-pro {
+                position: absolute;
+                top: 6px;
+                right: 6px;
+                background: rgba(0, 0, 0, 0.55);
+                color: #fbbf24;
+                font-size: 0.55rem;
+                padding: 3px 6px;
+                border-radius: 5px;
+            }
+            #global-settings-modal-overlay .m-style-name {
+                font-size: 0.72rem;
+                color: #a1a1aa;
+                font-weight: 600;
+                text-align: center;
+            }
+            #global-settings-modal-overlay .m-style-card.active .m-style-name { color: #fff; }
+            #global-settings-modal-overlay .is-pro-feature.locked { opacity: 0.55; }
+
+            /* Settings list rows + iOS-style switches */
+            #global-settings-modal-overlay .m-settings-list { display: flex; flex-direction: column; gap: 6px; }
+            #global-settings-modal-overlay .m-setting-row {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                background: rgba(255, 255, 255, 0.03);
+                border: 1px solid rgba(255, 255, 255, 0.06);
+                border-radius: 10px;
+                padding: 10px 12px;
+            }
+            #global-settings-modal-overlay .m-row-left {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                color: #e4e4e7;
+                font-size: 0.82rem;
+                font-weight: 500;
+            }
+            #global-settings-modal-overlay .m-row-left i { width: 18px; text-align: center; color: #a1a1aa; }
+            #global-settings-modal-overlay .m-row-right { display: flex; align-items: center; gap: 8px; }
+            #global-settings-modal-overlay .m-switch { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; }
+            #global-settings-modal-overlay .m-switch input { opacity: 0; width: 0; height: 0; }
+            #global-settings-modal-overlay .m-slider {
+                position: absolute;
+                inset: 0;
+                background: rgba(255, 255, 255, 0.12);
+                border-radius: 999px;
+                transition: background 0.2s ease;
+                cursor: pointer;
+            }
+            #global-settings-modal-overlay .m-slider::before {
+                content: '';
+                position: absolute;
+                width: 18px;
+                height: 18px;
+                left: 3px;
+                top: 3px;
+                background: #fff;
+                border-radius: 50%;
+                transition: transform 0.2s ease;
+            }
+            #global-settings-modal-overlay .m-switch input:checked + .m-slider { background: #38bdf8; }
+            #global-settings-modal-overlay .m-switch input:checked + .m-slider::before { transform: translateX(20px); }
+            #global-settings-modal-overlay .pro-lock-badge {
+                font-size: 0.55rem;
+                font-weight: 800;
+                color: #fbbf24;
+                border: 1px solid rgba(251, 191, 36, 0.4);
+                padding: 2px 6px;
+                border-radius: 4px;
+                display: inline-flex;
+                align-items: center;
+            }
+            #global-settings-modal-overlay .m-color-picker {
+                width: 34px;
+                height: 26px;
+                border: none;
+                background: transparent;
+                cursor: pointer;
+                padding: 0;
+            }
+
+            /* Pill rows (icon color, flight plan mode) */
+            #global-settings-modal-overlay .settings-mobile-grid {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 8px;
+            }
+            #global-settings-modal-overlay .m-setting-pill {
+                background: rgba(255, 255, 255, 0.04);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                color: #a1a1aa;
+                padding: 9px;
+                border-radius: 8px;
+                cursor: pointer;
+                font-weight: 600;
+                font-size: 0.78rem;
+                font-family: inherit;
+                transition: all 0.15s ease;
+            }
+            #global-settings-modal-overlay .m-setting-pill:hover { color: #fff; background: rgba(255, 255, 255, 0.08); }
+            #global-settings-modal-overlay .m-setting-pill.active { background: #38bdf8; border-color: #38bdf8; color: #0b1120; }
+
+            /* Range slider card */
+            #global-settings-modal-overlay .m-setting-range-card {
+                background: rgba(255, 255, 255, 0.03);
+                border: 1px solid rgba(255, 255, 255, 0.06);
+                border-radius: 10px;
+                padding: 12px;
+            }
+            #global-settings-modal-overlay .m-setting-range-card .range-header {
+                display: flex;
+                justify-content: space-between;
+                color: #a1a1aa;
+                font-size: 0.75rem;
+                font-weight: 700;
+                margin-bottom: 8px;
+            }
+            #global-settings-modal-overlay .m-setting-range-card .range-header span:last-child {
+                color: #38bdf8;
+                font-family: 'JetBrains Mono', monospace;
+            }
+            #global-settings-modal-overlay .m-range-input { width: 100%; }
+
+            /* Tactical filter board */
+            #global-settings-modal-overlay .m-filter-bar {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                background: rgba(255, 255, 255, 0.03);
+                border: 1px solid rgba(255, 255, 255, 0.06);
+                border-radius: 10px;
+                padding: 10px 12px;
+            }
+            #global-settings-modal-overlay .m-filter-count { font-size: 0.78rem; color: #71717a; font-weight: 600; }
+            #global-settings-modal-overlay .m-filter-count.has-filters { color: #38bdf8; }
+            #global-settings-modal-overlay .m-filter-reset {
+                background: transparent;
+                border: none;
+                color: #ef4444;
+                font-weight: 700;
+                font-size: 0.75rem;
+                cursor: pointer;
+                font-family: inherit;
+                opacity: 0;
+                pointer-events: none;
+                transition: opacity 0.15s ease;
+            }
+            #global-settings-modal-overlay .m-filter-reset.visible { opacity: 1; pointer-events: auto; }
+            #global-settings-modal-overlay .m-combo-list { display: flex; flex-direction: column; gap: 10px; }
+            #global-settings-modal-overlay .m-combo { position: relative; }
+            #global-settings-modal-overlay .m-combo-label {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                font-size: 0.68rem;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+                color: #71717a;
+                margin-bottom: 6px;
+            }
+            #global-settings-modal-overlay .m-combo-label i { width: 14px; text-align: center; }
+            #global-settings-modal-overlay .m-combo-control { position: relative; display: flex; align-items: center; }
+            #global-settings-modal-overlay .m-combo-input {
+                width: 100%;
+                box-sizing: border-box;
+                background: #18181b;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 8px;
+                color: #e4e4e7;
+                padding: 9px 64px 9px 12px;
+                font-size: 0.8rem;
+                font-family: inherit;
+                outline: none;
+            }
+            #global-settings-modal-overlay .m-combo-input:focus { border-color: rgba(56, 189, 248, 0.5); }
+            #global-settings-modal-overlay .m-combo-caret,
+            #global-settings-modal-overlay .m-combo-clear {
+                position: absolute;
+                background: transparent;
+                border: none;
+                color: #71717a;
+                cursor: pointer;
+                width: 26px;
+                height: 26px;
+                display: grid;
+                place-items: center;
+            }
+            #global-settings-modal-overlay .m-combo-caret { right: 6px; }
+            #global-settings-modal-overlay .m-combo-clear { right: 32px; opacity: 0; pointer-events: none; transition: opacity 0.15s ease; }
+            #global-settings-modal-overlay .m-combo.has-value .m-combo-clear { opacity: 1; pointer-events: auto; }
+            #global-settings-modal-overlay .m-combo-menu {
+                position: absolute;
+                top: calc(100% + 4px);
+                left: 0;
+                right: 0;
+                background: #1c1c1f;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 10px;
+                max-height: 200px;
+                overflow-y: auto;
+                z-index: 50;
+                display: none;
+                box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+            }
+            #global-settings-modal-overlay .m-combo.open .m-combo-menu { display: block; }
+            #global-settings-modal-overlay .m-combo-opt {
+                display: block;
+                width: 100%;
+                text-align: left;
+                background: transparent;
+                border: none;
+                color: #d4d4d8;
+                padding: 9px 12px;
+                font-size: 0.78rem;
+                cursor: pointer;
+                font-family: inherit;
+            }
+            #global-settings-modal-overlay .m-combo-opt:hover { background: rgba(255, 255, 255, 0.06); color: #fff; }
+            #global-settings-modal-overlay .m-tac-pill-row { display: flex; flex-wrap: wrap; gap: 6px; }
+            #global-settings-modal-overlay .m-tac-pill {
+                background: rgba(255, 255, 255, 0.04);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                color: #a1a1aa;
+                padding: 7px 14px;
+                border-radius: 999px;
+                cursor: pointer;
+                font-weight: 600;
+                font-size: 0.75rem;
+                font-family: inherit;
+                transition: all 0.15s ease;
+            }
+            #global-settings-modal-overlay .m-tac-pill:hover { color: #fff; }
+            #global-settings-modal-overlay .m-tac-pill.active { background: #38bdf8; border-color: #38bdf8; color: #0b1120; }
+            #global-settings-modal-overlay .m-range-inputs { display: flex; align-items: center; gap: 8px; }
+            #global-settings-modal-overlay .m-range-num {
+                flex: 1;
+                width: 100%;
+                box-sizing: border-box;
+                background: #18181b;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 8px;
+                color: #e4e4e7;
+                padding: 9px 12px;
+                font-size: 0.8rem;
+                font-family: inherit;
+                outline: none;
+            }
+            #global-settings-modal-overlay .m-range-dash { color: #52525b; }
+            #global-settings-modal-overlay .m-select {
+                background: #18181b !important;
+                border: 1px solid rgba(255, 255, 255, 0.08) !important;
+                color: #e4e4e7 !important;
+                border-radius: 8px;
+                padding: 6px 8px;
+                font-size: 0.8rem;
+                font-family: inherit;
+                max-width: 180px;
+            }
+
+            /* Label designer (desktop host) */
+            #global-settings-modal-overlay .d-label-preview-stage {
+                position: relative;
+                min-height: 120px;
+                border-radius: 12px;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                background:
+                    radial-gradient(circle at 30% 40%, rgba(56, 189, 248, 0.06), transparent 60%),
+                    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.03) 0 1px, transparent 1px 24px),
+                    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.03) 0 1px, transparent 1px 24px),
+                    #101013;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 16px;
+                padding: 14px;
+                overflow: hidden;
+            }
+            #global-settings-modal-overlay .d-label-plane { color: #e4e4e7; font-size: 1.3rem; }
+            #global-settings-modal-overlay .d-label-preview { font-weight: 700; line-height: 1.35; transition: opacity 0.2s ease; }
+            #global-settings-modal-overlay .d-label-preview .l-callsign { font-weight: 800; }
+            #global-settings-modal-overlay .d-label-preview .l-sub { font-weight: 600; opacity: 0.92; }
+            #global-settings-modal-overlay .m-theme-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+            #global-settings-modal-overlay .m-theme-pill {
+                position: relative;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 6px;
+                background: rgba(255, 255, 255, 0.03);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 10px;
+                padding: 10px 6px;
+                cursor: pointer;
+                font-family: inherit;
+                transition: all 0.15s ease;
+            }
+            #global-settings-modal-overlay .m-theme-pill:hover { border-color: rgba(255, 255, 255, 0.2); }
+            #global-settings-modal-overlay .m-theme-pill.active {
+                border-color: #38bdf8;
+                box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.25);
+            }
+            #global-settings-modal-overlay .m-theme-swatch {
+                width: 34px;
+                height: 26px;
+                border-radius: 6px;
+                display: grid;
+                place-items: center;
+                font-weight: 800;
+                font-size: 0.8rem;
+            }
+            #global-settings-modal-overlay .m-theme-name { font-size: 0.65rem; color: #a1a1aa; font-weight: 600; }
+            #global-settings-modal-overlay .m-theme-lock { position: absolute; top: 4px; right: 4px; color: #fbbf24; font-size: 0.55rem; }
+
             /* Mobile: stack the panes (the modal still renders < 768px on tablets) */
             @media (max-width: 720px) {
                 #global-settings-modal-overlay .modal-body { grid-template-columns: 1fr; }
@@ -12411,7 +12791,16 @@ const SettingsUI = {
             if (e && e.currentTarget && typeof e.currentTarget.blur === 'function') {
                 e.currentTarget.blur();
             }
-            
+
+            // Deep link straight to a category — the landing chrome's Filters
+            // orb opens the tactical board tab via detail.category.
+            const cat = e && e.detail && e.detail.category;
+            if (cat && this.categories[cat]) {
+                this._currentCategory = cat;
+                document.querySelectorAll('.settings-modal .nexus-item').forEach(i =>
+                    i.classList.toggle('active', i.dataset.catId === cat));
+            }
+
             if (window.innerWidth <= 768) {
                 // Trigger the Mobile Bottom Sheet
                 window.dispatchEvent(new CustomEvent('openMobileSettings'));
@@ -12513,36 +12902,20 @@ renderCategory(catId) {
 
             switch(catId) {
                 case 'airspace':
+                    // The shared tactical filter board — same markup, handlers
+                    // and mapFilters.tactical engine as the mobile Filters
+                    // sheet. MobileSettingsUI owns the board; this tab just
+                    // hosts it (wired after render, see below).
                     html = `
-
-
                         <div class="settings-section">
-                            <label class="config-header">Network Visibility</label>
-                            <div class="settings-row">
-                                <div class="row-label"><i class="fa-solid fa-tags"></i> Classic Airport Tags</div>
-                                <label class="toggle-switch"><input type="checkbox" id="set-classic-airport-tags" ${mapFilters.useClassicAirportTags ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                            <label class="config-header">Live Traffic Filters</label>
+                            <div id="desktop-tactical-board" class="m-combo-list" style="gap: 14px;">
+                                ${MobileSettingsUI.renderTacticalBoard()}
                             </div>
-
-                        </div>
-
-                        <div class="settings-section">
-                            <label class="config-header">Virtual Airline</label>
-                            <div class="settings-row">
-                                <div class="row-label"><i class="fa-solid fa-plane-circle-check"></i> Show VA</div>
-                                <div class="input-wrapper select-wrapper">
-                                    <select id="set-va-filter" class="row-input-select">
-                                        <option value="">All Airlines</option>
-                                        ${(window.IFVA_DATABASE || []).map(va => `<option value="${va.code}" ${mapFilters.vaFilter === va.code ? 'selected' : ''}>${va.name}${va.approx ? ' *' : ''}</option>`).join('')}
-                                    </select>
-                                </div>
-                            </div>
-                            <p style="font-size: 0.65rem; color: #71717a; margin: -6px 0 4px 16px; line-height: 1.4;">
-                                Shows only flights whose callsign matches the selected VA. Data from IFVARB; entries marked * are approximate.
-                            </p>
                         </div>
                     `;
                     break;
-                case 'visuals':
+                case 'map':
                     html = '';
 
                     // Only show the upsell banner if the user is NOT signed in,
@@ -12630,117 +13003,23 @@ renderCategory(catId) {
 
                     html += `
                         <div class="settings-section">
-                            <label class="config-header">Pilot Identity</label>
-                            
-                            <div class="settings-row" style="border-left: 3px solid ${mapFilters.userPlaneColor || '#f97316'}; background: rgba(249, 115, 22, 0.05);">
-                                <div class="row-label">
-                                    <i class="fa-solid fa-user-astronaut" style="color: ${mapFilters.userPlaneColor || '#f97316'};"></i> Your Plane Color
-                                </div>
-                                <input type="color" id="set-user-plane-color" class="settings-color-input" value="${mapFilters.userPlaneColor || '#f97316'}">
+                            <label class="config-header">Map Style</label>
+                            <div class="m-style-grid">
+                                ${MobileSettingsUI.renderMapStyleCards(['dark', 'light', 'satellite'])}
                             </div>
-                            <p style="font-size: 0.65rem; color: #71717a; margin: -10px 0 12px 16px;">
-                                How your own aircraft is highlighted on the live map.
-                            </p>
-                            
-                            <div class="settings-row" style="border-left: 3px solid ${mapFilters.friendPlaneColor || '#c084fc'}; background: rgba(192, 132, 252, 0.05);">
-                                <div class="row-label">
-                                    <i class="fa-solid fa-user-group" style="color: ${mapFilters.friendPlaneColor || '#c084fc'};"></i> Watchlist Plane Color
-                                </div>
-                                <input type="color" id="set-friend-plane-color" class="settings-color-input" value="${mapFilters.friendPlaneColor || '#c084fc'}">
+                            <div class="mobile-section-header pro-accent"><i class="fa-solid fa-star"></i> <span class="ios-hide">PRO </span>Premium Styles</div>
+                            <div class="m-style-grid">
+                                ${MobileSettingsUI.renderMapStyleCards(['outdoors', 'nav-dark', 'nav-light', 'traffic-night', 'traffic-day'])}
                             </div>
-                            <p style="font-size: 0.65rem; color: #71717a; margin: -10px 0 12px 16px;">
-                                Color used for pilots on your watchlist.
-                            </p>
-
-                            <div class="settings-row pro-feature-row" style="border-left: 3px solid #38bdf8; background: rgba(56, 189, 248, 0.05); ${!isSignedIn ? 'opacity: 0.5; pointer-events: none;' : ''}">
-                                <div class="row-label">
-                                    <i class="fa-solid fa-wand-magic-sparkles" style="color: #38bdf8;"></i> Custom Plane Color <span class="ios-hide" style="background: #38bdf8; color: #000; font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; margin-left: 8px; font-weight: 800;">PRO</span>
-                                </div>
-                                <input type="color" id="set-pro-color" class="settings-color-input" value="${mapFilters.proCustomColor || '#38bdf8'}" ${!isSignedIn ? 'disabled' : ''}>
-                            </div>
-                            <p style="font-size: 0.65rem; color: #71717a; margin: -10px 0 4px 16px;">
-                                Recolor every other aircraft on the map. Doesn't affect your colors above.
-                            </p>
                         </div>
 
                         <div class="settings-section">
-                            <label class="config-header">Aircraft Display</label>
-
+                            <label class="config-header">Projection &amp; 3D</label>
                             <div class="settings-row">
-                                <div class="row-label"><i class="fa-solid fa-cube"></i> 3D Traffic View</div>
-                                <label class="toggle-switch"><input type="checkbox" id="set-3d-traffic" ${mapFilters.live3DTraffic ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                                <div class="row-label"><i class="fa-solid fa-map"></i> Flat Map Projection</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-flat-map" ${mapFilters.useFlatMap ? 'checked' : ''}><span class="toggle-slider"></span></label>
                             </div>
-
-                            <div class="settings-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
-                                <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
-                                    <div class="row-label"><i class="fa-solid fa-plane-up"></i> Aircraft Scale</div>
-                                    <span id="plane-size-display" style="font-family: 'JetBrains Mono', monospace; color: #38bdf8; font-weight: 800; font-size: 0.9rem;">
-                                        ${Math.round(mapFilters.planeIconSize * 100)}%
-                                    </span>
-                                </div>
-                                <input type="range" id="set-plane-size" min="0.1" max="1.0" step="0.05" value="${mapFilters.planeIconSize}" style="width: 100%;">
-                            </div>
-
-                            <div class="settings-row">
-                                <div class="row-label"><i class="fa-solid fa-route"></i> Flight Plan</div>
-                                <div class="input-wrapper select-wrapper">
-                                    <select id="set-plan-mode" class="row-input-select">
-                                        <option value="none" ${mapFilters.planDisplayMode === 'none' ? 'selected' : ''}>Hide Plan</option>
-                                        <option value="direct" ${mapFilters.planDisplayMode === 'direct' ? 'selected' : ''}>Direct to Destination</option>
-                                        <option value="full" ${mapFilters.planDisplayMode === 'full' ? 'selected' : ''}>Full Filed Plan</option>
-                                    </select>
-                                </div>
-                            </div>
-
-                        </div>
-
-                        <div class="settings-section">
-                            <label class="config-header">Routes & Tracks</label>
-                            <div class="settings-row">
-                                <div class="row-label"><i class="fa-solid fa-route"></i> North Atlantic Tracks</div>
-                                <label class="toggle-switch">
-                                    <input type="checkbox" id="set-nat-tracks" ${mapFilters.showNatTracks ? 'checked' : ''}>
-                                    <span class="toggle-slider"></span>
-                                </label>
-                            </div>
-                            <div class="settings-row">
-                                <div class="row-label"><i class="fa-solid fa-font"></i> Track Labels</div>
-                                <label class="toggle-switch">
-                                    <input type="checkbox" id="set-nat-labels" ${mapFilters.showNatLabels ? 'checked' : ''}>
-                                    <span class="toggle-slider"></span>
-                                </label>
-                            </div>
-                            <div class="settings-row" style="margin-bottom: 4px;">
-                                <div class="row-label">
-                                    <i class="fa-solid fa-cube"></i> 3D Path Trail
-                                    <span style="background: #f59e0b; color: #000; font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; margin-left: 10px; font-weight: 800; letter-spacing: 0.5px;">EXPERIMENTAL</span>
-                                </div>
-                                <label class="toggle-switch">
-                                    <input type="checkbox" id="setting-toggle-3dpath" ${mapFilters.show3DPath ? 'checked' : ''}>
-                                    <span class="toggle-slider"></span>
-                                </label>
-                            </div>
-                            <p style="font-size: 0.7rem; color: #71717a; margin: 0 0 4px 16px; line-height: 1.4;">
-                                <i class="fa-solid fa-circle-info" style="font-size: 0.6rem; margin-right: 4px;"></i>
-                                Note: This feature is experimental and may be broken at times.
-                            </p>
-                        </div>
-                    `;
-                    break;
-                case 'pro_layers':
-                    html = `
-                        <div class="settings-section">
-                            <div class="pro-feature-banner" style="background: linear-gradient(90deg, rgba(56, 189, 248, 0.1), transparent); padding: 12px; border-left: 3px solid #38bdf8; margin-bottom: 20px; border-radius: 0 8px 8px 0;">
-                                <h4 style="margin: 0; color: #38bdf8; display: flex; align-items: center; gap: 8px;">
-                                    <i class="fa-solid fa-star"></i> <span class="ios-hide">PRO </span>MAP CONTROL
-                                </h4>
-                                <p style="margin: 4px 0 0 0; font-size: 0.75rem; color: #94a3b8;">
-                                    High-fidelity map layers and 3D visualization tools.
-                                </p>
-                            </div>
-                            
                             <div style="${!isSignedIn ? 'opacity: 0.5; pointer-events: none;' : ''}">
-                                <label class="config-header">3D Environment</label>
                                 <div class="settings-row">
                                     <div class="row-label"><i class="fa-solid fa-mountain"></i> 3D Terrain (Elevation)</div>
                                     <label class="toggle-switch">
@@ -12762,8 +13041,12 @@ renderCategory(catId) {
                                         <span class="toggle-slider"></span>
                                     </label>
                                 </div>
-                                
-                                <label class="config-header" style="margin-top: 20px;">Base Map Elements</label>
+                            </div>
+                        </div>
+
+                        <div class="settings-section">
+                            <label class="config-header"><span class="ios-hide">Pro </span>Base Map Detail</label>
+                            <div style="${!isSignedIn ? 'opacity: 0.5; pointer-events: none;' : ''}">
                                 <div class="settings-row">
                                     <div class="row-label"><i class="fa-solid fa-earth-americas"></i> Political Borders</div>
                                     <label class="toggle-switch">
@@ -12786,12 +13069,235 @@ renderCategory(catId) {
                                     </label>
                                 </div>
                                 <div class="settings-row">
+                                    <div class="row-label"><i class="fa-solid fa-map-pin"></i> Points of Interest</div>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="pro-toggle-pois" ${mapFilters.proMapConfig.showPois ? 'checked' : ''} ${!isSignedIn ? 'disabled' : ''}>
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                                <div class="settings-row">
+                                    <div class="row-label"><i class="fa-solid fa-water"></i> Water Labels</div>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="pro-toggle-water-labels" ${mapFilters.proMapConfig.showWaterLabels ? 'checked' : ''} ${!isSignedIn ? 'disabled' : ''}>
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                                <div class="settings-row">
                                     <div class="row-label"><i class="fa-solid fa-plane-arrival"></i> Airport Layout</div>
                                     <label class="toggle-switch">
                                         <input type="checkbox" id="pro-toggle-layout" ${mapFilters.proMapConfig.showAirportLayout !== false ? 'checked' : ''} ${!isSignedIn ? 'disabled' : ''}>
                                         <span class="toggle-slider"></span>
                                     </label>
                                 </div>
+                                <div class="settings-row">
+                                    <div class="row-label"><i class="fa-solid fa-tree"></i> Parks & Forests</div>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="pro-toggle-landuse" ${mapFilters.proMapConfig.showLandUse ? 'checked' : ''} ${!isSignedIn ? 'disabled' : ''}>
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    break;
+                case 'aircraft':
+                    html = `
+                        <div class="settings-section">
+                            <label class="config-header">Pilot Identity</label>
+
+                            <div class="settings-row" style="border-left: 3px solid ${mapFilters.userPlaneColor || '#f97316'}; background: rgba(249, 115, 22, 0.05);">
+                                <div class="row-label">
+                                    <i class="fa-solid fa-user-astronaut" style="color: ${mapFilters.userPlaneColor || '#f97316'};"></i> Your Plane Color
+                                </div>
+                                <input type="color" id="set-user-plane-color" class="settings-color-input" value="${mapFilters.userPlaneColor || '#f97316'}">
+                            </div>
+                            <p style="font-size: 0.65rem; color: #71717a; margin: -10px 0 12px 16px;">
+                                How your own aircraft is highlighted on the live map.
+                            </p>
+
+                            <div class="settings-row" style="border-left: 3px solid ${mapFilters.friendPlaneColor || '#c084fc'}; background: rgba(192, 132, 252, 0.05);">
+                                <div class="row-label">
+                                    <i class="fa-solid fa-user-group" style="color: ${mapFilters.friendPlaneColor || '#c084fc'};"></i> Watchlist Plane Color
+                                </div>
+                                <input type="color" id="set-friend-plane-color" class="settings-color-input" value="${mapFilters.friendPlaneColor || '#c084fc'}">
+                            </div>
+                            <p style="font-size: 0.65rem; color: #71717a; margin: -10px 0 12px 16px;">
+                                Color used for pilots on your watchlist.
+                            </p>
+
+                            <div class="settings-row pro-feature-row" style="border-left: 3px solid #38bdf8; background: rgba(56, 189, 248, 0.05); ${!isSignedIn ? 'opacity: 0.5; pointer-events: none;' : ''}">
+                                <div class="row-label">
+                                    <i class="fa-solid fa-wand-magic-sparkles" style="color: #38bdf8;"></i> Custom Plane Color <span class="ios-hide" style="background: #38bdf8; color: #000; font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; margin-left: 8px; font-weight: 800;">PRO</span>
+                                </div>
+                                <input type="color" id="set-pro-color" class="settings-color-input" value="${mapFilters.proCustomColor || '#38bdf8'}" ${!isSignedIn ? 'disabled' : ''}>
+                            </div>
+                            <p style="font-size: 0.65rem; color: #71717a; margin: -10px 0 4px 16px;">
+                                Recolor every other aircraft on the map. Doesn't affect your colors above.
+                            </p>
+                        </div>
+
+                        <div class="settings-section">
+                            <label class="config-header">Icon Color</label>
+                            <div class="settings-mobile-grid">
+                                <button class="m-setting-pill ${(mapFilters.iconColorMode || 'default') === 'default' ? 'active' : ''}" data-setting="iconColorMode" data-value="default" type="button">White</button>
+                                <button class="m-setting-pill ${mapFilters.iconColorMode === 'blue' ? 'active' : ''}" data-setting="iconColorMode" data-value="blue" type="button">Blue</button>
+                                <button class="m-setting-pill ${mapFilters.iconColorMode === 'orange' ? 'active' : ''}" data-setting="iconColorMode" data-value="orange" type="button">Orange</button>
+                            </div>
+                        </div>
+
+                        <div class="settings-section">
+                            <label class="config-header">Aircraft Display</label>
+
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-cube"></i> 3D Traffic View</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-3d-traffic" ${mapFilters.live3DTraffic ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                            </div>
+
+                            <div class="settings-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+                                <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
+                                    <div class="row-label"><i class="fa-solid fa-plane-up"></i> Aircraft Scale</div>
+                                    <span id="plane-size-display" style="font-family: 'JetBrains Mono', monospace; color: #38bdf8; font-weight: 800; font-size: 0.9rem;">
+                                        ${Math.round(mapFilters.planeIconSize * 100)}%
+                                    </span>
+                                </div>
+                                <input type="range" id="set-plane-size" min="0.1" max="1.0" step="0.05" value="${mapFilters.planeIconSize}" style="width: 100%;">
+                            </div>
+
+                            <div class="settings-row" style="margin-bottom: 4px;">
+                                <div class="row-label">
+                                    <i class="fa-solid fa-cube"></i> 3D Path Trail
+                                    <span style="background: #f59e0b; color: #000; font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; margin-left: 10px; font-weight: 800; letter-spacing: 0.5px;">EXPERIMENTAL</span>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="setting-toggle-3dpath" ${mapFilters.show3DPath ? 'checked' : ''}>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <p style="font-size: 0.7rem; color: #71717a; margin: 0 0 4px 16px; line-height: 1.4;">
+                                <i class="fa-solid fa-circle-info" style="font-size: 0.6rem; margin-right: 4px;"></i>
+                                Note: This feature is experimental and may be broken at times.
+                            </p>
+                        </div>
+                    `;
+                    break;
+                case 'labels': {
+                    const fieldDefs = MobileSettingsUI.getLabelFieldDefs();
+                    const themeDefs = MobileSettingsUI.getLabelThemeDefs();
+                    const labelCfg = mapFilters.labelConfig || {};
+                    const currentTheme = mapFilters.labelTheme || 'default';
+                    const labelScale = Math.min(1.4, Math.max(0.8, parseFloat(mapFilters.labelScale) || 1));
+                    html = `
+                        <div class="settings-section">
+                            <label class="config-header">Aircraft Labels</label>
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-tag"></i> Show Labels on Map</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-show-labels" ${mapFilters.showAircraftLabels ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                            </div>
+                        </div>
+
+                        <div class="settings-section">
+                            <label class="config-header">Live Preview</label>
+                            <div class="d-label-preview-stage">
+                                <div class="d-label-plane"><i class="fa-solid fa-plane" style="transform:rotate(45deg)"></i></div>
+                                <div id="d-label-preview" class="d-label-preview"></div>
+                            </div>
+                        </div>
+
+                        <div class="settings-section">
+                            <label class="config-header">Label Rows</label>
+                            <div class="m-settings-list">
+                                ${fieldDefs.map(f => `
+                                    <div class="m-setting-row">
+                                        <div class="m-row-left"><i class="fa-solid ${f.icon}"></i><span>${f.label}</span></div>
+                                        <div class="m-row-right">
+                                            <label class="m-switch">
+                                                <input type="checkbox" class="d-label-field-input" data-label-field="${f.key}" ${labelCfg[f.key] ? 'checked' : ''}>
+                                                <span class="m-slider"></span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+
+                        <div class="settings-section">
+                            <label class="config-header">Label Size</label>
+                            <div class="m-setting-range-card">
+                                <div class="range-header"><span>Scale</span><span id="d-val-labelScale">${labelScale.toFixed(1)}×</span></div>
+                                <input type="range" id="set-label-scale" class="m-range-input" min="0.8" max="1.4" step="0.1" value="${labelScale}">
+                            </div>
+                        </div>
+
+                        <div class="settings-section">
+                            <label class="config-header"><span class="ios-hide">Pro </span>Label Theme</label>
+                            <div class="m-theme-grid">
+                                ${themeDefs.map(t => `
+                                    <button class="m-theme-pill ${t.pro ? 'is-pro-feature' : ''} ${currentTheme === t.value ? 'active' : ''}"
+                                            data-label-theme="${t.value}" ${t.pro ? 'data-pro="true"' : ''} type="button">
+                                        <span class="m-theme-swatch" style="color:${t.text}; background:${t.halo};">Aa</span>
+                                        <span class="m-theme-name">${t.label}</span>
+                                        ${t.pro ? '<span class="m-theme-lock"><i class="fa-solid fa-lock"></i></span>' : ''}
+                                    </button>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `;
+                    break;
+                }
+                case 'overlays':
+                    html = `
+                        <div class="settings-section">
+                            <label class="config-header">ATC &amp; Airports</label>
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-tags"></i> Classic Airport Tags</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-classic-airport-tags" ${mapFilters.useClassicAirportTags ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                            </div>
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-circle-dot"></i> Show Unstaffed</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-show-unstaffed" ${mapFilters.showUnstaffedAirports ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                            </div>
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-location-dot"></i> Hide No-ATC Dots</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-hide-noatc-dots" ${mapFilters.hideNoAtcMarkers ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                            </div>
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-headset"></i> Hide ATC Markers</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-hide-atc-markers" ${mapFilters.hideAtcMarkers ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                            </div>
+                        </div>
+
+                        <div class="settings-section">
+                            <label class="config-header">Flight Plan Routes</label>
+                            <div class="settings-mobile-grid">
+                                <button class="m-setting-pill ${(mapFilters.planDisplayMode || 'none') === 'none' ? 'active' : ''}" data-setting="planDisplayMode" data-value="none" type="button">None</button>
+                                <button class="m-setting-pill ${mapFilters.planDisplayMode === 'direct' ? 'active' : ''}" data-setting="planDisplayMode" data-value="direct" type="button">Direct</button>
+                                <button class="m-setting-pill ${mapFilters.planDisplayMode === 'full' ? 'active' : ''}" data-setting="planDisplayMode" data-value="full" type="button">Full Plan</button>
+                            </div>
+                        </div>
+
+                        <div class="settings-section">
+                            <label class="config-header">Oceanic Tracks</label>
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-route"></i> North Atlantic Tracks</div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="set-nat-tracks" ${mapFilters.showNatTracks ? 'checked' : ''}>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-font"></i> Track Labels</div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="set-nat-labels" ${mapFilters.showNatLabels ? 'checked' : ''}>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="settings-section">
+                            <label class="config-header">Flight Window</label>
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-window-maximize"></i> Simple Flight Info</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-simple-window" ${mapFilters.useSimpleFlightWindow ? 'checked' : ''}><span class="toggle-slider"></span></label>
                             </div>
                         </div>
                     `;
@@ -12822,8 +13328,60 @@ renderCategory(catId) {
             }
 
             container.innerHTML = html;
+
+            // --- Post-render syncs for the ported mobile components ---
+            if (catId === 'airspace') {
+                // Wire + hydrate the shared tactical board (fresh DOM each
+                // render, so the attach guard never blocks a re-bind).
+                const board = container.querySelector('#desktop-tactical-board');
+                if (board) {
+                    MobileSettingsUI.attachTacticalHandlers(board);
+                    MobileSettingsUI.syncTacticalControls(board);
+                }
+            }
+            if (catId === 'map') {
+                const activeCard = container.querySelector(`.m-style-card[data-value="${mapFilters.mapStyle || 'dark'}"]`);
+                if (activeCard) activeCard.classList.add('active');
+            }
+            if (!isSignedIn) {
+                // Signed-out users see pro style cards / label themes locked;
+                // clicking them routes to the upsell (see attachConfigListeners).
+                container.querySelectorAll('.is-pro-feature').forEach(el => el.classList.add('locked'));
+            }
+
             this.attachConfigListeners();
+
+            if (catId === 'labels') this.updateLabelPreview();
         },
+
+    // Desktop twin of MobileSettingsUI.updateLabelPreview — same field/theme
+    // definitions, but its own preview node (#d-label-preview) because the
+    // mobile sheet keeps its #m-label-preview in the DOM even on desktop.
+    updateLabelPreview() {
+        const preview = document.getElementById('d-label-preview');
+        if (!preview) return;
+        const cfg = mapFilters.labelConfig || {};
+        const sample = MobileSettingsUI.getLabelPreviewSample();
+
+        const lines = [];
+        if (cfg.callsign)     lines.push({ text: sample.callsign, cls: 'l-callsign' });
+        if (cfg.pilot)        lines.push({ text: sample.pilot, cls: 'l-sub' });
+        if (cfg.aircraftType) lines.push({ text: sample.aircraftType, cls: 'l-sub' });
+        if (cfg.registration) lines.push({ text: sample.registration, cls: 'l-sub' });
+        if (cfg.route)        lines.push({ text: sample.route, cls: 'l-sub' });
+        if (cfg.altSpeed)     lines.push({ text: sample.altSpeed, cls: 'l-sub' });
+        if (!lines.length)    lines.push({ text: sample.callsign, cls: 'l-callsign' });
+
+        const themes = MobileSettingsUI.getLabelThemeDefs();
+        const theme = themes.find(t => t.value === (mapFilters.labelTheme || 'default')) || themes[0];
+        const scale = Math.min(1.4, Math.max(0.8, parseFloat(mapFilters.labelScale) || 1));
+
+        preview.style.color = theme.text;
+        preview.style.textShadow = `0 0 3px ${theme.halo}, 0 1px 2px ${theme.halo}, 0 0 4px ${theme.halo}`;
+        preview.style.fontSize = `${0.95 * scale}rem`;
+        preview.innerHTML = lines.map(l => `<div class="${l.cls}">${l.text}</div>`).join('');
+        preview.style.opacity = mapFilters.showAircraftLabels ? '1' : '0.35';
+    },
 
     attachConfigListeners() {
         const update = (key, val) => {
@@ -12853,7 +13411,12 @@ renderCategory(catId) {
             'set-va-only': 'showVaOnly',
             'set-nat-tracks': 'showNatTracks',
             'set-nat-labels': 'showNatLabels',
-            'setting-toggle-3dpath': 'show3DPath'
+            'setting-toggle-3dpath': 'show3DPath',
+            'set-flat-map': 'useFlatMap',
+            'set-show-unstaffed': 'showUnstaffedAirports',
+            'set-hide-noatc-dots': 'hideNoAtcMarkers',
+            'set-hide-atc-markers': 'hideAtcMarkers',
+            'set-simple-window': 'useSimpleFlightWindow'
         };
 
         // --- 3. Attach Pro Layer Listeners ---
@@ -13009,8 +13572,414 @@ if (upgradeBtn) {
                 updateTheme();
             });
         }
+
+        // ---- Ported mobile controls (style cards / pills / label designer) ----
+        const content = document.getElementById('settings-category-content');
+        const openProUpsell = () => {
+            // App Store compliance: no in-app upgrade path on iOS native.
+            if (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) return;
+            this.toggle(false);
+            setTimeout(() => {
+                if (window.AuthUI && typeof window.AuthUI.open === 'function') {
+                    window.AuthUI.open('signup');
+                } else if (window.initInflightPro) {
+                    window.initInflightPro();
+                }
+            }, 250);
+        };
+
+        // Map style preview cards
+        content?.querySelectorAll('.m-style-card').forEach(card => {
+            card.addEventListener('click', () => {
+                if (card.classList.contains('locked')) { openProUpsell(); return; }
+                mapFilters.mapStyle = card.dataset.value;
+                content.querySelectorAll('.m-style-card').forEach(c => c.classList.remove('active'));
+                card.classList.add('active');
+                saveFiltersToLocalStorage();
+                updateMapFilters();
+            });
+        });
+
+        // Enum pill rows (icon color mode, flight plan mode)
+        content?.querySelectorAll('.m-setting-pill[data-setting]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const setting = btn.dataset.setting;
+                mapFilters[setting] = btn.dataset.value;
+                btn.parentElement.querySelectorAll('.m-setting-pill').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                saveFiltersToLocalStorage();
+                updateMapFilters();
+                // Redraw the open flight's plan immediately on mode change.
+                if (setting === 'planDisplayMode' && currentFlightInWindow && cachedFlightDataForStatsView && cachedFlightDataForStatsView.plan) {
+                    updateFlightPlanLayer(currentFlightInWindow, cachedFlightDataForStatsView.plan, currentAircraftPositionForGeocode);
+                }
+            });
+        });
+
+        // Label designer — master toggle, per-row toggles, scale, theme pills.
+        const showLabelsToggle = document.getElementById('set-show-labels');
+        if (showLabelsToggle) {
+            showLabelsToggle.addEventListener('change', (e) => {
+                update('showAircraftLabels', e.target.checked);
+                this.updateLabelPreview();
+            });
+        }
+        content?.querySelectorAll('.d-label-field-input').forEach(input => {
+            input.addEventListener('change', (e) => {
+                if (!mapFilters.labelConfig) mapFilters.labelConfig = {};
+                mapFilters.labelConfig[e.target.dataset.labelField] = e.target.checked;
+                this.updateLabelPreview();
+                if (typeof applyAircraftLabelStyle === 'function') applyAircraftLabelStyle();
+                saveFiltersToLocalStorage();
+            });
+        });
+        const labelScaleInput = document.getElementById('set-label-scale');
+        if (labelScaleInput) {
+            labelScaleInput.addEventListener('input', (e) => {
+                mapFilters.labelScale = parseFloat(e.target.value);
+                const disp = document.getElementById('d-val-labelScale');
+                if (disp) disp.textContent = `${(parseFloat(e.target.value) || 1).toFixed(1)}×`;
+                this.updateLabelPreview();
+                if (typeof applyAircraftLabelStyle === 'function') applyAircraftLabelStyle();
+                saveFiltersToLocalStorage();
+            });
+        }
+        content?.querySelectorAll('.m-theme-pill').forEach(btn => {
+            btn.addEventListener('click', () => {
+                if (btn.classList.contains('locked')) { openProUpsell(); return; }
+                mapFilters.labelTheme = btn.dataset.labelTheme;
+                content.querySelectorAll('.m-theme-pill').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                this.updateLabelPreview();
+                if (typeof applyAircraftLabelStyle === 'function') applyAircraftLabelStyle();
+                saveFiltersToLocalStorage();
+            });
+        });
     }
 };
+
+// === Desktop Active ATC board ==============================================
+// Ports the mobile bottom-bar ATC tab (MobileLandingChromeUI's ATC sheet) to a
+// desktop floating panel: one row per staffed field with lit position columns
+// (ATS/GND/TWR/APP/DEP), an expandable "on frequency now" controller drawer,
+// and click-to-open the airport. Reads the same window.InflightATC bridge and
+// refreshes live on 'activeAtcUpdated'. Opened from the landing chrome's ATC
+// orb via the 'openAtcBoard' event.
+const AtcBoardUI = {
+    _visible: false,
+    _openIcaos: new Set(),
+
+    init() {
+        if (document.getElementById('atc-board-window')) return;
+        const mapContainer = document.getElementById('sector-ops-map-fullscreen');
+        if (!mapContainer) return;
+
+        this._injectStyles();
+        mapContainer.insertAdjacentHTML('beforeend', `
+            <div id="atc-board-window" class="info-window">
+                <div class="info-window-header">
+                    <h3><i class="fa-solid fa-tower-broadcast" style="margin-right: 10px;"></i> Active ATC <span id="atc-board-count" class="atc-board-count"></span></h3>
+                    <div class="info-window-actions">
+                        <button id="atc-board-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                </div>
+                <div id="atc-board-content" class="info-window-content"></div>
+            </div>
+        `);
+
+        document.getElementById('atc-board-close-btn')?.addEventListener('click', () => this.toggle(false));
+        window.addEventListener('openAtcBoard', () => this.toggle(!this._visible));
+        window.addEventListener('activeAtcUpdated', () => { if (this._visible) this.render(); });
+
+        document.getElementById('atc-board-content')?.addEventListener('click', (e) => {
+            const expandBtn = e.target.closest('[data-atc-expand]');
+            if (expandBtn) {
+                const wrap = expandBtn.closest('.d-atc-awrap');
+                const icao = wrap?.dataset.icao;
+                if (!wrap || !icao) return;
+                const open = !wrap.classList.contains('ctrl-open');
+                wrap.classList.toggle('ctrl-open', open);
+                expandBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+                if (open) this._openIcaos.add(icao); else this._openIcaos.delete(icao);
+                return;
+            }
+            const row = e.target.closest('.d-atc-arow');
+            if (row) {
+                const icao = row.closest('.d-atc-awrap')?.dataset.icao;
+                if (icao && typeof handleAirportClick === 'function') handleAirportClick(icao, null, true);
+            }
+        });
+    },
+
+    toggle(state) {
+        const win = document.getElementById('atc-board-window');
+        if (!win) return;
+        this._visible = state;
+        win.classList.toggle('visible', state);
+        if (state) this.render();
+    },
+
+    _esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+            { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+        ));
+    },
+
+    // Same position-type → label/color mapping as the mobile sheet.
+    _typePill(type) {
+        const map = {
+            7: ['ATIS', 'atis'], 0: ['Ground', 'gnd'], 3: ['Clearance', 'gnd'],
+            1: ['Tower', 'twr'], 4: ['Approach', 'app'], 5: ['Departure', 'dep'],
+            6: ['Center', 'app']
+        };
+        const [label, cls] = map[type] || ['Unknown', ''];
+        return { label, cls };
+    },
+
+    _controllersFor(icao) {
+        const api = window.InflightATC;
+        if (!api) return [];
+        const order = { 7: 0, 3: 1, 0: 2, 1: 3, 4: 4, 5: 5, 6: 6 };
+        return api.getFacilities()
+            .filter(f => f && f.airportName === icao)
+            .sort((x, y) => (order[x.type] ?? 9) - (order[y.type] ?? 9));
+    },
+
+    _controllerRowHTML(f) {
+        const api = window.InflightATC;
+        const pill = this._typePill(Number(f.type));
+        const dur = (api && api.formatDuration) ? api.formatDuration(f.startTime) : '';
+        let since = '';
+        if (f.startTime) {
+            const t = new Date(f.startTime).getTime();
+            if (Number.isFinite(t)) {
+                try {
+                    since = new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }) + 'Z';
+                } catch (_) {}
+            }
+        }
+        const meta = [dur ? `${dur} online` : '', since ? `since ${since}` : ''].filter(Boolean).join(' · ');
+        return `
+            <div class="d-atc-ctrl">
+                <span class="d-atc-ctrl-pill ${pill.cls}">${this._esc(pill.label)}</span>
+                <span class="d-atc-ctrl-main">
+                    <span class="d-atc-ctrl-user">${this._esc(f.username || 'Unknown controller')}</span>
+                    ${meta ? `<span class="d-atc-ctrl-meta">${this._esc(meta)}</span>` : ''}
+                </span>
+            </div>`;
+    },
+
+    _airportRowHTML(a) {
+        const col = (label, on, cls) =>
+            `<span class="d-atc-col${on ? ' on ' + cls : ''}">${label}</span>`;
+        const controllers = (a.count > 0) ? this._controllersFor(a.icao) : [];
+        const drawer = controllers.length ? `
+            <div class="d-atc-ctrl-drawer">
+                <div class="d-atc-ctrl-head">On frequency now</div>
+                ${controllers.map(f => this._controllerRowHTML(f)).join('')}
+            </div>` : '';
+        const isOpen = controllers.length && this._openIcaos.has(a.icao);
+        const chevron = controllers.length ? `
+            <button type="button" class="d-atc-expand" data-atc-expand="1"
+                    aria-label="Show controllers" aria-expanded="${isOpen ? 'true' : 'false'}">
+                <i class="fa-solid fa-chevron-down"></i>
+            </button>` : '';
+        return `
+            <div class="d-atc-awrap${isOpen ? ' ctrl-open' : ''}" data-icao="${this._esc(a.icao)}">
+                <div class="d-atc-arow-line">
+                    <button type="button" class="d-atc-arow" title="Open ${this._esc(a.icao)}">
+                        <span class="d-atc-apt">
+                            <span class="d-atc-icao">${this._esc(a.icao)}</span>
+                            <span class="d-atc-aptname">${this._esc(a.name || a.icao)}</span>
+                        </span>
+                        <span class="d-atc-tower">
+                            <i class="fa-solid fa-tower-broadcast"></i>
+                            <span class="d-atc-num">${a.count}</span>
+                        </span>
+                        <span class="d-atc-cols">
+                            ${col('ATS', a.atis, 'atis')}
+                            ${col('GND', a.gnd, 'gnd')}
+                            ${col('TWR', a.twr, 'twr')}
+                            ${col('APP', a.app, 'app')}
+                            ${col('DEP', a.dep, 'dep')}
+                        </span>
+                    </button>
+                    ${chevron}
+                </div>
+                ${drawer}
+            </div>`;
+    },
+
+    render() {
+        const body = document.getElementById('atc-board-content');
+        const countEl = document.getElementById('atc-board-count');
+        if (!body) return;
+
+        const api = window.InflightATC;
+        const board = (api && api.getAirportBoard) ? api.getAirportBoard() : [];
+        const total = board.reduce((s, a) => s + (a.count || 0), 0);
+        if (countEl) countEl.textContent = total ? `${total} online` : 'None online';
+
+        if (!board.length) {
+            body.innerHTML = `
+                <div class="d-atc-empty">
+                    <i class="fa-solid fa-tower-broadcast"></i>
+                    <p>No controllers online</p>
+                    <span>When ATC connects on this server, every staffed airport appears here — click one to jump to it.</span>
+                </div>`;
+            return;
+        }
+        body.innerHTML = `<div class="d-atc-board">${board.map(a => this._airportRowHTML(a)).join('')}</div>`;
+    },
+
+    _injectStyles() {
+        if (document.getElementById('atc-board-ui-styles')) return;
+        const style = document.createElement('style');
+        style.id = 'atc-board-ui-styles';
+        style.textContent = `
+            /* The board lives on the LEFT so it can stay open next to the
+               airport/aircraft windows that dock top-right. */
+            #atc-board-window {
+                left: 20px;
+                right: auto;
+                top: 90px;
+                width: 420px;
+                max-height: calc(100vh - 120px);
+                transform-origin: top left;
+                transform: translateX(-28px) translateY(10px) scale(0.96);
+            }
+            #atc-board-window.visible { transform: translateX(0) translateY(0) scale(1); }
+            .atc-board-count {
+                font-size: 0.7rem;
+                font-weight: 700;
+                color: #a1a1aa;
+                background: rgba(255, 255, 255, 0.06);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 999px;
+                padding: 2px 8px;
+                margin-left: 8px;
+                vertical-align: middle;
+            }
+            .d-atc-board { display: flex; flex-direction: column; gap: 6px; padding: 12px; }
+            .d-atc-awrap {
+                background: rgba(255, 255, 255, 0.03);
+                border: 1px solid rgba(255, 255, 255, 0.06);
+                border-radius: 10px;
+                overflow: hidden;
+            }
+            .d-atc-arow-line { display: flex; align-items: stretch; }
+            .d-atc-arow {
+                flex: 1;
+                min-width: 0;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                background: transparent;
+                border: none;
+                padding: 10px 12px;
+                cursor: pointer;
+                text-align: left;
+                font-family: inherit;
+            }
+            .d-atc-arow:hover { background: rgba(255, 255, 255, 0.04); }
+            .d-atc-apt { display: flex; flex-direction: column; min-width: 0; flex: 1; gap: 2px; }
+            .d-atc-icao { font-family: var(--font-data); font-weight: 800; font-size: 0.9rem; color: #fafafa; }
+            .d-atc-aptname {
+                font-size: 0.65rem;
+                color: #71717a;
+                font-weight: 600;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .d-atc-tower {
+                display: flex;
+                align-items: center;
+                gap: 5px;
+                color: #a1a1aa;
+                font-size: 0.7rem;
+                font-weight: 700;
+                flex-shrink: 0;
+            }
+            .d-atc-tower .d-atc-num { font-family: var(--font-data); }
+            .d-atc-awrap[data-icao] .d-atc-tower i { font-size: 0.65rem; }
+            .d-atc-cols { display: flex; gap: 4px; flex-shrink: 0; }
+            .d-atc-col {
+                font-size: 0.55rem;
+                font-weight: 800;
+                letter-spacing: 0.5px;
+                padding: 3px 5px;
+                border-radius: 4px;
+                color: #52525b;
+                background: rgba(255, 255, 255, 0.03);
+                border: 1px solid rgba(255, 255, 255, 0.05);
+            }
+            .d-atc-col.on { background: rgba(255, 255, 255, 0.06); border-color: rgba(255, 255, 255, 0.14); }
+            .d-atc-col.on.atis { color: #c084fc; }
+            .d-atc-col.on.gnd { color: #d4d4d8; }
+            .d-atc-col.on.twr { color: #60a5fa; }
+            .d-atc-col.on.app { color: #818cf8; }
+            .d-atc-col.on.dep { color: #38bdf8; }
+            .d-atc-expand {
+                background: transparent;
+                border: none;
+                border-left: 1px solid rgba(255, 255, 255, 0.06);
+                color: #71717a;
+                width: 38px;
+                cursor: pointer;
+                flex-shrink: 0;
+            }
+            .d-atc-expand:hover { color: #fff; background: rgba(255, 255, 255, 0.04); }
+            .d-atc-expand i { transition: transform 0.2s ease; }
+            .d-atc-awrap.ctrl-open .d-atc-expand i { transform: rotate(180deg); }
+            .d-atc-ctrl-drawer { display: none; border-top: 1px solid rgba(255, 255, 255, 0.06); padding: 8px 12px 10px; }
+            .d-atc-awrap.ctrl-open .d-atc-ctrl-drawer { display: block; }
+            .d-atc-ctrl-head {
+                font-size: 0.6rem;
+                font-weight: 800;
+                letter-spacing: 0.8px;
+                text-transform: uppercase;
+                color: #71717a;
+                padding: 4px 0 8px;
+            }
+            .d-atc-ctrl { display: flex; align-items: center; gap: 10px; padding: 5px 0; }
+            .d-atc-ctrl-pill {
+                width: 72px;
+                text-align: center;
+                font-size: 0.6rem;
+                font-weight: 800;
+                padding: 3px 0;
+                border-radius: 5px;
+                background: #1c1c1f;
+                border: 1px solid #3f3f46;
+                color: #a1a1aa;
+                flex-shrink: 0;
+            }
+            .d-atc-ctrl-pill.atis { color: #c084fc; }
+            .d-atc-ctrl-pill.gnd { color: #d4d4d8; }
+            .d-atc-ctrl-pill.twr { color: #60a5fa; }
+            .d-atc-ctrl-pill.app { color: #818cf8; }
+            .d-atc-ctrl-pill.dep { color: #38bdf8; }
+            .d-atc-ctrl-main { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
+            .d-atc-ctrl-user { font-size: 0.78rem; font-weight: 600; color: #e4e4e7; }
+            .d-atc-ctrl-meta { font-size: 0.62rem; color: #71717a; font-family: var(--font-data); }
+            .d-atc-empty {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                text-align: center;
+                gap: 8px;
+                padding: 40px 24px;
+                color: #71717a;
+            }
+            .d-atc-empty i { font-size: 1.6rem; opacity: 0.5; }
+            .d-atc-empty p { margin: 0; color: #a1a1aa; font-weight: 700; }
+            .d-atc-empty span { font-size: 0.72rem; line-height: 1.5; }
+        `;
+        document.head.appendChild(style);
+    }
+};
+
     async function initializeSectorOpsView() {
     // [FIX] 1. Load saved preferences FIRST
     // This updates the global 'currentMapStyle' before the map creates itself.
@@ -13358,6 +14327,7 @@ window.globalNatTracks = natTracks;
         setupAircraftWindowEvents();
         setupWeatherSettingsWindowEvents();
         setupFilterSettingsWindowEvents();
+        AtcBoardUI.init();
         initPlaneSizeSlider(sectorOpsMap, mapFilters);
         
         // --- 12. Setup Search Listeners (Now that elements exist) ---
@@ -18439,7 +19409,11 @@ async function initializeApp() {
         SettingsUI.init();
 
         MobileSettingsUI.init();
-        
+        // Reflect any persisted tactical filters in the chrome badges (the
+        // Filters orb dot / mobile tab dot) without waiting for the settings
+        // UI to be opened first.
+        MobileSettingsUI.updateFilterBadge();
+
         // Default to true if not explicitly set to 'false'
         const isVisible = localStorage.getItem('landingUI_visible') !== 'true'; 
 
