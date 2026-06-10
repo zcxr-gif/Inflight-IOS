@@ -213,6 +213,56 @@ function getIconImageExpression() {
     return ['concat', 'icon-', cat, ['case', needsTint, '', '-nat']];
 }
 
+// --- TWO-LAYER SDF / NATURAL RENDERING ---------------------------------------
+// Mapbox can't reliably tint when a single symbol layer mixes SDF (tintable)
+// and non-SDF (natural) icons in the same draw call, so aircraft are split
+// across two layers that share one source and one visibility filter:
+//   * sector-ops-live-flights-layer          -> SDF silhouettes, honors icon-color
+//   * sector-ops-live-flights-natural-layer  -> full-detail natural sprites
+// Each layer renders only the planes it owns; for the rest it emits an empty
+// icon-image (''), which Mapbox skips. That keeps every layer internally
+// homogeneous (all-SDF or all-natural) so tinting always works — which is what
+// makes "your plane / watchlist / airport traffic" color correctly even while
+// the bulk of traffic stays a clean natural white.
+
+// True when the active color mode tints EVERY aircraft (Blue / Orange / the
+// Pro custom color) rather than only the highlighted few. In those modes the
+// SDF layer owns every plane and the natural layer renders nothing.
+function tintsAllAircraft() {
+    const mode = (window.mapFilters && window.mapFilters.iconColorMode) || 'default';
+    return mode !== 'default';
+}
+
+// Boolean expression: does this individual plane need a color (and therefore
+// the tintable SDF sprite)? — the logged-in pilot, watchlist pilots, and the
+// airport-traffic highlight.
+function planeNeedsTintExpr() {
+    return ['any',
+        ['==', ['get', 'pilotRelation'], 'user'],
+        ['==', ['get', 'pilotRelation'], 'watchlist'],
+        ['==', ['get', 'trafficType'], 'inbound'],
+        ['==', ['get', 'trafficType'], 'outbound']
+    ];
+}
+
+// icon-image for the SDF/tinted layer: the recolorable silhouette for the
+// planes that need a color, '' (nothing) for everyone else.
+function getTintedIconImageExpression() {
+    const cat = ['coalesce', ['get', 'category'], 'B737'];
+    const sdf = ['concat', 'icon-', cat];
+    if (tintsAllAircraft()) return sdf;                 // colored mode: tint all
+    return ['case', planeNeedsTintExpr(), sdf, ''];     // white mode: only the few
+}
+
+// icon-image for the non-SDF/natural layer: the full-detail sprite for the
+// un-highlighted bulk, '' (nothing) for the planes the SDF layer owns.
+function getNaturalIconImageExpression() {
+    const cat = ['coalesce', ['get', 'category'], 'B737'];
+    const nat = ['concat', 'icon-', cat, '-nat'];
+    if (tintsAllAircraft()) return '';                  // colored mode: SDF owns all
+    return ['case', planeNeedsTintExpr(), '', nat];     // white mode: bulk only
+}
+
 function getHoverIconImageExpression() {
     return ['concat', 'icon-', ['coalesce', ['get', 'category'], 'B737'], '_S'];
 }
@@ -740,7 +790,11 @@ function setLive3DTraffic(on) {
 //   4. Default active color from mapFilters
 function getPremiumColorExpression() {
     let activeColor = '#ffffff';
-    if (mapFilters.iconColorMode === 'default') activeColor = mapFilters.proCustomColor || '#38bdf8';
+    // 'default' (White) keeps the bulk of traffic on the natural layer, so its
+    // activeColor never actually paints anyone — only the highlighted planes
+    // reach the SDF layer, and those are caught by the user/watchlist/traffic
+    // cases below. 'custom' is the Pro mode that recolors every other aircraft.
+    if (mapFilters.iconColorMode === 'custom') activeColor = mapFilters.proCustomColor || '#38bdf8';
     else if (mapFilters.iconColorMode === 'blue') activeColor = '#00a8ff';
     else if (mapFilters.iconColorMode === 'orange') activeColor = '#ff9900';
 
@@ -804,6 +858,28 @@ function refreshPilotRelations() {
 // Expose so profileUI.js (and anywhere else) can trigger an immediate refresh
 // when the user logs in or edits their watchlist.
 window.refreshPilotRelations = refreshPilotRelations;
+
+// Re-apply the icon-image / icon-color expressions to both aircraft layers
+// (SDF "tinted" + non-SDF "natural") and the hover layer. Call this whenever
+// the color mode, custom color, pilot relations, or traffic highlight changes
+// so the two layers stay in sync. Icon size is managed separately.
+function applyAircraftLayerStyles() {
+    if (typeof sectorOpsMap === 'undefined' || !sectorOpsMap) return;
+    const colorExpr = getPremiumColorExpression();
+
+    if (sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
+        sectorOpsMap.setLayoutProperty('sector-ops-live-flights-layer', 'icon-image', getTintedIconImageExpression());
+        sectorOpsMap.setPaintProperty('sector-ops-live-flights-layer', 'icon-color', colorExpr);
+    }
+    if (sectorOpsMap.getLayer('sector-ops-live-flights-natural-layer')) {
+        sectorOpsMap.setLayoutProperty('sector-ops-live-flights-natural-layer', 'icon-image', getNaturalIconImageExpression());
+    }
+    if (sectorOpsMap.getLayer('sector-ops-live-flights-hover-layer')) {
+        sectorOpsMap.setLayoutProperty('sector-ops-live-flights-hover-layer', 'icon-image', getHoverIconImageExpression());
+        sectorOpsMap.setPaintProperty('sector-ops-live-flights-hover-layer', 'icon-color', colorExpr);
+    }
+}
+window.applyAircraftLayerStyles = applyAircraftLayerStyles;
 
 // --- PREMIUM CLOUD SYNC ENGINE ---
     let cloudSyncTimeout = null;
@@ -5870,7 +5946,7 @@ function toggleTripCardMode(active) {
         takeoverUI.classList.add('active');
         
         if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
-            sectorOpsMap.setFilter('sector-ops-live-flights-layer', ['==', 'flightId', currentFlightInWindow]);
+            setLiveFlightsFilter(['==', 'flightId', currentFlightInWindow]);
         }
 
         document.getElementById('sector-ops-floating-panel')?.classList.remove('visible');
@@ -7101,30 +7177,17 @@ function updateMapFilters() {
     if (sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
         const iconSize = parseFloat(mapFilters.planeIconSize) || 0.05;
 
-        // DYNAMIC COLOR RESOLUTION
-        const iconColorExpression = getPremiumColorExpression();
+        // Re-apply icon-image + icon-color across both aircraft layers (SDF +
+        // natural) and the hover layer in one place.
+        applyAircraftLayerStyles();
 
-        // APPLY TO MAIN LAYER
-        sectorOpsMap.setLayoutProperty(
-            'sector-ops-live-flights-layer', 
-            'icon-image', 
-            getIconImageExpression()
-        );
-        sectorOpsMap.setPaintProperty(
-            'sector-ops-live-flights-layer', 
-            'icon-color', 
-            iconColorExpression
-        );
-        sectorOpsMap.setLayoutProperty(
-            'sector-ops-live-flights-layer', 
-            'icon-size', 
-            iconSize
-        );
-
-        // APPLY TO HOVER LAYER
+        // Icon size is managed here (and by planeSizeController); keep both
+        // aircraft layers in sync.
+        sectorOpsMap.setLayoutProperty('sector-ops-live-flights-layer', 'icon-size', iconSize);
+        if (sectorOpsMap.getLayer('sector-ops-live-flights-natural-layer')) {
+            sectorOpsMap.setLayoutProperty('sector-ops-live-flights-natural-layer', 'icon-size', iconSize);
+        }
         if (sectorOpsMap.getLayer('sector-ops-live-flights-hover-layer')) {
-            sectorOpsMap.setLayoutProperty('sector-ops-live-flights-hover-layer', 'icon-image', getHoverIconImageExpression());
-            sectorOpsMap.setPaintProperty('sector-ops-live-flights-hover-layer', 'icon-color', iconColorExpression);
             sectorOpsMap.setLayoutProperty('sector-ops-live-flights-hover-layer', 'icon-size', iconSize);
         }
     }
@@ -7139,14 +7202,118 @@ function updateMapFilters() {
     updateToolbarButtonStates();
 }
 
+// Apply a visibility filter to BOTH aircraft layers (SDF + natural) at once.
+// The SDF/natural split is handled inside the icon-image expressions, so both
+// layers must share the same visibility filter or one half of the fleet would
+// ignore the user's tactical/quick-search filters.
+function setLiveFlightsFilter(filter) {
+    if (!sectorOpsMap) return;
+    if (sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
+        sectorOpsMap.setFilter('sector-ops-live-flights-layer', filter);
+    }
+    if (sectorOpsMap.getLayer('sector-ops-live-flights-natural-layer')) {
+        sectorOpsMap.setFilter('sector-ops-live-flights-natural-layer', filter);
+    }
+}
+
+// Re-compute the airport-radius (__inRadius) tag for every cached feature and
+// push the result to the source. Called when the proximity filter changes so
+// it takes effect immediately, without waiting for the next polling tick.
+function retagAirportRadius() {
+    const ar = mapFilters.tactical && mapFilters.tactical.airportRadius;
+    const apt = (ar && ar.icao && typeof airportsData !== 'undefined') ? airportsData[ar.icao] : null;
+    const radiusKm = (ar && ar.radiusNm) ? ar.radiusNm * 1.852 : 0;
+
+    Object.values(currentMapFeatures).forEach(f => {
+        if (!apt || !radiusKm) { f.properties.__inRadius = 1; return; }
+        try {
+            const pos = JSON.parse(f.properties.position);
+            const km = getDistanceKm(pos.lat, pos.lon, apt.lat, apt.lon);
+            f.properties.__inRadius = (km <= radiusKm) ? 1 : 0;
+        } catch (_) {
+            f.properties.__inRadius = 1;
+        }
+    });
+
+    if (sectorOpsMap && sectorOpsMap.getSource && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
+        sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
+            type: 'FeatureCollection',
+            features: Object.values(currentMapFeatures)
+        });
+    }
+}
+
+// Floating compass button: appears only when the map has been rotated or
+// tilted (e.g. an accidental two-finger twist) and snaps the view back to
+// north / level on tap — the familiar Apple/Google Maps behaviour. The needle
+// counter-rotates with the map bearing so it always points to true north.
+function setupResetNorthButton() {
+    if (!sectorOpsMap) return;
+    const mapContainer = document.getElementById('sector-ops-map-fullscreen');
+    if (!mapContainer || document.getElementById('reset-north-btn')) return;
+
+    if (!document.getElementById('reset-north-style')) {
+        const style = document.createElement('style');
+        style.id = 'reset-north-style';
+        style.textContent = `
+            .reset-north-btn {
+                position: absolute;
+                top: calc(env(safe-area-inset-top, 0px) + 76px);
+                right: 14px;
+                width: 42px; height: 42px;
+                display: flex; align-items: center; justify-content: center;
+                border-radius: 50%;
+                background: rgba(15, 23, 42, 0.55);
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                color: #fff; font-size: 1.15rem;
+                backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+                box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+                z-index: 55; cursor: pointer;
+                opacity: 0; transform: scale(0.8); pointer-events: none;
+                transition: opacity 0.25s ease, transform 0.25s ease;
+            }
+            .reset-north-btn.visible { opacity: 1; transform: scale(1); pointer-events: auto; }
+            .reset-north-btn:active { background: rgba(56, 189, 248, 0.35); }
+            .reset-north-needle { transition: transform 0.1s linear; }
+        `;
+        document.head.appendChild(style);
+    }
+
+    const btn = document.createElement('button');
+    btn.id = 'reset-north-btn';
+    btn.className = 'reset-north-btn';
+    btn.type = 'button';
+    btn.title = 'Reset to North';
+    btn.setAttribute('aria-label', 'Reset map orientation to North');
+    btn.innerHTML = `<i class="fa-solid fa-compass reset-north-needle"></i>`;
+    mapContainer.appendChild(btn);
+
+    const needle = btn.querySelector('.reset-north-needle');
+    const sync = () => {
+        const bearing = sectorOpsMap.getBearing();
+        const pitch = sectorOpsMap.getPitch();
+        needle.style.transform = `rotate(${-bearing}deg)`;
+        btn.classList.toggle('visible', Math.abs(bearing) > 1 || pitch > 1);
+    };
+
+    sectorOpsMap.on('rotate', sync);
+    sectorOpsMap.on('pitch', sync);
+    sync();
+
+    btn.addEventListener('click', () => {
+        window.InflightHaptics?.select?.();
+        sectorOpsMap.easeTo({ bearing: 0, pitch: 0, duration: 500, essential: true });
+    });
+}
+
 function updateAircraftLayerFilter() {
     if (!sectorOpsMap || !sectorOpsMap.getLayer('sector-ops-live-flights-layer')) return;
 
-    let filter = ['all']; 
+    let filter = ['all'];
 
     // 1. Global Toggles (Existing)
     if (mapFilters.hideAllAircraft) {
-        sectorOpsMap.setFilter('sector-ops-live-flights-layer', ['==', 'flightId', '']);
+        setLiveFlightsFilter(['==', 'flightId', '']);
         return;
     }
     if (mapFilters.showStaffOnly) filter.push(['==', 'isStaff', true]);
@@ -7161,6 +7328,16 @@ function updateAircraftLayerFilter() {
 
     // 2. Tactical Filters (Injected from landingUI.js)
     const tactical = mapFilters.tactical || {};
+
+    // --- Airport proximity (radius) filter ---
+    // Keeps only aircraft within `radiusNm` of the chosen airport. Distance is
+    // pre-computed per feature into the __inRadius property (here, for instant
+    // response, and in the polling loop for moving traffic).
+    const ar = tactical.airportRadius;
+    if (ar && ar.icao && ar.radiusNm) {
+        retagAirportRadius();
+        filter.push(['==', ['get', '__inRadius'], 1]);
+    }
 
     // --- Intelligent Aircraft Type Matching ---
     // Matches if user types "A38" and the aircraft is "Airbus A380-800"
@@ -7244,7 +7421,7 @@ function updateAircraftLayerFilter() {
     // Altitude and Speed Range logic...
     // [Keep your existing range check logic here]
 
-    sectorOpsMap.setFilter('sector-ops-live-flights-layer', filter);
+    setLiveFlightsFilter(filter);
 
     // Keep the label layer in lock-step with the icon layer so filtered-out
     // aircraft don't leave orphaned tags floating on the map.
@@ -7954,6 +8131,19 @@ function handleSocketFlightUpdate(data) {
                     if (window.currentAirportTraffic.out.includes(flightId)) return 'outbound';
                 }
                 return 'none';
+            })(),
+
+            // Airport-radius (proximity) filter tag. 1 = keep, 0 = outside the
+            // chosen airport's radius. When the filter is inactive every plane
+            // is tagged 1 so the Mapbox filter (added only while active) is a
+            // no-op. Mirrored by retagAirportRadius() for instant updates.
+            __inRadius: (() => {
+                const ar = mapFilters.tactical && mapFilters.tactical.airportRadius;
+                if (!ar || !ar.icao || !ar.radiusNm) return 1;
+                const apt = (typeof airportsData !== 'undefined') ? airportsData[ar.icao] : null;
+                if (!apt) return 1;
+                const km = getDistanceKm(flight.position.lat, flight.position.lon, apt.lat, apt.lon);
+                return (km <= ar.radiusNm * 1.852) ? 1 : 0;
             })(),
 
             // --- PREMIUM VISIBILITY FEATURE ---
@@ -10376,31 +10566,10 @@ function applyTrafficHighlighting() {
         }
     });
 
-    // 1. Update the layer's expressions
-    if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
-        sectorOpsMap.setLayoutProperty(
-            'sector-ops-live-flights-layer', 
-            'icon-image', 
-            getIconImageExpression()
-        );
-
-        // DYNAMIC COLOR RESOLUTION
-        const iconColorExpression = getPremiumColorExpression();
-
-        sectorOpsMap.setPaintProperty(
-            'sector-ops-live-flights-layer', 
-            'icon-color', 
-            iconColorExpression
-        );
-
-        if (sectorOpsMap.getLayer('sector-ops-live-flights-hover-layer')) {
-            sectorOpsMap.setPaintProperty(
-                'sector-ops-live-flights-hover-layer', 
-                'icon-color', 
-                iconColorExpression
-            );
-        }
-    }
+    // 1. Update the layer expressions across both aircraft layers + hover.
+    //    Inbound/outbound planes now need the SDF sprite so they can be tinted,
+    //    which the icon-image expressions handle automatically.
+    applyAircraftLayerStyles();
 
     // 2. Sync the updated data to the Mapbox source
     if (sectorOpsMap && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
@@ -10419,13 +10588,14 @@ function updateTrafficLegendUI() {
     let inColor = '#fff', outColor = '#fff', inLabel = 'AIRCRAFT', outLabel = 'AIRCRAFT';
 
     if (isTrafficHighlightActive) {
-        // Logic: Use the "opposite" color relative to the user's current selection
-        if (currentMode === 'default') { inColor = '#38bdf8'; outColor = '#f59e0b'; }
-        else if (currentMode === 'blue') { inColor = '#fff'; outColor = '#f59e0b'; }
+        // Inbound is always cyan and outbound always amber; for Blue/Orange we
+        // grey out the dot that matches the fleet tint so the highlight reads.
+        if (currentMode === 'blue') { inColor = '#fff'; outColor = '#f59e0b'; }
         else if (currentMode === 'orange') { inColor = '#38bdf8'; outColor = '#fff'; }
+        else { inColor = '#38bdf8'; outColor = '#f59e0b'; } // default (White) + custom
         inLabel = 'INBOUND'; outLabel = 'OUTBOUND';
     } else {
-        inColor = (currentMode === 'blue') ? '#38bdf8' : (currentMode === 'orange') ? '#f59e0b' : '#fff';
+        inColor = (currentMode === 'blue') ? '#38bdf8' : (currentMode === 'orange') ? '#f59e0b' : (currentMode === 'custom') ? (mapFilters.proCustomColor || '#38bdf8') : '#fff';
         inLabel = 'ALL TRAFFIC';
     }
 
@@ -10993,7 +11163,7 @@ function initializeAircraftLayer() {
                 'type': 'symbol',
                 'source': 'sector-ops-live-flights-source',
                 'layout': {
-                    'icon-image': getIconImageExpression(),
+                    'icon-image': getTintedIconImageExpression(),
                     'icon-size': initialIconSize,
                     'icon-allow-overlap': true,
                     'icon-ignore-placement': true,
@@ -11008,6 +11178,27 @@ function initializeAircraftLayer() {
                     'icon-color': getPremiumColorExpression()
                 }
             });
+
+            // Natural (non-SDF) twin layer for the un-highlighted bulk of
+            // traffic. Inserted just below the SDF layer so highlighted planes
+            // draw on top. Shares the same source + visibility filter; the
+            // SDF/natural split is decided per-feature in the icon-image
+            // expressions, so the two layers never both draw the same plane.
+            if (!sectorOpsMap.getLayer('sector-ops-live-flights-natural-layer')) {
+                sectorOpsMap.addLayer({
+                    'id': 'sector-ops-live-flights-natural-layer',
+                    'type': 'symbol',
+                    'source': 'sector-ops-live-flights-source',
+                    'layout': {
+                        'icon-image': getNaturalIconImageExpression(),
+                        'icon-size': initialIconSize,
+                        'icon-allow-overlap': true,
+                        'icon-ignore-placement': true,
+                        'icon-rotation-alignment': 'map',
+                        'icon-rotate': ['get', 'heading']
+                    }
+                }, 'sector-ops-live-flights-layer');
+            }
 
             sectorOpsMap.addLayer({
                 'id': 'sector-ops-live-flights-hover-layer',
@@ -11063,7 +11254,9 @@ function initializeAircraftLayer() {
                 }
             }
 
-            sectorOpsMap.on('click', 'sector-ops-live-flights-layer', async (e) => {
+            // Aircraft now render across two layers (SDF + natural), so bind
+            // the click/hover handlers to both so every plane stays interactive.
+            const onLiveFlightClick = async (e) => {
                 console.log("✈️ Plane click listener fired!", e.features[0].properties.callsign);
                 const props = e.features[0].properties;
                 const flightProps = {
@@ -11074,7 +11267,9 @@ function initializeAircraftLayer() {
 
                 const sessionId = await getValidSessionId();
                 handleAircraftClick(flightProps, sessionId, e);
-            });
+            };
+            sectorOpsMap.on('click', 'sector-ops-live-flights-layer', onLiveFlightClick);
+            sectorOpsMap.on('click', 'sector-ops-live-flights-natural-layer', onLiveFlightClick);
 
             const hoverPopup = new mapboxgl.Popup({
                 closeButton: false,
@@ -11082,19 +11277,23 @@ function initializeAircraftLayer() {
                 offset: 20
             });
 
-            sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', (e) => {
+            const onLiveFlightEnter = (e) => {
                 if (window.isMouseOverAirportTag) return;
                 sectorOpsMap.getCanvas().style.cursor = 'pointer';
                 const feature = e.features[0];
                 if (typeof generateHoverCardHTML !== 'undefined') {
                     hoverPopup.setLngLat(feature.geometry.coordinates).setHTML(generateHoverCardHTML(feature.properties)).addTo(sectorOpsMap);
                 }
-            });
+            };
+            sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', onLiveFlightEnter);
+            sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-natural-layer', onLiveFlightEnter);
 
-            sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => {
+            const onLiveFlightLeave = () => {
                 sectorOpsMap.getCanvas().style.cursor = '';
                 hoverPopup.remove();
-            });
+            };
+            sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', onLiveFlightLeave);
+            sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-natural-layer', onLiveFlightLeave);
         }
 
         if (!sectorOpsMap.getLayer(AIRCRAFT_LABEL_LAYER_ID)) {
@@ -12411,11 +12610,12 @@ renderCategory(catId) {
         const proColorInput = document.getElementById('set-pro-color');
         if (proColorInput) {
             proColorInput.addEventListener('input', (e) => {
-                // Force 'default' so a previously-selected Blue/Orange preset
-                // doesn't keep overriding the user's freshly picked color.
-                mapFilters.iconColorMode = 'default';
-                const radio = document.querySelector('input[name="icon-color-mode"][value="default"]');
-                if (radio) radio.checked = true;
+                // Switch into the dedicated 'custom' mode so every other
+                // aircraft is recolored with the picked color (they move onto
+                // the tintable SDF layer). The Default/Blue/Orange radios stay
+                // unchecked; selecting "Default (White)" reverts to natural.
+                mapFilters.iconColorMode = 'custom';
+                document.querySelectorAll('input[name="icon-color-mode"]').forEach(r => { r.checked = false; });
                 update('proCustomColor', e.target.value);
             });
         }
@@ -12978,6 +13178,7 @@ function initializeSectorOpsMap(centerICAO) {
     return new Promise(resolve => {
         sectorOpsMap.on('load', async () => {
             GroupFlightManager.init(sectorOpsMap);
+            setupResetNorthButton();
             await setupMapLayersAndFog();
             // [PERF FIX] Removed two redundant initializeMapBoundaries calls
             // here — setupMapLayersAndFog() already invokes it internally,
@@ -16456,7 +16657,7 @@ function setupFlightHoverPopups() {
 
     let hoveredFlightId = null;
 
-    sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', (e) => {
+    const onAircraftRichHover = (e) => {
         const isHoverDevice = window.matchMedia('(hover: hover)').matches;
         if (!isHoverDevice || (e.originalEvent && e.originalEvent.pointerType === 'touch')) {
             return;
@@ -16550,12 +16751,16 @@ function setupFlightHoverPopups() {
         `;
 
         hoverPopup.setLngLat(feature.geometry.coordinates).setHTML(html).addTo(sectorOpsMap);
-    });
+    };
+    sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', onAircraftRichHover);
+    sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-natural-layer', onAircraftRichHover);
 
-    sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', () => {
+    const onAircraftRichLeave = () => {
         sectorOpsMap.getCanvas().style.cursor = '';
         hoverPopup.remove();
-    });
+    };
+    sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', onAircraftRichLeave);
+    sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-natural-layer', onAircraftRichLeave);
 }
 
 /**
@@ -16826,7 +17031,7 @@ function processRawPilotData(gradeInfo) {
             // We do NOT want to close the window if the user clicked another plane (that logic handles the switch).
             // HTML Markers (Airports) handle their own clicks and stop propagation, so they won't trigger this.
             const features = sectorOpsMap.queryRenderedFeatures(e.point, {
-                layers: ['sector-ops-live-flights-layer'] // The aircraft icon layer
+                layers: ['sector-ops-live-flights-layer', 'sector-ops-live-flights-natural-layer'] // The aircraft icon layers (SDF + natural)
             });
             
             const clickedOnAircraft = features.length > 0;
@@ -17174,15 +17379,9 @@ if (flatMapToggle) {
             mapFilters.iconColorMode = target.value;
             saveFiltersToLocalStorage();
             // Re-render aircraft icons. Switching White <-> colored swaps which
-            // icon (natural vs. SDF) each plane uses, so update icon-image too,
-            // not just the tint.
-            if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
-                sectorOpsMap.setLayoutProperty('sector-ops-live-flights-layer', 'icon-image', getIconImageExpression());
-                sectorOpsMap.setPaintProperty('sector-ops-live-flights-layer', 'icon-color', getPremiumColorExpression());
-                if (sectorOpsMap.getLayer('sector-ops-live-flights-hover-layer')) {
-                    sectorOpsMap.setPaintProperty('sector-ops-live-flights-hover-layer', 'icon-color', getPremiumColorExpression());
-                }
-            }
+            // planes live on the SDF vs. natural layer, so re-apply icon-image
+            // (and icon-color) across both, not just the tint.
+            applyAircraftLayerStyles();
         } else if (target.name === 'mobile-display-mode') {
             // Save to local storage for MobileUIHandler to pick up
             localStorage.setItem('mobileDisplayMode', target.value);

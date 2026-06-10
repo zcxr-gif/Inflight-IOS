@@ -2,6 +2,8 @@
  * MobileLandingUI.js - Optimized for State Persistence & Responsive Inputs
  */
 
+import { MobileSettingsUI } from './MobileSettingsUI.js';
+
 export const MobileLandingUI = {
     _isOpen: false,
 
@@ -16,30 +18,26 @@ export const MobileLandingUI = {
         const existing = document.getElementById('mobile-tactical-nexus');
         if (existing) existing.remove();
 
+        // The Filters tab now hosts the shared tactical board (same look + the
+        // same mapFilters.tactical engine as Settings used to). MobileSettingsUI
+        // owns the board markup + wiring; we just render and drive it here.
         const html = `
             <div id="mobile-tactical-nexus" class="mobile-only-ui">
                 <div id="mobile-overlay" class="mobile-sheet-overlay"></div>
 
                 <div class="mobile-bottom-sheet">
                     <div class="sheet-handle"></div>
-                    <button class="sheet-nav-text" id="mobile-reset-btn" type="button">Reset</button>
                     <button class="sheet-close-btn" id="mobile-filters-close" type="button" aria-label="Close">
                         <i class="fa-solid fa-xmark"></i>
                     </button>
 
                     <div class="mobile-title">
                         <i class="fa-solid fa-sliders"></i>
-                        <span>Tactical Filters</span>
+                        <span>Filters</span>
                     </div>
 
-                    <div class="sheet-content custom-scroll">
-                        <div class="mobile-section-header">Active Rules</div>
-                        <div id="mobile-active-rules-container"></div>
-                        
-                        <div class="mobile-section-header">Add Filters</div>
-                        <div class="mobile-filter-grid">
-                            ${this.renderFilterGrid()}
-                        </div>
+                    <div class="sheet-content custom-scroll" id="mobile-tactical-content">
+                        ${MobileSettingsUI.renderTacticalBoard()}
                     </div>
                 </div>
             </div>
@@ -48,31 +46,18 @@ export const MobileLandingUI = {
         document.getElementById('sector-ops-map-fullscreen')?.insertAdjacentHTML('beforeend', html);
     },
 
-    renderFilterGrid() {
-        let html = '';
-        Object.values(this.parent.filterGroups).forEach(group => {
-            group.filters.forEach(f => {
-                html += `
-                    <button class="m-grid-item" data-id="${f.id}">
-                        <i class="fa-solid ${f.icon}"></i>
-                        <span>${f.label}</span>
-                    </button>
-                `;
-            });
-        });
-        return html;
-    },
-
     attachMobileListeners() {
-        const sheet = document.querySelector('.mobile-bottom-sheet');
+        const sheet = document.querySelector('#mobile-tactical-nexus .mobile-bottom-sheet');
         const overlay = document.getElementById('mobile-overlay');
-        const container = document.getElementById('mobile-active-rules-container');
+        const board = document.getElementById('mobile-tactical-content');
 
         window.addEventListener('openMobileUI', () => {
             this._isOpen = true;
             sheet.classList.add('open');
             overlay.classList.add('visible');
-            this.syncActiveRules();
+            // Wire (once) and refresh the shared tactical board from live state.
+            MobileSettingsUI.attachTacticalHandlers(board);
+            MobileSettingsUI.syncTacticalControls(board);
         });
 
         const closeUI = () => {
@@ -84,36 +69,6 @@ export const MobileLandingUI = {
         overlay.addEventListener('click', closeUI);
         document.getElementById('mobile-filters-close')?.addEventListener('click', closeUI);
         this.attachSwipeToDismiss(sheet, closeUI);
-
-        // Grid selection for adding new filters
-        document.querySelectorAll('.m-grid-item').forEach(btn => {
-            btn.addEventListener('click', () => {
-                this.parent.activateFilter(btn.dataset.id);
-                this.syncActiveRules();
-            });
-        });
-
-        // CRITICAL: Listen for typing/inputs within the mobile container
-        container?.addEventListener('input', (e) => {
-            const target = e.target;
-            const id = target.dataset.id;
-            
-            if (target.classList.contains('data-input-min')) {
-                this.parent.updateFilterValue(id, target.value, 'min');
-            } else if (target.classList.contains('data-input-max')) {
-                this.parent.updateFilterValue(id, target.value, 'max');
-            } else if (target.classList.contains('data-input')) {
-                this.parent.updateFilterValue(id, target.value);
-            }
-        });
-
-        // Filters apply live (the parent dispatches on every activate/remove/edit,
-        // matching the desktop behaviour) so there is no explicit "Apply" step.
-        document.getElementById('mobile-reset-btn').addEventListener('click', () => {
-            this.parent._activeFilters = {};
-            this.syncActiveRules();
-            this.parent.dispatchFilterUpdate();
-        });
     },
 
     // iOS-style swipe-down-to-dismiss, dragging from the grabber or title bar.

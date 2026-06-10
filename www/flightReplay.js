@@ -51,6 +51,7 @@ export const FlightReplay = (() => {
     // (rather than hardcoded inline) so the list stays easy to maintain.
     const TRAFFIC_LAYER_IDS = [
         'sector-ops-live-flights-layer',
+        'sector-ops-live-flights-natural-layer',
         'sector-ops-live-flights-hover-layer',
         'sector-ops-live-flights-labels'
     ];

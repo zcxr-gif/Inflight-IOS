@@ -119,6 +119,7 @@ export const AtcReplay = (() => {
     let prevTrafficFilters = null;
     const TRAFFIC_LAYER_IDS = [
         'sector-ops-live-flights-layer',
+        'sector-ops-live-flights-natural-layer',
         'sector-ops-live-flights-hover-layer',
         'sector-ops-live-flights-labels'
     ];
