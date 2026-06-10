@@ -2364,6 +2364,25 @@ function injectCustomStyles() {
             transform: translateX(0) translateY(0) scale(1);
             pointer-events: auto;
         }
+        /* --- MOBILE SHEET GUARD --- */
+        /* On phones the same windows are re-presented as a bottom sheet
+           (sector-ops-mobile-ui.js adds .mobile-legacy-sheet). The desktop
+           entrance above — fade + translate/scale anchored top-right — must
+           never apply to the sheet: when these rules won the cascade, the
+           sheet visibly dragged in from the top-right corner before settling
+           at the bottom. While the sheet class is on, the window is always
+           opaque and its only motion is vertical: parked below the bottom
+           edge when hidden, slid up by the sheet's own state rules (which
+           carry higher specificity) when visible. Kept identical to the
+           sheet's base declarations so the duplicate guard is harmless
+           whichever stylesheet loads last. */
+        .info-window.mobile-legacy-sheet {
+            opacity: 1;
+            transform: translateY(100%);
+            transform-origin: center bottom;
+            transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+            pointer-events: auto;
+        }
         .info-window-header {
             display: flex;
             justify-content: space-between;
