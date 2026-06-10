@@ -1938,14 +1938,14 @@ function injectCustomStyles() {
         .card-overlay {
     position: absolute;
     inset: -2px; /* Slightly larger than the card */
-    background: linear-gradient(180deg, 
-        rgba(10, 12, 26, 0.4) 0%, 
-        rgba(10, 12, 26, 0.8) 60%, 
-        rgba(10, 12, 26, 1) 100%
+    background: linear-gradient(180deg,
+        rgba(24, 24, 27, 0.4) 0%,
+        rgba(24, 24, 27, 0.8) 60%,
+        rgba(24, 24, 27, 1) 100%
     );
     z-index: 1;
     /* This "spreads" the color slightly to fill gaps */
-    box-shadow: inset 0 0 0 1px rgba(10, 12, 26, 1); 
+    box-shadow: inset 0 0 0 1px rgba(24, 24, 27, 1);
 }
 
         .card-content {
@@ -3543,11 +3543,12 @@ function injectCustomStyles() {
 .airport-hero-overlay {
     position: absolute;
     inset: -1px;
-    /* Dark gradient to make white text pop */
-    background: linear-gradient(180deg, 
-        rgba(10, 12, 26, 0.2) 0%, 
-        rgba(10, 12, 26, 0.5) 50%, 
-        rgba(10, 12, 26, 0.9) 100%
+    /* Dark gradient to make white text pop — neutral zinc, matching the
+       app's gray base instead of the old navy tint */
+    background: linear-gradient(180deg,
+        rgba(24, 24, 27, 0.15) 0%,
+        rgba(24, 24, 27, 0.5) 50%,
+        rgba(24, 24, 27, 0.94) 100%
     );
     z-index: 1;
 }
@@ -3573,9 +3574,10 @@ function injectCustomStyles() {
 
         .apt-name {
             font-size: 0.9rem;
-            color: #94a3b8;
+            color: #d4d4d8;
             margin-top: 6px;
             font-weight: 500;
+            text-shadow: 0 1px 3px rgba(0,0,0,0.7);
         }
 
         .apt-meta-badge {
@@ -3589,6 +3591,176 @@ function injectCustomStyles() {
             align-items: center;
             gap: 6px;
         }
+
+        /* --- AIRPORT AT-A-GLANCE STATS BAR --- */
+        .apt-stats-bar {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            background: rgba(24, 24, 27, 0.55);
+            border-bottom: 1px solid var(--border-glass);
+        }
+
+        .apt-stat-cell {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 3px;
+            padding: 10px 6px;
+            border-right: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        .apt-stat-cell:last-child { border-right: none; }
+
+        .apt-stat-value {
+            font-family: var(--font-data);
+            font-size: 1.05rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            line-height: 1;
+        }
+
+        .apt-stat-label {
+            font-size: 0.58rem;
+            font-weight: 800;
+            letter-spacing: 1px;
+            color: #a1a1aa;
+            text-transform: uppercase;
+        }
+
+        /* --- AIRPORT INFO TAB: DETAIL GRID & RUNWAYS --- */
+        .apt-section-title {
+            font-size: 0.7rem;
+            color: #a1a1aa;
+            font-weight: 800;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .apt-detail-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .apt-detail-row {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 8px;
+            padding: 8px 10px;
+            min-width: 0;
+        }
+
+        .apt-detail-label {
+            display: block;
+            font-size: 0.6rem;
+            color: #a1a1aa;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 3px;
+        }
+
+        .apt-detail-value {
+            font-family: var(--font-data);
+            font-size: 0.82rem;
+            color: var(--text-primary);
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .apt-runway-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        @media (max-width: 480px) {
+            .apt-runway-grid { grid-template-columns: 1fr; }
+        }
+
+        .apt-runway-card {
+            background: rgba(24, 24, 27, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
+            padding: 10px 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .apt-runway-ident {
+            font-family: var(--font-data);
+            font-weight: 800;
+            font-size: 0.95rem;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+
+        .apt-rwy-tag {
+            font-size: 0.55rem;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            color: #d4d4d8;
+        }
+        .apt-rwy-tag.lit { color: #fbbf24; border-color: rgba(251, 191, 36, 0.35); background: rgba(251, 191, 36, 0.08); }
+
+        .apt-runway-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            font-size: 0.65rem;
+            color: #a1a1aa;
+            font-weight: 600;
+        }
+        .apt-runway-meta i { margin-right: 4px; opacity: 0.7; }
+
+        /* --- AIRPORT WINDOW SKELETON (loading state) --- */
+        @keyframes aptShimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+
+        .apt-skel-block {
+            border-radius: 6px;
+            background: linear-gradient(90deg,
+                rgba(255, 255, 255, 0.05) 25%,
+                rgba(255, 255, 255, 0.11) 50%,
+                rgba(255, 255, 255, 0.05) 75%);
+            background-size: 200% 100%;
+            animation: aptShimmer 1.4s ease-in-out infinite;
+        }
+
+        .apt-skel-hero {
+            background: #1c1c1f;
+            min-height: 160px;
+        }
+
+        .apt-skeleton .apt-stats-bar .apt-skel-block { width: 60%; height: 14px; margin: 2px auto; }
+
+        /* Content entrance: when real data replaces the skeleton, the major
+           sections rise in with a slight stagger instead of popping. */
+        @keyframes aptContentIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        #airport-window-content.apt-ready > * {
+            animation: aptContentIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+        }
+        #airport-window-content.apt-ready > *:nth-child(2) { animation-delay: 0.05s; }
+        #airport-window-content.apt-ready > *:nth-child(3) { animation-delay: 0.1s; }
+        #airport-window-content.apt-ready > *:nth-child(4) { animation-delay: 0.15s; }
 
         /* Weather Module Refactor */
         .weather-module-grid {
@@ -3723,7 +3895,7 @@ function injectCustomStyles() {
 
         /* ATC Grid */
         .atc-grid-card {
-            background: #1e293b;
+            background: #232326;
             border: 1px solid var(--border-glass);
             border-radius: 6px;
             padding: 10px;
@@ -3742,13 +3914,15 @@ function injectCustomStyles() {
             width: 80px;
             text-align: center;
         }
-        .atc-type-gnd { background: #0f172a; color: #94a3b8; border: 1px solid #334155;
+        /* Neutral gray chips with colored type text — the old solid navy /
+           indigo fills clashed with the app's zinc base. */
+        .atc-type-gnd { background: #1c1c1f; color: #a1a1aa; border: 1px solid #3f3f46;
         }
-        .atc-type-twr { background: #1e3a8a; color: #60a5fa; border: 1px solid #2563eb;
+        .atc-type-twr { background: #1c1c1f; color: #60a5fa; border: 1px solid #3f3f46;
         }
-        .atc-type-app { background: #312e81; color: #818cf8; border: 1px solid #4f46e5;
+        .atc-type-app { background: #1c1c1f; color: #818cf8; border: 1px solid #3f3f46;
         }
-        .atc-type-obs { background: #3f3f46; color: #a1a1aa; border: 1px solid #52525b;
+        .atc-type-obs { background: #1c1c1f; color: #a1a1aa; border: 1px solid #3f3f46;
         }
 
         .atc-controller {
@@ -3765,7 +3939,7 @@ function injectCustomStyles() {
 
         /* --- ATC SESSION HISTORY (Replay) --- */
         .atc-history-card {
-            background: #1e293b;
+            background: #232326;
             border: 1px solid var(--border-glass);
             border-radius: 8px;
             padding: 10px 12px;
@@ -3787,20 +3961,20 @@ function injectCustomStyles() {
         @keyframes atc-history-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
         .atc-history-freqs { display: flex; flex-wrap: wrap; gap: 4px; }
         .atc-history-freq-pill {
-            font-size: 0.6rem; font-weight: 700; color: #cbd5e1;
-            background: rgba(99,102,241,0.12); border: 1px solid rgba(129,140,248,0.3);
+            font-size: 0.6rem; font-weight: 700; color: #d4d4d8;
+            background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14);
             border-radius: 4px; padding: 1px 6px;
         }
-        .atc-history-freq-pill.muted { color: #64748b; background: transparent; border-color: #334155; }
-        .atc-history-meta { font-family: monospace; font-size: 0.7rem; color: #64748b; }
+        .atc-history-freq-pill.muted { color: #71717a; background: transparent; border-color: #3f3f46; }
+        .atc-history-meta { font-family: monospace; font-size: 0.7rem; color: #71717a; }
         .atc-replay-session-btn {
             flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px;
-            background: linear-gradient(135deg, #6366f1, #38bdf8); color: #fff;
-            border: none; border-radius: 8px; padding: 8px 12px;
+            background: rgba(255,255,255,0.1); color: #fff;
+            border: 1px solid rgba(255,255,255,0.16); border-radius: 8px; padding: 8px 12px;
             font-size: 0.72rem; font-weight: 800; letter-spacing: 0.3px; cursor: pointer;
-            transition: transform .12s ease, box-shadow .12s ease;
+            transition: transform .12s ease, box-shadow .12s ease, background .12s ease;
         }
-        .atc-replay-session-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(99,102,241,0.45); }
+        .atc-replay-session-btn:hover { transform: translateY(-1px); background: rgba(255,255,255,0.18); box-shadow: 0 4px 14px rgba(0,0,0,0.45); }
         .atc-replay-session-btn:active { transform: translateY(0); }
 
         /* --- HERO ACTION BUTTONS --- */
@@ -3879,9 +4053,9 @@ function injectCustomStyles() {
         }
 
         .apt-tab-btn.active {
-            color: var(--color-brand);
-            border-bottom-color: var(--color-brand);
-            background: rgba(56, 189, 248, 0.1);
+            color: var(--text-primary);
+            border-bottom-color: var(--color-accent);
+            background: rgba(255, 255, 255, 0.06);
         }
 
         .apt-tab-content {
@@ -4029,7 +4203,7 @@ function injectCustomStyles() {
         }
 
         .apt-mini-module {
-            background: rgba(15, 23, 42, 0.6);
+            background: rgba(24, 24, 27, 0.6);
             border: 1px solid rgba(255, 255, 255, 0.08);
             border-radius: var(--radius-sm);
             display: flex;
@@ -4071,8 +4245,8 @@ function injectCustomStyles() {
             padding: 4px;
         }
         .compact-label { font-size: 0.6rem;
-            color: #64748b; display: block; }
-        .compact-value { font-family: var(--font-data); font-size: 0.9rem; color: #e2e8f0;
+            color: #a1a1aa; display: block; }
+        .compact-value { font-family: var(--font-data); font-size: 0.9rem; color: #e4e4e7;
             font-weight: 600; }
 
         .metar-strip {
@@ -4425,7 +4599,7 @@ function injectCustomStyles() {
 
         /* --- NEW: TRAFFIC DROPDOWN STYLES --- */
 .traffic-dropdown {
-    background: rgba(15, 23, 42, 0.4);
+    background: rgba(24, 24, 27, 0.45);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 8px;
     overflow: hidden;
@@ -4434,8 +4608,8 @@ function injectCustomStyles() {
 }
 
 .traffic-dropdown[open] {
-    background: rgba(15, 23, 42, 0.6);
-    border-color: rgba(56, 189, 248, 0.3);
+    background: rgba(24, 24, 27, 0.65);
+    border-color: rgba(255, 255, 255, 0.18);
 }
 
 .traffic-dropdown-header {
@@ -4473,8 +4647,8 @@ function injectCustomStyles() {
 }
 
 .traffic-count-badge {
-    background: rgba(56, 189, 248, 0.15);
-    color: #38bdf8;
+    background: rgba(255, 255, 255, 0.08);
+    color: #e4e4e7;
     padding: 2px 8px;
     border-radius: 99px;
     font-family: 'JetBrains Mono', monospace;
@@ -9523,6 +9697,55 @@ function renderAtcSessionCard(s) {
     </div>`;
 }
 
+// Skeleton shown while the airport window's data is in flight. Mirrors the
+// real layout (hero → stats bar → modules → tabs) so the window — and the
+// mobile peek sheet in particular — opens at its final shape and shimmers,
+// instead of presenting an empty chunk with a lone spinner. The ICAO is known
+// immediately, so it renders for instant feedback; the close button is live
+// because the window's delegated click handler is already attached.
+function createAirportSkeletonHTML(icao) {
+    const skelStat = `
+        <div class="apt-stat-cell">
+            <div class="apt-skel-block" style="width: 36px; height: 16px;"></div>
+            <div class="apt-skel-block" style="width: 52px; height: 8px;"></div>
+        </div>`;
+    const skelRow = `
+        <div class="apt-skel-block" style="height: 64px; border-radius: 10px; margin-bottom: 10px;"></div>`;
+    return `
+        <div class="apt-skeleton" style="display: flex; flex-direction: column; height: 100%;">
+            <div class="airport-hero apt-skel-hero">
+                <div class="airport-hero-overlay"></div>
+                <div class="hero-actions">
+                    <button id="airport-window-close-btn" class="hero-btn" title="Close Window"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="apt-ident-group">
+                    <div class="apt-icao">${icao}</div>
+                    <div class="apt-skel-block" style="width: 180px; height: 12px; margin-top: 8px;"></div>
+                    <div class="apt-skel-block" style="width: 110px; height: 10px; margin-top: 6px;"></div>
+                </div>
+            </div>
+            <div class="apt-stats-bar">${skelStat}${skelStat}${skelStat}${skelStat}</div>
+            <div style="display: flex; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border-glass);">
+                <div class="apt-skel-block" style="width: 70px; height: 20px; border-radius: 4px;"></div>
+                <div class="apt-skel-block" style="width: 86px; height: 20px; border-radius: 4px;"></div>
+                <div class="apt-skel-block" style="width: 78px; height: 20px; border-radius: 4px;"></div>
+            </div>
+            <div style="flex-grow: 1; overflow: hidden; padding: 16px;">
+                <div class="apt-dashboard-grid" style="padding: 0; margin-bottom: 16px;">
+                    <div class="apt-skel-block" style="height: 92px; border-radius: 8px;"></div>
+                    <div class="apt-skel-block" style="height: 92px; border-radius: 8px;"></div>
+                </div>
+                <div style="display: flex; gap: 8px; margin-bottom: 14px;">
+                    <div class="apt-skel-block" style="flex: 1; height: 34px;"></div>
+                    <div class="apt-skel-block" style="flex: 1; height: 34px;"></div>
+                    <div class="apt-skel-block" style="flex: 1; height: 34px;"></div>
+                    <div class="apt-skel-block" style="flex: 1; height: 34px;"></div>
+                </div>
+                ${skelRow}${skelRow}${skelRow}
+            </div>
+        </div>`;
+}
+
 async function createAirportInfoWindowHTML(icao, requestId) {
         // 1. Get Static Data
         const staticData = airportsData[icao] || {};
@@ -9605,11 +9828,14 @@ async function createAirportInfoWindowHTML(icao, requestId) {
         let weatherModuleHtml = '';
         let atisModuleHtml = '';
         let metarString = '';
+        // Hoisted so the at-a-glance stats bar can show the field's flight
+        // category alongside traffic counts.
+        let flightCategory = '---', catColor = '#a1a1aa';
 
         try {
             if (window.WeatherService) {
                 const w = await window.WeatherService.fetchAndParseMetar(icao);
-                let flightCategory = 'VFR', catColor = '#4ade80';
+                flightCategory = 'VFR'; catColor = '#4ade80';
 
                 if (w.raw.includes('LIFR')) {
                     flightCategory = 'LIFR'; catColor = '#c084fc';
@@ -9775,16 +10001,16 @@ async function createAirportInfoWindowHTML(icao, requestId) {
             const cards = ids.slice(0, MAX_TRAFFIC_CARDS).map(id => renderFlightCard(id, type)).join('');
             const hidden = ids.length - MAX_TRAFFIC_CARDS;
             const more = hidden > 0
-                ? `<div style="padding: 10px 12px; text-align: center; color: #64748b; font-size: 0.72rem;">+${hidden} more not shown</div>`
+                ? `<div style="padding: 10px 12px; text-align: center; color: #71717a; font-size: 0.72rem;">+${hidden} more not shown</div>`
                 : '';
             return cards + more;
         };
 
         // --- UPDATED TRAFFIC HTML WITH DROPDOWNS ---
-        let trafficHtml = (!trafficFetchSuccess) ? 
-            '<div style="padding: 20px; text-align: center; color: #64748b;">Data unavailable.</div>' :
-            (inbounds.length === 0 && outbounds.length === 0) ? 
-            '<div style="padding: 20px; text-align: center; color: #64748b;">No live traffic.</div>' :
+        let trafficHtml = (!trafficFetchSuccess) ?
+            '<div style="padding: 20px; text-align: center; color: #71717a;">Data unavailable.</div>' :
+            (inbounds.length === 0 && outbounds.length === 0) ?
+            '<div style="padding: 20px; text-align: center; color: #71717a;">No live traffic.</div>' :
             `
             <div style="padding: 12px; display: flex; flex-direction: column; gap: 4px;">
                 ${inbounds.length > 0 ? `
@@ -9818,23 +10044,94 @@ async function createAirportInfoWindowHTML(icao, requestId) {
 
         const airportAtc = activeAtcFacilities.filter(f => f.airportName === icao);
         let atcHtml = airportAtc.length === 0
-            ? '<div style="padding: 20px; text-align: center; color: #64748b;">No active frequencies.</div>'
+            ? '<div style="padding: 20px; text-align: center; color: #71717a;">No active frequencies.</div>'
             : `<div style="padding: 12px;">${airportAtc.map(f => `<div class="atc-grid-card" style="padding: 8px;"><div style="display: flex; align-items: center; gap: 12px;"><span class="atc-type-badge ${f.type===1?'atc-type-twr':f.type===0?'atc-type-gnd':(f.type===4||f.type===5)?'atc-type-app':'atc-type-obs'}" style="width: 60px; font-size: 0.65rem;">${atcTypeToString(f.type)}</span><span class="atc-controller" style="font-size: 0.85rem;">${f.username||'Unknown'}</span></div><span class="atc-duration" style="font-size: 0.75rem;"><i class="fa-regular fa-clock"></i> ${formatAtcDuration(f.startTime)}</span></div>`).join('')}</div>`;
 
         // --- ATC Replay History (recorded controller sessions for this field) ---
         const atcSessions = await fetchAtcSessionsForAirport(icao);
         let atcHistoryHtml = atcSessions.length === 0
-            ? '<div style="padding: 20px; text-align: center; color: #64748b;">No recorded ATC sessions in the last 48h.</div>'
+            ? '<div style="padding: 20px; text-align: center; color: #71717a;">No recorded ATC sessions in the last 48h.</div>'
             : `<div style="padding: 12px; display: flex; flex-direction: column; gap: 4px;">
-                <div style="font-size: 0.65rem; color: #64748b; padding: 0 2px 6px; line-height: 1.4;">
+                <div style="font-size: 0.65rem; color: #71717a; padding: 0 2px 6px; line-height: 1.4;">
                     Replay a controller's session — their facility, frequency timeline, and every flight that passed through their airspace. Recordings are kept for 48 hours.
                 </div>
                 ${atcSessions.map(renderAtcSessionCard).join('')}
             </div>`;
 
-        let notamsHtml = activeNotams.filter(n => n.airportIcao === icao).length === 0
-            ? '<div style="padding: 20px; text-align: center; color: #64748b;">No active NOTAMs.</div>' 
-            : `<div style="padding: 12px; display: flex; flex-direction: column; gap: 8px;">${activeNotams.filter(n => n.airportIcao === icao).map(n => `<div style="background: rgba(234, 179, 8, 0.1); border-left: 3px solid #eab308; padding: 8px; border-radius: 4px; color: #fef08a; font-family: monospace; font-size: 0.75rem;"><i class="fa-solid fa-triangle-exclamation"></i> ${n.message}</div>`).join('')}</div>`;
+        const notamsList = activeNotams.filter(n => n.airportIcao === icao);
+        let notamsHtml = notamsList.length === 0
+            ? '<div style="padding: 10px 12px; color: #71717a; font-size: 0.75rem; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px;">No active NOTAMs for this field.</div>'
+            : `<div style="display: flex; flex-direction: column; gap: 8px;">${notamsList.map(n => `<div style="background: rgba(234, 179, 8, 0.1); border-left: 3px solid #eab308; padding: 8px; border-radius: 4px; color: #fef08a; font-family: monospace; font-size: 0.75rem;"><i class="fa-solid fa-triangle-exclamation"></i> ${n.message}</div>`).join('')}</div>`;
+
+        // --- At-a-glance stats bar (under the hero) ---
+        const atcCount = airportAtc.length;
+        const statsBarHtml = `
+            <div class="apt-stats-bar">
+                <div class="apt-stat-cell">
+                    <span class="apt-stat-value" style="color: ${trafficFetchSuccess && inbounds.length ? '#4ade80' : '#a1a1aa'};">${trafficFetchSuccess ? inbounds.length : '--'}</span>
+                    <span class="apt-stat-label">Inbound</span>
+                </div>
+                <div class="apt-stat-cell">
+                    <span class="apt-stat-value" style="color: ${trafficFetchSuccess && outbounds.length ? '#7dd3fc' : '#a1a1aa'};">${trafficFetchSuccess ? outbounds.length : '--'}</span>
+                    <span class="apt-stat-label">Outbound</span>
+                </div>
+                <div class="apt-stat-cell">
+                    <span class="apt-stat-value" style="color: ${atcCount ? '#fafafa' : '#a1a1aa'};">${atcCount}</span>
+                    <span class="apt-stat-label">ATC Online</span>
+                </div>
+                <div class="apt-stat-cell">
+                    <span class="apt-stat-value" style="color: ${catColor};">${flightCategory}</span>
+                    <span class="apt-stat-label">Category</span>
+                </div>
+            </div>`;
+
+        // --- INFO tab: airport details + runway database -------------------
+        const openRunways = airportRunways.filter(r => !r.closed && (r.le_ident || r.he_ident));
+
+        const surfaceNames = {
+            ASP: 'Asphalt', ASPH: 'Asphalt', CON: 'Concrete', CONC: 'Concrete',
+            GRVL: 'Gravel', GRV: 'Gravel', TURF: 'Grass', GRS: 'Grass',
+            GRASS: 'Grass', DIRT: 'Dirt', WATER: 'Water', SAND: 'Sand'
+        };
+        const formatSurface = (s) => {
+            if (!s) return 'Unknown';
+            const key = String(s).toUpperCase().split(/[-/ ]/)[0];
+            return surfaceNames[key] || s;
+        };
+
+        const runwaysHtml = openRunways.length === 0
+            ? '<div style="padding: 10px 12px; color: #71717a; font-size: 0.75rem; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px;">No runway data available.</div>'
+            : `<div class="apt-runway-grid">${openRunways.map(r => {
+                const ident = [r.le_ident, r.he_ident].filter(Boolean).join(' / ');
+                const len = r.length_ft ? `${Number(r.length_ft).toLocaleString()} ft` : '—';
+                const width = r.width_ft ? `${Number(r.width_ft).toLocaleString()} ft` : '—';
+                return `
+                <div class="apt-runway-card">
+                    <div class="apt-runway-ident">
+                        <span>${ident}</span>
+                        ${r.lighted ? '<span class="apt-rwy-tag lit"><i class="fa-solid fa-lightbulb"></i> LIT</span>' : ''}
+                    </div>
+                    <div class="apt-runway-meta">
+                        <span><i class="fa-solid fa-ruler-horizontal"></i>${len}</span>
+                        <span><i class="fa-solid fa-ruler-vertical"></i>${width}</span>
+                        <span><i class="fa-solid fa-layer-group"></i>${formatSurface(r.surface)}</span>
+                    </div>
+                </div>`;
+            }).join('')}</div>`;
+
+        const detailItems = [
+            { icon: 'fa-location-crosshairs', label: 'Coordinates', value: (coords.lat != null && coords.lon != null) ? `${(+coords.lat).toFixed(3)}, ${(+coords.lon).toFixed(3)}` : '—' },
+            { icon: 'fa-arrows-up-down', label: 'Elevation', value: `${elevation} ft` },
+            { icon: 'fa-earth-americas', label: 'Timezone', value: liveData?.timezone ? liveData.timezone.split(' ')[0] : '—' },
+            { icon: 'fa-flag', label: 'Country', value: countryCode ? countryCode.toUpperCase() : '—' },
+            { icon: 'fa-ranking-star', label: 'Class', value: liveData?.class ? `Class ${liveData.class}` : '—' },
+            { icon: 'fa-road', label: 'Runways', value: openRunways.length ? String(openRunways.length) : '—' }
+        ];
+        const detailsHtml = `<div class="apt-detail-grid">${detailItems.map(d => `
+            <div class="apt-detail-row">
+                <span class="apt-detail-label"><i class="fa-solid ${d.icon}" style="margin-right: 5px; opacity: 0.7;"></i>${d.label}</span>
+                <span class="apt-detail-value">${d.value}</span>
+            </div>`).join('')}</div>`;
 
         setTimeout(updateTrafficLegendUI, 0);
 
@@ -9848,19 +10145,16 @@ async function createAirportInfoWindowHTML(icao, requestId) {
                     <div class="apt-icao">${icao}${flagSrc ? `<img src="${flagSrc}" style="height: 24px; border-radius: 2px; margin-left: 10px;">` : ''}${badge3DHtml}</div>
                     <div class="apt-name">${airportName}</div>
                     <div style="font-size: 0.8rem; color: #fff; margin-top: 2px; text-shadow: 0 1px 3px rgba(0,0,0,0.8);">${cityState}</div>
-                    
-                    <div style="margin-top: 8px; display: flex; gap: 8px;">
-                        <span class="apt-meta-badge"><i class="fa-solid fa-location-crosshairs"></i> ${coords.lat?.toFixed(3)}, ${coords.lon?.toFixed(3)}</span>
-                        <span class="apt-meta-badge"><i class="fa-solid fa-arrows-up-down"></i> ${elevation} ft</span>
-                    </div>
                 </div>
             </div>
 
+            ${statsBarHtml}
+
             ${featureStripHtml}
-            
+
             <div style="flex-grow: 1; overflow-y: auto;">
                 <div class="apt-dashboard-grid">${weatherModuleHtml}${atisModuleHtml}</div>
-                
+
                 <div class="tech-module" style="margin: 16px; border: 1px solid rgba(255,255,255,0.05);">
                     <div class="apt-tabs-header">
                         <button class="apt-tab-btn active" data-target="apt-traffic"><i class="fa-solid fa-plane-circle-check"></i> TRAFFIC</button>
@@ -9883,11 +10177,22 @@ async function createAirportInfoWindowHTML(icao, requestId) {
                     </div>
 
                     <div id="apt-info" class="apt-tab-content">
-                        <div style="padding: 16px;">
-                            ${notamsHtml}
-                            <div style="margin-top: 16px;">
-                                <div style="font-size: 0.75rem; color: #94a3b8; font-weight: 700; margin-bottom: 8px;">RAW METAR</div>
-                                <div class="metar-strip" style="border-radius: 6px;">${metarString || 'N/A'}</div>
+                        <div style="padding: 16px; display: flex; flex-direction: column; gap: 18px;">
+                            <div>
+                                <div class="apt-section-title"><i class="fa-solid fa-circle-info"></i> Airport Details</div>
+                                ${detailsHtml}
+                            </div>
+                            <div>
+                                <div class="apt-section-title"><i class="fa-solid fa-road"></i> Runways${openRunways.length ? ` (${openRunways.length})` : ''}</div>
+                                ${runwaysHtml}
+                            </div>
+                            <div>
+                                <div class="apt-section-title"><i class="fa-solid fa-triangle-exclamation"></i> NOTAMs</div>
+                                ${notamsHtml}
+                            </div>
+                            <div>
+                                <div class="apt-section-title"><i class="fa-solid fa-cloud"></i> Raw METAR</div>
+                                <div class="metar-strip" style="border-radius: 6px; border: 1px solid var(--border-glass);">${metarString || 'N/A'}</div>
                             </div>
                         </div>
                     </div>
@@ -9942,7 +10247,7 @@ async function createAirportInfoWindowHTML(icao, requestId) {
             gravity: "top",
             position: "right",
             stopOnFocus: true,
-            style: { background: type === 'success' ? "#28a745" : type === 'error' ? "#dc3545" : "#001B94" }
+            style: { background: type === 'success' ? "#28a745" : type === 'error' ? "#dc3545" : "#27272a" }
         }).showToast();
     }
 
@@ -13684,10 +13989,13 @@ async function handleAirportClick(icao, event = null, recenter = false) {
         } catch (_) {}
     }
 
-    // 3. Prepare UI Container
+    // 3. Prepare UI Container — show a full-shape skeleton instead of a lone
+    // spinner so the window (and the mobile peek sheet) opens looking like the
+    // final layout while data loads.
     const contentEl = document.getElementById('airport-window-content');
     if (contentEl) {
-        contentEl.innerHTML = `<div class="spinner-small" style="margin: 2rem auto;"></div>`;
+        contentEl.classList.remove('apt-ready');
+        contentEl.innerHTML = createAirportSkeletonHTML(icao);
     }
 
     // 4. Show Window
@@ -13714,6 +14022,9 @@ async function handleAirportClick(icao, event = null, recenter = false) {
 
         if (windowContentHTML && contentEl) {
             contentEl.innerHTML = windowContentHTML;
+            // Triggers the staggered fade-up of the new sections replacing
+            // the skeleton (see #airport-window-content.apt-ready CSS).
+            contentEl.classList.add('apt-ready');
             contentEl.scrollTop = 0;
 
             // Re-attach tab listeners for the new content
