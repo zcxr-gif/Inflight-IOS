@@ -68,6 +68,7 @@ export const LiveTraffic3D = (() => {
     // render twice. Missing layers are skipped silently.
     const FLAT_LAYERS = [
         'sector-ops-live-flights-layer',
+        'sector-ops-live-flights-natural-layer',
         'sector-ops-live-flights-hover-layer',
         'sector-ops-live-flights-labels'
     ];

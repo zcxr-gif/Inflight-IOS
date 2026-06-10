@@ -33,6 +33,10 @@ export function initPlaneSizeSlider(map, filters) {
         if (map && map.getLayer('sector-ops-live-flights-layer')) {
             map.setLayoutProperty('sector-ops-live-flights-layer', 'icon-size', val);
         }
+        // Keep the natural (non-SDF) twin layer the same size as the SDF layer.
+        if (map && map.getLayer('sector-ops-live-flights-natural-layer')) {
+            map.setLayoutProperty('sector-ops-live-flights-natural-layer', 'icon-size', val);
+        }
     };
 
     const injectSlider = () => {
@@ -48,6 +52,9 @@ export function initPlaneSizeSlider(map, filters) {
     const applySize = () => {
         if (map.getLayer('sector-ops-live-flights-layer')) {
             map.setLayoutProperty('sector-ops-live-flights-layer', 'icon-size', filters.planeIconSize);
+        }
+        if (map.getLayer('sector-ops-live-flights-natural-layer')) {
+            map.setLayoutProperty('sector-ops-live-flights-natural-layer', 'icon-size', filters.planeIconSize);
         }
     };
 

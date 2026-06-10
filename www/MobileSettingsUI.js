@@ -887,10 +887,11 @@ export const MobileSettingsUI = {
                 if (e.target.closest('.locked')) return;
                 const setting = e.target.dataset.setting;
                 window.mapFilters[setting] = e.target.value;
-                // Picking a custom global color implies Default mode — otherwise
-                // a stale Blue/Orange preset would silently override it.
+                // Picking the global custom color switches into the dedicated
+                // 'custom' mode so it actually recolors every other aircraft
+                // (those planes move onto the tintable SDF layer).
                 if (setting === 'proCustomColor') {
-                    window.mapFilters.iconColorMode = 'default';
+                    window.mapFilters.iconColorMode = 'custom';
                 }
                 if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
                 if (window.updateMapFilters) window.updateMapFilters();
