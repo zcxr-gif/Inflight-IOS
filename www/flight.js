@@ -657,10 +657,9 @@ let mapFilters = {
         },
         labelScale: 1,            // 0.8–1.4 multiplier on base text size
         labelTheme: 'default',    // default | cyan | amber | mono | contrast (pro)
-        // PRO — custom active-ATC airport tag designer. Only applied when the
-        // Pro entitlement check passes (see getAtcTagAppearance). `style` is
-        // 'classic' (the full tag) or 'chip' (just the ICAO letters on a
-        // colored square).
+        // PRO — custom active-ATC airport tag designer (see
+        // getAtcTagAppearance). `style` is one of ATC_TAG_STYLES: 'classic',
+        // 'chip', 'pill', 'outline', 'neon', 'glass', 'flag' or 'mono'.
         atcTagConfig: {
             enabled: false,
             style: 'classic',
@@ -2149,6 +2148,58 @@ function injectCustomStyles() {
             min-height: 0;
         }
         .apt-live-tag.atc-tag-chip .apt-tag-extra { display: none; }
+
+        /* 'Pill': rounded capsule. */
+        .apt-live-tag.atc-tag-pill {
+            border-radius: 999px;
+            padding: 2px 7px;
+        }
+
+        /* 'Outline': hollow tag — border + letters carry the color. */
+        .apt-live-tag.atc-tag-outline {
+            background: transparent;
+            backdrop-filter: none;
+            border-width: 2px;
+            box-shadow: none;
+        }
+        .apt-live-tag.atc-tag-outline .apt-tag-ident {
+            text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+        }
+
+        /* 'Neon': glowing border + letters, dark glassy core. */
+        .apt-live-tag.atc-tag-neon {
+            border-width: 1.5px;
+            box-shadow:
+                0 0 10px var(--atc-tag-border, #38bdf8),
+                inset 0 0 6px rgba(255,255,255,0.06);
+        }
+        .apt-live-tag.atc-tag-neon .apt-tag-ident {
+            text-shadow: 0 0 6px var(--atc-tag-text, #fff);
+        }
+
+        /* 'Glass': frosted, softly rounded, barely-there border. */
+        .apt-live-tag.atc-tag-glass {
+            border-radius: 10px;
+            backdrop-filter: blur(14px) saturate(160%);
+            border: 1px solid var(--atc-tag-border, rgba(255,255,255,0.35));
+            box-shadow: 0 6px 18px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.25);
+        }
+
+        /* 'Flag': squared tag with a bold accent spine, like a strip board. */
+        .apt-live-tag.atc-tag-flag {
+            border-radius: 2px 8px 8px 2px;
+            border-left: 4px solid var(--atc-tag-border, #38bdf8);
+        }
+
+        /* 'Mono': flat terminal block — square, no blur, no shadow. */
+        .apt-live-tag.atc-tag-mono {
+            border-radius: 0;
+            backdrop-filter: none;
+            box-shadow: none;
+            padding: 3px 4px;
+        }
+        .apt-live-tag.atc-tag-mono .apt-tag-ident { letter-spacing: 1px; }
+
         .apt-live-tag.atc-tag-no-freqs .apt-tag-freqs { display: none; }
         .apt-live-tag.atc-tag-no-pulse .tag-pulse-aura { display: none; }
 
@@ -14046,9 +14097,19 @@ const AtcBoardUI = {
     
 
     try {
+        // --- 1b. Warm the live data in parallel with the map load ---
+        // The map/style/sprite load below takes seconds; neither the first
+        // ATC/NOTAM fetch nor the Socket.IO handshake needs the map, so kick
+        // both off now. Flight packets that land before the layers exist just
+        // fill currentMapFeatures, and startSectorOpsLiveLoop() paints that
+        // cache the moment the layers are up — so planes and ATC appear with
+        // the map instead of seconds after it.
+        updateSectorOpsSecondaryData();
+        initializeSectorOpsSocket();
+
         // --- 2. Initialize Map ---
         // Now that filters are loaded, this will use the correct currentMapStyle
-        const selectedHub = "KJFK"; 
+        const selectedHub = "KJFK";
         await initializeSectorOpsMap(selectedHub);
         updatePro3DLayers();
 
@@ -18876,11 +18937,19 @@ function setupSearchEventListeners() {
 // --- [REPLACEMENT] ---
 // Starts the data polling AND the animation loop.
 function startSectorOpsLiveLoop() {
-    stopSectorOpsLiveLoop(); // Clear any old loops
+    // Keep the warm pipeline: boot opens the socket and starts buffering
+    // flights while the map is still loading (see initializeSectorOpsView),
+    // so a full teardown here would throw away that head start.
+    // initializeSectorOpsSocket() below reuses/reconnects an existing socket.
+    stopSectorOpsLiveLoop({ keepLiveData: true }); // Clear any old loops
+
+    // ATC that arrived during the map load can render right away — don't
+    // make it wait for the fetch below to round-trip again.
+    if (activeAtcFacilities.length) renderAirportMarkers();
 
     // 1. Start the data fetching loop for ATC/NOTAMs (infrequent)
     updateSectorOpsSecondaryData(); // Fetch immediately
-    sectorOpsAtcNotamInterval = setInterval(updateSectorOpsSecondaryData, DATA_REFRESH_INTERVAL_MS); 
+    sectorOpsAtcNotamInterval = setInterval(updateSectorOpsSecondaryData, DATA_REFRESH_INTERVAL_MS);
 
     // 2. Initialize and connect the WebSocket
     initializeSectorOpsSocket();
@@ -18888,19 +18957,26 @@ function startSectorOpsLiveLoop() {
     // 3. Start the MapAnimator loop
     if (mapAnimator) {
         mapAnimator.start();
+        // Paint whatever flights arrived while the map was loading. The
+        // teleport animator only pushes the source when a packet lands, so
+        // without this the first planes wait for the next socket broadcast.
+        mapAnimator._updateMapSource();
     }
 }
 
 // Stops the data polling AND the animation loop.
-function stopSectorOpsLiveLoop() {
+// `keepLiveData: true` (the boot path) stops the timers without tearing down
+// the socket or the buffered flight features, so data that arrived while the
+// map was still loading survives into the freshly started loop.
+function stopSectorOpsLiveLoop({ keepLiveData = false } = {}) {
     // 1. Clear the data-fetching interval for ATC/NOTAMs
     if (sectorOpsAtcNotamInterval) {
         clearInterval(sectorOpsAtcNotamInterval);
         sectorOpsAtcNotamInterval = null;
     }
-    
+
     // 2. Disconnect the WebSocket
-    if (sectorOpsSocket) {
+    if (!keepLiveData && sectorOpsSocket) {
         console.log('Socket: Disconnecting from Sector Ops...');
         sectorOpsSocket.disconnect();
         sectorOpsSocket = null;
@@ -18913,23 +18989,30 @@ function stopSectorOpsLiveLoop() {
 
     // 4. Clear the feature state
     // FIX: Clear in place so MapAnimator keeps the reference
-    for (const key in currentMapFeatures) {
-        delete currentMapFeatures[key];
+    if (!keepLiveData) {
+        for (const key in currentMapFeatures) {
+            delete currentMapFeatures[key];
+        }
     }
 }
 
 // --- PRO: Custom active-ATC tag appearance --------------------------------
 // Resolves the user's custom ATC tag design (mapFilters.atcTagConfig), or
-// null when the stock look should be used: feature toggled off, missing
-// config, or no Pro entitlement. The entitlement check here is the hard
-// gate — the lock in the settings UI is only cosmetic.
+// null when the stock look should be used: feature toggled off or missing
+// config. Like the other studio features (custom plane colors, label
+// themes), access is gated by the settings UI lock — the map honors
+// whatever config it was allowed to write.
+
+// Every tag shape the designer can pick. Unknown values (old saved configs,
+// hand-edited storage) fall back to 'classic'.
+const ATC_TAG_STYLES = ['classic', 'chip', 'pill', 'outline', 'neon', 'glass', 'flag', 'mono'];
+
 function getAtcTagAppearance() {
     const cfg = mapFilters && mapFilters.atcTagConfig;
     if (!cfg || !cfg.enabled) return null;
-    if (!(window.isInflightPro && window.isInflightPro())) return null;
     const opacity = Math.min(1, Math.max(0.2, parseFloat(cfg.opacity) || 0.9));
     return {
-        style: cfg.style === 'chip' ? 'chip' : 'classic',
+        style: ATC_TAG_STYLES.includes(cfg.style) ? cfg.style : 'classic',
         bg: cfg.bg || '#0a0f19',
         text: cfg.text || '#ffffff',
         border: cfg.border || '#ffffff',
@@ -18952,7 +19035,10 @@ function atcTagHexToRgba(hex, alpha) {
 function applyAtcTagAppearance(el, appearance) {
     const cfg = appearance === undefined ? getAtcTagAppearance() : appearance;
     el.classList.toggle('atc-tag-custom', !!cfg);
-    el.classList.toggle('atc-tag-chip', !!cfg && cfg.style === 'chip');
+    ATC_TAG_STYLES.forEach(s => {
+        if (s === 'classic') return; // classic is the unstyled base look
+        el.classList.toggle(`atc-tag-${s}`, !!cfg && cfg.style === s);
+    });
     el.classList.toggle('atc-tag-no-freqs', !!cfg && !cfg.showFreqs);
     el.classList.toggle('atc-tag-no-pulse', !!cfg && !cfg.showPulse);
     if (cfg) {
@@ -18977,16 +19063,30 @@ window.refreshAtcTagAppearance = function () {
     renderAirportMarkers();
 };
 
-// The Pro entitlement resolves asynchronously (Supabase lookup), so a Pro
-// user with custom tags saved would otherwise see stock tags until the next
-// data tick — and a lapsed user would keep custom ones. Re-evaluate the
-// moment the entitlement lands or changes.
+// Re-skin whenever the account entitlement state changes so the tags always
+// reflect what the (re)authenticated user last saved.
 window.addEventListener('proStatusChanged', () => {
     try { window.refreshAtcTagAppearance(); } catch (_) {}
 });
 
+// renderAirportMarkers needs a loaded style; when one isn't ready yet the
+// render is queued (once) for the next idle frame instead of being dropped,
+// so settings changes still land "on the fly" instead of waiting for the
+// next ATC data poll.
+let airportMarkersRenderQueued = false;
+
 function renderAirportMarkers() {
-    if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded()) return;
+    if (!sectorOpsMap) return;
+    if (!sectorOpsMap.isStyleLoaded()) {
+        if (!airportMarkersRenderQueued) {
+            airportMarkersRenderQueued = true;
+            sectorOpsMap.once('idle', () => {
+                airportMarkersRenderQueued = false;
+                renderAirportMarkers();
+            });
+        }
+        return;
+    }
 
     const showUnstaffed = mapFilters.showUnstaffedAirports;
     const hideNoAtc = mapFilters.hideNoAtcMarkers;
@@ -19438,8 +19538,12 @@ function updateActiveAirportsGlanceLayer() {
 
 // --- [UPDATED] Fetches ATC & NOTAMs for the CURRENTLY SELECTED SERVER ---
 async function updateSectorOpsSecondaryData() {
-    if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded()) return;
-
+    // Deliberately no map/style guard here — this is a pure data fetch. The
+    // map-dependent consumers below (FIR sectors, airport markers) each guard
+    // themselves, and renderAirportMarkers() queues itself until the style is
+    // ready. The old isStyleLoaded() early-return silently skipped the
+    // boot-time fetch whenever the style was still settling, leaving the map
+    // with no ATC until the next 50-second polling tick.
     const LIVE_FLIGHTS_BACKEND = 'https://site--acars-backend--6dmjph8ltlhv.code.run';
 
     try {

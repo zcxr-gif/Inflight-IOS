@@ -52,7 +52,7 @@ const LABEL_PREVIEW_SAMPLE = {
 // entitlement is actually enforced.
 const ATC_TAG_DEFAULTS = {
     enabled: false,
-    style: 'classic',   // 'classic' (full tag) | 'chip' (letters on a square)
+    style: 'classic',   // one of ATC_TAG_STYLE_DEFS values (mirrors ATC_TAG_STYLES in flight.js)
     bg: '#0a0f19',
     text: '#ffffff',
     border: '#ffffff',
@@ -60,6 +60,42 @@ const ATC_TAG_DEFAULTS = {
     showFreqs: true,
     showPulse: true
 };
+
+// Tag shapes the designer offers. Values must mirror ATC_TAG_STYLES in
+// flight.js, which owns the CSS for each shape.
+const ATC_TAG_STYLE_DEFS = [
+    { value: 'classic', label: 'Classic' },
+    { value: 'chip',    label: 'Chip' },
+    { value: 'pill',    label: 'Pill' },
+    { value: 'outline', label: 'Outline' },
+    { value: 'neon',    label: 'Neon' },
+    { value: 'glass',   label: 'Glass' },
+    { value: 'flag',    label: 'Flag' },
+    { value: 'mono',    label: 'Mono' }
+];
+
+// Ready-made tag designs for the preset roulette. Each one is a complete
+// atcTagConfig payload (minus `enabled`); applying a preset stamps its name
+// into cfg.preset so the roulette window can show what's active. Any manual
+// tweak afterwards clears the name (the design becomes "Custom").
+const ATC_TAG_PRESETS = [
+    { name: 'Midnight',     style: 'classic', bg: '#0a0f19', text: '#ffffff', border: '#ffffff', opacity: 0.9,  showFreqs: true,  showPulse: true  },
+    { name: 'Neon Cyan',    style: 'neon',    bg: '#020617', text: '#7dd3fc', border: '#38bdf8', opacity: 0.85, showFreqs: true,  showPulse: true  },
+    { name: 'Radar Green',  style: 'mono',    bg: '#02180a', text: '#22c55e', border: '#16a34a', opacity: 0.92, showFreqs: true,  showPulse: true  },
+    { name: 'Amber Ops',    style: 'flag',    bg: '#1c1206', text: '#fbbf24', border: '#f59e0b', opacity: 0.92, showFreqs: true,  showPulse: true  },
+    { name: 'Tower Orange', style: 'pill',    bg: '#7c2d12', text: '#ffedd5', border: '#fb923c', opacity: 0.95, showFreqs: false, showPulse: true  },
+    { name: 'Ice',          style: 'glass',   bg: '#e0f2fe', text: '#0c4a6e', border: '#bae6fd', opacity: 0.55, showFreqs: false, showPulse: false },
+    { name: 'Blackout',     style: 'chip',    bg: '#000000', text: '#ffffff', border: '#3f3f46', opacity: 1,    showFreqs: false, showPulse: false },
+    { name: 'Royal',        style: 'pill',    bg: '#1e1b4b', text: '#c7d2fe', border: '#818cf8', opacity: 0.92, showFreqs: true,  showPulse: true  },
+    { name: 'Hot Pink',     style: 'neon',    bg: '#1a0412', text: '#f9a8d4', border: '#ec4899', opacity: 0.85, showFreqs: false, showPulse: true  },
+    { name: 'Paper',        style: 'outline', bg: '#f8fafc', text: '#f1f5f9', border: '#e2e8f0', opacity: 0.95, showFreqs: false, showPulse: false },
+    { name: 'Ghost',        style: 'glass',   bg: '#0b1220', text: '#e2e8f0', border: '#94a3b8', opacity: 0.4,  showFreqs: false, showPulse: false },
+    { name: 'Crimson',      style: 'flag',    bg: '#1f0a0a', text: '#fecaca', border: '#ef4444', opacity: 0.92, showFreqs: true,  showPulse: true  },
+    { name: 'Forest',       style: 'classic', bg: '#052e16', text: '#bbf7d0', border: '#22c55e', opacity: 0.92, showFreqs: true,  showPulse: false },
+    { name: 'Gold Leaf',    style: 'glass',   bg: '#451a03', text: '#fde68a', border: '#fbbf24', opacity: 0.7,  showFreqs: true,  showPulse: true  },
+    { name: 'Violet Storm', style: 'neon',    bg: '#11041d', text: '#e9d5ff', border: '#a855f7', opacity: 0.88, showFreqs: true,  showPulse: true  },
+    { name: 'Slate Mono',   style: 'mono',    bg: '#0f172a', text: '#cbd5e1', border: '#475569', opacity: 1,    showFreqs: true,  showPulse: false }
+];
 
 // Label color themes. `mono` + `default` are free; the rest are pro.
 const LABEL_THEME_DEFS = [
@@ -552,11 +588,12 @@ export const MobileSettingsUI = {
     },
 
     // ---- PRO: ATC Tag Studio ---------------------------------------------
-    // Designer for the active-ATC airport tags: live preview, style preset
-    // (full tag vs. plain letters on a square), colors, background opacity,
-    // and the frequency-badge / pulse extras. Writes
-    // mapFilters.atcTagConfig; the map side (flight.js) only honors it for
-    // Pro users, so the lock here is presentation — not the gate.
+    // Designer for the active-ATC airport tags: live preview, a roulette of
+    // ready-made preset designs, eight tag shapes, colors, background
+    // opacity, and the frequency-badge / pulse extras. Writes
+    // mapFilters.atcTagConfig, which the map side (flight.js) applies
+    // directly — like the other studio features, the sign-in lock on these
+    // controls is the gate.
     renderAtcTagStudio() {
         const d = ATC_TAG_DEFAULTS;
         return `
@@ -580,15 +617,32 @@ export const MobileSettingsUI = {
                 </div>
             </div>
             <div id="m-atc-tag-options">
+                <div class="mobile-section-header pro-accent"><i class="fa-solid fa-dice"></i> Preset Designs</div>
+                <div class="m-atc-roulette is-pro-feature">
+                    <button class="m-atc-roulette-arrow" data-atc-roulette="prev" type="button" aria-label="Previous preset">
+                        <i class="fa-solid fa-chevron-left"></i>
+                    </button>
+                    <div class="m-atc-roulette-window">
+                        <div class="m-atc-roulette-name" id="m-atc-preset-name">Midnight</div>
+                        <div class="m-atc-roulette-count" id="m-atc-preset-count">1 / ${ATC_TAG_PRESETS.length}</div>
+                    </div>
+                    <button class="m-atc-roulette-arrow" data-atc-roulette="next" type="button" aria-label="Next preset">
+                        <i class="fa-solid fa-chevron-right"></i>
+                    </button>
+                </div>
+                <button class="m-atc-spin is-pro-feature" id="m-atc-spin" type="button">
+                    <i class="fa-solid fa-dice"></i> Spin the Roulette
+                </button>
                 <div class="m-settings-list">
-                    <div class="m-setting-row is-pro-feature">
+                    <div class="m-setting-row m-atc-style-row is-pro-feature">
                         <div class="m-row-left">
                             <i class="fa-solid fa-shapes" style="color:#fbbf24;"></i>
                             <span>Tag Style</span>
                         </div>
-                        <div class="m-row-right m-atc-style-pills">
-                            <button class="m-atc-pill" data-atc-style="classic" type="button">Full Tag</button>
-                            <button class="m-atc-pill" data-atc-style="chip" type="button">Letters</button>
+                        <div class="m-atc-style-pills">
+                            ${ATC_TAG_STYLE_DEFS.map(s =>
+                                `<button class="m-atc-pill" data-atc-style="${s.value}" type="button">${s.label}</button>`
+                            ).join('')}
                         </div>
                     </div>
                     <div class="m-setting-row is-pro-feature">
@@ -667,9 +721,64 @@ export const MobileSettingsUI = {
     setAtcTag(key, value) {
         const cfg = this.getAtcTagConfig();
         cfg[key] = value;
+        // A manual tweak means the design no longer matches a preset.
+        if (key !== 'enabled') delete cfg.preset;
         this.syncAtcTagControls();
         if (window.refreshAtcTagAppearance) window.refreshAtcTagAppearance();
         if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
+    },
+
+    // --- Preset roulette ---------------------------------------------------
+    _atcPresetIndex: 0,
+    _atcSpinActive: false,
+
+    // Applies preset `index` (wrapping) to the live config. `commit: false`
+    // only repaints the studio preview/controls — the roulette spin uses it
+    // for its intermediate ticks so the map isn't re-rendered 20× per spin.
+    applyAtcTagPreset(index, commit = true) {
+        const n = ATC_TAG_PRESETS.length;
+        this._atcPresetIndex = ((index % n) + n) % n;
+        const p = ATC_TAG_PRESETS[this._atcPresetIndex];
+        const cfg = this.getAtcTagConfig();
+        Object.assign(cfg, {
+            preset: p.name,
+            style: p.style,
+            bg: p.bg,
+            text: p.text,
+            border: p.border,
+            opacity: p.opacity,
+            showFreqs: p.showFreqs,
+            showPulse: p.showPulse
+        });
+        this.syncAtcTagControls();
+        if (commit) {
+            if (window.refreshAtcTagAppearance) window.refreshAtcTagAppearance();
+            if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
+        }
+    },
+
+    // Roulette spin: at least one full revolution, then a random landing
+    // slot, with the tick delay easing out like a slowing wheel. The live
+    // preview repaints on every tick; the map + storage commit on landing.
+    spinAtcTagRoulette() {
+        if (this._atcSpinActive) return;
+        this._atcSpinActive = true;
+        const n = ATC_TAG_PRESETS.length;
+        const steps = n + 4 + Math.floor(Math.random() * n);
+        let step = 0;
+        const tick = () => {
+            step++;
+            const last = step >= steps;
+            this.applyAtcTagPreset(this._atcPresetIndex + 1, last);
+            window.InflightHaptics?.select?.();
+            if (last) {
+                this._atcSpinActive = false;
+                return;
+            }
+            const t = step / steps;
+            setTimeout(tick, 40 + 380 * t * t);
+        };
+        tick();
     },
 
     attachAtcTagHandlers(sheet) {
@@ -700,6 +809,21 @@ export const MobileSettingsUI = {
                 this.setAtcTag('style', btn.dataset.atcStyle);
             });
         });
+        sheet.querySelectorAll('[data-atc-roulette]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                if (btn.closest('.locked') || this._atcSpinActive) return;
+                window.InflightHaptics?.select?.();
+                this.applyAtcTagPreset(this._atcPresetIndex + (btn.dataset.atcRoulette === 'prev' ? -1 : 1));
+            });
+        });
+        const spin = sheet.querySelector('#m-atc-spin');
+        if (spin) {
+            spin.addEventListener('click', () => {
+                if (spin.classList.contains('locked')) return;
+                window.InflightHaptics?.select?.();
+                this.spinAtcTagRoulette();
+            });
+        }
     },
 
     // Reflect mapFilters.atcTagConfig into the studio's controls + preview.
@@ -722,6 +846,20 @@ export const MobileSettingsUI = {
         container.querySelectorAll('.m-atc-pill').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.atcStyle === cfg.style);
         });
+
+        // Preset roulette window: show the active preset (and track its index
+        // so the arrows continue from it), or "Custom" after manual tweaks.
+        const presetIdx = ATC_TAG_PRESETS.findIndex(p => p.name === cfg.preset);
+        if (presetIdx >= 0) this._atcPresetIndex = presetIdx;
+        const presetName = document.getElementById('m-atc-preset-name');
+        if (presetName) presetName.textContent = presetIdx >= 0 ? cfg.preset : 'Custom';
+        const presetCount = document.getElementById('m-atc-preset-count');
+        if (presetCount) {
+            presetCount.textContent = presetIdx >= 0
+                ? `${presetIdx + 1} / ${ATC_TAG_PRESETS.length}`
+                : `${ATC_TAG_PRESETS.length} presets`;
+        }
+
         const options = document.getElementById('m-atc-tag-options');
         if (options) options.classList.toggle('is-off', !cfg.enabled);
 
@@ -747,7 +885,7 @@ export const MobileSettingsUI = {
         const cls = ['apt-live-tag'];
         if (custom) {
             cls.push('atc-tag-custom');
-            if (cfg.style === 'chip') cls.push('atc-tag-chip');
+            if (cfg.style && cfg.style !== 'classic') cls.push(`atc-tag-${cfg.style}`);
             if (!cfg.showFreqs) cls.push('atc-tag-no-freqs');
             if (!cfg.showPulse) cls.push('atc-tag-no-pulse');
         }
@@ -1980,7 +2118,8 @@ export const MobileSettingsUI = {
                     position: relative; transform: scale(1.5); transform-origin: center;
                     cursor: default; pointer-events: none;
                 }
-                .m-atc-style-pills { display: flex; gap: 8px; }
+                .m-atc-style-row { flex-direction: column; align-items: stretch; gap: 10px; }
+                .m-atc-style-pills { display: flex; flex-wrap: wrap; gap: 8px; }
                 .m-atc-pill {
                     background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
                     color: #a1a1aa; padding: 8px 12px; border-radius: 10px; font-weight: 700;
@@ -1991,6 +2130,38 @@ export const MobileSettingsUI = {
                 #m-atc-tag-options.is-off { opacity: 0.45; pointer-events: none; }
                 .is-pro-feature.locked .m-atc-pill,
                 .is-pro-feature.locked .m-range-input {
+                    opacity: 0.3; pointer-events: none; filter: grayscale(100%);
+                }
+
+                /* ---- ATC Tag Studio: preset roulette ---- */
+                .m-atc-roulette {
+                    display: flex; align-items: stretch; gap: 8px; margin: 0 20px 8px;
+                }
+                .m-atc-roulette-arrow {
+                    width: 42px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);
+                    background: rgba(255,255,255,0.05); color: #a1a1aa; font-size: 0.85rem;
+                    -webkit-tap-highlight-color: transparent;
+                }
+                .m-atc-roulette-arrow:active { background: rgba(56,189,248,0.18); color: #fff; }
+                .m-atc-roulette-window {
+                    flex: 1; text-align: center; padding: 9px 8px; border-radius: 12px;
+                    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1);
+                }
+                .m-atc-roulette-name { font-size: 0.92rem; font-weight: 800; color: #fff; }
+                .m-atc-roulette-count {
+                    font-size: 0.6rem; font-weight: 700; color: #71717a;
+                    text-transform: uppercase; letter-spacing: 0.08em; margin-top: 2px;
+                }
+                .m-atc-spin {
+                    display: flex; align-items: center; justify-content: center; gap: 8px;
+                    margin: 0 20px 4px; width: calc(100% - 40px); padding: 12px;
+                    border-radius: 12px; border: none; font-size: 0.85rem; font-weight: 800;
+                    background: linear-gradient(135deg, #fbbf24, #d97706); color: #000;
+                    -webkit-tap-highlight-color: transparent; transition: transform 0.15s ease;
+                }
+                .m-atc-spin:active { transform: scale(0.97); }
+                .is-pro-feature.locked .m-atc-roulette-arrow,
+                .m-atc-spin.locked {
                     opacity: 0.3; pointer-events: none; filter: grayscale(100%);
                 }
 
