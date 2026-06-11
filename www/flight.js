@@ -14097,9 +14097,19 @@ const AtcBoardUI = {
     
 
     try {
+        // --- 1b. Warm the live data in parallel with the map load ---
+        // The map/style/sprite load below takes seconds; neither the first
+        // ATC/NOTAM fetch nor the Socket.IO handshake needs the map, so kick
+        // both off now. Flight packets that land before the layers exist just
+        // fill currentMapFeatures, and startSectorOpsLiveLoop() paints that
+        // cache the moment the layers are up — so planes and ATC appear with
+        // the map instead of seconds after it.
+        updateSectorOpsSecondaryData();
+        initializeSectorOpsSocket();
+
         // --- 2. Initialize Map ---
         // Now that filters are loaded, this will use the correct currentMapStyle
-        const selectedHub = "KJFK"; 
+        const selectedHub = "KJFK";
         await initializeSectorOpsMap(selectedHub);
         updatePro3DLayers();
 
@@ -18927,11 +18937,19 @@ function setupSearchEventListeners() {
 // --- [REPLACEMENT] ---
 // Starts the data polling AND the animation loop.
 function startSectorOpsLiveLoop() {
-    stopSectorOpsLiveLoop(); // Clear any old loops
+    // Keep the warm pipeline: boot opens the socket and starts buffering
+    // flights while the map is still loading (see initializeSectorOpsView),
+    // so a full teardown here would throw away that head start.
+    // initializeSectorOpsSocket() below reuses/reconnects an existing socket.
+    stopSectorOpsLiveLoop({ keepLiveData: true }); // Clear any old loops
+
+    // ATC that arrived during the map load can render right away — don't
+    // make it wait for the fetch below to round-trip again.
+    if (activeAtcFacilities.length) renderAirportMarkers();
 
     // 1. Start the data fetching loop for ATC/NOTAMs (infrequent)
     updateSectorOpsSecondaryData(); // Fetch immediately
-    sectorOpsAtcNotamInterval = setInterval(updateSectorOpsSecondaryData, DATA_REFRESH_INTERVAL_MS); 
+    sectorOpsAtcNotamInterval = setInterval(updateSectorOpsSecondaryData, DATA_REFRESH_INTERVAL_MS);
 
     // 2. Initialize and connect the WebSocket
     initializeSectorOpsSocket();
@@ -18939,19 +18957,26 @@ function startSectorOpsLiveLoop() {
     // 3. Start the MapAnimator loop
     if (mapAnimator) {
         mapAnimator.start();
+        // Paint whatever flights arrived while the map was loading. The
+        // teleport animator only pushes the source when a packet lands, so
+        // without this the first planes wait for the next socket broadcast.
+        mapAnimator._updateMapSource();
     }
 }
 
 // Stops the data polling AND the animation loop.
-function stopSectorOpsLiveLoop() {
+// `keepLiveData: true` (the boot path) stops the timers without tearing down
+// the socket or the buffered flight features, so data that arrived while the
+// map was still loading survives into the freshly started loop.
+function stopSectorOpsLiveLoop({ keepLiveData = false } = {}) {
     // 1. Clear the data-fetching interval for ATC/NOTAMs
     if (sectorOpsAtcNotamInterval) {
         clearInterval(sectorOpsAtcNotamInterval);
         sectorOpsAtcNotamInterval = null;
     }
-    
+
     // 2. Disconnect the WebSocket
-    if (sectorOpsSocket) {
+    if (!keepLiveData && sectorOpsSocket) {
         console.log('Socket: Disconnecting from Sector Ops...');
         sectorOpsSocket.disconnect();
         sectorOpsSocket = null;
@@ -18964,8 +18989,10 @@ function stopSectorOpsLiveLoop() {
 
     // 4. Clear the feature state
     // FIX: Clear in place so MapAnimator keeps the reference
-    for (const key in currentMapFeatures) {
-        delete currentMapFeatures[key];
+    if (!keepLiveData) {
+        for (const key in currentMapFeatures) {
+            delete currentMapFeatures[key];
+        }
     }
 }
 
@@ -19511,8 +19538,12 @@ function updateActiveAirportsGlanceLayer() {
 
 // --- [UPDATED] Fetches ATC & NOTAMs for the CURRENTLY SELECTED SERVER ---
 async function updateSectorOpsSecondaryData() {
-    if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded()) return;
-
+    // Deliberately no map/style guard here — this is a pure data fetch. The
+    // map-dependent consumers below (FIR sectors, airport markers) each guard
+    // themselves, and renderAirportMarkers() queues itself until the style is
+    // ready. The old isStyleLoaded() early-return silently skipped the
+    // boot-time fetch whenever the style was still settling, leaving the map
+    // with no ATC until the next 50-second polling tick.
     const LIVE_FLIGHTS_BACKEND = 'https://site--acars-backend--6dmjph8ltlhv.code.run';
 
     try {
