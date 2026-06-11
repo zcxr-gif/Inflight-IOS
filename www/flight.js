@@ -7236,59 +7236,109 @@ function updateAircraftLabelVisibility() {
 }
 
 /**
- * --- [UPDATED] "Pro Smooth" RainViewer Layer ---
- * Uses Source Clamping (maxzoom: 8) to force smooth interpolation
- * instead of pixelated blocks when zooming in.
+ * --- Animated RainViewer Radar ---
+ * Loads the last hour of radar frames (10-minute steps) and cross-fades
+ * between them for an animated radar loop, holding on the newest frame.
+ * RainViewer free tier (since Jan 2026) caps radar tiles at zoom 7, so the
+ * source is clamped there and Mapbox stretches the tiles smoothly past it.
  */
+const RADAR_FRAME_COUNT = 6;        // Last hour of frames — keeps tile requests within free-tier rate limits
+const RADAR_FRAME_INTERVAL = 600;   // ms per animation frame
+const RADAR_LAST_FRAME_HOLD = 2200; // ms pause on the newest frame
+const RADAR_OPACITY = 0.65;
+let radarFrames = [];               // [{ sourceId, layerId, time }]
+let radarAnimationTimer = null;
+let radarFrameIndex = 0;
+
+// Aircraft must stay on top of every weather raster/vector layer, but the
+// flights layer may not exist yet right after a style change.
+function weatherLayerBeforeId() {
+    return sectorOpsMap.getLayer('sector-ops-live-flights-layer')
+        ? 'sector-ops-live-flights-layer'
+        : undefined;
+}
+
+function stopRadarAnimation() {
+    if (radarAnimationTimer) {
+        clearTimeout(radarAnimationTimer);
+        radarAnimationTimer = null;
+    }
+}
+
+function stepRadarAnimation() {
+    if (!sectorOpsMap || radarFrames.length < 2) { stopRadarAnimation(); return; }
+    // A style change wipes the layers; rebuildDynamicLayers re-creates us.
+    if (!sectorOpsMap.getLayer(radarFrames[radarFrameIndex].layerId)) { stopRadarAnimation(); return; }
+
+    radarFrames.forEach((f, i) => {
+        if (sectorOpsMap.getLayer(f.layerId)) {
+            sectorOpsMap.setPaintProperty(f.layerId, 'raster-opacity', i === radarFrameIndex ? RADAR_OPACITY : 0);
+        }
+    });
+
+    const isNewestFrame = radarFrameIndex === radarFrames.length - 1;
+    radarFrameIndex = (radarFrameIndex + 1) % radarFrames.length;
+    radarAnimationTimer = setTimeout(stepRadarAnimation, isNewestFrame ? RADAR_LAST_FRAME_HOLD : RADAR_FRAME_INTERVAL);
+}
+
 async function toggleWeatherLayer(show) {
     if (!sectorOpsMap) return;
-
-    const SOURCE_ID = 'rainviewer-radar-source';
-    const LAYER_ID = 'rainviewer-radar-layer';
 
     if (show && !isWeatherLayerAdded) {
         try {
             // 1. Fetch official configuration
             const res = await fetch('https://api.rainviewer.com/public/weather-maps.json');
             const data = await res.json();
-            const host = data.host; 
-            
-            // Get the very latest frame
-            const latestFrame = data.radar.past[data.radar.past.length - 1];
-            const path = latestFrame.path;
+            const host = data.host;
+            const pastFrames = (data.radar && data.radar.past) || [];
+            const frames = pastFrames.slice(-RADAR_FRAME_COUNT);
+            if (frames.length === 0) throw new Error('No radar frames available');
 
-            // --- SETTINGS ---
-            // 512 = High DPI (Retina)
-            // 4   = 'Titan' Color Scheme (Professional Aviation)
-            // 1_1 = Smooth (1) + Snow (1)
-            const tileUrl = `${host}${path}/512/{z}/{x}/{y}/4/1_1.png`;
+            stopRadarAnimation();
+            radarFrames = [];
 
-            // 2. Add Source with "Clamped" Zoom
-            sectorOpsMap.addSource(SOURCE_ID, {
-                'type': 'raster',
-                'tiles': [tileUrl],
-                'tileSize': 512,
-                
-                // --- THE TRICK IS HERE ---
-                // We tell Mapbox the server only has data up to zoom 8.
-                // When you zoom past 8, Mapbox will stretch these tiles smoothly.
-                'maxzoom': 8 
+            frames.forEach((frame, i) => {
+                const sourceId = `rainviewer-radar-source-${frame.time}`;
+                const layerId = `rainviewer-radar-layer-${frame.time}`;
+
+                // --- SETTINGS ---
+                // 512 = High DPI (Retina)
+                // 4   = 'Titan' Color Scheme (Professional Aviation)
+                // 1_1 = Smooth (1) + Snow (1)
+                const tileUrl = `${host}${frame.path}/512/{z}/{x}/{y}/4/1_1.png`;
+
+                if (!sectorOpsMap.getSource(sourceId)) {
+                    sectorOpsMap.addSource(sourceId, {
+                        'type': 'raster',
+                        'tiles': [tileUrl],
+                        'tileSize': 512,
+                        'maxzoom': 7
+                    });
+                }
+
+                sectorOpsMap.addLayer({
+                    'id': layerId,
+                    'type': 'raster',
+                    'source': sourceId,
+                    'paint': {
+                        // Only the newest frame starts visible; the rest are
+                        // pre-loaded at opacity 0 so the loop never flickers.
+                        'raster-opacity': i === frames.length - 1 ? RADAR_OPACITY : 0,
+                        'raster-opacity-transition': { duration: 150 },
+                        'raster-resampling': 'linear', // FORCE smooth gradient scaling
+                        'raster-fade-duration': 0
+                    }
+                }, weatherLayerBeforeId()); // Draw underneath aircraft
+
+                radarFrames.push({ sourceId, layerId, time: frame.time });
             });
 
-            // 3. Add Layer
-            sectorOpsMap.addLayer({
-                'id': LAYER_ID,
-                'type': 'raster',
-                'source': SOURCE_ID,
-                'paint': {
-                    'raster-opacity': 0.65,       // Slightly transparent for modern look
-                    'raster-resampling': 'linear', // FORCE smooth gradient scaling
-                    'raster-fade-duration': 0
-                }
-            }, 'sector-ops-live-flights-layer'); // Draw underneath aircraft
-
             isWeatherLayerAdded = true;
-            console.log(`Premium Smooth Radar layer added.`);
+            radarFrameIndex = 0;
+            if (radarFrames.length > 1) {
+                radarAnimationTimer = setTimeout(stepRadarAnimation, RADAR_LAST_FRAME_HOLD);
+            }
+            console.log(`Animated radar added (${radarFrames.length} frames).`);
 
         } catch (error) {
             console.error("Failed to init weather layer:", error);
@@ -7297,8 +7347,15 @@ async function toggleWeatherLayer(show) {
 
     } else if (isWeatherLayerAdded) {
         const visibility = show ? 'visible' : 'none';
-        if (sectorOpsMap.getLayer(LAYER_ID)) {
-            sectorOpsMap.setLayoutProperty(LAYER_ID, 'visibility', visibility);
+        radarFrames.forEach(f => {
+            if (sectorOpsMap.getLayer(f.layerId)) {
+                sectorOpsMap.setLayoutProperty(f.layerId, 'visibility', visibility);
+            }
+        });
+        if (show) {
+            if (!radarAnimationTimer) stepRadarAnimation();
+        } else {
+            stopRadarAnimation();
         }
     }
 }
@@ -7308,6 +7365,7 @@ async function toggleWeatherLayer(show) {
  * Fetches active aviation hazards (Turbulence, Icing, Convection).
  */
 let isSigmetLayerAdded = false;
+let sigmetClickHandlerAttached = false;
 
 async function toggleSigmetLayer(show) {
     if (!sectorOpsMap) return;
@@ -7343,7 +7401,7 @@ async function toggleSigmetLayer(show) {
                     ],
                     'fill-opacity': 0.20
                 }
-            }, 'sector-ops-live-flights-layer'); 
+            }, weatherLayerBeforeId());
 
             // 2. Outline Layer (Solid Lines)
             sectorOpsMap.addLayer({
@@ -7362,21 +7420,25 @@ async function toggleSigmetLayer(show) {
                     'line-width': 1.5,
                     'line-opacity': 0.8
                 }
-            }, 'sector-ops-live-flights-layer');
+            }, weatherLayerBeforeId());
 
-            // 3. Click interaction for details
-            sectorOpsMap.on('click', FILL_LAYER_ID, (e) => {
-                const props = e.features[0].properties;
-                new mapboxgl.Popup()
-                    .setLngLat(e.lngLat)
-                    .setHTML(`
-                        <div style="color:#333; padding:5px;">
-                            <strong>${props.hazard || 'SIGMET'}</strong><br>
-                            <span style="font-size: 0.8em; color: #555;">${props.rawSigmet || 'No details'}</span>
-                        </div>
-                    `)
-                    .addTo(sectorOpsMap);
-            });
+            // 3. Click interaction for details. The map object survives style
+            // changes, so only attach once or popups duplicate on rebuild.
+            if (!sigmetClickHandlerAttached) {
+                sectorOpsMap.on('click', FILL_LAYER_ID, (e) => {
+                    const props = e.features[0].properties;
+                    new mapboxgl.Popup()
+                        .setLngLat(e.lngLat)
+                        .setHTML(`
+                            <div style="color:#333; padding:5px;">
+                                <strong>${props.hazard || 'SIGMET'}</strong><br>
+                                <span style="font-size: 0.8em; color: #555;">${props.rawSigmet || 'No details'}</span>
+                            </div>
+                        `)
+                        .addTo(sectorOpsMap);
+                });
+                sigmetClickHandlerAttached = true;
+            }
 
             isSigmetLayerAdded = true;
             console.log('SIGMET vector layer added.');
@@ -7390,6 +7452,216 @@ async function toggleSigmetLayer(show) {
         const vis = show ? 'visible' : 'none';
         if (sectorOpsMap.getLayer(FILL_LAYER_ID)) sectorOpsMap.setLayoutProperty(FILL_LAYER_ID, 'visibility', vis);
         if (sectorOpsMap.getLayer(LINE_LAYER_ID)) sectorOpsMap.setLayoutProperty(LINE_LAYER_ID, 'visibility', vis);
+    }
+}
+
+/**
+ * --- OpenWeatherMap Raster Layers (Clouds / Wind) ---
+ * Shared helper: both layers are plain OWM raster tiles that differ only in
+ * the OWM layer name and opacity. Uses the same zoom-clamping trick as the
+ * radar so the coarse tiles stay smooth when zoomed in.
+ */
+function toggleOwmRasterLayer(show, { owmLayer, sourceId, layerId, opacity, isAdded, setAdded }) {
+    if (!sectorOpsMap) return;
+
+    if (show && !isAdded()) {
+        if (!OWM_API_KEY) {
+            showNotification('Weather service key not loaded — try again shortly.', 'error');
+            return;
+        }
+        try {
+            if (!sectorOpsMap.getSource(sourceId)) {
+                sectorOpsMap.addSource(sourceId, {
+                    'type': 'raster',
+                    'tiles': [`https://tile.openweathermap.org/map/${owmLayer}/{z}/{x}/{y}.png?appid=${OWM_API_KEY}`],
+                    'tileSize': 256,
+                    'maxzoom': 7
+                });
+            }
+            sectorOpsMap.addLayer({
+                'id': layerId,
+                'type': 'raster',
+                'source': sourceId,
+                'paint': {
+                    'raster-opacity': opacity,
+                    'raster-resampling': 'linear',
+                    'raster-fade-duration': 0
+                }
+            }, weatherLayerBeforeId());
+            setAdded(true);
+        } catch (error) {
+            console.error(`Failed to init ${owmLayer} layer:`, error);
+            showNotification('Could not load weather overlay.', 'error');
+        }
+    } else if (isAdded()) {
+        if (sectorOpsMap.getLayer(layerId)) {
+            sectorOpsMap.setLayoutProperty(layerId, 'visibility', show ? 'visible' : 'none');
+        }
+    }
+}
+
+function toggleCloudLayer(show) {
+    toggleOwmRasterLayer(show, {
+        owmLayer: 'clouds_new',
+        sourceId: 'owm-clouds-source',
+        layerId: 'owm-clouds-layer',
+        opacity: 0.85,
+        isAdded: () => isCloudLayerAdded,
+        setAdded: (v) => { isCloudLayerAdded = v; }
+    });
+}
+
+function toggleWindLayer(show) {
+    toggleOwmRasterLayer(show, {
+        owmLayer: 'wind_new',
+        sourceId: 'owm-wind-source',
+        layerId: 'owm-wind-layer',
+        opacity: 0.8,
+        isAdded: () => isWindLayerAdded,
+        setAdded: (v) => { isWindLayerAdded = v; }
+    });
+}
+
+/**
+ * --- Flight Category Layer (VFR / MVFR / IFR / LIFR) ---
+ * Colors reporting stations by their current flight category using NOAA
+ * Aviation Weather Center METARs, fetched for the visible map area and
+ * refreshed when the user pans outside the last-fetched region.
+ */
+let isFlightCatLayerAdded = false;
+let flightCatVisible = false;
+let flightCatHandlersAttached = false;
+let flightCatMoveTimer = null;
+let flightCatLastFetch = { box: null, time: 0 };
+
+const FLIGHT_CAT_SOURCE_ID = 'awc-flightcat-source';
+const FLIGHT_CAT_LAYER_ID = 'awc-flightcat-layer';
+const FLIGHT_CAT_COLORS = {
+    'VFR': '#30d158',
+    'MVFR': '#0a84ff',
+    'IFR': '#ff453a',
+    'LIFR': '#bf5af2'
+};
+
+function flightCatViewBox() {
+    const b = sectorOpsMap.getBounds();
+    // Pad 40% per side so small pans don't trigger refetches.
+    const latPad = (b.getNorth() - b.getSouth()) * 0.4;
+    const lonPad = (b.getEast() - b.getWest()) * 0.4;
+    return {
+        south: Math.max(-85, b.getSouth() - latPad),
+        north: Math.min(85, b.getNorth() + latPad),
+        west: Math.max(-180, b.getWest() - lonPad),
+        east: Math.min(180, b.getEast() + lonPad)
+    };
+}
+
+async function fetchFlightCategories(force = false) {
+    if (!sectorOpsMap || !sectorOpsMap.getSource(FLIGHT_CAT_SOURCE_ID)) return;
+
+    const box = flightCatViewBox();
+    const last = flightCatLastFetch;
+    const isInsideLastBox = last.box &&
+        box.south >= last.box.south && box.north <= last.box.north &&
+        box.west >= last.box.west && box.east <= last.box.east;
+    if (!force && isInsideLastBox && (Date.now() - last.time) < 5 * 60 * 1000) return;
+
+    const bbox = `${box.south.toFixed(2)},${box.west.toFixed(2)},${box.north.toFixed(2)},${box.east.toFixed(2)}`;
+    const response = await fetch(`https://aviationweather.gov/api/data/metar?format=geojson&bbox=${bbox}`);
+    if (!response.ok) throw new Error(`AWC METAR request failed (${response.status})`);
+    const geojson = await response.json();
+
+    // AWC has shipped the category under different property names over time.
+    (geojson.features || []).forEach(f => {
+        const p = f.properties || {};
+        p.fltcat = p.fltcat || p.fltCat || p.flight_category || 'UNK';
+        f.properties = p;
+    });
+
+    const source = sectorOpsMap.getSource(FLIGHT_CAT_SOURCE_ID);
+    if (source) source.setData(geojson);
+    flightCatLastFetch = { box, time: Date.now() };
+}
+
+async function toggleFlightCatLayer(show) {
+    if (!sectorOpsMap) return;
+
+    flightCatVisible = !!show;
+
+    if (show && !isFlightCatLayerAdded) {
+        try {
+            if (!sectorOpsMap.getSource(FLIGHT_CAT_SOURCE_ID)) {
+                sectorOpsMap.addSource(FLIGHT_CAT_SOURCE_ID, {
+                    'type': 'geojson',
+                    'data': { type: 'FeatureCollection', features: [] }
+                });
+            }
+
+            sectorOpsMap.addLayer({
+                'id': FLIGHT_CAT_LAYER_ID,
+                'type': 'circle',
+                'source': FLIGHT_CAT_SOURCE_ID,
+                'paint': {
+                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, 2.5, 7, 5, 10, 8],
+                    'circle-color': [
+                        'match', ['get', 'fltcat'],
+                        'VFR', FLIGHT_CAT_COLORS.VFR,
+                        'MVFR', FLIGHT_CAT_COLORS.MVFR,
+                        'IFR', FLIGHT_CAT_COLORS.IFR,
+                        'LIFR', FLIGHT_CAT_COLORS.LIFR,
+                        '#8e8e93' // Unknown / missing category
+                    ],
+                    'circle-opacity': 0.9,
+                    'circle-stroke-width': 1,
+                    'circle-stroke-color': 'rgba(0, 0, 0, 0.55)'
+                }
+            }, weatherLayerBeforeId());
+
+            if (!flightCatHandlersAttached) {
+                sectorOpsMap.on('click', FLIGHT_CAT_LAYER_ID, (e) => {
+                    const feature = e.features[0];
+                    const p = feature.properties;
+                    const cat = p.fltcat || 'UNK';
+                    const color = FLIGHT_CAT_COLORS[cat] || '#8e8e93';
+                    new mapboxgl.Popup()
+                        .setLngLat(feature.geometry.coordinates)
+                        .setHTML(`
+                            <div style="color:#333; padding:5px; max-width:260px;">
+                                <strong>${p.id || p.site || 'Station'}</strong>
+                                <span style="background:${color}; color:#fff; border-radius:4px; padding:1px 6px; margin-left:6px; font-size:0.75em; font-weight:700;">${cat}</span><br>
+                                <span style="font-size: 0.8em; color: #555;">${p.rawOb || 'No METAR available'}</span>
+                            </div>
+                        `)
+                        .addTo(sectorOpsMap);
+                });
+
+                // Refresh data when the user pans/zooms outside the fetched area.
+                sectorOpsMap.on('moveend', () => {
+                    if (!flightCatVisible || !isFlightCatLayerAdded) return;
+                    clearTimeout(flightCatMoveTimer);
+                    flightCatMoveTimer = setTimeout(() => {
+                        fetchFlightCategories().catch(err => console.error('Flight category refresh failed:', err));
+                    }, 900);
+                });
+                flightCatHandlersAttached = true;
+            }
+
+            isFlightCatLayerAdded = true;
+            await fetchFlightCategories(true);
+            console.log('Flight category layer added.');
+
+        } catch (error) {
+            console.error('Failed to load flight categories:', error);
+            showNotification('Could not load airport flight categories.', 'error');
+        }
+
+    } else if (isFlightCatLayerAdded) {
+        if (sectorOpsMap.getLayer(FLIGHT_CAT_LAYER_ID)) {
+            sectorOpsMap.setLayoutProperty(FLIGHT_CAT_LAYER_ID, 'visibility', show ? 'visible' : 'none');
+        }
+        if (show) {
+            fetchFlightCategories().catch(err => console.error('Flight category refresh failed:', err));
+        }
     }
 }
 
@@ -7717,14 +7989,7 @@ function updateAircraftLayerFilter() {
         // --- Weather Button (Existing) ---
         const openWeatherBtn = document.getElementById('open-weather-settings-btn');
         if (openWeatherBtn) {
-            const precipToggle = document.getElementById('weather-toggle-precip');
-            const cloudsToggle = document.getElementById('weather-toggle-clouds');
-            const windToggle = document.getElementById('weather-toggle-wind');
-
-            const isWeatherActive = (precipToggle && precipToggle.checked) ||
-                                (cloudsToggle && cloudsToggle.checked) ||
-                                (windToggle && windToggle.checked);
-
+            const isWeatherActive = document.querySelectorAll('.weather-toggle-list input[type="checkbox"]:checked').length > 0;
             openWeatherBtn.classList.toggle('active', isWeatherActive);
         }
 
@@ -10883,7 +11148,8 @@ function updateBaseMapLayerVisibility() {
         const sourceLayer = (layer['source-layer'] || '').toLowerCase();
         
         // Skip custom app layers
-        if (id.includes('sector-ops') || id.includes('rainviewer') || id.includes('active-sectors')) return;
+        if (id.includes('sector-ops') || id.includes('rainviewer') || id.includes('active-sectors') ||
+            id.includes('owm-') || id.includes('awc-') || id.includes('aviation-sigmet')) return;
 
         let isVisible = true;
         let isAeroway = false;
@@ -14175,6 +14441,13 @@ const AtcBoardUI = {
                                 </label>
                             </li>
                             <li class="weather-toggle-item">
+                                <span class="weather-toggle-label"><i class="fa-solid fa-plane-circle-check"></i> Flight Categories</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="weather-toggle-flightcat">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </li>
+                            <li class="weather-toggle-item">
                                 <span class="weather-toggle-label"><i class="fa-solid fa-cloud"></i> Cloud Cover</span>
                                 <label class="toggle-switch">
                                     <input type="checkbox" id="weather-toggle-clouds">
@@ -14191,8 +14464,12 @@ const AtcBoardUI = {
                         </ul>
                         <div class="weather-disclaimer-note">
                             <i class="fa-solid fa-server"></i>
-                            <strong>Note:</strong> ONLY rain radar is provided.
-                            Other radars (sigmets, clouds, wind) are not available.
+                            <strong>Note:</strong> Radar by RainViewer, SIGMETs &amp; flight
+                            categories by NOAA, clouds &amp; wind by OpenWeatherMap.
+                            Flight categories: <span style="color:#30d158;">VFR</span> ·
+                            <span style="color:#0a84ff;">MVFR</span> ·
+                            <span style="color:#ff453a;">IFR</span> ·
+                            <span style="color:#bf5af2;">LIFR</span>.
                         </div>
                     </div>
                 </div>
@@ -14697,28 +14974,33 @@ function onAtcDataReceived(newAtcData) {
             console.log("NAT Tracks restored.");
         }
 
-        // 3. Re-apply SIGMETS (Volanta Style)
+        // 3-6b. Re-apply weather layers. The style change wiped every custom
+        // layer/source, so the "added" flags must reset even for layers that
+        // are currently toggled off — otherwise re-enabling them later would
+        // try to show layers that no longer exist.
+        isSigmetLayerAdded = false;
+        isWeatherLayerAdded = false;
+        stopRadarAnimation();
+        radarFrames = [];
+        isCloudLayerAdded = false;
+        isWindLayerAdded = false;
+        isFlightCatLayerAdded = false;
+        flightCatLastFetch = { box: null, time: 0 }; // Source was wiped; force a data refetch
+
         if (document.getElementById('weather-toggle-sigmets')?.checked) {
-            isSigmetLayerAdded = false; // Force re-fetch/re-add
             toggleSigmetLayer(true);
         }
-
-        // 4. Re-apply Radar (Precip - RainViewer)
         if (document.getElementById('weather-toggle-precip')?.checked) {
-            isWeatherLayerAdded = false; 
             toggleWeatherLayer(true);
         }
-
-        // 5. Re-apply Clouds
         if (document.getElementById('weather-toggle-clouds')?.checked) {
-            isCloudLayerAdded = false; // Force re-creation
             toggleCloudLayer(true);
         }
-
-        // 6. Re-apply Wind
         if (document.getElementById('weather-toggle-wind')?.checked) {
-            isWindLayerAdded = false; // Force re-creation
             toggleWindLayer(true);
+        }
+        if (document.getElementById('weather-toggle-flightcat')?.checked) {
+            toggleFlightCatLayer(true);
         }
 
         // 7. Re-apply airport routes
@@ -18511,20 +18793,13 @@ function processRawPilotData(gradeInfo) {
         const openWeatherBtn = document.getElementById('open-weather-settings-btn');
         if (!openWeatherBtn) return;
 
-        const precipToggle = document.getElementById('weather-toggle-precip');
-        const cloudsToggle = document.getElementById('weather-toggle-clouds');
-        const windToggle = document.getElementById('weather-toggle-wind');
-
-        const isAnyActive = (precipToggle && precipToggle.checked) ||
-                            (cloudsToggle && cloudsToggle.checked) ||
-                            (windToggle && windToggle.checked);
-
+        const isAnyActive = document.querySelectorAll('.weather-toggle-list input[type="checkbox"]:checked').length > 0;
         openWeatherBtn.classList.toggle('active', isAnyActive);
     }
 
     window.addEventListener('weatherToggle', (e) => {
     const { type, isActive } = e.detail;
-    
+
     switch(type) {
         case 'precip':
             toggleWeatherLayer(isActive);
@@ -18532,19 +18807,32 @@ function processRawPilotData(gradeInfo) {
         case 'sigmets':
             toggleSigmetLayer(isActive);
             break;
+        case 'flightcat':
+            toggleFlightCatLayer(isActive);
+            break;
         case 'clouds':
-            // Ensure toggleCloudLayer is defined or show notification
-            if (typeof toggleCloudLayer === 'function') toggleCloudLayer(isActive);
-            else showNotification("Cloud layer currently unavailable", "info");
+            toggleCloudLayer(isActive);
             break;
         case 'wind':
-            if (typeof toggleWindLayer === 'function') toggleWindLayer(isActive);
-            else showNotification("Wind layer currently unavailable", "info");
+            toggleWindLayer(isActive);
             break;
     }
-    
+
+    // Mirror the state onto the desktop checkboxes — rebuildDynamicLayers
+    // reads them to restore layers after a map style change, so mobile
+    // toggles would otherwise be lost on restyle.
+    const checkboxIds = {
+        precip: 'weather-toggle-precip',
+        sigmets: 'weather-toggle-sigmets',
+        flightcat: 'weather-toggle-flightcat',
+        clouds: 'weather-toggle-clouds',
+        wind: 'weather-toggle-wind'
+    };
+    const checkbox = document.getElementById(checkboxIds[type]);
+    if (checkbox) checkbox.checked = isActive;
+
     // Optional: Keep the old toolbar button synced if it exists
-    updateWeatherToolbarButtonState(); 
+    updateWeatherToolbarButtonState();
 });
 
     /**
@@ -18579,6 +18867,9 @@ function processRawPilotData(gradeInfo) {
                         break;
                     case 'weather-toggle-sigmets':
                         toggleSigmetLayer(isChecked);
+                        break;
+                    case 'weather-toggle-flightcat':
+                        toggleFlightCatLayer(isChecked);
                         break;
                     case 'weather-toggle-clouds':
                         toggleCloudLayer(isChecked);
