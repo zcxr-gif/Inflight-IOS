@@ -920,8 +920,20 @@ disableHudControls() {
             --- [START] NEW CSS for "Legacy Sheet" Mode ---
             ==================================================================== */
 
-            /* This class is applied to the original info-window */
-            .mobile-legacy-sheet {
+            /* This class is applied to the original info-window.
+               The motion rules are scoped as .info-window.mobile-legacy-sheet
+               so they always out-rank the desktop .info-window /
+               .info-window.visible entrance rules in flight.js regardless of
+               which stylesheet gets injected later. Without that the cascade
+               was order-dependent: when the desktop rules won, the sheet
+               inherited their fade + top-right translate/scale entrance and
+               visibly dragged in from the top-right corner before settling
+               at the bottom. The sheet's motion is one axis only — it slides
+               up from below the bottom edge, and back down to close.
+               transform/transition deliberately carry NO !important: the drag
+               handlers track the finger with inline transform/transition
+               while a gesture is in progress, and inline styles must win. */
+            .info-window.mobile-legacy-sheet {
                 /* --- [CRITICAL] Override desktop styles --- */
                 display: flex !important; /* Use flex (from desktop) */
                 position: absolute !important;
@@ -940,22 +952,32 @@ disableHudControls() {
                 z-index: 1045 !important;
                 border-radius: 16px 16px 0 0 !important;
                 box-shadow: 0 -5px 30px rgba(0,0,0,0.4) !important;
-                
+
+                /* --- Neutralize the desktop entrance. The sheet is always
+                   fully opaque and interactive; "hidden" is expressed purely
+                   by the translateY parking it below the viewport. --- */
+                opacity: 1;
+                transform-origin: center bottom;
+                pointer-events: auto;
+
                 /* --- Animation & State --- */
                 will-change: transform;
-                /* Start off-screen */
-                transform: translateY(100%); 
+                /* Resting (closed) state: parked just below the bottom edge */
+                transform: translateY(100%);
                 transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
             }
 
             /* "Peek" State (Default visible state) */
-            .mobile-legacy-sheet.visible.peek {
+            .info-window.mobile-legacy-sheet.visible.peek {
                 transform: translateY(calc(100% - var(--legacy-peek-height)));
             }
 
-/* "Expanded" State */
-            .mobile-legacy-sheet.visible:not(.peek) {
-                transform: translateY(0) !important; 
+            /* "Expanded" State. No !important here — while a drag is in
+               progress the gesture handler positions the sheet with an
+               inline transform, which must out-rank this rule or the sheet
+               won't follow the finger down from the expanded state. */
+            .info-window.mobile-legacy-sheet.visible:not(.peek) {
+                transform: translateY(0);
             }
             
             /* --- [NEW] Drag Handle for Legacy Sheet --- */
@@ -1210,7 +1232,12 @@ disableHudControls() {
         this.overlayEl.id = 'mobile-window-overlay';
         viewContainer.appendChild(this.overlayEl);
         
-        // 2. Add class to the *original* window
+        // 2. Add class to the *original* window. Strip any stale visibility
+        // state first (the desktop path can re-add 'visible' before routing
+        // here, e.g. on trip-card exit) so the sheet always presents from
+        // its parked position below the bottom edge instead of popping in
+        // already expanded.
+        this.activeWindow.classList.remove('visible', 'peek');
         this.activeWindow.classList.add('mobile-legacy-sheet');
         this.activeWindow.style.display = 'flex';
         

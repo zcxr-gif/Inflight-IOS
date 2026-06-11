@@ -657,6 +657,20 @@ let mapFilters = {
         },
         labelScale: 1,            // 0.8–1.4 multiplier on base text size
         labelTheme: 'default',    // default | cyan | amber | mono | contrast (pro)
+        // PRO — custom active-ATC airport tag designer. Only applied when the
+        // Pro entitlement check passes (see getAtcTagAppearance). `style` is
+        // 'classic' (the full tag) or 'chip' (just the ICAO letters on a
+        // colored square).
+        atcTagConfig: {
+            enabled: false,
+            style: 'classic',
+            bg: '#0a0f19',
+            text: '#ffffff',
+            border: '#ffffff',
+            opacity: 0.9,
+            showFreqs: true,
+            showPulse: true
+        },
         useFlatMap: false,
         useSimpleFlightWindow: false,
         planeIconSize: 0.15,
@@ -2053,9 +2067,12 @@ function injectCustomStyles() {
             display: flex;
             flex-direction: column-reverse;
             align-items: center;
-            background: rgba(10, 15, 25, 0.9); /* Class 1 / Default */
+            /* The --atc-tag-* custom properties are only set (inline, per
+               marker) when the PRO custom tag designer is active — see
+               applyAtcTagAppearance(). Stock look is the fallback. */
+            background: var(--atc-tag-bg, rgba(10, 15, 25, 0.9)); /* Class 1 / Default */
             backdrop-filter: blur(8px);
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            border: 1px solid var(--atc-tag-border, rgba(255, 255, 255, 0.2));
             border-radius: 6px;
             padding: 2px;
             cursor: pointer;
@@ -2109,13 +2126,31 @@ function injectCustomStyles() {
             }
 
             .apt-live-tag:hover .apt-tag-extra {
-                max-height: 50px; 
+                max-height: 50px;
                 opacity: 1;
                 padding-bottom: 4px;
                 margin-bottom: 4px;
                 border-bottom-width: 1px;
             }
+
+            /* Custom (PRO) tags keep their user-picked colors on hover
+               instead of snapping to the stock navy/cyan. */
+            .apt-live-tag.atc-tag-custom:hover {
+                background: var(--atc-tag-bg, #0f172a);
+                border-color: var(--atc-tag-border, #38bdf8);
+            }
         }
+
+        /* --- PRO: custom ATC tag appearance --- */
+        /* 'Chip' style: just the ICAO letters on a colored square. */
+        .apt-live-tag.atc-tag-chip {
+            border-radius: 3px;
+            padding: 3px 5px;
+            min-height: 0;
+        }
+        .apt-live-tag.atc-tag-chip .apt-tag-extra { display: none; }
+        .apt-live-tag.atc-tag-no-freqs .apt-tag-freqs { display: none; }
+        .apt-live-tag.atc-tag-no-pulse .tag-pulse-aura { display: none; }
 
         .apt-simple-marker {
             cursor: pointer;
@@ -2152,7 +2187,7 @@ function injectCustomStyles() {
             font-family: 'JetBrains Mono', monospace;
             font-weight: 800;
             font-size: 11px;
-            color: #fff;
+            color: var(--atc-tag-text, #fff);
             padding: 0 4px;
         }
 
@@ -2362,6 +2397,25 @@ function injectCustomStyles() {
         .info-window.visible {
             opacity: 1;
             transform: translateX(0) translateY(0) scale(1);
+            pointer-events: auto;
+        }
+        /* --- MOBILE SHEET GUARD --- */
+        /* On phones the same windows are re-presented as a bottom sheet
+           (sector-ops-mobile-ui.js adds .mobile-legacy-sheet). The desktop
+           entrance above — fade + translate/scale anchored top-right — must
+           never apply to the sheet: when these rules won the cascade, the
+           sheet visibly dragged in from the top-right corner before settling
+           at the bottom. While the sheet class is on, the window is always
+           opaque and its only motion is vertical: parked below the bottom
+           edge when hidden, slid up by the sheet's own state rules (which
+           carry higher specificity) when visible. Kept identical to the
+           sheet's base declarations so the duplicate guard is harmless
+           whichever stylesheet loads last. */
+        .info-window.mobile-legacy-sheet {
+            opacity: 1;
+            transform: translateY(100%);
+            transform-origin: center bottom;
+            transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
             pointer-events: auto;
         }
         .info-window-header {
@@ -18864,6 +18918,73 @@ function stopSectorOpsLiveLoop() {
     }
 }
 
+// --- PRO: Custom active-ATC tag appearance --------------------------------
+// Resolves the user's custom ATC tag design (mapFilters.atcTagConfig), or
+// null when the stock look should be used: feature toggled off, missing
+// config, or no Pro entitlement. The entitlement check here is the hard
+// gate — the lock in the settings UI is only cosmetic.
+function getAtcTagAppearance() {
+    const cfg = mapFilters && mapFilters.atcTagConfig;
+    if (!cfg || !cfg.enabled) return null;
+    if (!(window.isInflightPro && window.isInflightPro())) return null;
+    const opacity = Math.min(1, Math.max(0.2, parseFloat(cfg.opacity) || 0.9));
+    return {
+        style: cfg.style === 'chip' ? 'chip' : 'classic',
+        bg: cfg.bg || '#0a0f19',
+        text: cfg.text || '#ffffff',
+        border: cfg.border || '#ffffff',
+        opacity,
+        showFreqs: cfg.showFreqs !== false,
+        showPulse: cfg.showPulse !== false
+    };
+}
+
+function atcTagHexToRgba(hex, alpha) {
+    const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim());
+    if (!m) return hex;
+    const n = parseInt(m[1], 16);
+    return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
+
+// Applies (or clears) the custom design on one ATC tag element. Colors ride
+// on CSS custom properties so the stylesheet stays the single source of
+// truth for the tag's layout; the element only carries the user's values.
+function applyAtcTagAppearance(el, appearance) {
+    const cfg = appearance === undefined ? getAtcTagAppearance() : appearance;
+    el.classList.toggle('atc-tag-custom', !!cfg);
+    el.classList.toggle('atc-tag-chip', !!cfg && cfg.style === 'chip');
+    el.classList.toggle('atc-tag-no-freqs', !!cfg && !cfg.showFreqs);
+    el.classList.toggle('atc-tag-no-pulse', !!cfg && !cfg.showPulse);
+    if (cfg) {
+        el.style.setProperty('--atc-tag-bg', atcTagHexToRgba(cfg.bg, cfg.opacity));
+        el.style.setProperty('--atc-tag-text', cfg.text);
+        el.style.setProperty('--atc-tag-border', cfg.border);
+    } else {
+        el.style.removeProperty('--atc-tag-bg');
+        el.style.removeProperty('--atc-tag-text');
+        el.style.removeProperty('--atc-tag-border');
+    }
+}
+
+// Re-skins existing DOM tags in place, then re-runs the airport renderer so
+// the glance-layer <-> DOM-tag handoff matches the new mode. Exposed for the
+// settings UI (MobileSettingsUI.js).
+window.refreshAtcTagAppearance = function () {
+    const cfg = getAtcTagAppearance();
+    Object.values(airportAndAtcMarkers).forEach(entry => {
+        if (entry.hasAtc) applyAtcTagAppearance(entry.marker.getElement(), cfg);
+    });
+    renderAirportMarkers();
+};
+
+// The Pro entitlement resolves asynchronously (Supabase lookup), so a Pro
+// user with custom tags saved would otherwise see stock tags until the next
+// data tick — and a lapsed user would keep custom ones. Re-evaluate the
+// moment the entitlement lands or changes.
+window.addEventListener('proStatusChanged', () => {
+    try { window.refreshAtcTagAppearance(); } catch (_) {}
+});
+
 function renderAirportMarkers() {
     if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded()) return;
 
@@ -18872,7 +18993,9 @@ function renderAirportMarkers() {
     const hideAtc = mapFilters.hideAtcMarkers;
     // Glance mode (default): active-ATC airports are drawn by the GPU glance
     // layer instead of DOM tags. Classic mode keeps the old per-airport tags.
-    const classic = mapFilters.useClassicAirportTags;
+    // A custom (PRO) tag design is DOM-based, so it forces the classic path.
+    const customAtcTag = getAtcTagAppearance();
+    const classic = mapFilters.useClassicAirportTags || !!customAtcTag;
 
     // Helper: Identify "Major" airports (Class A/B/C) without explicit class data
     const isMajorAirport = (icao, airport) => {
@@ -18930,6 +19053,8 @@ function renderAirportMarkers() {
                 el.className = hasAtc ? 'apt-live-tag' : 'destination-marker';
                 airportAndAtcMarkers[icao].hasAtc = hasAtc;
             }
+            // Keep reused tags on the current (custom or stock) design.
+            if (hasAtc) applyAtcTagAppearance(el, customAtcTag);
             
             // Only update innerHTML if it's an ATC marker to refresh the timer
             if (hasAtc) {
@@ -18993,6 +19118,7 @@ function renderAirportMarkers() {
             
             base.appendChild(freqs);
             el.appendChild(base);
+            applyAtcTagAppearance(el, customAtcTag);
         } else {
             el.className += ' destination-marker';
             el.textContent = icao;
@@ -19184,7 +19310,9 @@ function wireActiveAirportsLayerEvents() {
 function updateActiveAirportsGlanceLayer() {
     if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded()) return;
 
-    const classic = mapFilters.useClassicAirportTags;
+    // A custom (PRO) tag design renders as DOM tags, so it hides the glance
+    // layer exactly like classic mode does.
+    const classic = mapFilters.useClassicAirportTags || !!getAtcTagAppearance();
     const hideAtc = mapFilters.hideAtcMarkers;
 
     const setVisible = (vis) => {

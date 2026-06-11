@@ -46,6 +46,21 @@ const LABEL_PREVIEW_SAMPLE = {
     pilot: 'Capt. Reyes'
 };
 
+// Defaults for the PRO custom active-ATC tag designer
+// (mapFilters.atcTagConfig). Mirrors the fallbacks in
+// getAtcTagAppearance() in flight.js, which is also where the Pro
+// entitlement is actually enforced.
+const ATC_TAG_DEFAULTS = {
+    enabled: false,
+    style: 'classic',   // 'classic' (full tag) | 'chip' (letters on a square)
+    bg: '#0a0f19',
+    text: '#ffffff',
+    border: '#ffffff',
+    opacity: 0.9,
+    showFreqs: true,
+    showPulse: true
+};
+
 // Label color themes. `mono` + `default` are free; the rest are pro.
 const LABEL_THEME_DEFS = [
     { value: 'default',  label: 'White',    text: '#ffffff', halo: 'rgba(15,23,42,0.92)' },
@@ -321,6 +336,8 @@ export const MobileSettingsUI = {
                 ${this.renderToggle('hideAtcMarkers', 'Hide ATC Markers', 'fa-headset')}
             </div>
 
+            ${this.renderAtcTagStudio()}
+
             <div class="mobile-section-header">Flight Plan Routes</div>
             <div class="settings-mobile-grid">
                 <button class="m-setting-pill" data-setting="planDisplayMode" data-value="none">None</button>
@@ -530,6 +547,226 @@ export const MobileSettingsUI = {
             <div class="mobile-section-header pro-accent"><i class="fa-solid fa-star"></i> <span class="ios-hide">PRO </span>Label Theme</div>
             <div class="m-theme-grid">
                 ${themePills}
+            </div>
+        `;
+    },
+
+    // ---- PRO: ATC Tag Studio ---------------------------------------------
+    // Designer for the active-ATC airport tags: live preview, style preset
+    // (full tag vs. plain letters on a square), colors, background opacity,
+    // and the frequency-badge / pulse extras. Writes
+    // mapFilters.atcTagConfig; the map side (flight.js) only honors it for
+    // Pro users, so the lock here is presentation — not the gate.
+    renderAtcTagStudio() {
+        const d = ATC_TAG_DEFAULTS;
+        return `
+            <div class="mobile-section-header pro-accent"><i class="fa-solid fa-star"></i> <span class="ios-hide">PRO </span>ATC Tag Studio</div>
+            <div class="m-atc-stage">
+                <div id="m-atc-tag-preview"></div>
+            </div>
+            <div class="m-settings-list">
+                <div class="m-setting-row is-pro-feature">
+                    <div class="m-row-left">
+                        <i class="fa-solid fa-wand-magic-sparkles" style="color:#fbbf24;"></i>
+                        <span>Custom ATC Tags</span>
+                    </div>
+                    <div class="m-row-right">
+                        <div class="pro-lock-badge"><i class="fa-solid fa-lock" style="font-size:0.6rem; margin-right:4px;"></i>PRO</div>
+                        <label class="m-switch">
+                            <input type="checkbox" class="m-atc-input" data-atc-tag="enabled">
+                            <span class="m-slider"></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div id="m-atc-tag-options">
+                <div class="m-settings-list">
+                    <div class="m-setting-row is-pro-feature">
+                        <div class="m-row-left">
+                            <i class="fa-solid fa-shapes" style="color:#fbbf24;"></i>
+                            <span>Tag Style</span>
+                        </div>
+                        <div class="m-row-right m-atc-style-pills">
+                            <button class="m-atc-pill" data-atc-style="classic" type="button">Full Tag</button>
+                            <button class="m-atc-pill" data-atc-style="chip" type="button">Letters</button>
+                        </div>
+                    </div>
+                    <div class="m-setting-row is-pro-feature">
+                        <div class="m-row-left">
+                            <i class="fa-solid fa-fill-drip" style="color:#fbbf24;"></i>
+                            <span>Background</span>
+                        </div>
+                        <div class="m-row-right">
+                            <input type="color" class="m-color-picker m-atc-input" data-atc-tag="bg" value="${d.bg}">
+                        </div>
+                    </div>
+                    <div class="m-setting-row is-pro-feature">
+                        <div class="m-row-left">
+                            <i class="fa-solid fa-font" style="color:#fbbf24;"></i>
+                            <span>Letters</span>
+                        </div>
+                        <div class="m-row-right">
+                            <input type="color" class="m-color-picker m-atc-input" data-atc-tag="text" value="${d.text}">
+                        </div>
+                    </div>
+                    <div class="m-setting-row is-pro-feature">
+                        <div class="m-row-left">
+                            <i class="fa-solid fa-border-all" style="color:#fbbf24;"></i>
+                            <span>Border</span>
+                        </div>
+                        <div class="m-row-right">
+                            <input type="color" class="m-color-picker m-atc-input" data-atc-tag="border" value="${d.border}">
+                        </div>
+                    </div>
+                </div>
+                <div class="m-setting-range-card is-pro-feature" style="margin-top:8px;">
+                    <div class="range-header">
+                        <span>Background Opacity</span>
+                        <span id="m-val-atcTagOpacity">90%</span>
+                    </div>
+                    <input type="range" class="m-range-input m-atc-input" data-atc-tag="opacity" min="0.2" max="1" step="0.05">
+                </div>
+                <div class="m-settings-list" style="margin-top:8px;">
+                    <div class="m-setting-row is-pro-feature">
+                        <div class="m-row-left">
+                            <i class="fa-solid fa-tower-broadcast" style="color:#fbbf24;"></i>
+                            <span>Frequency Badges</span>
+                        </div>
+                        <div class="m-row-right">
+                            <label class="m-switch">
+                                <input type="checkbox" class="m-atc-input" data-atc-tag="showFreqs">
+                                <span class="m-slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="m-setting-row is-pro-feature">
+                        <div class="m-row-left">
+                            <i class="fa-solid fa-circle-notch" style="color:#fbbf24;"></i>
+                            <span>Approach Pulse Ring</span>
+                        </div>
+                        <div class="m-row-right">
+                            <label class="m-switch">
+                                <input type="checkbox" class="m-atc-input" data-atc-tag="showPulse">
+                                <span class="m-slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    },
+
+    // Current designer config, creating it on mapFilters the first time a
+    // control writes to it.
+    getAtcTagConfig() {
+        if (!window.mapFilters) return { ...ATC_TAG_DEFAULTS };
+        if (!window.mapFilters.atcTagConfig) window.mapFilters.atcTagConfig = { ...ATC_TAG_DEFAULTS };
+        return window.mapFilters.atcTagConfig;
+    },
+
+    setAtcTag(key, value) {
+        const cfg = this.getAtcTagConfig();
+        cfg[key] = value;
+        this.syncAtcTagControls();
+        if (window.refreshAtcTagAppearance) window.refreshAtcTagAppearance();
+        if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
+    },
+
+    attachAtcTagHandlers(sheet) {
+        sheet.querySelectorAll('.m-atc-input[type="checkbox"]').forEach(input => {
+            input.addEventListener('change', (e) => {
+                if (e.target.closest('.locked')) return;
+                window.InflightHaptics?.select?.();
+                this.setAtcTag(e.target.dataset.atcTag, e.target.checked);
+            });
+        });
+        sheet.querySelectorAll('.m-atc-input[type="color"]').forEach(input => {
+            input.addEventListener('input', (e) => {
+                if (e.target.closest('.locked')) return;
+                this.setAtcTag(e.target.dataset.atcTag, e.target.value);
+            });
+        });
+        const range = sheet.querySelector('.m-atc-input[type="range"]');
+        if (range) {
+            range.addEventListener('input', (e) => {
+                if (e.target.closest('.locked')) return;
+                this.setAtcTag('opacity', parseFloat(e.target.value));
+            });
+        }
+        sheet.querySelectorAll('.m-atc-pill').forEach(btn => {
+            btn.addEventListener('click', () => {
+                if (btn.closest('.locked')) return;
+                window.InflightHaptics?.select?.();
+                this.setAtcTag('style', btn.dataset.atcStyle);
+            });
+        });
+    },
+
+    // Reflect mapFilters.atcTagConfig into the studio's controls + preview.
+    syncAtcTagControls() {
+        const container = document.getElementById('mobile-settings-nexus');
+        if (!container) return;
+        const cfg = { ...ATC_TAG_DEFAULTS, ...((window.mapFilters && window.mapFilters.atcTagConfig) || {}) };
+
+        container.querySelectorAll('.m-atc-input[type="checkbox"]').forEach(input => {
+            input.checked = !!cfg[input.dataset.atcTag];
+        });
+        container.querySelectorAll('.m-atc-input[type="color"]').forEach(input => {
+            const val = cfg[input.dataset.atcTag];
+            if (val) input.value = val;
+        });
+        const range = container.querySelector('.m-atc-input[type="range"]');
+        if (range) range.value = cfg.opacity;
+        const opacityLabel = document.getElementById('m-val-atcTagOpacity');
+        if (opacityLabel) opacityLabel.textContent = `${Math.round(cfg.opacity * 100)}%`;
+        container.querySelectorAll('.m-atc-pill').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.atcStyle === cfg.style);
+        });
+        const options = document.getElementById('m-atc-tag-options');
+        if (options) options.classList.toggle('is-off', !cfg.enabled);
+
+        this.updateAtcTagPreview();
+    },
+
+    // Renders a static replica of an active-ATC tag using the map's own
+    // .apt-live-tag styles (flight.js injects them globally), so the preview
+    // is exactly what the map will draw.
+    updateAtcTagPreview() {
+        const host = document.getElementById('m-atc-tag-preview');
+        if (!host) return;
+        const cfg = { ...ATC_TAG_DEFAULTS, ...((window.mapFilters && window.mapFilters.atcTagConfig) || {}) };
+        const custom = cfg.enabled;
+
+        const hexToRgba = (hex, alpha) => {
+            const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim());
+            if (!m) return hex;
+            const n = parseInt(m[1], 16);
+            return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+        };
+
+        const cls = ['apt-live-tag'];
+        if (custom) {
+            cls.push('atc-tag-custom');
+            if (cfg.style === 'chip') cls.push('atc-tag-chip');
+            if (!cfg.showFreqs) cls.push('atc-tag-no-freqs');
+            if (!cfg.showPulse) cls.push('atc-tag-no-pulse');
+        }
+        const vars = custom
+            ? `--atc-tag-bg:${hexToRgba(cfg.bg, cfg.opacity)};--atc-tag-text:${cfg.text};--atc-tag-border:${cfg.border};`
+            : '';
+
+        host.innerHTML = `
+            <div class="${cls.join(' ')}" style="${vars}">
+                <div class="tag-pulse-aura"></div>
+                <div class="apt-tag-base">
+                    <div class="apt-tag-ident">KLAX</div>
+                    <div class="apt-tag-freqs">
+                        <div class="freq-mini-badge f-atis">A</div>
+                        <div class="freq-mini-badge f-gnd">G</div>
+                        <div class="freq-mini-badge f-twr">T</div>
+                        <div class="freq-mini-badge f-app">R</div>
+                    </div>
+                </div>
             </div>
         `;
     },
@@ -1082,8 +1319,11 @@ export const MobileSettingsUI = {
             }, true); // Capture phase to prevent inner inputs from firing
         });
 
-        // Checkbox Listener (skips label-field rows, handled separately)
-        sheet.querySelectorAll('input[type="checkbox"]:not(.m-label-field-input)').forEach(input => {
+        // ATC Tag Studio controls (write into mapFilters.atcTagConfig).
+        this.attachAtcTagHandlers(sheet);
+
+        // Checkbox Listener (skips label-field and ATC-tag rows, handled separately)
+        sheet.querySelectorAll('input[type="checkbox"]:not(.m-label-field-input):not(.m-atc-input)').forEach(input => {
             input.addEventListener('change', (e) => {
                 if (e.target.closest('.locked')) return; // Extra layer of protection
 
@@ -1156,8 +1396,9 @@ export const MobileSettingsUI = {
             });
         });
 
-        // Color Picker Listener
-        sheet.querySelectorAll('input[type="color"]').forEach(input => {
+        // Color Picker Listener (ATC-tag pickers carry data-atc-tag instead
+        // of data-setting and are handled by attachAtcTagHandlers)
+        sheet.querySelectorAll('input[type="color"][data-setting]').forEach(input => {
             input.addEventListener('input', (e) => {
                 if (e.target.closest('.locked')) return;
                 const setting = e.target.dataset.setting;
@@ -1173,8 +1414,9 @@ export const MobileSettingsUI = {
             });
         });
 
-        // Range Slider Listener
-        sheet.querySelectorAll('.m-range-input').forEach(input => {
+        // Range Slider Listener (the ATC-tag opacity slider has no
+        // data-setting; attachAtcTagHandlers owns it)
+        sheet.querySelectorAll('.m-range-input[data-setting]').forEach(input => {
             input.addEventListener('input', (e) => {
                 const setting = e.target.dataset.setting;
                 const val = e.target.value;
@@ -1392,7 +1634,7 @@ export const MobileSettingsUI = {
         if (!filters) return;
         const container = document.getElementById('mobile-settings-nexus');
 
-        container.querySelectorAll('input[type="checkbox"]:not(.m-label-field-input)').forEach(input => {
+        container.querySelectorAll('input[type="checkbox"]:not(.m-label-field-input):not(.m-atc-input)').forEach(input => {
             const isPro = input.dataset.pro === 'true';
             if (isPro) {
                 input.checked = !!(filters.proMapConfig && filters.proMapConfig[input.dataset.setting]);
@@ -1419,7 +1661,7 @@ export const MobileSettingsUI = {
             card.classList.toggle('active', card.dataset.value === activeStyle);
         });
 
-        container.querySelectorAll('input[type="color"]').forEach(input => {
+        container.querySelectorAll('input[type="color"][data-setting]').forEach(input => {
             const val = filters[input.dataset.setting];
             if (val) input.value = val;
         });
@@ -1430,7 +1672,7 @@ export const MobileSettingsUI = {
             if (setting) sel.value = filters[setting] || '';
         });
 
-        container.querySelectorAll('.m-range-input').forEach(input => {
+        container.querySelectorAll('.m-range-input[data-setting]').forEach(input => {
             const setting = input.dataset.setting;
             const val = filters[setting];
             if (val !== undefined && val !== null) input.value = val;
@@ -1479,6 +1721,7 @@ export const MobileSettingsUI = {
         this.updateFilterBadge();
 
         this.updateLabelPreview();
+        this.syncAtcTagControls();
     },
 
     // iOS-style swipe-down-to-dismiss. The user can drag from the grabber or
@@ -1717,6 +1960,39 @@ export const MobileSettingsUI = {
                     align-items: center; justify-content: center; font-size: 0.45rem;
                 }
                 html.ios-native .m-theme-lock { display: none !important; }
+
+                /* ---- ATC Tag Studio ---- */
+                .m-atc-stage {
+                    margin: 0 20px 8px; padding: 22px 16px; border-radius: 16px;
+                    background:
+                        radial-gradient(circle at 30% 30%, rgba(251,191,36,0.08), transparent 60%),
+                        repeating-linear-gradient(0deg, rgba(255,255,255,0.04) 0 1px, transparent 1px 26px),
+                        repeating-linear-gradient(90deg, rgba(255,255,255,0.04) 0 1px, transparent 1px 26px),
+                        #0c1322;
+                    border: 1px solid rgba(255,255,255,0.08);
+                    display: flex; align-items: center; justify-content: center; min-height: 74px;
+                }
+                /* The replica uses the map's own .apt-live-tag styles
+                   (injected globally by flight.js); it just needs its own
+                   positioning context for the pulse ring + a bump in size
+                   so it reads as a preview, not a speck. */
+                .m-atc-stage .apt-live-tag {
+                    position: relative; transform: scale(1.5); transform-origin: center;
+                    cursor: default; pointer-events: none;
+                }
+                .m-atc-style-pills { display: flex; gap: 8px; }
+                .m-atc-pill {
+                    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+                    color: #a1a1aa; padding: 8px 12px; border-radius: 10px; font-weight: 700;
+                    font-size: 0.75rem; -webkit-tap-highlight-color: transparent;
+                }
+                .m-atc-pill.active { background: #38bdf8; color: #000; border-color: #38bdf8; }
+                #m-atc-tag-options { transition: opacity 0.2s; }
+                #m-atc-tag-options.is-off { opacity: 0.45; pointer-events: none; }
+                .is-pro-feature.locked .m-atc-pill,
+                .is-pro-feature.locked .m-range-input {
+                    opacity: 0.3; pointer-events: none; filter: grayscale(100%);
+                }
 
                 .sheet-footer { padding: 20px; border-top: 1px solid rgba(255,255,255,0.05); }
                 .m-btn { width: 100%; padding: 16px; border-radius: 14px; font-weight: 700; border: none; font-size: 1rem; }
