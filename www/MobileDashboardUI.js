@@ -718,57 +718,43 @@ init(supabaseClient) {
         }
     },
 
-_tabOnboarding() {
+    _tabOnboarding() {
         return `
-            <div class="mdui-onboarding mdui-fade-up">
-                <div class="mdui-onb-icon"><i class="fa-solid fa-plane-departure"></i></div>
+            <div class="mdui-onb mdui-fade-up">
+                <div class="mdui-onb-glyph"><i class="fa-solid fa-plane-departure"></i></div>
                 <h2 class="mdui-onb-title">Welcome aboard.</h2>
-                <p class="mdui-onb-sub">Thank you for subscribing to Pro Access. Let's set up your flight deck.</p>
+                <p class="mdui-onb-sub">Thanks for going Pro. Two quick things and your flight deck is ready.</p>
 
-                <div class="mdui-card" style="margin-top: 28px;">
-                    <div class="mdui-card-body">
-                        <div class="mdui-input-group" style="margin-bottom: 0;">
-                            <label>Choose Your Theme</label>
-                            <div class="mdui-pill-row">
-                                <label class="mdui-radio-pill">
-                                    <input type="radio" name="onb-theme" value="light" ${this._theme === 'light' ? 'checked' : ''}>
-                                    <i class="fa-solid fa-sun" style="margin-right: 6px;"></i>
-                                    <span>Light</span>
-                                </label>
-                                <label class="mdui-radio-pill">
-                                    <input type="radio" name="onb-theme" value="dark" ${this._theme === 'dark' ? 'checked' : ''}>
-                                    <i class="fa-solid fa-moon" style="margin-right: 6px;"></i>
-                                    <span>Dark</span>
-                                </label>
-                            </div>
-                        </div>
+                <div class="mdui-section" style="margin-top: 34px;">
+                    <div class="mdui-section-title">Appearance</div>
+                    <div class="mdui-seg">
+                        <label class="mdui-seg-pill">
+                            <input type="radio" name="onb-theme" value="light" ${this._theme === 'light' ? 'checked' : ''}>
+                            <i class="fa-solid fa-sun"></i><span>Light</span>
+                        </label>
+                        <label class="mdui-seg-pill">
+                            <input type="radio" name="onb-theme" value="dark" ${this._theme === 'dark' ? 'checked' : ''}>
+                            <i class="fa-solid fa-moon"></i><span>Dark</span>
+                        </label>
                     </div>
                 </div>
 
-                <div class="mdui-card" style="margin-top: 14px;">
-                    <div class="mdui-card-body">
-                        <div class="mdui-input-group" style="margin-bottom: 0;">
-                            <label>Infinite Flight Username</label>
-                            <div class="mdui-input-wrap">
-                                <i class="fa-solid fa-plane mdui-input-icon"></i>
-                                <input type="text" id="mdui-onb-username" class="mdui-input" placeholder="Community Forum Name">
-                            </div>
-                            <p class="mdui-help">We use this to fetch your live flights and career stats.</p>
-                        </div>
+                <div class="mdui-section">
+                    <div class="mdui-section-title">Infinite Flight</div>
+                    <div class="mdui-capsule">
+                        <i class="fa-solid fa-plane"></i>
+                        <input type="text" id="mdui-onb-username" class="mdui-capsule-input" placeholder="Community forum name" autocomplete="off">
                     </div>
+                    <div class="mdui-section-foot">Used to pull your live flights and career stats.</div>
                 </div>
 
-                <button class="mdui-btn-primary" id="mdui-onb-complete" style="margin-top: 28px; width: 100%;">
-                    Complete Setup
-                </button>
-                <p class="mdui-help" style="text-align: center; margin-top: 14px;">
-                    These preferences can be changed later in Settings.
-                </p>
+                <button class="mdui-btn-primary mdui-btn-block" id="mdui-onb-complete" style="margin-top: 26px;">Complete Setup</button>
+                <p class="mdui-onb-note">You can change all of this later in Settings.</p>
             </div>
         `;
     },
 
-    // ── Dashboard / Command Center ─────────────────────────────────────────────
+    // ── Home / Command Center ─────────────────────────────────────────────────
     _tabDashboard() {
         const user      = this._currentUser;
         const name      = user?.user_metadata?.full_name || user?.user_metadata?.name || 'Captain';
@@ -778,40 +764,44 @@ _tabOnboarding() {
         const dateStr   = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
         const ifUsername = user?.user_metadata?.if_username || '';
 
-        let statPills = '';
+        let statChips = '';
         if (this._ifData.stats) {
             const g = this._ifData.stats.gradeDetails?.gradeIndex;
             const x = this._ifData.stats.totalXP?.toLocaleString();
             const f = this._ifData.logbookTotal?.toLocaleString();
-            statPills = `
-                <div class="mdui-stat-strip">
-                    ${g ? `<span>Grade ${g}</span><span class="mdui-strip-sep">·</span>` : ''}
-                    ${x ? `<span>${x} XP</span><span class="mdui-strip-sep">·</span>` : ''}
-                    ${f ? `<span>${f} flights</span>` : ''}
+            statChips = `
+                <div class="mdui-chip-row">
+                    ${g ? `<span class="mdui-chip"><i class="fa-solid fa-award"></i>Grade ${g}</span>` : ''}
+                    ${x ? `<span class="mdui-chip"><i class="fa-solid fa-star"></i>${x} XP</span>` : ''}
+                    ${f ? `<span class="mdui-chip"><i class="fa-solid fa-plane-arrival"></i>${f} flights</span>` : ''}
                 </div>`;
         } else if (this._ifData.loading) {
-            statPills = `<div class="mdui-stat-strip"><span style="opacity:0.4;">Loading pilot data…</span></div>`;
+            statChips = `
+                <div class="mdui-chip-row">
+                    <span class="mdui-skel" style="width:92px;height:30px;border-radius:999px;"></span>
+                    <span class="mdui-skel" style="width:112px;height:30px;border-radius:999px;"></span>
+                </div>`;
         }
 
         let recentHTML = '';
         if (!ifUsername) {
             recentHTML = `
-                <div class="mdui-list-group">
-                    <div class="mdui-list-row no-icon" data-static="true">
-                        <div class="mdui-list-row-text">
-                            <span class="mdui-list-row-label">Not linked</span>
-                            <span class="mdui-list-row-sub">Add your IF username in Settings.</span>
+                <div class="mdui-rows">
+                    <div class="mdui-row" data-static="true">
+                        <div class="mdui-row-main">
+                            <span class="mdui-row-title">Not linked</span>
+                            <span class="mdui-row-sub">Add your IF username in Settings to see your logbook.</span>
                         </div>
                     </div>
                 </div>`;
         } else if (this._ifData.loading) {
             recentHTML = `
-                <div class="mdui-list-group">
+                <div class="mdui-rows">
                     ${[1,2,3].map(() => `
-                        <div class="mdui-list-row no-icon" data-static="true">
-                            <div class="mdui-list-row-text">
-                                <div class="mdui-skel" style="width:130px;height:14px;border-radius:4px;"></div>
-                                <div class="mdui-skel" style="width:80px;height:10px;border-radius:4px;margin-top:6px;"></div>
+                        <div class="mdui-row" data-static="true">
+                            <div class="mdui-row-main">
+                                <div class="mdui-skel" style="width:132px;height:14px;"></div>
+                                <div class="mdui-skel" style="width:84px;height:10px;margin-top:6px;"></div>
                             </div>
                         </div>`).join('')}
                 </div>`;
@@ -826,23 +816,23 @@ _tabOnboarding() {
                 const cs = f.callsign || '—';
                 const depAttr = dep !== '—' ? `data-drill="icao" data-icao="${dep}"` : '';
                 return `
-                    <button type="button" class="mdui-list-row" ${depAttr} style="animation-delay:${i * 0.04}s;">
-                        <span class="mdui-list-row-icon tone-blue"><i class="fa-solid fa-plane"></i></span>
-                        <div class="mdui-list-row-text">
-                            <span class="mdui-list-row-label" style="font-family:var(--mdui-font-mono); letter-spacing:0;">${dep} → ${arr}</span>
-                            <span class="mdui-list-row-sub">${cs} · ${hrs}h · ${timeStr}</span>
+                    <button type="button" class="mdui-row" ${depAttr} style="animation-delay:${i * 0.04}s;">
+                        <span class="mdui-row-glyph tone-accent"><i class="fa-solid fa-plane"></i></span>
+                        <div class="mdui-row-main">
+                            <span class="mdui-row-title mdui-mono">${dep} → ${arr}</span>
+                            <span class="mdui-row-sub">${cs} · ${hrs}h · ${timeStr}</span>
                         </div>
-                        <i class="fa-solid fa-chevron-right mdui-list-row-chevron"></i>
+                        <i class="fa-solid fa-chevron-right mdui-row-chev"></i>
                     </button>`;
             }).join('');
-            recentHTML = `<div class="mdui-list-group">${rows}</div>`;
+            recentHTML = `<div class="mdui-rows">${rows}</div>`;
         } else {
             recentHTML = `
-                <div class="mdui-list-group">
-                    <div class="mdui-list-row no-icon" data-static="true">
-                        <div class="mdui-list-row-text">
-                            <span class="mdui-list-row-label">No recent flights</span>
-                            <span class="mdui-list-row-sub">Your logbook will appear here once you fly.</span>
+                <div class="mdui-rows">
+                    <div class="mdui-row" data-static="true">
+                        <div class="mdui-row-main">
+                            <span class="mdui-row-title">No recent flights</span>
+                            <span class="mdui-row-sub">Your logbook will appear here once you fly.</span>
                         </div>
                     </div>
                 </div>`;
@@ -862,45 +852,43 @@ _tabOnboarding() {
             const mins  = next.duration_minutes % 60;
 
             nextDepHTML = `
-                <div class="mdui-list-group">
-                    <div class="mdui-list-row" data-static="true" style="padding: 14px;">
-                        <div style="display:flex; flex-direction:column; width:100%; gap: 10px;">
-                            <div class="mdui-dispatch-route">
-                                <div class="mdui-dispatch-airport">
-                                    <span class="mdui-dispatch-icao mdui-drillable" ${next.dep_icao ? `data-drill="icao" data-icao="${next.dep_icao}"` : ''}>${next.dep_icao || '----'}</span>
-                                    ${next.dep_gate ? `<span class="mdui-dispatch-gate">Gate ${next.dep_gate}</span>` : ''}
-                                </div>
-                                <div class="mdui-dispatch-center">
-                                    <i class="fa-solid fa-plane mdui-dispatch-plane"></i>
-                                    <span class="mdui-dispatch-dur">${hours}h ${mins}m</span>
-                                </div>
-                                <div class="mdui-dispatch-airport" style="text-align:right;">
-                                    <span class="mdui-dispatch-icao mdui-drillable" ${next.arr_icao ? `data-drill="icao" data-icao="${next.arr_icao}"` : ''}>${next.arr_icao || '----'}</span>
-                                    ${next.arr_gate ? `<span class="mdui-dispatch-gate">Gate ${next.arr_gate}</span>` : ''}
-                                </div>
-                            </div>
+                <div class="mdui-board">
+                    <div class="mdui-board-route">
+                        <div class="mdui-board-end">
+                            <span class="mdui-board-icao mdui-drillable" ${next.dep_icao ? `data-drill="icao" data-icao="${next.dep_icao}"` : ''}>${next.dep_icao || '----'}</span>
+                            ${next.dep_gate ? `<span class="mdui-board-gate">Gate ${next.dep_gate}</span>` : ''}
+                        </div>
+                        <div class="mdui-board-path">
+                            <span class="mdui-board-dur">${hours}h ${mins}m</span>
+                            <div class="mdui-board-line"><i class="fa-solid fa-plane"></i></div>
+                        </div>
+                        <div class="mdui-board-end is-right">
+                            <span class="mdui-board-icao mdui-drillable" ${next.arr_icao ? `data-drill="icao" data-icao="${next.arr_icao}"` : ''}>${next.arr_icao || '----'}</span>
+                            ${next.arr_gate ? `<span class="mdui-board-gate">Gate ${next.arr_gate}</span>` : ''}
                         </div>
                     </div>
-                    <div class="mdui-list-form-row">
-                        <span class="mdui-list-form-label">Aircraft</span>
-                        <span class="mdui-list-row-value">${next.aircraft_type || '—'}</span>
-                    </div>
-                    <div class="mdui-list-form-row">
-                        <span class="mdui-list-form-label">Callsign</span>
-                        <span class="mdui-list-row-value" style="font-family:var(--mdui-font-mono);">${next.callsign || '—'}</span>
-                    </div>
-                    <div class="mdui-list-form-row">
-                        <span class="mdui-list-form-label">Departure</span>
-                        <span class="mdui-list-row-value" style="color: var(--mdui-accent); font-weight: 600;">${countdown}</span>
+                    <div class="mdui-board-meta">
+                        <div class="mdui-board-cell">
+                            <span class="label">Aircraft</span>
+                            <span class="value">${next.aircraft_type || '—'}</span>
+                        </div>
+                        <div class="mdui-board-cell">
+                            <span class="label">Callsign</span>
+                            <span class="value mdui-mono">${next.callsign || '—'}</span>
+                        </div>
+                        <div class="mdui-board-cell">
+                            <span class="label">Departs</span>
+                            <span class="value" style="color: var(--mdui-accent);">${countdown}</span>
+                        </div>
                     </div>
                 </div>`;
         } else {
             nextDepHTML = `
-                <div class="mdui-list-group">
-                    <div class="mdui-list-row no-icon" data-static="true">
-                        <div class="mdui-list-row-text">
-                            <span class="mdui-list-row-label">No upcoming flights</span>
-                            <span class="mdui-list-row-sub">File a flight plan from the Dispatch tab.</span>
+                <div class="mdui-rows">
+                    <div class="mdui-row" data-static="true">
+                        <div class="mdui-row-main">
+                            <span class="mdui-row-title">No upcoming flights</span>
+                            <span class="mdui-row-sub">File a flight plan from the Dispatch tab.</span>
                         </div>
                     </div>
                 </div>`;
@@ -908,25 +896,23 @@ _tabOnboarding() {
 
         return `
             <div class="mdui-fade-up">
-                <div class="mdui-greeting-hero">
-                    <div class="mdui-greeting-text">
-                        <div class="mdui-greeting-date">${dateStr}</div>
-                        <h2 class="mdui-greeting-name">${greeting}, ${firstName}.</h2>
-                        ${statPills}
-                    </div>
-                </div>
+                <header class="mdui-home-hero">
+                    <span class="mdui-home-date">${dateStr}</span>
+                    <h2 class="mdui-home-greet">${greeting}, ${firstName}.</h2>
+                    ${statChips}
+                </header>
 
                 <div id="mdui-live-banner"></div>
 
-                <div class="mdui-list-section">
-                    <div class="mdui-list-section-header">Next Departure</div>
+                <section class="mdui-section">
+                    <div class="mdui-section-title">Next Departure</div>
                     ${nextDepHTML}
-                </div>
+                </section>
 
-                <div class="mdui-list-section">
-                    <div class="mdui-list-section-header">Recent Flights</div>
+                <section class="mdui-section">
+                    <div class="mdui-section-title">Recent Flights</div>
                     ${recentHTML}
-                </div>
+                </section>
             </div>
         `;
     },
@@ -1000,11 +986,12 @@ _tabOnboarding() {
         const stats = this._computeComparativeStats();
         if (!stats) {
             return `
-                <div class="mdui-card mdui-fade-up">
-                    <div class="mdui-card-header"><h3><i class="fa-solid fa-chart-line" style="color: var(--mdui-accent); margin-right:8px;"></i>Trends</h3></div>
-                    <div class="mdui-card-body">
-                        <div class="mdui-empty">Trends will appear once we have at least two periods of data.</div>
+                <div class="mdui-panel mdui-fade-up">
+                    <div class="mdui-panel-head">
+                        <span class="mdui-panel-glyph"><i class="fa-solid fa-chart-line"></i></span>
+                        <h3>Trends</h3>
                     </div>
+                    <div class="mdui-empty">Trends will appear once we have at least two periods of data.</div>
                 </div>`;
         }
 
@@ -1024,17 +1011,16 @@ _tabOnboarding() {
             </div>`;
 
         return `
-            <div class="mdui-card mdui-fade-up">
-                <div class="mdui-card-header">
-                    <h3><i class="fa-solid fa-chart-line" style="color: var(--mdui-accent); margin-right:8px;"></i>Trends</h3>
+            <div class="mdui-panel mdui-fade-up">
+                <div class="mdui-panel-head">
+                    <span class="mdui-panel-glyph"><i class="fa-solid fa-chart-line"></i></span>
+                    <h3>Trends</h3>
                 </div>
-                <div class="mdui-card-body" style="padding: 10px 20px;">
-                    <div class="mdui-trends-grid">
-                        ${row('Hours this month',   stats.hoursMonth,   v => `${v}h`)}
-                        ${row('Flights this week',  stats.flightsWeek,  v => `${v}`)}
-                        ${row('Active days',   stats.activeDays,   v => `${v}`)}
-                        ${row('Fleet variety', stats.fleetVariety, v => `${v}`)}
-                    </div>
+                <div class="mdui-trends-grid">
+                    ${row('Hours this month',  stats.hoursMonth,   v => `${v}h`)}
+                    ${row('Flights this week', stats.flightsWeek,  v => `${v}`)}
+                    ${row('Active days',       stats.activeDays,   v => `${v}`)}
+                    ${row('Fleet variety',     stats.fleetVariety, v => `${v}`)}
                 </div>
             </div>`;
     },
@@ -1067,31 +1053,24 @@ _tabOnboarding() {
         ];
 
         return `
-            <div class="mdui-card mdui-fade-up">
-                <div class="mdui-card-header">
-                    <h3><i class="fa-solid fa-trophy" style="color: var(--mdui-accent); margin-right: 8px;"></i>Personal Records</h3>
-                </div>
-                <div class="mdui-card-body" style="padding: 14px 20px;">
-                    <div class="mdui-records-grid">
-                        ${records.map(r => `
-                            <div class="mdui-record" data-tone="${r.tone}">
-                                <div class="mdui-record-head">
-                                    <span class="mdui-record-icon"><i class="fa-solid ${r.icon}"></i></span>
-                                    <span class="mdui-record-label">${r.label}</span>
-                                </div>
-                                <div class="mdui-record-value">${r.value}</div>
-                                ${r.sub ? `<div class="mdui-record-sub">${r.sub}</div>` : ''}
-                            </div>`).join('')}
-                    </div>
-                </div>
+            <div class="mdui-records-grid mdui-fade-up">
+                ${records.map(r => `
+                    <div class="mdui-record" data-tone="${r.tone}">
+                        <div class="mdui-record-head">
+                            <span class="mdui-record-icon"><i class="fa-solid ${r.icon}"></i></span>
+                            <span class="mdui-record-label">${r.label}</span>
+                        </div>
+                        <div class="mdui-record-value">${r.value}</div>
+                        ${r.sub ? `<div class="mdui-record-sub">${r.sub}</div>` : ''}
+                    </div>`).join('')}
             </div>`;
     },
-_tabCareer() {
+
+    _tabCareer() {
         const user = this._currentUser;
         const ifUsername = user?.user_metadata?.if_username || '';
         const fullName = user?.user_metadata?.full_name || user?.user_metadata?.name || 'Captain';
 
-        // Internal Career Sub-Tabs
         const subTabs = [
             { id: 'overview', label: 'Overview', icon: 'fa-chart-pie' },
             { id: 'logbook',  label: 'Logbook',  icon: 'fa-book' },
@@ -1099,9 +1078,9 @@ _tabCareer() {
         ];
 
         const subTabNav = `
-            <div class="mdui-sub-tab-bar mdui-fade-up">
+            <div class="mdui-seg mdui-sub-tab-bar mdui-fade-up">
                 ${subTabs.map(t => `
-                    <button class="mdui-career-tab-btn ${this._careerActiveTab === t.id ? 'active' : ''}" 
+                    <button class="mdui-career-tab-btn ${this._careerActiveTab === t.id ? 'active' : ''}"
                             data-tab="${t.id}" aria-label="${t.label}">
                         <i class="fa-solid ${t.icon}"></i>
                         <span>${t.label}</span>
@@ -1124,7 +1103,7 @@ _tabCareer() {
                     <div class="mdui-dossier-avatar">${initials}</div>
                     <div class="mdui-dossier-id">
                         <div class="mdui-dossier-name">${fullName}</div>
-                        <div class="mdui-dossier-handle"><i class="fa-solid fa-plane"></i> ${ifUsername || 'Not linked'}</div>
+                        <span class="mdui-dossier-handle"><i class="fa-solid fa-plane"></i>${ifUsername || 'Not linked'}</span>
                         ${this._bio ? `<div class="mdui-dossier-bio">${this._bio}</div>` : ''}
                     </div>
                     ${grade != null ? `<div class="mdui-dossier-grade"><span>Grade</span><strong>${grade}</strong></div>` : ''}
@@ -1132,11 +1111,10 @@ _tabCareer() {
             </div>
         `;
 
-        // Content selection based on sub-tab
         let activeContentHTML = '';
         if (this._careerActiveTab === 'overview') {
             activeContentHTML = `
-                <div class="mdui-mini-stat-grid mdui-fade-up" style="margin-bottom: 24px;">
+                <div class="mdui-stat-tile-grid mdui-fade-up" style="margin-bottom: 24px;">
                     ${this._renderCareerMiniStats()}
                 </div>
                 ${this._getTrendsCardHTML()}
@@ -1159,51 +1137,41 @@ _tabCareer() {
             <div id="mdui-career-content-host">
                 ${activeContentHTML}
             </div>
-            
+
             ${this._careerActiveTab === 'overview' ? `<div class="mdui-fade-up">${CareerModule.getHTML(this._ifData, 'overview')}</div>` : ''}
         `;
     },
 
-    // Helper to keep _tabCareer clean
     _renderCareerMiniStats() {
-        if (!this._ifData.stats) return `<div class="mdui-skel" style="height:80px; width:100%;"></div>`;
+        if (!this._ifData.stats) return `<div class="mdui-skel" style="height:88px; width:100%; grid-column: 1 / -1;"></div>`;
         const stats = this._ifData.stats;
         return `
-            <div class="mdui-mini-stat-card mdui-drillable-card" data-drill="grade" data-tone="indigo">
-                <div class="mdui-mini-icon"><i class="fa-solid fa-award"></i></div>
-                <div class="mdui-mini-data">
-                    <div class="mdui-mini-value">Grade ${stats.gradeDetails?.gradeIndex || 'N/A'}</div>
-                    <div class="mdui-mini-label">Pilot Level</div>
-                </div>
+            <div class="mdui-stat-tile mdui-drillable-card" data-drill="grade" data-tone="indigo">
+                <div class="mdui-stat-tile-icon"><i class="fa-solid fa-award"></i></div>
+                <div class="mdui-stat-tile-value">Grade ${stats.gradeDetails?.gradeIndex || 'N/A'}</div>
+                <div class="mdui-stat-tile-label">Pilot Level</div>
             </div>
-            <div class="mdui-mini-stat-card mdui-drillable-card" data-drill="xp" data-tone="violet">
-                <div class="mdui-mini-icon"><i class="fa-solid fa-star"></i></div>
-                <div class="mdui-mini-data">
-                    <div class="mdui-mini-value">${stats.totalXP?.toLocaleString() || '0'}</div>
-                    <div class="mdui-mini-label">Total XP</div>
-                </div>
+            <div class="mdui-stat-tile mdui-drillable-card" data-drill="xp" data-tone="violet">
+                <div class="mdui-stat-tile-icon"><i class="fa-solid fa-star"></i></div>
+                <div class="mdui-stat-tile-value">${stats.totalXP?.toLocaleString() || '0'}</div>
+                <div class="mdui-stat-tile-label">Total XP</div>
             </div>
-            <div class="mdui-mini-stat-card mdui-drillable-card" data-drill="flights" data-tone="emerald">
-                <div class="mdui-mini-icon"><i class="fa-solid fa-plane-arrival"></i></div>
-                <div class="mdui-mini-data">
-                    <div class="mdui-mini-value">${this._ifData.logbookTotal?.toLocaleString() || '0'}</div>
-                    <div class="mdui-mini-label">Flights</div>
-                </div>
+            <div class="mdui-stat-tile mdui-drillable-card" data-drill="flights" data-tone="emerald">
+                <div class="mdui-stat-tile-icon"><i class="fa-solid fa-plane-arrival"></i></div>
+                <div class="mdui-stat-tile-value">${this._ifData.logbookTotal?.toLocaleString() || '0'}</div>
+                <div class="mdui-stat-tile-label">Flights</div>
             </div>`;
     },
 
     // ── Airspace Intel ────────────────────────────────────────────────────────
     _tabAirspace() {
         return `
-            <div class="mdui-tab-header mdui-fade-up">
-                <h2>Traffic</h2>
-                <p>Real-time predictive multi-node telemetry. Forecasting congestion across active hubs.</p>
-            </div>
-            <div class="mdui-airspace-add mdui-fade-up">
-                <div class="mdui-input-wrap" style="flex:1;">
-                    <i class="fa-solid fa-location-crosshairs mdui-input-icon"></i>
-                    <input type="text" id="mdui-intel-input" class="mdui-input mdui-icao-input"
-                        placeholder="ICAO" maxlength="4">
+            <p class="mdui-page-sub mdui-fade-up">Real-time predictive telemetry. Forecasting congestion across your monitored hubs.</p>
+            <div class="mdui-capsule-row mdui-fade-up">
+                <div class="mdui-capsule">
+                    <i class="fa-solid fa-location-crosshairs"></i>
+                    <input type="text" id="mdui-intel-input" class="mdui-capsule-input mdui-mono-input"
+                        placeholder="ICAO" maxlength="4" autocomplete="off">
                 </div>
                 <button class="mdui-btn-primary" id="mdui-intel-add" style="white-space:nowrap;">
                     <i class="fa-solid fa-satellite-dish"></i> Monitor
@@ -1218,7 +1186,7 @@ _tabCareer() {
     _renderAirspaceNodes() {
         if (!this._airspaceNetwork) return '';
         const report = this._airspaceNetwork.generateNetworkAnalytics();
-        
+
         if (Object.keys(report.nodes).length === 0) {
             return `<div class="mdui-alert mdui-alert-info"><i class="fa-solid fa-satellite"></i><span>No nodes monitored. Add an ICAO above.</span></div>`;
         }
@@ -1230,39 +1198,39 @@ _tabCareer() {
             else if (statuses.includes('SATURATED')) maxSat = 'SATURATED';
             else if (statuses.includes('HEAVY')) maxSat = 'HEAVY';
 
-            let statusColor = 'var(--mdui-success)'; 
+            let statusColor = 'var(--mdui-success)';
             let statusBg = 'var(--mdui-success-soft)';
             let statusIcon = 'fa-circle-check';
             let statusSummary = 'Traffic flow is optimal and unrestricted. No delays anticipated.';
 
-            if (maxSat === 'CRITICAL') { 
-                statusColor = 'var(--mdui-danger)'; 
-                statusBg = 'var(--mdui-danger-soft)'; 
+            if (maxSat === 'CRITICAL') {
+                statusColor = 'var(--mdui-danger)';
+                statusBg = 'var(--mdui-danger-soft)';
                 statusIcon = 'fa-triangle-exclamation';
                 statusSummary = 'Critical congestion. Significant delays expected.';
-            } else if (maxSat === 'SATURATED') { 
-                statusColor = 'var(--mdui-warn)'; 
-                statusBg = 'var(--mdui-warn-soft)'; 
+            } else if (maxSat === 'SATURATED') {
+                statusColor = 'var(--mdui-warn)';
+                statusBg = 'var(--mdui-warn-soft)';
                 statusIcon = 'fa-circle-exclamation';
                 statusSummary = 'Approaching saturation. Sequencing delays likely.';
-            } else if (maxSat === 'HEAVY') { 
-                statusColor = 'var(--mdui-info)'; 
-                statusBg = 'var(--mdui-info-soft)'; 
+            } else if (maxSat === 'HEAVY') {
+                statusColor = 'var(--mdui-info)';
+                statusBg = 'var(--mdui-info-soft)';
                 statusIcon = 'fa-wave-square';
                 statusSummary = 'Heavy demand. Throughput is high but flow remains controlled.';
             }
 
             let firstHourInbound = 0;
-            for(let i = 0; i < Math.min(4, data.arrivalQueue.length); i++) {
+            for (let i = 0; i < Math.min(4, data.arrivalQueue.length); i++) {
                 firstHourInbound += data.arrivalQueue[i].count;
             }
             const firstHourCapacity = data.metrics.effectiveCapacity * 4;
             const loadPercentage = Math.min(100, Math.round((firstHourInbound / firstHourCapacity) * 100)) || 0;
 
-            let heatmapHTML = '<div class="mdui-intel-heatmap">';
+            let heatmapHTML = '<div class="mdui-node-heatmap">';
             const maxCount = Math.max(1, ...data.arrivalQueue.map(b => b.count || 0));
-            
-            for(let i = 0; i < Math.min(4, data.arrivalQueue.length); i++) {
+
+            for (let i = 0; i < Math.min(4, data.arrivalQueue.length); i++) {
                 const bucket = data.arrivalQueue[i];
                 const intensity = (bucket.count || 0) / maxCount;
                 let blockColor = 'var(--mdui-border)';
@@ -1270,8 +1238,8 @@ _tabCareer() {
                 else if (bucket.status === 'SATURATED') blockColor = 'var(--mdui-warn)';
                 else if (bucket.status === 'HEAVY') blockColor = 'var(--mdui-info)';
                 else if (bucket.count > 0) blockColor = 'var(--mdui-success)';
-                
-                heatmapHTML += `<div class="mdui-intel-heatblock" style="background: ${blockColor}; opacity: ${0.3 + intensity * 0.7};"></div>`;
+
+                heatmapHTML += `<div class="mdui-node-heatblock" style="background: ${blockColor}; opacity: ${0.3 + intensity * 0.7};"></div>`;
             }
             heatmapHTML += '</div>';
 
@@ -1283,57 +1251,57 @@ _tabCareer() {
             const netFlowText = data.metrics.netFlowDelta > 0 ? `+${data.metrics.netFlowDelta}` : data.metrics.netFlowDelta;
 
             return `
-                <div class="mdui-card mdui-fade-up">
-                    <div class="mdui-node-header">
-                        <div style="display:flex; align-items:center; gap:8px;">
-                            <i class="fa-solid fa-tower-observation" style="color: var(--mdui-tertiary);"></i>
+                <div class="mdui-node-card mdui-fade-up">
+                    <div class="mdui-node-head">
+                        <div class="mdui-node-ident">
+                            <i class="fa-solid fa-tower-observation"></i>
                             <span class="mdui-node-icao">${icao}</span>
                         </div>
                         <span class="mdui-node-badge" style="background:${statusBg};color:${statusColor};">${maxSat}</span>
                     </div>
-                    
-                    <div class="mdui-assessment-row">
-                        <div class="mdui-assessment-icon" style="color: ${statusColor};"><i class="fa-solid ${statusIcon}"></i></div>
-                        <div class="mdui-assessment-text">
+
+                    <div class="mdui-node-assessment">
+                        <span class="mdui-node-assessment-icon" style="color: ${statusColor};"><i class="fa-solid ${statusIcon}"></i></span>
+                        <div class="mdui-node-assessment-text">
                             <strong>Network Assessment</strong>
                             <span>${statusSummary}</span>
                         </div>
                     </div>
 
-                    <div class="mdui-load-bar-block">
-                        <div class="mdui-load-bar-head">
+                    <div class="mdui-node-load">
+                        <div class="mdui-node-load-head">
                             <span class="mdui-eyebrow">1-Hour Load</span>
                             <span class="mdui-mono-meta">${loadPercentage}%</span>
                         </div>
-                        <div class="mdui-load-bar-track">
-                            <div class="mdui-load-bar-fill" style="width:${loadPercentage}%;background:${statusColor};"></div>
+                        <div class="mdui-node-load-track">
+                            <div class="mdui-node-load-fill" style="width:${loadPercentage}%;background:${statusColor};"></div>
                         </div>
                     </div>
 
-                    <div class="mdui-intel-stats-quad">
-                        <div class="mdui-intel-stat">
-                            <span class="label">INBOUND</span>
+                    <div class="mdui-node-stats">
+                        <div class="mdui-node-stat">
+                            <span class="label">Inbound</span>
                             <span class="value">${data.metrics.totalInbound}</span>
                         </div>
-                        <div class="mdui-intel-stat">
-                            <span class="label">OUTBOUND</span>
+                        <div class="mdui-node-stat">
+                            <span class="label">Outbound</span>
                             <span class="value">${data.metrics.totalOutbound}</span>
                         </div>
-                        <div class="mdui-intel-stat">
-                            <span class="label">NET FLOW</span>
+                        <div class="mdui-node-stat">
+                            <span class="label">Net Flow</span>
                             <span class="value" style="color: ${netFlowColor};">${netFlowText}</span>
                         </div>
                     </div>
 
                     ${alertsHTML ? `<div class="mdui-mini-tag-row">${alertsHTML}</div>` : ''}
 
-                    <div class="mdui-section-head" style="margin-top: 16px;">
+                    <div class="mdui-node-section-head">
                         <span class="mdui-eyebrow">4-Hour Saturation Map</span>
-                        <span class="mdui-mono-meta" style="font-size:0.6rem;">CAP ${data.metrics.effectiveCapacity}/15m</span>
+                        <span class="mdui-mono-meta" style="font-size:10px;">CAP ${data.metrics.effectiveCapacity}/15m</span>
                     </div>
                     ${heatmapHTML}
 
-                    <div class="mdui-card-footer">
+                    <div class="mdui-node-foot">
                         <button class="mdui-btn-ghost mdui-node-remove" data-icao="${icao}">
                             <i class="fa-solid fa-link-slash"></i> Unlink Node
                         </button>
@@ -1364,30 +1332,28 @@ _tabCareer() {
         const notifChecked = this._userPrefs.notification_watchlist_enabled ? 'checked' : '';
         return `
             <div class="mdui-fade-up">
-                <p class="mdui-large-subtitle" style="padding: 0 2px 14px;">Track specific pilots in real-time. Get notified the moment they come online.</p>
+                <p class="mdui-page-sub">Track specific pilots in real-time. Get notified the moment they come online.</p>
 
-                <div class="mdui-list-section">
-                    <div class="mdui-list-section-header">Add Pilot</div>
-                    <div class="mdui-list-group" style="overflow: visible;">
-                        <div class="mdui-list-form-row" style="position: relative;">
-                            <span class="mdui-list-form-control" style="justify-content: flex-start; position: relative;">
-                                <i class="fa-solid fa-magnifying-glass" style="position:absolute; left:0; top:50%; transform:translateY(-50%); color: var(--mdui-tertiary); font-size: 14px;"></i>
-                                <input type="text" id="mdui-watchlist-input" placeholder="Search active pilots…" autocomplete="off" style="padding-left: 22px; text-align: left;">
-                                <button class="mdui-nav-btn" id="mdui-watchlist-add-btn" style="margin-left: 8px; flex: 0 0 auto;">Add</button>
-                            </span>
-                            <div id="mdui-watchlist-dropdown" class="mdui-autocomplete-dropdown" style="display: none;"></div>
+                <div class="mdui-section">
+                    <div class="mdui-section-title">Add Pilot</div>
+                    <div class="mdui-capsule-row" style="position: relative; margin-bottom: 0;">
+                        <div class="mdui-capsule">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                            <input type="text" id="mdui-watchlist-input" class="mdui-capsule-input" placeholder="Search active pilots…" autocomplete="off">
                         </div>
+                        <button class="mdui-btn-primary" id="mdui-watchlist-add-btn" style="white-space:nowrap;">Add</button>
+                        <div id="mdui-watchlist-dropdown" class="mdui-autocomplete-dropdown" style="display: none;"></div>
                     </div>
                 </div>
 
-                <div class="mdui-list-section">
-                    <div class="mdui-list-section-header">Live Alerts</div>
-                    <div class="mdui-list-group">
-                        <div class="mdui-list-row" data-static="true">
-                            <span class="mdui-list-row-icon tone-orange"><i class="fa-solid fa-bell"></i></span>
-                            <div class="mdui-list-row-text">
-                                <span class="mdui-list-row-label">Notify when online</span>
-                                <span class="mdui-list-row-sub">Send a notification the moment any tracked pilot comes online.</span>
+                <div class="mdui-section">
+                    <div class="mdui-section-title">Live Alerts</div>
+                    <div class="mdui-rows">
+                        <div class="mdui-row" data-static="true">
+                            <span class="mdui-row-glyph tone-orange"><i class="fa-solid fa-bell"></i></span>
+                            <div class="mdui-row-main">
+                                <span class="mdui-row-title">Notify when online</span>
+                                <span class="mdui-row-sub">Alert me the moment any tracked pilot connects.</span>
                             </div>
                             <label class="mdui-toggle-label">
                                 <input type="checkbox" id="mdui-watchlist-notif-toggle" ${notifChecked}>
@@ -1397,7 +1363,7 @@ _tabCareer() {
                     </div>
                 </div>
 
-                <div id="mdui-watchlist-pilots-container" class="mdui-list-section">
+                <div id="mdui-watchlist-pilots-container" class="mdui-section">
                     ${this._getWatchlistPilotsHTML()}
                 </div>
             </div>
@@ -1407,17 +1373,17 @@ _tabCareer() {
     _getWatchlistPilotsHTML() {
         if (this._watchlist.length === 0) {
             return `
-                <div class="mdui-list-section-header">Tracked Pilots</div>
-                <div class="mdui-list-group">
-                    <div class="mdui-list-row no-icon" data-static="true">
-                        <div class="mdui-list-row-text">
-                            <span class="mdui-list-row-label">No pilots tracked</span>
-                            <span class="mdui-list-row-sub">Add an Infinite Flight username above to start monitoring.</span>
+                <div class="mdui-section-title">Tracked Pilots</div>
+                <div class="mdui-rows">
+                    <div class="mdui-row" data-static="true">
+                        <div class="mdui-row-main">
+                            <span class="mdui-row-title">No pilots tracked</span>
+                            <span class="mdui-row-sub">Add an Infinite Flight username above to start monitoring.</span>
                         </div>
                     </div>
                 </div>`;
         }
-        const rows = this._watchlist.map(entry => {
+        const cards = this._watchlist.map(entry => {
             const un = entry.watched_username.toLowerCase();
             const status = this._watchedPilotStatus[un];
             const isLive = status?.isLive;
@@ -1425,28 +1391,60 @@ _tabCareer() {
 
             const dep = flight?.departureIcao || '----';
             const arr = flight?.arrivalIcao   || '----';
-            const alt = flight ? Math.round(flight.position.alt_ft).toLocaleString() + ' ft' : '';
-            const gs  = flight ? Math.round(flight.position.gs_kt) + ' kt'                : '';
-            const statusText = isLive ? `${dep} → ${arr} · ${alt} · ${gs}` : 'Offline';
-            const iconTone = isLive ? 'tone-green' : 'tone-gray';
-            const iconClass = isLive ? 'fa-plane' : 'fa-user-clock';
-
+            const alt = flight ? Math.round(flight.position.alt_ft).toLocaleString() : null;
+            const gs  = flight ? Math.round(flight.position.gs_kt) : null;
             const drillAttrs = isLive ? `data-drill="icao" data-icao="${dep}"` : '';
+
+            const liveDetail = isLive ? `
+                <div class="mdui-pilot-flight" ${drillAttrs}>
+                    <span class="mdui-pilot-route mdui-mono">${dep} <i class="fa-solid fa-plane"></i> ${arr}</span>
+                    <span class="mdui-pilot-tele mdui-mono">${alt} ft · ${gs} kt</span>
+                </div>` : '';
+
             return `
-                <div class="mdui-list-row" ${drillAttrs}${isLive ? '' : ' data-static="true"'}>
-                    <span class="mdui-list-row-icon ${iconTone}"><i class="fa-solid ${iconClass}"></i></span>
-                    <div class="mdui-list-row-text">
-                        <span class="mdui-list-row-label">${entry.watched_username}</span>
-                        <span class="mdui-list-row-sub ${isLive ? 'live' : ''}" style="${isLive ? `color: var(--mdui-success); font-family: var(--mdui-font-mono); letter-spacing: 0;` : ''}">${statusText}</span>
+                <div class="mdui-pilot-card ${isLive ? 'is-live' : ''}">
+                    <div class="mdui-pilot-top">
+                        <span class="mdui-pilot-dot ${isLive ? 'live' : 'offline'}"></span>
+                        <div class="mdui-pilot-id">
+                            <span class="mdui-pilot-name">${entry.watched_username}</span>
+                            <span class="mdui-pilot-status ${isLive ? 'live' : ''}">${isLive ? 'Online now' : 'Offline'}</span>
+                        </div>
+                        <button class="mdui-watchlist-remove-btn" data-id="${entry.id}" data-username="${entry.watched_username}" title="Remove" aria-label="Remove pilot">
+                            <i class="fa-solid fa-circle-minus"></i>
+                        </button>
                     </div>
-                    <button class="mdui-watchlist-remove-btn" data-id="${entry.id}" data-username="${entry.watched_username}" title="Remove" aria-label="Remove pilot">
-                        <i class="fa-solid fa-circle-minus"></i>
-                    </button>
+                    ${liveDetail}
                 </div>`;
         }).join('');
         return `
-            <div class="mdui-list-section-header">Tracked Pilots</div>
-            <div class="mdui-list-group">${rows}</div>`;
+            <div class="mdui-section-title">Tracked Pilots</div>
+            <div class="mdui-pilot-grid">${cards}</div>`;
+    },
+
+    /** Live refresh for the watchlist tab — re-renders the tracked-pilot cards
+     *  in place when new socket telemetry lands, then re-binds their remove
+     *  buttons (direct listeners are lost on innerHTML replacement). */
+    _updateWatchlistDOM() {
+        const host = document.getElementById('mdui-watchlist-pilots-container');
+        if (!host) return;
+        host.innerHTML = this._getWatchlistPilotsHTML();
+        this._bindWatchlistRemoveButtons();
+    },
+
+    _bindWatchlistRemoveButtons() {
+        document.querySelectorAll('.mdui-watchlist-remove-btn').forEach(btn => {
+            if (btn.dataset.bound) return;
+            btn.dataset.bound = '1';
+            btn.addEventListener('click', async (e) => {
+                const id = e.currentTarget.dataset.id;
+                try {
+                    await this._supabase.from('user_watchlist').delete().eq('id', id);
+                    this._watchlist = this._watchlist.filter(w => String(w.id) !== String(id));
+                    this._showToast(`Removed from watchlist`, 'info');
+                    this._render();
+                } catch (err) {}
+            });
+        });
     },
 
     async _autoCalculateRouteEET(depIcao, arrIcao) {
@@ -1489,36 +1487,34 @@ _tabCareer() {
                 const mins    = f.duration_minutes % 60;
                 return `
                     <div class="mdui-ticket mdui-fade-up" style="animation-delay:${i * 0.04}s;">
-                        <div class="mdui-ticket-actions">
-                            <button class="mdui-icon-btn mdui-ticket-edit-btn" data-id="${f.flight_id}"><i class="fa-solid fa-pen"></i></button>
-                            <button class="mdui-icon-btn mdui-ticket-delete-btn" data-id="${f.flight_id}"><i class="fa-solid fa-trash"></i></button>
-                        </div>
                         <div class="mdui-ticket-stub">
-                            <span class="mdui-ticket-date">${dateStr}</span>
-                            <span class="mdui-ticket-time">${timeStr}</span>
                             <span class="mdui-ticket-cs">${f.callsign || 'N/A'}</span>
-                        </div>
-                        <div class="mdui-ticket-body">
-                            <div class="mdui-ticket-route">
-                                <div class="mdui-ticket-point">
-                                    <span class="mdui-ticket-icao">${f.dep_icao || '----'}</span>
-                                    ${f.dep_gate ? `<span class="mdui-ticket-gate">Gate ${f.dep_gate}</span>` : ''}
-                                </div>
-                                <div class="mdui-ticket-path">
-                                    <span class="mdui-ticket-duration">${hours}h ${mins}m</span>
-                                    <div class="mdui-ticket-line"><i class="fa-solid fa-plane"></i></div>
-                                    <span class="mdui-ticket-acft">${f.aircraft_type || 'UNK'}</span>
-                                </div>
-                                <div class="mdui-ticket-point mdui-ticket-point-right">
-                                    <span class="mdui-ticket-icao">${f.arr_icao || '----'}</span>
-                                    ${f.arr_gate ? `<span class="mdui-ticket-gate">Gate ${f.arr_gate}</span>` : ''}
-                                </div>
+                            <span class="mdui-ticket-when">${dateStr} · ${timeStr}</span>
+                            <div class="mdui-ticket-actions">
+                                <button class="mdui-icon-btn mdui-ticket-edit-btn" data-id="${f.flight_id}" aria-label="Edit"><i class="fa-solid fa-pen"></i></button>
+                                <button class="mdui-icon-btn mdui-ticket-delete-btn" data-id="${f.flight_id}" aria-label="Delete"><i class="fa-solid fa-trash"></i></button>
                             </div>
                         </div>
-                        <div class="mdui-ticket-aside">
-                            ${f.passengers ? `<div class="mdui-ticket-stat"><i class="fa-solid fa-users"></i> ${f.passengers} pax</div>` : ''}
-                            ${f.fuel_used ? `<div class="mdui-ticket-stat"><i class="fa-solid fa-gas-pump"></i> ${f.fuel_used.toLocaleString()} lbs</div>` : ''}
+                        <div class="mdui-ticket-route">
+                            <div class="mdui-ticket-point">
+                                <span class="mdui-ticket-icao">${f.dep_icao || '----'}</span>
+                                ${f.dep_gate ? `<span class="mdui-ticket-gate">Gate ${f.dep_gate}</span>` : ''}
+                            </div>
+                            <div class="mdui-ticket-path">
+                                <span class="mdui-ticket-duration">${hours}h ${mins}m</span>
+                                <div class="mdui-ticket-line"><i class="fa-solid fa-plane"></i></div>
+                                <span class="mdui-ticket-acft">${f.aircraft_type || 'UNK'}</span>
+                            </div>
+                            <div class="mdui-ticket-point is-right">
+                                <span class="mdui-ticket-icao">${f.arr_icao || '----'}</span>
+                                ${f.arr_gate ? `<span class="mdui-ticket-gate">Gate ${f.arr_gate}</span>` : ''}
+                            </div>
                         </div>
+                        ${(f.passengers || f.fuel_used) ? `
+                        <div class="mdui-ticket-aside">
+                            ${f.passengers ? `<span class="mdui-chip"><i class="fa-solid fa-users"></i>${f.passengers} pax</span>` : ''}
+                            ${f.fuel_used ? `<span class="mdui-chip"><i class="fa-solid fa-gas-pump"></i>${f.fuel_used.toLocaleString()} lbs</span>` : ''}
+                        </div>` : ''}
                     </div>`;
             }).join('');
         } else {
@@ -1526,107 +1522,104 @@ _tabCareer() {
                 <div class="mdui-empty-state mdui-fade-up">
                     <i class="fa-solid fa-paper-plane"></i>
                     <h4>No flights filed yet</h4>
-                    <p>File your first flight plan using the button below.</p>
+                    <p>File your first flight plan using the button above.</p>
                 </div>`;
         }
 
         const aircraftOptions = AIRCRAFT_SELECTION_LIST.map(a => `<option value="${a.value}">${a.name} (${a.value})</option>`).join('');
 
         return `
-            <div class="mdui-tab-header mdui-fade-up">
-                <h2>Flight Dispatch</h2>
-                <p>File upcoming flight plans and review your active schedule.</p>
-            </div>
+            <p class="mdui-page-sub mdui-fade-up">File upcoming flight plans and review your active schedule.</p>
 
-            <button class="mdui-btn-primary mdui-btn-block mdui-fade-up" id="mdui-toggle-form" style="margin-bottom:16px;">
-                <i class="fa-solid fa-file-pen"></i> Generate dispatch
+            <button class="mdui-btn-primary mdui-btn-block mdui-fade-up" id="mdui-toggle-form" style="margin-bottom:18px;">
+                <i class="fa-solid fa-file-pen"></i> New Dispatch
             </button>
 
-            <div id="mdui-flight-form" class="mdui-card mdui-form-sheet" style="display:none; margin-bottom: 24px;">
-                <div class="mdui-card-header">
-                    <h3 id="mdui-dispatch-form-title"><i class="fa-solid fa-file-pen" style="color: var(--mdui-accent); margin-right: 6px;"></i> Dispatch Briefing</h3>
+            <div id="mdui-flight-form" class="mdui-panel mdui-form-sheet" style="display:none; margin-bottom: 24px;">
+                <div class="mdui-panel-head">
+                    <span class="mdui-panel-glyph"><i class="fa-solid fa-file-pen"></i></span>
+                    <h3 id="mdui-dispatch-form-title">Dispatch Briefing</h3>
                 </div>
-                <div class="mdui-card-body">
-                    <div class="mdui-form-section-title">Flight Identification</div>
-                    <div class="mdui-form-row">
-                        <div class="mdui-input-group">
-                            <label>Callsign</label>
-                            <div class="mdui-input-wrap">
-                                <i class="fa-solid fa-tower-broadcast mdui-input-icon"></i>
-                                <input type="text" id="mdui-new-callsign" class="mdui-input has-icon" placeholder="DAL404">
-                            </div>
-                        </div>
-                        <div class="mdui-input-group">
-                            <label>Aircraft</label>
-                            <div class="mdui-input-wrap">
-                                <i class="fa-solid fa-plane mdui-input-icon"></i>
-                                <select id="mdui-new-aircraft" class="mdui-input has-icon mdui-select">
-                                    <option value="" disabled selected>Select</option>
-                                    ${aircraftOptions}
-                                </select>
-                            </div>
-                        </div>
-                    </div>
 
-                    <div class="mdui-form-section-title">Routing</div>
-                    <div class="mdui-form-row">
-                        <div class="mdui-input-group">
-                            <label>Origin</label>
-                            <div class="mdui-input-wrap">
-                                <i class="fa-solid fa-plane-departure mdui-input-icon"></i>
-                                <input type="text" id="mdui-new-dep" class="mdui-input has-icon mdui-icao-input" placeholder="KJFK" maxlength="4">
-                            </div>
-                        </div>
-                        <div class="mdui-input-group">
-                            <label>Destination</label>
-                            <div class="mdui-input-wrap">
-                                <i class="fa-solid fa-plane-arrival mdui-input-icon"></i>
-                                <input type="text" id="mdui-new-arr" class="mdui-input has-icon mdui-icao-input" placeholder="EGLL" maxlength="4">
-                            </div>
-                        </div>
-                    </div>
-                    <div class="mdui-form-row">
-                        <div class="mdui-input-group">
-                            <label>Dep Gate</label>
-                            <input type="text" id="mdui-new-dep-gate" class="mdui-input" placeholder="B24">
-                        </div>
-                        <div class="mdui-input-group">
-                            <label>Arr Gate</label>
-                            <input type="text" id="mdui-new-arr-gate" class="mdui-input" placeholder="501">
-                        </div>
-                    </div>
-
-                    <div class="mdui-form-section-title">Schedule & Load</div>
-                    <div class="mdui-input-group" style="margin-bottom: 12px;">
-                        <label>Departure Time</label>
-                        <input type="datetime-local" id="mdui-new-time" class="mdui-input">
-                    </div>
-                    <div class="mdui-form-row">
-                        <div class="mdui-input-group">
-                            <label>EET (mins)</label>
-                            <input type="number" id="mdui-new-duration" class="mdui-input" placeholder="Auto-calc">
-                        </div>
-                        <div class="mdui-input-group">
-                            <label>POB (pax)</label>
-                            <input type="number" id="mdui-new-pax" class="mdui-input" placeholder="212">
-                        </div>
-                    </div>
-                    <div class="mdui-input-group" style="margin-bottom: 12px;">
-                        <label>Block Fuel (lbs)</label>
+                <div class="mdui-form-eyebrow">Flight Identification</div>
+                <div class="mdui-form-row">
+                    <div class="mdui-input-group">
+                        <label>Callsign</label>
                         <div class="mdui-input-wrap">
-                            <i class="fa-solid fa-gas-pump mdui-input-icon"></i>
-                            <input type="number" id="mdui-new-fuel" class="mdui-input has-icon" placeholder="85000">
+                            <i class="fa-solid fa-tower-broadcast mdui-input-icon"></i>
+                            <input type="text" id="mdui-new-callsign" class="mdui-input has-icon" placeholder="DAL404">
                         </div>
                     </div>
-
-                    <div id="mdui-flight-msg" class="mdui-alert" style="display:none; margin-bottom:12px;"></div>
-
-                    <div class="mdui-form-actions">
-                        <button class="mdui-btn-ghost" id="mdui-cancel-form">Cancel</button>
-                        <button class="mdui-btn-primary" id="mdui-submit-flight">
-                            <i class="fa-solid fa-paper-plane"></i> File Plan
-                        </button>
+                    <div class="mdui-input-group">
+                        <label>Aircraft</label>
+                        <div class="mdui-input-wrap">
+                            <i class="fa-solid fa-plane mdui-input-icon"></i>
+                            <select id="mdui-new-aircraft" class="mdui-input has-icon mdui-select">
+                                <option value="" disabled selected>Select</option>
+                                ${aircraftOptions}
+                            </select>
+                        </div>
                     </div>
+                </div>
+
+                <div class="mdui-form-eyebrow">Routing</div>
+                <div class="mdui-form-row">
+                    <div class="mdui-input-group">
+                        <label>Origin</label>
+                        <div class="mdui-input-wrap">
+                            <i class="fa-solid fa-plane-departure mdui-input-icon"></i>
+                            <input type="text" id="mdui-new-dep" class="mdui-input has-icon mdui-icao-input" placeholder="KJFK" maxlength="4">
+                        </div>
+                    </div>
+                    <div class="mdui-input-group">
+                        <label>Destination</label>
+                        <div class="mdui-input-wrap">
+                            <i class="fa-solid fa-plane-arrival mdui-input-icon"></i>
+                            <input type="text" id="mdui-new-arr" class="mdui-input has-icon mdui-icao-input" placeholder="EGLL" maxlength="4">
+                        </div>
+                    </div>
+                </div>
+                <div class="mdui-form-row">
+                    <div class="mdui-input-group">
+                        <label>Dep Gate</label>
+                        <input type="text" id="mdui-new-dep-gate" class="mdui-input" placeholder="B24">
+                    </div>
+                    <div class="mdui-input-group">
+                        <label>Arr Gate</label>
+                        <input type="text" id="mdui-new-arr-gate" class="mdui-input" placeholder="501">
+                    </div>
+                </div>
+
+                <div class="mdui-form-eyebrow">Schedule &amp; Load</div>
+                <div class="mdui-input-group" style="margin-bottom: 12px;">
+                    <label>Departure Time</label>
+                    <input type="datetime-local" id="mdui-new-time" class="mdui-input">
+                </div>
+                <div class="mdui-form-row">
+                    <div class="mdui-input-group">
+                        <label>EET (mins)</label>
+                        <input type="number" id="mdui-new-duration" class="mdui-input" placeholder="Auto-calc">
+                    </div>
+                    <div class="mdui-input-group">
+                        <label>POB (pax)</label>
+                        <input type="number" id="mdui-new-pax" class="mdui-input" placeholder="212">
+                    </div>
+                </div>
+                <div class="mdui-input-group" style="margin-bottom: 12px;">
+                    <label>Block Fuel (lbs)</label>
+                    <div class="mdui-input-wrap">
+                        <i class="fa-solid fa-gas-pump mdui-input-icon"></i>
+                        <input type="number" id="mdui-new-fuel" class="mdui-input has-icon" placeholder="85000">
+                    </div>
+                </div>
+
+                <div id="mdui-flight-msg" class="mdui-alert" style="display:none; margin-bottom:12px;"></div>
+
+                <div class="mdui-form-actions">
+                    <button class="mdui-btn-ghost" id="mdui-cancel-form">Cancel</button>
+                    <button class="mdui-btn-primary" id="mdui-submit-flight">
+                        <i class="fa-solid fa-paper-plane"></i> File Plan
+                    </button>
                 </div>
             </div>
 
@@ -1822,7 +1815,7 @@ _tabCareer() {
         });
     },
 
-// ── Settings ──────────────────────────────────────────────────────────────
+    // ── Settings ──────────────────────────────────────────────────────────────
     _tabSettings() {
         const user       = this._currentUser;
         const name       = user?.user_metadata?.full_name || user?.user_metadata?.name || '';
@@ -1848,61 +1841,61 @@ _tabCareer() {
         return `
             <div class="mdui-fade-up">
 
-              <!-- Identity hero, like the top of iOS Settings -->
-              <button class="mdui-list-group mdui-id-card" id="mdui-edit-name-row" type="button" aria-label="Edit profile">
+              <!-- Identity hero -->
+              <button class="mdui-id-card" id="mdui-edit-name-row" type="button" aria-label="Edit profile">
                   <div class="mdui-id-avatar">${initials}</div>
                   <div class="mdui-id-text">
                       <div class="mdui-id-name">${name || 'Add your name'}</div>
                       <div class="mdui-id-sub">${email || 'Tap to set up profile'}</div>
                   </div>
-                  <i class="fa-solid fa-chevron-right mdui-list-row-chevron"></i>
+                  <i class="fa-solid fa-chevron-right mdui-row-chev"></i>
               </button>
 
               <!-- Profile -->
-              <div class="mdui-list-section">
-                  <div class="mdui-list-section-header">Profile</div>
-                  <div class="mdui-list-group">
-                      <div class="mdui-list-form-row">
-                          <span class="mdui-list-form-label">Name</span>
-                          <span class="mdui-list-form-control">
+              <div class="mdui-section">
+                  <div class="mdui-section-title">Profile</div>
+                  <div class="mdui-rows">
+                      <div class="mdui-form-line">
+                          <span class="mdui-form-line-label">Name</span>
+                          <span class="mdui-form-line-control">
                               <input type="text" id="mdui-edit-name" placeholder="Captain" value="${name.replace(/"/g, '&quot;')}">
                           </span>
                       </div>
-                      <div class="mdui-list-form-row">
-                          <span class="mdui-list-form-label">Email</span>
-                          <span class="mdui-list-form-control">
+                      <div class="mdui-form-line">
+                          <span class="mdui-form-line-label">Email</span>
+                          <span class="mdui-form-line-control">
                               <input type="email" value="${email}" disabled>
                           </span>
                       </div>
-                      <div class="mdui-list-form-row">
-                          <span class="mdui-list-form-label">IF Username</span>
-                          <span class="mdui-list-form-control">
+                      <div class="mdui-form-line">
+                          <span class="mdui-form-line-label">IF Username</span>
+                          <span class="mdui-form-line-control">
                               <input type="text" id="mdui-edit-if" placeholder="Forum name" value="${ifUsername.replace(/"/g, '&quot;')}">
                           </span>
                       </div>
-                      <div class="mdui-list-form-row">
-                          <span class="mdui-list-form-label">New Password</span>
-                          <span class="mdui-list-form-control">
+                      <div class="mdui-form-line">
+                          <span class="mdui-form-line-label">New Password</span>
+                          <span class="mdui-form-line-control">
                               <input type="password" id="mdui-edit-pw" placeholder="Leave blank">
                           </span>
                       </div>
                   </div>
-                  <div class="mdui-list-section-footer">Your Infinite Flight username is used to pull live stats and flight history.</div>
+                  <div class="mdui-section-foot">Your Infinite Flight username is used to pull live stats and flight history.</div>
               </div>
 
               <!-- Pilot Identity -->
-              <div class="mdui-list-section">
-                  <div class="mdui-list-section-header">Pilot Identity</div>
-                  <div class="mdui-list-group">
-                      <div class="mdui-list-form-row">
-                          <span class="mdui-list-form-label">Tagline</span>
-                          <span class="mdui-list-form-control">
+              <div class="mdui-section">
+                  <div class="mdui-section-title">Pilot Identity</div>
+                  <div class="mdui-rows">
+                      <div class="mdui-form-line">
+                          <span class="mdui-form-line-label">Tagline</span>
+                          <span class="mdui-form-line-control">
                               <input type="text" id="mdui-edit-bio" maxlength="140" placeholder="787 type rating · long-haul" value="${(this._bio || '').replace(/"/g, '&quot;')}">
                           </span>
                       </div>
-                      <div class="mdui-list-form-row">
-                          <span class="mdui-list-form-label">Cover URL</span>
-                          <span class="mdui-list-form-control">
+                      <div class="mdui-form-line">
+                          <span class="mdui-form-line-label">Cover URL</span>
+                          <span class="mdui-form-line-control">
                               <input type="url" id="mdui-edit-cover" placeholder="https://…" value="${(this._coverUrl || '').replace(/"/g, '&quot;')}">
                           </span>
                       </div>
@@ -1910,25 +1903,27 @@ _tabCareer() {
               </div>
 
               <!-- Appearance -->
-              <div class="mdui-list-section">
-                  <div class="mdui-list-section-header">Appearance</div>
-                  <div class="mdui-list-group">
-                      <div class="mdui-list-form-row" style="padding: 12px 14px;">
-                          <span class="mdui-list-form-label">Theme</span>
-                          <span class="mdui-list-form-control mdui-segmented">
-                              <label class="mdui-segmented-opt">
-                                  <input type="radio" name="mdui-theme" value="light" ${this._theme === 'light' ? 'checked' : ''}>
-                                  <span>Light</span>
-                              </label>
-                              <label class="mdui-segmented-opt">
-                                  <input type="radio" name="mdui-theme" value="dark" ${this._theme === 'dark' ? 'checked' : ''}>
-                                  <span>Dark</span>
-                              </label>
+              <div class="mdui-section">
+                  <div class="mdui-section-title">Appearance</div>
+                  <div class="mdui-rows">
+                      <div class="mdui-form-line">
+                          <span class="mdui-form-line-label">Theme</span>
+                          <span class="mdui-form-line-control">
+                              <span class="mdui-seg mdui-seg-inline">
+                                  <label class="mdui-seg-pill">
+                                      <input type="radio" name="mdui-theme" value="light" ${this._theme === 'light' ? 'checked' : ''}>
+                                      <span>Light</span>
+                                  </label>
+                                  <label class="mdui-seg-pill">
+                                      <input type="radio" name="mdui-theme" value="dark" ${this._theme === 'dark' ? 'checked' : ''}>
+                                      <span>Dark</span>
+                                  </label>
+                              </span>
                           </span>
                       </div>
-                      <div class="mdui-list-form-row" style="padding: 12px 14px; align-items: center;">
-                          <span class="mdui-list-form-label">Accent</span>
-                          <span class="mdui-list-form-control" style="justify-content: flex-end;">
+                      <div class="mdui-form-line" style="align-items: center;">
+                          <span class="mdui-form-line-label">Accent</span>
+                          <span class="mdui-form-line-control">
                               <div class="mdui-accent-grid" id="mdui-accent-grid">${accentSwatchesHTML}</div>
                           </span>
                       </div>
@@ -1936,84 +1931,84 @@ _tabCareer() {
               </div>
 
               <div id="mdui-settings-msg" class="mdui-alert" style="display:none; margin-bottom: 14px;"></div>
-              <button class="mdui-btn-primary mdui-btn-block" id="mdui-save-btn" style="margin-bottom: 22px;">Save Changes</button>
+              <button class="mdui-btn-primary mdui-btn-block" id="mdui-save-btn" style="margin-bottom: 26px;">Save Changes</button>
 
               ${isIos ? '' : `
               <!-- Billing -->
-              <div class="mdui-list-section">
-                  <div class="mdui-list-section-header">Subscription</div>
-                  <div class="mdui-list-group">
-                      <div class="mdui-list-row" data-static="true">
-                          <span class="mdui-list-row-icon tone-blue"><i class="fa-solid fa-rocket"></i></span>
-                          <div class="mdui-list-row-text">
-                              <span class="mdui-list-row-label">${this._subscription.plan}</span>
-                              <span class="mdui-list-row-sub">${this._subscription.price} · ${this._subscription.status}</span>
+              <div class="mdui-section">
+                  <div class="mdui-section-title">Subscription</div>
+                  <div class="mdui-rows">
+                      <div class="mdui-row" data-static="true">
+                          <span class="mdui-row-glyph tone-blue"><i class="fa-solid fa-rocket"></i></span>
+                          <div class="mdui-row-main">
+                              <span class="mdui-row-title">${this._subscription.plan}</span>
+                              <span class="mdui-row-sub">${this._subscription.price} · ${this._subscription.status}</span>
                           </div>
-                          <span class="mdui-list-row-value">${this._subscription.nextPayment || ''}</span>
+                          <span class="mdui-row-value">${this._subscription.nextPayment || ''}</span>
                       </div>
-                      <button class="mdui-list-row" id="mdui-billing-update" type="button">
-                          <span class="mdui-list-row-icon tone-gray"><i class="fa-solid fa-credit-card"></i></span>
-                          <div class="mdui-list-row-text"><span class="mdui-list-row-label">Update Payment Method</span></div>
-                          <i class="fa-solid fa-chevron-right mdui-list-row-chevron"></i>
+                      <button class="mdui-row" id="mdui-billing-update" type="button">
+                          <span class="mdui-row-glyph tone-gray"><i class="fa-solid fa-credit-card"></i></span>
+                          <div class="mdui-row-main"><span class="mdui-row-title">Update Payment Method</span></div>
+                          <i class="fa-solid fa-chevron-right mdui-row-chev"></i>
                       </button>
-                      <button class="mdui-list-row destructive" id="mdui-billing-cancel" type="button">
-                          <span class="mdui-list-row-icon tone-red"><i class="fa-solid fa-ban"></i></span>
-                          <div class="mdui-list-row-text"><span class="mdui-list-row-label">Cancel Subscription</span></div>
-                          <i class="fa-solid fa-chevron-right mdui-list-row-chevron"></i>
+                      <button class="mdui-row destructive" id="mdui-billing-cancel" type="button">
+                          <span class="mdui-row-glyph tone-red"><i class="fa-solid fa-ban"></i></span>
+                          <div class="mdui-row-main"><span class="mdui-row-title">Cancel Subscription</span></div>
+                          <i class="fa-solid fa-chevron-right mdui-row-chev"></i>
                       </button>
                   </div>
                   <div id="mdui-billing-msg" class="mdui-alert" style="display:none; margin-top: 8px;"></div>
               </div>`}
 
               <!-- Support -->
-              <div class="mdui-list-section">
-                  <div class="mdui-list-section-header">Support &amp; Legal</div>
-                  <div class="mdui-list-group">
-                      <a class="mdui-list-row" href="terms.html" target="_blank" rel="noopener">
-                          <span class="mdui-list-row-icon tone-gray"><i class="fa-solid fa-file-contract"></i></span>
-                          <div class="mdui-list-row-text"><span class="mdui-list-row-label">Terms of Use</span></div>
-                          <i class="fa-solid fa-chevron-right mdui-list-row-chevron"></i>
+              <div class="mdui-section">
+                  <div class="mdui-section-title">Support &amp; Legal</div>
+                  <div class="mdui-rows">
+                      <a class="mdui-row" href="terms.html" target="_blank" rel="noopener">
+                          <span class="mdui-row-glyph tone-gray"><i class="fa-solid fa-file-contract"></i></span>
+                          <div class="mdui-row-main"><span class="mdui-row-title">Terms of Use</span></div>
+                          <i class="fa-solid fa-chevron-right mdui-row-chev"></i>
                       </a>
-                      <a class="mdui-list-row" href="privacy.html" target="_blank" rel="noopener">
-                          <span class="mdui-list-row-icon tone-gray"><i class="fa-solid fa-shield-halved"></i></span>
-                          <div class="mdui-list-row-text"><span class="mdui-list-row-label">Privacy Policy</span></div>
-                          <i class="fa-solid fa-chevron-right mdui-list-row-chevron"></i>
+                      <a class="mdui-row" href="privacy.html" target="_blank" rel="noopener">
+                          <span class="mdui-row-glyph tone-gray"><i class="fa-solid fa-shield-halved"></i></span>
+                          <div class="mdui-row-main"><span class="mdui-row-title">Privacy Policy</span></div>
+                          <i class="fa-solid fa-chevron-right mdui-row-chev"></i>
                       </a>
-                      <a class="mdui-list-row" href="https://discord.gg/9a6d8s4s" target="_blank" rel="noopener">
-                          <span class="mdui-list-row-icon" style="background:#5865F2;"><i class="fa-brands fa-discord"></i></span>
-                          <div class="mdui-list-row-text"><span class="mdui-list-row-label">Discord Community</span></div>
-                          <i class="fa-solid fa-chevron-right mdui-list-row-chevron"></i>
+                      <a class="mdui-row" href="https://discord.gg/9a6d8s4s" target="_blank" rel="noopener">
+                          <span class="mdui-row-glyph" style="background:rgba(88,101,242,0.18); color:#7d8aff;"><i class="fa-brands fa-discord"></i></span>
+                          <div class="mdui-row-main"><span class="mdui-row-title">Discord Community</span></div>
+                          <i class="fa-solid fa-chevron-right mdui-row-chev"></i>
                       </a>
-                      <a class="mdui-list-row" href="mailto:inflightCustomer@gmail.com">
-                          <span class="mdui-list-row-icon tone-blue"><i class="fa-solid fa-envelope"></i></span>
-                          <div class="mdui-list-row-text"><span class="mdui-list-row-label">Email Support</span></div>
-                          <i class="fa-solid fa-chevron-right mdui-list-row-chevron"></i>
+                      <a class="mdui-row" href="mailto:inflightCustomer@gmail.com">
+                          <span class="mdui-row-glyph tone-blue"><i class="fa-solid fa-envelope"></i></span>
+                          <div class="mdui-row-main"><span class="mdui-row-title">Email Support</span></div>
+                          <i class="fa-solid fa-chevron-right mdui-row-chev"></i>
                       </a>
                   </div>
               </div>
 
               <!-- Account -->
-              <div class="mdui-list-section">
-                  <div class="mdui-list-group">
-                      <button class="mdui-list-row destructive" id="mdui-signout" type="button">
-                          <div class="mdui-list-row-text" style="text-align:center; align-items:center;">
-                              <span class="mdui-list-row-label" style="color: var(--mdui-danger); text-align:center; width:100%;">Sign Out</span>
+              <div class="mdui-section">
+                  <div class="mdui-rows">
+                      <button class="mdui-row" id="mdui-signout" type="button">
+                          <div class="mdui-row-main" style="align-items:center;">
+                              <span class="mdui-row-title" style="color: var(--mdui-danger); text-align:center; width:100%;">Sign Out</span>
                           </div>
                       </button>
                   </div>
               </div>
 
               <!-- Danger zone -->
-              <div class="mdui-list-section" style="margin-bottom: 32px;">
-                  <div class="mdui-list-section-header" style="color: var(--mdui-danger);">Danger Zone</div>
-                  <div class="mdui-list-group">
-                      <button class="mdui-list-row destructive" id="mdui-delete-account" type="button">
-                          <span class="mdui-list-row-icon tone-red"><i class="fa-solid fa-trash"></i></span>
-                          <div class="mdui-list-row-text">
-                              <span class="mdui-list-row-label" style="color: var(--mdui-danger);">Delete Account</span>
-                              <span class="mdui-list-row-sub">Permanently erase all data</span>
+              <div class="mdui-section" style="margin-bottom: 32px;">
+                  <div class="mdui-section-title" style="color: var(--mdui-danger);">Danger Zone</div>
+                  <div class="mdui-rows">
+                      <button class="mdui-row destructive" id="mdui-delete-account" type="button">
+                          <span class="mdui-row-glyph tone-red"><i class="fa-solid fa-trash"></i></span>
+                          <div class="mdui-row-main">
+                              <span class="mdui-row-title" style="color: var(--mdui-danger);">Delete Account</span>
+                              <span class="mdui-row-sub">Permanently erase all data</span>
                           </div>
-                          <i class="fa-solid fa-chevron-right mdui-list-row-chevron"></i>
+                          <i class="fa-solid fa-chevron-right mdui-row-chev"></i>
                       </button>
                   </div>
                   <div id="mdui-delete-msg" class="mdui-alert" style="display:none; margin-top: 8px;"></div>
@@ -2022,7 +2017,7 @@ _tabCareer() {
         `;
     },
 
-_updateLiveBanner() {
+    _updateLiveBanner() {
         const banner = document.getElementById('mdui-live-banner');
         if (!banner) return;
 
@@ -2045,7 +2040,7 @@ _updateLiveBanner() {
         // taxiing.
         const MIN_GS_FOR_3D = 100;
 
-const cardsHtmlArray = this._liveFlights.map((f) => {
+        const cardsHtmlArray = this._liveFlights.map((f) => {
             const props = f.properties || f;
             const flightIdStr = String(f.flightId || props.flightId);
             const altRaw = props.altitude || f.position?.alt_ft || 0;
@@ -2536,17 +2531,7 @@ _attachListeners() {
 
             input?.addEventListener('blur', () => setTimeout(() => { if (dropdown) dropdown.style.display = 'none'; }, 200));
 
-            document.querySelectorAll('.mdui-watchlist-remove-btn').forEach(btn => {
-                btn.addEventListener('click', async (e) => {
-                    const id = e.currentTarget.dataset.id;
-                    try {
-                        await this._supabase.from('user_watchlist').delete().eq('id', id);
-                        this._watchlist = this._watchlist.filter(w => w.id !== id);
-                        this._showToast(`Removed from watchlist`, 'info');
-                        this._render();
-                    } catch (err) {}
-                });
-            });
+            this._bindWatchlistRemoveButtons();
 
             const notifToggle = document.getElementById('mdui-watchlist-notif-toggle');
             notifToggle?.addEventListener('change', async () => {
@@ -2877,12 +2862,14 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
 
         const css = `
             /* ════════════════════════════════════════════════════════════════
-               MobileDashboardUI — Native iOS glass design system
-               • Opaque grouped cells (systemGroupedBackground) for crisp content
-               • True translucent glass reserved for floating bars + overlays
-               • SF Pro type scale, hairline separators, system-color accents
-               All --mdui-* token NAMES are preserved (HTML inline styles depend
-               on them); only their values are refined.
+               MobileDashboardUI — InFlight glass design system
+               Matches the app-wide iOS chrome (MobileLandingChromeUI /
+               UserProfileUI / MobileSettingsUI): translucent surfaces over
+               0.5px hairline strokes, white-alpha fills, saturate(180%)
+               blur(30px) materials on floating bars, 999px pills, 16–24px
+               radii and spring easing (cubic-bezier(0.16, 1, 0.3, 1)).
+               --mdui-* token NAMES are preserved — JS-built markup (modals,
+               drill-downs, airspace nodes) references them inline.
                ════════════════════════════════════════════════════════════════ */
 
             /* Global safety: nothing inside the shell may exceed the viewport. */
@@ -2923,32 +2910,32 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
 
             /* ══════════════════════════ TOKENS — LIGHT ══════════════════════ */
             #mdui-shell, .mdui-wrapper-layer {
-                /* Backgrounds & materials */
-                --mdui-bg:            #f2f2f7;   /* systemGroupedBackground */
-                --mdui-surface:       rgba(120,120,128,0.08); /* recessed inner fill */
-                --mdui-card:          #ffffff;   /* secondarySystemGroupedBackground */
-                --mdui-card-elev:     #ffffff;   /* lifted (segmented selection) */
-                --mdui-input:         rgba(120,120,128,0.12); /* tertiary fill */
-                --mdui-glass:         rgba(255,255,255,0.72); /* floating glass */
-                --mdui-glass-strong:  rgba(255,255,255,0.86);
+                /* Surfaces — translucent glass over the live map */
+                --mdui-bg:            rgba(245,245,247,0.96);
+                --mdui-surface:       rgba(0,0,0,0.045);  /* recessed fill */
+                --mdui-card:          rgba(252,252,254,0.85);
+                --mdui-card-elev:     #ffffff;
+                --mdui-input:         rgba(0,0,0,0.065);  /* control fill */
+                --mdui-glass:         rgba(245,245,247,0.72);
+                --mdui-glass-strong:  rgba(250,250,252,0.85);
 
-                /* Hairlines & separators */
-                --mdui-border:        rgba(60,60,67,0.16);
-                --mdui-border-light:  rgba(60,60,67,0.09);
-                --mdui-border-strong: rgba(60,60,67,0.28);
-                --mdui-hover:         rgba(60,60,67,0.06);
+                /* Hairline strokes */
+                --mdui-border:        rgba(0,0,0,0.10);
+                --mdui-border-light:  rgba(0,0,0,0.055);
+                --mdui-border-strong: rgba(0,0,0,0.18);
+                --mdui-hover:         rgba(0,0,0,0.05);
 
                 /* Text */
-                --mdui-text:          #1c1c1e;
+                --mdui-text:          #000000;
                 --mdui-muted:         rgba(60,60,67,0.60);
-                --mdui-tertiary:      rgba(60,60,67,0.32);
+                --mdui-tertiary:      rgba(60,60,67,0.30);
                 --mdui-on-accent:     #ffffff;
 
                 /* Accent (overridden at runtime by the chosen preset) */
                 --mdui-accent:        #007aff;
                 --mdui-accent-hover:  #0a84ff;
                 --mdui-accent-soft:   rgba(0,122,255,0.12);
-                --mdui-accent-glow:   rgba(0,122,255,0.24);
+                --mdui-accent-glow:   rgba(0,122,255,0.26);
 
                 /* Semantic system colours */
                 --mdui-success:       #34c759; --mdui-success-soft: rgba(52,199,89,0.14);
@@ -2957,51 +2944,37 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
                 --mdui-info:          #5ac8fa; --mdui-info-soft:    rgba(90,200,250,0.16);
 
                 /* Metrics */
-                --mdui-tab-h:         58px;
-                --mdui-top-h:         50px;
+                --mdui-tab-h:         56px;
                 --mdui-page-pad:      16px;
                 --mdui-radius-sm:     10px;
-                --mdui-radius:        14px;
-                --mdui-radius-lg:     20px;
-                --mdui-radius-xl:     26px;
+                --mdui-radius:        16px;
+                --mdui-radius-lg:     22px;
+                --mdui-radius-xl:     24px;
 
                 /* Type & effects */
                 --mdui-font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', system-ui, sans-serif;
                 --mdui-font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
-                --mdui-blur:      saturate(180%) blur(24px);
-                --mdui-shadow-card: 0 1px 2px rgba(0,0,0,0.04);
-                --mdui-shadow-pop:  0 12px 40px rgba(0,0,0,0.16);
-                --mdui-shadow-float: 0 8px 30px rgba(0,0,0,0.12), 0 1px 0 rgba(255,255,255,0.5) inset;
+                --mdui-blur:      saturate(180%) blur(30px);
+                --mdui-shadow-card:  0 1px 2px rgba(0,0,0,0.05);
+                --mdui-shadow-float: 0 4px 18px rgba(0,0,0,0.18);
+                --mdui-shadow-pop:   0 12px 40px rgba(0,0,0,0.30);
+                --mdui-shadow-sheet: 0 -10px 40px rgba(0,0,0,0.30);
             }
-
-            #mdui-shell {
-                position: fixed; inset: 0; z-index: 9998;
-                background: var(--mdui-bg);
-                display: flex; flex-direction: column;
-                font-family: var(--mdui-font-sans);
-                color: var(--mdui-text);
-                -webkit-font-smoothing: antialiased;
-                text-rendering: optimizeLegibility;
-                transform: translateY(100%);
-                transition: transform 0.5s cubic-bezier(0.32, 0.72, 0, 1);
-                will-change: transform;
-            }
-            #mdui-shell.mdui-open { transform: translateY(0); }
 
             /* ══════════════════════════ TOKENS — DARK ═══════════════════════ */
             #mdui-shell[data-theme="dark"], .mdui-wrapper-layer[data-theme="dark"] {
-                --mdui-bg:            #000000;
-                --mdui-surface:       rgba(120,120,128,0.16);
-                --mdui-card:          #1c1c1e;
-                --mdui-card-elev:     #2c2c2e;
-                --mdui-input:         rgba(120,120,128,0.24);
+                --mdui-bg:            rgba(28,28,32,0.97);
+                --mdui-surface:       rgba(255,255,255,0.06);
+                --mdui-card:          rgba(40,40,44,0.72);
+                --mdui-card-elev:     rgba(58,58,62,0.88);
+                --mdui-input:         rgba(255,255,255,0.10);
                 --mdui-glass:         rgba(30,30,32,0.72);
-                --mdui-glass-strong:  rgba(40,40,44,0.86);
+                --mdui-glass-strong:  rgba(44,44,48,0.86);
 
-                --mdui-border:        rgba(84,84,88,0.48);
-                --mdui-border-light:  rgba(84,84,88,0.30);
-                --mdui-border-strong: rgba(84,84,88,0.66);
-                --mdui-hover:         rgba(235,235,245,0.08);
+                --mdui-border:        rgba(255,255,255,0.14);
+                --mdui-border-light:  rgba(255,255,255,0.08);
+                --mdui-border-strong: rgba(255,255,255,0.22);
+                --mdui-hover:         rgba(255,255,255,0.08);
 
                 --mdui-text:          #ffffff;
                 --mdui-muted:         rgba(235,235,245,0.60);
@@ -3013,61 +2986,75 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
                 --mdui-accent-soft:   rgba(10,132,255,0.22);
                 --mdui-accent-glow:   rgba(10,132,255,0.32);
 
-                --mdui-success:       #30d158; --mdui-success-soft: rgba(48,209,88,0.20);
-                --mdui-danger:        #ff453a; --mdui-danger-soft:  rgba(255,69,58,0.18);
-                --mdui-warn:          #ff9f0a; --mdui-warn-soft:    rgba(255,159,10,0.20);
-                --mdui-info:          #64d2ff; --mdui-info-soft:    rgba(100,210,255,0.20);
+                --mdui-success:       #30d158; --mdui-success-soft: rgba(48,209,88,0.18);
+                --mdui-danger:        #ff453a; --mdui-danger-soft:  rgba(255,69,58,0.16);
+                --mdui-warn:          #ffd60a; --mdui-warn-soft:    rgba(255,214,10,0.14);
+                --mdui-info:          #64d2ff; --mdui-info-soft:    rgba(100,210,255,0.16);
 
-                --mdui-shadow-card: 0 1px 2px rgba(0,0,0,0.5);
-                --mdui-shadow-pop:  0 12px 40px rgba(0,0,0,0.6);
-                --mdui-shadow-float: 0 8px 30px rgba(0,0,0,0.5), 0 0.5px 0 rgba(255,255,255,0.06) inset;
+                --mdui-shadow-card:  0 1px 2px rgba(0,0,0,0.45);
+                --mdui-shadow-float: 0 4px 18px rgba(0,0,0,0.45);
+                --mdui-shadow-pop:   0 12px 40px rgba(0,0,0,0.60);
+                --mdui-shadow-sheet: 0 -10px 40px rgba(0,0,0,0.55);
             }
 
             /* ══════════════════════ OVERLAY / MODAL LAYER ═══════════════════ */
             .mdui-wrapper-layer {
                 position: fixed; inset: 0; z-index: 10000;
-                background: rgba(0,0,0,0.45);
-                -webkit-backdrop-filter: blur(2px);
-                backdrop-filter: blur(2px);
+                background: rgba(0,0,0,0.55);
+                -webkit-backdrop-filter: blur(5px);
+                backdrop-filter: blur(5px);
                 display: flex; align-items: center; justify-content: center;
                 padding: 22px;
                 opacity: 0; visibility: hidden;
-                transition: opacity 0.22s ease, visibility 0s linear 0.22s;
+                transition: opacity 0.25s ease, visibility 0s linear 0.25s;
             }
             .mdui-wrapper-layer.mdui-open {
                 opacity: 1; visibility: visible;
-                transition: opacity 0.22s ease, visibility 0s;
+                transition: opacity 0.25s ease, visibility 0s;
             }
 
             /* ══════════════════════════ SHELL / SHEET ══════════════════════ */
             #mdui-shell {
-                border-top-left-radius: 12px;
-                border-top-right-radius: 12px;
+                position: fixed; inset: 0; z-index: 9998;
+                background: var(--mdui-bg);
+                -webkit-backdrop-filter: var(--mdui-blur);
+                backdrop-filter: var(--mdui-blur);
+                border-radius: var(--mdui-radius-xl) var(--mdui-radius-xl) 0 0;
+                box-shadow: var(--mdui-shadow-sheet);
+                display: flex; flex-direction: column;
                 overflow: hidden;
+                font-family: var(--mdui-font-sans);
+                color: var(--mdui-text);
+                -webkit-font-smoothing: antialiased;
+                text-rendering: optimizeLegibility;
+                transform: translateY(100%);
+                transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+                will-change: transform;
             }
+            #mdui-shell.mdui-open { transform: translateY(0); }
+
             #mdui-sheet-grabber {
                 position: absolute; top: 0; left: 0; right: 0;
                 padding-top: env(safe-area-inset-top);
-                height: calc(env(safe-area-inset-top) + 18px);
+                height: calc(env(safe-area-inset-top) + 20px);
                 display: flex; align-items: flex-start; justify-content: center;
                 z-index: 11; touch-action: none;
             }
             #mdui-sheet-grabber span {
-                width: 36px; height: 5px; margin-top: 6px;
+                width: 40px; height: 5px; margin-top: 8px;
                 border-radius: 999px;
                 background: var(--mdui-border-strong);
-                opacity: 0.5;
             }
             #mdui-screen {
                 display: flex; flex-direction: column;
                 flex: 1; min-height: 0; position: relative;
-                padding-top: calc(env(safe-area-inset-top) + 18px);
+                padding-top: calc(env(safe-area-inset-top) + 20px);
             }
 
             /* ══════════════════════════ TYPE HELPERS ═══════════════════════ */
             .mdui-eyebrow {
                 font-size: 11px; font-weight: 700;
-                text-transform: uppercase; letter-spacing: 0.06em;
+                text-transform: uppercase; letter-spacing: 0.07em;
                 color: var(--mdui-tertiary);
             }
             .mdui-mono-meta {
@@ -3075,21 +3062,30 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
                 font-size: 12px; font-weight: 600;
                 color: var(--mdui-muted);
             }
+            .mdui-mono { font-family: var(--mdui-font-mono); letter-spacing: 0 !important; }
+            .mdui-page-sub {
+                margin: 0 2px 18px;
+                color: var(--mdui-muted);
+                font-size: 15px; line-height: 1.4; letter-spacing: -0.2px;
+            }
 
             /* ══════════════════════ NAV BAR + LARGE TITLE ══════════════════ */
             .mdui-nav-bar {
                 position: relative;
-                height: 44px; min-height: 44px;
+                height: 46px; min-height: 46px;
                 display: flex; align-items: center;
                 padding: 0 var(--mdui-page-pad);
                 z-index: 10;
-                background: color-mix(in srgb, var(--mdui-bg) 72%, transparent);
-                -webkit-backdrop-filter: var(--mdui-blur);
-                backdrop-filter: var(--mdui-blur);
+                background: transparent;
                 border-bottom: 0.5px solid transparent;
                 transition: border-color 0.25s ease, background-color 0.25s ease;
             }
-            .mdui-nav-bar.is-collapsed { border-bottom-color: var(--mdui-border-light); }
+            .mdui-nav-bar.is-collapsed {
+                border-bottom-color: var(--mdui-border-light);
+                background: var(--mdui-glass);
+                -webkit-backdrop-filter: var(--mdui-blur);
+                backdrop-filter: var(--mdui-blur);
+            }
             .mdui-nav-btn {
                 background: none; border: none; padding: 0;
                 color: var(--mdui-accent);
@@ -3115,12 +3111,13 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             .mdui-nav-avatar {
                 margin-left: auto;
                 width: 30px; height: 30px;
-                background: var(--mdui-accent); color: var(--mdui-on-accent);
+                background: linear-gradient(160deg, var(--mdui-accent-hover), var(--mdui-accent));
+                color: var(--mdui-on-accent);
                 border-radius: 50%;
                 display: flex; align-items: center; justify-content: center;
                 font-family: inherit; font-size: 12px; font-weight: 600;
                 flex-shrink: 0; user-select: none;
-                box-shadow: 0 2px 6px var(--mdui-accent-glow);
+                box-shadow: 0 2px 8px var(--mdui-accent-glow);
             }
 
             .mdui-large-title-wrap { padding: 4px var(--mdui-page-pad) 14px; }
@@ -3137,17 +3134,6 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
                 color: var(--mdui-muted);
             }
 
-            /* Hide the legacy top-bar inside the live screen only. */
-            #mdui-screen .mdui-top-bar,
-            #mdui-screen > .mdui-top-bar > .mdui-top-title,
-            #mdui-screen > .mdui-top-bar > .mdui-close-btn { display: none !important; }
-            .mdui-avatar {
-                width: 30px; height: 30px; border-radius: 50%;
-                background: var(--mdui-accent); color: var(--mdui-on-accent);
-                display: flex; align-items: center; justify-content: center;
-                font-size: 12px; font-weight: 600; flex-shrink: 0;
-            }
-
             /* ══════════════════════════ CONTENT SCROLLER ═══════════════════ */
             .mdui-content {
                 flex: 1; overflow-y: auto; min-height: 0;
@@ -3160,202 +3146,33 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             .mdui-scroll { scrollbar-width: none; }
             .mdui-scroll::-webkit-scrollbar { display: none; }
 
-            /* ════════════════════ iOS INSET GROUPED LISTS ══════════════════ */
-            .mdui-list-section { margin-bottom: 26px; }
-            .mdui-list-section-header {
-                font-size: 13px; font-weight: 400;
-                letter-spacing: -0.08px;
-                color: var(--mdui-muted);
-                padding: 0 16px 7px;
-            }
-            .mdui-list-section-footer {
-                font-size: 13px; font-weight: 400;
-                letter-spacing: -0.08px;
-                color: var(--mdui-muted);
-                padding: 7px 16px 0; line-height: 1.4;
-            }
-            .mdui-list-group {
-                background: var(--mdui-card);
-                border: 0.5px solid var(--mdui-border-light);
-                border-radius: var(--mdui-radius);
-                overflow: hidden;
-            }
-            .mdui-list-row {
-                position: relative;
-                display: flex; align-items: center; gap: 12px;
-                padding: 11px 16px; min-height: 48px;
-                background: transparent; color: var(--mdui-text);
-                border: none; width: 100%;
-                font-family: inherit; font-size: 17px; font-weight: 400;
-                letter-spacing: -0.4px; text-align: left;
-                cursor: pointer; -webkit-tap-highlight-color: transparent;
-                transition: background-color 0.14s ease;
-            }
-            .mdui-list-row:not(:last-child)::after {
-                content: ""; position: absolute;
-                left: 56px; right: 0; bottom: 0; height: 0.5px;
-                background: var(--mdui-border-light);
-            }
-            .mdui-list-row.no-icon:not(:last-child)::after { left: 16px; }
-            .mdui-list-row:active { background: var(--mdui-hover); }
-            .mdui-list-row[data-static="true"] { cursor: default; }
-            .mdui-list-row[data-static="true"]:active { background: transparent; }
-            .mdui-list-row-icon {
-                flex: 0 0 auto;
-                width: 30px; height: 30px;
-                border-radius: 8px;
-                display: grid; place-items: center;
-                background: var(--mdui-accent);
-                color: #fff; font-size: 15px;
-                box-shadow: inset 0 0.5px 0 rgba(255,255,255,0.2);
-            }
-            .mdui-list-row-icon.tone-gray   { background: #8e8e93; }
-            .mdui-list-row-icon.tone-green  { background: var(--mdui-success); }
-            .mdui-list-row-icon.tone-red    { background: var(--mdui-danger); }
-            .mdui-list-row-icon.tone-orange { background: var(--mdui-warn); }
-            .mdui-list-row-icon.tone-purple { background: #af52de; }
-            .mdui-list-row-icon.tone-blue   { background: #0a84ff; }
-            .mdui-list-row-icon.tone-indigo { background: #5e5ce6; }
-            .mdui-list-row-text {
-                flex: 1 1 auto; min-width: 0;
-                display: flex; flex-direction: column; gap: 1px;
-            }
-            .mdui-list-row-label {
-                font-size: 17px; font-weight: 400;
-                color: var(--mdui-text); letter-spacing: -0.4px;
-                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-            }
-            .mdui-list-row-sub {
-                font-size: 13px; font-weight: 400;
-                color: var(--mdui-muted); letter-spacing: -0.08px;
-                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-            }
-            .mdui-list-row-value {
-                flex: 0 0 auto; color: var(--mdui-muted);
-                font-size: 17px; font-weight: 400; letter-spacing: -0.4px;
-                max-width: 44%; overflow: hidden;
-                text-overflow: ellipsis; white-space: nowrap;
-            }
-            .mdui-list-row-chevron {
-                flex: 0 0 auto; color: var(--mdui-tertiary);
-                font-size: 13px; font-weight: 600; margin-left: 2px;
-            }
-            .mdui-list-row.destructive,
-            .mdui-list-row.destructive .mdui-list-row-label { color: var(--mdui-danger); }
-
-            /* iOS Settings identity hero */
-            .mdui-id-card {
-                display: flex; align-items: center; gap: 14px;
-                width: 100%; padding: 14px 16px; margin-bottom: 26px;
-                border: 0.5px solid var(--mdui-border-light);
-                background: var(--mdui-card);
-                border-radius: var(--mdui-radius);
-                text-align: left; color: var(--mdui-text);
-                font-family: inherit; cursor: pointer;
-                -webkit-tap-highlight-color: transparent;
-                transition: background-color 0.14s ease, transform 0.14s ease;
-            }
-            .mdui-id-card:active { background: var(--mdui-hover); transform: scale(0.99); }
-            .mdui-id-avatar {
-                flex: 0 0 auto; width: 58px; height: 58px; border-radius: 50%;
-                background: linear-gradient(160deg, var(--mdui-accent-hover), var(--mdui-accent));
-                color: #fff; display: grid; place-items: center;
-                font-size: 22px; font-weight: 600;
-                box-shadow: 0 4px 12px var(--mdui-accent-glow);
-            }
-            .mdui-id-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-            .mdui-id-name {
-                font-size: 20px; font-weight: 600; letter-spacing: -0.5px;
-                color: var(--mdui-text);
-                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-            }
-            .mdui-id-sub {
-                font-size: 14px; font-weight: 400; letter-spacing: -0.1px;
-                color: var(--mdui-muted);
-                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-            }
-
-            /* iOS segmented control */
-            .mdui-segmented {
-                display: inline-flex; gap: 2px; padding: 2px;
-                background: var(--mdui-input);
-                border-radius: 9px;
-                width: auto; max-width: 230px;
-                justify-content: flex-end;
-            }
-            .mdui-segmented-opt {
-                display: inline-flex; align-items: center; justify-content: center;
-                padding: 5px 14px; border-radius: 7px;
-                font-size: 13px; font-weight: 500; letter-spacing: -0.1px;
-                color: var(--mdui-text); cursor: pointer;
-                -webkit-tap-highlight-color: transparent;
-                transition: color 0.18s ease;
-            }
-            .mdui-segmented-opt input { display: none; }
-            .mdui-segmented-opt:has(input:checked) {
-                background: var(--mdui-card-elev); font-weight: 600;
-                box-shadow: 0 1px 4px rgba(0,0,0,0.14), 0 0 0 0.5px rgba(0,0,0,0.04);
-            }
-
-            /* iOS inline form rows */
-            .mdui-list-form-row {
-                display: flex; align-items: center; gap: 10px;
-                padding: 9px 16px; min-height: 48px; position: relative;
-            }
-            .mdui-list-form-row:not(:last-child)::after {
-                content: ""; position: absolute;
-                left: 16px; right: 0; bottom: 0; height: 0.5px;
-                background: var(--mdui-border-light);
-            }
-            .mdui-list-form-label {
-                font-size: 17px; font-weight: 400;
-                color: var(--mdui-text); letter-spacing: -0.4px;
-                flex: 0 0 auto; min-width: 96px;
-            }
-            .mdui-list-form-control { flex: 1 1 auto; min-width: 0; display: flex; justify-content: flex-end; }
-            .mdui-list-form-control input,
-            .mdui-list-form-control select {
-                flex: 1 1 auto; min-width: 0; width: 100%;
-                background: transparent; border: none;
-                color: var(--mdui-text); text-align: right;
-                font-family: inherit; font-size: 17px; letter-spacing: -0.4px;
-                outline: none;
-            }
-            .mdui-list-form-control input::placeholder { color: var(--mdui-tertiary); }
-            .mdui-list-form-control input:disabled {
-                color: var(--mdui-muted); -webkit-text-fill-color: var(--mdui-muted); opacity: 1;
-            }
-
-            /* ════════════════════ FLOATING GLASS TAB BAR ═══════════════════ */
+            /* ════════════════════ GLASS TAB BAR (edge-to-edge) ═════════════ */
             #mdui-tabbar {
                 position: absolute;
-                left: 10px; right: 10px;
-                bottom: max(env(safe-area-inset-bottom, 0px), 6px);
-                height: var(--mdui-tab-h);
+                left: 0; right: 0; bottom: 0;
                 background: var(--mdui-glass);
                 -webkit-backdrop-filter: var(--mdui-blur);
                 backdrop-filter: var(--mdui-blur);
-                border: 0.5px solid var(--mdui-border);
-                border-radius: var(--mdui-radius-xl);
-                display: flex; z-index: 9999; padding: 5px;
-                box-shadow: var(--mdui-shadow-float);
-                transition: transform 0.34s cubic-bezier(0.16,1,0.3,1), opacity 0.2s ease;
+                border-top: 0.5px solid var(--mdui-border);
+                display: flex; align-items: flex-end;
+                padding: 7px 4px max(env(safe-area-inset-bottom, 0px), 9px);
+                z-index: 9999;
             }
             .mdui-tab-btn {
                 flex: 1; min-width: 0;
                 display: flex; flex-direction: column;
-                align-items: center; justify-content: center; gap: 3px;
-                border: none; background: none;
+                align-items: center; justify-content: center; gap: 4px;
+                border: none; background: none; padding: 2px 0;
                 color: var(--mdui-muted);
-                font-family: inherit; font-size: 10px; font-weight: 600;
+                font-family: inherit; font-size: 10.5px; font-weight: 500;
                 letter-spacing: 0.01px; line-height: 1.1;
-                border-radius: 16px; cursor: pointer;
+                cursor: pointer;
                 -webkit-tap-highlight-color: transparent;
-                transition: color 0.22s ease, background-color 0.2s ease, transform 0.18s cubic-bezier(0.16,1,0.3,1);
+                transition: color 0.22s ease, transform 0.18s cubic-bezier(0.16,1,0.3,1), opacity 0.15s ease;
             }
             .mdui-tab-iconwrap { position: relative; display: grid; place-items: center; line-height: 0; }
-            .mdui-tab-btn i { font-size: 19px; line-height: 1; transition: transform 0.2s cubic-bezier(0.16,1,0.3,1); }
-            .mdui-tab-btn:active { transform: scale(0.92); }
+            .mdui-tab-btn i { font-size: 20px; line-height: 1; transition: transform 0.2s cubic-bezier(0.16,1,0.3,1); }
+            .mdui-tab-btn:active { transform: scale(0.94); opacity: 0.6; }
             .mdui-tab-btn.active { color: var(--mdui-accent); }
             .mdui-tab-btn.active i { transform: translateY(-1px) scale(1.04); }
             .mdui-tab-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -3366,44 +3183,227 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
                 font-family: inherit; font-size: 10px; font-weight: 700;
                 border-radius: 999px; display: flex; align-items: center; justify-content: center;
                 box-shadow: 0 1px 4px rgba(255,69,58,0.45);
-                border: 1.5px solid var(--mdui-glass-strong);
             }
 
-            /* In-content description under the large title */
-            .mdui-tab-header { margin: 0 2px 20px; }
-            .mdui-tab-header h2 { display: none; }
-            .mdui-tab-header p {
-                margin: 0; color: var(--mdui-muted);
-                font-size: 15px; line-height: 1.4; letter-spacing: -0.2px;
+            /* ════════════════════ SECTIONS + GROUPED ROWS ══════════════════ */
+            .mdui-section { margin-bottom: 28px; }
+            .mdui-section-title {
+                font-size: 12px; font-weight: 700;
+                text-transform: uppercase; letter-spacing: 0.08em;
+                color: var(--mdui-tertiary);
+                padding: 0 4px 9px;
             }
-
-            /* ══════════════════════════ CARDS ══════════════════════════════ */
-            .mdui-card {
-                background: var(--mdui-card);
+            .mdui-section-foot {
+                font-size: 12.5px; font-weight: 400;
+                letter-spacing: -0.08px;
+                color: var(--mdui-muted);
+                padding: 9px 4px 0; line-height: 1.45;
+            }
+            .mdui-rows {
+                background: var(--mdui-surface);
                 border: 0.5px solid var(--mdui-border-light);
                 border-radius: var(--mdui-radius);
-                box-shadow: var(--mdui-shadow-card);
-                margin-bottom: 14px; overflow: hidden;
+                overflow: hidden;
             }
-            .mdui-card-header { padding: 14px 18px 10px; }
-            .mdui-card-header h3 {
-                margin: 0; font-size: 17px; font-weight: 600;
-                color: var(--mdui-text); letter-spacing: -0.4px;
-                display: flex; align-items: center;
+            .mdui-row {
+                position: relative;
+                display: flex; align-items: center; gap: 12px;
+                padding: 12px 14px; min-height: 50px;
+                background: transparent; color: var(--mdui-text);
+                border: none; width: 100%;
+                font-family: inherit; font-size: 15px; font-weight: 400;
+                letter-spacing: -0.2px; text-align: left;
+                text-decoration: none;
+                cursor: pointer; -webkit-tap-highlight-color: transparent;
+                transition: background-color 0.14s ease;
             }
-            .mdui-card-body { padding: 18px; }
-            .mdui-card-eyebrow {
-                font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
-                text-transform: uppercase; color: var(--mdui-tertiary);
-                margin-bottom: 10px;
+            .mdui-row:not(:last-child)::after {
+                content: ""; position: absolute;
+                left: 54px; right: 0; bottom: 0; height: 0.5px;
+                background: var(--mdui-border-light);
             }
-            .mdui-card-footer {
-                margin-top: 14px; padding-top: 14px;
-                border-top: 0.5px solid var(--mdui-border-light);
-                display: flex; justify-content: flex-end;
+            .mdui-row:not(:has(.mdui-row-glyph)):not(:last-child)::after { left: 14px; }
+            .mdui-row:active { background: var(--mdui-hover); }
+            .mdui-row[data-static="true"] { cursor: default; }
+            .mdui-row[data-static="true"]:active { background: transparent; }
+            .mdui-row-glyph {
+                flex: 0 0 auto;
+                width: 30px; height: 30px;
+                border-radius: 9px;
+                display: grid; place-items: center;
+                background: var(--mdui-accent-soft);
+                color: var(--mdui-accent); font-size: 14px;
+            }
+            .mdui-row-glyph.tone-accent { background: var(--mdui-accent-soft);  color: var(--mdui-accent); }
+            .mdui-row-glyph.tone-gray   { background: rgba(142,142,147,0.18);   color: #8e8e93; }
+            .mdui-row-glyph.tone-green  { background: var(--mdui-success-soft); color: var(--mdui-success); }
+            .mdui-row-glyph.tone-red    { background: var(--mdui-danger-soft);  color: var(--mdui-danger); }
+            .mdui-row-glyph.tone-orange { background: var(--mdui-warn-soft);    color: var(--mdui-warn); }
+            .mdui-row-glyph.tone-blue   { background: rgba(10,132,255,0.16);    color: #0a84ff; }
+            .mdui-row-glyph.tone-indigo { background: rgba(94,92,230,0.18);     color: #5e5ce6; }
+            .mdui-row-main {
+                flex: 1 1 auto; min-width: 0;
+                display: flex; flex-direction: column; gap: 2px;
+            }
+            .mdui-row-title {
+                font-size: 15px; font-weight: 600;
+                color: var(--mdui-text); letter-spacing: -0.2px;
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            }
+            .mdui-row-sub {
+                font-size: 12.5px; font-weight: 400;
+                color: var(--mdui-muted); letter-spacing: -0.08px;
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            }
+            .mdui-row-value {
+                flex: 0 0 auto; color: var(--mdui-muted);
+                font-size: 14px; font-weight: 500; letter-spacing: -0.2px;
+                max-width: 44%; overflow: hidden;
+                text-overflow: ellipsis; white-space: nowrap;
+            }
+            .mdui-row-chev {
+                flex: 0 0 auto; color: var(--mdui-tertiary);
+                font-size: 12px; font-weight: 600; margin-left: 2px;
+            }
+            .mdui-row.destructive .mdui-row-title { color: var(--mdui-danger); }
+
+            /* Inline form rows (Settings) */
+            .mdui-form-line {
+                display: flex; align-items: center; gap: 10px;
+                padding: 10px 14px; min-height: 50px; position: relative;
+            }
+            .mdui-form-line:not(:last-child)::after {
+                content: ""; position: absolute;
+                left: 14px; right: 0; bottom: 0; height: 0.5px;
+                background: var(--mdui-border-light);
+            }
+            .mdui-form-line-label {
+                font-size: 15px; font-weight: 500;
+                color: var(--mdui-text); letter-spacing: -0.2px;
+                flex: 0 0 auto; min-width: 96px;
+            }
+            .mdui-form-line-control { flex: 1 1 auto; min-width: 0; display: flex; justify-content: flex-end; }
+            .mdui-form-line-control input,
+            .mdui-form-line-control select {
+                flex: 1 1 auto; min-width: 0; width: 100%;
+                background: transparent; border: none;
+                color: var(--mdui-text); text-align: right;
+                font-family: inherit; font-size: 16px; letter-spacing: -0.2px;
+                outline: none;
+            }
+            .mdui-form-line-control input::placeholder { color: var(--mdui-tertiary); }
+            .mdui-form-line-control input:disabled {
+                color: var(--mdui-muted); -webkit-text-fill-color: var(--mdui-muted); opacity: 1;
             }
 
-            /* ══════════════════════ ALERTS / BADGES / TAGS ═════════════════ */
+            /* ══════════════════════════ CHIPS ══════════════════════════════ */
+            .mdui-chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+            .mdui-chip {
+                display: inline-flex; align-items: center; gap: 6px;
+                padding: 6px 13px; border-radius: 999px;
+                background: var(--mdui-surface);
+                border: 0.5px solid var(--mdui-border-light);
+                font-size: 12.5px; font-weight: 600; letter-spacing: -0.1px;
+                color: var(--mdui-text); white-space: nowrap;
+            }
+            .mdui-chip i { font-size: 11px; color: var(--mdui-accent); }
+
+            /* ════════════════════ SEARCH CAPSULES (glass pills) ════════════ */
+            .mdui-capsule-row { display: flex; gap: 10px; margin-bottom: 18px; }
+            .mdui-capsule {
+                flex: 1; min-width: 0; height: 46px;
+                display: flex; align-items: center; gap: 9px;
+                padding: 0 16px;
+                background: var(--mdui-input);
+                border: 0.5px solid var(--mdui-border-light);
+                border-radius: 999px;
+                transition: border-color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
+            }
+            .mdui-capsule:focus-within {
+                border-color: var(--mdui-accent);
+                box-shadow: 0 0 0 3px var(--mdui-accent-soft);
+            }
+            .mdui-capsule > i { color: var(--mdui-tertiary); font-size: 13px; flex-shrink: 0; }
+            .mdui-capsule-input {
+                flex: 1; min-width: 0;
+                background: transparent; border: none; outline: none;
+                color: var(--mdui-text);
+                font-family: inherit;
+                font-size: 16px; /* prevents iOS focus zoom */
+                letter-spacing: -0.2px;
+            }
+            .mdui-capsule-input::placeholder { color: var(--mdui-tertiary); }
+            .mdui-mono-input { font-family: var(--mdui-font-mono); text-transform: uppercase; font-weight: 700; letter-spacing: 0.06em; }
+
+            /* ═══════════════════ SEGMENTED CONTROL (pills) ═════════════════ */
+            .mdui-seg {
+                display: flex; gap: 4px; padding: 4px;
+                background: var(--mdui-surface);
+                border: 0.5px solid var(--mdui-border-light);
+                border-radius: 12px;
+            }
+            .mdui-seg-inline { display: inline-flex; flex: 0 0 auto; }
+            .mdui-seg-pill {
+                flex: 1; min-width: 0;
+                display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+                padding: 9px 14px; border-radius: 9px;
+                font-size: 13px; font-weight: 600; letter-spacing: -0.1px;
+                color: var(--mdui-muted); cursor: pointer;
+                -webkit-tap-highlight-color: transparent;
+                transition: color 0.18s ease, background-color 0.18s ease, transform 0.16s ease;
+            }
+            .mdui-seg-pill:active { transform: scale(0.97); }
+            .mdui-seg-pill input { display: none; }
+            .mdui-seg-pill i { font-size: 12px; }
+            .mdui-seg-pill:has(input:checked) {
+                background: var(--mdui-input); color: var(--mdui-text);
+                box-shadow: 0 1px 4px rgba(0,0,0,0.16);
+            }
+
+            /* Dossier sub-tabs reuse the segmented look */
+            .mdui-sub-tab-bar { margin-bottom: 20px; }
+            .mdui-career-tab-btn {
+                flex: 1; min-width: 0;
+                display: flex; align-items: center; justify-content: center; gap: 6px;
+                padding: 9px 4px; border: none; background: transparent;
+                color: var(--mdui-muted); font-family: var(--mdui-font-sans);
+                font-size: 13px; font-weight: 600; letter-spacing: -0.2px;
+                border-radius: 9px; cursor: pointer;
+                -webkit-tap-highlight-color: transparent;
+                transition: background-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+            }
+            .mdui-career-tab-btn i { font-size: 12px; }
+            .mdui-career-tab-btn:active { transform: scale(0.97); }
+            .mdui-career-tab-btn.active {
+                background: var(--mdui-input); color: var(--mdui-text);
+                box-shadow: 0 1px 4px rgba(0,0,0,0.16);
+            }
+            #mdui-career-content-host { min-height: 200px; }
+
+            /* ══════════════════════════ PANELS ═════════════════════════════ */
+            .mdui-panel {
+                background: var(--mdui-surface);
+                border: 0.5px solid var(--mdui-border-light);
+                border-radius: var(--mdui-radius);
+                padding: 16px;
+                margin-bottom: 14px;
+            }
+            .mdui-panel-head {
+                display: flex; align-items: center; gap: 10px;
+                margin-bottom: 14px;
+            }
+            .mdui-panel-head h3 {
+                margin: 0; font-size: 16px; font-weight: 600;
+                color: var(--mdui-text); letter-spacing: -0.3px;
+            }
+            .mdui-panel-glyph {
+                width: 28px; height: 28px; border-radius: 8px;
+                display: grid; place-items: center; flex-shrink: 0;
+                background: var(--mdui-accent-soft); color: var(--mdui-accent);
+                font-size: 12px;
+            }
+
+            /* ══════════════════════ ALERTS / TAGS ══════════════════════════ */
             .mdui-alert {
                 padding: 12px 14px; border-radius: 12px;
                 font-size: 14px; font-weight: 500;
@@ -3415,39 +3415,26 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             .mdui-alert-warn    { background: var(--mdui-warn-soft);    color: var(--mdui-warn); }
             .mdui-alert-info    { background: var(--mdui-info-soft);    color: var(--mdui-info); }
 
-            .mdui-status-badge {
-                padding: 3px 9px; border-radius: 999px;
-                font-size: 11px; font-weight: 700;
-                text-transform: uppercase; letter-spacing: 0.03em;
-            }
-            .mdui-status-badge.pos { background: var(--mdui-success-soft); color: var(--mdui-success); }
-            .mdui-status-badge.neg { background: var(--mdui-danger-soft); color: var(--mdui-danger); }
-
             .mdui-mini-tag {
                 display: inline-flex; align-items: center; gap: 5px;
-                padding: 3px 9px; border-radius: 7px;
+                padding: 4px 10px; border-radius: 999px;
                 font-size: 10px; font-weight: 700; letter-spacing: 0.03em;
             }
-            .mdui-mini-tag-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-            .mdui-node-badge {
-                padding: 4px 10px; border-radius: 999px;
-                font-size: 11px; font-weight: 700;
-                letter-spacing: 0.04em; text-transform: uppercase;
-            }
+            .mdui-mini-tag-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
 
             /* ══════════════════════════ INPUTS ═════════════════════════════ */
             .mdui-input-group { margin-bottom: 14px; }
             .mdui-input-group label {
-                display: block; font-size: 13px; font-weight: 500;
+                display: block; font-size: 12.5px; font-weight: 600;
                 color: var(--mdui-muted); margin-bottom: 7px; letter-spacing: -0.1px;
             }
             .mdui-input-wrap { position: relative; display: flex; align-items: center; }
-            .mdui-input-icon { position: absolute; left: 13px; color: var(--mdui-tertiary); font-size: 14px; pointer-events: none; }
+            .mdui-input-icon { position: absolute; left: 14px; color: var(--mdui-tertiary); font-size: 13px; pointer-events: none; }
             .mdui-input {
                 width: 100%; padding: 12px 14px;
                 background: var(--mdui-input);
-                border: 1px solid transparent;
-                border-radius: 11px;
+                border: 0.5px solid var(--mdui-border-light);
+                border-radius: var(--mdui-radius-sm);
                 color: var(--mdui-text);
                 font-family: var(--mdui-font-sans);
                 font-size: 16px; /* prevents iOS focus zoom */
@@ -3458,78 +3445,77 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             }
             .mdui-input.has-icon { padding-left: 38px; }
             .mdui-input:focus {
-                background: var(--mdui-card-elev);
                 border-color: var(--mdui-accent);
-                box-shadow: 0 0 0 3.5px var(--mdui-accent-soft);
+                box-shadow: 0 0 0 3px var(--mdui-accent-soft);
             }
             .mdui-input:disabled { opacity: 0.5; cursor: not-allowed; }
             .mdui-input::placeholder { color: var(--mdui-tertiary); }
             .mdui-icao-input { font-family: var(--mdui-font-mono); text-transform: uppercase; font-weight: 700; letter-spacing: 0.06em; }
-            .mdui-help { font-size: 13px; color: var(--mdui-tertiary); margin-top: 7px; line-height: 1.4; letter-spacing: -0.1px; }
+            .mdui-help { font-size: 12.5px; color: var(--mdui-tertiary); margin-top: 7px; line-height: 1.4; letter-spacing: -0.1px; }
             .mdui-select { appearance: none; -webkit-appearance: none; cursor: pointer; }
 
             /* ══════════════════════════ BUTTONS ════════════════════════════ */
             .mdui-btn-primary, .mdui-btn-secondary, .mdui-btn-danger-outline, .mdui-btn-ghost, .mdui-btn-danger {
                 display: inline-flex; align-items: center; justify-content: center;
-                gap: 8px; padding: 12px 18px; border-radius: 12px;
+                gap: 8px; padding: 12px 20px; border-radius: 999px;
                 font-family: var(--mdui-font-sans);
-                font-size: 16px; font-weight: 600; letter-spacing: -0.3px;
+                font-size: 15px; font-weight: 600; letter-spacing: -0.2px;
                 cursor: pointer; -webkit-tap-highlight-color: transparent;
-                transition: transform 0.16s ease, background-color 0.18s ease, opacity 0.18s ease, box-shadow 0.18s ease;
+                transition: transform 0.15s ease, background-color 0.18s ease, opacity 0.18s ease, box-shadow 0.18s ease;
             }
             .mdui-btn-primary {
                 background: var(--mdui-accent); color: var(--mdui-on-accent); border: none;
-                box-shadow: 0 4px 14px var(--mdui-accent-glow);
+                box-shadow: 0 4px 18px var(--mdui-accent-glow);
             }
             .mdui-btn-primary:hover { background: var(--mdui-accent-hover); }
-            .mdui-btn-primary:active { transform: scale(0.97); opacity: 0.92; box-shadow: 0 2px 8px var(--mdui-accent-glow); }
+            .mdui-btn-primary:active { transform: scale(0.96); opacity: 0.92; box-shadow: 0 2px 8px var(--mdui-accent-glow); }
             .mdui-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
             .mdui-btn-block { width: 100%; padding: 14px 20px; }
-            .mdui-btn-secondary { background: var(--mdui-input); color: var(--mdui-accent); border: none; width: 100%; }
-            .mdui-btn-secondary:active { transform: scale(0.97); background: var(--mdui-hover); }
+            .mdui-btn-secondary { background: var(--mdui-input); color: var(--mdui-accent); border: 0.5px solid var(--mdui-border-light); width: 100%; }
+            .mdui-btn-secondary:active { transform: scale(0.96); background: var(--mdui-hover); }
             .mdui-btn-danger-outline { background: var(--mdui-danger-soft); color: var(--mdui-danger); border: none; width: 100%; }
-            .mdui-btn-danger-outline:active { transform: scale(0.97); opacity: 0.85; }
+            .mdui-btn-danger-outline:active { transform: scale(0.96); opacity: 0.85; }
             .mdui-btn-ghost {
                 background: transparent; color: var(--mdui-muted);
                 border: 0.5px solid var(--mdui-border);
-                font-size: 14px; font-weight: 500;
-                padding: 9px 16px; border-radius: 999px;
+                font-size: 13.5px; font-weight: 500;
+                padding: 9px 16px;
             }
             .mdui-btn-ghost:hover { background: var(--mdui-hover); color: var(--mdui-text); }
-            .mdui-btn-ghost:active { transform: scale(0.96); }
+            .mdui-btn-ghost:active { transform: scale(0.95); }
             .mdui-btn-danger { background: var(--mdui-danger); color: #fff; border: none; }
-            .mdui-btn-danger:active { transform: scale(0.97); opacity: 0.9; }
+            .mdui-btn-danger:active { transform: scale(0.96); opacity: 0.9; }
             .mdui-icon-btn {
-                width: 34px; height: 34px; border-radius: 50%; border: none;
+                width: 32px; height: 32px; border-radius: 50%; border: none;
                 background: var(--mdui-input); color: var(--mdui-muted);
+                font-size: 12px;
                 cursor: pointer; -webkit-tap-highlight-color: transparent;
-                transition: transform 0.16s ease, background-color 0.18s ease, color 0.18s ease;
+                transition: transform 0.15s ease, background-color 0.18s ease, color 0.18s ease;
             }
-            .mdui-icon-btn:hover { background: var(--mdui-hover); color: var(--mdui-text); }
-            .mdui-icon-btn:active { transform: scale(0.9); }
+            .mdui-icon-btn:active { transform: scale(0.88); color: var(--mdui-text); }
 
             /* ══════════════════════════ MOTION ═════════════════════════════ */
             @keyframes mdui-fade-up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
             .mdui-fade-up { animation: mdui-fade-up 0.34s cubic-bezier(0.16, 1, 0.3, 1) both; }
             @keyframes mdui-pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 0.9; } }
             .mdui-skel {
-                background: linear-gradient(100deg, var(--mdui-input) 30%, var(--mdui-hover) 50%, var(--mdui-input) 70%);
+                background: linear-gradient(100deg, var(--mdui-input) 40%, var(--mdui-hover) 50%, var(--mdui-input) 60%);
                 background-size: 200% 100%;
                 border-radius: 6px;
                 animation: mdui-shimmer 1.4s ease-in-out infinite;
             }
-            @keyframes mdui-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+            @keyframes mdui-shimmer { from { background-position: 120% 0; } to { background-position: -80% 0; } }
             @keyframes mdui-toast-in { from { opacity: 0; transform: translateY(10px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 
             /* ══════════════════════════ EMPTY STATES ═══════════════════════ */
             .mdui-empty-state {
                 text-align: center; padding: 40px 20px;
-                background: var(--mdui-card);
+                background: var(--mdui-surface);
                 border: 0.5px dashed var(--mdui-border);
                 border-radius: var(--mdui-radius);
             }
-            .mdui-empty-state i { font-size: 34px; color: var(--mdui-tertiary); opacity: 0.7; margin-bottom: 14px; display: block; }
-            .mdui-empty-state h4 { margin: 0 0 6px 0; color: var(--mdui-text); font-size: 17px; font-weight: 600; letter-spacing: -0.4px; }
+            .mdui-empty-state i { font-size: 32px; color: var(--mdui-tertiary); opacity: 0.7; margin-bottom: 14px; display: block; }
+            .mdui-empty-state h4 { margin: 0 0 6px 0; color: var(--mdui-text); font-size: 16px; font-weight: 600; letter-spacing: -0.3px; }
             .mdui-empty-state p { margin: 0; color: var(--mdui-muted); font-size: 14px; line-height: 1.45; letter-spacing: -0.2px; }
             .mdui-empty {
                 display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -3551,9 +3537,9 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
                 backdrop-filter: var(--mdui-blur);
                 border: 0.5px solid var(--mdui-border);
                 color: var(--mdui-text);
-                padding: 13px 16px; border-radius: 15px;
+                padding: 13px 18px; border-radius: 999px;
                 font-size: 14px; font-weight: 500; line-height: 1.4; letter-spacing: -0.2px;
-                box-shadow: var(--mdui-shadow-pop);
+                box-shadow: var(--mdui-shadow-float);
                 pointer-events: auto; animation: mdui-toast-in 260ms cubic-bezier(0.16,1,0.3,1);
                 transition: opacity 0.24s ease, transform 0.24s ease;
             }
@@ -3563,66 +3549,82 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             .mdui-toast-error   { color: var(--mdui-danger); }
             .mdui-toast-warn    { color: var(--mdui-warn); }
 
-            /* ══════════════════════════ DASHBOARD ══════════════════════════ */
-            .mdui-greeting-hero { padding: 2px 2px 20px; }
-            .mdui-greeting-text { display: flex; flex-direction: column; gap: 5px; }
-            .mdui-greeting-date {
-                font-size: 13px; font-weight: 700;
-                color: var(--mdui-accent); letter-spacing: 0.02em;
+            /* ══════════════════════════ HOME ═══════════════════════════════ */
+            .mdui-home-hero { padding: 2px 4px 20px; }
+            .mdui-home-date {
+                display: block;
+                font-size: 12px; font-weight: 700;
+                color: var(--mdui-accent); letter-spacing: 0.05em;
                 text-transform: uppercase;
             }
-            .mdui-greeting-name {
-                font-size: 26px; font-weight: 700; margin: 0;
+            .mdui-home-greet {
+                font-size: 27px; font-weight: 700; margin: 6px 0 0;
                 color: var(--mdui-text); line-height: 1.12; letter-spacing: -0.6px;
             }
-            .mdui-stat-strip {
-                display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
-                margin-top: 10px; color: var(--mdui-muted);
-                font-size: 15px; font-weight: 500; letter-spacing: -0.2px;
-            }
-            .mdui-stat-strip span:not(.mdui-strip-sep) { color: var(--mdui-text); font-weight: 600; }
-            .mdui-strip-sep { opacity: 0.35; }
 
-            /* Next-departure mini route (inside a list group) */
-            .mdui-dispatch-mini { padding: 0 16px 16px; }
-            .mdui-dispatch-route {
-                display: flex; align-items: center; justify-content: space-between;
-                gap: 10px; padding: 4px 2px;
-            }
-            .mdui-dispatch-airport { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-            .mdui-dispatch-icao {
-                font-family: var(--mdui-font-mono); font-size: 24px; font-weight: 700;
-                line-height: 1; color: var(--mdui-text); letter-spacing: -0.5px;
-            }
-            .mdui-dispatch-gate { font-size: 11px; color: var(--mdui-tertiary); font-weight: 600; }
-            .mdui-dispatch-center {
-                display: flex; flex-direction: column; align-items: center; gap: 5px;
-                color: var(--mdui-tertiary); flex: 1;
-                font-size: 10.5px; font-weight: 600; letter-spacing: 0.02em;
-            }
-            .mdui-dispatch-plane { color: var(--mdui-accent); font-size: 14px; }
-            .mdui-dispatch-dur { font-size: 11px; font-weight: 600; color: var(--mdui-muted); }
-            .mdui-dispatch-meta-row { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 500; color: var(--mdui-muted); letter-spacing: -0.1px; }
-
-            .mdui-flight-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 0.5px solid var(--mdui-border-light); }
-            .mdui-flight-row:last-child { border-bottom: none; }
-            .mdui-flight-route { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
-            .mdui-icao { font-family: var(--mdui-font-mono); font-size: 14px; font-weight: 700; color: var(--mdui-text); letter-spacing: 0.02em; }
-            .mdui-arrow { color: var(--mdui-tertiary); font-size: 12px; }
-            .mdui-flight-meta { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--mdui-muted); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-            .mdui-flight-time { font-size: 11px; font-weight: 600; color: var(--mdui-tertiary); white-space: nowrap; flex-shrink: 0; }
-
-            /* ════════════════════ LIVE FLIGHT CARD (hero) ══════════════════ */
-            .mdui-live-stack { display: flex; flex-direction: column; gap: 12px; margin-bottom: 22px; }
-            .mdui-live-card {
-                background: var(--mdui-card);
+            /* Next-departure boarding card */
+            .mdui-board {
+                background: var(--mdui-surface);
                 border: 0.5px solid var(--mdui-border-light);
                 border-radius: var(--mdui-radius-lg);
                 overflow: hidden;
-                box-shadow: var(--mdui-shadow-pop);
+            }
+            .mdui-board-route {
+                display: flex; align-items: center; justify-content: space-between;
+                gap: 12px; padding: 18px 18px 16px;
+            }
+            .mdui-board-end { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+            .mdui-board-end.is-right { align-items: flex-end; text-align: right; }
+            .mdui-board-icao {
+                font-family: var(--mdui-font-mono); font-size: 26px; font-weight: 700;
+                line-height: 1; color: var(--mdui-text); letter-spacing: -0.5px;
+            }
+            .mdui-board-gate { font-size: 11px; color: var(--mdui-tertiary); font-weight: 600; }
+            .mdui-board-path {
+                flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px;
+                min-width: 0; padding: 0 6px;
+            }
+            .mdui-board-dur { font-size: 11px; font-weight: 600; color: var(--mdui-muted); }
+            .mdui-board-line {
+                width: 100%; height: 1px; background: var(--mdui-border);
+                display: flex; justify-content: center; align-items: center; position: relative;
+            }
+            .mdui-board-line i {
+                position: absolute; color: var(--mdui-accent); font-size: 13px;
+                background: transparent; padding: 0 6px;
+            }
+            .mdui-board-meta {
+                display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+                border-top: 0.5px solid var(--mdui-border-light);
+            }
+            .mdui-board-cell {
+                display: flex; flex-direction: column; gap: 3px;
+                padding: 12px 14px; min-width: 0;
+                border-right: 0.5px solid var(--mdui-border-light);
+            }
+            .mdui-board-cell:last-child { border-right: none; }
+            .mdui-board-cell .label {
+                font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+                text-transform: uppercase; color: var(--mdui-tertiary);
+            }
+            .mdui-board-cell .value {
+                font-size: 14px; font-weight: 600; color: var(--mdui-text);
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            }
+
+            /* ════════════════════ LIVE FLIGHT CARD (hero) ══════════════════ */
+            .mdui-live-stack { display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px; }
+            .mdui-live-card {
+                border: 0.5px solid var(--mdui-border-light);
+                border-radius: var(--mdui-radius-lg);
+                overflow: hidden;
+                background:
+                    radial-gradient(130% 120% at 0% 0%, var(--mdui-success-soft), transparent 55%),
+                    var(--mdui-surface);
+                box-shadow: var(--mdui-shadow-float);
                 display: flex; flex-direction: column;
             }
-            .mdui-live-visual { position: relative; height: 188px; background: #0a0e14; overflow: hidden; }
+            .mdui-live-visual { position: relative; height: 184px; background: #0a0e14; overflow: hidden; }
             .mdui-live-bg { position: absolute; inset: 0; background-size: contain; background-repeat: no-repeat; background-position: center; z-index: 2; }
             .mdui-live-bg-blur { position: absolute; inset: -24px; background-size: cover; background-position: center; filter: blur(22px) brightness(0.55); z-index: 1; }
             .mdui-live-bg-fallback { background: linear-gradient(135deg, #2a3445 0%, #1a2030 60%, #14181f 100%); z-index: 1; }
@@ -3638,6 +3640,7 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
                 padding: 5px 11px;
                 background: rgba(0,0,0,0.5);
                 -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+                border: 0.5px solid rgba(255,255,255,0.16);
                 border-radius: 999px; color: #fff;
                 font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em;
             }
@@ -3662,34 +3665,40 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             .mdui-live-route { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
             .mdui-live-icao { font-family: var(--mdui-font-mono); font-size: 24px; font-weight: 700; letter-spacing: -0.5px; color: var(--mdui-text); line-height: 1; }
             .mdui-live-route-arrow { flex: 1; display: flex; align-items: center; justify-content: center; position: relative; color: var(--mdui-accent); font-size: 14px; }
-            .mdui-live-route-arrow::before, .mdui-live-route-arrow::after { content: ""; flex: 1; height: 1.5px; background: var(--mdui-border); margin: 0 8px; border-radius: 2px; }
-            .mdui-live-stats { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--mdui-input); border-radius: 12px; overflow: hidden; }
+            .mdui-live-route-arrow::before, .mdui-live-route-arrow::after { content: ""; flex: 1; height: 1px; background: var(--mdui-border); margin: 0 8px; border-radius: 2px; }
+            .mdui-live-stats {
+                display: grid; grid-template-columns: repeat(3, 1fr);
+                background: var(--mdui-surface);
+                border: 0.5px solid var(--mdui-border-light);
+                border-radius: 13px; overflow: hidden;
+            }
             .mdui-live-stat { display: flex; flex-direction: column; gap: 3px; padding: 11px 8px; border-right: 0.5px solid var(--mdui-border-light); align-items: center; min-width: 0; }
             .mdui-live-stat:last-child { border-right: none; }
-            .mdui-live-stat .label { font-size: 10.5px; font-weight: 500; letter-spacing: -0.1px; color: var(--mdui-muted); }
+            .mdui-live-stat .label { font-size: 10px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: var(--mdui-tertiary); }
             .mdui-live-stat .value { font-family: var(--mdui-font-mono); font-size: 17px; font-weight: 700; color: var(--mdui-text); display: flex; align-items: baseline; gap: 2px; line-height: 1; margin-top: 2px; }
             .mdui-live-stat .value em { font-style: normal; font-size: 10px; font-weight: 500; color: var(--mdui-muted); margin-left: 2px; }
             .mdui-live-action {
                 display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-                width: 100%; padding: 14px 16px; border: none; border-radius: 12px;
+                width: 100%; padding: 14px 16px; border: none; border-radius: 999px;
                 background: var(--mdui-accent); color: var(--mdui-on-accent);
-                font-family: inherit; font-size: 16px; font-weight: 600; letter-spacing: -0.3px;
+                font-family: inherit; font-size: 15px; font-weight: 600; letter-spacing: -0.2px;
                 cursor: pointer; -webkit-tap-highlight-color: transparent;
-                box-shadow: 0 4px 14px var(--mdui-accent-glow);
-                transition: transform 0.16s ease, opacity 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
+                box-shadow: 0 4px 18px var(--mdui-accent-glow);
+                transition: transform 0.15s ease, opacity 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
             }
-            .mdui-live-action:active { transform: scale(0.985); opacity: 0.92; box-shadow: 0 2px 8px var(--mdui-accent-glow); }
+            .mdui-live-action:active { transform: scale(0.98); opacity: 0.92; box-shadow: 0 2px 8px var(--mdui-accent-glow); }
             .mdui-live-action.is-disabled { background: var(--mdui-input); color: var(--mdui-muted); font-weight: 500; cursor: default; box-shadow: none; }
             .mdui-live-action.is-disabled:active { transform: none; opacity: 1; }
 
             /* ══════════════════════ CAREER / DOSSIER ═══════════════════════ */
-            /* Identity hero (avatar + name + grade, optional cover image) */
             .mdui-dossier-hero {
                 position: relative; overflow: hidden;
                 border-radius: var(--mdui-radius-lg);
                 border: 0.5px solid var(--mdui-border-light);
-                background: linear-gradient(150deg, var(--mdui-accent-soft), var(--mdui-card) 70%);
-                margin-bottom: 22px;
+                background:
+                    radial-gradient(120% 140% at 0% 0%, var(--mdui-accent-soft), transparent 60%),
+                    var(--mdui-surface);
+                margin-bottom: 20px;
             }
             .mdui-dossier-hero.has-cover { background: #1a2030; }
             .mdui-dossier-hero-bg { position: absolute; inset: 0; background-size: cover; background-position: center; z-index: 0; }
@@ -3698,168 +3707,192 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
                 background: linear-gradient(to top, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.25) 60%, rgba(0,0,0,0.15) 100%);
             }
             .mdui-dossier-hero.has-cover .mdui-dossier-name,
-            .mdui-dossier-hero.has-cover .mdui-dossier-handle,
             .mdui-dossier-hero.has-cover .mdui-dossier-bio { color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,0.5); }
+            .mdui-dossier-hero.has-cover .mdui-dossier-handle {
+                background: rgba(0,0,0,0.35); border-color: rgba(255,255,255,0.2); color: #fff;
+            }
             .mdui-dossier-hero-row {
                 position: relative; z-index: 2;
                 display: flex; align-items: center; gap: 14px;
                 padding: 18px 16px;
             }
             .mdui-dossier-avatar {
-                flex: 0 0 auto; width: 64px; height: 64px; border-radius: 50%;
+                flex: 0 0 auto; width: 62px; height: 62px; border-radius: 50%;
                 background: linear-gradient(160deg, var(--mdui-accent-hover), var(--mdui-accent));
                 color: #fff; display: grid; place-items: center;
-                font-size: 24px; font-weight: 700;
-                box-shadow: 0 6px 16px rgba(0,0,0,0.28), inset 0 0.5px 0 rgba(255,255,255,0.3);
+                font-size: 23px; font-weight: 700;
+                box-shadow: 0 6px 16px var(--mdui-accent-glow), inset 0 0.5px 0 rgba(255,255,255,0.3);
             }
-            .mdui-dossier-id { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-            .mdui-dossier-name { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; color: var(--mdui-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .mdui-dossier-id { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 5px; align-items: flex-start; }
+            .mdui-dossier-name { font-size: 21px; font-weight: 700; letter-spacing: -0.5px; color: var(--mdui-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
             .mdui-dossier-handle {
                 display: inline-flex; align-items: center; gap: 6px;
-                font-size: 14px; font-weight: 500; color: var(--mdui-muted); letter-spacing: -0.1px;
-                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                padding: 4px 11px; border-radius: 999px;
+                background: var(--mdui-input);
+                border: 0.5px solid var(--mdui-border-light);
+                font-size: 12px; font-weight: 600; color: var(--mdui-muted); letter-spacing: -0.1px;
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
             }
-            .mdui-dossier-handle i { font-size: 11px; opacity: 0.7; }
-            .mdui-dossier-bio { font-size: 13px; font-weight: 400; color: var(--mdui-muted); letter-spacing: -0.1px; line-height: 1.35; margin-top: 2px; }
+            .mdui-dossier-handle i { font-size: 10px; opacity: 0.7; }
+            .mdui-dossier-bio { font-size: 13px; font-weight: 400; color: var(--mdui-muted); letter-spacing: -0.1px; line-height: 1.35; }
             .mdui-dossier-grade {
                 flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; gap: 2px;
                 padding: 9px 14px; border-radius: 14px;
-                background: rgba(255,255,255,0.14);
-                -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
-                border: 0.5px solid rgba(255,255,255,0.18);
+                background: var(--mdui-input);
+                border: 0.5px solid var(--mdui-border-light);
             }
-            .mdui-dossier-hero:not(.has-cover) .mdui-dossier-grade { background: var(--mdui-card); border-color: var(--mdui-border-light); }
+            .mdui-dossier-hero.has-cover .mdui-dossier-grade {
+                background: rgba(0,0,0,0.35);
+                -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+                border-color: rgba(255,255,255,0.2);
+            }
             .mdui-dossier-grade span { font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--mdui-muted); }
             .mdui-dossier-hero.has-cover .mdui-dossier-grade span { color: rgba(255,255,255,0.8); }
             .mdui-dossier-grade strong { font-size: 22px; font-weight: 700; line-height: 1; color: var(--mdui-accent); }
             .mdui-dossier-hero.has-cover .mdui-dossier-grade strong { color: #fff; }
 
-            .mdui-cover-banner { width: 100%; height: 140px; margin-bottom: 18px; border-radius: var(--mdui-radius); background-size: cover; background-position: center; position: relative; overflow: hidden; border: 0.5px solid var(--mdui-border-light); }
-            .mdui-cover-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: flex-end; padding: 16px; background: linear-gradient(to top, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0.18) 55%, transparent 100%); color: #fff; }
-            .mdui-cover-name { font-size: 22px; font-weight: 700; letter-spacing: -0.4px; }
-            .mdui-cover-bio { margin-top: 3px; font-size: 14px; opacity: 0.92; letter-spacing: -0.2px; }
-            .mdui-bio-strip { display: flex; align-items: center; gap: 10px; padding: 12px 14px; margin-bottom: 18px; background: var(--mdui-accent-soft); border: none; border-radius: var(--mdui-radius); color: var(--mdui-text); font-size: 14px; line-height: 1.4; font-style: italic; letter-spacing: -0.2px; }
-
-            /* Dossier sub-tab segmented control */
-            .mdui-sub-tab-bar {
-                display: flex; gap: 2px; padding: 2px;
-                background: var(--mdui-input); border: none;
-                border-radius: 10px; margin-bottom: 20px;
-            }
-            .mdui-career-tab-btn {
-                flex: 1; min-width: 0;
-                display: flex; align-items: center; justify-content: center; gap: 6px;
-                padding: 8px 4px; border: none; background: transparent;
-                color: var(--mdui-muted); font-family: var(--mdui-font-sans);
-                font-size: 13px; font-weight: 500; letter-spacing: -0.2px;
-                border-radius: 8px; cursor: pointer;
-                -webkit-tap-highlight-color: transparent;
-                transition: background-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
-            }
-            .mdui-career-tab-btn i { font-size: 12px; }
-            .mdui-career-tab-btn:active { transform: scale(0.97); }
-            .mdui-career-tab-btn.active {
-                background: var(--mdui-card-elev); color: var(--mdui-text); font-weight: 600;
-                box-shadow: 0 1px 4px rgba(0,0,0,0.12), 0 0 0 0.5px rgba(0,0,0,0.04);
-            }
-            #mdui-career-content-host { min-height: 200px; }
-
-            .mdui-mini-stat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-            .mdui-mini-stat-card {
-                background: var(--mdui-card);
+            .mdui-stat-tile-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+            .mdui-stat-tile {
+                background: var(--mdui-surface);
                 border: 0.5px solid var(--mdui-border-light);
                 border-radius: var(--mdui-radius);
                 padding: 16px 8px;
-                display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px;
-                box-shadow: var(--mdui-shadow-card); min-width: 0;
+                display: flex; flex-direction: column; align-items: center; text-align: center; gap: 9px;
+                min-width: 0;
             }
-            .mdui-drillable-card { cursor: pointer; transition: transform 0.16s ease, background-color 0.16s ease; -webkit-tap-highlight-color: transparent; }
-            .mdui-drillable-card:active { transform: scale(0.96); background: var(--mdui-hover); }
-            .mdui-mini-icon { width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center; font-size: 15px; flex-shrink: 0; }
-            .mdui-mini-stat-card[data-tone="indigo"]  .mdui-mini-icon { background: rgba(94,92,230,0.16);  color: #5e5ce6; }
-            .mdui-mini-stat-card[data-tone="violet"]  .mdui-mini-icon { background: rgba(175,82,222,0.16);  color: #af52de; }
-            .mdui-mini-stat-card[data-tone="emerald"] .mdui-mini-icon { background: rgba(48,209,88,0.16);   color: #30d158; }
-            .mdui-mini-data { display: flex; flex-direction: column; gap: 2px; min-width: 0; max-width: 100%; }
-            .mdui-mini-value { font-size: 17px; font-weight: 700; color: var(--mdui-text); line-height: 1; letter-spacing: -0.4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-            .mdui-mini-label { font-size: 10.5px; font-weight: 600; color: var(--mdui-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+            .mdui-drillable-card { cursor: pointer; transition: transform 0.15s ease, background-color 0.16s ease; -webkit-tap-highlight-color: transparent; }
+            .mdui-drillable-card:active { transform: scale(0.95); background: var(--mdui-hover); }
+            .mdui-stat-tile-icon { width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; font-size: 14px; flex-shrink: 0; }
+            .mdui-stat-tile[data-tone="indigo"]  .mdui-stat-tile-icon { background: rgba(94,92,230,0.16);  color: #5e5ce6; }
+            .mdui-stat-tile[data-tone="violet"]  .mdui-stat-tile-icon { background: rgba(175,82,222,0.16); color: #af52de; }
+            .mdui-stat-tile[data-tone="emerald"] .mdui-stat-tile-icon { background: var(--mdui-success-soft); color: var(--mdui-success); }
+            .mdui-stat-tile-value { font-size: 16px; font-weight: 700; color: var(--mdui-text); line-height: 1; letter-spacing: -0.3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+            .mdui-stat-tile-label { font-size: 10px; font-weight: 600; color: var(--mdui-muted); text-transform: uppercase; letter-spacing: 0.05em; }
 
-            .mdui-trends-grid { display: grid; gap: 2px; }
+            .mdui-trends-grid { display: grid; }
             .mdui-trend-row { display: grid; grid-template-columns: 1.4fr minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 8px; padding: 11px 0; border-bottom: 0.5px solid var(--mdui-border-light); }
-            .mdui-trend-row:last-child { border-bottom: none; }
-            .mdui-trend-label { font-size: 15px; color: var(--mdui-muted); letter-spacing: -0.2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-            .mdui-trend-current { font-size: 16px; font-weight: 600; color: var(--mdui-text); letter-spacing: -0.3px; overflow: hidden; text-overflow: ellipsis; }
-            .mdui-trend-delta { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 3px; }
-            .mdui-trend-arrow { font-size: 10px; }
+            .mdui-trend-row:last-child { border-bottom: none; padding-bottom: 2px; }
+            .mdui-trend-label { font-size: 14px; color: var(--mdui-muted); letter-spacing: -0.2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .mdui-trend-current { font-size: 15px; font-weight: 600; color: var(--mdui-text); letter-spacing: -0.3px; overflow: hidden; text-overflow: ellipsis; }
+            .mdui-trend-delta { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 3px; }
+            .mdui-trend-arrow { font-size: 9px; }
             .mdui-trend-up { color: var(--mdui-success); }
             .mdui-trend-down { color: var(--mdui-danger); }
             .mdui-trend-neutral { color: var(--mdui-tertiary); }
 
             .mdui-records-grid { display: grid; gap: 10px; }
-            .mdui-record { padding: 14px 16px; border-radius: var(--mdui-radius); border: 0.5px solid var(--mdui-border-light); background: var(--mdui-card); }
-            .mdui-record[data-tone="indigo"]  { background: rgba(94,92,230,0.07);  border-color: rgba(94,92,230,0.18); }
-            .mdui-record[data-tone="emerald"] { background: rgba(48,209,88,0.07);   border-color: rgba(48,209,88,0.18); }
-            .mdui-record[data-tone="amber"]   { background: rgba(255,149,0,0.07);   border-color: rgba(255,149,0,0.20); }
+            .mdui-record {
+                padding: 14px 16px; border-radius: var(--mdui-radius);
+                border: 0.5px solid var(--mdui-border-light);
+                background: var(--mdui-surface);
+            }
+            .mdui-record[data-tone="indigo"]  { background: radial-gradient(120% 140% at 0% 0%, rgba(94,92,230,0.14), transparent 60%), var(--mdui-surface); }
+            .mdui-record[data-tone="emerald"] { background: radial-gradient(120% 140% at 0% 0%, rgba(48,209,88,0.13), transparent 60%), var(--mdui-surface); }
+            .mdui-record[data-tone="amber"]   { background: radial-gradient(120% 140% at 0% 0%, rgba(255,159,10,0.13), transparent 60%), var(--mdui-surface); }
             .mdui-record-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-            .mdui-record-icon { font-size: 14px; }
-            .mdui-record[data-tone="indigo"] .mdui-record-icon { color: #5e5ce6; }
-            .mdui-record[data-tone="emerald"] .mdui-record-icon { color: #30d158; }
-            .mdui-record[data-tone="amber"] .mdui-record-icon { color: #ff9500; }
+            .mdui-record-icon { font-size: 13px; }
+            .mdui-record[data-tone="indigo"]  .mdui-record-icon { color: #5e5ce6; }
+            .mdui-record[data-tone="emerald"] .mdui-record-icon { color: var(--mdui-success); }
+            .mdui-record[data-tone="amber"]   .mdui-record-icon { color: var(--mdui-warn); }
             .mdui-record-label { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--mdui-tertiary); }
             .mdui-record-value { font-family: var(--mdui-font-mono); font-size: 16px; font-weight: 700; color: var(--mdui-text); margin-bottom: 3px; }
             .mdui-record-sub { font-size: 12px; color: var(--mdui-muted); }
 
-            /* ══════════════════════════ AIRSPACE ═══════════════════════════ */
-            .mdui-airspace-add { display: flex; gap: 10px; margin-bottom: 18px; }
-            .mdui-node-header { display: flex; justify-content: space-between; align-items: center; padding: 16px 18px; border-bottom: 0.5px solid var(--mdui-border-light); }
-            .mdui-node-icao { font-family: var(--mdui-font-mono); font-size: 20px; font-weight: 700; color: var(--mdui-text); letter-spacing: -0.3px; }
-            .mdui-assessment-row { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; background: var(--mdui-surface); border-radius: 12px; margin: 16px 18px; }
-            .mdui-assessment-icon { font-size: 19px; flex-shrink: 0; padding-top: 1px; }
-            .mdui-assessment-text strong { font-size: 13px; color: var(--mdui-text); font-weight: 700; display: block; margin-bottom: 3px; }
-            .mdui-assessment-text span { font-size: 13px; color: var(--mdui-muted); line-height: 1.45; }
-            .mdui-load-bar-block { margin: 0 18px 16px; }
-            .mdui-load-bar-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 7px; }
-            .mdui-load-bar-track { width: 100%; height: 7px; background: var(--mdui-input); border-radius: 4px; overflow: hidden; }
-            .mdui-load-bar-fill { height: 100%; border-radius: 4px; transition: width 0.4s cubic-bezier(0.16,1,0.3,1); }
-            .mdui-intel-stats-quad { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; padding: 14px 18px; border-top: 0.5px solid var(--mdui-border-light); border-bottom: 0.5px solid var(--mdui-border-light); }
-            .mdui-intel-stat { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-            .mdui-intel-stat .label { font-size: 10px; color: var(--mdui-tertiary); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
-            .mdui-intel-stat .value { font-family: var(--mdui-font-mono); font-size: 20px; color: var(--mdui-text); font-weight: 700; line-height: 1; overflow: hidden; text-overflow: ellipsis; }
-            .mdui-section-head { display: flex; justify-content: space-between; align-items: center; margin: 16px 18px 8px; }
-            .mdui-intel-heatmap { display: flex; gap: 3px; height: 30px; border-radius: 9px; overflow: hidden; background: var(--mdui-input); padding: 3px; margin: 0 18px 16px; }
-            .mdui-intel-heatblock { flex: 1; border-radius: 5px; }
+            /* ══════════════════════ AIRSPACE / TRAFFIC ═════════════════════ */
+            .mdui-node-card {
+                background: var(--mdui-surface);
+                border: 0.5px solid var(--mdui-border-light);
+                border-radius: var(--mdui-radius-lg);
+                padding: 16px;
+                margin-bottom: 14px;
+            }
+            .mdui-node-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+            .mdui-node-ident { display: flex; align-items: center; gap: 9px; }
+            .mdui-node-ident i { color: var(--mdui-tertiary); font-size: 14px; }
+            .mdui-node-icao { font-family: var(--mdui-font-mono); font-size: 21px; font-weight: 700; color: var(--mdui-text); letter-spacing: -0.3px; }
+            .mdui-node-badge {
+                padding: 4px 11px; border-radius: 999px;
+                font-size: 10.5px; font-weight: 700;
+                letter-spacing: 0.05em; text-transform: uppercase;
+            }
+            .mdui-node-assessment {
+                display: flex; align-items: flex-start; gap: 12px;
+                padding: 12px 14px;
+                background: var(--mdui-input);
+                border-radius: 13px; margin-bottom: 14px;
+            }
+            .mdui-node-assessment-icon { font-size: 18px; flex-shrink: 0; padding-top: 1px; }
+            .mdui-node-assessment-text strong { font-size: 13px; color: var(--mdui-text); font-weight: 700; display: block; margin-bottom: 3px; }
+            .mdui-node-assessment-text span { font-size: 13px; color: var(--mdui-muted); line-height: 1.45; }
+            .mdui-node-load { margin-bottom: 14px; }
+            .mdui-node-load-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 7px; }
+            .mdui-node-load-track { width: 100%; height: 6px; background: var(--mdui-input); border-radius: 999px; overflow: hidden; }
+            .mdui-node-load-fill { height: 100%; border-radius: 999px; transition: width 0.4s cubic-bezier(0.16,1,0.3,1); }
+            .mdui-node-stats {
+                display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px;
+            }
+            .mdui-node-stat {
+                display: flex; flex-direction: column; gap: 4px; min-width: 0;
+                padding: 10px 12px;
+                background: var(--mdui-input); border-radius: 12px;
+            }
+            .mdui-node-stat .label { font-size: 9.5px; color: var(--mdui-tertiary); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+            .mdui-node-stat .value { font-family: var(--mdui-font-mono); font-size: 19px; color: var(--mdui-text); font-weight: 700; line-height: 1; overflow: hidden; text-overflow: ellipsis; }
+            .mdui-node-section-head { display: flex; justify-content: space-between; align-items: center; margin: 16px 0 8px; }
+            .mdui-node-heatmap { display: flex; gap: 3px; height: 30px; border-radius: 999px; overflow: hidden; background: var(--mdui-input); padding: 3px; }
+            .mdui-node-heatblock { flex: 1; border-radius: 999px; }
+            .mdui-node-foot {
+                margin-top: 14px; padding-top: 14px;
+                border-top: 0.5px solid var(--mdui-border-light);
+                display: flex; justify-content: flex-end;
+            }
 
             /* ══════════════════════════ DISPATCH ═══════════════════════════ */
-            .mdui-form-sheet { margin-bottom: 18px; }
+            .mdui-form-sheet { padding: 16px; }
             .mdui-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-            .mdui-form-section-title { margin: 4px 0 12px; font-size: 11px; font-weight: 700; color: var(--mdui-tertiary); text-transform: uppercase; letter-spacing: 0.06em; padding-bottom: 8px; border-bottom: 0.5px solid var(--mdui-border-light); }
-            .mdui-form-actions { margin-top: 18px; padding-top: 14px; border-top: 0.5px solid var(--mdui-border-light); display: flex; gap: 10px; justify-content: flex-end; }
+            .mdui-form-eyebrow {
+                margin: 6px 0 12px; padding-bottom: 8px;
+                font-size: 11px; font-weight: 700; color: var(--mdui-tertiary);
+                text-transform: uppercase; letter-spacing: 0.07em;
+                border-bottom: 0.5px solid var(--mdui-border-light);
+            }
+            .mdui-form-actions { margin-top: 18px; padding-top: 14px; border-top: 0.5px solid var(--mdui-border-light); display: flex; gap: 10px; }
             .mdui-form-actions button { flex: 1; }
 
             .mdui-ticket {
-                background: var(--mdui-card);
+                background: var(--mdui-surface);
                 border: 0.5px solid var(--mdui-border-light);
                 border-radius: var(--mdui-radius-lg);
-                box-shadow: var(--mdui-shadow-card);
-                display: flex; flex-direction: column; margin-bottom: 14px; position: relative; overflow: hidden;
+                display: flex; flex-direction: column; margin-bottom: 14px; overflow: hidden;
             }
-            .mdui-ticket-actions { position: absolute; top: 12px; right: 12px; display: flex; gap: 6px; z-index: 2; }
-            .mdui-ticket-stub { border-bottom: 0.5px dashed var(--mdui-border); padding: 14px 16px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-            .mdui-ticket-date { font-family: var(--mdui-font-mono); font-size: 13px; font-weight: 700; color: var(--mdui-text); }
-            .mdui-ticket-time { font-size: 12px; color: var(--mdui-muted); font-weight: 600; flex: 1; min-width: 0; }
-            .mdui-ticket-cs { background: var(--mdui-accent-soft); color: var(--mdui-accent); padding: 4px 9px; border-radius: 7px; font-size: 12px; font-weight: 700; font-family: var(--mdui-font-mono); }
-            .mdui-ticket-body { padding: 16px; }
-            .mdui-ticket-route { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+            .mdui-ticket-stub {
+                border-bottom: 0.5px dashed var(--mdui-border);
+                padding: 13px 16px;
+                display: flex; align-items: center; gap: 10px;
+            }
+            .mdui-ticket-cs {
+                background: var(--mdui-accent-soft); color: var(--mdui-accent);
+                padding: 4px 11px; border-radius: 999px;
+                font-size: 12px; font-weight: 700; font-family: var(--mdui-font-mono);
+                white-space: nowrap;
+            }
+            .mdui-ticket-when { font-size: 12px; color: var(--mdui-muted); font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .mdui-ticket-actions { display: flex; gap: 6px; flex-shrink: 0; }
+            .mdui-ticket-route { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; }
             .mdui-ticket-point { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-            .mdui-ticket-point-right { align-items: flex-end; }
+            .mdui-ticket-point.is-right { align-items: flex-end; }
             .mdui-ticket-icao { font-family: var(--mdui-font-mono); font-size: 24px; font-weight: 700; color: var(--mdui-text); letter-spacing: -0.5px; line-height: 1; }
             .mdui-ticket-gate { font-size: 11px; color: var(--mdui-tertiary); font-weight: 600; }
             .mdui-ticket-path { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; position: relative; padding: 0 8px; min-width: 0; }
             .mdui-ticket-duration { font-size: 11px; color: var(--mdui-tertiary); font-weight: 600; }
-            .mdui-ticket-line { width: 100%; height: 1.5px; background: var(--mdui-border-light); position: relative; display: flex; justify-content: center; align-items: center; }
-            .mdui-ticket-line i { position: absolute; color: var(--mdui-accent); font-size: 13px; background: var(--mdui-card); padding: 0 6px; }
+            .mdui-ticket-line { width: 100%; height: 1px; background: var(--mdui-border); position: relative; display: flex; justify-content: center; align-items: center; }
+            .mdui-ticket-line i { position: absolute; color: var(--mdui-accent); font-size: 13px; padding: 0 6px; }
             .mdui-ticket-acft { font-size: 11px; color: var(--mdui-muted); font-weight: 700; letter-spacing: 0.04em; }
-            .mdui-ticket-aside { border-top: 0.5px solid var(--mdui-border-light); padding: 12px 16px; display: flex; justify-content: space-around; flex-wrap: wrap; gap: 6px; }
-            .mdui-ticket-stat { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--mdui-muted); font-weight: 500; }
+            .mdui-ticket-aside {
+                border-top: 0.5px solid var(--mdui-border-light);
+                padding: 12px 16px;
+                display: flex; flex-wrap: wrap; gap: 8px;
+            }
 
             /* ════════════════════ CONFIRM / ALERT MODALS ══════════════════ */
             .mdui-confirm-box {
@@ -3869,54 +3902,70 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
                 border-radius: var(--mdui-radius-lg);
                 padding: 22px; max-width: 340px; width: 100%;
                 text-align: center; box-shadow: var(--mdui-shadow-pop);
+                color: var(--mdui-text);
+                font-family: var(--mdui-font-sans);
             }
-            .mdui-confirm-icon { font-size: 30px; color: var(--mdui-danger); margin-bottom: 12px; width: 56px; height: 56px; border-radius: 50%; background: var(--mdui-danger-soft); display: grid; place-items: center; margin-left: auto; margin-right: auto; }
+            .mdui-confirm-icon { font-size: 28px; color: var(--mdui-danger); margin-bottom: 12px; width: 56px; height: 56px; border-radius: 50%; background: var(--mdui-danger-soft); display: grid; place-items: center; margin-left: auto; margin-right: auto; }
             .mdui-confirm-header h3 { margin: 0 0 10px; font-size: 19px; font-weight: 700; letter-spacing: -0.4px; }
             .mdui-confirm-body p { font-size: 14px; color: var(--mdui-muted); line-height: 1.45; margin: 0; }
-            .mdui-confirm-flight-plate { background: var(--mdui-surface); padding: 12px; border-radius: 10px; margin: 16px 0; display: flex; align-items: center; justify-content: center; gap: 10px; }
+            .mdui-confirm-flight-plate { background: var(--mdui-surface); border: 0.5px solid var(--mdui-border-light); padding: 12px; border-radius: 13px; margin: 16px 0; display: flex; align-items: center; justify-content: center; gap: 10px; }
             .mdui-confirm-route { font-family: var(--mdui-font-mono); font-weight: 700; color: var(--mdui-text); }
             .mdui-confirm-actions { display: flex; gap: 10px; margin-top: 18px; }
             .mdui-confirm-actions button { flex: 1; }
 
             /* ══════════════════════════ WATCHLIST ══════════════════════════ */
             .mdui-autocomplete-dropdown {
-                position: absolute; top: calc(100% + 6px); left: 0; right: 0;
+                position: absolute; top: calc(100% + 8px); left: 0; right: 0;
                 background: var(--mdui-glass-strong);
                 -webkit-backdrop-filter: var(--mdui-blur); backdrop-filter: var(--mdui-blur);
                 border: 0.5px solid var(--mdui-border);
-                border-radius: 12px; z-index: 100;
+                border-radius: 16px; z-index: 100;
                 box-shadow: var(--mdui-shadow-pop); overflow: hidden;
             }
-            .mdui-autocomplete-item { padding: 11px 14px; display: flex; align-items: center; gap: 10px; border-bottom: 0.5px solid var(--mdui-border-light); cursor: pointer; font-weight: 500; font-size: 15px; color: var(--mdui-text); }
+            .mdui-autocomplete-item { padding: 12px 16px; display: flex; align-items: center; gap: 10px; border-bottom: 0.5px solid var(--mdui-border-light); cursor: pointer; font-weight: 500; font-size: 15px; color: var(--mdui-text); }
             .mdui-autocomplete-item:last-child { border-bottom: none; }
             .mdui-autocomplete-item:active { background: var(--mdui-hover); }
             .mdui-autocomplete-item i { color: var(--mdui-accent); font-size: 13px; }
 
-            .mdui-watchlist-grid { display: grid; gap: 10px; }
-            .mdui-wl-card { background: var(--mdui-card); border: 0.5px solid var(--mdui-border-light); border-radius: var(--mdui-radius); padding: 14px; }
-            .mdui-wl-card.live { border-color: var(--mdui-success); }
-            .mdui-wl-card-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-            .mdui-wl-identity { display: flex; align-items: center; gap: 10px; min-width: 0; }
-            .mdui-wl-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-            .mdui-wl-dot.live { background: var(--mdui-success); animation: mdui-pulse 2s infinite; box-shadow: 0 0 0 4px var(--mdui-success-soft); }
-            .mdui-wl-dot.offline { background: var(--mdui-tertiary); opacity: 0.5; }
-            .mdui-wl-username { font-weight: 600; font-size: 16px; letter-spacing: -0.3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-            .mdui-wl-status { font-size: 12px; color: var(--mdui-muted); margin-top: 2px; }
-            .mdui-wl-status.live { color: var(--mdui-success); }
+            .mdui-pilot-grid { display: grid; gap: 10px; }
+            .mdui-pilot-card {
+                background: var(--mdui-surface);
+                border: 0.5px solid var(--mdui-border-light);
+                border-radius: var(--mdui-radius);
+                padding: 13px 14px;
+            }
+            .mdui-pilot-card.is-live {
+                background:
+                    radial-gradient(120% 140% at 0% 0%, var(--mdui-success-soft), transparent 55%),
+                    var(--mdui-surface);
+                border-color: rgba(48,209,88,0.35);
+            }
+            .mdui-pilot-top { display: flex; align-items: center; gap: 11px; }
+            .mdui-pilot-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+            .mdui-pilot-dot.live { background: var(--mdui-success); animation: mdui-pulse 2s infinite; box-shadow: 0 0 0 4px var(--mdui-success-soft); }
+            .mdui-pilot-dot.offline { background: var(--mdui-tertiary); opacity: 0.6; }
+            .mdui-pilot-id { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+            .mdui-pilot-name { font-weight: 600; font-size: 15px; color: var(--mdui-text); letter-spacing: -0.2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .mdui-pilot-status { font-size: 12px; color: var(--mdui-muted); }
+            .mdui-pilot-status.live { color: var(--mdui-success); font-weight: 600; }
             .mdui-watchlist-remove-btn {
                 background: none; border: none; color: var(--mdui-danger);
-                cursor: pointer; padding: 6px; font-size: 20px;
+                cursor: pointer; padding: 6px; font-size: 19px; flex-shrink: 0;
                 -webkit-tap-highlight-color: transparent;
-                transition: transform 0.18s ease, opacity 0.18s ease;
+                transition: transform 0.16s ease, opacity 0.18s ease;
             }
             .mdui-watchlist-remove-btn:active { transform: scale(0.84); opacity: 0.7; }
-            .mdui-wl-flight-info { margin-top: 12px; padding-top: 12px; border-top: 0.5px solid var(--mdui-border-light); }
-            .mdui-wl-route { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 10px; font-family: var(--mdui-font-mono); font-weight: 700; font-size: 18px; letter-spacing: -0.2px; }
-            .mdui-wl-plane-icon { color: var(--mdui-accent); font-size: 14px; }
-            .mdui-wl-telemetry { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-            .mdui-wl-tele-item { display: flex; flex-direction: column; background: var(--mdui-input); padding: 9px 12px; border-radius: 10px; min-width: 0; }
-            .mdui-wl-tele-item .label { font-size: 10px; color: var(--mdui-tertiary); font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
-            .mdui-wl-tele-item .value { font-family: var(--mdui-font-mono); font-weight: 700; font-size: 13px; color: var(--mdui-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .mdui-pilot-flight {
+                display: flex; align-items: center; justify-content: space-between; gap: 10px;
+                margin-top: 11px; padding: 10px 13px;
+                background: var(--mdui-input); border-radius: 12px;
+                cursor: pointer; -webkit-tap-highlight-color: transparent;
+                transition: background-color 0.14s ease;
+            }
+            .mdui-pilot-flight:active { background: var(--mdui-hover); }
+            .mdui-pilot-route { font-size: 15px; font-weight: 700; color: var(--mdui-text); white-space: nowrap; }
+            .mdui-pilot-route i { color: var(--mdui-accent); font-size: 11px; margin: 0 4px; }
+            .mdui-pilot-tele { font-size: 12px; font-weight: 600; color: var(--mdui-success); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
             /* iOS switch */
             .mdui-toggle-label { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; -webkit-tap-highlight-color: transparent; flex-shrink: 0; }
@@ -3925,7 +3974,6 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             .mdui-toggle-thumb { position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; background: #fff; border-radius: 50%; box-shadow: 0 3px 8px rgba(0,0,0,0.18), 0 1px 1px rgba(0,0,0,0.16); transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1); }
             .mdui-toggle-label input:checked + .mdui-toggle-track { background: var(--mdui-success); }
             .mdui-toggle-label input:checked + .mdui-toggle-track .mdui-toggle-thumb { transform: translateX(20px); }
-            .mdui-toggle-text { font-size: 14px; font-weight: 500; color: var(--mdui-text); letter-spacing: -0.2px; }
 
             /* ══════════════════════════ DRILL-DOWN ═════════════════════════ */
             .mdui-drill-box {
@@ -3935,6 +3983,8 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
                 border-radius: var(--mdui-radius-lg);
                 width: 100%; max-width: 360px; overflow: hidden;
                 box-shadow: var(--mdui-shadow-pop);
+                color: var(--mdui-text);
+                font-family: var(--mdui-font-sans);
             }
             .mdui-drill-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 0.5px solid var(--mdui-border-light); }
             .mdui-drill-header h3 { margin: 0; font-weight: 700; font-size: 17px; letter-spacing: -0.4px; }
@@ -3952,51 +4002,70 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             .mdui-drill-stat-row strong { font-weight: 600; color: var(--mdui-text); }
             .mdui-drill-bar-row { margin-bottom: 12px; font-size: 14px; }
             .mdui-drill-bar-label { display: flex; justify-content: space-between; margin-bottom: 5px; color: var(--mdui-muted); }
-            .mdui-drill-bar-track { width: 100%; height: 7px; background: var(--mdui-input); border-radius: 4px; overflow: hidden; }
-            .mdui-drill-bar-fill { height: 100%; background: var(--mdui-accent); border-radius: 4px; }
-            .mdui-drill-note { margin: 0; padding: 12px; background: var(--mdui-info-soft); border-radius: 10px; font-size: 14px; color: var(--mdui-info); font-weight: 500; }
+            .mdui-drill-bar-track { width: 100%; height: 6px; background: var(--mdui-input); border-radius: 999px; overflow: hidden; }
+            .mdui-drill-bar-fill { height: 100%; background: var(--mdui-accent); border-radius: 999px; }
+            .mdui-drill-note { margin: 0; padding: 12px; background: var(--mdui-info-soft); border-radius: 12px; font-size: 14px; color: var(--mdui-info); font-weight: 500; }
             .mdui-drill-actions { padding: 14px 20px; border-top: 0.5px solid var(--mdui-border-light); display: flex; justify-content: flex-end; }
             .mdui-drill-actions button { width: 100%; }
             .mdui-drillable { cursor: pointer; border-bottom: 1px dashed var(--mdui-tertiary); transition: color 0.14s ease, border-color 0.14s ease; }
             .mdui-drillable:active { color: var(--mdui-accent); border-bottom-color: var(--mdui-accent); }
 
             /* ══════════════════════════ SETTINGS ═══════════════════════════ */
-            .mdui-settings-grid { display: flex; flex-direction: column; gap: 14px; }
-            .mdui-theme-options { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-            .mdui-theme-option { display: flex; align-items: center; gap: 10px; padding: 12px; border: 0.5px solid var(--mdui-border); border-radius: 12px; cursor: pointer; background: var(--mdui-input); -webkit-tap-highlight-color: transparent; transition: 0.16s; }
-            .mdui-theme-option:active { transform: scale(0.98); background: var(--mdui-hover); }
-            .mdui-theme-option input { display: none; }
-            .mdui-theme-option i { color: var(--mdui-tertiary); font-size: 14px; }
-            .mdui-theme-option span { color: var(--mdui-text); font-weight: 500; font-size: 14px; letter-spacing: -0.2px; }
-            .mdui-theme-option:has(input:checked) { border-color: var(--mdui-accent); background: var(--mdui-accent-soft); }
-            .mdui-theme-option:has(input:checked) i { color: var(--mdui-accent); }
-            .mdui-accent-grid { display: flex; flex-wrap: wrap; gap: 12px; justify-content: flex-end; margin-top: 2px; }
-            .mdui-accent-swatch { width: 32px; height: 32px; border-radius: 50%; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 12px; transition: transform 0.16s ease, box-shadow 0.16s ease; padding: 0; -webkit-tap-highlight-color: transparent; box-shadow: inset 0 0.5px 1px rgba(255,255,255,0.4); }
-            .mdui-accent-swatch:active { transform: scale(0.9); }
-            .mdui-accent-swatch.active { box-shadow: 0 0 0 2px var(--mdui-card), 0 0 0 4.5px var(--mdui-accent); }
-            .mdui-plan-box { background: var(--mdui-input); border: none; border-radius: var(--mdui-radius); padding: 16px; }
-            .mdui-plan-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; gap: 8px; }
-            .mdui-plan-header h4 { margin: 0; font-size: 16px; font-weight: 600; color: var(--mdui-text); letter-spacing: -0.3px; }
-            .mdui-plan-price { font-size: 24px; font-weight: 700; color: var(--mdui-text); margin: 0 0 4px 0; letter-spacing: -0.5px; }
-            .mdui-plan-renewal { font-size: 12px; color: var(--mdui-tertiary); margin: 0; }
-            .mdui-billing-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+            .mdui-id-card {
+                display: flex; align-items: center; gap: 14px;
+                width: 100%; padding: 14px; margin-bottom: 28px;
+                border: 0.5px solid var(--mdui-border-light);
+                background:
+                    radial-gradient(120% 140% at 0% 0%, var(--mdui-accent-soft), transparent 60%),
+                    var(--mdui-surface);
+                border-radius: var(--mdui-radius);
+                text-align: left; color: var(--mdui-text);
+                font-family: inherit; cursor: pointer;
+                -webkit-tap-highlight-color: transparent;
+                transition: background-color 0.14s ease, transform 0.14s ease;
+            }
+            .mdui-id-card:active { transform: scale(0.99); }
+            .mdui-id-avatar {
+                flex: 0 0 auto; width: 56px; height: 56px; border-radius: 50%;
+                background: linear-gradient(160deg, var(--mdui-accent-hover), var(--mdui-accent));
+                color: #fff; display: grid; place-items: center;
+                font-size: 21px; font-weight: 600;
+                box-shadow: 0 4px 12px var(--mdui-accent-glow);
+            }
+            .mdui-id-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+            .mdui-id-name {
+                font-size: 19px; font-weight: 600; letter-spacing: -0.4px;
+                color: var(--mdui-text);
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            }
+            .mdui-id-sub {
+                font-size: 13.5px; font-weight: 400; letter-spacing: -0.1px;
+                color: var(--mdui-muted);
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            }
+            .mdui-accent-grid { display: flex; flex-wrap: wrap; gap: 11px; justify-content: flex-end; margin-top: 2px; }
+            .mdui-accent-swatch {
+                width: 31px; height: 31px; border-radius: 50%; border: none;
+                cursor: pointer; display: flex; align-items: center; justify-content: center;
+                color: #fff; font-size: 12px; padding: 0;
+                -webkit-tap-highlight-color: transparent;
+                box-shadow: inset 0 0.5px 1px rgba(255,255,255,0.4);
+                transition: transform 0.16s ease, box-shadow 0.16s ease;
+            }
+            .mdui-accent-swatch:active { transform: scale(0.88); }
+            .mdui-accent-swatch.active { box-shadow: 0 0 0 2px var(--mdui-bg), 0 0 0 4px var(--mdui-accent); }
 
             /* ══════════════════════════ ONBOARDING ═════════════════════════ */
-            .mdui-onboarding { padding: 36px 16px calc(env(safe-area-inset-bottom) + 36px); display: flex; flex-direction: column; justify-content: flex-start; min-height: 100%; }
-            .mdui-onb-icon { width: 60px; height: 60px; margin: 0 auto 18px; border-radius: 17px; background: var(--mdui-accent-soft); color: var(--mdui-accent); font-size: 24px; display: grid; place-items: center; box-shadow: 0 6px 16px var(--mdui-accent-glow); }
+            .mdui-onb { padding: 36px 4px calc(env(safe-area-inset-bottom) + 36px); display: flex; flex-direction: column; justify-content: flex-start; min-height: 100%; }
+            .mdui-onb-glyph {
+                width: 64px; height: 64px; margin: 0 auto 18px; border-radius: 19px;
+                background: var(--mdui-accent-soft); color: var(--mdui-accent);
+                font-size: 25px; display: grid; place-items: center;
+                box-shadow: 0 6px 18px var(--mdui-accent-glow);
+            }
             .mdui-onb-title { font-size: 30px; font-weight: 700; text-align: center; margin: 0 0 8px; color: var(--mdui-text); letter-spacing: -0.7px; }
-            .mdui-onb-sub { text-align: center; color: var(--mdui-muted); font-size: 16px; line-height: 1.4; margin: 0; letter-spacing: -0.2px; }
-            .mdui-pill-row { display: flex; gap: 8px; }
-            .mdui-radio-pill { flex: 1; min-width: 0; padding: 12px 10px; border-radius: 12px; cursor: pointer; border: 0.5px solid var(--mdui-border); background: var(--mdui-input); display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 500; color: var(--mdui-text); letter-spacing: -0.2px; -webkit-tap-highlight-color: transparent; transition: 0.16s; }
-            .mdui-radio-pill:active { transform: scale(0.97); }
-            .mdui-radio-pill:has(input:checked) { border-color: var(--mdui-accent); background: var(--mdui-accent-soft); color: var(--mdui-accent); }
-            .mdui-radio-pill input { display: none; }
-
-            /* ════════════════════ SUPPORT / ACTION LINKS ══════════════════ */
-            .mdui-action-link { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: var(--mdui-input); border: none; border-radius: 12px; text-decoration: none; color: inherit; -webkit-tap-highlight-color: transparent; transition: background-color 0.18s ease, transform 0.16s ease; }
-            .mdui-action-link:active { transform: scale(0.98); background: var(--mdui-hover); }
-            .mdui-action-icon { width: 32px; height: 32px; border-radius: 50%; background: var(--mdui-accent-soft); color: var(--mdui-accent); display: grid; place-items: center; font-size: 14px; flex-shrink: 0; }
-            .mdui-action-text { flex: 1; font-size: 15px; font-weight: 500; color: var(--mdui-text); letter-spacing: -0.2px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+            .mdui-onb-sub { text-align: center; color: var(--mdui-muted); font-size: 15.5px; line-height: 1.45; margin: 0; letter-spacing: -0.2px; }
+            .mdui-onb-note { font-size: 13px; color: var(--mdui-tertiary); text-align: center; margin: 14px 0 0; letter-spacing: -0.1px; }
         `;
 
         const style       = document.createElement('style');
