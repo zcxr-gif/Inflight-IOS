@@ -6361,7 +6361,7 @@ function buildSyntheticFeature(flightLike, communityImageUrl) {
             aircraft: ac,
             aircraftName: ac.aircraftName || flightLike.aircraftName || '',
             liveryName: ac.liveryName || flightLike.liveryName || '',
-            airlineIcao: getAirlineIcaoFromCallsign(flightLike.callsign),
+            airlineIcao: getAirlineIcaoFromLivery(ac.liveryName || flightLike.liveryName),
             registration: ac.registration || flightLike.registration || '',
             arrivalIcao: flightLike.arrivalIcao || null,
             departureIcao: flightLike.departureIcao || null,
@@ -7160,11 +7160,11 @@ const DEFAULT_LABEL_CONFIG = {
 
 /* ============================================================
    AIRLINE LOGOS ON FLIGHT LABELS
-   Logos are fetched on demand from the community-maintained
-   ICAO-keyed set at github.com/sexym0nk3y/airline-logos (raw CDN,
-   CORS-enabled) and composited onto a uniform white badge so every
-   brand mark renders unmodified — no recoloring, stretching or
-   cropping — in line with airline brand-usage norms.
+   Logos are fetched on demand from community-maintained ICAO-keyed
+   sets on GitHub (raw CDN, CORS-enabled) and composited onto a
+   uniform white badge so every brand mark renders unmodified — no
+   recoloring, stretching or cropping — in line with airline
+   brand-usage norms.
 
    LEGAL: airline names and logos are trademarks of their respective
    owners. They are displayed purely for entertainment, to represent
@@ -7174,18 +7174,122 @@ const DEFAULT_LABEL_CONFIG = {
    both settings UIs; takedown requests: inflightcustomer@gmail.com.
    ============================================================ */
 const AIRLINE_LOGO_IMAGE_PREFIX = 'airline-logo-';
-const AIRLINE_LOGO_URL = icao => `https://raw.githubusercontent.com/sexym0nk3y/airline-logos/main/logos/${icao}.png`;
+// Tried in order until one returns a usable PNG for the ICAO code.
+const AIRLINE_LOGO_SOURCES = [
+    icao => `https://raw.githubusercontent.com/sexym0nk3y/airline-logos/main/logos/${icao}.png`,
+    icao => `https://raw.githubusercontent.com/Jxck-S/airline-logos/main/flightaware_logos/${icao}.png`
+];
+
+// Livery/airline display name -> ICAO code (the key format of the logo
+// sets above). Keys are normalized: lowercase, punctuation stripped.
+// Matching is longest-prefix, so "Delta Air Lines (SkyTeam)" still hits
+// "delta air lines" and "Air Canada Rouge" falls back to "air canada".
+// Every code below was verified to resolve against the logo sources.
+const AIRLINE_LIVERY_ICAO = {
+    // North America
+    'american airlines': 'AAL', 'american': 'AAL',
+    'delta air lines': 'DAL', 'delta': 'DAL',
+    'united airlines': 'UAL', 'united': 'UAL',
+    'southwest airlines': 'SWA', 'southwest': 'SWA',
+    'alaska airlines': 'ASA', 'jetblue airways': 'JBU', 'jetblue': 'JBU',
+    'spirit airlines': 'NKS', 'frontier airlines': 'FFT', 'allegiant air': 'AAY',
+    'hawaiian airlines': 'HAL', 'sun country airlines': 'SCX',
+    'breeze airways': 'MXY', 'avelo airlines': 'VXP',
+    'fedex express': 'FDX', 'fedex': 'FDX', 'ups airlines': 'UPS', 'ups': 'UPS',
+    'atlas air': 'GTI', 'kalitta air': 'CKS', 'omni air international': 'OAE',
+    'national airlines': 'NCR',
+    'air canada': 'ACA', 'westjet': 'WJA', 'air transat': 'TSC',
+    'porter airlines': 'POE', 'flair airlines': 'FLE', 'cargojet': 'CJT',
+    'sunwing airlines': 'SWG',
+    'us airways': 'AWE', 'continental airlines': 'COA', 'northwest airlines': 'NWA',
+    'virgin america': 'VRD',
+    // Latin America & Caribbean
+    'aeromexico': 'AMX', 'volaris': 'VOI', 'vivaaerobus': 'VIV',
+    'copa airlines': 'CMP', 'avianca': 'AVA', 'latam airlines': 'LAN', 'latam': 'LAN',
+    'gol linhas aereas': 'GLO', 'gol': 'GLO', 'azul': 'AZU',
+    'aerolineas argentinas': 'ARG', 'jetsmart': 'JAT', 'sky airline': 'SKU',
+    'caribbean airlines': 'BWA', 'boliviana de aviacion': 'BOV',
+    // Europe
+    'british airways': 'BAW', 'virgin atlantic': 'VIR',
+    'easyjet': 'EZY', 'ryanair': 'RYR', 'jet2': 'EXS', 'jet2com': 'EXS',
+    'tui airways': 'TOM', 'tui': 'TOM', 'wizz air': 'WZZ',
+    'lufthansa cargo': 'GEC', 'lufthansa': 'DLH',
+    'eurowings discover': 'OCN', 'discover airlines': 'OCN', 'discover': 'OCN',
+    'eurowings': 'EWG', 'condor': 'CFG', 'austrian airlines': 'AUA',
+    'swiss international air lines': 'SWR', 'swiss': 'SWR',
+    'edelweiss air': 'EDW', 'brussels airlines': 'BEL',
+    'klm royal dutch airlines': 'KLM', 'klm': 'KLM', 'transavia': 'TRA',
+    'air france': 'AFR', 'french bee': 'FBU', 'corsair': 'CRL',
+    'iberia': 'IBE', 'vueling': 'VLG', 'air europa': 'AEA',
+    'tap air portugal': 'TAP', 'tap portugal': 'TAP',
+    'scandinavian airlines': 'SAS', 'sas': 'SAS',
+    'norwegian air shuttle': 'NAX', 'norwegian': 'NAX',
+    'finnair': 'FIN', 'icelandair': 'ICE', 'play': 'FPY',
+    'aer lingus': 'EIN', 'ita airways': 'ITY', 'alitalia': 'AZA',
+    'aegean airlines': 'AEE', 'lot polish airlines': 'LOT',
+    'turkish airlines': 'THY', 'pegasus airlines': 'PGT', 'aeroflot': 'AFL',
+    'airbaltic': 'BTI', 'air serbia': 'ASL', 'croatia airlines': 'CTN',
+    'luxair': 'LGL', 'volotea': 'VOE', 'sky express': 'SEH',
+    'norse atlantic airways': 'NBT', 'air berlin': 'BER',
+    'air astana': 'KZR', 'uzbekistan airways': 'UZB',
+    'azerbaijan airlines': 'AHY',
+    // Middle East & Africa
+    'emirates': 'UAE', 'etihad airways': 'ETD', 'etihad': 'ETD',
+    'qatar airways': 'QTR', 'saudia': 'SVA', 'flynas': 'KNE', 'flydubai': 'FDB',
+    'gulf air': 'GFA', 'oman air': 'OMA', 'kuwait airways': 'KAC',
+    'el al': 'ELY', 'royal jordanian': 'RJA', 'middle east airlines': 'MEA',
+    'air arabia': 'ABY', 'jazeera airways': 'JZR', 'salamair': 'OMS',
+    'egyptair': 'MSR', 'ethiopian airlines': 'ETH', 'kenya airways': 'KQA',
+    'south african airways': 'SAA', 'royal air maroc': 'RAM',
+    'air algerie': 'DAH', 'rwandair': 'RWD', 'air mauritius': 'MAU',
+    'taag angola airlines': 'DTA',
+    // Asia
+    'singapore airlines': 'SIA', 'scoot': 'TGW',
+    'malaysia airlines': 'MAS', 'airasia': 'AXM', 'garuda indonesia': 'GIA',
+    'lion air': 'LNI', 'batik air': 'BTK',
+    'thai airways': 'THA', 'bangkok airways': 'BKP',
+    'vietjet air': 'VJC', 'vietjet': 'VJC', 'vietnam airlines': 'HVN',
+    'philippine airlines': 'PAL', 'cebu pacific': 'CEB',
+    'cathay pacific': 'CPA', 'hong kong express': 'HKE', 'hk express': 'HKE',
+    'china airlines': 'CAL', 'eva air': 'EVA', 'starlux airlines': 'SJX',
+    'japan airlines': 'JAL', 'all nippon airways': 'ANA', 'ana': 'ANA',
+    'zipair tokyo': 'TZP', 'zipair': 'TZP', 'peach aviation': 'APJ', 'peach': 'APJ',
+    'korean air': 'KAL', 'asiana airlines': 'AAR', 'jeju air': 'JJA',
+    'air china': 'CCA', 'china eastern airlines': 'CES', 'china eastern': 'CES',
+    'china southern airlines': 'CSN', 'china southern': 'CSN',
+    'xiamen air': 'CXA', 'xiamenair': 'CXA', 'hainan airlines': 'CHH',
+    'air india express': 'AXB', 'air india': 'AIC', 'indigo': 'IGO',
+    'vistara': 'VTI', 'spicejet': 'SEJ', 'akasa air': 'AKJ',
+    'srilankan airlines': 'ALK', 'pakistan international airlines': 'PIA',
+    // Oceania
+    'qantas': 'QFA', 'jetstar airways': 'JST', 'jetstar': 'JST',
+    'virgin australia': 'VOZ', 'air new zealand': 'ANZ',
+    'fiji airways': 'FJI', 'air tahiti nui': 'THT'
+};
 
 /**
- * Derives the 3-letter ICAO airline code from an airline-style callsign
- * ("AAL2230" -> "AAL"). GA/custom callsigns (N123AB, "Speedbird"…) return
- * null so those flights simply get no logo.
+ * Derives the airline's ICAO code from a livery name ("American Airlines",
+ * "Discover", "Singapore Airlines (Star Alliance)"…). Callsigns in Infinite
+ * Flight are free-form, so the livery is the only reliable airline signal.
+ * Liveries without a match (GA, military, generic) return null = no logo.
  */
-function getAirlineIcaoFromCallsign(callsign) {
-    const m = /^([A-Z]{3})\d/.exec((callsign || '').trim().toUpperCase());
-    return m ? m[1] : null;
+function getAirlineIcaoFromLivery(liveryName) {
+    if (!liveryName) return null;
+    const name = String(liveryName).toLowerCase()
+        .replace(/\(.*?\)/g, ' ')        // drop variant suffixes: "(Retro)", "(Star Alliance)"
+        .replace(/[^a-z0-9\s]/g, '')     // strip punctuation: "Jet2.com" -> "jet2com"
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (!name) return null;
+    const words = name.split(' ');
+    // Longest prefix wins so "air india express" beats "air india".
+    for (let n = Math.min(words.length, 5); n >= 1; n--) {
+        const icao = AIRLINE_LIVERY_ICAO[words.slice(0, n).join(' ')];
+        if (icao) return icao;
+    }
+    return null;
 }
-window.getAirlineIcaoFromCallsign = getAirlineIcaoFromCallsign;
+window.getAirlineIcaoFromLivery = getAirlineIcaoFromLivery;
 
 /**
  * `icon-image` expression for the label layer: maps each feature's
@@ -7251,14 +7355,16 @@ function registerAirlineLogoLoader(map) {
         };
         const icao = id.slice(AIRLINE_LOGO_IMAGE_PREFIX.length);
         if (!/^[A-Z]{3}$/.test(icao)) { addTransparent(); return; }
-        try {
-            const res = await fetch(AIRLINE_LOGO_URL(icao));
-            if (!res.ok) throw new Error('HTTP ' + res.status);
-            const bitmap = await createImageBitmap(await res.blob());
-            if (!map.hasImage(id)) map.addImage(id, composeAirlineLogoBadge(bitmap), { pixelRatio: 2 });
-        } catch (err) {
-            addTransparent();
+        for (const urlFor of AIRLINE_LOGO_SOURCES) {
+            try {
+                const res = await fetch(urlFor(icao));
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const bitmap = await createImageBitmap(await res.blob());
+                if (!map.hasImage(id)) map.addImage(id, composeAirlineLogoBadge(bitmap), { pixelRatio: 2 });
+                return;
+            } catch (err) { /* try the next source */ }
         }
+        addTransparent();
     });
 }
 
@@ -8511,7 +8617,7 @@ function handleSocketFlightUpdate(data) {
             aircraft: JSON.stringify(aircraftData),
             aircraftName: acName, // ADD THIS: For direct filtering
             liveryName: livName, // ADD THIS: For direct filtering
-            airlineIcao: getAirlineIcaoFromCallsign(flight.callsign), // drives the label's airline-logo badge
+            airlineIcao: getAirlineIcaoFromLivery(livName), // drives the label's airline-logo badge
             registration: aircraftData?.registration || '',
             arrivalIcao: flight.arrivalIcao || null, // Map new backend field
             departureIcao: flight.departureIcao || null, // Map new backend field
