@@ -121,51 +121,64 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 12px;
+        gap: 14px;
     }
     .cb-identity { min-width: 0; flex: 1; }
-    .cb-callsign-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .cb-callsign-row { display: flex; align-items: center; gap: 9px; min-width: 0; }
     .cb-callsign {
         font-size: 22px; font-weight: 900; letter-spacing: -0.5px;
         color: var(--color-gold); line-height: 1;
+        min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
     .cb-chip {
-        font-family: var(--font-data); font-size: 10px; font-weight: 600;
-        padding: 3px 7px; border-radius: 6px;
+        font-family: var(--font-data); font-size: 9.5px; font-weight: 600;
+        padding: 2px 7px; border-radius: 6px;
         background: rgba(255,255,255,0.06); border: 1px solid var(--border-glass);
-        color: var(--text-secondary); letter-spacing: 0.5px;
+        color: var(--text-secondary); letter-spacing: 0.4px;
+        white-space: nowrap; flex-shrink: 0;
     }
     .cb-pilot {
         display: flex; align-items: center; gap: 6px;
         font-size: 12px; font-weight: 600; color: var(--text-primary);
-        margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        margin-top: 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         letter-spacing: 0.3px;
     }
     .cb-pilot i { font-size: 10px; color: var(--text-dim); flex-shrink: 0; }
     .cb-pilot span { overflow: hidden; text-overflow: ellipsis; }
+    /* Aircraft meta line: type chip + livery share one tidy row under the pilot. */
+    .cb-meta { display: flex; align-items: center; gap: 7px; min-width: 0; margin-top: 6px; }
     .cb-airline {
-        font-size: 13px; font-weight: 600; color: var(--text-secondary);
-        margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        font-size: 12px; font-weight: 600; color: var(--text-secondary);
+        min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
     .cb-thumb {
-        width: 116px; height: 66px; flex-shrink: 0;
+        width: 118px; height: 74px; flex-shrink: 0;
         border-radius: var(--radius-md);
-        background: #0f172a center/contain no-repeat;
+        /* cover (not contain) so the photo always fills the frame edge-to-edge */
+        background: #0f172a center/cover no-repeat;
         border: 1px solid var(--border-highlight);
         box-shadow: 0 6px 18px rgba(0,0,0,0.45);
         position: relative; overflow: hidden;
     }
     .cb-thumb::after {
         content: ''; position: absolute; inset: 0;
-        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.05);
-        border-radius: var(--radius-md);
+        border-radius: inherit;
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
+        background: linear-gradient(to top, rgba(15,23,42,0.35), transparent 45%);
     }
 
-    /* Row 2: big route */
-    .cb-route {
-        display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    /* Row 2: route strip — origin and destination joined by the live progress
+       track, with the departed/arriving captions underneath. One contained
+       card so the whole journey reads as a single organized unit. */
+    .cb-route-card {
+        display: flex; flex-direction: column; gap: 9px;
+        padding: 12px 14px 10px;
+        background: var(--bg-subtle);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-md);
     }
-    .cb-port { min-width: 0; }
+    .cb-route { display: flex; align-items: flex-start; gap: 12px; }
+    .cb-port { min-width: 0; max-width: 34%; }
     .cb-port.dest { text-align: right; }
     .cb-icao {
         font-size: 30px; font-weight: 800; line-height: 1; letter-spacing: -1px;
@@ -173,21 +186,24 @@
     }
     .cb-city {
         font-size: 11px; font-weight: 600; color: var(--text-dim);
-        text-transform: uppercase; letter-spacing: 0.6px; margin-top: 4px;
+        text-transform: uppercase; letter-spacing: 0.6px; margin-top: 5px;
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
+    /* The progress track lives BETWEEN the ICAOs, centered on their midline. */
     .cb-mid {
-        flex: 1; display: flex; align-items: center; justify-content: center;
-        color: var(--color-gold); font-size: 18px;
+        flex: 1; min-width: 40px;
+        padding-top: calc(15px * var(--text-scale) - 2px);
     }
-    .cb-mid i { filter: drop-shadow(0 0 8px rgba(255,255,255,0.35)); }
-
-    /* Row 3: progress */
-    .cb-progress-wrap { display: flex; flex-direction: column; gap: 6px; }
     .cb-track {
         position: relative; height: 4px; border-radius: 2px;
         background: rgba(255,255,255,0.10);
     }
+    .cb-track::before, .cb-track::after {
+        content: ''; position: absolute; top: 50%; transform: translateY(-50%);
+        width: 7px; height: 7px; border-radius: 50%;
+    }
+    .cb-track::before { left: -3px; background: var(--color-gold); }
+    .cb-track::after { right: -3px; border: 2px solid rgba(255,255,255,0.30); background: transparent; }
     .cb-fill {
         position: absolute; left: 0; top: 0; height: 100%; width: 0%;
         background: var(--color-gold); border-radius: 2px;
@@ -195,13 +211,15 @@
     }
     .cb-fill-plane {
         position: absolute; top: 50%; left: 0%; transform: translate(-50%, -50%);
-        color: var(--color-gold); font-size: 12px;
+        color: var(--color-gold); font-size: 13px;
         transition: left 0.5s linear; filter: drop-shadow(0 0 6px rgba(255,255,255,0.5));
     }
     .cb-prog-labels {
-        display: flex; justify-content: space-between;
-        font-size: 11px; font-weight: 500; color: var(--text-dim);
+        display: flex; justify-content: space-between; gap: 10px;
+        padding-top: 8px; border-top: 1px dashed rgba(255,255,255,0.08);
+        font-size: 11px; font-weight: 500; color: var(--text-secondary);
     }
+    .cb-prog-labels span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .cb-grip {
         position: absolute; top: 6px; left: 50%; transform: translateX(-50%);
         width: 36px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.18);
@@ -555,7 +573,7 @@
 
     /* Rich-peek aircraft photo card (mirrors the expanded hero, condensed). */
     .cb-hero {
-        display: none; position: relative; width: 100%; height: 140px; flex-shrink: 0;
+        display: none; position: relative; width: 100%; height: 150px; flex-shrink: 0;
         border-radius: var(--radius-md); overflow: hidden;
         background: #0f172a center/cover no-repeat;
         border: 1px solid var(--border-highlight);
@@ -574,7 +592,7 @@
     /* --- PRESET: MINIMAL — identity + state + route + thin progress only. --- */
     body[data-peek="minimal"] .cb-thumb,
     body[data-peek="minimal"] .cb-pilot,
-    body[data-peek="minimal"] .cb-airline,
+    body[data-peek="minimal"] .cb-meta,
     body[data-peek="minimal"] .cb-hero,
     body[data-peek="minimal"] .cb-city,
     body[data-peek="minimal"] .cb-prog-labels { display: none; }
@@ -587,7 +605,7 @@
 
     /* --- PRESET: RICH — swaps the thumbnail for a full photo card (shared design). --- */
     body[data-peek="rich"] .cb-thumb,
-    body[data-peek="rich"] .cb-airline { display: none; } /* livery shown on the photo card instead */
+    body[data-peek="rich"] .cb-meta { display: none; } /* aircraft + livery shown on the photo card instead */
     body[data-peek="rich"] .cb-hero { display: block; }
     body[data-peek="rich"] .cb-state,
     body[data-peek="rich"] .cb-seat { display: inline-flex; }
@@ -735,6 +753,7 @@
     body.no-glow .rh-icao, body.no-glow .cb-callsign, body.no-glow .ev-callsign,
     body.no-glow .text-highlight, body.no-glow .cb-icao { text-shadow: none; }
     body.no-glow .state-indicator-dot, body.no-glow .cb-state-dot { box-shadow: none; }
+    body.no-glow .cb-fill-plane { filter: none; }
 
     /* Extra darkening layer over the hero photo (studio "photo dim"). */
     .hero-dim { position: absolute; inset: 0; background: #000; opacity: var(--photo-dim); pointer-events: none; z-index: 2; }
@@ -907,14 +926,16 @@
                 <div class="cb-callsign-row">
                     <span class="cb-callsign" id="c-callsign">----</span>
                     <span class="cb-state" id="c-state"><span class="cb-state-dot"></span><span id="c-state-text">--</span></span>
-                    <span class="cb-chip" id="c-actype" style="display:none;">---</span>
                 </div>
                 <div class="cb-pilot" id="c-pilot">
                     <i class="fa-solid fa-user-astronaut"></i>
                     <span id="c-username">Pilot</span>
                     <span class="cb-seat" id="c-seat" style="display:none;">---</span>
                 </div>
-                <div class="cb-airline" id="c-airline">Tap for details</div>
+                <div class="cb-meta">
+                    <span class="cb-chip" id="c-actype" style="display:none;">---</span>
+                    <span class="cb-airline" id="c-airline">Tap for details</span>
+                </div>
             </div>
             <div class="cb-thumb" id="c-thumb"></div>
         </div>
@@ -931,22 +952,22 @@
             </div>
         </div>
 
-        <div class="cb-route">
-            <div class="cb-port origin">
-                <div class="cb-icao" id="c-dep-icao">---</div>
-                <div class="cb-city" id="c-dep-city">&nbsp;</div>
-            </div>
-            <div class="cb-mid"><i class="fa-solid fa-plane"></i></div>
-            <div class="cb-port dest">
-                <div class="cb-icao" id="c-arr-icao">---</div>
-                <div class="cb-city" id="c-arr-city">&nbsp;</div>
-            </div>
-        </div>
-
-        <div class="cb-progress-wrap">
-            <div class="cb-track">
-                <div class="cb-fill" id="c-progress"></div>
-                <i class="fa-solid fa-plane cb-fill-plane" id="c-plane"></i>
+        <div class="cb-route-card">
+            <div class="cb-route">
+                <div class="cb-port origin">
+                    <div class="cb-icao" id="c-dep-icao">---</div>
+                    <div class="cb-city" id="c-dep-city">&nbsp;</div>
+                </div>
+                <div class="cb-mid">
+                    <div class="cb-track">
+                        <div class="cb-fill" id="c-progress"></div>
+                        <i class="fa-solid fa-plane cb-fill-plane" id="c-plane"></i>
+                    </div>
+                </div>
+                <div class="cb-port dest">
+                    <div class="cb-icao" id="c-arr-icao">---</div>
+                    <div class="cb-city" id="c-arr-city">&nbsp;</div>
+                </div>
             </div>
             <div class="cb-prog-labels">
                 <span id="c-status-left">--</span>
@@ -1866,7 +1887,9 @@
                 seatLabel.style.display = 'inline-block';
                 seatLabel.className = 'seat-mini-label ' + seatInfo[0];
                 seatLabel.textContent = seatInfo[1];
-                if (cSeat) { cSeat.style.display = 'inline-flex'; cSeat.className = 'cb-seat ' + seatInfo[0]; cSeat.textContent = seatInfo[1]; }
+                // Clear the inline display so the peek-preset CSS decides whether
+                // the seat pill shows (Rich reveals it; Minimal/Standard keep it hidden).
+                if (cSeat) { cSeat.style.display = ''; cSeat.className = 'cb-seat ' + seatInfo[0]; cSeat.textContent = seatInfo[1]; }
             } else {
                 seatLabel.style.display = 'none';
                 if (cSeat) cSeat.style.display = 'none';

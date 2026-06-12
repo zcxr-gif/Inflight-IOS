@@ -28,6 +28,7 @@ const MAP_STYLE_DEFS = {
 // The rows the user can stack into the on-map aircraft label. `key` matches
 // the flags read by getAircraftLabelTextField() in flight.js.
 const LABEL_FIELD_DEFS = [
+    { key: 'airlineLogo',  label: 'Airline Logo',  icon: 'fa-building' },
     { key: 'callsign',     label: 'Callsign',      icon: 'fa-hashtag' },
     { key: 'aircraftType', label: 'Aircraft Type', icon: 'fa-plane' },
     { key: 'altSpeed',     label: 'Altitude & Speed', icon: 'fa-gauge-high' },
@@ -38,6 +39,9 @@ const LABEL_FIELD_DEFS = [
 
 // Sample flight used to render the live label preview.
 const LABEL_PREVIEW_SAMPLE = {
+    // Real wordmark banner for the sample flight's airline (UAL), same source
+    // the map loader uses — the preview hides it gracefully if the fetch fails.
+    airlineLogo: 'https://raw.githubusercontent.com/Jxck-S/airline-logos/main/radarbox_banners/UAL.png',
     callsign: 'UAL482',
     aircraftType: 'Boeing 787-9',
     altSpeed: '36,000 ft · 482 kts',
@@ -569,6 +573,14 @@ export const MobileSettingsUI = {
             <div class="mobile-section-header">Label Rows</div>
             <div class="m-settings-list" id="m-label-fields">
                 ${fieldRows}
+            </div>
+            <div class="m-label-disclaimer">
+                <i class="fa-solid fa-circle-info"></i>
+                <span>Airline names &amp; logos are trademarks of their respective owners, shown for
+                entertainment only to represent the airline of your virtual flight. Inflight is not
+                affiliated with, endorsed by, or sponsored by any airline. Airline representatives can
+                request a logo's removal at
+                <a href="mailto:inflightcustomer@gmail.com">inflightcustomer@gmail.com</a>.</span>
             </div>
 
             <div class="mobile-section-header">Label Size</div>
@@ -1718,10 +1730,16 @@ export const MobileSettingsUI = {
         const theme = LABEL_THEME_DEFS.find(t => t.value === (filters.labelTheme || 'default')) || LABEL_THEME_DEFS[0];
         const scale = Math.min(1.4, Math.max(0.8, parseFloat(filters.labelScale) || 1));
 
+        // The on-map logo badge floats above the plane, but the preview stacks
+        // it on top of the text rows — same visual recipe (white badge chip).
+        const logoLine = cfg.airlineLogo
+            ? `<img class="m-label-logo" src="${LABEL_PREVIEW_SAMPLE.airlineLogo}" alt="" onerror="this.style.display='none'">`
+            : '';
+
         preview.style.color = theme.text;
         preview.style.textShadow = `0 0 3px ${theme.halo}, 0 1px 2px ${theme.halo}, 0 0 4px ${theme.halo}`;
         preview.style.fontSize = `${0.95 * scale}rem`;
-        preview.innerHTML = lines.map(l => `<div class="${l.cls}">${l.text}</div>`).join('');
+        preview.innerHTML = logoLine + lines.map(l => `<div class="${l.cls}">${l.text}</div>`).join('');
         preview.style.opacity = filters.showAircraftLabels ? '1' : '0.35';
     },
 
@@ -2075,6 +2093,22 @@ export const MobileSettingsUI = {
                 .m-label-preview { text-align: center; line-height: 1.35; font-weight: 600; transition: 0.2s; }
                 .m-label-preview .l-callsign { font-weight: 800; letter-spacing: 0.02em; }
                 .m-label-preview .l-sub { font-size: 0.82em; font-weight: 600; opacity: 0.95; }
+                .m-label-preview .m-label-logo {
+                    display: block; height: 26px; width: auto; max-width: 110px; margin: 0 auto 5px;
+                    padding: 4px 8px; border-radius: 8px; background: #fff; object-fit: contain;
+                    border: 1px solid rgba(15,23,42,0.35); box-shadow: 0 1px 5px rgba(0,0,0,0.45);
+                    box-sizing: border-box;
+                }
+
+                /* Trademark / non-affiliation note for the airline-logo label row. */
+                .m-label-disclaimer {
+                    display: flex; gap: 10px; align-items: flex-start;
+                    margin: 10px 20px 0; padding: 11px 13px; border-radius: 12px;
+                    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07);
+                    font-size: 0.7rem; line-height: 1.5; color: #71717a;
+                }
+                .m-label-disclaimer i { color: #38bdf8; font-size: 0.75rem; margin-top: 2px; flex-shrink: 0; }
+                .m-label-disclaimer a { color: #7dd3fc; text-decoration: none; word-break: break-all; }
 
                 /* ---- Label color theme grid ---- */
                 .m-theme-grid {

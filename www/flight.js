@@ -648,6 +648,7 @@ let mapFilters = {
         // on-map tag. Read by getAircraftLabelTextField() to build the Mapbox
         // `format` expression dynamically. See applyAircraftLabelStyle().
         labelConfig: {
+            airlineLogo: true,
             callsign: true,
             aircraftType: true,
             altSpeed: true,
@@ -948,6 +949,10 @@ window.applyAircraftLayerStyles = applyAircraftLayerStyles;
             try {
                 const parsedFilters = JSON.parse(savedFilters);
                 Object.assign(mapFilters, parsedFilters);
+                // Saved label configs predating newer rows (e.g. airlineLogo)
+                // replace the defaults wholesale above — backfill missing keys
+                // so the map, previews and settings toggles all agree.
+                mapFilters.labelConfig = Object.assign({}, DEFAULT_LABEL_CONFIG, mapFilters.labelConfig || {});
                 applyMapStyleMapping();
             } catch (e) {
                 console.warn("Local storage parse failed.", e);
@@ -973,6 +978,7 @@ window.applyAircraftLayerStyles = applyAircraftLayerStyles;
                     // Compare cloud state with local state to prevent unnecessary repaints
                     if (cloudJson !== savedFilters) {
                         Object.assign(mapFilters, profile.map_filters);
+                        mapFilters.labelConfig = Object.assign({}, DEFAULT_LABEL_CONFIG, mapFilters.labelConfig || {});
                         
                         // Re-sync local storage to match the authoritative cloud state
                         localStorage.setItem('mapFilters', cloudJson);
@@ -6355,6 +6361,7 @@ function buildSyntheticFeature(flightLike, communityImageUrl) {
             aircraft: ac,
             aircraftName: ac.aircraftName || flightLike.aircraftName || '',
             liveryName: ac.liveryName || flightLike.liveryName || '',
+            airlineIcao: getAirlineIcaoFromLivery(ac.liveryName || flightLike.liveryName),
             registration: ac.registration || flightLike.registration || '',
             arrivalIcao: flightLike.arrivalIcao || null,
             departureIcao: flightLike.departureIcao || null,
@@ -7142,6 +7149,7 @@ const AIRCRAFT_LABEL_LAYER_ID = 'sector-ops-live-flights-labels';
 // Default rows when no saved config exists yet. Mirrors the mapFilters
 // default above so the on-map tag and the settings preview always agree.
 const DEFAULT_LABEL_CONFIG = {
+    airlineLogo: true,
     callsign: true,
     aircraftType: true,
     altSpeed: true,
@@ -7149,6 +7157,322 @@ const DEFAULT_LABEL_CONFIG = {
     registration: false,
     pilot: false
 };
+
+/* ============================================================
+   AIRLINE LOGOS ON FLIGHT LABELS
+   Logos are fetched on demand from community-maintained ICAO-keyed
+   sets on GitHub (raw CDN, CORS-enabled) and composited onto a
+   uniform white badge so every brand mark renders unmodified — no
+   recoloring, stretching or cropping — in line with airline
+   brand-usage norms.
+
+   LEGAL: airline names and logos are trademarks of their respective
+   owners. They are displayed purely for entertainment, to represent
+   the airline of a virtual Infinite Flight flight. Inflight is not
+   affiliated with, endorsed by, or sponsored by any airline. The
+   matching user-facing disclaimer lives next to the label toggle in
+   both settings UIs; takedown requests: inflightcustomer@gmail.com.
+   Honored takedowns are pushed through the ACARS backend blocklist
+   below, which suppresses a logo immediately on all installs.
+   ============================================================ */
+const AIRLINE_LOGO_IMAGE_PREFIX = 'airline-logo-';
+// Tried in order until one returns a usable PNG for the ICAO code. The
+// RadarBox banners are wide full-wordmark logos (the Plane Finder look);
+// the square sets backfill the handful of airlines with no banner.
+const AIRLINE_LOGO_SOURCES = [
+    icao => `https://raw.githubusercontent.com/Jxck-S/airline-logos/main/radarbox_banners/${icao}.png`,
+    icao => `https://raw.githubusercontent.com/sexym0nk3y/airline-logos/main/logos/${icao}.png`,
+    icao => `https://raw.githubusercontent.com/Jxck-S/airline-logos/main/flightaware_logos/${icao}.png`
+];
+
+// --- Remote takedown blocklist -------------------------------------------
+// ICAO codes whose logos must NOT be shown, served by the ACARS backend so
+// an airline's removal request takes effect immediately — no App Store
+// update needed. Expected response: ["AAL", ...] or { "blocked": ["AAL"] }.
+// Cached in localStorage and fail-open: backend unreachable = last known
+// list (or none on first run).
+const AIRLINE_LOGO_BLOCKLIST_URL = ACARS_SOCKET_URL + '/api/airline-logos/blocklist';
+const AIRLINE_LOGO_BLOCKLIST_CACHE_KEY = 'airlineLogoBlocklist';
+const airlineLogoBlocklist = new Set();
+try {
+    (JSON.parse(localStorage.getItem(AIRLINE_LOGO_BLOCKLIST_CACHE_KEY)) || [])
+        .forEach(code => airlineLogoBlocklist.add(code));
+} catch (e) {}
+
+let airlineLogoBlocklistFetched = false;
+async function loadAirlineLogoBlocklist(map) {
+    if (airlineLogoBlocklistFetched) return;
+    airlineLogoBlocklistFetched = true; // claim before awaiting so parallel calls no-op
+    try {
+        const res = await fetch(AIRLINE_LOGO_BLOCKLIST_URL);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        const list = (Array.isArray(data) ? data : (data && Array.isArray(data.blocked) ? data.blocked : []))
+            .map(c => String(c).trim().toUpperCase())
+            .filter(c => /^[A-Z]{3}$/.test(c));
+        airlineLogoBlocklist.clear();
+        list.forEach(c => airlineLogoBlocklist.add(c));
+        try { localStorage.setItem(AIRLINE_LOGO_BLOCKLIST_CACHE_KEY, JSON.stringify(list)); } catch (e) {}
+        // Swap any badge that rendered before the list arrived for a blank.
+        if (map) {
+            list.forEach(code => {
+                const id = AIRLINE_LOGO_IMAGE_PREFIX + code;
+                try {
+                    if (map.hasImage(id)) {
+                        map.removeImage(id);
+                        map.addImage(id, { width: 1, height: 1, data: new Uint8Array(4) });
+                    }
+                } catch (e) {}
+            });
+        }
+    } catch (e) {
+        // Allow a retry on the next label-style application.
+        airlineLogoBlocklistFetched = false;
+    }
+}
+
+// Livery/airline display name -> ICAO code (the key format of the logo
+// sets above). Keys are normalized: lowercase, punctuation stripped.
+// Matching is longest-prefix, so "Delta Air Lines (SkyTeam)" still hits
+// "delta air lines" and "Air Canada Rouge" falls back to "air canada".
+// Every code below was verified to resolve against the logo sources.
+const AIRLINE_LIVERY_ICAO = {
+    // North America
+    'american airlines': 'AAL', 'american': 'AAL',
+    'delta air lines': 'DAL', 'delta': 'DAL',
+    'united airlines': 'UAL', 'united': 'UAL',
+    'southwest airlines': 'SWA', 'southwest': 'SWA',
+    'alaska airlines': 'ASA', 'jetblue airways': 'JBU', 'jetblue': 'JBU',
+    'spirit airlines': 'NKS', 'frontier airlines': 'FFT', 'allegiant air': 'AAY',
+    'hawaiian airlines': 'HAL', 'sun country airlines': 'SCX',
+    'breeze airways': 'MXY', 'avelo airlines': 'VXP',
+    'fedex express': 'FDX', 'fedex': 'FDX', 'ups airlines': 'UPS', 'ups': 'UPS',
+    'atlas air': 'GTI', 'kalitta air': 'CKS', 'omni air international': 'OAE',
+    'national airlines': 'NCR',
+    'air canada': 'ACA', 'westjet': 'WJA', 'air transat': 'TSC',
+    'porter airlines': 'POE', 'flair airlines': 'FLE', 'cargojet': 'CJT',
+    'sunwing airlines': 'SWG',
+    'us airways': 'AWE', 'continental airlines': 'COA', 'northwest airlines': 'NWA',
+    'virgin america': 'VRD',
+    // Latin America & Caribbean
+    'aeromexico': 'AMX', 'volaris': 'VOI', 'vivaaerobus': 'VIV',
+    'copa airlines': 'CMP', 'avianca': 'AVA', 'latam airlines': 'LAN', 'latam': 'LAN',
+    'gol linhas aereas': 'GLO', 'gol': 'GLO', 'azul': 'AZU',
+    'aerolineas argentinas': 'ARG', 'jetsmart': 'JAT', 'sky airline': 'SKU',
+    'caribbean airlines': 'BWA', 'boliviana de aviacion': 'BOV',
+    // Europe
+    'british airways': 'BAW', 'virgin atlantic': 'VIR',
+    'easyjet': 'EZY', 'ryanair': 'RYR', 'jet2': 'EXS', 'jet2com': 'EXS',
+    'tui airways': 'TOM', 'tui': 'TOM', 'wizz air': 'WZZ',
+    'lufthansa cargo': 'GEC', 'lufthansa': 'DLH',
+    'eurowings discover': 'OCN', 'discover airlines': 'OCN', 'discover': 'OCN',
+    'eurowings': 'EWG', 'condor': 'CFG', 'austrian airlines': 'AUA',
+    'swiss international air lines': 'SWR', 'swiss': 'SWR',
+    'edelweiss air': 'EDW', 'brussels airlines': 'BEL',
+    'klm royal dutch airlines': 'KLM', 'klm': 'KLM', 'transavia': 'TRA',
+    'air france': 'AFR', 'french bee': 'FBU', 'corsair': 'CRL',
+    'iberia': 'IBE', 'vueling': 'VLG', 'air europa': 'AEA',
+    'tap air portugal': 'TAP', 'tap portugal': 'TAP',
+    'scandinavian airlines': 'SAS', 'sas': 'SAS',
+    'norwegian air shuttle': 'NAX', 'norwegian': 'NAX',
+    'finnair': 'FIN', 'icelandair': 'ICE', 'play': 'FPY',
+    'aer lingus': 'EIN', 'ita airways': 'ITY', 'alitalia': 'AZA',
+    'aegean airlines': 'AEE', 'lot polish airlines': 'LOT',
+    'turkish airlines': 'THY', 'pegasus airlines': 'PGT', 'aeroflot': 'AFL',
+    'airbaltic': 'BTI', 'air serbia': 'ASL', 'croatia airlines': 'CTN',
+    'luxair': 'LGL', 'volotea': 'VOE', 'sky express': 'SEH',
+    'norse atlantic airways': 'NBT', 'air berlin': 'BER',
+    'air astana': 'KZR', 'uzbekistan airways': 'UZB',
+    'azerbaijan airlines': 'AHY',
+    // Middle East & Africa
+    'emirates': 'UAE', 'etihad airways': 'ETD', 'etihad': 'ETD',
+    'qatar airways': 'QTR', 'saudia': 'SVA', 'flynas': 'KNE', 'flydubai': 'FDB',
+    'gulf air': 'GFA', 'oman air': 'OMA', 'kuwait airways': 'KAC',
+    'el al': 'ELY', 'royal jordanian': 'RJA', 'middle east airlines': 'MEA',
+    'air arabia': 'ABY', 'jazeera airways': 'JZR', 'salamair': 'OMS',
+    'egyptair': 'MSR', 'ethiopian airlines': 'ETH', 'kenya airways': 'KQA',
+    'south african airways': 'SAA', 'royal air maroc': 'RAM',
+    'air algerie': 'DAH', 'rwandair': 'RWD', 'air mauritius': 'MAU',
+    'taag angola airlines': 'DTA',
+    // Asia
+    'singapore airlines': 'SIA', 'scoot': 'TGW',
+    'malaysia airlines': 'MAS', 'airasia': 'AXM', 'garuda indonesia': 'GIA',
+    'lion air': 'LNI', 'batik air': 'BTK',
+    'thai airways': 'THA', 'bangkok airways': 'BKP',
+    'vietjet air': 'VJC', 'vietjet': 'VJC', 'vietnam airlines': 'HVN',
+    'philippine airlines': 'PAL', 'cebu pacific': 'CEB',
+    'cathay pacific': 'CPA', 'hong kong express': 'HKE', 'hk express': 'HKE',
+    'china airlines': 'CAL', 'eva air': 'EVA', 'starlux airlines': 'SJX',
+    'japan airlines': 'JAL', 'all nippon airways': 'ANA', 'ana': 'ANA',
+    'zipair tokyo': 'TZP', 'zipair': 'TZP', 'peach aviation': 'APJ', 'peach': 'APJ',
+    'korean air': 'KAL', 'asiana airlines': 'AAR', 'jeju air': 'JJA',
+    'air china': 'CCA', 'china eastern airlines': 'CES', 'china eastern': 'CES',
+    'china southern airlines': 'CSN', 'china southern': 'CSN',
+    'xiamen air': 'CXA', 'xiamenair': 'CXA', 'hainan airlines': 'CHH',
+    'air india express': 'AXB', 'air india': 'AIC', 'indigo': 'IGO',
+    'vistara': 'VTI', 'spicejet': 'SEJ', 'akasa air': 'AKJ',
+    'srilankan airlines': 'ALK', 'pakistan international airlines': 'PIA',
+    // Oceania
+    'qantas': 'QFA', 'jetstar airways': 'JST', 'jetstar': 'JST',
+    'virgin australia': 'VOZ', 'air new zealand': 'ANZ',
+    'fiji airways': 'FJI', 'air tahiti nui': 'THT'
+};
+
+/**
+ * Derives the airline's ICAO code from a livery name ("American Airlines",
+ * "Discover", "Singapore Airlines (Star Alliance)"…). Callsigns in Infinite
+ * Flight are free-form, so the livery is the only reliable airline signal.
+ * Liveries without a match (GA, military, generic) return null = no logo.
+ */
+function getAirlineIcaoFromLivery(liveryName) {
+    if (!liveryName) return null;
+    const name = String(liveryName).toLowerCase()
+        .replace(/\(.*?\)/g, ' ')        // drop variant suffixes: "(Retro)", "(Star Alliance)"
+        .replace(/[^a-z0-9\s]/g, '')     // strip punctuation: "Jet2.com" -> "jet2com"
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (!name) return null;
+    const words = name.split(' ');
+    // Longest prefix wins so "air india express" beats "air india".
+    for (let n = Math.min(words.length, 5); n >= 1; n--) {
+        const icao = AIRLINE_LIVERY_ICAO[words.slice(0, n).join(' ')];
+        if (icao) return airlineLogoBlocklist.has(icao) ? null : icao;
+    }
+    return null;
+}
+window.getAirlineIcaoFromLivery = getAirlineIcaoFromLivery;
+
+/**
+ * `icon-image` expression for the label layer: maps each feature's
+ * airlineIcao onto a dynamically-loaded badge image ('' = no icon).
+ */
+function getAircraftLabelIconImage() {
+    const cfg = Object.assign({}, DEFAULT_LABEL_CONFIG, mapFilters.labelConfig || {});
+    if (!cfg.airlineLogo) return '';
+    return ['case',
+        ['==', ['coalesce', ['get', 'airlineIcao'], ''], ''],
+        '',
+        ['concat', AIRLINE_LOGO_IMAGE_PREFIX, ['get', 'airlineIcao']]
+    ];
+}
+
+/**
+ * Data-driven text-offset: only flights that actually have a logo pill get
+ * the extra clearance under the plane — GA/military/blocked-airline labels
+ * keep the tight default gap instead of an empty hole.
+ */
+function getAircraftLabelTextOffset() {
+    const cfg = Object.assign({}, DEFAULT_LABEL_CONFIG, mapFilters.labelConfig || {});
+    // Offsets are in ems of the zoom-graded text size, so each stop's em is
+    // back-computed to keep the physical gap constant: ~16px under the plane
+    // for plain text, ~4px under the logo pill when one is shown.
+    const atZoom = (plainEm, pillEm) => cfg.airlineLogo
+        ? ['case',
+            ['==', ['coalesce', ['get', 'airlineIcao'], ''], ''],
+            ['literal', [0, plainEm]],
+            ['literal', [0, pillEm]]]
+        : ['literal', [0, plainEm]];
+    return ['interpolate', ['linear'], ['zoom'],
+        6.5, atZoom(1.9, 3.2),
+        12, atZoom(1.7, 3.3),
+        16, atZoom(1.5, 3.7)
+    ];
+}
+
+/**
+ * Zoom-graded sizes: labels stay compact while browsing the map and only
+ * grow once the user zooms well in (≳ z12). `scale` is the user's
+ * label-size multiplier from the designer (0.8–1.4).
+ */
+function getAircraftLabelTextSize(scale) {
+    return ['interpolate', ['linear'], ['zoom'],
+        6.5, 8.5 * scale,
+        12, 9.5 * scale,
+        16, 12.5 * scale
+    ];
+}
+function getAircraftLabelIconSize(scale) {
+    return ['interpolate', ['linear'], ['zoom'],
+        6.5, 0.52 * scale,
+        12, 0.62 * scale,
+        16, 0.95 * scale
+    ];
+}
+
+// Draws a fetched logo onto a white rounded pill (2x backing scale). The
+// pill height is fixed and its width follows the wordmark's aspect ratio —
+// wide banners get a wide pill, square fallback logos a compact chip — so
+// every brand mark renders unmodified, contain-fit on a light background
+// (these logos are full-color marks designed for light surfaces).
+function composeAirlineLogoBadge(bitmap) {
+    const SCALE = 2;
+    const H = 28 * SCALE;
+    const PAD_X = 7 * SCALE, PAD_Y = 5 * SCALE;
+    const innerH = H - PAD_Y * 2;
+    const fitW = bitmap.width * (innerH / bitmap.height);
+    const innerW = Math.max(innerH, Math.min(96 * SCALE, fitW));
+    const W = Math.round(innerW + PAD_X * 2);
+    const R = 8 * SCALE;
+    const canvas = document.createElement('canvas');
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d');
+    ctx.beginPath();
+    if (ctx.roundRect) {
+        ctx.roundRect(0, 0, W, H, R);
+    } else {
+        ctx.moveTo(R, 0);
+        ctx.arcTo(W, 0, W, H, R);
+        ctx.arcTo(W, H, 0, H, R);
+        ctx.arcTo(0, H, 0, 0, R);
+        ctx.arcTo(0, 0, W, 0, R);
+        ctx.closePath();
+    }
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(15, 23, 42, 0.35)';
+    ctx.stroke();
+    ctx.clip();
+    // Contain-fit inside the padded box (ultra-wide banners shrink to fit).
+    const boxW = W - PAD_X * 2, boxH = innerH;
+    const s = Math.min(boxW / bitmap.width, boxH / bitmap.height);
+    const w = bitmap.width * s, h = bitmap.height * s;
+    ctx.drawImage(bitmap, (W - w) / 2, (H - h) / 2, w, h);
+    return ctx.getImageData(0, 0, W, H);
+}
+
+/**
+ * Lazy logo loading via MapLibre's styleimagemissing: the first time the
+ * label layer asks for `airline-logo-XXX` we fetch + badge the PNG and add
+ * it to the style. Failures register a transparent pixel so the map stops
+ * re-requesting (and that airline just shows a text-only label).
+ */
+function registerAirlineLogoLoader(map) {
+    if (map.__airlineLogoLoaderAttached) return;
+    map.__airlineLogoLoaderAttached = true;
+    loadAirlineLogoBlocklist(map);
+    const requested = new Set();
+    map.on('styleimagemissing', async (e) => {
+        const id = (e && e.id) || '';
+        if (!id.startsWith(AIRLINE_LOGO_IMAGE_PREFIX) || requested.has(id)) return;
+        requested.add(id);
+        const addTransparent = () => {
+            try { if (!map.hasImage(id)) map.addImage(id, { width: 1, height: 1, data: new Uint8Array(4) }); } catch (err) {}
+        };
+        const icao = id.slice(AIRLINE_LOGO_IMAGE_PREFIX.length);
+        if (!/^[A-Z]{3}$/.test(icao) || airlineLogoBlocklist.has(icao)) { addTransparent(); return; }
+        for (const urlFor of AIRLINE_LOGO_SOURCES) {
+            try {
+                const res = await fetch(urlFor(icao));
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const bitmap = await createImageBitmap(await res.blob());
+                if (!map.hasImage(id)) map.addImage(id, composeAirlineLogoBadge(bitmap), { pixelRatio: 2 });
+                return;
+            } catch (err) { /* try the next source */ }
+        }
+        addTransparent();
+    });
+}
 
 // Halo/text color palettes for the label themes. `contrast` is a pro-only
 // high-legibility chip (dark text on a bright halo).
@@ -7190,8 +7514,13 @@ function getAircraftLabelTextField() {
         });
     }
 
-    // Never let the tag collapse to nothing — always show the callsign.
-    if (!rows.length) rows.push({ expr: ['coalesce', ['get', 'callsign'], ''], scale: 1.15 });
+    // With every text row off: if the airline-logo badge is on, let the label
+    // be logo-only (Plane Finder style); otherwise fall back to the callsign
+    // so the tag never collapses to nothing.
+    if (!rows.length) {
+        if (cfg.airlineLogo) return '';
+        rows.push({ expr: ['coalesce', ['get', 'callsign'], ''], scale: 1.15 });
+    }
 
     const fmt = ['format'];
     rows.forEach((row, i) => {
@@ -7220,12 +7549,22 @@ function applyAircraftLabelStyle() {
     sectorOpsMap.setLayoutProperty(AIRCRAFT_LABEL_LAYER_ID, 'text-field', getAircraftLabelTextField());
 
     const scale = Math.min(1.6, Math.max(0.7, parseFloat(mapFilters.labelScale) || 1));
-    sectorOpsMap.setLayoutProperty(AIRCRAFT_LABEL_LAYER_ID, 'text-size', 11 * scale);
+    sectorOpsMap.setLayoutProperty(AIRCRAFT_LABEL_LAYER_ID, 'text-size', getAircraftLabelTextSize(scale));
 
     const theme = AIRCRAFT_LABEL_THEMES[mapFilters.labelTheme] || AIRCRAFT_LABEL_THEMES.default;
     sectorOpsMap.setPaintProperty(AIRCRAFT_LABEL_LAYER_ID, 'text-color', theme.text);
     sectorOpsMap.setPaintProperty(AIRCRAFT_LABEL_LAYER_ID, 'text-halo-color', theme.halo);
     sectorOpsMap.setPaintProperty(AIRCRAFT_LABEL_LAYER_ID, 'text-halo-width', theme.haloWidth);
+
+    // Airline logo pill tucked under the plane, with the text rows beneath
+    // it (Plane Finder style). icon-offset is multiplied by icon-size and
+    // text-offset is in ems of text-size, so both gaps track the label scale
+    // and the pill/text never collide at any size.
+    loadAirlineLogoBlocklist(sectorOpsMap); // no-op once fetched; retries after failures
+    sectorOpsMap.setLayoutProperty(AIRCRAFT_LABEL_LAYER_ID, 'icon-image', getAircraftLabelIconImage());
+    sectorOpsMap.setLayoutProperty(AIRCRAFT_LABEL_LAYER_ID, 'icon-size', getAircraftLabelIconSize(scale));
+    sectorOpsMap.setLayoutProperty(AIRCRAFT_LABEL_LAYER_ID, 'icon-offset', [0, 16]);
+    sectorOpsMap.setLayoutProperty(AIRCRAFT_LABEL_LAYER_ID, 'text-offset', getAircraftLabelTextOffset());
 }
 window.applyAircraftLabelStyle = applyAircraftLabelStyle;
 
@@ -8391,6 +8730,7 @@ function handleSocketFlightUpdate(data) {
             aircraft: JSON.stringify(aircraftData),
             aircraftName: acName, // ADD THIS: For direct filtering
             liveryName: livName, // ADD THIS: For direct filtering
+            airlineIcao: getAirlineIcaoFromLivery(livName), // drives the label's airline-logo badge
             registration: aircraftData?.registration || '',
             arrivalIcao: flight.arrivalIcao || null, // Map new backend field
             departureIcao: flight.departureIcao || null, // Map new backend field
@@ -11718,11 +12058,21 @@ function initializeAircraftLayer() {
                     'visibility': mapFilters.showAircraftLabels ? 'visible' : 'none',
                     'text-field': getAircraftLabelTextField(),
                     'text-font': ['Inter Regular', 'Arial Unicode MS Regular'],
-                    'text-size': 11 * labelScale,
-                    'text-offset': [0, 1.5],
+                    'text-size': getAircraftLabelTextSize(labelScale),
+                    'text-offset': getAircraftLabelTextOffset(),
                     'text-anchor': 'top',
                     'text-allow-overlap': false,
-                    'text-ignore-placement': false
+                    'text-ignore-placement': false,
+                    // Airline logo pill under the plane (text rows beneath it);
+                    // loaded on demand by registerAirlineLogoLoader. The icon
+                    // never participates in collision — the text's placement
+                    // decides if the symbol shows.
+                    'icon-image': getAircraftLabelIconImage(),
+                    'icon-size': getAircraftLabelIconSize(labelScale),
+                    'icon-anchor': 'top',
+                    'icon-offset': [0, 16],
+                    'icon-allow-overlap': true,
+                    'icon-ignore-placement': true
                 },
                 paint: {
                     'text-color': labelTheme.text,
@@ -11731,6 +12081,7 @@ function initializeAircraftLayer() {
                     'text-halo-blur': 1
                 }
             });
+            registerAirlineLogoLoader(sectorOpsMap);
         }
     }
 
@@ -12835,6 +13186,20 @@ const SettingsUI = {
             #global-settings-modal-overlay .d-label-preview { font-weight: 700; line-height: 1.35; transition: opacity 0.2s ease; }
             #global-settings-modal-overlay .d-label-preview .l-callsign { font-weight: 800; }
             #global-settings-modal-overlay .d-label-preview .l-sub { font-weight: 600; opacity: 0.92; }
+            #global-settings-modal-overlay .d-label-preview .d-label-logo {
+                display: block; height: 26px; width: auto; max-width: 110px; margin: 0 auto 5px;
+                padding: 4px 8px; border-radius: 8px; background: #fff; object-fit: contain;
+                border: 1px solid rgba(15,23,42,0.35); box-shadow: 0 1px 5px rgba(0,0,0,0.45);
+                box-sizing: border-box;
+            }
+            #global-settings-modal-overlay .d-label-disclaimer {
+                display: flex; gap: 10px; align-items: flex-start;
+                margin-top: 10px; padding: 11px 13px; border-radius: 12px;
+                background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07);
+                font-size: 0.7rem; line-height: 1.5; color: #71717a;
+            }
+            #global-settings-modal-overlay .d-label-disclaimer i { color: #38bdf8; font-size: 0.75rem; margin-top: 2px; flex-shrink: 0; }
+            #global-settings-modal-overlay .d-label-disclaimer a { color: #7dd3fc; text-decoration: none; word-break: break-all; }
             #global-settings-modal-overlay .m-theme-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
             #global-settings-modal-overlay .m-theme-pill {
                 position: relative;
@@ -13288,7 +13653,7 @@ renderCategory(catId) {
                 case 'labels': {
                     const fieldDefs = MobileSettingsUI.getLabelFieldDefs();
                     const themeDefs = MobileSettingsUI.getLabelThemeDefs();
-                    const labelCfg = mapFilters.labelConfig || {};
+                    const labelCfg = Object.assign({}, DEFAULT_LABEL_CONFIG, mapFilters.labelConfig || {});
                     const currentTheme = mapFilters.labelTheme || 'default';
                     const labelScale = Math.min(1.4, Math.max(0.8, parseFloat(mapFilters.labelScale) || 1));
                     html = `
@@ -13322,6 +13687,14 @@ renderCategory(catId) {
                                         </div>
                                     </div>
                                 `).join('')}
+                            </div>
+                            <div class="d-label-disclaimer">
+                                <i class="fa-solid fa-circle-info"></i>
+                                <span>Airline names &amp; logos are trademarks of their respective owners, shown for
+                                entertainment only to represent the airline of your virtual flight. Inflight is not
+                                affiliated with, endorsed by, or sponsored by any airline. Airline representatives can
+                                request a logo's removal at
+                                <a href="mailto:inflightcustomer@gmail.com">inflightcustomer@gmail.com</a>.</span>
                             </div>
                         </div>
 
@@ -13465,7 +13838,7 @@ renderCategory(catId) {
     updateLabelPreview() {
         const preview = document.getElementById('d-label-preview');
         if (!preview) return;
-        const cfg = mapFilters.labelConfig || {};
+        const cfg = Object.assign({}, DEFAULT_LABEL_CONFIG, mapFilters.labelConfig || {});
         const sample = MobileSettingsUI.getLabelPreviewSample();
 
         const lines = [];
@@ -13481,10 +13854,15 @@ renderCategory(catId) {
         const theme = themes.find(t => t.value === (mapFilters.labelTheme || 'default')) || themes[0];
         const scale = Math.min(1.4, Math.max(0.8, parseFloat(mapFilters.labelScale) || 1));
 
+        // Mirrors the on-map airline badge (white chip, logo contained inside).
+        const logoLine = cfg.airlineLogo
+            ? `<img class="d-label-logo" src="${sample.airlineLogo}" alt="" onerror="this.style.display='none'">`
+            : '';
+
         preview.style.color = theme.text;
         preview.style.textShadow = `0 0 3px ${theme.halo}, 0 1px 2px ${theme.halo}, 0 0 4px ${theme.halo}`;
         preview.style.fontSize = `${0.95 * scale}rem`;
-        preview.innerHTML = lines.map(l => `<div class="${l.cls}">${l.text}</div>`).join('');
+        preview.innerHTML = logoLine + lines.map(l => `<div class="${l.cls}">${l.text}</div>`).join('');
         preview.style.opacity = mapFilters.showAircraftLabels ? '1' : '0.35';
     },
 
