@@ -39,9 +39,9 @@ const LABEL_FIELD_DEFS = [
 
 // Sample flight used to render the live label preview.
 const LABEL_PREVIEW_SAMPLE = {
-    // Real badge for the sample flight's airline (UAL), same source the map
-    // loader uses — the preview hides it gracefully if the fetch fails.
-    airlineLogo: 'https://raw.githubusercontent.com/sexym0nk3y/airline-logos/main/logos/UAL.png',
+    // Real wordmark banner for the sample flight's airline (UAL), same source
+    // the map loader uses — the preview hides it gracefully if the fetch fails.
+    airlineLogo: 'https://raw.githubusercontent.com/Jxck-S/airline-logos/main/radarbox_banners/UAL.png',
     callsign: 'UAL482',
     aircraftType: 'Boeing 787-9',
     altSpeed: '36,000 ft · 482 kts',
@@ -2094,9 +2094,10 @@ export const MobileSettingsUI = {
                 .m-label-preview .l-callsign { font-weight: 800; letter-spacing: 0.02em; }
                 .m-label-preview .l-sub { font-size: 0.82em; font-weight: 600; opacity: 0.95; }
                 .m-label-preview .m-label-logo {
-                    display: block; width: 30px; height: 30px; margin: 0 auto 5px;
-                    padding: 3px; border-radius: 8px; background: #fff; object-fit: contain;
+                    display: block; height: 26px; width: auto; max-width: 110px; margin: 0 auto 5px;
+                    padding: 4px 8px; border-radius: 8px; background: #fff; object-fit: contain;
                     border: 1px solid rgba(15,23,42,0.35); box-shadow: 0 1px 5px rgba(0,0,0,0.45);
+                    box-sizing: border-box;
                 }
 
                 /* Trademark / non-affiliation note for the airline-logo label row. */

@@ -7174,8 +7174,11 @@ const DEFAULT_LABEL_CONFIG = {
    both settings UIs; takedown requests: inflightcustomer@gmail.com.
    ============================================================ */
 const AIRLINE_LOGO_IMAGE_PREFIX = 'airline-logo-';
-// Tried in order until one returns a usable PNG for the ICAO code.
+// Tried in order until one returns a usable PNG for the ICAO code. The
+// RadarBox banners are wide full-wordmark logos (the Plane Finder look);
+// the square sets backfill the handful of airlines with no banner.
 const AIRLINE_LOGO_SOURCES = [
+    icao => `https://raw.githubusercontent.com/Jxck-S/airline-logos/main/radarbox_banners/${icao}.png`,
     icao => `https://raw.githubusercontent.com/sexym0nk3y/airline-logos/main/logos/${icao}.png`,
     icao => `https://raw.githubusercontent.com/Jxck-S/airline-logos/main/flightaware_logos/${icao}.png`
 ];
@@ -7305,22 +7308,32 @@ function getAircraftLabelIconImage() {
     ];
 }
 
-// Draws a fetched logo onto a white rounded badge (128px backing a 64-CSS-px
-// image) so transparent and opaque-background source PNGs look identical.
+// Draws a fetched logo onto a white rounded pill (2x backing scale). The
+// pill height is fixed and its width follows the wordmark's aspect ratio —
+// wide banners get a wide pill, square fallback logos a compact chip — so
+// every brand mark renders unmodified, contain-fit on a light background
+// (these logos are full-color marks designed for light surfaces).
 function composeAirlineLogoBadge(bitmap) {
-    const SIZE = 128, RADIUS = 28, PAD = 16;
+    const SCALE = 2;
+    const H = 28 * SCALE;
+    const PAD_X = 7 * SCALE, PAD_Y = 5 * SCALE;
+    const innerH = H - PAD_Y * 2;
+    const fitW = bitmap.width * (innerH / bitmap.height);
+    const innerW = Math.max(innerH, Math.min(96 * SCALE, fitW));
+    const W = Math.round(innerW + PAD_X * 2);
+    const R = 8 * SCALE;
     const canvas = document.createElement('canvas');
-    canvas.width = SIZE; canvas.height = SIZE;
+    canvas.width = W; canvas.height = H;
     const ctx = canvas.getContext('2d');
     ctx.beginPath();
     if (ctx.roundRect) {
-        ctx.roundRect(0, 0, SIZE, SIZE, RADIUS);
+        ctx.roundRect(0, 0, W, H, R);
     } else {
-        ctx.moveTo(RADIUS, 0);
-        ctx.arcTo(SIZE, 0, SIZE, SIZE, RADIUS);
-        ctx.arcTo(SIZE, SIZE, 0, SIZE, RADIUS);
-        ctx.arcTo(0, SIZE, 0, 0, RADIUS);
-        ctx.arcTo(0, 0, SIZE, 0, RADIUS);
+        ctx.moveTo(R, 0);
+        ctx.arcTo(W, 0, W, H, R);
+        ctx.arcTo(W, H, 0, H, R);
+        ctx.arcTo(0, H, 0, 0, R);
+        ctx.arcTo(0, 0, W, 0, R);
         ctx.closePath();
     }
     ctx.fillStyle = '#ffffff';
@@ -7329,11 +7342,12 @@ function composeAirlineLogoBadge(bitmap) {
     ctx.strokeStyle = 'rgba(15, 23, 42, 0.35)';
     ctx.stroke();
     ctx.clip();
-    const box = SIZE - PAD * 2;
-    const s = Math.min(box / bitmap.width, box / bitmap.height);
+    // Contain-fit inside the padded box (ultra-wide banners shrink to fit).
+    const boxW = W - PAD_X * 2, boxH = innerH;
+    const s = Math.min(boxW / bitmap.width, boxH / bitmap.height);
     const w = bitmap.width * s, h = bitmap.height * s;
-    ctx.drawImage(bitmap, (SIZE - w) / 2, (SIZE - h) / 2, w, h);
-    return ctx.getImageData(0, 0, SIZE, SIZE);
+    ctx.drawImage(bitmap, (W - w) / 2, (H - h) / 2, w, h);
+    return ctx.getImageData(0, 0, W, H);
 }
 
 /**
@@ -7408,8 +7422,13 @@ function getAircraftLabelTextField() {
         });
     }
 
-    // Never let the tag collapse to nothing — always show the callsign.
-    if (!rows.length) rows.push({ expr: ['coalesce', ['get', 'callsign'], ''], scale: 1.15 });
+    // With every text row off: if the airline-logo badge is on, let the label
+    // be logo-only (Plane Finder style); otherwise fall back to the callsign
+    // so the tag never collapses to nothing.
+    if (!rows.length) {
+        if (cfg.airlineLogo) return '';
+        rows.push({ expr: ['coalesce', ['get', 'callsign'], ''], scale: 1.15 });
+    }
 
     const fmt = ['format'];
     rows.forEach((row, i) => {
@@ -7445,13 +7464,15 @@ function applyAircraftLabelStyle() {
     sectorOpsMap.setPaintProperty(AIRCRAFT_LABEL_LAYER_ID, 'text-halo-color', theme.halo);
     sectorOpsMap.setPaintProperty(AIRCRAFT_LABEL_LAYER_ID, 'text-halo-width', theme.haloWidth);
 
-    // Airline logo badge floating above the plane (label text sits below it).
-    // icon-offset is multiplied by icon-size, so divide the desired pixel
-    // clearance back out to keep the gap constant across label scales.
-    const iconSize = 0.42 * scale;
+    // Airline logo pill tucked under the plane, with the text rows beneath
+    // it (Plane Finder style). icon-offset is multiplied by icon-size and
+    // text-offset is in ems of text-size, so both gaps track the label scale
+    // and the pill/text never collide at any size.
+    const cfg = Object.assign({}, DEFAULT_LABEL_CONFIG, mapFilters.labelConfig || {});
     sectorOpsMap.setLayoutProperty(AIRCRAFT_LABEL_LAYER_ID, 'icon-image', getAircraftLabelIconImage());
-    sectorOpsMap.setLayoutProperty(AIRCRAFT_LABEL_LAYER_ID, 'icon-size', iconSize);
-    sectorOpsMap.setLayoutProperty(AIRCRAFT_LABEL_LAYER_ID, 'icon-offset', [0, -(14 / iconSize)]);
+    sectorOpsMap.setLayoutProperty(AIRCRAFT_LABEL_LAYER_ID, 'icon-size', 0.9 * scale);
+    sectorOpsMap.setLayoutProperty(AIRCRAFT_LABEL_LAYER_ID, 'icon-offset', [0, 16]);
+    sectorOpsMap.setLayoutProperty(AIRCRAFT_LABEL_LAYER_ID, 'text-offset', [0, cfg.airlineLogo ? 3.95 : 1.5]);
 }
 window.applyAircraftLabelStyle = applyAircraftLabelStyle;
 
@@ -11946,17 +11967,18 @@ function initializeAircraftLayer() {
                     'text-field': getAircraftLabelTextField(),
                     'text-font': ['Inter Regular', 'Arial Unicode MS Regular'],
                     'text-size': 11 * labelScale,
-                    'text-offset': [0, 1.5],
+                    'text-offset': [0, (Object.assign({}, DEFAULT_LABEL_CONFIG, mapFilters.labelConfig || {}).airlineLogo) ? 3.95 : 1.5],
                     'text-anchor': 'top',
                     'text-allow-overlap': false,
                     'text-ignore-placement': false,
-                    // Airline logo badge above the plane; loaded on demand by
-                    // registerAirlineLogoLoader. The icon never participates in
-                    // collision — the text's placement decides if the symbol shows.
+                    // Airline logo pill under the plane (text rows beneath it);
+                    // loaded on demand by registerAirlineLogoLoader. The icon
+                    // never participates in collision — the text's placement
+                    // decides if the symbol shows.
                     'icon-image': getAircraftLabelIconImage(),
-                    'icon-size': 0.42 * labelScale,
-                    'icon-anchor': 'bottom',
-                    'icon-offset': [0, -(14 / (0.42 * labelScale))],
+                    'icon-size': 0.9 * labelScale,
+                    'icon-anchor': 'top',
+                    'icon-offset': [0, 16],
                     'icon-allow-overlap': true,
                     'icon-ignore-placement': true
                 },
@@ -13073,9 +13095,10 @@ const SettingsUI = {
             #global-settings-modal-overlay .d-label-preview .l-callsign { font-weight: 800; }
             #global-settings-modal-overlay .d-label-preview .l-sub { font-weight: 600; opacity: 0.92; }
             #global-settings-modal-overlay .d-label-preview .d-label-logo {
-                display: block; width: 30px; height: 30px; margin: 0 auto 5px;
-                padding: 3px; border-radius: 8px; background: #fff; object-fit: contain;
+                display: block; height: 26px; width: auto; max-width: 110px; margin: 0 auto 5px;
+                padding: 4px 8px; border-radius: 8px; background: #fff; object-fit: contain;
                 border: 1px solid rgba(15,23,42,0.35); box-shadow: 0 1px 5px rgba(0,0,0,0.45);
+                box-sizing: border-box;
             }
             #global-settings-modal-overlay .d-label-disclaimer {
                 display: flex; gap: 10px; align-items: flex-start;
