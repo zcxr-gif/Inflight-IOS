@@ -7363,11 +7363,39 @@ function getAircraftLabelIconImage() {
  */
 function getAircraftLabelTextOffset() {
     const cfg = Object.assign({}, DEFAULT_LABEL_CONFIG, mapFilters.labelConfig || {});
-    if (!cfg.airlineLogo) return [0, 1.5];
-    return ['case',
-        ['==', ['coalesce', ['get', 'airlineIcao'], ''], ''],
-        ['literal', [0, 1.5]],
-        ['literal', [0, 3.95]]
+    // Offsets are in ems of the zoom-graded text size, so each stop's em is
+    // back-computed to keep the physical gap constant: ~16px under the plane
+    // for plain text, ~4px under the logo pill when one is shown.
+    const atZoom = (plainEm, pillEm) => cfg.airlineLogo
+        ? ['case',
+            ['==', ['coalesce', ['get', 'airlineIcao'], ''], ''],
+            ['literal', [0, plainEm]],
+            ['literal', [0, pillEm]]]
+        : ['literal', [0, plainEm]];
+    return ['interpolate', ['linear'], ['zoom'],
+        6.5, atZoom(1.9, 3.2),
+        12, atZoom(1.7, 3.3),
+        16, atZoom(1.5, 3.7)
+    ];
+}
+
+/**
+ * Zoom-graded sizes: labels stay compact while browsing the map and only
+ * grow once the user zooms well in (≳ z12). `scale` is the user's
+ * label-size multiplier from the designer (0.8–1.4).
+ */
+function getAircraftLabelTextSize(scale) {
+    return ['interpolate', ['linear'], ['zoom'],
+        6.5, 8.5 * scale,
+        12, 9.5 * scale,
+        16, 12.5 * scale
+    ];
+}
+function getAircraftLabelIconSize(scale) {
+    return ['interpolate', ['linear'], ['zoom'],
+        6.5, 0.52 * scale,
+        12, 0.62 * scale,
+        16, 0.95 * scale
     ];
 }
 
@@ -7521,7 +7549,7 @@ function applyAircraftLabelStyle() {
     sectorOpsMap.setLayoutProperty(AIRCRAFT_LABEL_LAYER_ID, 'text-field', getAircraftLabelTextField());
 
     const scale = Math.min(1.6, Math.max(0.7, parseFloat(mapFilters.labelScale) || 1));
-    sectorOpsMap.setLayoutProperty(AIRCRAFT_LABEL_LAYER_ID, 'text-size', 11 * scale);
+    sectorOpsMap.setLayoutProperty(AIRCRAFT_LABEL_LAYER_ID, 'text-size', getAircraftLabelTextSize(scale));
 
     const theme = AIRCRAFT_LABEL_THEMES[mapFilters.labelTheme] || AIRCRAFT_LABEL_THEMES.default;
     sectorOpsMap.setPaintProperty(AIRCRAFT_LABEL_LAYER_ID, 'text-color', theme.text);
@@ -7534,7 +7562,7 @@ function applyAircraftLabelStyle() {
     // and the pill/text never collide at any size.
     loadAirlineLogoBlocklist(sectorOpsMap); // no-op once fetched; retries after failures
     sectorOpsMap.setLayoutProperty(AIRCRAFT_LABEL_LAYER_ID, 'icon-image', getAircraftLabelIconImage());
-    sectorOpsMap.setLayoutProperty(AIRCRAFT_LABEL_LAYER_ID, 'icon-size', 0.9 * scale);
+    sectorOpsMap.setLayoutProperty(AIRCRAFT_LABEL_LAYER_ID, 'icon-size', getAircraftLabelIconSize(scale));
     sectorOpsMap.setLayoutProperty(AIRCRAFT_LABEL_LAYER_ID, 'icon-offset', [0, 16]);
     sectorOpsMap.setLayoutProperty(AIRCRAFT_LABEL_LAYER_ID, 'text-offset', getAircraftLabelTextOffset());
 }
@@ -12030,7 +12058,7 @@ function initializeAircraftLayer() {
                     'visibility': mapFilters.showAircraftLabels ? 'visible' : 'none',
                     'text-field': getAircraftLabelTextField(),
                     'text-font': ['Inter Regular', 'Arial Unicode MS Regular'],
-                    'text-size': 11 * labelScale,
+                    'text-size': getAircraftLabelTextSize(labelScale),
                     'text-offset': getAircraftLabelTextOffset(),
                     'text-anchor': 'top',
                     'text-allow-overlap': false,
@@ -12040,7 +12068,7 @@ function initializeAircraftLayer() {
                     // never participates in collision — the text's placement
                     // decides if the symbol shows.
                     'icon-image': getAircraftLabelIconImage(),
-                    'icon-size': 0.9 * labelScale,
+                    'icon-size': getAircraftLabelIconSize(labelScale),
                     'icon-anchor': 'top',
                     'icon-offset': [0, 16],
                     'icon-allow-overlap': true,
