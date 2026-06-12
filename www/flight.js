@@ -7172,6 +7172,8 @@ const DEFAULT_LABEL_CONFIG = {
    affiliated with, endorsed by, or sponsored by any airline. The
    matching user-facing disclaimer lives next to the label toggle in
    both settings UIs; takedown requests: inflightcustomer@gmail.com.
+   Honored takedowns are pushed through the ACARS backend blocklist
+   below, which suppresses a logo immediately on all installs.
    ============================================================ */
 const AIRLINE_LOGO_IMAGE_PREFIX = 'airline-logo-';
 // Tried in order until one returns a usable PNG for the ICAO code. The
@@ -7182,6 +7184,52 @@ const AIRLINE_LOGO_SOURCES = [
     icao => `https://raw.githubusercontent.com/sexym0nk3y/airline-logos/main/logos/${icao}.png`,
     icao => `https://raw.githubusercontent.com/Jxck-S/airline-logos/main/flightaware_logos/${icao}.png`
 ];
+
+// --- Remote takedown blocklist -------------------------------------------
+// ICAO codes whose logos must NOT be shown, served by the ACARS backend so
+// an airline's removal request takes effect immediately — no App Store
+// update needed. Expected response: ["AAL", ...] or { "blocked": ["AAL"] }.
+// Cached in localStorage and fail-open: backend unreachable = last known
+// list (or none on first run).
+const AIRLINE_LOGO_BLOCKLIST_URL = ACARS_SOCKET_URL + '/api/airline-logos/blocklist';
+const AIRLINE_LOGO_BLOCKLIST_CACHE_KEY = 'airlineLogoBlocklist';
+const airlineLogoBlocklist = new Set();
+try {
+    (JSON.parse(localStorage.getItem(AIRLINE_LOGO_BLOCKLIST_CACHE_KEY)) || [])
+        .forEach(code => airlineLogoBlocklist.add(code));
+} catch (e) {}
+
+let airlineLogoBlocklistFetched = false;
+async function loadAirlineLogoBlocklist(map) {
+    if (airlineLogoBlocklistFetched) return;
+    airlineLogoBlocklistFetched = true; // claim before awaiting so parallel calls no-op
+    try {
+        const res = await fetch(AIRLINE_LOGO_BLOCKLIST_URL);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        const list = (Array.isArray(data) ? data : (data && Array.isArray(data.blocked) ? data.blocked : []))
+            .map(c => String(c).trim().toUpperCase())
+            .filter(c => /^[A-Z]{3}$/.test(c));
+        airlineLogoBlocklist.clear();
+        list.forEach(c => airlineLogoBlocklist.add(c));
+        try { localStorage.setItem(AIRLINE_LOGO_BLOCKLIST_CACHE_KEY, JSON.stringify(list)); } catch (e) {}
+        // Swap any badge that rendered before the list arrived for a blank.
+        if (map) {
+            list.forEach(code => {
+                const id = AIRLINE_LOGO_IMAGE_PREFIX + code;
+                try {
+                    if (map.hasImage(id)) {
+                        map.removeImage(id);
+                        map.addImage(id, { width: 1, height: 1, data: new Uint8Array(4) });
+                    }
+                } catch (e) {}
+            });
+        }
+    } catch (e) {
+        // Allow a retry on the next label-style application.
+        airlineLogoBlocklistFetched = false;
+    }
+}
 
 // Livery/airline display name -> ICAO code (the key format of the logo
 // sets above). Keys are normalized: lowercase, punctuation stripped.
@@ -7288,7 +7336,7 @@ function getAirlineIcaoFromLivery(liveryName) {
     // Longest prefix wins so "air india express" beats "air india".
     for (let n = Math.min(words.length, 5); n >= 1; n--) {
         const icao = AIRLINE_LIVERY_ICAO[words.slice(0, n).join(' ')];
-        if (icao) return icao;
+        if (icao) return airlineLogoBlocklist.has(icao) ? null : icao;
     }
     return null;
 }
@@ -7305,6 +7353,21 @@ function getAircraftLabelIconImage() {
         ['==', ['coalesce', ['get', 'airlineIcao'], ''], ''],
         '',
         ['concat', AIRLINE_LOGO_IMAGE_PREFIX, ['get', 'airlineIcao']]
+    ];
+}
+
+/**
+ * Data-driven text-offset: only flights that actually have a logo pill get
+ * the extra clearance under the plane — GA/military/blocked-airline labels
+ * keep the tight default gap instead of an empty hole.
+ */
+function getAircraftLabelTextOffset() {
+    const cfg = Object.assign({}, DEFAULT_LABEL_CONFIG, mapFilters.labelConfig || {});
+    if (!cfg.airlineLogo) return [0, 1.5];
+    return ['case',
+        ['==', ['coalesce', ['get', 'airlineIcao'], ''], ''],
+        ['literal', [0, 1.5]],
+        ['literal', [0, 3.95]]
     ];
 }
 
@@ -7359,6 +7422,7 @@ function composeAirlineLogoBadge(bitmap) {
 function registerAirlineLogoLoader(map) {
     if (map.__airlineLogoLoaderAttached) return;
     map.__airlineLogoLoaderAttached = true;
+    loadAirlineLogoBlocklist(map);
     const requested = new Set();
     map.on('styleimagemissing', async (e) => {
         const id = (e && e.id) || '';
@@ -7368,7 +7432,7 @@ function registerAirlineLogoLoader(map) {
             try { if (!map.hasImage(id)) map.addImage(id, { width: 1, height: 1, data: new Uint8Array(4) }); } catch (err) {}
         };
         const icao = id.slice(AIRLINE_LOGO_IMAGE_PREFIX.length);
-        if (!/^[A-Z]{3}$/.test(icao)) { addTransparent(); return; }
+        if (!/^[A-Z]{3}$/.test(icao) || airlineLogoBlocklist.has(icao)) { addTransparent(); return; }
         for (const urlFor of AIRLINE_LOGO_SOURCES) {
             try {
                 const res = await fetch(urlFor(icao));
@@ -7468,11 +7532,11 @@ function applyAircraftLabelStyle() {
     // it (Plane Finder style). icon-offset is multiplied by icon-size and
     // text-offset is in ems of text-size, so both gaps track the label scale
     // and the pill/text never collide at any size.
-    const cfg = Object.assign({}, DEFAULT_LABEL_CONFIG, mapFilters.labelConfig || {});
+    loadAirlineLogoBlocklist(sectorOpsMap); // no-op once fetched; retries after failures
     sectorOpsMap.setLayoutProperty(AIRCRAFT_LABEL_LAYER_ID, 'icon-image', getAircraftLabelIconImage());
     sectorOpsMap.setLayoutProperty(AIRCRAFT_LABEL_LAYER_ID, 'icon-size', 0.9 * scale);
     sectorOpsMap.setLayoutProperty(AIRCRAFT_LABEL_LAYER_ID, 'icon-offset', [0, 16]);
-    sectorOpsMap.setLayoutProperty(AIRCRAFT_LABEL_LAYER_ID, 'text-offset', [0, cfg.airlineLogo ? 3.95 : 1.5]);
+    sectorOpsMap.setLayoutProperty(AIRCRAFT_LABEL_LAYER_ID, 'text-offset', getAircraftLabelTextOffset());
 }
 window.applyAircraftLabelStyle = applyAircraftLabelStyle;
 
@@ -11967,7 +12031,7 @@ function initializeAircraftLayer() {
                     'text-field': getAircraftLabelTextField(),
                     'text-font': ['Inter Regular', 'Arial Unicode MS Regular'],
                     'text-size': 11 * labelScale,
-                    'text-offset': [0, (Object.assign({}, DEFAULT_LABEL_CONFIG, mapFilters.labelConfig || {}).airlineLogo) ? 3.95 : 1.5],
+                    'text-offset': getAircraftLabelTextOffset(),
                     'text-anchor': 'top',
                     'text-allow-overlap': false,
                     'text-ignore-placement': false,
