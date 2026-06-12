@@ -24,6 +24,7 @@ import { PredictiveAirspaceNetwork } from './PredictiveQueueManager.js';
 import { socketDataHub } from './SocketDataHub.js';
 import { MobileDashboardUI } from './MobileDashboardUI.js';
 import { FlightDispatchService } from './FlightDispatchService.js';
+import { WatchlistService } from './WatchlistService.js';
 import { TelemetryAnalyticsEngine } from './TelemetryAnalyticsEngine.js';
 import { AircraftViewer3D } from './AircraftViewer3D.js';
 import { AirportViewer3D } from './AirportViewer3D.js';
@@ -126,10 +127,10 @@ export const ProfileUI = {
     },
     _backendUrl: window.APP_CONFIG?.backendUrl || 'https://site--acars-backend--6dmjph8ltlhv.code.run',
 
-    // ── Pilot Watchlist ──────────────────────────────────────────────────────
+    // ── Pilot Watchlist (mirrors of WatchlistService state) ─────────────────
     _watchlist: [],
     _watchedPilotStatus: {},
-    _prevWatchedStatus: {},
+    _watchlistUnsubscribe: null,
 
     // ── Cross-device User Preferences (Supabase persisted) ───────────────────
     _userPrefs: {
@@ -532,21 +533,15 @@ init(supabaseClient) {
                     window.refreshPilotRelations();
                 }
 
-                // Fetch the watchlist eagerly on auth resolve, not only when
-                // the profile overlay is opened — otherwise watchlist colors
-                // won't appear on the map until the user manually opens
-                // their profile.
-                this._fetchWatchlist().then(() => {
-                    if (typeof window !== 'undefined' && typeof window.refreshPilotRelations === 'function') {
-                        window.refreshPilotRelations();
-                    }
-                }).catch(() => { /* already logged inside _fetchWatchlist */ });
+                // Hand the user to the watchlist service eagerly on auth
+                // resolve, not only when the profile overlay is opened — it
+                // fetches the watchlist and flight.js recolors the map off
+                // its entries_changed event.
+                WatchlistService.setUser(session.user);
             } else {
                 this._currentUser = null;
                 this._watchlist = [];
-                if (typeof window !== 'undefined' && typeof window.refreshPilotRelations === 'function') {
-                    window.refreshPilotRelations();
-                }
+                WatchlistService.setUser(null);
             }
 
             if (event === 'USER_UPDATED' && session?.user) {
@@ -587,55 +582,33 @@ init(supabaseClient) {
                     }
                 }
 
-                if (this._watchlist.length > 0) {
-                    this._prevWatchedStatus = { ...this._watchedPilotStatus };
-                    const newStatus = {};
-                    for (const entry of this._watchlist) {
-                        const un = entry.watched_username.toLowerCase();
-                        const flight = payload.flights.find(f => f.username?.toLowerCase() === un);
-                        newStatus[un] = { isLive: !!flight, flight: flight || null };
-                    }
-                    this._watchedPilotStatus = newStatus;
+            });
+        }
 
-                    // Watchlist notifications are an account-gated feature:
-                    // skip entirely if the user isn't signed in.
-                    if (this._currentUser && this._userPrefs.notification_watchlist_enabled) {
-                        for (const [un, cur] of Object.entries(newStatus)) {
-                            const prev = this._prevWatchedStatus[un];
-                            if (cur.isLive && prev && !prev.isLive) {
-                                const f = cur.flight;
-                                const who   = f?.username || un;
-                                const route = (f?.departureIcao && f?.arrivalIcao)
-                                    ? ` on ${f.departureIcao} → ${f.arrivalIcao}`
-                                    : '';
-                                this._showToast(`<i class="fa-solid fa-plane-departure" style="margin-right:8px;"></i><strong>${who}</strong> is now online${route}`, 'info');
-                                try {
-                                    // iOS notification hierarchy:
-                                    //   title   = friend's name (bold)
-                                    //   subtitle= status verb (semibold)
-                                    //   body    = route + aircraft
-                                    const acft = f?.aircraft?.aircraftName || '';
-                                    const bodyParts = [];
-                                    if (f?.departureIcao && f?.arrivalIcao) {
-                                        bodyParts.push(`${f.departureIcao} → ${f.arrivalIcao}`);
-                                    }
-                                    if (acft) bodyParts.push(acft);
-                                    window.InflightLiveActivity?.presentLocalNotification?.({
-                                        title: who,
-                                        subtitle: 'Now online',
-                                        body:  bodyParts.join(' · ') || 'Watchlist pilot just connected',
-                                        identifier: `watchlist-online-${un}`,
-                                        threadIdentifier: 'inflight-watchlist',
-                                        userInfo: { kind: 'watchlist_online', username: un }
-                                    });
-                                } catch (_) { /* best-effort */ }
-                            }
-                        }
-                    }
-
+        // Watchlist data, live status, and notification transitions all come
+        // from WatchlistService (ACARS-backed with Supabase fallback). The
+        // service fires the native iOS banner itself; this layer only mirrors
+        // state for rendering and shows the in-app toast.
+        if (!this._watchlistUnsubscribe) {
+            this._watchlistUnsubscribe = WatchlistService.subscribe((evt) => {
+                if (evt.type === 'entries_changed') {
+                    this._watchlist = WatchlistService.getEntries();
+                    this._watchedPilotStatus = WatchlistService.getStatus();
+                    if (this._isOpen && this._activeTab === 'watchlist') this._renderContentOnly();
+                } else if (evt.type === 'status_updated') {
+                    this._watchedPilotStatus = WatchlistService.getStatus();
                     if (this._isOpen && this._activeTab === 'watchlist') {
                         this._updateWatchlistDOM();
                     }
+                } else if (evt.type === 'pilot_online' && window.innerWidth > 768) {
+                    // Toast only on the desktop breakpoint — MobileDashboardUI
+                    // owns the mobile toast for the same event.
+                    const f = evt.flight;
+                    const who   = f?.username || evt.username;
+                    const route = (f?.departureIcao && f?.arrivalIcao)
+                        ? ` on ${f.departureIcao} → ${f.arrivalIcao}`
+                        : '';
+                    this._showToast(`<i class="fa-solid fa-plane-departure" style="margin-right:8px;"></i><strong>${who}</strong> is now online${route}`, 'info');
                 }
             });
         }
@@ -3830,6 +3803,7 @@ const contentRoot = document.getElementById('pui-content');
             const notifToggle = document.getElementById('pui-watchlist-notif-toggle');
             notifToggle?.addEventListener('change', async () => {
                 this._userPrefs.notification_watchlist_enabled = notifToggle.checked;
+                WatchlistService.setNotificationsEnabled(notifToggle.checked);
                 await this._saveUserPreferences();
             });
         }
@@ -3840,18 +3814,10 @@ const contentRoot = document.getElementById('pui-content');
     // ═══════════════════════════════════════════════════════════════════════
 
     async _fetchWatchlist() {
-        if (!this._currentUser || !this._supabase) return;
-        try {
-            const { data, error } = await this._supabase
-                .from('user_watchlist')
-                .select('id, watched_username, added_at')
-                .eq('user_id', this._currentUser.id)
-                .order('added_at', { ascending: false });
-            if (error) throw error;
-            this._watchlist = data || [];
-        } catch (err) {
-            console.warn('[ProfileUI] Could not load watchlist:', err.message);
-        }
+        if (!this._currentUser) return;
+        // Delegates to WatchlistService (ACARS-backed with Supabase fallback);
+        // the service's entries_changed event mirrors the result back here.
+        await WatchlistService.refresh();
     },
 
     async _fetchUserPreferences() {
@@ -3866,6 +3832,7 @@ const contentRoot = document.getElementById('pui-content');
             if (data && !error) {
                 if (typeof data.notification_watchlist_enabled === 'boolean') {
                     this._userPrefs.notification_watchlist_enabled = data.notification_watchlist_enabled;
+                    WatchlistService.setNotificationsEnabled(data.notification_watchlist_enabled);
                 }
                 if (data.cached_if_stats) {
                     this._userPrefs.cached_if_stats = data.cached_if_stats;
@@ -3893,7 +3860,7 @@ const contentRoot = document.getElementById('pui-content');
 
     async _addToWatchlist(username) {
         // Explicit Error Boundaries to prevent silent "do nothing" failures
-        if (!this._currentUser || !this._supabase) {
+        if (!this._currentUser) {
             this._showToast(`<i class="fa-solid fa-triangle-exclamation" style="margin-right:8px;"></i>Unable to add: Database disconnected or session expired.`, 'error');
             return;
         }
@@ -3902,55 +3869,28 @@ const contentRoot = document.getElementById('pui-content');
         const alreadyTracked = this._watchlist.some(
             e => e.watched_username.toLowerCase() === username.toLowerCase()
         );
-        
+
         if (alreadyTracked) {
             this._showToast(`<i class="fa-solid fa-circle-info" style="margin-right:8px;"></i>${username} is already on your watchlist.`, 'warn');
             return;
         }
 
         try {
-            const { data, error } = await this._supabase
-                .from('user_watchlist')
-                .insert([{ user_id: this._currentUser.id, watched_username: username }])
-                .select('id, watched_username, added_at')
-                .single();
-            
-            if (error) throw error;
-            
-            this._watchlist.unshift(data);
+            // WatchlistService persists the entry (ACARS or Supabase) and its
+            // entries_changed event re-renders this tab and recolors the live
+            // map (the pilot's plane turns purple immediately).
+            await WatchlistService.add(username);
             this._showToast(`<i class="fa-solid fa-star" style="margin-right:8px;"></i><strong>${username}</strong> added to watchlist.`, 'success');
-
-            // Push the new relation to the live map so the pilot's plane
-            // turns purple immediately, without waiting for the next poll.
-            if (typeof window !== 'undefined' && typeof window.refreshPilotRelations === 'function') {
-                window.refreshPilotRelations();
-            }
-
-            if (this._isOpen && this._activeTab === 'watchlist') this._renderContentOnly();
         } catch (err) {
             this._showToast(`<i class="fa-solid fa-circle-xmark" style="margin-right:8px;"></i>Could not add ${username}: ${err.message}`, 'error');
         }
     },
 
     async _removeFromWatchlist(id, username) {
-        if (!this._supabase) return;
         try {
-            const { error } = await this._supabase
-                .from('user_watchlist')
-                .delete()
-                .eq('id', id);
-            if (error) throw error;
-            this._watchlist = this._watchlist.filter(e => e.id !== id);
-            delete this._watchedPilotStatus[username?.toLowerCase()];
+            await WatchlistService.remove(id, username);
+            this._watchedPilotStatus = WatchlistService.getStatus();
             this._showToast(`<i class="fa-solid fa-star-half" style="margin-right:8px;"></i>${username} removed from watchlist.`, 'info');
-
-            // Re-tag features so the removed pilot's plane drops back to the
-            // default color immediately.
-            if (typeof window !== 'undefined' && typeof window.refreshPilotRelations === 'function') {
-                window.refreshPilotRelations();
-            }
-
-            if (this._isOpen && this._activeTab === 'watchlist') this._renderContentOnly();
         } catch (err) {
             this._showToast(`<i class="fa-solid fa-circle-xmark" style="margin-right:8px;"></i>Could not remove pilot: ${err.message}`, 'error');
         }
