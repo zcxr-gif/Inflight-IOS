@@ -153,6 +153,48 @@ else
 end
 
 # ---------------------------------------------------------------------------
+# Phase A3: Push notification entitlement (aps-environment). OPT-IN.
+#
+# Groundwork for ACARS-fed watchlist push notifications + remotely-updated
+# Live Activities. Registration for an APNs token (and ActivityKit pushType
+# .token) requires the app to be signed with the aps-environment
+# entitlement, which in turn requires the App ID to have the Push
+# Notifications capability enabled in App Store Connect — otherwise the
+# fetched provisioning profile won't carry the entitlement and signing
+# FAILS. Until the backend and App ID are ready, this phase is skipped
+# unless INFLIGHT_ENABLE_PUSH=1 is set in the Codemagic environment, so
+# today's builds are byte-for-byte unaffected.
+# ---------------------------------------------------------------------------
+
+if ENV['INFLIGHT_ENABLE_PUSH'] == '1'
+  log "Phase A3 start: injecting aps-environment entitlement (INFLIGHT_ENABLE_PUSH=1)."
+  entitlements_rel  = 'App/App.entitlements'
+  entitlements_path = APP_DIR.join('App.entitlements')
+
+  ents = entitlements_path.exist? ? (Plist.parse_xml(entitlements_path.to_s) || {}) : {}
+  unless ents['aps-environment']
+    # 'production' is correct for both TestFlight and App Store; Xcode
+    # rewrites it to 'development' automatically for debug installs.
+    ents['aps-environment'] = 'production'
+    File.write(entitlements_path.to_s, Plist::Emit.dump(ents))
+    log "aps-environment=production written to #{entitlements_path}"
+  end
+
+  app_target.build_configurations.each do |config|
+    existing = config.build_settings['CODE_SIGN_ENTITLEMENTS']
+    if existing && existing != entitlements_rel
+      log "WARNING: App target already uses entitlements file #{existing}; add aps-environment there manually."
+    else
+      config.build_settings['CODE_SIGN_ENTITLEMENTS'] = entitlements_rel
+    end
+  end
+  project.save
+  log "Phase A3 saved: App target signs with #{entitlements_rel}."
+else
+  log "Phase A3 skipped (set INFLIGHT_ENABLE_PUSH=1 to sign with the push entitlement)."
+end
+
+# ---------------------------------------------------------------------------
 # Phase B: Create the widget extension. Best-effort.
 # ---------------------------------------------------------------------------
 

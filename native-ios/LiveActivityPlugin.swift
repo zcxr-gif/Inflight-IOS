@@ -9,10 +9,13 @@ public class LiveActivityPlugin: CAPPlugin, UNUserNotificationCenterDelegate {
 
     private var activeActivityIdByFlight: [String: String] = [:]
     private var didInstallForegroundDelegate = false
+    private var cachedRemotePushToken: String?
 
     public override func load() {
         super.load()
         installForegroundDelegate()
+        installRemotePushObservers()
+        observePushToStartTokens()
     }
 
     /// Become the UNUserNotificationCenter delegate so local notifications
@@ -37,6 +40,112 @@ public class LiveActivityPlugin: CAPPlugin, UNUserNotificationCenterDelegate {
             completionHandler([.banner, .list, .sound, .badge])
         } else {
             completionHandler([.alert, .sound, .badge])
+        }
+    }
+
+    // ─── Remote push (APNs) groundwork ─────────────────────────────────────
+    //
+    // The ACARS backend will eventually push watchlist notifications and
+    // Live Activity updates while the app is closed. The Capacitor-generated
+    // AppDelegate already re-posts the APNs callbacks as NotificationCenter
+    // events, so we observe those rather than patching the (uncommitted)
+    // AppDelegate. Tokens flow to JS via the "remotePushToken" event and
+    // WatchlistService uploads them to the backend.
+    //
+    // Note: registration only succeeds once the build carries the
+    // aps-environment entitlement (see inject_live_activity.rb,
+    // INFLIGHT_ENABLE_PUSH). Until then didFailToRegister fires and we
+    // surface it as the "remotePushRegistrationError" event.
+
+    private func installRemotePushObservers() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleRemotePushTokenRegistered(_:)),
+            name: .capacitorDidRegisterForRemoteNotifications,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleRemotePushTokenError(_:)),
+            name: .capacitorDidFailToRegisterForRemoteNotifications,
+            object: nil
+        )
+    }
+
+    @objc private func handleRemotePushTokenRegistered(_ notification: Notification) {
+        guard let tokenData = notification.object as? Data else { return }
+        let hex = tokenData.map { String(format: "%02x", $0) }.joined()
+        cachedRemotePushToken = hex
+        notifyListeners("remotePushToken", data: ["token": hex])
+    }
+
+    @objc private func handleRemotePushTokenError(_ notification: Notification) {
+        let message = (notification.object as? Error)?.localizedDescription ?? "unknown"
+        notifyListeners("remotePushRegistrationError", data: ["error": message])
+    }
+
+    /// Ask iOS for an APNs device token. Silent (no user prompt) — the
+    /// user-visible permission prompt is requestNotificationPermission;
+    /// callers should ensure that's granted first. The token arrives
+    /// asynchronously via the "remotePushToken" listener event.
+    @objc func registerForRemotePush(_ call: CAPPluginCall) {
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            guard settings.authorizationStatus == .authorized
+               || settings.authorizationStatus == .provisional
+               || settings.authorizationStatus == .ephemeral else {
+                call.resolve([
+                    "registered": false,
+                    "reason": "not_authorized"
+                ])
+                return
+            }
+            DispatchQueue.main.async {
+                UIApplication.shared.registerForRemoteNotifications()
+                var result: [String: Any] = ["registered": true]
+                if let token = self.cachedRemotePushToken {
+                    result["token"] = token
+                }
+                call.resolve(result)
+            }
+        }
+    }
+
+    @objc func getRemotePushToken(_ call: CAPPluginCall) {
+        if let token = cachedRemotePushToken {
+            call.resolve(["token": token])
+        } else {
+            call.resolve([:])
+        }
+    }
+
+    /// Live Activities can be *started* remotely on iOS 17.2+ via a
+    /// push-to-start token. Forward it to JS so the ACARS backend can one
+    /// day open the lock-screen flight card without the app running.
+    private func observePushToStartTokens() {
+        if #available(iOS 17.2, *) {
+            Task {
+                for await tokenData in Activity<InflightActivityAttributes>.pushToStartTokenUpdates {
+                    let hex = tokenData.map { String(format: "%02x", $0) }.joined()
+                    self.notifyListeners("liveActivityPushToStartToken", data: ["token": hex])
+                }
+            }
+        }
+    }
+
+    /// Stream per-activity ActivityKit push tokens to JS. The backend needs
+    /// one of these per Live Activity to push lock-screen updates over APNs
+    /// while the app is closed.
+    @available(iOS 16.1, *)
+    private func observeActivityPushTokens(activity: Activity<InflightActivityAttributes>, flightId: String) {
+        Task {
+            for await tokenData in activity.pushTokenUpdates {
+                let hex = tokenData.map { String(format: "%02x", $0) }.joined()
+                self.notifyListeners("liveActivityPushToken", data: [
+                    "activityId": activity.id,
+                    "flightId": flightId,
+                    "token": hex
+                ])
+            }
         }
     }
 
@@ -236,6 +345,12 @@ public class LiveActivityPlugin: CAPPlugin, UNUserNotificationCenterDelegate {
         // to "just took off").
         let totalDistNm = call.getDouble("totalDistanceNm") ?? distNm
         let isLanded = call.getBool("isLanded") ?? false
+        // Request an ActivityKit push token so the ACARS backend can update
+        // the lock screen over APNs with the app closed. Opt-in: callers set
+        // this only when the backend advertises push support, and we fall
+        // back to a local-update-only activity if the OS refuses (e.g. the
+        // build lacks the push entitlement).
+        let wantsPushUpdates = call.getBool("wantsPushUpdates") ?? false
 
         if let existingId = activeActivityIdByFlight[flightId] {
             updateActivity(id: existingId,
@@ -267,24 +382,43 @@ public class LiveActivityPlugin: CAPPlugin, UNUserNotificationCenterDelegate {
             isLanded: isLanded
         )
 
-        do {
-            let activity: Activity<InflightActivityAttributes>
+        func requestActivity(pushType: PushType?) throws -> Activity<InflightActivityAttributes> {
             if #available(iOS 16.2, *) {
                 let content = ActivityContent(state: state, staleDate: nil)
-                activity = try Activity.request(
+                return try Activity.request(
                     attributes: attributes,
                     content: content,
-                    pushType: nil
+                    pushType: pushType
                 )
             } else {
-                activity = try Activity.request(
+                return try Activity.request(
                     attributes: attributes,
                     contentState: state,
-                    pushType: nil
+                    pushType: pushType
                 )
             }
+        }
+
+        do {
+            var activity: Activity<InflightActivityAttributes>
+            var pushEnabled = false
+            if wantsPushUpdates {
+                do {
+                    activity = try requestActivity(pushType: .token)
+                    pushEnabled = true
+                } catch {
+                    // No push entitlement / OS refusal — a local-only
+                    // activity is still better than none.
+                    activity = try requestActivity(pushType: nil)
+                }
+            } else {
+                activity = try requestActivity(pushType: nil)
+            }
+            if pushEnabled {
+                observeActivityPushTokens(activity: activity, flightId: flightId)
+            }
             activeActivityIdByFlight[flightId] = activity.id
-            call.resolve(["activityId": activity.id, "reused": false])
+            call.resolve(["activityId": activity.id, "reused": false, "pushEnabled": pushEnabled])
         } catch {
             call.reject("Failed to start Live Activity: \(error.localizedDescription)")
         }

@@ -18,10 +18,11 @@
  * backend can verify the caller against Supabase auth.
  *
  * GET    /api/watchlist/capabilities
- *        → { ok: true, watchlist: boolean, events: boolean }
+ *        → { ok: true, watchlist: boolean, events: boolean, push: boolean }
  *        Probed once on boot. `watchlist` enables REST CRUD below;
  *        `events` enables server-pushed notifications and disables the
- *        client-side diffing fallback.
+ *        client-side diffing fallback; `push` enables APNs token upload so
+ *        the backend can notify devices with the app closed.
  *
  * GET    /api/watchlist
  *        → { ok: true, entries: [{ id, watchedUsername, addedAt }] }
@@ -31,6 +32,28 @@
  *
  * DELETE /api/watchlist/{entryId}
  *        → { ok: true }
+ *
+ * ── Remote push (closed-app notifications + lock-screen updates) ───────────
+ * Only exercised when capabilities advertise `push`. The backend holds the
+ * APNs signing key and sends: plain alert pushes for watchlist transitions
+ * (topic <bundleId>), ActivityKit update pushes for tracked flights, and —
+ * on iOS 17.2+ — ActivityKit push-to-start pushes
+ * (topic <bundleId>.push-type.liveactivity).
+ *
+ * POST   /api/push/devices
+ *        body { deviceToken, platform: 'ios' }
+ *        → { ok: true }
+ *        Registers this device for watchlist alert pushes. Idempotent;
+ *        re-sent on sign-in and token rotation.
+ *
+ * DELETE /api/push/devices/{deviceToken}
+ *        → { ok: true }
+ *
+ * POST   /api/push/live-activity-tokens
+ *        body { token, kind: 'update' | 'start', activityId?, flightId? }
+ *        → { ok: true }
+ *        `update` tokens push state into one running Live Activity;
+ *        `start` tokens (push-to-start) let the backend create one remotely.
  *
  * ── Socket.IO (same connection as `all_flights_update`) ────────────────────
  * emit   'watchlist_subscribe'    { userId, usernames: string[] }
@@ -72,7 +95,12 @@ export const WatchlistService = {
     _user:    null,
     // 'supabase' until the ACARS capability probe succeeds.
     _source:  'supabase',
-    _capabilities: { watchlist: false, events: false },
+    _capabilities: { watchlist: false, events: false, push: false },
+
+    // Remote-push tokens captured from the native bridge, held until the
+    // backend advertises `push` and a user is signed in, then uploaded.
+    _pushDeviceToken:   null,
+    _uploadedDeviceKey: null,   // `${token}:${userId}` of the last successful upload
 
     // Entries keep the legacy Supabase row shape ({ id, watched_username,
     // added_at }) regardless of source, so existing UI templates don't change.
@@ -93,6 +121,28 @@ export const WatchlistService = {
 
         socketDataHub.subscribe('all_flights_update', (payload) => {
             if (payload?.flights) this._ingestAllFlights(payload.flights);
+        });
+
+        // Push tokens surface from the native LiveActivity plugin via
+        // liveActivity.js's event bridge (see that file for the contract).
+        window.addEventListener('inflight:remote-push-token', (e) => {
+            const token = e.detail?.token;
+            if (!token) return;
+            this._pushDeviceToken = token;
+            this._uploadDeviceToken();
+        });
+        window.addEventListener('inflight:live-activity-push-token', (e) => {
+            const d = e.detail || {};
+            if (!d.token) return;
+            this._uploadLiveActivityToken({
+                token: d.token, kind: 'update',
+                activityId: d.activityId, flightId: d.flightId,
+            });
+        });
+        window.addEventListener('inflight:live-activity-push-to-start-token', (e) => {
+            const token = e.detail?.token;
+            if (!token) return;
+            this._uploadLiveActivityToken({ token, kind: 'start' });
         });
 
         this._probeCapabilities();
@@ -119,8 +169,10 @@ export const WatchlistService = {
         this._status = {};
         this._statusKnown = false;
         this._lastNotifiedAt.clear();
+        this._uploadedDeviceKey = null;
         if (this._user) {
             this.refresh();
+            this._maybeRegisterForPush();
         } else {
             this._emit({ type: 'entries_changed' });
             this._emit({ type: 'status_updated' });
@@ -211,13 +263,14 @@ export const WatchlistService = {
             const caps = await res.json();
             if (!caps?.ok) throw new Error('capabilities not ok');
 
-            this._capabilities = { watchlist: !!caps.watchlist, events: !!caps.events };
+            this._capabilities = { watchlist: !!caps.watchlist, events: !!caps.events, push: !!caps.push };
             if (this._capabilities.watchlist || override === 'acars') {
                 this._source = 'acars';
                 console.log('[WatchlistService] ACARS watchlist backend detected', this._capabilities);
                 if (this._user) await this.refresh();
             }
             this._syncServerSubscription();
+            this._maybeRegisterForPush();
         } catch (_) {
             // Backend not ready (today's normal case) — stay on Supabase.
         }
@@ -291,6 +344,55 @@ export const WatchlistService = {
                 usernames: this.getWatchedUsernames(),
             });
         } catch (_) { /* best-effort */ }
+    },
+
+    // ─── Remote push registration (groundwork) ───────────────────────────────
+
+    /** True once the backend can deliver APNs pushes. Flight-tracking code
+     *  can use this to request push-capable Live Activities
+     *  (InflightLiveActivity.start({ ..., wantsPushUpdates: true })). */
+    isPushAvailable() {
+        return this._capabilities.push;
+    },
+
+    _maybeRegisterForPush() {
+        if (!this._capabilities.push || !this._user) return;
+        // Silent on iOS — the user-facing permission prompt is handled by
+        // liveActivity.js on launch. The APNs token lands via the
+        // 'inflight:remote-push-token' event, which calls _uploadDeviceToken.
+        window.InflightLiveActivity?.registerForRemotePush?.();
+        this._uploadDeviceToken();
+    },
+
+    async _uploadDeviceToken() {
+        if (!this._capabilities.push || !this._user || !this._pushDeviceToken) return;
+        const key = `${this._pushDeviceToken}:${this._user.id}`;
+        if (this._uploadedDeviceKey === key) return;
+        try {
+            const res = await this._fetchWithTimeout(`${this._backendUrl}/api/push/devices`, {
+                method:  'POST',
+                headers: await this._authHeaders(),
+                body:    JSON.stringify({ deviceToken: this._pushDeviceToken, platform: 'ios' }),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            this._uploadedDeviceKey = key;
+        } catch (err) {
+            console.warn('[WatchlistService] Device token upload failed:', err.message);
+        }
+    },
+
+    async _uploadLiveActivityToken({ token, kind, activityId, flightId }) {
+        if (!this._capabilities.push) return;
+        try {
+            const res = await this._fetchWithTimeout(`${this._backendUrl}/api/push/live-activity-tokens`, {
+                method:  'POST',
+                headers: await this._authHeaders(),
+                body:    JSON.stringify({ token, kind, activityId, flightId }),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        } catch (err) {
+            console.warn('[WatchlistService] Live Activity token upload failed:', err.message);
+        }
     },
 
     // ─── Supabase fallback transport ─────────────────────────────────────────

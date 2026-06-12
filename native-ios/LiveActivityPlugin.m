@@ -5,6 +5,8 @@ CAP_PLUGIN(LiveActivityPlugin, "LiveActivity",
     CAP_PLUGIN_METHOD(requestNotificationPermission, CAPPluginReturnPromise);
     CAP_PLUGIN_METHOD(getNotificationPermissionStatus, CAPPluginReturnPromise);
     CAP_PLUGIN_METHOD(presentLocalNotification, CAPPluginReturnPromise);
+    CAP_PLUGIN_METHOD(registerForRemotePush, CAPPluginReturnPromise);
+    CAP_PLUGIN_METHOD(getRemotePushToken, CAPPluginReturnPromise);
     CAP_PLUGIN_METHOD(openSystemSettings, CAPPluginReturnPromise);
     CAP_PLUGIN_METHOD(areActivitiesEnabled, CAPPluginReturnPromise);
     CAP_PLUGIN_METHOD(start, CAPPluginReturnPromise);

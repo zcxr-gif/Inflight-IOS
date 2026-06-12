@@ -11593,6 +11593,10 @@ function setupAircraftWindowEvents() {
                     showNotification?.('Could not read flight data yet — try again in a moment.', 'error');
                     return;
                 }
+                // Once the ACARS backend supports push, request an
+                // ActivityKit push token so the lock screen keeps updating
+                // with the app closed. No-op (local-only activity) until then.
+                payload.wantsPushUpdates = WatchlistService.isPushAvailable();
                 const res = await window.InflightLiveActivity.start(payload);
                 if (res?.ok) {
                     showNotification?.('Tracking on Lock Screen.', 'success');
