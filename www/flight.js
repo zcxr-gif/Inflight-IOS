@@ -4,6 +4,7 @@ import { LandingUI } from './landingUI.js';
 import { initPlaneSizeSlider } from './planeSizeController.js';
 import { GroupFlightManager } from './groupFlightManager.js';
 import { updateActiveSectors } from './atcHighlights.js';
+import { applyTerrainMode, removeTerrainMode } from './terrainMode.js';
 import { NatTracksLayer } from './natTracksLayer.js';
 import { FlownPath3D } from './flownPath3D.js';
 import { LiveTraffic3D } from './liveTraffic3D.js';
@@ -640,6 +641,17 @@ let mapFilters = {
         // the classic DOM airport tags.
         useClassicAirportTags: false,
         hideNoAtcMarkers: false,
+        // ATC sector (FIR) boundary overlay. When on, active controllers'
+        // FIR boundaries are drawn on the map; when off, they stay hidden
+        // even while ATC is online. See applyAtcBoundaryVisibility().
+        showAtcBoundaries: true,
+        // Terrain Awareness mode (free for everyone). showTerrainMode draws the
+        // hypsometric elevation map + hillshade; terrainTawsEnabled switches the
+        // colouring to be relative to terrainTawsAltitude (ft). See
+        // refreshTerrainMode() and terrainMode.js.
+        showTerrainMode: false,
+        terrainTawsEnabled: false,
+        terrainTawsAltitude: 10000,
         planDisplayMode: 'none',
         mapStyle: 'dark',
         iconColorMode: 'default',
@@ -5501,45 +5513,45 @@ async function initializeMapBoundaries(map) {
         }
 
         const styleMode = mapFilters.mapStyle || 'dark';
-        const borderColor = (styleMode === 'light') ? '#0f172a' : '#ffffff'; 
-        const borderOpacity = (styleMode === 'light') ? 0.3 : 0.2;
+        // Aeronautical-chart styling for the FIR boundary network: a clean cyan
+        // line on dark maps, a deep sky line on light maps.
+        const borderColor = (styleMode === 'light') ? '#0369a1' : '#67e8f9';
+        const borderOpacity = (styleMode === 'light') ? 0.5 : 0.45;
 
         // FIX: Check if the plane layer exists before trying to place boundaries under it
-        const beforeId = map.getLayer('sector-ops-live-flights-layer') 
-            ? 'sector-ops-live-flights-layer' 
+        const beforeId = map.getLayer('sector-ops-live-flights-layer')
+            ? 'sector-ops-live-flights-layer'
             : undefined;
 
-        // 2. fir-fills Layer
+        // 2. fir-fills Layer — a faint translucent tint applied ONLY to sectors
+        // that currently have a controller online. updateActiveSectors() sets
+        // the filter; until then nothing is tinted.
         if (!map.getLayer('fir-fills')) {
             map.addLayer({
                 id: 'fir-fills',
                 type: 'fill',
                 source: 'fir-boundaries',
+                filter: ['==', 'id', 'none-active'],
                 paint: {
                     'fill-color': '#22c55e',
-                    'fill-opacity': 0 
+                    'fill-opacity': 0.1
                 }
             }, beforeId); // Use safe reference
         }
 
-        // 3. fir-borders Layer
+        // 3. fir-borders Layer — the FULL FIR boundary network, drawn as clean
+        // thin lines. The lines look the same whether or not a sector is
+        // staffed; whether they show at all is controlled by the
+        // showAtcBoundaries toggle (see applyAtcBoundaryVisibility).
         if (!map.getLayer('fir-borders')) {
             map.addLayer({
                 id: 'fir-borders',
                 type: 'line',
                 source: 'fir-boundaries',
-                // Start completely hidden so boundaries don't draw unless ATC activates them
-                filter: ['==', 'id', 'hidden-by-default'],
                 paint: {
                     'line-color': borderColor,
                     'line-width': 0.8,
-                    // Support feature-state activation if the external ATC script relies on it
-                    'line-opacity': [
-                        'case',
-                        ['boolean', ['feature-state', 'active'], false],
-                        borderOpacity,
-                        0 
-                    ]
+                    'line-opacity': borderOpacity
                 }
             }, beforeId); // Use safe reference
         }
@@ -5547,7 +5559,47 @@ async function initializeMapBoundaries(map) {
     } catch (err) {
         console.error("Error loading local map boundaries:", err);
     }
+
+    // Honour the user's ATC-boundaries toggle for the freshly created layers.
+    applyAtcBoundaryVisibility(map);
 }
+
+// Show or hide every FIR boundary layer based on the showAtcBoundaries toggle.
+// Visibility is a layout property that persists until changed, so flipping the
+// toggle here is enough — updateActiveSectors keeps drawing only the active
+// sectors, but nothing is painted while the layers are hidden.
+function applyAtcBoundaryVisibility(map) {
+    const target = map || sectorOpsMap;
+    if (!target) return;
+    const vis = (mapFilters.showAtcBoundaries === false) ? 'none' : 'visible';
+    ['fir-fills', 'fir-borders'].forEach(id => {
+        if (target.getLayer(id)) {
+            target.setLayoutProperty(id, 'visibility', vis);
+        }
+    });
+}
+window.applyAtcBoundaryVisibility = applyAtcBoundaryVisibility;
+
+// Apply or remove Terrain Awareness mode to match the current mapFilters. Safe
+// to call repeatedly (layers are guarded) and from any state — applyTerrainMode
+// defers itself until the style is ready. Re-run on style swaps so the overlay
+// survives a base-map change, and whenever the TAWS toggle/altitude changes.
+function refreshTerrainMode() {
+    if (!sectorOpsMap) return;
+    if (mapFilters.showTerrainMode) {
+        applyTerrainMode(sectorOpsMap, {
+            tawsEnabled: !!mapFilters.terrainTawsEnabled,
+            altitudeFt: Number(mapFilters.terrainTawsAltitude) || 10000
+        });
+    } else {
+        removeTerrainMode(sectorOpsMap, {
+            // If the Pro 3D-terrain toggle is on it shares the DEM source, so
+            // hand elevation back to it instead of clearing the terrain.
+            keepDemTerrain: !!(mapFilters.proMapConfig && mapFilters.proMapConfig.showTerrain)
+        });
+    }
+}
+window.refreshTerrainMode = refreshTerrainMode;
 
 // 2. Fetch and display the Top 3 Pilots (Call this once on load, or on an interval)
 async function updateLeaderboard() {
@@ -7817,6 +7869,8 @@ function updateMapFilters() {
     updateAircraftLayerFilter();
     updateAircraftLabelVisibility();
     renderAirportMarkers();
+    applyAtcBoundaryVisibility();
+    refreshTerrainMode();
     updateToolbarButtonStates();
 }
 
@@ -11985,22 +12039,6 @@ function initializeAircraftLayer() {
                 const centerControllers = activeAtcFacilities.filter(f => f.type === 6);
                 if (typeof updateActiveSectors === 'function') {
                     updateActiveSectors(sectorOpsMap, 'fir-fills', centerControllers);
-                    
-                    setTimeout(() => {
-                        if (sectorOpsMap.getLayer('fir-borders') && sectorOpsMap.getLayer('fir-fills')) {
-                            const atcFilter = sectorOpsMap.getFilter('fir-fills');
-                            if (atcFilter) {
-                                sectorOpsMap.setFilter('fir-borders', atcFilter);
-                            } else {
-                                sectorOpsMap.setFilter('fir-borders', null);
-                            }
-                            
-                            const fillOp = sectorOpsMap.getPaintProperty('fir-fills', 'fill-opacity');
-                            if (Array.isArray(fillOp)) {
-                                sectorOpsMap.setPaintProperty('fir-borders', 'line-opacity', fillOp);
-                            }
-                        }
-                    }, 50);
                 }
             }
 
@@ -14884,6 +14922,9 @@ async function setupMapLayersAndFog() {
 
     // Initialize the aircraft layers now that icons are ready
     initializeAircraftLayer();
+
+    // Restore Terrain Awareness mode (survives cold start and style swaps).
+    refreshTerrainMode();
 }
 
 /**

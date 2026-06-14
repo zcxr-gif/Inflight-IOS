@@ -370,10 +370,24 @@ export const MobileSettingsUI = {
         return `
             <div class="mobile-section-header">ATC &amp; Airports</div>
             <div class="m-settings-list">
+                ${this.renderToggle('showAtcBoundaries', 'ATC Boundaries', 'fa-draw-polygon')}
                 ${this.renderToggle('useClassicAirportTags', 'Classic Airport Tags', 'fa-tags')}
                 ${this.renderToggle('showUnstaffedAirports', 'Show Unstaffed', 'fa-circle-dot')}
                 ${this.renderToggle('hideNoAtcMarkers', 'Hide No-ATC Dots', 'fa-location-dot')}
                 ${this.renderToggle('hideAtcMarkers', 'Hide ATC Markers', 'fa-headset')}
+            </div>
+
+            <div class="mobile-section-header">Terrain Awareness</div>
+            <div class="m-settings-list">
+                ${this.renderToggle('showTerrainMode', 'Terrain Elevation Map', 'fa-mountain-sun')}
+                ${this.renderToggle('terrainTawsEnabled', 'Altitude Coloring (TAWS)', 'fa-triangle-exclamation')}
+            </div>
+            <div class="m-setting-range-card">
+                <div class="range-header">
+                    <span>Planned Altitude</span>
+                    <span id="m-val-terrainTawsAltitude">10,000 ft</span>
+                </div>
+                <input type="range" class="m-range-input" data-setting="terrainTawsAltitude" min="0" max="45000" step="500">
             </div>
 
             ${this.renderAtcTagStudio()}
@@ -1006,6 +1020,13 @@ export const MobileSettingsUI = {
         `;
     },
 
+    // Formats a range slider's numeric value for its value label.
+    formatRangeValue(setting, val) {
+        if (setting === 'labelScale') return `${(parseFloat(val) || 1).toFixed(1)}×`;
+        if (setting === 'terrainTawsAltitude') return `${(parseInt(val, 10) || 0).toLocaleString()} ft`;
+        return `${val}`;
+    },
+
     renderToggle(id, label, icon, isPro = false) {
         return `
             <div class="m-setting-row ${isPro ? 'is-pro-feature' : ''}">
@@ -1573,7 +1594,7 @@ export const MobileSettingsUI = {
                 window.mapFilters[setting] = parseFloat(val);
                 const label = document.getElementById(`m-val-${setting}`);
                 if (label) {
-                    label.textContent = setting === 'labelScale' ? `${parseFloat(val).toFixed(1)}×` : val;
+                    label.textContent = this.formatRangeValue(setting, val);
                 }
                 if (setting === 'labelScale') {
                     this.updateLabelPreview();
@@ -1833,10 +1854,8 @@ export const MobileSettingsUI = {
             const val = filters[setting];
             if (val !== undefined && val !== null) input.value = val;
             const label = document.getElementById(`m-val-${setting}`);
-            if (label) {
-                label.textContent = setting === 'labelScale'
-                    ? `${(parseFloat(val) || 1).toFixed(1)}×`
-                    : val;
+            if (label && val !== undefined && val !== null) {
+                label.textContent = this.formatRangeValue(setting, val);
             }
         });
 
