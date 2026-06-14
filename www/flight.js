@@ -4,6 +4,7 @@ import { LandingUI } from './landingUI.js';
 import { initPlaneSizeSlider } from './planeSizeController.js';
 import { GroupFlightManager } from './groupFlightManager.js';
 import { updateActiveSectors } from './atcHighlights.js';
+import { applyTerrainMode, removeTerrainMode } from './terrainMode.js';
 import { NatTracksLayer } from './natTracksLayer.js';
 import { FlownPath3D } from './flownPath3D.js';
 import { LiveTraffic3D } from './liveTraffic3D.js';
@@ -644,6 +645,13 @@ let mapFilters = {
         // FIR boundaries are drawn on the map; when off, they stay hidden
         // even while ATC is online. See applyAtcBoundaryVisibility().
         showAtcBoundaries: true,
+        // Terrain Awareness mode (free for everyone). showTerrainMode draws the
+        // hypsometric elevation map + hillshade; terrainTawsEnabled switches the
+        // colouring to be relative to terrainTawsAltitude (ft). See
+        // refreshTerrainMode() and terrainMode.js.
+        showTerrainMode: false,
+        terrainTawsEnabled: false,
+        terrainTawsAltitude: 10000,
         planDisplayMode: 'none',
         mapStyle: 'dark',
         iconColorMode: 'default',
@@ -5572,6 +5580,27 @@ function applyAtcBoundaryVisibility(map) {
 }
 window.applyAtcBoundaryVisibility = applyAtcBoundaryVisibility;
 
+// Apply or remove Terrain Awareness mode to match the current mapFilters. Safe
+// to call repeatedly (layers are guarded) and from any state — applyTerrainMode
+// defers itself until the style is ready. Re-run on style swaps so the overlay
+// survives a base-map change, and whenever the TAWS toggle/altitude changes.
+function refreshTerrainMode() {
+    if (!sectorOpsMap) return;
+    if (mapFilters.showTerrainMode) {
+        applyTerrainMode(sectorOpsMap, {
+            tawsEnabled: !!mapFilters.terrainTawsEnabled,
+            altitudeFt: Number(mapFilters.terrainTawsAltitude) || 10000
+        });
+    } else {
+        removeTerrainMode(sectorOpsMap, {
+            // If the Pro 3D-terrain toggle is on it shares the DEM source, so
+            // hand elevation back to it instead of clearing the terrain.
+            keepDemTerrain: !!(mapFilters.proMapConfig && mapFilters.proMapConfig.showTerrain)
+        });
+    }
+}
+window.refreshTerrainMode = refreshTerrainMode;
+
 // 2. Fetch and display the Top 3 Pilots (Call this once on load, or on an interval)
 async function updateLeaderboard() {
     const container = document.getElementById('leaderboard-list'); // Ensure you have this ID in your HTML
@@ -7841,6 +7870,7 @@ function updateMapFilters() {
     updateAircraftLabelVisibility();
     renderAirportMarkers();
     applyAtcBoundaryVisibility();
+    refreshTerrainMode();
     updateToolbarButtonStates();
 }
 
@@ -14892,6 +14922,9 @@ async function setupMapLayersAndFog() {
 
     // Initialize the aircraft layers now that icons are ready
     initializeAircraftLayer();
+
+    // Restore Terrain Awareness mode (survives cold start and style swaps).
+    refreshTerrainMode();
 }
 
 /**
