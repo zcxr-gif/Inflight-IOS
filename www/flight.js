@@ -352,7 +352,8 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
                     showWaterLabels: true,
                     showTerrain: true,
                     showAirportLayout: true,
-                    showLandUse: true
+                    showLandUse: true,
+                    showAirspace: false
                 };
                 mapFilters.showBuildings = false;
                 mapFilters.showDayNight = false;
@@ -621,7 +622,8 @@ let mapFilters = {
             showWaterLabels: true,
             showTerrain: true,   // Terrain Hillshading
             showAirportLayout: true,   // [RENAMED] Airport Layout (Runways & Taxiways)
-            showLandUse: true    // Parks, Forests, etc.
+            showLandUse: true,   // Parks, Forests, etc.
+            showAirspace: false  // Class B/C/D + special-use airspace overlay (Airspace.geojson)
         },
         show3DPath: false,
         live3DTraffic: false, // 3D elevated dot view for live traffic (toolbar/settings toggle)
@@ -11091,6 +11093,133 @@ function updatePro3DLayers() {
 
     // 3. Update Day/Night Terminator
     updateDayNightTerminator();
+
+    // 4. Update Airspace overlay (Class B/C/D + special-use areas)
+    updateAirspaceOverlay();
+}
+
+/**
+ * --- PRO Airspace Overlay ---
+ * Renders the bundled global airspace file (Airspace.geojson): controlled
+ * classes (B/C/D/E) as soft tinted rings and special-use areas (prohibited,
+ * restricted, danger, MOA) in alert colours. Lazy-loaded — the GeoJSON source
+ * is only fetched the first time the user enables the layer. Styling is driven
+ * entirely off each feature's `cat` property so this stays data-agnostic if the
+ * file is later regenerated from a richer source.
+ *
+ * Data is approximate and for situational awareness only — NOT for navigation.
+ * See tools/generate-airspace.js.
+ */
+function updateAirspaceOverlay() {
+    if (!sectorOpsMap) return;
+
+    const sourceId = 'airspace-source';
+    const fillId = 'airspace-fill';
+    const lineId = 'airspace-line';        // controlled classes — solid
+    const lineSuaId = 'airspace-line-sua'; // special-use areas — dashed
+    const labelId = 'airspace-label';
+    const isVisible = !!(mapFilters.proMapConfig && mapFilters.proMapConfig.showAirspace);
+
+    // Per-category colour: controlled classes in blues/cyans, special-use in
+    // reds/oranges. ['get','cat'] resolves to the baked feature property.
+    const colorExpr = [
+        'match', ['get', 'cat'],
+        'B', '#3b82f6',   // Class B — blue
+        'C', '#a855f7',   // Class C — violet
+        'D', '#38bdf8',   // Class D — sky
+        'E', '#64748b',   // Class E — slate
+        'P', '#ef4444',   // Prohibited — red
+        'R', '#f97316',   // Restricted — orange
+        'DGR', '#f59e0b', // Danger — amber
+        'MOA', '#ec4899', // Military ops area — pink
+        'W', '#fb923c',   // Warning — orange
+        'A', '#eab308',   // Alert — yellow
+        '#94a3b8'         // fallback
+    ];
+
+    if (!isVisible) {
+        [fillId, lineId, lineSuaId, labelId].forEach(id => {
+            if (sectorOpsMap.getLayer(id)) sectorOpsMap.setLayoutProperty(id, 'visibility', 'none');
+        });
+        return;
+    }
+
+    // Create the source lazily on first enable.
+    if (!sectorOpsMap.getSource(sourceId)) {
+        sectorOpsMap.addSource(sourceId, { type: 'geojson', data: './Airspace.geojson' });
+    }
+
+    // Keep the overlay beneath the live-traffic layer so planes stay on top.
+    const beforeId = sectorOpsMap.getLayer('sector-ops-live-flights-layer')
+        ? 'sector-ops-live-flights-layer'
+        : undefined;
+
+    if (!sectorOpsMap.getLayer(fillId)) {
+        sectorOpsMap.addLayer({
+            id: fillId,
+            type: 'fill',
+            source: sourceId,
+            paint: {
+                'fill-color': colorExpr,
+                // Special-use areas read more solidly than controlled classes.
+                'fill-opacity': ['case', ['==', ['get', 'kind'], 'sua'], 0.14, 0.07]
+            }
+        }, beforeId);
+    } else {
+        sectorOpsMap.setLayoutProperty(fillId, 'visibility', 'visible');
+    }
+
+    // Controlled classes — solid boundary. (line-dasharray is not a
+    // data-driven property in Mapbox GL JS, so SUA is a separate dashed layer.)
+    if (!sectorOpsMap.getLayer(lineId)) {
+        sectorOpsMap.addLayer({
+            id: lineId,
+            type: 'line',
+            source: sourceId,
+            filter: ['!=', ['get', 'kind'], 'sua'],
+            layout: { 'line-join': 'round' },
+            paint: { 'line-color': colorExpr, 'line-width': 1.1, 'line-opacity': 0.7 }
+        }, beforeId);
+    } else {
+        sectorOpsMap.setLayoutProperty(lineId, 'visibility', 'visible');
+    }
+
+    // Special-use areas — dashed boundary (aeronautical chart convention).
+    if (!sectorOpsMap.getLayer(lineSuaId)) {
+        sectorOpsMap.addLayer({
+            id: lineSuaId,
+            type: 'line',
+            source: sourceId,
+            filter: ['==', ['get', 'kind'], 'sua'],
+            layout: { 'line-join': 'round' },
+            paint: { 'line-color': colorExpr, 'line-width': 1.6, 'line-opacity': 0.8, 'line-dasharray': [2, 1.5] }
+        }, beforeId);
+    } else {
+        sectorOpsMap.setLayoutProperty(lineSuaId, 'visibility', 'visible');
+    }
+
+    if (!sectorOpsMap.getLayer(labelId)) {
+        sectorOpsMap.addLayer({
+            id: labelId,
+            type: 'symbol',
+            source: sourceId,
+            minzoom: 5,
+            layout: {
+                'text-field': ['coalesce', ['get', 'ident'], ['get', 'name']],
+                'text-size': 11,
+                'text-font': ['DIN Offc Pro Medium', 'Arial Unicode MS Regular'],
+                'text-allow-overlap': false,
+                'symbol-placement': 'point'
+            },
+            paint: {
+                'text-color': colorExpr,
+                'text-halo-color': 'rgba(2,6,23,0.85)',
+                'text-halo-width': 1.4
+            }
+        }, beforeId);
+    } else {
+        sectorOpsMap.setLayoutProperty(labelId, 'visibility', 'visible');
+    }
 }
 
 /**
@@ -13549,6 +13678,16 @@ renderCategory(catId) {
                                         <span class="toggle-slider"></span>
                                     </label>
                                 </div>
+                                <div class="settings-row">
+                                    <div class="row-label"><i class="fa-solid fa-layer-group"></i> Airspace (Class B/C/D)</div>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="pro-toggle-airspace" ${mapFilters.proMapConfig.showAirspace ? 'checked' : ''} ${!isSignedIn ? 'disabled' : ''}>
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                                <div style="padding: 4px 2px 0; font-size: 0.68rem; color: #71717a; line-height: 1.3;">
+                                    Approximate airspace for awareness only — not for real-world navigation.
+                                </div>
                             </div>
                         </div>
 
@@ -13922,7 +14061,8 @@ renderCategory(catId) {
     'pro-toggle-layout': 'showAirportLayout',
     'pro-toggle-landuse': 'showLandUse',
     'pro-toggle-buildings': 'showBuildings', // NEW
-    'pro-toggle-daynight': 'showDayNight'    // NEW
+    'pro-toggle-daynight': 'showDayNight',   // NEW
+    'pro-toggle-airspace': 'showAirspace'    // Class B/C/D + special-use overlay
 };
 
         // --- 2. Define General Settings IDs ---

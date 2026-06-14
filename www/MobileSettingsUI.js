@@ -287,6 +287,10 @@ export const MobileSettingsUI = {
                                 ${this.renderToggle('showTerrain', '3D Terrain (Elevation)', 'fa-mountain', true)}
                                 ${this.renderToggle('showBuildings', '3D Buildings', 'fa-city', true)}
                                 ${this.renderToggle('showDayNight', 'Day/Night Terminator', 'fa-moon', true)}
+                                ${this.renderToggle('showAirspace', 'Airspace (Class B/C/D)', 'fa-layer-group', true)}
+                            </div>
+                            <div style="padding: 4px 14px 0; font-size: 0.7rem; color: var(--m-text-dim, #71717a); line-height: 1.3;">
+                                Approximate airspace for awareness only — not for real-world navigation.
                             </div>
 
                             <div class="mobile-section-header pro-accent"><i class="fa-solid fa-star"></i> <span class="ios-hide">PRO </span>Base Map Detail</div>
