@@ -202,4 +202,14 @@ export function updateActiveSectors(map, layerId, atcData) {
         map.setFilter('fir-active-labels', filterExpression);
         map.setPaintProperty('fir-active-labels', 'text-opacity', 1);
     }
+
+    // Respect the user's ATC-boundaries toggle. The fir-active-labels layer is
+    // created lazily above, so re-assert visibility here to cover the case
+    // where a brand-new layer appears while the overlay is switched off.
+    const boundariesOn = !(window.mapFilters && window.mapFilters.showAtcBoundaries === false);
+    ['fir-fills', 'fir-borders', 'fir-active-labels'].forEach(id => {
+        if (map.getLayer(id)) {
+            map.setLayoutProperty(id, 'visibility', boundariesOn ? 'visible' : 'none');
+        }
+    });
 }

@@ -640,6 +640,10 @@ let mapFilters = {
         // the classic DOM airport tags.
         useClassicAirportTags: false,
         hideNoAtcMarkers: false,
+        // ATC sector (FIR) boundary overlay. When on, active controllers'
+        // FIR boundaries are drawn on the map; when off, they stay hidden
+        // even while ATC is online. See applyAtcBoundaryVisibility().
+        showAtcBoundaries: true,
         planDisplayMode: 'none',
         mapStyle: 'dark',
         iconColorMode: 'default',
@@ -5547,7 +5551,26 @@ async function initializeMapBoundaries(map) {
     } catch (err) {
         console.error("Error loading local map boundaries:", err);
     }
+
+    // Honour the user's ATC-boundaries toggle for the freshly created layers.
+    applyAtcBoundaryVisibility(map);
 }
+
+// Show or hide every FIR boundary layer based on the showAtcBoundaries toggle.
+// Visibility is a layout property that persists until changed, so flipping the
+// toggle here is enough — updateActiveSectors keeps drawing only the active
+// sectors, but nothing is painted while the layers are hidden.
+function applyAtcBoundaryVisibility(map) {
+    const target = map || sectorOpsMap;
+    if (!target) return;
+    const vis = (mapFilters.showAtcBoundaries === false) ? 'none' : 'visible';
+    ['fir-fills', 'fir-borders', 'fir-active-labels'].forEach(id => {
+        if (target.getLayer(id)) {
+            target.setLayoutProperty(id, 'visibility', vis);
+        }
+    });
+}
+window.applyAtcBoundaryVisibility = applyAtcBoundaryVisibility;
 
 // 2. Fetch and display the Top 3 Pilots (Call this once on load, or on an interval)
 async function updateLeaderboard() {
@@ -7817,6 +7840,7 @@ function updateMapFilters() {
     updateAircraftLayerFilter();
     updateAircraftLabelVisibility();
     renderAirportMarkers();
+    applyAtcBoundaryVisibility();
     updateToolbarButtonStates();
 }
 

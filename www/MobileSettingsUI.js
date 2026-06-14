@@ -370,6 +370,7 @@ export const MobileSettingsUI = {
         return `
             <div class="mobile-section-header">ATC &amp; Airports</div>
             <div class="m-settings-list">
+                ${this.renderToggle('showAtcBoundaries', 'ATC Boundaries', 'fa-draw-polygon')}
                 ${this.renderToggle('useClassicAirportTags', 'Classic Airport Tags', 'fa-tags')}
                 ${this.renderToggle('showUnstaffedAirports', 'Show Unstaffed', 'fa-circle-dot')}
                 ${this.renderToggle('hideNoAtcMarkers', 'Hide No-ATC Dots', 'fa-location-dot')}
