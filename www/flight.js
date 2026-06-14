@@ -5516,7 +5516,10 @@ async function initializeMapBoundaries(map) {
         // Aeronautical-chart styling for the FIR boundary network: a clean cyan
         // line on dark maps, a deep sky line on light maps.
         const borderColor = (styleMode === 'light') ? '#0369a1' : '#67e8f9';
-        const borderOpacity = (styleMode === 'light') ? 0.5 : 0.45;
+        // Keep the FIR network legible but ghost-thin — the old 0.45/0.5 lines
+        // read as solid walls over the map. These softer values let the terrain
+        // and traffic underneath show through.
+        const borderOpacity = (styleMode === 'light') ? 0.3 : 0.22;
 
         // FIX: Check if the plane layer exists before trying to place boundaries under it
         const beforeId = map.getLayer('sector-ops-live-flights-layer')
@@ -5534,7 +5537,7 @@ async function initializeMapBoundaries(map) {
                 filter: ['==', 'id', 'none-active'],
                 paint: {
                     'fill-color': '#22c55e',
-                    'fill-opacity': 0.1
+                    'fill-opacity': 0.06
                 }
             }, beforeId); // Use safe reference
         }
@@ -5550,7 +5553,7 @@ async function initializeMapBoundaries(map) {
                 source: 'fir-boundaries',
                 paint: {
                     'line-color': borderColor,
-                    'line-width': 0.8,
+                    'line-width': 0.7,
                     'line-opacity': borderOpacity
                 }
             }, beforeId); // Use safe reference
@@ -15715,7 +15718,49 @@ function generateSmoothPath(points, tension = 0.5) {
 
 function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
     const features = [];
-    const allPoints = [...(trailPoints || [])];
+    const trail = trailPoints ? [...trailPoints] : [];
+
+    // --- CERTAIN ANTI-OVERSHOOT GUARD ----------------------------------------
+    // The live aircraft marker is the single authoritative leading edge of the
+    // flown path. The /history endpoint (and any cached trail) can briefly hold
+    // GPS samples that are *ahead* of the marker — newer in the backend than the
+    // socket frame the icon has consumed — which makes the trail poke out in
+    // front of the aircraft. Timestamps from the two feeds aren't guaranteed to
+    // share a clock, so rather than trusting them we trim geometrically: walk
+    // back from the newest trail sample and drop every point that lies in the
+    // forward hemisphere of the aircraft's current track. A sample physically
+    // ahead of the plane can never be part of where it has already flown, so
+    // this guarantees the path never extends past the icon — regardless of any
+    // clock skew or latency difference between the history and live feeds.
+    if (currentPosition
+        && Number.isFinite(currentPosition.lat)
+        && Number.isFinite(currentPosition.lon)
+        && Number.isFinite(currentPosition.heading_deg)) {
+        const hdg = currentPosition.heading_deg * Math.PI / 180;
+        const fwdE = Math.sin(hdg);            // east component of the track vector
+        const fwdN = Math.cos(hdg);            // north component of the track vector
+        const cosLat = Math.cos(currentPosition.lat * Math.PI / 180);
+        while (trail.length) {
+            const p = trail[trail.length - 1];
+            const pLat = p.latitude ?? p.lat;
+            const pLon = p.longitude ?? p.lon;
+            if (!Number.isFinite(pLat) || !Number.isFinite(pLon)) { trail.pop(); continue; }
+            let dLon = pLon - currentPosition.lon;
+            while (dLon > 180) dLon -= 360;     // shortest-way delta across the dateline
+            while (dLon < -180) dLon += 360;
+            const dN = pLat - currentPosition.lat;
+            const dE = dLon * cosLat;
+            // Projection of (point - marker) onto the forward track vector.
+            // > 0 ⇒ the sample sits ahead of the aircraft, so it must be dropped.
+            if (dN * fwdN + dE * fwdE > 1e-9) {
+                trail.pop();
+            } else {
+                break;
+            }
+        }
+    }
+
+    const allPoints = [...trail];
 
     // Push the live current position to complete the line
     if (currentPosition) {
@@ -16077,7 +16122,11 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             ? {
                 lat: liveFeature.geometry.coordinates[1],
                 lon: liveFeature.geometry.coordinates[0],
-                alt_ft: liveFeature.properties?.altitude ?? flightProps.position?.alt_ft ?? 0
+                alt_ft: liveFeature.properties?.altitude ?? flightProps.position?.alt_ft ?? 0,
+                // Carry the marker's track so generateAltitudeColoredRoute's
+                // anti-overshoot guard can trim any history sample that sits
+                // ahead of the icon (see that function for the full rationale).
+                heading_deg: liveFeature.properties?.heading ?? flightProps.position?.heading_deg
               }
             : flightProps.position;
         const trailUpToMarker = (liveLastUpdateMs != null)
