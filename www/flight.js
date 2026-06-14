@@ -8917,7 +8917,9 @@ function handleSocketFlightUpdate(data) {
                 aircraft: aircraftData
             };
             
-            FlownPath3D.updatePath(sectorOpsMap, flightId, localTrail, mapFilters.show3DPath);
+            // Clamp the 3D extruded path to the live marker too, so it can't
+            // lead the icon (same guarantee the 2D line gets via clampTrailToMarker).
+            FlownPath3D.updatePath(sectorOpsMap, flightId, clampTrailToMarker(localTrail, flight.position), mapFilters.show3DPath);
 
             if (localTrail) {
                 const newRoutePoint = {
@@ -9002,9 +9004,9 @@ function handleSocketFlightUpdate(data) {
             liveTrailCache.set(flightId, localTrail);
             
             if (typeof FlownPath3D !== 'undefined') {
-                FlownPath3D.updatePath(sectorOpsMap, flightId, localTrail, mapFilters.show3DPath);
+                FlownPath3D.updatePath(sectorOpsMap, flightId, clampTrailToMarker(localTrail, flight.position), mapFilters.show3DPath);
             }
-            
+
             const flownLayerId = `flown-path-${flightId}`;
 
             if (sectorOpsMap && sectorOpsMap.getSource(flownLayerId)) {
@@ -15716,60 +15718,87 @@ function generateSmoothPath(points, tension = 0.5) {
     return result;
 }
 
-function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
-    const features = [];
-    const trail = trailPoints ? [...trailPoints] : [];
+/**
+ * Clamp a flown-trail to the live aircraft marker so it can NEVER render ahead
+ * of the icon. Returns a fresh, normalised array ({latitude, longitude,
+ * altitude, ...}) with two guarantees:
+ *
+ *   1. Any trailing samples that sit in the *forward hemisphere* of the
+ *      aircraft's current track are dropped. The /history endpoint (and a
+ *      cached trail) can briefly hold GPS samples that are newer in the backend
+ *      than the socket frame the marker has consumed; those points are
+ *      physically ahead of the plane, and a place it hasn't reached yet can't be
+ *      part of where it has already flown. We trim geometrically rather than by
+ *      timestamp because the history and live feeds aren't guaranteed to share a
+ *      clock — projection onto the heading vector is immune to that skew.
+ *   2. The marker position itself is appended as the definitive leading edge,
+ *      so the path always terminates exactly at the icon.
+ *
+ * Shared by the 2D altitude-coloured line and the 3D extruded path so neither
+ * can lead the aircraft.
+ */
+function clampTrailToMarker(trail, markerPos) {
+    const out = [];
+    const src = Array.isArray(trail) ? trail : [];
+    for (let i = 0; i < src.length; i++) {
+        const p = src[i];
+        const lat = p.latitude ?? p.lat;
+        const lon = p.longitude ?? p.lon;
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+        out.push({
+            latitude: lat,
+            longitude: lon,
+            altitude: p.altitude ?? p.alt ?? 0,
+            groundSpeed: p.groundSpeed,
+            track: p.track,
+            date: p.date
+        });
+    }
 
-    // --- CERTAIN ANTI-OVERSHOOT GUARD ----------------------------------------
-    // The live aircraft marker is the single authoritative leading edge of the
-    // flown path. The /history endpoint (and any cached trail) can briefly hold
-    // GPS samples that are *ahead* of the marker — newer in the backend than the
-    // socket frame the icon has consumed — which makes the trail poke out in
-    // front of the aircraft. Timestamps from the two feeds aren't guaranteed to
-    // share a clock, so rather than trusting them we trim geometrically: walk
-    // back from the newest trail sample and drop every point that lies in the
-    // forward hemisphere of the aircraft's current track. A sample physically
-    // ahead of the plane can never be part of where it has already flown, so
-    // this guarantees the path never extends past the icon — regardless of any
-    // clock skew or latency difference between the history and live feeds.
-    if (currentPosition
-        && Number.isFinite(currentPosition.lat)
-        && Number.isFinite(currentPosition.lon)
-        && Number.isFinite(currentPosition.heading_deg)) {
-        const hdg = currentPosition.heading_deg * Math.PI / 180;
+    const haveMarker = markerPos
+        && Number.isFinite(markerPos.lat)
+        && Number.isFinite(markerPos.lon);
+
+    // (1) Drop samples ahead of the aircraft along its track.
+    if (haveMarker && Number.isFinite(markerPos.heading_deg)) {
+        const hdg = markerPos.heading_deg * Math.PI / 180;
         const fwdE = Math.sin(hdg);            // east component of the track vector
         const fwdN = Math.cos(hdg);            // north component of the track vector
-        const cosLat = Math.cos(currentPosition.lat * Math.PI / 180);
-        while (trail.length) {
-            const p = trail[trail.length - 1];
-            const pLat = p.latitude ?? p.lat;
-            const pLon = p.longitude ?? p.lon;
-            if (!Number.isFinite(pLat) || !Number.isFinite(pLon)) { trail.pop(); continue; }
-            let dLon = pLon - currentPosition.lon;
+        const cosLat = Math.cos(markerPos.lat * Math.PI / 180);
+        while (out.length) {
+            const p = out[out.length - 1];
+            let dLon = p.longitude - markerPos.lon;
             while (dLon > 180) dLon -= 360;     // shortest-way delta across the dateline
             while (dLon < -180) dLon += 360;
-            const dN = pLat - currentPosition.lat;
+            const dN = p.latitude - markerPos.lat;
             const dE = dLon * cosLat;
             // Projection of (point - marker) onto the forward track vector.
             // > 0 ⇒ the sample sits ahead of the aircraft, so it must be dropped.
             if (dN * fwdN + dE * fwdE > 1e-9) {
-                trail.pop();
+                out.pop();
             } else {
                 break;
             }
         }
     }
 
-    const allPoints = [...trail];
-
-    // Push the live current position to complete the line
-    if (currentPosition) {
-        allPoints.push({
-            latitude: currentPosition.lat,
-            longitude: currentPosition.lon,
-            altitude: currentPosition.alt_ft || 0
+    // (2) Anchor the leading edge exactly at the marker.
+    if (haveMarker) {
+        out.push({
+            latitude: markerPos.lat,
+            longitude: markerPos.lon,
+            altitude: markerPos.alt_ft ?? 0
         });
     }
+
+    return out;
+}
+
+function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
+    const features = [];
+    // The shared clamp both trims any samples ahead of the icon and appends the
+    // live marker as the leading edge, so the line can never poke past the plane.
+    const allPoints = clampTrailToMarker(trailPoints, currentPosition);
 
     if (allPoints.length < 2) {
         return { type: 'FeatureCollection', features: [] };
@@ -16050,7 +16079,20 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         if (typeof liveTrailCache !== 'undefined') liveTrailCache.set(flightProps.flightId, sortedRoutePoints);
 
         if (typeof FlownPath3D !== 'undefined') {
-            FlownPath3D.updatePath(sectorOpsMap, flightProps.flightId, sortedRoutePoints, mapFilters.show3DPath);
+            // Resolve the live marker (fresher than the click-time snapshot) so
+            // the 3D path is clamped to the icon and the full /history breadcrumb
+            // can't extend the extruded tube past the aircraft on first open.
+            const liveFeat3D = (typeof currentMapFeatures !== 'undefined')
+                ? currentMapFeatures[flightProps.flightId] : null;
+            const marker3D = liveFeat3D?.geometry?.coordinates
+                ? {
+                    lat: liveFeat3D.geometry.coordinates[1],
+                    lon: liveFeat3D.geometry.coordinates[0],
+                    alt_ft: liveFeat3D.properties?.altitude ?? flightProps.position?.alt_ft ?? 0,
+                    heading_deg: liveFeat3D.properties?.heading ?? flightProps.position?.heading_deg
+                  }
+                : flightProps.position;
+            FlownPath3D.updatePath(sectorOpsMap, flightProps.flightId, clampTrailToMarker(sortedRoutePoints, marker3D), mapFilters.show3DPath);
         }
 
         if (currentFlightInWindow === flightProps.flightId) {
