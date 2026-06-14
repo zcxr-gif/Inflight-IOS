@@ -122,10 +122,10 @@ export function updateActiveSectors(map, layerId, atcData) {
     const activeIds = Array.from(activeIdsSet).sort();
 
     // Short-circuit: if the active set is identical to what's already applied
-    // and the layers exist, there is nothing to redraw. This is what makes the
-    // 50 s refresh cycle free instead of a full filter rebuild every time.
+    // and the highlight layer exists, there is nothing to redraw. This is what
+    // makes the 50 s refresh cycle free instead of a full filter rebuild.
     const activeKey = activeIds.join('|');
-    if (activeKey === _lastActiveKey && map.getLayer('fir-active-labels')) {
+    if (activeKey === _lastActiveKey && map.getLayer(layerId)) {
         return;
     }
     _lastActiveKey = activeKey;
@@ -135,7 +135,7 @@ export function updateActiveSectors(map, layerId, atcData) {
     let filterExpression;
 
     if (activeIds.length === 0) {
-        // If no ATC is online, apply an impossible condition to hide everything natively.
+        // If no ATC is online, apply an impossible condition so nothing is tinted.
         filterExpression = ["==", "id", "NONE_ACTIVE"];
     } else {
         filterExpression = ["any"];
@@ -146,68 +146,30 @@ export function updateActiveSectors(map, layerId, atcData) {
         });
     }
 
-    // --- FILTERING AND STYLING ---
-
-    // Apply the filter directly to the FILL layer to kill any default faint outlines
+    // --- HIGHLIGHT STAFFED SECTORS -------------------------------------------
+    // The full FIR boundary network is drawn by the always-on 'fir-borders'
+    // line layer (set up in initializeMapBoundaries). All we do on each refresh
+    // is give the sectors that currently have a controller online a faint
+    // translucent tint, so staffed airspace reads at a glance. No red overlays,
+    // no text labels — those were the ugly, broken parts of the old behaviour.
     map.setFilter(layerId, filterExpression);
-    map.setPaintProperty(layerId, 'fill-color', 'rgba(0, 0, 0, 0)');
-    map.setPaintProperty(layerId, 'fill-opacity', 0);
+    map.setPaintProperty(layerId, 'fill-color', '#22c55e');
+    map.setPaintProperty(layerId, 'fill-opacity', activeIds.length ? 0.12 : 0);
 
-    if (map.getLayer('fir-borders')) {
-        // Move borders below aircraft but above terrain
-        if (map.getLayer('sector-ops-live-flights-layer')) {
-            map.moveLayer('fir-borders', 'sector-ops-live-flights-layer');
-        }
-
-        // Apply the exact filter to the borders layer so only active ones exist on the GPU
-        map.setFilter('fir-borders', filterExpression);
-
-        // Hardcode the active styling since everything else is filtered out
-        map.setPaintProperty('fir-borders', 'line-color', '#ff0000');
-        map.setPaintProperty('fir-borders', 'line-width', 2.0);
-
-        // --- ADD OR UPDATE THE LABEL STRIP LAYER ---
-
-        if (!map.getLayer('fir-active-labels')) {
-            const borderLayer = map.getLayer('fir-borders');
-
-            const labelLayer = {
-                id: 'fir-active-labels',
-                type: 'symbol',
-                source: borderLayer.source,
-                layout: {
-                    'symbol-placement': 'line',
-                    'text-field': ['get', 'id'],
-                    'text-size': 14,
-                    'text-offset': [0, 1.2],
-                    'text-anchor': 'top',
-                    'text-max-angle': 45
-                },
-                paint: {
-                    'text-color': '#ff0000',
-                    'text-halo-color': 'rgba(255, 255, 255, 0.95)',
-                    'text-halo-width': 4,
-                    'text-opacity': 1
-                }
-            };
-
-            if (borderLayer.sourceLayer) {
-                labelLayer['source-layer'] = borderLayer.sourceLayer;
-            }
-
-            map.addLayer(labelLayer, 'sector-ops-live-flights-layer');
-        }
-
-        // Apply the exact same filter to the labels layer
-        map.setFilter('fir-active-labels', filterExpression);
-        map.setPaintProperty('fir-active-labels', 'text-opacity', 1);
+    // Remove the legacy red label layer if an older build left it behind.
+    if (map.getLayer('fir-active-labels')) {
+        map.removeLayer('fir-active-labels');
     }
 
-    // Respect the user's ATC-boundaries toggle. The fir-active-labels layer is
-    // created lazily above, so re-assert visibility here to cover the case
-    // where a brand-new layer appears while the overlay is switched off.
+    // Keep the boundary layers below the aircraft so planes always sit on top.
+    if (map.getLayer('sector-ops-live-flights-layer')) {
+        if (map.getLayer('fir-fills')) map.moveLayer('fir-fills', 'sector-ops-live-flights-layer');
+        if (map.getLayer('fir-borders')) map.moveLayer('fir-borders', 'sector-ops-live-flights-layer');
+    }
+
+    // Respect the user's ATC-boundaries toggle for both overlay layers.
     const boundariesOn = !(window.mapFilters && window.mapFilters.showAtcBoundaries === false);
-    ['fir-fills', 'fir-borders', 'fir-active-labels'].forEach(id => {
+    ['fir-fills', 'fir-borders'].forEach(id => {
         if (map.getLayer(id)) {
             map.setLayoutProperty(id, 'visibility', boundariesOn ? 'visible' : 'none');
         }
