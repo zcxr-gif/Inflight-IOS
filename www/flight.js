@@ -8955,6 +8955,10 @@ function handleSocketFlightUpdate(data) {
                          {
                              imageUrl: fullFlightProps.communityImageUrl,
                              contributorName: fullFlightProps.contributorName,
+                             // Carry the full photo set so live telemetry ticks
+                             // keep (rather than collapse) the hero carousel.
+                             imageUrls: fullFlightProps.communityImageUrls,
+                             imageContributors: fullFlightProps.imageContributors,
                              tailNumber: fullFlightProps.tailNumber
                          },
                          cachedFlightDataForStatsView.filedPlanData || null
@@ -12489,10 +12493,32 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             liveryName: aircraft.liveryName,
             registration: finalRegistration
         },
-        images: {
-            url: communityData ? communityData.imageUrl : (flightProps.communityImageUrl || ''),
-            credit: communityData ? communityData.contributorName : (flightProps.contributorName || '')
-        },
+        images: (() => {
+            // Build the ordered photo list (up to 3) for the simple window's
+            // hero carousel. communityData carries the raw lookup keys
+            // (imageUrls / imageContributors); the flightProps fallback carries
+            // the normalised ones cached on the live feature. Keep url/credit
+            // (photo 1) at the top level for back-compat.
+            const asArray = (v) => {
+                if (Array.isArray(v)) return v;
+                if (typeof v === 'string' && v.trim().startsWith('[')) { try { return JSON.parse(v); } catch { return []; } }
+                return [];
+            };
+            const urls = communityData ? asArray(communityData.imageUrls) : asArray(flightProps.communityImageUrls);
+            const contributors = communityData ? asArray(communityData.imageContributors) : asArray(flightProps.imageContributors);
+            const fallbackUrl = communityData ? communityData.imageUrl : flightProps.communityImageUrl;
+            const fallbackCredit = communityData ? communityData.contributorName : flightProps.contributorName;
+            let list = urls.filter(Boolean).map((url, i) => ({
+                url,
+                credit: (contributors[i] && contributors[i].name) || fallbackCredit || ''
+            }));
+            if (!list.length && fallbackUrl) list = [{ url: fallbackUrl, credit: fallbackCredit || '' }];
+            return {
+                url: list[0] ? list[0].url : '',
+                credit: list[0] ? list[0].credit : '',
+                list
+            };
+        })(),
         route: {
             originIcao,
             originCountry,
