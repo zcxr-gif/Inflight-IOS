@@ -8676,10 +8676,21 @@ function getIntermediatePoint(lat1, lon1, lat2, lon2, fraction) {
                         data = data.length > 0 ? data[0] : null;
                     }
 
-                    if (data && data.imageUrl) {
-                        const result = { 
-                            communityImageUrl: data.imageUrl, 
-                            contributorName: data.contributorName || 'IF Community',
+                    const lookupUrls = (Array.isArray(data?.imageUrls) && data.imageUrls.length)
+                        ? data.imageUrls.filter(Boolean)
+                        : (data?.imageUrl ? [data.imageUrl] : []);
+                    if (data && lookupUrls.length) {
+                        const lookupContributors = (Array.isArray(data.imageContributors) && data.imageContributors.length)
+                            ? data.imageContributors
+                            : [{ name: data.contributorName || 'IF Community', id: data.contributorId || null }];
+                        const result = {
+                            // Legacy single-image fields mirror the first photo so
+                            // every existing consumer keeps working untouched.
+                            communityImageUrl: lookupUrls[0],
+                            contributorName: lookupContributors[0]?.name || data.contributorName || 'IF Community',
+                            // Full ordered set (up to 3) for the multi-image carousel.
+                            communityImageUrls: lookupUrls,
+                            imageContributors: lookupContributors,
                             tailNumber: data.tailNumber || null
                         };
                         communityAircraftCache.set(key, result); // Cache Success
@@ -8838,6 +8849,8 @@ function handleSocketFlightUpdate(data) {
 
             communityImageUrl: existingProps.communityImageUrl || null,
             contributorName: existingProps.contributorName || null,
+            communityImageUrls: existingProps.communityImageUrls || null,
+            imageContributors: existingProps.imageContributors || null,
             tailNumber: existingProps.tailNumber || null
         };
 
@@ -8848,6 +8861,8 @@ function handleSocketFlightUpdate(data) {
                 if (cachedData) {
                     newProperties.communityImageUrl = cachedData.communityImageUrl;
                     newProperties.contributorName = cachedData.contributorName;
+                    newProperties.communityImageUrls = cachedData.communityImageUrls;
+                    newProperties.imageContributors = cachedData.imageContributors;
                     newProperties.tailNumber = cachedData.tailNumber;
                 }
             } else if (!lookupQueue.has(lookupKey)) {
@@ -8856,6 +8871,8 @@ function handleSocketFlightUpdate(data) {
                         if (result && currentMapFeatures[flightId]) {
                             currentMapFeatures[flightId].properties.communityImageUrl = result.communityImageUrl;
                             currentMapFeatures[flightId].properties.contributorName = result.contributorName;
+                            currentMapFeatures[flightId].properties.communityImageUrls = result.communityImageUrls;
+                            currentMapFeatures[flightId].properties.imageContributors = result.imageContributors;
                             currentMapFeatures[flightId].properties.tailNumber = result.tailNumber;
                             // Replaced rapid-fire setData with the debounced map source updater
                             scheduleMapSourceUpdate();
@@ -16208,6 +16225,64 @@ function closeAircraftWindow() {
     }
 }
 
+// Turn the aircraft-window hero into a swipeable photo carousel when the
+// airframe has more than one community photo. The images sit beneath the
+// existing gradient overlay (so headers/buttons stay legible), while the dot
+// indicators and per-photo credit float above it. A single photo leaves the
+// hero's plain background-image untouched.
+function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
+    if (!panel) return;
+    // Re-render replaces innerHTML, so any prior carousel is already gone; this
+    // guard just avoids double-building within a single render pass.
+    if (panel.dataset.heroCarousel === '1') return;
+    if (!Array.isArray(photos) || photos.length < 2) return;
+    panel.dataset.heroCarousel = '1';
+
+    const track = document.createElement('div');
+    track.style.cssText = 'position:absolute;inset:0;z-index:0;display:flex;overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;scrollbar-width:none;';
+    photos.forEach(ph => {
+        const slide = document.createElement('div');
+        slide.style.cssText = `flex:0 0 100%;height:100%;scroll-snap-align:center;background-image:url('${ph.src}'),url('${fallbackPath}');background-size:cover;background-position:center;`;
+        track.appendChild(slide);
+    });
+    panel.insertBefore(track, panel.firstChild);
+
+    const dots = document.createElement('div');
+    dots.style.cssText = 'position:absolute;bottom:14px;left:0;right:0;z-index:3;display:flex;justify-content:center;gap:6px;pointer-events:none;';
+    const dotEls = photos.map((_, i) => {
+        const d = document.createElement('span');
+        d.style.cssText = `width:6px;height:6px;border-radius:50%;transition:all .2s ease;background:rgba(255,255,255,${i === 0 ? '0.95' : '0.45'});`;
+        dots.appendChild(d);
+        return d;
+    });
+    panel.appendChild(dots);
+
+    const credit = document.createElement('div');
+    credit.style.cssText = 'position:absolute;bottom:12px;right:16px;z-index:3;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;font-weight:600;color:rgba(255,255,255,.9);background:rgba(0,0,0,.5);padding:3px 8px;border-radius:999px;pointer-events:none;';
+    const setCredit = (i) => {
+        const n = photos[i] && photos[i].photographer;
+        credit.textContent = (n && n !== 'IF Community') ? `© ${n}` : '';
+        credit.style.display = credit.textContent ? '' : 'none';
+    };
+    setCredit(0);
+    panel.appendChild(credit);
+
+    let current = 0;
+    let raf = 0;
+    track.addEventListener('scroll', () => {
+        if (raf) return;
+        raf = requestAnimationFrame(() => {
+            raf = 0;
+            const w = track.clientWidth || 1;
+            const idx = Math.max(0, Math.min(photos.length - 1, Math.round(track.scrollLeft / w)));
+            if (idx === current) return;
+            current = idx;
+            dotEls.forEach((d, i) => { d.style.background = `rgba(255,255,255,${i === idx ? '0.95' : '0.45'})`; });
+            setCredit(idx);
+        });
+    }, { passive: true });
+}
+
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData, filedPlanData = null) {
     // --- Safety Check: Ensure the container exists ---
     const windowEl = document.getElementById('aircraft-info-window');
@@ -16363,27 +16438,59 @@ let totalDistanceNM = 0;
     let techCardImagePath = '/CommunityPlanes/default.png';
     let photographerName = 'IF Community';
     let techCardTail = reg;
+    // Ordered list of {src, photographer} for the hero carousel (up to 3). A
+    // single photo renders as a static background exactly as before; two or
+    // more become a swipeable carousel (see buildHeroPhotoCarousel below).
+    let techCardPhotos = [];
+
+    // Zip a set of image URLs with their aligned contributor entries, falling
+    // back to a single legacy url/name when the arrays are absent.
+    const collectCommunityPhotos = (urls, contributors, fallbackUrl, fallbackName) => {
+        // Feature properties can survive a Mapbox round-trip as JSON strings, so
+        // tolerate both real arrays and their stringified form.
+        const asArray = (v) => {
+            if (Array.isArray(v)) return v;
+            if (typeof v === 'string' && v.trim().startsWith('[')) { try { return JSON.parse(v); } catch { return []; } }
+            return [];
+        };
+        urls = asArray(urls);
+        contributors = asArray(contributors);
+        let list = urls.filter(Boolean);
+        if (!list.length && fallbackUrl) list = [fallbackUrl];
+        return list.map((src, i) => ({
+            src,
+            photographer: (contributors && contributors[i] && contributors[i].name) || fallbackName || 'IF Community'
+        }));
+    };
 
     if (Array.isArray(communityAircraftData)) {
         communityAircraftData = communityAircraftData.length > 0 ? communityAircraftData[0] : null;
     }
-    if (communityAircraftData && communityAircraftData.imageUrl) {
-        techCardImagePath = communityAircraftData.imageUrl;
-        photographerName = communityAircraftData.contributorName || 'IF Community';
+    if (communityAircraftData && (communityAircraftData.imageUrl || (Array.isArray(communityAircraftData.imageUrls) && communityAircraftData.imageUrls.length))) {
+        techCardPhotos = collectCommunityPhotos(
+            communityAircraftData.imageUrls, communityAircraftData.imageContributors,
+            communityAircraftData.imageUrl, communityAircraftData.contributorName
+        );
         if (communityAircraftData.tailNumber) {
             techCardTail = communityAircraftData.tailNumber;
         }
-    } else if (baseProps.communityImageUrl) {
-        // Fallback to the photo already cached on the live feature (populated
+    } else if (baseProps.communityImageUrl || (Array.isArray(baseProps.communityImageUrls) && baseProps.communityImageUrls.length)) {
+        // Fallback to the photo(s) already cached on the live feature (populated
         // by the background hover-card lookup). Keeps the Standard window's
         // hero photo in sync with the Simple window, which already uses this
         // fallback, so the plane image still shows when the synchronous
         // lookup comes back empty.
-        techCardImagePath = baseProps.communityImageUrl;
-        photographerName = baseProps.contributorName || 'IF Community';
+        techCardPhotos = collectCommunityPhotos(
+            baseProps.communityImageUrls, baseProps.imageContributors,
+            baseProps.communityImageUrl, baseProps.contributorName
+        );
         if (baseProps.tailNumber) {
             techCardTail = baseProps.tailNumber;
         }
+    }
+    if (techCardPhotos.length) {
+        techCardImagePath = techCardPhotos[0].src;
+        photographerName = techCardPhotos[0].photographer || 'IF Community';
     }
 
     // --- REAL-TIME COCKPIT STATE LOGIC ---
@@ -16904,7 +17011,7 @@ let totalDistanceNM = 0;
                         </div>` : ''}
                     </div>
 
-                    ${photographerName && photographerName !== 'IF Community' ? `
+                    ${photographerName && photographerName !== 'IF Community' && techCardPhotos.length <= 1 ? `
                     <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; align-items: center; gap: 6px;">
                         <i class="fa-solid fa-camera" style="color: #38bdf8; font-size: 9px;"></i>
                         <span style="font-size: 9px; color: #94a3b8;">Photo · ${photographerName}</span>
@@ -16935,6 +17042,7 @@ let totalDistanceNM = 0;
     overviewPanels.forEach(overviewPanel => {
         overviewPanel.style.backgroundImage = newImageUrl;
         overviewPanel.dataset.currentPath = imagePath;
+        buildHeroPhotoCarousel(overviewPanel, techCardPhotos, fallbackPath);
     });
 
     // --- SENSOR TIMER LOGIC ---
