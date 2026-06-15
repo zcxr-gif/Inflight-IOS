@@ -350,11 +350,9 @@ export const LandingUI = {
         const reg = slot.getAttribute('data-photo-reg');
         window.InflightAircraftPhoto.get(reg).then(photo => {
             if (!photo) return;
-            const img = slot.querySelector('img');
-            const credit = slot.querySelector('.res-photo-credit');
-            if (img) img.src = photo.src;
-            if (credit && photo.photographer) credit.textContent = `© ${photo.photographer}`;
-            slot.hidden = false;
+            // Renders a single image, or a swipeable carousel when the airframe
+            // has more than one photo on file.
+            if (window.InflightAircraftPhoto.render(slot, photo)) slot.hidden = false;
         });
     },
 
