@@ -2188,44 +2188,21 @@
         function formatNumber(num) { return num ? Math.round(num).toLocaleString() : '---'; }
 
         // --- Hero photo carousel (simple window) ---------------------------
-        // When the airframe has more than one community photo, turn the hero
-        // into a swipeable carousel with dot indicators and per-photo credit.
-        // Built once per photo set (keyed by a signature) so live telemetry
-        // ticks don't reset the user's scroll position.
+        // When the airframe has more than one community photo, make the hero
+        // swipeable. To keep the photo framed exactly like the single-image
+        // hero (and never cover the name/route overlay), this reuses the
+        // existing #ac-photo <img> and just swaps its src on swipe or dot tap,
+        // adding only small dot indicators on top. Rebuilds only when the photo
+        // set changes (keyed by signature) so live telemetry ticks don't reset
+        // the user's place.
         function buildSimpleHeroCarousel(list, creditEl) {
             const container = document.getElementById('hero-container');
             if (!container) return;
+            const img = document.getElementById('ac-photo');
+
             const sig = list.map(p => p.url).join('|');
-            if (container.dataset.carouselSig === sig) return; // already built
-            container.dataset.carouselSig = sig;
-
-            // Hide the single-image element; remove any prior carousel parts.
-            const single = document.getElementById('ac-photo');
-            if (single) single.style.display = 'none';
-            container.querySelector('#ac-hero-track')?.remove();
-            container.querySelector('#ac-hero-dots')?.remove();
-
-            const track = document.createElement('div');
-            track.id = 'ac-hero-track';
-            track.style.cssText = 'position:absolute;inset:0;z-index:1;display:flex;overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;scrollbar-width:none;';
-            list.forEach(p => {
-                const slide = document.createElement('div');
-                slide.style.cssText = `flex:0 0 100%;height:100%;scroll-snap-align:center;background-image:url('${p.url}');background-size:cover;background-position:center;`;
-                track.appendChild(slide);
-            });
-            container.insertBefore(track, container.firstChild);
-            container.classList.remove('skeleton');
-
-            const dots = document.createElement('div');
-            dots.id = 'ac-hero-dots';
-            dots.style.cssText = 'position:absolute;top:10px;left:0;right:0;z-index:11;display:flex;justify-content:center;gap:6px;pointer-events:none;';
-            const dotEls = list.map((_, i) => {
-                const d = document.createElement('span');
-                d.style.cssText = `width:6px;height:6px;border-radius:50%;transition:all .2s ease;box-shadow:0 1px 3px rgba(0,0,0,.5);background:rgba(255,255,255,${i === 0 ? '0.95' : '0.5'});`;
-                dots.appendChild(d);
-                return d;
-            });
-            container.appendChild(dots);
+            const changed = container.dataset.carouselSig !== sig;
+            if (changed) { container.dataset.carouselSig = sig; container.__heroIndex = 0; }
 
             const setCredit = (i) => {
                 if (!creditEl) return;
@@ -2233,21 +2210,56 @@
                 if (c) { creditEl.textContent = '© ' + c; creditEl.style.display = 'block'; }
                 else { creditEl.style.display = 'none'; }
             };
-            setCredit(0);
-
-            let current = 0, raf = 0;
-            track.addEventListener('scroll', () => {
-                if (raf) return;
-                raf = requestAnimationFrame(() => {
-                    raf = 0;
-                    const w = track.clientWidth || 1;
-                    const idx = Math.max(0, Math.min(list.length - 1, Math.round(track.scrollLeft / w)));
-                    if (idx === current) return;
-                    current = idx;
-                    dotEls.forEach((d, i) => { d.style.background = `rgba(255,255,255,${i === idx ? '0.95' : '0.5'})`; });
-                    setCredit(idx);
+            const show = (i) => {
+                const idx = (i + list.length) % list.length;
+                container.__heroIndex = idx;
+                if (img && img.src !== list[idx].url) img.src = list[idx].url;
+                if (container.__heroDots) container.__heroDots.forEach((d, k) => {
+                    d.style.background = `rgba(255,255,255,${k === idx ? '0.95' : '0.5'})`;
                 });
-            }, { passive: true });
+                setCredit(idx);
+            };
+            // Persist the pager on the container so the once-wired swipe handler
+            // and telemetry ticks all share the same index (no reset on update).
+            container.__heroAdvance = (dir) => show((container.__heroIndex || 0) + dir);
+
+            if (!changed) return; // same photo set on a live tick — leave it be
+
+            // (Re)build the dot indicators for this photo set.
+            container.querySelector('#ac-hero-dots')?.remove();
+            const dots = document.createElement('div');
+            dots.id = 'ac-hero-dots';
+            dots.style.cssText = 'position:absolute;top:10px;left:0;right:0;z-index:11;display:flex;justify-content:center;gap:6px;';
+            container.__heroDots = list.map((_, i) => {
+                const d = document.createElement('span');
+                d.style.cssText = 'width:6px;height:6px;border-radius:50%;cursor:pointer;transition:all .2s ease;box-shadow:0 1px 3px rgba(0,0,0,.5);';
+                d.addEventListener('click', (e) => { e.stopPropagation(); show(i); });
+                dots.appendChild(d);
+                return d;
+            });
+            container.appendChild(dots);
+
+            // Wire swipe once; the handler delegates to the latest pager.
+            if (!container.dataset.swipeWired) {
+                container.dataset.swipeWired = '1';
+                let downX = null, downY = null, moved = false;
+                container.addEventListener('pointerdown', (e) => {
+                    if (e.target.closest('.hero-collapse-btn')) return;
+                    downX = e.clientX; downY = e.clientY; moved = false;
+                });
+                container.addEventListener('pointermove', (e) => {
+                    if (downX == null) return;
+                    if (Math.abs(e.clientX - downX) > 10 && Math.abs(e.clientX - downX) > Math.abs(e.clientY - downY)) moved = true;
+                });
+                container.addEventListener('pointerup', (e) => {
+                    if (downX == null) return;
+                    const dx = e.clientX - downX;
+                    if (moved && Math.abs(dx) > 40 && container.__heroAdvance) container.__heroAdvance(dx < 0 ? 1 : -1);
+                    downX = downY = null; moved = false;
+                });
+            }
+
+            show(0);
         }
 
         // Restore the single-image hero (e.g. after switching to a flight with
@@ -2256,10 +2268,9 @@
             const container = document.getElementById('hero-container');
             if (!container || !container.dataset.carouselSig) return;
             delete container.dataset.carouselSig;
-            container.querySelector('#ac-hero-track')?.remove();
             container.querySelector('#ac-hero-dots')?.remove();
-            const single = document.getElementById('ac-photo');
-            if (single) single.style.display = '';
+            container.__heroDots = null;
+            container.__heroAdvance = null;
         }
 
         function setCity(id, city) { const el = document.getElementById(id); if (el) el.textContent = city || ' '; }

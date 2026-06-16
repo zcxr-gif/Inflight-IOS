@@ -16251,11 +16251,13 @@ function closeAircraftWindow() {
     }
 }
 
-// Turn the aircraft-window hero into a swipeable photo carousel when the
-// airframe has more than one community photo. The images sit beneath the
-// existing gradient overlay (so headers/buttons stay legible), while the dot
-// indicators and per-photo credit float above it. A single photo leaves the
-// hero's plain background-image untouched.
+// Make the aircraft-window hero swipeable when the airframe has more than one
+// community photo. Rather than overlaying a second image layer (which would
+// cover the callsign/route content and changed the photo's framing), this
+// reuses the hero's own background-image — the exact same rendering the single
+// -photo hero already uses — and just swaps the source on swipe or dot tap. The
+// only things added on top are small dot indicators and a per-photo credit,
+// placed in the empty lower strip so nothing existing is hidden.
 function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
     if (!panel) return;
     // Re-render replaces innerHTML, so any prior carousel is already gone; this
@@ -16264,49 +16266,52 @@ function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
     if (!Array.isArray(photos) || photos.length < 2) return;
     panel.dataset.heroCarousel = '1';
 
-    const track = document.createElement('div');
-    track.style.cssText = 'position:absolute;inset:0;z-index:0;display:flex;overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;scrollbar-width:none;';
-    photos.forEach(ph => {
-        const slide = document.createElement('div');
-        slide.style.cssText = `flex:0 0 100%;height:100%;scroll-snap-align:center;background-image:url('${ph.src}'),url('${fallbackPath}');background-size:cover;background-position:center;`;
-        track.appendChild(slide);
-    });
-    panel.insertBefore(track, panel.firstChild);
-
     const dots = document.createElement('div');
-    dots.style.cssText = 'position:absolute;bottom:14px;left:0;right:0;z-index:3;display:flex;justify-content:center;gap:6px;pointer-events:none;';
+    dots.style.cssText = 'position:absolute;bottom:12px;left:0;right:0;z-index:4;display:flex;justify-content:center;gap:6px;';
     const dotEls = photos.map((_, i) => {
         const d = document.createElement('span');
-        d.style.cssText = `width:6px;height:6px;border-radius:50%;transition:all .2s ease;background:rgba(255,255,255,${i === 0 ? '0.95' : '0.45'});`;
+        d.style.cssText = 'width:7px;height:7px;border-radius:50%;cursor:pointer;transition:all .2s ease;box-shadow:0 1px 2px rgba(0,0,0,.6);';
+        d.addEventListener('click', (e) => { e.stopPropagation(); show(i); });
         dots.appendChild(d);
         return d;
     });
-    panel.appendChild(dots);
 
     const credit = document.createElement('div');
-    credit.style.cssText = 'position:absolute;bottom:12px;right:16px;z-index:3;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;font-weight:600;color:rgba(255,255,255,.9);background:rgba(0,0,0,.5);padding:3px 8px;border-radius:999px;pointer-events:none;';
-    const setCredit = (i) => {
-        const n = photos[i] && photos[i].photographer;
+    credit.style.cssText = 'position:absolute;bottom:10px;right:14px;z-index:4;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;font-weight:600;color:rgba(255,255,255,.9);background:rgba(0,0,0,.5);padding:3px 8px;border-radius:999px;pointer-events:none;';
+
+    let index = 0;
+    const show = (i) => {
+        index = (i + photos.length) % photos.length;
+        panel.style.backgroundImage = `url('${photos[index].src}'), url('${fallbackPath}')`;
+        panel.dataset.currentPath = photos[index].src;
+        dotEls.forEach((d, k) => { d.style.background = `rgba(255,255,255,${k === index ? '0.95' : '0.45'})`; });
+        const n = photos[index].photographer;
         credit.textContent = (n && n !== 'IF Community') ? `© ${n}` : '';
         credit.style.display = credit.textContent ? '' : 'none';
     };
-    setCredit(0);
+
+    panel.appendChild(dots);
     panel.appendChild(credit);
 
-    let current = 0;
-    let raf = 0;
-    track.addEventListener('scroll', () => {
-        if (raf) return;
-        raf = requestAnimationFrame(() => {
-            raf = 0;
-            const w = track.clientWidth || 1;
-            const idx = Math.max(0, Math.min(photos.length - 1, Math.round(track.scrollLeft / w)));
-            if (idx === current) return;
-            current = idx;
-            dotEls.forEach((d, i) => { d.style.background = `rgba(255,255,255,${i === idx ? '0.95' : '0.45'})`; });
-            setCredit(idx);
-        });
-    }, { passive: true });
+    // Horizontal swipe to page through photos. Pointer events cover both touch
+    // (iOS) and mouse; taps on the hero buttons are ignored so they still work.
+    let downX = null, downY = null, moved = false;
+    panel.addEventListener('pointerdown', (e) => {
+        if (e.target.closest('.hero-btn, .overview-actions')) return;
+        downX = e.clientX; downY = e.clientY; moved = false;
+    });
+    panel.addEventListener('pointermove', (e) => {
+        if (downX == null) return;
+        if (Math.abs(e.clientX - downX) > 10 && Math.abs(e.clientX - downX) > Math.abs(e.clientY - downY)) moved = true;
+    });
+    panel.addEventListener('pointerup', (e) => {
+        if (downX == null) return;
+        const dx = e.clientX - downX;
+        if (moved && Math.abs(dx) > 40) show(index + (dx < 0 ? 1 : -1));
+        downX = downY = null; moved = false;
+    });
+
+    show(0);
 }
 
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData, filedPlanData = null) {
