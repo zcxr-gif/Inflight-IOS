@@ -16267,7 +16267,7 @@ function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
     panel.dataset.heroCarousel = '1';
 
     const dots = document.createElement('div');
-    dots.style.cssText = 'position:absolute;bottom:12px;left:0;right:0;z-index:4;display:flex;justify-content:center;gap:6px;';
+    dots.style.cssText = 'position:absolute;bottom:48px;left:0;right:0;z-index:4;display:flex;justify-content:center;gap:6px;';
     const dotEls = photos.map((_, i) => {
         const d = document.createElement('span');
         d.style.cssText = 'width:7px;height:7px;border-radius:50%;cursor:pointer;transition:all .2s ease;box-shadow:0 1px 2px rgba(0,0,0,.6);';
@@ -16276,8 +16276,11 @@ function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
         return d;
     });
 
+    // Credit pill mirrors the flight-state badge (bottom corner, rounded, blur)
+    // but on the right and at the simple window's modest 9px size. It sits at
+    // the same 45px offset so it clears the route bar that overlaps the hero.
     const credit = document.createElement('div');
-    credit.style.cssText = 'position:absolute;bottom:10px;right:14px;z-index:4;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;font-weight:600;color:rgba(255,255,255,.9);background:rgba(0,0,0,.5);padding:3px 8px;border-radius:999px;pointer-events:none;';
+    credit.style.cssText = 'position:absolute;bottom:45px;right:24px;z-index:4;max-width:48%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;font-weight:600;letter-spacing:0.3px;color:#fff;background:rgba(0,0,0,0.6);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);padding:4px 10px;border-radius:20px;border:1px solid rgba(255,255,255,0.15);pointer-events:none;';
 
     let index = 0;
     const show = (i) => {
