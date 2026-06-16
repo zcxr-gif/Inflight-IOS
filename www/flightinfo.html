@@ -1915,24 +1915,40 @@
                 }
             }
 
-            // Photo (big hero + small thumb)
+            // Photo (big hero + small thumb). A multi-photo airframe becomes a
+            // swipeable hero carousel; one photo keeps the single-image hero.
             if (data.images) {
-                if (data.images.url) {
-                    const img = document.getElementById('ac-photo');
-                    if (img.src !== data.images.url) img.src = data.images.url;
+                const list = (data.images.list && data.images.list.length)
+                    ? data.images.list
+                    : (data.images.url ? [{ url: data.images.url, credit: data.images.credit || '' }] : []);
+                const heroUrl = list[0] ? list[0].url : '';
+                const heroCredit = list[0] ? list[0].credit : '';
+
+                // Collapsed rich-peek thumbnails always use the first photo.
+                if (heroUrl) {
                     const thumb = document.getElementById('c-thumb');
-                    thumb.style.backgroundImage = `url('${data.images.url}')`;
+                    if (thumb) thumb.style.backgroundImage = `url('${heroUrl}')`;
                     const cHero = document.getElementById('c-hero');
-                    if (cHero) cHero.style.backgroundImage = `url('${data.images.url}')`;
+                    if (cHero) cHero.style.backgroundImage = `url('${heroUrl}')`;
                 }
+
                 const creditEl = document.getElementById('ac-credit');
                 const cCredit = document.getElementById('c-hero-credit');
-                if (data.images.credit) {
-                    creditEl.textContent = '© ' + data.images.credit; creditEl.style.display = 'block';
-                    if (cCredit) { cCredit.textContent = '© ' + data.images.credit; cCredit.style.display = 'block'; }
+
+                if (list.length > 1) {
+                    buildSimpleHeroCarousel(list, creditEl); // manages ac-credit per slide
                 } else {
-                    creditEl.style.display = 'none';
-                    if (cCredit) cCredit.style.display = 'none';
+                    teardownSimpleHeroCarousel();
+                    const img = document.getElementById('ac-photo');
+                    if (heroUrl && img.src !== heroUrl) img.src = heroUrl;
+                    if (heroCredit) { creditEl.textContent = '© ' + heroCredit; creditEl.style.display = 'block'; }
+                    else { creditEl.style.display = 'none'; }
+                }
+
+                // Collapsed-peek credit always reflects the first photo.
+                if (cCredit) {
+                    if (heroCredit) { cCredit.textContent = '© ' + heroCredit; cCredit.style.display = 'block'; }
+                    else { cCredit.style.display = 'none'; }
                 }
             }
 
@@ -2170,6 +2186,93 @@
         // =========================================================
         function updateText(id, text) { const el = document.getElementById(id); if (el) el.textContent = text; }
         function formatNumber(num) { return num ? Math.round(num).toLocaleString() : '---'; }
+
+        // --- Hero photo carousel (simple window) ---------------------------
+        // When the airframe has more than one community photo, make the hero
+        // swipeable. To keep the photo framed exactly like the single-image
+        // hero (and never cover the name/route overlay), this reuses the
+        // existing #ac-photo <img> and just swaps its src on swipe or dot tap,
+        // adding only small dot indicators on top. Rebuilds only when the photo
+        // set changes (keyed by signature) so live telemetry ticks don't reset
+        // the user's place.
+        function buildSimpleHeroCarousel(list, creditEl) {
+            const container = document.getElementById('hero-container');
+            if (!container) return;
+            const img = document.getElementById('ac-photo');
+
+            const sig = list.map(p => p.url).join('|');
+            const changed = container.dataset.carouselSig !== sig;
+            if (changed) { container.dataset.carouselSig = sig; container.__heroIndex = 0; }
+
+            const setCredit = (i) => {
+                if (!creditEl) return;
+                const c = list[i] && list[i].credit;
+                if (c) { creditEl.textContent = '© ' + c; creditEl.style.display = 'block'; }
+                else { creditEl.style.display = 'none'; }
+            };
+            const show = (i) => {
+                const idx = (i + list.length) % list.length;
+                container.__heroIndex = idx;
+                if (img && img.src !== list[idx].url) img.src = list[idx].url;
+                if (container.__heroDots) container.__heroDots.forEach((d, k) => {
+                    d.style.background = `rgba(255,255,255,${k === idx ? '0.95' : '0.5'})`;
+                });
+                setCredit(idx);
+            };
+            // Persist the pager on the container so the once-wired swipe handler
+            // and telemetry ticks all share the same index (no reset on update).
+            container.__heroAdvance = (dir) => show((container.__heroIndex || 0) + dir);
+
+            if (!changed) return; // same photo set on a live tick — leave it be
+
+            // (Re)build the dot indicators for this photo set.
+            container.querySelector('#ac-hero-dots')?.remove();
+            const dots = document.createElement('div');
+            dots.id = 'ac-hero-dots';
+            dots.style.cssText = 'position:absolute;top:10px;left:0;right:0;z-index:11;display:flex;justify-content:center;gap:6px;';
+            container.__heroDots = list.map((_, i) => {
+                const d = document.createElement('span');
+                d.style.cssText = 'width:6px;height:6px;border-radius:50%;cursor:pointer;transition:all .2s ease;box-shadow:0 1px 3px rgba(0,0,0,.5);';
+                d.addEventListener('click', (e) => { e.stopPropagation(); show(i); });
+                dots.appendChild(d);
+                return d;
+            });
+            container.appendChild(dots);
+
+            // Wire swipe once; the handler delegates to the latest pager.
+            if (!container.dataset.swipeWired) {
+                container.dataset.swipeWired = '1';
+                let downX = null, downY = null, moved = false;
+                container.addEventListener('pointerdown', (e) => {
+                    if (e.target.closest('.hero-collapse-btn')) return;
+                    downX = e.clientX; downY = e.clientY; moved = false;
+                });
+                container.addEventListener('pointermove', (e) => {
+                    if (downX == null) return;
+                    if (Math.abs(e.clientX - downX) > 10 && Math.abs(e.clientX - downX) > Math.abs(e.clientY - downY)) moved = true;
+                });
+                container.addEventListener('pointerup', (e) => {
+                    if (downX == null) return;
+                    const dx = e.clientX - downX;
+                    if (moved && Math.abs(dx) > 40 && container.__heroAdvance) container.__heroAdvance(dx < 0 ? 1 : -1);
+                    downX = downY = null; moved = false;
+                });
+            }
+
+            show(0);
+        }
+
+        // Restore the single-image hero (e.g. after switching to a flight with
+        // only one photo).
+        function teardownSimpleHeroCarousel() {
+            const container = document.getElementById('hero-container');
+            if (!container || !container.dataset.carouselSig) return;
+            delete container.dataset.carouselSig;
+            container.querySelector('#ac-hero-dots')?.remove();
+            container.__heroDots = null;
+            container.__heroAdvance = null;
+        }
+
         function setCity(id, city) { const el = document.getElementById(id); if (el) el.textContent = city || ' '; }
         function updateFlag(id, countryCode) {
             const el = document.getElementById(id);

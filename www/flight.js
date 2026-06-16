@@ -8676,10 +8676,21 @@ function getIntermediatePoint(lat1, lon1, lat2, lon2, fraction) {
                         data = data.length > 0 ? data[0] : null;
                     }
 
-                    if (data && data.imageUrl) {
-                        const result = { 
-                            communityImageUrl: data.imageUrl, 
-                            contributorName: data.contributorName || 'IF Community',
+                    const lookupUrls = (Array.isArray(data?.imageUrls) && data.imageUrls.length)
+                        ? data.imageUrls.filter(Boolean)
+                        : (data?.imageUrl ? [data.imageUrl] : []);
+                    if (data && lookupUrls.length) {
+                        const lookupContributors = (Array.isArray(data.imageContributors) && data.imageContributors.length)
+                            ? data.imageContributors
+                            : [{ name: data.contributorName || 'IF Community', id: data.contributorId || null }];
+                        const result = {
+                            // Legacy single-image fields mirror the first photo so
+                            // every existing consumer keeps working untouched.
+                            communityImageUrl: lookupUrls[0],
+                            contributorName: lookupContributors[0]?.name || data.contributorName || 'IF Community',
+                            // Full ordered set (up to 3) for the multi-image carousel.
+                            communityImageUrls: lookupUrls,
+                            imageContributors: lookupContributors,
                             tailNumber: data.tailNumber || null
                         };
                         communityAircraftCache.set(key, result); // Cache Success
@@ -8838,6 +8849,8 @@ function handleSocketFlightUpdate(data) {
 
             communityImageUrl: existingProps.communityImageUrl || null,
             contributorName: existingProps.contributorName || null,
+            communityImageUrls: existingProps.communityImageUrls || null,
+            imageContributors: existingProps.imageContributors || null,
             tailNumber: existingProps.tailNumber || null
         };
 
@@ -8848,6 +8861,8 @@ function handleSocketFlightUpdate(data) {
                 if (cachedData) {
                     newProperties.communityImageUrl = cachedData.communityImageUrl;
                     newProperties.contributorName = cachedData.contributorName;
+                    newProperties.communityImageUrls = cachedData.communityImageUrls;
+                    newProperties.imageContributors = cachedData.imageContributors;
                     newProperties.tailNumber = cachedData.tailNumber;
                 }
             } else if (!lookupQueue.has(lookupKey)) {
@@ -8856,6 +8871,8 @@ function handleSocketFlightUpdate(data) {
                         if (result && currentMapFeatures[flightId]) {
                             currentMapFeatures[flightId].properties.communityImageUrl = result.communityImageUrl;
                             currentMapFeatures[flightId].properties.contributorName = result.contributorName;
+                            currentMapFeatures[flightId].properties.communityImageUrls = result.communityImageUrls;
+                            currentMapFeatures[flightId].properties.imageContributors = result.imageContributors;
                             currentMapFeatures[flightId].properties.tailNumber = result.tailNumber;
                             // Replaced rapid-fire setData with the debounced map source updater
                             scheduleMapSourceUpdate();
@@ -8938,6 +8955,10 @@ function handleSocketFlightUpdate(data) {
                          {
                              imageUrl: fullFlightProps.communityImageUrl,
                              contributorName: fullFlightProps.contributorName,
+                             // Carry the full photo set so live telemetry ticks
+                             // keep (rather than collapse) the hero carousel.
+                             imageUrls: fullFlightProps.communityImageUrls,
+                             imageContributors: fullFlightProps.imageContributors,
                              tailNumber: fullFlightProps.tailNumber
                          },
                          cachedFlightDataForStatsView.filedPlanData || null
@@ -12472,10 +12493,32 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             liveryName: aircraft.liveryName,
             registration: finalRegistration
         },
-        images: {
-            url: communityData ? communityData.imageUrl : (flightProps.communityImageUrl || ''),
-            credit: communityData ? communityData.contributorName : (flightProps.contributorName || '')
-        },
+        images: (() => {
+            // Build the ordered photo list (up to 3) for the simple window's
+            // hero carousel. communityData carries the raw lookup keys
+            // (imageUrls / imageContributors); the flightProps fallback carries
+            // the normalised ones cached on the live feature. Keep url/credit
+            // (photo 1) at the top level for back-compat.
+            const asArray = (v) => {
+                if (Array.isArray(v)) return v;
+                if (typeof v === 'string' && v.trim().startsWith('[')) { try { return JSON.parse(v); } catch { return []; } }
+                return [];
+            };
+            const urls = communityData ? asArray(communityData.imageUrls) : asArray(flightProps.communityImageUrls);
+            const contributors = communityData ? asArray(communityData.imageContributors) : asArray(flightProps.imageContributors);
+            const fallbackUrl = communityData ? communityData.imageUrl : flightProps.communityImageUrl;
+            const fallbackCredit = communityData ? communityData.contributorName : flightProps.contributorName;
+            let list = urls.filter(Boolean).map((url, i) => ({
+                url,
+                credit: (contributors[i] && contributors[i].name) || fallbackCredit || ''
+            }));
+            if (!list.length && fallbackUrl) list = [{ url: fallbackUrl, credit: fallbackCredit || '' }];
+            return {
+                url: list[0] ? list[0].url : '',
+                credit: list[0] ? list[0].credit : '',
+                list
+            };
+        })(),
         route: {
             originIcao,
             originCountry,
@@ -16208,6 +16251,72 @@ function closeAircraftWindow() {
     }
 }
 
+// Make the aircraft-window hero swipeable when the airframe has more than one
+// community photo. Rather than overlaying a second image layer (which would
+// cover the callsign/route content and changed the photo's framing), this
+// reuses the hero's own background-image — the exact same rendering the single
+// -photo hero already uses — and just swaps the source on swipe or dot tap. The
+// only things added on top are small dot indicators and a per-photo credit,
+// placed in the empty lower strip so nothing existing is hidden.
+function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
+    if (!panel) return;
+    // Re-render replaces innerHTML, so any prior carousel is already gone; this
+    // guard just avoids double-building within a single render pass.
+    if (panel.dataset.heroCarousel === '1') return;
+    if (!Array.isArray(photos) || photos.length < 2) return;
+    panel.dataset.heroCarousel = '1';
+
+    const dots = document.createElement('div');
+    dots.style.cssText = 'position:absolute;bottom:48px;left:0;right:0;z-index:4;display:flex;justify-content:center;gap:6px;';
+    const dotEls = photos.map((_, i) => {
+        const d = document.createElement('span');
+        d.style.cssText = 'width:7px;height:7px;border-radius:50%;cursor:pointer;transition:all .2s ease;box-shadow:0 1px 2px rgba(0,0,0,.6);';
+        d.addEventListener('click', (e) => { e.stopPropagation(); show(i); });
+        dots.appendChild(d);
+        return d;
+    });
+
+    // Credit sits bottom-right at the flight-state badge's height, but it must
+    // read as a faint photo watermark — not a solid UI badge that could be
+    // mistaken for pilot info — so it's deliberately see-through with no border.
+    const credit = document.createElement('div');
+    credit.style.cssText = 'position:absolute;bottom:45px;right:24px;z-index:4;max-width:48%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;font-weight:500;letter-spacing:0.3px;color:rgba(255,255,255,0.72);background:rgba(0,0,0,0.22);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);padding:3px 9px;border-radius:20px;text-shadow:0 1px 2px rgba(0,0,0,0.6);pointer-events:none;';
+
+    let index = 0;
+    const show = (i) => {
+        index = (i + photos.length) % photos.length;
+        panel.style.backgroundImage = `url('${photos[index].src}'), url('${fallbackPath}')`;
+        panel.dataset.currentPath = photos[index].src;
+        dotEls.forEach((d, k) => { d.style.background = `rgba(255,255,255,${k === index ? '0.95' : '0.45'})`; });
+        const n = photos[index].photographer;
+        credit.textContent = (n && n !== 'IF Community') ? `© ${n}` : '';
+        credit.style.display = credit.textContent ? '' : 'none';
+    };
+
+    panel.appendChild(dots);
+    panel.appendChild(credit);
+
+    // Horizontal swipe to page through photos. Pointer events cover both touch
+    // (iOS) and mouse; taps on the hero buttons are ignored so they still work.
+    let downX = null, downY = null, moved = false;
+    panel.addEventListener('pointerdown', (e) => {
+        if (e.target.closest('.hero-btn, .overview-actions')) return;
+        downX = e.clientX; downY = e.clientY; moved = false;
+    });
+    panel.addEventListener('pointermove', (e) => {
+        if (downX == null) return;
+        if (Math.abs(e.clientX - downX) > 10 && Math.abs(e.clientX - downX) > Math.abs(e.clientY - downY)) moved = true;
+    });
+    panel.addEventListener('pointerup', (e) => {
+        if (downX == null) return;
+        const dx = e.clientX - downX;
+        if (moved && Math.abs(dx) > 40) show(index + (dx < 0 ? 1 : -1));
+        downX = downY = null; moved = false;
+    });
+
+    show(0);
+}
+
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData, filedPlanData = null) {
     // --- Safety Check: Ensure the container exists ---
     const windowEl = document.getElementById('aircraft-info-window');
@@ -16363,27 +16472,59 @@ let totalDistanceNM = 0;
     let techCardImagePath = '/CommunityPlanes/default.png';
     let photographerName = 'IF Community';
     let techCardTail = reg;
+    // Ordered list of {src, photographer} for the hero carousel (up to 3). A
+    // single photo renders as a static background exactly as before; two or
+    // more become a swipeable carousel (see buildHeroPhotoCarousel below).
+    let techCardPhotos = [];
+
+    // Zip a set of image URLs with their aligned contributor entries, falling
+    // back to a single legacy url/name when the arrays are absent.
+    const collectCommunityPhotos = (urls, contributors, fallbackUrl, fallbackName) => {
+        // Feature properties can survive a Mapbox round-trip as JSON strings, so
+        // tolerate both real arrays and their stringified form.
+        const asArray = (v) => {
+            if (Array.isArray(v)) return v;
+            if (typeof v === 'string' && v.trim().startsWith('[')) { try { return JSON.parse(v); } catch { return []; } }
+            return [];
+        };
+        urls = asArray(urls);
+        contributors = asArray(contributors);
+        let list = urls.filter(Boolean);
+        if (!list.length && fallbackUrl) list = [fallbackUrl];
+        return list.map((src, i) => ({
+            src,
+            photographer: (contributors && contributors[i] && contributors[i].name) || fallbackName || 'IF Community'
+        }));
+    };
 
     if (Array.isArray(communityAircraftData)) {
         communityAircraftData = communityAircraftData.length > 0 ? communityAircraftData[0] : null;
     }
-    if (communityAircraftData && communityAircraftData.imageUrl) {
-        techCardImagePath = communityAircraftData.imageUrl;
-        photographerName = communityAircraftData.contributorName || 'IF Community';
+    if (communityAircraftData && (communityAircraftData.imageUrl || (Array.isArray(communityAircraftData.imageUrls) && communityAircraftData.imageUrls.length))) {
+        techCardPhotos = collectCommunityPhotos(
+            communityAircraftData.imageUrls, communityAircraftData.imageContributors,
+            communityAircraftData.imageUrl, communityAircraftData.contributorName
+        );
         if (communityAircraftData.tailNumber) {
             techCardTail = communityAircraftData.tailNumber;
         }
-    } else if (baseProps.communityImageUrl) {
-        // Fallback to the photo already cached on the live feature (populated
+    } else if (baseProps.communityImageUrl || (Array.isArray(baseProps.communityImageUrls) && baseProps.communityImageUrls.length)) {
+        // Fallback to the photo(s) already cached on the live feature (populated
         // by the background hover-card lookup). Keeps the Standard window's
         // hero photo in sync with the Simple window, which already uses this
         // fallback, so the plane image still shows when the synchronous
         // lookup comes back empty.
-        techCardImagePath = baseProps.communityImageUrl;
-        photographerName = baseProps.contributorName || 'IF Community';
+        techCardPhotos = collectCommunityPhotos(
+            baseProps.communityImageUrls, baseProps.imageContributors,
+            baseProps.communityImageUrl, baseProps.contributorName
+        );
         if (baseProps.tailNumber) {
             techCardTail = baseProps.tailNumber;
         }
+    }
+    if (techCardPhotos.length) {
+        techCardImagePath = techCardPhotos[0].src;
+        photographerName = techCardPhotos[0].photographer || 'IF Community';
     }
 
     // --- REAL-TIME COCKPIT STATE LOGIC ---
@@ -16904,7 +17045,7 @@ let totalDistanceNM = 0;
                         </div>` : ''}
                     </div>
 
-                    ${photographerName && photographerName !== 'IF Community' ? `
+                    ${photographerName && photographerName !== 'IF Community' && techCardPhotos.length <= 1 ? `
                     <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; align-items: center; gap: 6px;">
                         <i class="fa-solid fa-camera" style="color: #38bdf8; font-size: 9px;"></i>
                         <span style="font-size: 9px; color: #94a3b8;">Photo · ${photographerName}</span>
@@ -16935,6 +17076,7 @@ let totalDistanceNM = 0;
     overviewPanels.forEach(overviewPanel => {
         overviewPanel.style.backgroundImage = newImageUrl;
         overviewPanel.dataset.currentPath = imagePath;
+        buildHeroPhotoCarousel(overviewPanel, techCardPhotos, fallbackPath);
     });
 
     // --- SENSOR TIMER LOGIC ---

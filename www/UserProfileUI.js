@@ -395,11 +395,9 @@ export const UserProfileUI = {
             const reg = slot.getAttribute('data-photo-reg');
             window.InflightAircraftPhoto.get(reg).then(photo => {
                 if (!photo || !this._isOpen) return;
-                const img = slot.querySelector('img');
-                const credit = slot.querySelector('.ups-photo-credit');
-                if (img) img.src = photo.src;
-                if (credit && photo.photographer) credit.textContent = `© ${photo.photographer}`;
-                slot.hidden = false;
+                // Single image, or a swipeable carousel when more than one
+                // photo exists for the airframe.
+                if (window.InflightAircraftPhoto.render(slot, photo)) slot.hidden = false;
             });
         });
     },
