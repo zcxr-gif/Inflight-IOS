@@ -154,7 +154,9 @@ export function updateActiveSectors(map, layerId, atcData) {
     // no text labels — those were the ugly, broken parts of the old behaviour.
     map.setFilter(layerId, filterExpression);
     map.setPaintProperty(layerId, 'fill-color', '#22c55e');
-    map.setPaintProperty(layerId, 'fill-opacity', activeIds.length ? 0.12 : 0);
+    // A faint wash is enough to read a staffed sector at a glance; the old 0.12
+    // tint stacked with the border line into something that looked solid.
+    map.setPaintProperty(layerId, 'fill-opacity', activeIds.length ? 0.07 : 0);
 
     // Remove the legacy red label layer if an older build left it behind.
     if (map.getLayer('fir-active-labels')) {
