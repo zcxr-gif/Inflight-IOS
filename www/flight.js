@@ -15760,13 +15760,31 @@ function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
     const features = [];
     const allPoints = [...(trailPoints || [])];
 
-    // Push the live current position to complete the line
+    // Push the live current position to complete the line — but ONLY if the
+    // trail doesn't already end at that position. During live updates the
+    // newest fix is pushed into the trail BEFORE this runs, so appending it
+    // again creates a duplicated, zero-length terminal segment ([…, B, B]).
+    // The Catmull-Rom smoother overshoots across that degenerate segment,
+    // drawing a curl that pokes *ahead* of the aircraft icon — the root cause
+    // of the "flown path is always ahead of the plane" bug. Dropping the
+    // redundant point makes the smoothed curve terminate exactly at the
+    // aircraft (the last real segment is clamped, so it never overshoots).
     if (currentPosition) {
-        allPoints.push({
-            latitude: currentPosition.lat,
-            longitude: currentPosition.lon,
-            altitude: currentPosition.alt_ft || 0
-        });
+        const last = allPoints[allPoints.length - 1];
+        const lastLat = last ? (last.latitude ?? last.lat) : null;
+        const lastLon = last ? (last.longitude ?? last.lon) : null;
+        const alreadyAtCurrent = last
+            && lastLat != null && lastLon != null
+            && Math.abs(lastLat - currentPosition.lat) < 1e-7
+            && Math.abs(lastLon - currentPosition.lon) < 1e-7;
+
+        if (!alreadyAtCurrent) {
+            allPoints.push({
+                latitude: currentPosition.lat,
+                longitude: currentPosition.lon,
+                altitude: currentPosition.alt_ft || 0
+            });
+        }
     }
 
     if (allPoints.length < 2) {
