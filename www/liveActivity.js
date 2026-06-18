@@ -22,6 +22,7 @@
     const trackedMeta = new Map();
     let pluginRef = null;
     let notificationPermissionRequested = false;
+    let pushEventBridgeInstalled = false;
 
     function rememberMeta(flightId, payload, partial) {
         const prev = trackedMeta.get(flightId) || { startedAt: Date.now() };
@@ -81,6 +82,7 @@
             // any plugin registered via the CAP_PLUGIN() macro at launch.
             if (cap.Plugins && cap.Plugins.LiveActivity) {
                 pluginRef = cap.Plugins.LiveActivity;
+                installPushEventBridge(pluginRef);
                 return pluginRef;
             }
             // Then fall back to explicit registration. registerPlugin
@@ -90,6 +92,7 @@
                 const proxy = cap.registerPlugin('LiveActivity');
                 if (proxy && typeof proxy === 'object') {
                     pluginRef = proxy;
+                    installPushEventBridge(pluginRef);
                     return pluginRef;
                 }
             }
@@ -220,6 +223,62 @@
         return { ok: false, reason: 'unsupported' };
     }
 
+    // ── Remote push (APNs) groundwork ───────────────────────────────────────
+    // Token events from the native side are re-dispatched as window
+    // CustomEvents so any module (WatchlistService uploads them to the ACARS
+    // backend) can subscribe without holding a plugin reference:
+    //   'inflight:remote-push-token'                detail { token }
+    //   'inflight:remote-push-error'                detail { error }
+    //   'inflight:live-activity-push-token'         detail { activityId, flightId, token }
+    //   'inflight:live-activity-push-to-start-token' detail { token }
+    function installPushEventBridge(plugin) {
+        if (pushEventBridgeInstalled || !plugin || typeof plugin.addListener !== 'function') return;
+        pushEventBridgeInstalled = true;
+        const forward = (nativeEvent, windowEvent) => {
+            try {
+                plugin.addListener(nativeEvent, (data) => {
+                    window.dispatchEvent(new CustomEvent(windowEvent, { detail: data || {} }));
+                });
+            } catch (err) {
+                console.warn(`[LiveActivity] addListener(${nativeEvent}) failed:`, err);
+            }
+        };
+        forward('remotePushToken',              'inflight:remote-push-token');
+        forward('remotePushRegistrationError',  'inflight:remote-push-error');
+        forward('liveActivityPushToken',        'inflight:live-activity-push-token');
+        forward('liveActivityPushToStartToken', 'inflight:live-activity-push-to-start-token');
+    }
+
+    /** Silently request an APNs device token (the user-facing permission
+     *  prompt is requestNotificationPermission). The token arrives via the
+     *  'inflight:remote-push-token' window event. */
+    async function registerForRemotePush() {
+        if (!detectIOS()) return { ok: false, reason: 'unsupported' };
+        const plugin = getPlugin();
+        if (!plugin || typeof plugin.registerForRemotePush !== 'function') {
+            return { ok: false, reason: 'native bridge unreachable (' + describeCapacitor() + ')' };
+        }
+        try {
+            const res = await plugin.registerForRemotePush();
+            return { ok: true, ...res };
+        } catch (err) {
+            console.warn('[LiveActivity] registerForRemotePush failed:', err);
+            return { ok: false, reason: String(err && err.message || err) };
+        }
+    }
+
+    async function getRemotePushToken() {
+        if (!detectIOS()) return null;
+        const plugin = getPlugin();
+        if (!plugin || typeof plugin.getRemotePushToken !== 'function') return null;
+        try {
+            const res = await plugin.getRemotePushToken();
+            return res?.token || null;
+        } catch (_) {
+            return null;
+        }
+    }
+
     function toMs(value) {
         if (value == null) return undefined;
         if (value instanceof Date) return value.getTime();
@@ -256,7 +315,11 @@
             // back to the live remaining distance if the caller doesn't
             // know -- the bar will simply start near 0% in that case.
             totalDistanceNm: Number(payload.totalDistanceNm) || Number(payload.distanceToDestinationNm) || 0,
-            isLanded: !!payload.isLanded
+            isLanded: !!payload.isLanded,
+            // Ask ActivityKit for a push token so the ACARS backend can
+            // update the lock screen with the app closed. Native falls back
+            // to a local-only activity if the build lacks the entitlement.
+            wantsPushUpdates: !!payload.wantsPushUpdates
         };
         try {
             const res = await plugin.start(args);
@@ -380,6 +443,8 @@
         requestNotificationPermission,
         getNotificationPermissionStatus,
         presentLocalNotification,
+        registerForRemotePush,
+        getRemotePushToken,
         openSystemSettings,
         describeCapacitor,
         // Diagnostic: returns everything we know about the bridge state.

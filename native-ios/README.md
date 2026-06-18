@@ -45,6 +45,32 @@ Mac runners via CocoaPods) to:
 The script is **idempotent** — re-running on a project that already has
 the target is a no-op.
 
+## Remote push groundwork (`INFLIGHT_ENABLE_PUSH`)
+
+The plugin contains everything needed for ACARS-fed push: APNs device
+token registration (`registerForRemotePush`, token surfaced via the
+`remotePushToken` listener event), push-capable Live Activities
+(`wantsPushUpdates` on `start`, token via `liveActivityPushToken`), and
+push-to-start tokens on iOS 17.2+ (`liveActivityPushToStartToken`).
+`www/WatchlistService.js` uploads these tokens to the ACARS backend when
+its capabilities probe reports `push: true`.
+
+None of it activates in today's builds, because APNs registration
+requires the `aps-environment` entitlement. The inject script only adds
+that entitlement (Phase A3) when `INFLIGHT_ENABLE_PUSH=1` is set in the
+Codemagic environment — and the entitlement only signs successfully once
+the App ID (`com.tracker.Inflight`) has the **Push Notifications**
+capability enabled in App Store Connect. Flipping it on early fails the
+signing step, which is why it's opt-in.
+
+Checklist when the backend ships:
+1. Enable Push Notifications on the App ID in App Store Connect
+   (Codemagic's `fetch-signing-files` will then mint a profile that
+   carries the entitlement).
+2. Give the ACARS backend the APNs `.p8` signing key.
+3. Set `INFLIGHT_ENABLE_PUSH=1` in `codemagic.yaml`.
+4. Have `/api/watchlist/capabilities` return `push: true`.
+
 ## App Store Connect setup — handled automatically
 
 The widget extension uses a separate bundle ID

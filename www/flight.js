@@ -19,6 +19,7 @@ import { ProfileUI } from './profileUI.js';
 import { PerformanceMonitor } from './performanceMonitor.js';
 import { socketDataHub } from './SocketDataHub.js';
 import { FlightDispatchService } from './FlightDispatchService.js';
+import { WatchlistService } from './WatchlistService.js';
 import { MobileDashboardUI } from './MobileDashboardUI.js';
 import { trackManager } from './proTrackManager.js';
 import { FlightReplay } from './flightReplay.js';
@@ -51,6 +52,16 @@ MobileDashboardUI._ifData = ProfileUI._ifData;
 window.AuthUI = AuthUI;
 window.AuthUI.init(supabase);
 FlightDispatchService.init(supabase);
+
+// 4. Watchlist data + live-notification feed. Speaks the ACARS backend
+//    contract first and falls back to Supabase until the backend ships
+//    (see WatchlistService.js for the endpoint/socket-event contract).
+WatchlistService.init(supabase);
+WatchlistService.subscribe((evt) => {
+    // Re-tag map features whenever the watchlist changes so watched pilots'
+    // planes recolor immediately, no matter which UI made the edit.
+    if (evt.type === 'entries_changed') refreshPilotRelations();
+});
 
 
 async function loadSpriteSheetAndGenerateIcons(map) {
@@ -851,11 +862,8 @@ function refreshPilotRelations() {
     try {
         const profile = (typeof ProfileUI !== 'undefined') ? ProfileUI : null;
         const myIfName = profile?._currentUser?.user_metadata?.if_username?.toLowerCase() || null;
-        const watchlist = profile?._watchlist || [];
         const watchSet = new Set(
-            watchlist
-                .map(w => w?.watched_username?.toLowerCase())
-                .filter(Boolean)
+            WatchlistService.getWatchedUsernames().map(u => u.toLowerCase())
         );
 
         Object.values(currentMapFeatures).forEach(f => {
@@ -9098,6 +9106,10 @@ function initializeSectorOpsSocket() {
     timeout: 20000 // Increase connection timeout to 20 seconds
 });
 
+    // Give the watchlist service the live socket so it can register for
+    // server-pushed `watchlist_event`s once the ACARS backend supports them.
+    WatchlistService.bindSocket(sectorOpsSocket);
+
     // On successful connection, join the server room based on State
     sectorOpsSocket.on('connect', () => {
         // [UPDATED] Use currentServerName
@@ -11656,6 +11668,10 @@ function setupAircraftWindowEvents() {
                     showNotification?.('Could not read flight data yet — try again in a moment.', 'error');
                     return;
                 }
+                // Once the ACARS backend supports push, request an
+                // ActivityKit push token so the lock screen keeps updating
+                // with the app closed. No-op (local-only activity) until then.
+                payload.wantsPushUpdates = WatchlistService.isPushAvailable();
                 const res = await window.InflightLiveActivity.start(payload);
                 if (res?.ok) {
                     showNotification?.('Tracking on Lock Screen.', 'success');
