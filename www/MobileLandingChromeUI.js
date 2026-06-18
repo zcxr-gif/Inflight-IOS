@@ -18,10 +18,11 @@ const SERVER_META = {
 };
 
 const WEATHER_LAYERS = [
-    { id: 'precip',  label: 'Precipitation', sub: 'Live radar + intensity', icon: 'fa-satellite-dish' },
-    { id: 'sigmets', label: 'SIGMETs',       sub: 'Significant weather',    icon: 'fa-triangle-exclamation' },
-    { id: 'clouds',  label: 'Clouds',        sub: 'Coverage overlay',       icon: 'fa-cloud' },
-    { id: 'wind',    label: 'Winds Aloft',   sub: 'Direction + speed',      icon: 'fa-wind' },
+    { id: 'precip',    label: 'Precipitation',     sub: 'Animated radar loop',     icon: 'fa-satellite-dish' },
+    { id: 'sigmets',   label: 'SIGMETs',           sub: 'Significant weather',     icon: 'fa-triangle-exclamation' },
+    { id: 'flightcat', label: 'Flight Categories', sub: 'VFR · MVFR · IFR · LIFR', icon: 'fa-plane-circle-check' },
+    { id: 'clouds',    label: 'Clouds',            sub: 'Coverage overlay',        icon: 'fa-cloud' },
+    { id: 'wind',      label: 'Winds Aloft',       sub: 'Direction + speed',       icon: 'fa-wind' },
 ];
 
 export const MobileLandingChromeUI = {
