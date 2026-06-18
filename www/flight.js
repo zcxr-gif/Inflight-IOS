@@ -5516,7 +5516,10 @@ async function initializeMapBoundaries(map) {
         // Aeronautical-chart styling for the FIR boundary network: a clean cyan
         // line on dark maps, a deep sky line on light maps.
         const borderColor = (styleMode === 'light') ? '#0369a1' : '#67e8f9';
-        const borderOpacity = (styleMode === 'light') ? 0.5 : 0.45;
+        // Keep the FIR network legible but ghost-thin — the old 0.45/0.5 lines
+        // read as solid walls over the map. These softer values let the terrain
+        // and traffic underneath show through.
+        const borderOpacity = (styleMode === 'light') ? 0.3 : 0.22;
 
         // FIX: Check if the plane layer exists before trying to place boundaries under it
         const beforeId = map.getLayer('sector-ops-live-flights-layer')
@@ -5534,7 +5537,7 @@ async function initializeMapBoundaries(map) {
                 filter: ['==', 'id', 'none-active'],
                 paint: {
                     'fill-color': '#22c55e',
-                    'fill-opacity': 0.1
+                    'fill-opacity': 0.06
                 }
             }, beforeId); // Use safe reference
         }
@@ -5550,7 +5553,7 @@ async function initializeMapBoundaries(map) {
                 source: 'fir-boundaries',
                 paint: {
                     'line-color': borderColor,
-                    'line-width': 0.8,
+                    'line-width': 0.7,
                     'line-opacity': borderOpacity
                 }
             }, beforeId); // Use safe reference
@@ -8931,19 +8934,33 @@ function handleSocketFlightUpdate(data) {
                 aircraft: aircraftData
             };
             
-            FlownPath3D.updatePath(sectorOpsMap, flightId, localTrail, mapFilters.show3DPath);
+            // Clamp the 3D extruded path to the live marker too, so it can't
+            // lead the icon (same guarantee the 2D line gets via clampTrailToMarker).
+            FlownPath3D.updatePath(sectorOpsMap, flightId, clampTrailToMarker(localTrail, flight.position), mapFilters.show3DPath);
 
             if (localTrail) {
-                const newRoutePoint = {
-                    latitude: flight.position.lat,
-                    longitude: flight.position.lon,
-                    altitude: flight.position.alt_ft,
-                    groundSpeed: flight.position.gs_kt,
-                    track: flight.position.heading_deg,
-                    date: new Date(flight.position.lastReport || Date.now()).toISOString()
-                };
-                localTrail.push(newRoutePoint);
-                liveTrailCache.set(flightId, localTrail);
+                // Append this socket frame to the trail so it grows in lockstep
+                // with the marker. Guard against duplicate/stale frames (the API
+                // can resend the same report): only append when this report is
+                // strictly newer than the trail's current tip.
+                const newMs = reportMs(flight.position);
+                const lastPt = localTrail[localTrail.length - 1];
+                const lastMs = lastPt
+                    ? (Number.isFinite(lastPt.time) ? lastPt.time : Date.parse(lastPt.date))
+                    : -Infinity;
+                if (!(Number.isFinite(newMs) && Number.isFinite(lastMs) && newMs <= lastMs)) {
+                    const stampMs = Number.isFinite(newMs) ? newMs : Date.now();
+                    localTrail.push({
+                        latitude: flight.position.lat,
+                        longitude: flight.position.lon,
+                        altitude: flight.position.alt_ft,
+                        groundSpeed: flight.position.gs_kt,
+                        track: flight.position.heading_deg,
+                        time: stampMs,
+                        date: new Date(stampMs).toISOString()
+                    });
+                    liveTrailCache.set(flightId, localTrail);
+                }
 
                 // --- [NEW] Update Simple Iframe if Active ---
                 const simpleIframe = document.getElementById('simple-flight-window-frame');
@@ -9007,22 +9024,31 @@ function handleSocketFlightUpdate(data) {
         // === NEW: PINNED AIRCRAFT UPDATE LOGIC ===
         if (window.pinnedFlights && window.pinnedFlights.has(flightId) && flightId !== currentFlightInWindow) {
             let localTrail = liveTrailCache.get(flightId) || [];
-            
-            const newRoutePoint = {
-                latitude: flight.position.lat,
-                longitude: flight.position.lon,
-                altitude: flight.position.alt_ft,
-                groundSpeed: flight.position.gs_kt,
-                track: flight.position.heading_deg,
-                date: new Date(flight.position.lastReport || Date.now()).toISOString()
-            };
-            localTrail.push(newRoutePoint);
-            liveTrailCache.set(flightId, localTrail);
-            
-            if (typeof FlownPath3D !== 'undefined') {
-                FlownPath3D.updatePath(sectorOpsMap, flightId, localTrail, mapFilters.show3DPath);
+
+            // Append in lockstep with the marker, skipping duplicate/stale frames.
+            const newMs = reportMs(flight.position);
+            const lastPt = localTrail[localTrail.length - 1];
+            const lastMs = lastPt
+                ? (Number.isFinite(lastPt.time) ? lastPt.time : Date.parse(lastPt.date))
+                : -Infinity;
+            if (!(Number.isFinite(newMs) && Number.isFinite(lastMs) && newMs <= lastMs)) {
+                const stampMs = Number.isFinite(newMs) ? newMs : Date.now();
+                localTrail.push({
+                    latitude: flight.position.lat,
+                    longitude: flight.position.lon,
+                    altitude: flight.position.alt_ft,
+                    groundSpeed: flight.position.gs_kt,
+                    track: flight.position.heading_deg,
+                    time: stampMs,
+                    date: new Date(stampMs).toISOString()
+                });
+                liveTrailCache.set(flightId, localTrail);
             }
-            
+
+            if (typeof FlownPath3D !== 'undefined') {
+                FlownPath3D.updatePath(sectorOpsMap, flightId, clampTrailToMarker(localTrail, flight.position), mapFilters.show3DPath);
+            }
+
             const flownLayerId = `flown-path-${flightId}`;
 
             if (sectorOpsMap && sectorOpsMap.getSource(flownLayerId)) {
@@ -15756,18 +15782,131 @@ function generateSmoothPath(points, tension = 0.5) {
     return result;
 }
 
-function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
-    const features = [];
-    const allPoints = [...(trailPoints || [])];
+/**
+ * Resolve an aircraft report time to milliseconds. The socket and the /history
+ * endpoint share one clock (the aircraft's own report time), but expose it under
+ * different keys — socket frames carry `lastReportMs` (and legacy `lastReport`),
+ * history points carry `time`. This normalises any of them to a finite ms value,
+ * or NaN when none is usable.
+ */
+function reportMs(src) {
+    if (!src) return NaN;
+    if (Number.isFinite(src.lastReportMs)) return src.lastReportMs;
+    if (Number.isFinite(src.time)) return src.time;
+    const raw = src.lastReport ?? src.last_update ?? src.date;
+    if (raw == null) return NaN;
+    if (Number.isFinite(raw)) return Number(raw);
+    const parsed = Date.parse(raw);
+    return Number.isFinite(parsed) ? parsed : NaN;
+}
 
-    // Push the live current position to complete the line
-    if (currentPosition) {
-        allPoints.push({
-            latitude: currentPosition.lat,
-            longitude: currentPosition.lon,
-            altitude: currentPosition.alt_ft || 0
+/**
+ * Normalise a raw /history point into the trail shape the rest of the app uses.
+ * History points come over the wire as { lat, lon, alt, gs, hdg, time }, but
+ * downstream consumers (graphs, dep/arr time calc, gate info) read the older
+ * { latitude, longitude, altitude, groundSpeed, track, date } shape — so we keep
+ * both, and carry a numeric `time` (ms) for precise, clock-exact comparisons.
+ */
+function normalizeHistoryPoint(p) {
+    const lat = p.lat ?? p.latitude;
+    const lon = p.lon ?? p.longitude;
+    let time = Number.isFinite(p.time) ? p.time
+             : (p.date != null ? Date.parse(p.date) : NaN);
+    if (!Number.isFinite(time)) time = NaN;
+    return {
+        latitude: lat,
+        longitude: lon,
+        altitude: p.alt ?? p.altitude ?? 0,
+        groundSpeed: p.gs ?? p.groundSpeed ?? 0,
+        track: p.hdg ?? p.track ?? p.heading_deg ?? 0,
+        time: Number.isFinite(time) ? time : undefined,
+        date: Number.isFinite(time) ? new Date(time).toISOString() : (p.date ?? undefined)
+    };
+}
+
+/**
+ * Clamp a flown-trail to the live aircraft marker so it can NEVER render ahead
+ * of the icon. Returns a fresh, normalised array ({latitude, longitude,
+ * altitude, ...}) with two guarantees:
+ *
+ *   1. Any trailing samples that sit in the *forward hemisphere* of the
+ *      aircraft's current track are dropped. The /history endpoint (and a
+ *      cached trail) can briefly hold GPS samples that are newer in the backend
+ *      than the socket frame the marker has consumed; those points are
+ *      physically ahead of the plane, and a place it hasn't reached yet can't be
+ *      part of where it has already flown. We trim geometrically rather than by
+ *      timestamp because the history and live feeds aren't guaranteed to share a
+ *      clock — projection onto the heading vector is immune to that skew.
+ *   2. The marker position itself is appended as the definitive leading edge,
+ *      so the path always terminates exactly at the icon.
+ *
+ * Shared by the 2D altitude-coloured line and the 3D extruded path so neither
+ * can lead the aircraft.
+ */
+function clampTrailToMarker(trail, markerPos) {
+    const out = [];
+    const src = Array.isArray(trail) ? trail : [];
+    for (let i = 0; i < src.length; i++) {
+        const p = src[i];
+        const lat = p.latitude ?? p.lat;
+        const lon = p.longitude ?? p.lon;
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+        out.push({
+            latitude: lat,
+            longitude: lon,
+            altitude: p.altitude ?? p.alt ?? 0,
+            groundSpeed: p.groundSpeed,
+            track: p.track,
+            time: Number.isFinite(p.time) ? p.time : reportMs(p),
+            date: p.date
         });
     }
+
+    const haveMarker = markerPos
+        && Number.isFinite(markerPos.lat)
+        && Number.isFinite(markerPos.lon);
+
+    // (1) Drop samples ahead of the aircraft along its track.
+    if (haveMarker && Number.isFinite(markerPos.heading_deg)) {
+        const hdg = markerPos.heading_deg * Math.PI / 180;
+        const fwdE = Math.sin(hdg);            // east component of the track vector
+        const fwdN = Math.cos(hdg);            // north component of the track vector
+        const cosLat = Math.cos(markerPos.lat * Math.PI / 180);
+        while (out.length) {
+            const p = out[out.length - 1];
+            let dLon = p.longitude - markerPos.lon;
+            while (dLon > 180) dLon -= 360;     // shortest-way delta across the dateline
+            while (dLon < -180) dLon += 360;
+            const dN = p.latitude - markerPos.lat;
+            const dE = dLon * cosLat;
+            // Projection of (point - marker) onto the forward track vector.
+            // > 0 ⇒ the sample sits ahead of the aircraft, so it must be dropped.
+            if (dN * fwdN + dE * fwdE > 1e-9) {
+                out.pop();
+            } else {
+                break;
+            }
+        }
+    }
+
+    // (2) Anchor the leading edge exactly at the marker.
+    if (haveMarker) {
+        out.push({
+            latitude: markerPos.lat,
+            longitude: markerPos.lon,
+            altitude: markerPos.alt_ft ?? 0,
+            time: reportMs(markerPos)
+        });
+    }
+
+    return out;
+}
+
+function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
+    const features = [];
+    // The shared clamp both trims any samples ahead of the icon and appends the
+    // live marker as the leading edge, so the line can never poke past the plane.
+    const allPoints = clampTrailToMarker(trailPoints, currentPosition);
 
     if (allPoints.length < 2) {
         return { type: 'FeatureCollection', features: [] };
@@ -15775,14 +15914,15 @@ function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
 
     // Unwrap longitudes to prevent the line from stretching across the globe at the anti-meridian.
     // We carry the unwrapped longitude on each point (as `unwrappedLon`) so generateSmoothPath
-    // can interpolate without hopping the dateline.
+    // can interpolate without hopping the dateline. `time` rides along so we can detect breaks.
     const unwrappedPoints = [];
     let prevLon = allPoints[0].longitude || allPoints[0].lon;
 
     unwrappedPoints.push({
         unwrappedLon: prevLon,
         lat: allPoints[0].latitude || allPoints[0].lat,
-        alt: allPoints[0].altitude || allPoints[0].alt || 0
+        alt: allPoints[0].altitude || allPoints[0].alt || 0,
+        time: Number.isFinite(allPoints[0].time) ? allPoints[0].time : NaN
     });
 
     for (let i = 1; i < allPoints.length; i++) {
@@ -15793,38 +15933,65 @@ function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
         while (lon - prevLon > 180) lon -= 360;
         while (prevLon - lon > 180) lon += 360;
 
-        unwrappedPoints.push({ unwrappedLon: lon, lat, alt });
+        unwrappedPoints.push({ unwrappedLon: lon, lat, alt, time: Number.isFinite(allPoints[i].time) ? allPoints[i].time : NaN });
         prevLon = lon;
     }
 
-    // --- Bend-it-like-Beckham: Catmull-Rom smoothing ---
+    // --- Session-gap segmentation ---
+    // A single flightId's history can span several sessions (e.g. a disconnect
+    // and reconnect hours later). Consecutive samples separated by a large time
+    // gap (>30 min) or a large position jump (>50 NM) belong to different
+    // segments and must NOT be joined by a drawn line. Split into continuous
+    // runs here and render each independently so the breaks stay broken.
+    const SESSION_GAP_MS = 30 * 60 * 1000;
+    const SESSION_GAP_NM = 50;
+    const runs = [];
+    let run = [unwrappedPoints[0]];
+    for (let i = 1; i < unwrappedPoints.length; i++) {
+        const a = unwrappedPoints[i - 1];
+        const b = unwrappedPoints[i];
+        const dtMs = (Number.isFinite(a.time) && Number.isFinite(b.time)) ? (b.time - a.time) : 0;
+        const distNm = getDistanceKm(a.lat, a.unwrappedLon, b.lat, b.unwrappedLon) / 1.852;
+        if (dtMs > SESSION_GAP_MS || distNm > SESSION_GAP_NM) {
+            runs.push(run);
+            run = [b];
+        } else {
+            run.push(b);
+        }
+    }
+    runs.push(run);
+
+    // --- Bend-it-like-Beckham: Catmull-Rom smoothing (per run) ---
     // Subdivides each segment into an interpolated curve passing through every sample point.
     // Altitude is linearly interpolated between samples, preserving the altitude→color relation.
     // generateSmoothPath needs >= 4 points; with fewer (very early in a flight), draw raw.
-    const smoothedPoints = unwrappedPoints.length >= 4
-        ? generateSmoothPath(unwrappedPoints, 0.5)
-        : unwrappedPoints;
-
     // Create a distinct LineString feature for EVERY segment so each can be colored
     // by its own altitude property via the layer's interpolate expression.
-    for (let i = 0; i < smoothedPoints.length - 1; i++) {
-        const p1 = smoothedPoints[i];
-        const p2 = smoothedPoints[i + 1];
+    runs.forEach(runPts => {
+        if (runPts.length < 2) return;
+        const smoothedPoints = runPts.length >= 4
+            ? generateSmoothPath(runPts, 0.5)
+            : runPts;
 
-        features.push({
-            type: 'Feature',
-            geometry: {
-                type: 'LineString',
-                coordinates: [
-                    [p1.unwrappedLon, p1.lat],
-                    [p2.unwrappedLon, p2.lat]
-                ]
-            },
-            properties: {
-                altitude: p1.alt
-            }
-        });
-    }
+        for (let i = 0; i < smoothedPoints.length - 1; i++) {
+            const p1 = smoothedPoints[i];
+            const p2 = smoothedPoints[i + 1];
+
+            features.push({
+                type: 'Feature',
+                geometry: {
+                    type: 'LineString',
+                    coordinates: [
+                        [p1.unwrappedLon, p1.lat],
+                        [p2.unwrappedLon, p2.lat]
+                    ]
+                },
+                properties: {
+                    altitude: p1.alt
+                }
+            });
+        }
+    });
 
     return { type: 'FeatureCollection', features: features };
 }
@@ -15956,7 +16123,20 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         const livName = flightProps.aircraft?.liveryName || flightProps.liveryName || '';
 
         const planUrl = `${LIVE_FLIGHTS_API_URL}/${sessionId || 'default'}/${flightProps.flightId}/plan`;
-        const historyUrl = `${LIVE_FLIGHTS_API_URL.replace('/flights', '/api/flights')}/${flightProps.flightId}/history`;
+        // Clamp the baseline trail to the live marker's clock. The socket marker
+        // sits at its own report time (lastReportMs); asking the history endpoint
+        // for `?until=<that ms>` guarantees the returned path can't contain points
+        // newer than the marker the user is looking at — so the trail tip can
+        // never lead the icon. From here on we never re-fetch: each socket frame
+        // is appended to the trail, so the two grow in lockstep (see below).
+        const liveFeatForUntil = (typeof currentMapFeatures !== 'undefined')
+            ? currentMapFeatures[flightProps.flightId] : null;
+        let untilMs = (liveFeatForUntil?.properties?.last_update != null)
+            ? reportMs({ lastReport: liveFeatForUntil.properties.last_update })
+            : NaN;
+        if (!Number.isFinite(untilMs)) untilMs = reportMs(flightProps.position);
+        const historyBase = `${LIVE_FLIGHTS_API_URL.replace('/flights', '/api/flights')}/${flightProps.flightId}/history`;
+        const historyUrl = Number.isFinite(untilMs) ? `${historyBase}?until=${untilMs}` : historyBase;
         const aircraftLookupUrl = `${API_BASE_URL}/api/aircraft/lookup?type=${encodeURIComponent(acName)}&livery=${encodeURIComponent(livName)}`;
 
         const routePromise = fetch(historyUrl).catch(() => ({ ok: false }));
@@ -16042,13 +16222,35 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         let sortedRoutePoints = [];
         const historyArray = routeData?.path || routeData?.route || [];
         if (routeData && routeData.ok && Array.isArray(historyArray)) {
-            sortedRoutePoints = historyArray.sort((a, b) => new Date(a.date) - new Date(b.date));
+            // Normalise the wire shape ({lat,lon,alt,gs,hdg,time}) into the
+            // internal trail shape and sort ascending by the millisecond clock.
+            sortedRoutePoints = historyArray
+                .map(normalizeHistoryPoint)
+                .filter(p => Number.isFinite(p.latitude) && Number.isFinite(p.longitude))
+                .sort((a, b) => {
+                    const ta = Number.isFinite(a.time) ? a.time : Date.parse(a.date);
+                    const tb = Number.isFinite(b.time) ? b.time : Date.parse(b.date);
+                    return ta - tb;
+                });
         }
 
         if (typeof liveTrailCache !== 'undefined') liveTrailCache.set(flightProps.flightId, sortedRoutePoints);
 
         if (typeof FlownPath3D !== 'undefined') {
-            FlownPath3D.updatePath(sectorOpsMap, flightProps.flightId, sortedRoutePoints, mapFilters.show3DPath);
+            // Resolve the live marker (fresher than the click-time snapshot) so
+            // the 3D path is clamped to the icon and the full /history breadcrumb
+            // can't extend the extruded tube past the aircraft on first open.
+            const liveFeat3D = (typeof currentMapFeatures !== 'undefined')
+                ? currentMapFeatures[flightProps.flightId] : null;
+            const marker3D = liveFeat3D?.geometry?.coordinates
+                ? {
+                    lat: liveFeat3D.geometry.coordinates[1],
+                    lon: liveFeat3D.geometry.coordinates[0],
+                    alt_ft: liveFeat3D.properties?.altitude ?? flightProps.position?.alt_ft ?? 0,
+                    heading_deg: liveFeat3D.properties?.heading ?? flightProps.position?.heading_deg
+                  }
+                : flightProps.position;
+            FlownPath3D.updatePath(sectorOpsMap, flightProps.flightId, clampTrailToMarker(sortedRoutePoints, marker3D), mapFilters.show3DPath);
         }
 
         if (currentFlightInWindow === flightProps.flightId) {
@@ -16120,7 +16322,13 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             ? {
                 lat: liveFeature.geometry.coordinates[1],
                 lon: liveFeature.geometry.coordinates[0],
-                alt_ft: liveFeature.properties?.altitude ?? flightProps.position?.alt_ft ?? 0
+                alt_ft: liveFeature.properties?.altitude ?? flightProps.position?.alt_ft ?? 0,
+                // Carry the marker's track so generateAltitudeColoredRoute's
+                // anti-overshoot guard can trim any history sample that sits
+                // ahead of the icon (see that function for the full rationale).
+                heading_deg: liveFeature.properties?.heading ?? flightProps.position?.heading_deg,
+                // ...and its report time so the appended tip has an accurate clock.
+                lastReportMs: Number.isFinite(liveLastUpdateMs) ? liveLastUpdateMs : reportMs(flightProps.position)
               }
             : flightProps.position;
         const trailUpToMarker = (liveLastUpdateMs != null)
