@@ -577,6 +577,23 @@ export const LandingUI = {
                         </div>
                     </div>
 
+                    <div class="efb-statbar">
+                        <button type="button" id="mobile-status-tile" class="efb-stat-cell efb-stat-svr" aria-label="Switch server">
+                            <span class="efb-stat-led"></span>
+                            <span class="efb-stat-key">SVR</span>
+                            <span class="efb-stat-val" id="mst-server-name">${this._currentServer.substring(0,4).toUpperCase()}</span>
+                        </button>
+                        <span class="efb-stat-sep"></span>
+                        <div class="efb-stat-cell efb-stat-trk">
+                            <span class="efb-stat-key">TRK</span>
+                            <span class="efb-stat-val efb-stat-val-num" id="mst-count">———</span>
+                        </div>
+                        <span class="efb-stat-flex"></span>
+                        <button type="button" id="efb-search-trigger" class="efb-icon-btn" aria-label="Open search">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                        </button>
+                    </div>
+
                     <div class="top-right-actions">
                         <div class="search-blade">
                             <i class="fa-solid fa-magnifying-glass search-icon"></i>
@@ -894,6 +911,55 @@ export const LandingUI = {
         document.querySelectorAll('.nexus-item').forEach(item => {
             item.addEventListener('click', () => this.activateFilter(item.dataset.filterId));
         });
+
+        // Mobile status tile — opens the polished server sheet and stays
+        // in sync with server changes / live aircraft count.
+        const statusTile = document.getElementById('mobile-status-tile');
+        statusTile?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (window.MobileUIHandler && typeof window.MobileUIHandler.openServerSheet === 'function') {
+                window.MobileUIHandler.openServerSheet();
+            } else {
+                serverSelector?.classList.toggle('open');
+            }
+        });
+        window.addEventListener('serverChange', (e) => {
+            const name = e.detail?.server;
+            const tileName = document.getElementById('mst-server-name');
+            if (name && tileName) tileName.textContent = name.substring(0, 4).toUpperCase();
+        });
+
+        // EFB search trigger — opens the search-blade modally.
+        document.getElementById('efb-search-trigger')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const input = document.getElementById('blade-search-input');
+            if (input) {
+                input.focus();
+                try { input.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (_) {}
+            }
+        });
+        const refreshLiveCount = () => {
+            const el = document.getElementById('mst-count');
+            if (!el) return;
+            const flights = (typeof window.getLiveFlightData === 'function')
+                ? window.getLiveFlightData()
+                : null;
+            if (!Array.isArray(flights)) return;
+            const n = flights.length;
+            el.textContent = (n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n));
+        };
+        refreshLiveCount();
+        setInterval(refreshLiveCount, 8000);
+
+        // Sync active state on the bottom dock (accent underline + color)
+        // when the user opens/closes things via these primary controls.
+        const markActive = (id) => {
+            document.querySelectorAll('.orb-row .orb-btn').forEach(b => b.classList.remove('is-active'));
+            if (id) document.getElementById(id)?.classList.add('is-active');
+        };
+        document.getElementById('toggle-filter-modal')?.addEventListener('click', () => markActive('toggle-filter-modal'));
+        document.getElementById('tile-settings')?.addEventListener('click', () => markActive('tile-settings'));
+        document.getElementById('mobile-server-tab')?.addEventListener('click', () => markActive('mobile-server-tab'));
     },
 
     showPreview(type) {
@@ -1215,6 +1281,9 @@ export const LandingUI = {
                 right: 40px;
                 pointer-events: none;
             }
+
+            /* Mobile-only chrome: hidden on desktop. */
+            .efb-statbar { display: none; }
 
             .tactical-header {
                 position: absolute;
@@ -2277,97 +2346,221 @@ export const LandingUI = {
             }
 
             /* ============================================================
-               FR24-style mobile chrome (authoritative overrides — kept last
-               so they win over the legacy mobile rules above)
+               EFB Console — mobile chrome built around an Electronic
+               Flight Bag aesthetic (what pilots actually use in the
+               cockpit, not what a consumer tracker app looks like).
+
+               No floating glass pills. No backdrop blur. No rounded pill
+               buttons. Instead: solid edge-to-edge bars, sharp rectangles
+               with 4px radius, monospace data readouts, cyan/amber LED
+               indicators, and ALL-CAPS labels. The visual language is
+               aviation-instrument, not iOS-app.
                ============================================================ */
             @media (max-width: 768px) {
-                /* ---------- TOP: native-iOS search bar ---------- *
-                   One frosted bar pinned under the status bar. It holds the
-                   search field; the profile avatar floats at the trailing
-                   edge while idle and is swapped for a "Cancel" button while
-                   searching (the standard iOS search pattern). */
+
+                /* The header is now a solid edge-to-edge top bar. No
+                   pointer-events trickery — the bar itself is the chrome,
+                   buttons live inside it. */
                 .tactical-header {
                     top: 0 !important;
                     left: 0 !important;
                     right: 0 !important;
                     width: 100% !important;
                     height: auto !important;
-                    padding: calc(env(safe-area-inset-top, 0px) + 8px) 64px 8px 12px !important;
-                    background: var(--lui-glass-bg) !important;
-                    -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
-                    backdrop-filter: blur(24px) saturate(180%) !important;
-                    border-bottom: 1px solid var(--lui-border-base) !important;
-                    display: flex !important;
-                    align-items: center !important;
-                    gap: 8px !important;
-                    pointer-events: none !important;
+                    padding: 0 !important;
+                    background: linear-gradient(180deg, rgba(8, 11, 18, 0.97) 0%, rgba(8, 11, 18, 0.92) 100%) !important;
+                    -webkit-backdrop-filter: none !important;
+                    backdrop-filter: none !important;
+                    border-bottom: 1px solid rgba(56, 189, 248, 0.18) !important;
+                    box-shadow: 0 1px 0 rgba(0,0,0,0.6), 0 8px 24px rgba(0,0,0,0.45) !important;
+                    display: block !important;
+                    pointer-events: auto !important;
                     z-index: 1500 !important;
-                    transition: padding 0.25s cubic-bezier(0.16,1,0.3,1) !important;
                 }
-                /* Server moved to the bottom bar — hide it from the top */
                 .tactical-header .top-branding.dropdown { display: none !important; }
 
-                .top-right-actions {
-                    flex: 1 1 auto !important;
-                    width: auto !important;
-                    max-width: none !important;
+                /* ---------- The EFB status strip ---------- *
+                   A single horizontal strip across the top with cockpit
+                   instrument readouts in mono on the left and a search
+                   icon button on the right. Sits below the device status
+                   bar (safe-area-inset-top). */
+                .efb-statbar {
                     display: flex !important;
+                    align-items: center !important;
+                    gap: 10px !important;
+                    padding: calc(env(safe-area-inset-top, 0px) + 8px) 12px 8px 12px !important;
+                    width: 100% !important;
+                    box-sizing: border-box !important;
+                    /* Subtle vertical line pattern to evoke a panel face. */
+                    background-image: repeating-linear-gradient(
+                        90deg,
+                        transparent 0,
+                        transparent 22px,
+                        rgba(56, 189, 248, 0.025) 22px,
+                        rgba(56, 189, 248, 0.025) 23px
+                    ) !important;
+                }
+                .efb-stat-cell {
+                    display: inline-flex !important;
+                    align-items: center !important;
+                    gap: 7px !important;
+                    height: 34px !important;
+                    padding: 0 11px !important;
+                    border: 1px solid rgba(56, 189, 248, 0.22) !important;
+                    border-radius: 4px !important;
+                    background: rgba(56, 189, 248, 0.04) !important;
+                    /* Corner-clip notches — sharp aviation feel. */
+                    clip-path: polygon(
+                        6px 0,
+                        100% 0,
+                        100% calc(100% - 6px),
+                        calc(100% - 6px) 100%,
+                        0 100%,
+                        0 6px
+                    );
+                    color: var(--lui-accent) !important;
+                    font-family: 'JetBrains Mono', 'SF Mono', 'Menlo', 'Courier New', monospace !important;
+                    cursor: default;
+                }
+                button.efb-stat-cell { cursor: pointer; transition: background-color 0.15s ease; }
+                button.efb-stat-cell:active {
+                    background: rgba(56, 189, 248, 0.14) !important;
+                }
+                .efb-stat-led {
+                    width: 6px !important;
+                    height: 6px !important;
+                    border-radius: 50% !important;
+                    background: #22c55e !important;
+                    box-shadow: 0 0 6px #22c55e, 0 0 2px #22c55e !important;
+                    animation: efb-led-pulse 2.4s ease-in-out infinite !important;
+                    flex: 0 0 6px !important;
+                }
+                @keyframes efb-led-pulse {
+                    0%, 100% { opacity: 1; }
+                    50%      { opacity: 0.45; }
+                }
+                .efb-stat-key {
+                    font-size: 10px !important;
+                    font-weight: 700 !important;
+                    letter-spacing: 1px !important;
+                    color: rgba(56, 189, 248, 0.6) !important;
+                    text-transform: uppercase !important;
+                }
+                .efb-stat-val {
+                    font-size: 12px !important;
+                    font-weight: 700 !important;
+                    letter-spacing: 0.6px !important;
+                    color: var(--lui-text-main) !important;
+                    font-variant-numeric: tabular-nums !important;
+                }
+                .efb-stat-val-num {
+                    color: #fbbf24 !important;  /* aviation amber for live numbers */
+                    text-shadow: 0 0 8px rgba(251, 191, 36, 0.35) !important;
+                }
+                .efb-stat-sep {
+                    flex: 0 0 1px;
+                    align-self: stretch;
+                    margin: 6px 0;
+                    background: linear-gradient(180deg, transparent, rgba(56, 189, 248, 0.18), transparent) !important;
+                }
+                .efb-stat-flex { flex: 1 1 auto !important; }
+                .efb-icon-btn {
+                    width: 34px !important;
+                    height: 34px !important;
+                    flex: 0 0 34px !important;
+                    border: 1px solid rgba(56, 189, 248, 0.22) !important;
+                    border-radius: 4px !important;
+                    background: rgba(56, 189, 248, 0.04) !important;
+                    color: var(--lui-accent) !important;
+                    font-size: 13px !important;
+                    display: grid !important;
+                    place-items: center !important;
+                    cursor: pointer;
+                    clip-path: polygon(
+                        6px 0,
+                        100% 0,
+                        100% calc(100% - 6px),
+                        calc(100% - 6px) 100%,
+                        0 100%,
+                        0 6px
+                    );
+                    transition: background-color 0.15s ease;
+                }
+                .efb-icon-btn:active { background: rgba(56, 189, 248, 0.14) !important; }
+
+                /* ---------- Search blade — hidden until triggered ---------- */
+                .top-right-actions {
+                    position: fixed !important;
+                    left: 0 !important;
+                    right: 0 !important;
+                    top: 0 !important;
+                    bottom: auto !important;
+                    width: 100% !important;
+                    max-width: none !important;
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    display: flex !important;
+                    opacity: 0 !important;
+                    pointer-events: none !important;
+                    z-index: 1600 !important;
+                }
+                .mobile-search-active .top-right-actions,
+                .top-right-actions:focus-within {
+                    opacity: 1 !important;
                     pointer-events: auto !important;
                 }
                 .search-blade {
                     width: 100% !important;
-                    height: 40px !important;
-                    padding: 0 14px !important;
-                    background: var(--lui-bg-input) !important;
-                    border: 1px solid var(--lui-border-base) !important;
-                    border-radius: 12px !important;
+                    height: calc(env(safe-area-inset-top, 0px) + 56px) !important;
+                    padding: env(safe-area-inset-top, 0px) 76px 0 14px !important;
+                    background: rgba(8, 11, 18, 0.98) !important;
+                    -webkit-backdrop-filter: none !important;
+                    backdrop-filter: none !important;
+                    border: none !important;
+                    border-bottom: 1px solid rgba(56, 189, 248, 0.28) !important;
+                    border-radius: 0 !important;
                     display: flex !important;
                     align-items: center !important;
-                    gap: 8px !important;
-                    box-shadow: none !important;
-                    transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+                    gap: 10px !important;
+                    box-shadow: 0 8px 24px rgba(0,0,0,0.5) !important;
                 }
-                .search-blade .search-icon { color: var(--lui-text-gray-1) !important; font-size: 0.9rem !important; }
+                .search-blade .search-icon {
+                    color: var(--lui-accent) !important;
+                    font-size: 14px !important;
+                }
                 #blade-search-input {
-                    font-size: 16px !important; /* >=16px stops iOS auto-zoom on focus */
+                    font-size: 16px !important; /* iOS auto-zoom guard */
                     flex: 1 1 auto !important;
                     min-width: 0 !important;
                     -webkit-appearance: none !important;
+                    background: transparent !important;
+                    color: var(--lui-text-main) !important;
+                    border: none !important;
+                    outline: none !important;
+                    font-family: 'Inter', sans-serif !important;
+                    letter-spacing: 0.1px !important;
                 }
-                #blade-search-input::placeholder { color: var(--lui-text-muted) !important; }
-
-                /* Inline clear (✕) — only once there's text */
+                #blade-search-input::placeholder {
+                    color: rgba(56, 189, 248, 0.45) !important;
+                    font-weight: 500 !important;
+                    text-transform: none !important;
+                    letter-spacing: 0.2px !important;
+                }
                 .search-clear-btn {
                     display: none;
-                    background: none !important;
+                    background: transparent !important;
                     border: none !important;
-                    padding: 0 2px !important;
-                    margin: 0 !important;
-                    color: var(--lui-text-gray-2) !important;
-                    font-size: 1rem !important;
-                    line-height: 1 !important;
+                    padding: 0 !important;
+                    width: 22px !important;
+                    height: 22px !important;
+                    color: var(--lui-text-gray-1) !important;
+                    font-size: 0.95rem !important;
                     cursor: pointer;
                     flex: 0 0 auto !important;
+                    align-items: center !important;
+                    justify-content: center !important;
                 }
-                .search-blade.has-text .search-clear-btn { display: block !important; }
-
-                /* Focus / active: the bar pins to the top, full width,
-                   leaving room for the trailing Cancel button. */
-                .mobile-search-active .search-blade,
-                .search-blade:focus-within {
-                    position: fixed !important;
-                    left: 12px !important;
-                    right: 72px !important;
-                    top: calc(env(safe-area-inset-top, 0px) + 8px) !important;
-                    width: auto !important;
-                    max-width: none !important;
-                    height: 40px !important;
-                    border-radius: 12px !important;
-                    z-index: 1600 !important;
-                    background: var(--lui-bg-card) !important;
-                    border-color: var(--lui-border-base) !important;
-                    box-shadow: 0 4px 16px rgba(0,0,0,0.35) !important;
-                }
+                .search-blade.has-text .search-clear-btn { display: flex !important; }
 
                 /* Full-screen results sheet under the search bar. */
                 .search-results-dropdown {
@@ -2380,71 +2573,86 @@ export const LandingUI = {
                     max-height: none !important;
                     border-radius: 0 !important;
                     border: none !important;
-                    padding: 8px 0 calc(env(safe-area-inset-bottom, 0px) + 16px) !important;
-                    background: var(--lui-bg-main) !important;
+                    padding: 4px 0 calc(env(safe-area-inset-bottom, 0px) + 16px) !important;
+                    background: rgba(8, 11, 18, 0.98) !important;
                     box-shadow: none !important;
                     -webkit-overflow-scrolling: touch !important;
                     overscroll-behavior: contain !important;
                 }
-
-                /* ---------- Touch-sized result rows ---------- */
                 .premium-result-item {
                     min-height: 60px !important;
                     padding: 10px 16px !important;
                     gap: 14px !important;
                     margin-bottom: 0 !important;
                     border-radius: 0 !important;
-                    border-bottom: 1px solid var(--lui-border-light) !important;
+                    border-bottom: 1px solid rgba(56, 189, 248, 0.08) !important;
                 }
-                .premium-result-item:active { background: var(--lui-active-bg) !important; }
+                .premium-result-item:active { background: rgba(56, 189, 248, 0.06) !important; }
                 .res-callsign { font-size: 15px !important; }
                 .res-secondary-row { font-size: 13px !important; }
                 .res-meta-icon { font-size: 8px !important; }
                 .blade-results-header {
-                    background: var(--lui-bg-main) !important;
+                    background: rgba(8, 11, 18, 0.98) !important;
                     padding: 14px 16px 6px !important;
-                    font-size: 0.62rem !important;
+                    font-size: 0.6rem !important;
+                    color: rgba(56, 189, 248, 0.6) !important;
+                    letter-spacing: 1.2px !important;
+                    font-family: 'JetBrains Mono', 'SF Mono', 'Menlo', monospace !important;
+                    text-transform: uppercase !important;
                 }
 
-                /* ---------- TRAILING: profile avatar (idle) ---------- */
+                /* ---------- Profile button: lives INSIDE the top bar ---------- *
+                   No more floating top-right orb. Anchored to the right end
+                   of the status strip via fixed positioning. */
                 .auth-nexus {
                     position: fixed !important;
                     top: calc(env(safe-area-inset-top, 0px) + 8px) !important;
                     right: 12px !important;
                     left: auto !important;
                     bottom: auto !important;
-                    z-index: 1600 !important;
-                    transition: opacity 0.2s ease !important;
+                    z-index: 1502 !important;
+                    transition: opacity 0.18s ease !important;
                 }
                 .auth-nexus .orb-btn {
-                    width: 40px !important;
-                    height: 40px !important;
-                    border-radius: 50% !important;
-                    font-size: 0.95rem !important;
-                    background: var(--lui-bg-input) !important;
-                    border: 1px solid var(--lui-border-base) !important;
-                    color: var(--lui-text-main) !important;
+                    width: 34px !important;
+                    height: 34px !important;
+                    border-radius: 4px !important;
+                    font-size: 13px !important;
+                    background: rgba(56, 189, 248, 0.04) !important;
+                    -webkit-backdrop-filter: none !important;
+                    backdrop-filter: none !important;
+                    border: 1px solid rgba(56, 189, 248, 0.22) !important;
+                    color: var(--lui-accent) !important;
                     box-shadow: none !important;
+                    clip-path: polygon(
+                        6px 0,
+                        100% 0,
+                        100% calc(100% - 6px),
+                        calc(100% - 6px) 100%,
+                        0 100%,
+                        0 6px
+                    );
                 }
                 .auth-nexus .orb-btn:active {
-                    transform: scale(0.94) !important;
-                    background: var(--lui-bg-card) !important;
+                    background: rgba(56, 189, 248, 0.14) !important;
                 }
 
-                /* ---------- TRAILING: Cancel button (searching) ---------- */
+                /* Cancel button — replaces the profile slot while searching. */
                 .search-cancel-btn {
                     display: block !important;
                     position: fixed !important;
                     top: calc(env(safe-area-inset-top, 0px) + 8px) !important;
                     right: 12px !important;
-                    height: 40px !important;
-                    padding: 0 4px !important;
-                    background: none !important;
+                    height: 34px !important;
+                    padding: 0 10px !important;
+                    background: transparent !important;
                     border: none !important;
                     color: var(--lui-accent) !important;
-                    font-family: 'Inter', sans-serif !important;
-                    font-size: 16px !important;
-                    font-weight: 600 !important;
+                    font-family: 'JetBrains Mono', 'SF Mono', 'Menlo', monospace !important;
+                    font-size: 12px !important;
+                    font-weight: 700 !important;
+                    letter-spacing: 1.5px !important;
+                    text-transform: uppercase !important;
                     cursor: pointer;
                     opacity: 0 !important;
                     pointer-events: none !important;
@@ -2458,80 +2666,170 @@ export const LandingUI = {
                     transform: translateX(0) !important;
                 }
 
-                /* ---------- BOTTOM: floating tab bar ---------- */
+                /* ---------- BOTTOM: solid edge-to-edge EFB panel ---------- *
+                   No floating pill. The dock is the bottom edge of the app:
+                   a solid 4-button panel, each button is a rectangle with
+                   corner-clip notches, lit cyan when active with an LED at
+                   the top of the button. */
                 .utility-nexus {
                     position: fixed !important;
-                    left: 50% !important;
-                    right: auto !important;
-                    bottom: calc(env(safe-area-inset-bottom, 0px) + 10px) !important;
-                    transform: translateX(-50%) !important;
-                    pointer-events: none !important;
+                    left: 0 !important;
+                    right: 0 !important;
+                    bottom: 0 !important;
+                    transform: none !important;
+                    pointer-events: auto !important;
                     z-index: 1500 !important;
+                    display: block !important;
+                    padding: 6px 8px calc(env(safe-area-inset-bottom, 0px) + 6px) 8px !important;
+                    background: linear-gradient(0deg, rgba(8, 11, 18, 0.97) 0%, rgba(8, 11, 18, 0.92) 100%) !important;
+                    -webkit-backdrop-filter: none !important;
+                    backdrop-filter: none !important;
+                    border-top: 1px solid rgba(56, 189, 248, 0.18) !important;
+                    box-shadow: 0 -1px 0 rgba(0,0,0,0.6), 0 -8px 24px rgba(0,0,0,0.45) !important;
+                    /* Subtle vertical-line panel texture (matches top bar). */
+                    background-image:
+                        linear-gradient(0deg, rgba(8, 11, 18, 0.97) 0%, rgba(8, 11, 18, 0.92) 100%),
+                        repeating-linear-gradient(
+                            90deg,
+                            transparent 0,
+                            transparent 22px,
+                            rgba(56, 189, 248, 0.025) 22px,
+                            rgba(56, 189, 248, 0.025) 23px
+                        ) !important;
                     transition: transform 0.3s cubic-bezier(0.16,1,0.3,1), opacity 0.3s !important;
                 }
                 .orb-row {
-                    gap: 2px !important;
+                    position: relative !important;
+                    width: 100% !important;
+                    max-width: none !important;
+                    gap: 6px !important;
                     align-items: stretch !important;
-                    background: var(--lui-glass-bg) !important;
-                    -webkit-backdrop-filter: blur(22px) !important;
-                    backdrop-filter: blur(22px) !important;
-                    border: 1px solid var(--lui-border-base) !important;
-                    border-radius: 22px !important;
-                    padding: 6px !important;
-                    box-shadow: 0 12px 30px rgba(0,0,0,0.45) !important;
-                    pointer-events: auto !important;
-                }
-                .mobile-only-tab { display: block !important; }
-
-                .orb-row .orb-btn {
-                    width: 64px !important;
-                    height: auto !important;
-                    min-height: 48px !important;
-                    border-radius: 14px !important;
+                    justify-content: space-between !important;
                     background: transparent !important;
                     border: none !important;
+                    border-radius: 0 !important;
+                    padding: 0 !important;
+                    box-shadow: none !important;
+                    overflow: visible !important;
+                    display: flex !important;
+                }
+                .mobile-only-tab { display: block !important; }
+                .orb-row .nexus-orb-wrapper,
+                .orb-row .weather-nexus-container {
+                    flex: 1 1 0 !important;
+                    min-width: 0 !important;
+                    display: flex !important;
+                    justify-content: stretch !important;
+                }
+
+                .orb-row .orb-btn {
+                    position: relative !important;
+                    width: 100% !important;
+                    height: auto !important;
+                    min-height: 54px !important;
+                    padding: 10px 4px 8px !important;
+                    /* Corner-clip notches — the signature EFB shape. */
+                    border-radius: 4px !important;
+                    clip-path: polygon(
+                        8px 0,
+                        100% 0,
+                        100% calc(100% - 8px),
+                        calc(100% - 8px) 100%,
+                        0 100%,
+                        0 8px
+                    );
+                    background: rgba(56, 189, 248, 0.04) !important;
+                    border: 1px solid rgba(56, 189, 248, 0.18) !important;
                     box-shadow: none !important;
                     display: flex !important;
                     flex-direction: column !important;
                     align-items: center !important;
                     justify-content: center !important;
-                    gap: 4px !important;
+                    gap: 6px !important;
                     color: var(--lui-text-gray-1) !important;
-                    font-size: 1.05rem !important;
+                    font-size: 1rem !important;
                     transform: none !important;
+                    transition: color 0.18s ease, background-color 0.18s ease, border-color 0.18s ease !important;
+                    font-family: 'JetBrains Mono', 'SF Mono', 'Menlo', monospace !important;
                 }
-                .orb-row .orb-btn:hover,
+                .orb-row .orb-btn > i {
+                    font-size: 1.05rem !important;
+                    line-height: 1 !important;
+                }
+                /* LED dot sits at the top of the button — dark when idle,
+                   bright cyan when active. This is the active indicator. */
+                .orb-row .orb-btn::before {
+                    content: "" !important;
+                    position: absolute !important;
+                    top: 4px !important;
+                    left: 50% !important;
+                    transform: translateX(-50%) !important;
+                    width: 5px !important;
+                    height: 5px !important;
+                    border-radius: 50% !important;
+                    background: rgba(56, 189, 248, 0.2) !important;
+                    box-shadow: none !important;
+                    transition: background-color 0.22s ease, box-shadow 0.22s ease !important;
+                }
                 .orb-row .orb-btn:active {
-                    transform: none !important;
-                    background: var(--lui-active-bg) !important;
+                    background: rgba(56, 189, 248, 0.1) !important;
                     color: var(--lui-accent) !important;
+                }
+                .orb-row .orb-btn.is-active,
+                .orb-row .nexus-orb-wrapper.is-active .orb-btn,
+                .orb-row .weather-nexus-container.expanded .orb-btn {
+                    color: var(--lui-accent) !important;
+                    background: rgba(56, 189, 248, 0.1) !important;
+                    border-color: rgba(56, 189, 248, 0.55) !important;
+                }
+                .orb-row .orb-btn.is-active::before,
+                .orb-row .nexus-orb-wrapper.is-active .orb-btn::before,
+                .orb-row .weather-nexus-container.expanded .orb-btn::before {
+                    background: #38bdf8 !important;
+                    box-shadow: 0 0 8px #38bdf8, 0 0 3px #38bdf8 !important;
                 }
                 .orb-row .tab-label {
                     display: block !important;
-                    font-size: 0.62rem !important;
+                    font-family: 'JetBrains Mono', 'SF Mono', 'Menlo', monospace !important;
+                    font-size: 9px !important;
                     font-weight: 700 !important;
-                    letter-spacing: 0.2px !important;
+                    letter-spacing: 1.4px !important;
+                    text-transform: uppercase !important;
                     line-height: 1 !important;
+                    color: inherit !important;
                 }
                 .orb-row .active-pulse-dot {
                     position: absolute !important;
-                    top: 6px !important;
-                    right: 14px !important;
+                    top: 4px !important;
+                    right: 8px !important;
                     bottom: auto !important;
+                    width: 5px !important;
+                    height: 5px !important;
+                    background: #fbbf24 !important;
+                    box-shadow: 0 0 6px #fbbf24 !important;
+                    border-radius: 50% !important;
                 }
                 .weather-nexus-container { flex-direction: column !important; gap: 0 !important; }
 
-                /* Slide the tab bar away while searching or when a detail sheet is open */
-                .mobile-search-active .utility-nexus,
+                /* Detail-island override: hide bottom panel when an island
+                   is up so it doesn't compete with the panel content. */
                 #sector-ops-map-fullscreen:has(.mobile-island-bottom.island-active) .utility-nexus {
                     opacity: 0 !important;
-                    transform: translateX(-50%) translateY(140%) !important;
+                    transform: translateY(140%) !important;
                     pointer-events: none !important;
                 }
-                /* Hide the profile avatar while searching (Cancel takes its slot) */
-                .mobile-search-active .auth-nexus {
+                /* While searching, the EFB status strip stays put (search
+                   bar overlays it). Bottom panel slides off. */
+                .mobile-search-active .utility-nexus {
+                    opacity: 0 !important;
+                    transform: translateY(140%) !important;
+                    pointer-events: none !important;
+                }
+                .mobile-search-active .auth-nexus,
+                .mobile-search-active .efb-statbar {
                     opacity: 0 !important;
                     pointer-events: none !important;
+                    transition: opacity 0.18s ease !important;
                 }
             }
         `;
