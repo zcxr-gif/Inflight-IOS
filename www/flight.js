@@ -23,7 +23,7 @@ import { MobileDashboardUI } from './MobileDashboardUI.js';
 import { trackManager } from './proTrackManager.js';
 import { FlightReplay } from './flightReplay.js';
 import { AtcReplay } from './atcReplay.js';
-import { notify as nativeNotify, showOffline as showOfflinePage, hideOffline as hideOfflinePage, isOfflineShown } from './nativeUI.js';
+import { notify as nativeNotify, showOffline as showOfflinePage, hideOffline as hideOfflinePage, isOfflineShown, setOfflineRecovery } from './nativeUI.js';
 import { runFirstRunExperience } from './firstRunExperience.js';
 
 console.log(
@@ -15182,21 +15182,22 @@ function initializeSectorOpsMap(centerICAO) {
     });
 
     // ── No-internet detection ──────────────────────────────────────────────
-    // If the map can't finish loading (style/tiles unreachable) we slide up the
-    // native "No Internet Connection" page. The map's own 'load' event hides it
-    // again once we recover. A timeout catches the case where the network is so
-    // dead that Mapbox never even emits an error.
+    // The global connectivity monitor (nativeUI.js) already slides up the "No
+    // Internet" page on any offline/resume signal. Here we additionally cover
+    // the case where the map style/tiles fail to load, and we teach the monitor
+    // how to *recover*: rebuild the map, but only if it never finished loading
+    // (an app that opened offline). A mid-session blip on an already-loaded map
+    // self-heals, so we don't disruptively reload it.
     let _mapLoaded = false;
+    setOfflineRecovery(() => {
+        if (!_mapLoaded) {
+            try { initializeSectorOpsMap(centerICAO); }
+            catch (_) { try { window.location.reload(); } catch (__) {} }
+        }
+    });
     const _maybeShowOffline = () => {
         if (_mapLoaded) return;
-        showOfflinePage({
-            onRetry: () => {
-                // Rebuild the map; a successful 'load' hides the page, and the
-                // failure path below re-shows it if we're still offline.
-                try { initializeSectorOpsMap(centerICAO); }
-                catch (_) { try { window.location.reload(); } catch (__) {} }
-            }
-        });
+        showOfflinePage();
     };
     sectorOpsMap.on('error', () => {
         // A map resource failed. Only call it "no internet" when the device is

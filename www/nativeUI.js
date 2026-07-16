@@ -278,14 +278,28 @@ export function notify(message, type = 'info', opts = {}) {
 // -----------------------------------------------------------------------------
 // No-Internet slide-up page
 // -----------------------------------------------------------------------------
-let _offlineRetryHandler = null;
-let _onlineListenerBound = false;
+// App-supplied recovery hook (e.g. rebuild the map if it never loaded). It's
+// invoked whenever connectivity is restored. Kept separate from showOffline so
+// a generic "you're offline" trigger never clears a meaningful recovery action.
+let _offlineRecovery = null;
+let _connectivityInstalled = false;
+
+/** Register what to do when the connection comes back (safe to call repeatedly). */
+export function setOfflineRecovery(fn) {
+    _offlineRecovery = (typeof fn === 'function') ? fn : null;
+}
+
+function runRecovery() {
+    try { if (_offlineRecovery) _offlineRecovery(); } catch (_) { /* non-fatal */ }
+}
 
 export function showOffline(options = {}) {
     if (typeof document === 'undefined') return;
     try { ensureStyles(); } catch (_) { return; }
 
-    _offlineRetryHandler = typeof options.onRetry === 'function' ? options.onRetry : null;
+    // Only (re)set the recovery hook when the caller actually supplies one, so
+    // a bare showOffline() from the connectivity monitor can't wipe it.
+    if (options && typeof options.onRetry === 'function') _offlineRecovery = options.onRetry;
 
     let root = document.getElementById(OFFLINE_ID);
     if (!root) {
@@ -300,17 +314,12 @@ export function showOffline(options = {}) {
                 `<div class="inf-offline__grip"></div>` +
                 `<div class="inf-offline__icon">${wifiSlashSvg()}</div>` +
                 `<h2 class="inf-offline__title">No Internet Connection</h2>` +
-                `<p class="inf-offline__body">Inflight can’t reach the network, so the map and live traffic can’t load. Check your Wi-Fi or cellular connection and try again.</p>` +
+                `<p class="inf-offline__body">Inflight needs a connection for the live map and traffic. Check your Wi-Fi or cellular signal — this will clear itself the moment you’re back online.</p>` +
                 `<button type="button" class="inf-offline__retry">Try Again</button>` +
             `</div>`;
         (document.body || document.documentElement).appendChild(root);
 
         root.querySelector('.inf-offline__retry').addEventListener('click', () => runRetry(root));
-        // Bind the connectivity listener once — auto-dismiss when we're back.
-        if (!_onlineListenerBound) {
-            window.addEventListener('online', () => runRetry(document.getElementById(OFFLINE_ID)));
-            _onlineListenerBound = true;
-        }
     } else {
         // Re-shown after a failed retry — restore the button to its idle state.
         const btn = root.querySelector('.inf-offline__retry');
@@ -323,18 +332,26 @@ export function showOffline(options = {}) {
 function runRetry(root) {
     if (!root) return;
     const btn = root.querySelector('.inf-offline__retry');
-    if (btn && !btn.disabled) {
+
+    // Still no connection — give brief feedback and let the user try again,
+    // rather than pointlessly reloading into another offline state.
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'Still offline…';
+            setTimeout(() => { btn.disabled = false; btn.textContent = 'Try Again'; }, 1300);
+        }
+        return;
+    }
+
+    if (btn) {
         btn.disabled = true;
         btn.innerHTML = '<span class="inf-offline__spinner"></span>Reconnecting…';
     }
-    let handled = false;
-    try {
-        if (_offlineRetryHandler) { _offlineRetryHandler(); handled = true; }
-    } catch (_) { /* fall through to reload */ }
-    // Default behaviour when the caller gave us no retry hook: reload the app.
-    if (!handled) {
-        setTimeout(() => { try { window.location.reload(); } catch (_) {} }, 150);
-    }
+    // Back online: nudge the app to recover (rebuild the map if it never
+    // loaded), then dismiss. If nothing else takes the page down, hide it.
+    runRecovery();
+    setTimeout(() => { hideOffline(); }, 500);
 }
 
 export function hideOffline() {
@@ -351,11 +368,75 @@ export function isOfflineShown() {
     return !!document.getElementById(OFFLINE_ID);
 }
 
+// Reconcile the offline page with the current connectivity state. Shown when
+// offline, dismissed (and recovery nudged) when back online. Idempotent, so
+// it's safe to call from every connectivity/resume signal.
+function refreshConnectivityUI() {
+    const online = (typeof navigator === 'undefined') || navigator.onLine !== false;
+    if (!online) {
+        showOffline();
+    } else if (isOfflineShown()) {
+        hideOffline();
+        runRecovery();
+    }
+}
+
+/**
+ * Wire the global connectivity monitor. Slides the "No Internet" page up when
+ * the connection drops mid-session, when the app is resumed/returned-to while
+ * offline, or when it launches with no connection — and slides it away the
+ * moment the connection is back. Safe to call more than once.
+ */
+export function installConnectivityMonitor() {
+    if (_connectivityInstalled || typeof window === 'undefined') return;
+    _connectivityInstalled = true;
+
+    // Direct connection transitions.
+    window.addEventListener('offline', () => showOffline());
+    window.addEventListener('online', () => { hideOffline(); runRecovery(); });
+
+    // Returning to the app (tab re-shown, window refocused, bfcache restore).
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') refreshConnectivityUI();
+    });
+    window.addEventListener('pageshow', () => refreshConnectivityUI());
+    window.addEventListener('focus', () => refreshConnectivityUI());
+
+    // Native iOS resume via Capacitor's App plugin, when present — fires when
+    // the user brings Inflight back to the foreground.
+    try {
+        const App = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App;
+        if (App && typeof App.addListener === 'function') {
+            App.addListener('appStateChange', (state) => {
+                if (state && state.isActive) refreshConnectivityUI();
+            });
+            App.addListener('resume', () => refreshConnectivityUI());
+        }
+    } catch (_) { /* App plugin not installed — DOM events still cover it */ }
+
+    // Reconcile shortly after launch (not instantly): a cold-start WKWebView
+    // can briefly report offline before its network stack is ready, and we
+    // don't want to flash the page. The listeners above handle everything after.
+    setTimeout(() => refreshConnectivityUI(), 1500);
+}
+
 // Mirror onto window so non-module callers (and the whole existing
 // showNotification / showGlobalNotification surface) resolve to the native UI.
 if (typeof window !== 'undefined') {
-    window.InflightNativeUI = { notify, showOffline, hideOffline, isOfflineShown };
+    window.InflightNativeUI = {
+        notify, showOffline, hideOffline, isOfflineShown,
+        setOfflineRecovery, installConnectivityMonitor,
+    };
     // Canonical notification entry points used across the app.
     window.showGlobalNotification = notify;
     window.showNotification = notify;
+
+    // Auto-start the connectivity monitor once the DOM is ready.
+    if (typeof document !== 'undefined') {
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', installConnectivityMonitor, { once: true });
+        } else {
+            installConnectivityMonitor();
+        }
+    }
 }
