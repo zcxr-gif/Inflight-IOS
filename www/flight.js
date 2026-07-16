@@ -15185,15 +15185,15 @@ function initializeSectorOpsMap(centerICAO) {
     // The global connectivity monitor (nativeUI.js) already slides up the "No
     // Internet" page on any offline/resume signal. Here we additionally cover
     // the case where the map style/tiles fail to load, and we teach the monitor
-    // how to *recover*: rebuild the map, but only if it never finished loading
-    // (an app that opened offline). A mid-session blip on an already-loaded map
-    // self-heals, so we don't disruptively reload it.
+    // how to *recover*: reboot the map once the connection is back. A dropped
+    // connection leaves the map half-dead — broken tiles, a stale style, and a
+    // dead live socket — so a full rebuild is the only reliable way back, even
+    // if it had loaded before. The monitor only fires this after an actual
+    // offline episode, so a live map isn't rebuilt for no reason.
     let _mapLoaded = false;
     setOfflineRecovery(() => {
-        if (!_mapLoaded) {
-            try { initializeSectorOpsMap(centerICAO); }
-            catch (_) { try { window.location.reload(); } catch (__) {} }
-        }
+        try { initializeSectorOpsMap(centerICAO); }
+        catch (_) { try { window.location.reload(); } catch (__) {} }
     });
     const _maybeShowOffline = () => {
         if (_mapLoaded) return;
