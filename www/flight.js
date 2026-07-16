@@ -308,6 +308,9 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     const ACARS_SOCKET_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run'; // <-- NEW: For WebSocket
     let isAircraftWindowLoading = false;
     let activeFirIds = new Set(); // Globally track which FIRs are staffed
+    // Flights whose Live Activity we've already scheduled to auto-end after
+    // touchdown, so a stream of "landed" socket ticks doesn't stack timers.
+    const _bgLandedEndScheduled = new Set();
     window.getLiveFlightData = () => Object.values(currentMapFeatures);
     let natTracksLayerInstance = null;
 
@@ -8915,6 +8918,13 @@ function handleSocketFlightUpdate(data) {
             currentMapFeatures[flightId].geometry.coordinates = [flight.position.lon, flight.position.lat];
         }
 
+        // Keep background-tracked Live Activities (flights the user tracked but
+        // isn't currently viewing) fresh from the same live feed. The open
+        // flight is updated by its richer window refresh below, so skip it here.
+        if (flightId !== currentFlightInWindow) {
+            maybePushBackgroundLiveActivityUpdate(flight);
+        }
+
         // ================================================================
         // === SELECTED AIRCRAFT UPDATE LOGIC ===
         // ================================================================
@@ -10841,11 +10851,21 @@ async function createAirportInfoWindowHTML(icao, requestId) {
 
         const windowEl = document.getElementById('aircraft-info-window');
 
+        // The window dataset (dep/arr/filed times) describes whatever flight is
+        // currently open, so only trust it when THIS is that flight.
+        const dsDep = isSameFlight ? (windowEl?.dataset.depIcao || '') : '';
+        const dsArr = isSameFlight ? (windowEl?.dataset.arrIcao || '') : '';
+
+        // Position may arrive as an object (cached props) or a JSON string
+        // (live map feature) — normalise before doing any geometry.
+        let pos = props.position;
+        if (typeof pos === 'string') { try { pos = JSON.parse(pos); } catch (_) { pos = null; } }
+
         // --- Route endpoints (plan waypoints → window dataset → feature) ---
         const route = extractPlanRoute(plan);
         const cleanIcao = (v) => (v && v !== 'N/A') ? String(v).trim() : '';
-        const depIcao = cleanIcao(route?.depIcao) || cleanIcao(windowEl?.dataset.depIcao) || cleanIcao(props.depIcao);
-        const arrIcao = cleanIcao(route?.arrIcao) || cleanIcao(windowEl?.dataset.arrIcao) || cleanIcao(props.arrIcao);
+        const depIcao = cleanIcao(route?.depIcao) || cleanIcao(dsDep) || cleanIcao(props.departureIcao) || cleanIcao(props.depIcao);
+        const arrIcao = cleanIcao(route?.arrIcao) || cleanIcao(dsArr) || cleanIcao(props.arrivalIcao) || cleanIcao(props.arrIcao);
 
         // Destination coordinates: airport DB first, then the plan's final leg.
         const destLat = airportsData[arrIcao]?.lat ?? route?.destLat ?? null;
@@ -10853,8 +10873,8 @@ async function createAirportInfoWindowHTML(icao, requestId) {
 
         // Distance to destination (NM) for the live ETA estimate.
         let distanceNm = 0;
-        if (destLat != null && destLon != null && props.position?.lat != null) {
-            distanceNm = getDistanceKm(props.position.lat, props.position.lon, destLat, destLon) / 1.852;
+        if (destLat != null && destLon != null && pos?.lat != null) {
+            distanceNm = getDistanceKm(pos.lat, pos.lon, destLat, destLon) / 1.852;
         }
 
         // Total route distance: leg-summed from the plan (matches the in-app
@@ -10871,9 +10891,10 @@ async function createAirportInfoWindowHTML(icao, requestId) {
 
         // --- Scheduled times ---
         // Use the real filed-plan object from the cache when present; only
-        // reconstruct one from the window dataset as a fallback.
+        // reconstruct one from the window dataset as a fallback, and only when
+        // this is the open flight (the dataset describes whatever's on screen).
         let filedPlan = cachedFiled;
-        if (!filedPlan) {
+        if (!filedPlan && isSameFlight) {
             const filedDepTime = windowEl?.dataset.filedDepTime || '';
             const filedDuration = parseFloat(windowEl?.dataset.filedDuration || '0');
             if (filedDepTime && filedDuration > 0) {
@@ -10886,18 +10907,21 @@ async function createAirportInfoWindowHTML(icao, requestId) {
             : null;
 
         // Hand the same cascade the in-app card uses (SCHEDULED → ACTUAL →
-        // ESTIMATED) so the lock screen agrees with what's on screen.
+        // ESTIMATED) so the lock screen agrees with what's on screen. The
+        // compute helpers only read `.position`, so hand them the normalised
+        // position object.
         const cachedTrail = (typeof liveTrailCache !== 'undefined' && liveTrailCache.has(flightId))
             ? liveTrailCache.get(flightId)
             : null;
-        const depInfo = computeDepartureTimeInfo(props, cachedTrail, filedPlan, depIcao);
-        const arrInfo = computeArrivalTimeInfo(props, filedPlan, distanceNm);
+        const normProps = { position: pos };
+        const depInfo = computeDepartureTimeInfo(normProps, cachedTrail, filedPlan, depIcao);
+        const arrInfo = computeArrivalTimeInfo(normProps, filedPlan, distanceNm);
 
         // ETA: prefer the smart cascade's timestamp; fall back to a fresh
         // gs+distance estimate; finally fall back to scheduled arrival. The
         // old code's "now + 1h" fallback was producing wildly wrong ETEs
         // on the lock-screen countdown when the aircraft was slow/taxiing.
-        const gs = props.position?.gs_kt || 0;
+        const gs = pos?.gs_kt || 0;
         let etaMs = arrInfo?.timestamp ? arrInfo.timestamp.getTime() : null;
         if (!etaMs && distanceNm > 0 && gs > 50) {
             etaMs = Date.now() + (distanceNm / gs) * 3600 * 1000;
@@ -10945,6 +10969,81 @@ async function createAirportInfoWindowHTML(icao, requestId) {
         };
     }
     window.buildLiveActivityPayload = buildLiveActivityPayload;
+
+    // Keep a *background*-tracked flight's Live Activity fresh — one the user
+    // has tracked but isn't currently viewing. The open flight is refreshed by
+    // its own window loop, so the socket handler skips it and routes every
+    // other tracked flight here on each packet, using the freshest position.
+    // Safe to call constantly: InflightLiveActivity.update() throttles native
+    // pushes to once per ~15s per flight, and the tracking check is O(1).
+    function maybePushBackgroundLiveActivityUpdate(flight) {
+        try {
+            const la = window.InflightLiveActivity;
+            if (!la || typeof la.isTrackingFlight !== 'function') return;
+            const flightId = flight && flight.flightId;
+            if (!flightId || !la.isTrackingFlight(flightId)) return;
+
+            const pos = flight.position;
+            if (!pos || typeof pos.lat !== 'number' || typeof pos.lon !== 'number') return;
+
+            const clean = (v) => (v && v !== 'N/A') ? String(v).trim() : '';
+            const arrIcao = clean(flight.arrivalIcao);
+            const depIcao = clean(flight.departureIcao);
+
+            // Remaining distance to destination from the live position.
+            let distanceNm = 0;
+            const dest = arrIcao ? airportsData[arrIcao] : null;
+            if (dest && typeof dest.lat === 'number' && typeof dest.lon === 'number') {
+                distanceNm = getDistanceKm(pos.lat, pos.lon, dest.lat, dest.lon) / 1.852;
+            }
+
+            // Same SCHEDULED → ACTUAL → ESTIMATED cascade the in-app card uses.
+            // No filed plan is cached for a background flight, so arrival resolves
+            // to ESTIMATED (distance + ground speed) and departure to ACTUAL only
+            // when a GPS trail exists — matching the open-window update tick.
+            const trail = (typeof liveTrailCache !== 'undefined' && liveTrailCache.has(flightId))
+                ? liveTrailCache.get(flightId) : null;
+            const propsForCompute = { position: pos };
+            const arrInfo = computeArrivalTimeInfo(propsForCompute, null, distanceNm);
+            const depInfo = computeDepartureTimeInfo(propsForCompute, trail, null, depIcao);
+
+            const gs = pos.gs_kt || 0;
+            let etaMs = arrInfo?.timestamp ? arrInfo.timestamp.getTime() : null;
+            if (!etaMs && distanceNm > 0 && gs > 50) {
+                etaMs = Date.now() + (distanceNm / gs) * 3600 * 1000;
+            }
+            const atdMs = (depInfo?.timestamp && depInfo.label === 'ACTUAL')
+                ? depInfo.timestamp.getTime() : undefined;
+
+            const isLanded = !!(pos.alt_ft != null && pos.alt_ft < 100 && gs < 40 && distanceNm < 5);
+
+            // Skip a tick with no usable ETA rather than let the native side
+            // default it to now (which zeroes the lock-screen countdown). Once
+            // landed we still push so the widget flips to its arrived state.
+            if (!etaMs && !isLanded) return;
+
+            la.update({
+                flightId,
+                currentEta: etaMs || undefined,
+                currentAtd: atdMs,
+                distanceToDestinationNm: distanceNm,
+                isLanded
+            });
+
+            // Auto-retire the activity a short while after touchdown, mirroring
+            // the open-window path — guarded so repeated "landed" ticks don't
+            // stack timers.
+            if (isLanded && !_bgLandedEndScheduled.has(flightId)) {
+                _bgLandedEndScheduled.add(flightId);
+                setTimeout(() => {
+                    try { la.end({ flightId, immediate: false }); } catch (_) {}
+                    _bgLandedEndScheduled.delete(flightId);
+                }, 30000);
+            }
+        } catch (e) {
+            console.warn('[LiveActivity] background update failed:', e);
+        }
+    }
 
     // --- DOM elements ---
     const pilotNameElem = document.getElementById('pilot-name');
