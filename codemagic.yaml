@@ -48,6 +48,18 @@ workflows:
           /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations array" "$PLIST"
           /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations:0 string UIInterfaceOrientationPortrait" "$PLIST"
 
+          # Export-compliance / encryption declaration. Inflight only relies on
+          # standard exempt encryption (HTTPS/TLS to our backends + Supabase,
+          # wss sockets, and Apple's own system crypto) — no custom or
+          # non-exempt algorithms — so we declare the exemption here. This
+          # stops App Store Connect from asking the "does your app use
+          # encryption?" question every submission and means no encryption
+          # documentation upload is required. Re-applied on each build because
+          # `cap add ios` regenerates Info.plist from scratch above.
+          echo "==> Declaring exempt encryption (ITSAppUsesNonExemptEncryption=false)"
+          /usr/libexec/PlistBuddy -c "Delete :ITSAppUsesNonExemptEncryption" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$PLIST"
+
           # Generate iOS app icons from assets/icon-only.png into the freshly
           # created ios/ project. Must run after `cap add ios` so the
           # Assets.xcassets target exists, and before `cap sync` so the
