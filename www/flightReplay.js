@@ -1578,7 +1578,17 @@ export const FlightReplay = (() => {
         }
     }
 
-    function showToast(msg) {
+    // Naturalized: prefer the app's native-iOS banner (window.showGlobalNotification)
+    // so replay messages match the rest of the app. Every current caller is an
+    // error condition, so default the type accordingly. Falls back to a minimal
+    // inline element only when the host helper is absent.
+    function showToast(msg, type = 'error') {
+        try {
+            if (typeof window.showGlobalNotification === 'function') {
+                window.showGlobalNotification(msg, type);
+                return;
+            }
+        } catch (_) {}
         const t = document.createElement('div');
         t.className = 'flight-replay-toast';
         t.textContent = msg;

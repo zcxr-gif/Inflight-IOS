@@ -23,10 +23,8 @@ import { MobileDashboardUI } from './MobileDashboardUI.js';
 import { trackManager } from './proTrackManager.js';
 import { FlightReplay } from './flightReplay.js';
 import { AtcReplay } from './atcReplay.js';
-import { installSlowConnectionMonitor } from './slowConnectionMonitor.js';
+import { notify as nativeNotify, showOffline as showOfflinePage, hideOffline as hideOfflinePage, isOfflineShown } from './nativeUI.js';
 import { runFirstRunExperience } from './firstRunExperience.js';
-
-installSlowConnectionMonitor();
 
 console.log(
     "%cInflight %cdesigned by and property of _Servernoob",
@@ -10776,19 +10774,14 @@ async function createAirportInfoWindowHTML(icao, requestId) {
     };
 
     // --- Notifications ---
+    // Native-iOS-styled banner (see nativeUI.js). Kept as a thin wrapper so the
+    // many existing showNotification(...) call sites don't have to change.
     function showNotification(message, type) {
-        Toastify({
-            text: message,
-            duration: 3000,
-            close: true,
-            gravity: "top",
-            position: "right",
-            stopOnFocus: true,
-            style: { background: type === 'success' ? "#28a745" : type === 'error' ? "#dc3545" : "#27272a" }
-        }).showToast();
+        nativeNotify(message, type || 'info');
     }
 
     window.showGlobalNotification = showNotification;
+    window.showNotification = showNotification;
 
     // Build the Live Activity start payload from whatever state we currently have on the
     // open aircraft info window. Returns null if we don't have enough to fire yet.
@@ -15030,6 +15023,33 @@ function initializeSectorOpsMap(centerICAO) {
         // map.getCanvas().toDataURL().
     });
 
+    // ── No-internet detection ──────────────────────────────────────────────
+    // If the map can't finish loading (style/tiles unreachable) we slide up the
+    // native "No Internet Connection" page. The map's own 'load' event hides it
+    // again once we recover. A timeout catches the case where the network is so
+    // dead that Mapbox never even emits an error.
+    let _mapLoaded = false;
+    const _maybeShowOffline = () => {
+        if (_mapLoaded) return;
+        showOfflinePage({
+            onRetry: () => {
+                // Rebuild the map; a successful 'load' hides the page, and the
+                // failure path below re-shows it if we're still offline.
+                try { initializeSectorOpsMap(centerICAO); }
+                catch (_) { try { window.location.reload(); } catch (__) {} }
+            }
+        });
+    };
+    sectorOpsMap.on('error', () => {
+        // A map resource failed. Only call it "no internet" when the device is
+        // actually offline, so a one-off tile hiccup on a live connection doesn't
+        // wrongly slide up the offline page.
+        if (!_mapLoaded && !navigator.onLine) _maybeShowOffline();
+    });
+    const _loadWatchdog = setTimeout(() => {
+        if (!_mapLoaded && !navigator.onLine) _maybeShowOffline();
+    }, 12000);
+
     // ── Map camera bookmark API ────────────────────────────────────────────
     // Lets overlays (e.g. the pilot profile sheet) temporarily fly the map to a
     // live flight while the user reads their stats, then snap the camera back to
@@ -15091,6 +15111,11 @@ function initializeSectorOpsMap(centerICAO) {
 
     return new Promise(resolve => {
         sectorOpsMap.on('load', async () => {
+            // Map reached the network and finished loading — clear the offline
+            // watchdog and dismiss the "No Internet" page if it was showing.
+            _mapLoaded = true;
+            clearTimeout(_loadWatchdog);
+            if (typeof isOfflineShown === 'function' && isOfflineShown()) hideOfflinePage();
             GroupFlightManager.init(sectorOpsMap);
             setupResetNorthButton();
             await setupMapLayersAndFog();
