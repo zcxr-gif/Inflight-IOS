@@ -3,7 +3,7 @@ import { AirportLayoutManager } from './airportLayout.js';
 import { LandingUI } from './landingUI.js';
 import { initPlaneSizeSlider } from './planeSizeController.js';
 import { GroupFlightManager } from './groupFlightManager.js';
-import { updateActiveSectors } from './atcHighlights.js';
+import { updateActiveSectors, resetActiveSectorCache } from './atcHighlights.js';
 import { applyTerrainMode, removeTerrainMode } from './terrainMode.js';
 import { NatTracksLayer } from './natTracksLayer.js';
 import { FlownPath3D } from './flownPath3D.js';
@@ -23,10 +23,8 @@ import { MobileDashboardUI } from './MobileDashboardUI.js';
 import { trackManager } from './proTrackManager.js';
 import { FlightReplay } from './flightReplay.js';
 import { AtcReplay } from './atcReplay.js';
-import { installSlowConnectionMonitor } from './slowConnectionMonitor.js';
+import { notify as nativeNotify, showOffline as showOfflinePage, hideOffline as hideOfflinePage, isOfflineShown } from './nativeUI.js';
 import { runFirstRunExperience } from './firstRunExperience.js';
-
-installSlowConnectionMonitor();
 
 console.log(
     "%cInflight %cdesigned by and property of _Servernoob",
@@ -310,6 +308,9 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     const ACARS_SOCKET_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run'; // <-- NEW: For WebSocket
     let isAircraftWindowLoading = false;
     let activeFirIds = new Set(); // Globally track which FIRs are staffed
+    // Flights whose Live Activity we've already scheduled to auto-end after
+    // touchdown, so a stream of "landed" socket ticks doesn't stack timers.
+    const _bgLandedEndScheduled = new Set();
     window.getLiveFlightData = () => Object.values(currentMapFeatures);
     let natTracksLayerInstance = null;
 
@@ -5539,15 +5540,19 @@ async function initializeMapBoundaries(map) {
             }, beforeId); // Use safe reference
         }
 
-        // 3. fir-borders Layer — the FULL FIR boundary network, drawn as clean
-        // thin lines. The lines look the same whether or not a sector is
-        // staffed; whether they show at all is controlled by the
-        // showAtcBoundaries toggle (see applyAtcBoundaryVisibility).
+        // 3. fir-borders Layer — outlines ONLY the sectors that currently have a
+        // controller online, drawn as clean thin lines. Starts with the same
+        // impossible "none-active" filter as fir-fills; updateActiveSectors()
+        // widens it to the staffed FIRs on each ATC refresh, so we only ever
+        // draw the active boundaries rather than the entire global network.
+        // Whether they show at all is controlled by the showAtcBoundaries
+        // toggle (see applyAtcBoundaryVisibility).
         if (!map.getLayer('fir-borders')) {
             map.addLayer({
                 id: 'fir-borders',
                 type: 'line',
                 source: 'fir-boundaries',
+                filter: ['==', 'id', 'none-active'],
                 paint: {
                     'line-color': borderColor,
                     'line-width': 0.8,
@@ -5559,6 +5564,19 @@ async function initializeMapBoundaries(map) {
     } catch (err) {
         console.error("Error loading local map boundaries:", err);
     }
+
+    // The boundary source + layers were just (re)created, so any cached
+    // active-sector signature is stale (its layers no longer exist). Reset the
+    // cache and immediately redraw the staffed FIRs from the last known
+    // controllers — otherwise the active fills/borders would stay blank until
+    // the next ATC poll, most visibly right after a map-style change.
+    try { resetActiveSectorCache(); } catch (_) {}
+    try {
+        const centerControllers = (Array.isArray(activeAtcFacilities))
+            ? activeAtcFacilities.filter(f => f.type === 6)
+            : [];
+        updateActiveSectors(map, 'fir-fills', centerControllers);
+    } catch (_) { /* non-fatal — next ATC poll will draw them */ }
 
     // Honour the user's ATC-boundaries toggle for the freshly created layers.
     applyAtcBoundaryVisibility(map);
@@ -8900,6 +8918,13 @@ function handleSocketFlightUpdate(data) {
             currentMapFeatures[flightId].geometry.coordinates = [flight.position.lon, flight.position.lat];
         }
 
+        // Keep background-tracked Live Activities (flights the user tracked but
+        // isn't currently viewing) fresh from the same live feed. The open
+        // flight is updated by its richer window refresh below, so skip it here.
+        if (flightId !== currentFlightInWindow) {
+            maybePushBackgroundLiveActivityUpdate(flight);
+        }
+
         // ================================================================
         // === SELECTED AIRCRAFT UPDATE LOGIC ===
         // ================================================================
@@ -10759,76 +10784,144 @@ async function createAirportInfoWindowHTML(icao, requestId) {
     };
 
     // --- Notifications ---
+    // Native-iOS-styled banner (see nativeUI.js). Kept as a thin wrapper so the
+    // many existing showNotification(...) call sites don't have to change.
     function showNotification(message, type) {
-        Toastify({
-            text: message,
-            duration: 3000,
-            close: true,
-            gravity: "top",
-            position: "right",
-            stopOnFocus: true,
-            style: { background: type === 'success' ? "#28a745" : type === 'error' ? "#dc3545" : "#27272a" }
-        }).showToast();
+        nativeNotify(message, type || 'info');
     }
 
     window.showGlobalNotification = showNotification;
+    window.showNotification = showNotification;
 
-    // Build the Live Activity start payload from whatever state we currently have on the
-    // open aircraft info window. Returns null if we don't have enough to fire yet.
+    // Flatten a filed flight plan down to its ordered waypoints and derive the
+    // route endpoints + leg-summed distance — the same geometry the in-app
+    // flight card renders. Returns null when the plan has no usable route.
+    function extractPlanRoute(plan) {
+        if (!plan || !Array.isArray(plan.flightPlanItems)) return null;
+        const wps = [];
+        const walk = (items) => {
+            for (const item of items) {
+                if (item.children && item.children.length > 0) walk(item.children);
+                else if (item.location && typeof item.location.latitude === 'number') wps.push(item);
+            }
+        };
+        walk(plan.flightPlanItems);
+        if (wps.length < 2) return null;
+
+        let totalKm = 0;
+        for (let i = 0; i < wps.length - 1; i++) {
+            totalKm += getDistanceKm(
+                wps[i].location.latitude, wps[i].location.longitude,
+                wps[i + 1].location.latitude, wps[i + 1].location.longitude
+            );
+        }
+        const first = wps[0];
+        const last = wps[wps.length - 1];
+        return {
+            depIcao: first.identifier || first.name || '',
+            arrIcao: last.identifier || last.name || '',
+            totalDistanceNm: totalKm / 1.852,
+            destLat: last.location.latitude,
+            destLon: last.location.longitude,
+        };
+    }
+
+    // Build the Live Activity start payload. We deliberately source from the
+    // *fully-populated* flight data the app already fetched for the open info
+    // window — props + filed plan + route geometry, cached in
+    // cachedFlightDataForStatsView — instead of the lightweight map marker.
+    // That way the lock-screen activity receives EVERY field (route, scheduled
+    // times, aircraft, distances) the moment the bell is tapped, not just the
+    // subset that happens to live on the map feature.
     function buildLiveActivityPayload(flightId) {
         if (!flightId) return null;
-        const feature = currentMapFeatures[flightId];
-        if (!feature || !feature.properties) return null;
-        const props = feature.properties;
-        const windowEl = document.getElementById('aircraft-info-window');
-        const depIcao = windowEl?.dataset.depIcao || props.depIcao || '';
-        const arrIcao = windowEl?.dataset.arrIcao || props.arrIcao || '';
-        if (!depIcao || !arrIcao || depIcao === 'N/A' || arrIcao === 'N/A') {
-            return null;
-        }
 
-        const filedDepTime = windowEl?.dataset.filedDepTime || '';
-        const filedDuration = parseFloat(windowEl?.dataset.filedDuration || '0');
-        const schedDepMs = filedDepTime ? Date.parse(filedDepTime) : null;
-        const schedArrMs = (schedDepMs && filedDuration > 0)
-            ? schedDepMs + (filedDuration * 60 * 1000)
-            : null;
+        // Authoritative snapshot for the currently-open flight. Only trust it
+        // when it actually describes THIS flight id.
+        const cache = (typeof cachedFlightDataForStatsView !== 'undefined') ? cachedFlightDataForStatsView : null;
+        const isSameFlight = !!(cache && cache.flightProps && String(cache.flightProps.flightId) === String(flightId));
+        const cachedProps   = isSameFlight ? cache.flightProps : null;
+        const plan          = isSameFlight ? (cache.plan || null) : null;
+        const cachedFiled   = isSameFlight ? (cache.filedPlanData || null) : null;
+
+        // Prefer the rich cached props; fall back to the live map feature.
+        const feature = currentMapFeatures[flightId];
+        const props = cachedProps || (feature && feature.properties) || null;
+        if (!props) return null;
+
+        const windowEl = document.getElementById('aircraft-info-window');
+
+        // The window dataset (dep/arr/filed times) describes whatever flight is
+        // currently open, so only trust it when THIS is that flight.
+        const dsDep = isSameFlight ? (windowEl?.dataset.depIcao || '') : '';
+        const dsArr = isSameFlight ? (windowEl?.dataset.arrIcao || '') : '';
+
+        // Position may arrive as an object (cached props) or a JSON string
+        // (live map feature) — normalise before doing any geometry.
+        let pos = props.position;
+        if (typeof pos === 'string') { try { pos = JSON.parse(pos); } catch (_) { pos = null; } }
+
+        // --- Route endpoints (plan waypoints → window dataset → feature) ---
+        const route = extractPlanRoute(plan);
+        const cleanIcao = (v) => (v && v !== 'N/A') ? String(v).trim() : '';
+        const depIcao = cleanIcao(route?.depIcao) || cleanIcao(dsDep) || cleanIcao(props.departureIcao) || cleanIcao(props.depIcao);
+        const arrIcao = cleanIcao(route?.arrIcao) || cleanIcao(dsArr) || cleanIcao(props.arrivalIcao) || cleanIcao(props.arrIcao);
+
+        // Destination coordinates: airport DB first, then the plan's final leg.
+        const destLat = airportsData[arrIcao]?.lat ?? route?.destLat ?? null;
+        const destLon = airportsData[arrIcao]?.lon ?? route?.destLon ?? null;
 
         // Distance to destination (NM) for the live ETA estimate.
         let distanceNm = 0;
-        const destLat = airportsData[arrIcao]?.lat;
-        const destLon = airportsData[arrIcao]?.lon;
-        if (destLat != null && destLon != null && props.position?.lat != null) {
-            distanceNm = getDistanceKm(props.position.lat, props.position.lon, destLat, destLon) / 1.852;
+        if (destLat != null && destLon != null && pos?.lat != null) {
+            distanceNm = getDistanceKm(pos.lat, pos.lon, destLat, destLon) / 1.852;
         }
 
-        // Total great-circle distance dep → arr. Captured once at start so
-        // the Live Activity progress bar can render distance progress
-        // without recomputing geometry on every refresh.
-        let totalDistanceNm = 0;
-        const depLat = airportsData[depIcao]?.lat;
-        const depLon = airportsData[depIcao]?.lon;
-        if (depLat != null && depLon != null && destLat != null && destLon != null) {
-            totalDistanceNm = getDistanceKm(depLat, depLon, destLat, destLon) / 1.852;
+        // Total route distance: leg-summed from the plan (matches the in-app
+        // card), else dep→arr great circle, else the live remaining distance.
+        let totalDistanceNm = route?.totalDistanceNm || 0;
+        if (!totalDistanceNm) {
+            const depLat = airportsData[depIcao]?.lat;
+            const depLon = airportsData[depIcao]?.lon;
+            if (depLat != null && depLon != null && destLat != null && destLon != null) {
+                totalDistanceNm = getDistanceKm(depLat, depLon, destLat, destLon) / 1.852;
+            }
         }
         if (totalDistanceNm < distanceNm) totalDistanceNm = distanceNm;
 
+        // --- Scheduled times ---
+        // Use the real filed-plan object from the cache when present; only
+        // reconstruct one from the window dataset as a fallback, and only when
+        // this is the open flight (the dataset describes whatever's on screen).
+        let filedPlan = cachedFiled;
+        if (!filedPlan && isSameFlight) {
+            const filedDepTime = windowEl?.dataset.filedDepTime || '';
+            const filedDuration = parseFloat(windowEl?.dataset.filedDuration || '0');
+            if (filedDepTime && filedDuration > 0) {
+                filedPlan = { dep_time: filedDepTime, duration_minutes: filedDuration };
+            }
+        }
+        const schedDepMs = filedPlan?.dep_time ? Date.parse(filedPlan.dep_time) : null;
+        const schedArrMs = (schedDepMs && Number(filedPlan?.duration_minutes) > 0)
+            ? schedDepMs + (Number(filedPlan.duration_minutes) * 60 * 1000)
+            : null;
+
         // Hand the same cascade the in-app card uses (SCHEDULED → ACTUAL →
-        // ESTIMATED) so the lock screen agrees with what's on screen.
+        // ESTIMATED) so the lock screen agrees with what's on screen. The
+        // compute helpers only read `.position`, so hand them the normalised
+        // position object.
         const cachedTrail = (typeof liveTrailCache !== 'undefined' && liveTrailCache.has(flightId))
             ? liveTrailCache.get(flightId)
             : null;
-        const filedPlan = (schedDepMs && filedDuration > 0)
-            ? { dep_time: filedDepTime, duration_minutes: filedDuration }
-            : null;
-        const depInfo = computeDepartureTimeInfo(props, cachedTrail, filedPlan, depIcao);
-        const arrInfo = computeArrivalTimeInfo(props, filedPlan, distanceNm);
+        const normProps = { position: pos };
+        const depInfo = computeDepartureTimeInfo(normProps, cachedTrail, filedPlan, depIcao);
+        const arrInfo = computeArrivalTimeInfo(normProps, filedPlan, distanceNm);
 
         // ETA: prefer the smart cascade's timestamp; fall back to a fresh
         // gs+distance estimate; finally fall back to scheduled arrival. The
         // old code's "now + 1h" fallback was producing wildly wrong ETEs
         // on the lock-screen countdown when the aircraft was slow/taxiing.
-        const gs = props.position?.gs_kt || 0;
+        const gs = pos?.gs_kt || 0;
         let etaMs = arrInfo?.timestamp ? arrInfo.timestamp.getTime() : null;
         if (!etaMs && distanceNm > 0 && gs > 50) {
             etaMs = Date.now() + (distanceNm / gs) * 3600 * 1000;
@@ -10876,6 +10969,81 @@ async function createAirportInfoWindowHTML(icao, requestId) {
         };
     }
     window.buildLiveActivityPayload = buildLiveActivityPayload;
+
+    // Keep a *background*-tracked flight's Live Activity fresh — one the user
+    // has tracked but isn't currently viewing. The open flight is refreshed by
+    // its own window loop, so the socket handler skips it and routes every
+    // other tracked flight here on each packet, using the freshest position.
+    // Safe to call constantly: InflightLiveActivity.update() throttles native
+    // pushes to once per ~15s per flight, and the tracking check is O(1).
+    function maybePushBackgroundLiveActivityUpdate(flight) {
+        try {
+            const la = window.InflightLiveActivity;
+            if (!la || typeof la.isTrackingFlight !== 'function') return;
+            const flightId = flight && flight.flightId;
+            if (!flightId || !la.isTrackingFlight(flightId)) return;
+
+            const pos = flight.position;
+            if (!pos || typeof pos.lat !== 'number' || typeof pos.lon !== 'number') return;
+
+            const clean = (v) => (v && v !== 'N/A') ? String(v).trim() : '';
+            const arrIcao = clean(flight.arrivalIcao);
+            const depIcao = clean(flight.departureIcao);
+
+            // Remaining distance to destination from the live position.
+            let distanceNm = 0;
+            const dest = arrIcao ? airportsData[arrIcao] : null;
+            if (dest && typeof dest.lat === 'number' && typeof dest.lon === 'number') {
+                distanceNm = getDistanceKm(pos.lat, pos.lon, dest.lat, dest.lon) / 1.852;
+            }
+
+            // Same SCHEDULED → ACTUAL → ESTIMATED cascade the in-app card uses.
+            // No filed plan is cached for a background flight, so arrival resolves
+            // to ESTIMATED (distance + ground speed) and departure to ACTUAL only
+            // when a GPS trail exists — matching the open-window update tick.
+            const trail = (typeof liveTrailCache !== 'undefined' && liveTrailCache.has(flightId))
+                ? liveTrailCache.get(flightId) : null;
+            const propsForCompute = { position: pos };
+            const arrInfo = computeArrivalTimeInfo(propsForCompute, null, distanceNm);
+            const depInfo = computeDepartureTimeInfo(propsForCompute, trail, null, depIcao);
+
+            const gs = pos.gs_kt || 0;
+            let etaMs = arrInfo?.timestamp ? arrInfo.timestamp.getTime() : null;
+            if (!etaMs && distanceNm > 0 && gs > 50) {
+                etaMs = Date.now() + (distanceNm / gs) * 3600 * 1000;
+            }
+            const atdMs = (depInfo?.timestamp && depInfo.label === 'ACTUAL')
+                ? depInfo.timestamp.getTime() : undefined;
+
+            const isLanded = !!(pos.alt_ft != null && pos.alt_ft < 100 && gs < 40 && distanceNm < 5);
+
+            // Skip a tick with no usable ETA rather than let the native side
+            // default it to now (which zeroes the lock-screen countdown). Once
+            // landed we still push so the widget flips to its arrived state.
+            if (!etaMs && !isLanded) return;
+
+            la.update({
+                flightId,
+                currentEta: etaMs || undefined,
+                currentAtd: atdMs,
+                distanceToDestinationNm: distanceNm,
+                isLanded
+            });
+
+            // Auto-retire the activity a short while after touchdown, mirroring
+            // the open-window path — guarded so repeated "landed" ticks don't
+            // stack timers.
+            if (isLanded && !_bgLandedEndScheduled.has(flightId)) {
+                _bgLandedEndScheduled.add(flightId);
+                setTimeout(() => {
+                    try { la.end({ flightId, immediate: false }); } catch (_) {}
+                    _bgLandedEndScheduled.delete(flightId);
+                }, 30000);
+            }
+        } catch (e) {
+            console.warn('[LiveActivity] background update failed:', e);
+        }
+    }
 
     // --- DOM elements ---
     const pilotNameElem = document.getElementById('pilot-name');
@@ -15013,6 +15181,33 @@ function initializeSectorOpsMap(centerICAO) {
         // map.getCanvas().toDataURL().
     });
 
+    // ── No-internet detection ──────────────────────────────────────────────
+    // If the map can't finish loading (style/tiles unreachable) we slide up the
+    // native "No Internet Connection" page. The map's own 'load' event hides it
+    // again once we recover. A timeout catches the case where the network is so
+    // dead that Mapbox never even emits an error.
+    let _mapLoaded = false;
+    const _maybeShowOffline = () => {
+        if (_mapLoaded) return;
+        showOfflinePage({
+            onRetry: () => {
+                // Rebuild the map; a successful 'load' hides the page, and the
+                // failure path below re-shows it if we're still offline.
+                try { initializeSectorOpsMap(centerICAO); }
+                catch (_) { try { window.location.reload(); } catch (__) {} }
+            }
+        });
+    };
+    sectorOpsMap.on('error', () => {
+        // A map resource failed. Only call it "no internet" when the device is
+        // actually offline, so a one-off tile hiccup on a live connection doesn't
+        // wrongly slide up the offline page.
+        if (!_mapLoaded && !navigator.onLine) _maybeShowOffline();
+    });
+    const _loadWatchdog = setTimeout(() => {
+        if (!_mapLoaded && !navigator.onLine) _maybeShowOffline();
+    }, 12000);
+
     // ── Map camera bookmark API ────────────────────────────────────────────
     // Lets overlays (e.g. the pilot profile sheet) temporarily fly the map to a
     // live flight while the user reads their stats, then snap the camera back to
@@ -15074,6 +15269,11 @@ function initializeSectorOpsMap(centerICAO) {
 
     return new Promise(resolve => {
         sectorOpsMap.on('load', async () => {
+            // Map reached the network and finished loading — clear the offline
+            // watchdog and dismiss the "No Internet" page if it was showing.
+            _mapLoaded = true;
+            clearTimeout(_loadWatchdog);
+            if (typeof isOfflineShown === 'function' && isOfflineShown()) hideOfflinePage();
             GroupFlightManager.init(sectorOpsMap);
             setupResetNorthButton();
             await setupMapLayersAndFog();

@@ -78,9 +78,6 @@
 
     <link rel="stylesheet" href="panel-styles.css">
 
-    <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
-    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
-
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
     <style>
@@ -2125,9 +2122,24 @@
     <div id="inflight-pro-loader-overlay" role="status" aria-live="polite" aria-label="Inflight is loading">
         <div class="inflight-splash-stack">
             <div class="inflight-splash-logo-wrap">
-                <img src="Images/InflightPro.png" alt="Inflight" class="inflight-splash-logo">
+                <!-- The splash mark is the first thing painted, so it must load
+                     the RIGHT logo up front. On iOS we ship the neutral logo;
+                     on web the Pro-branded one. We deliberately leave `src`
+                     empty and set it synchronously below (before the browser
+                     fetches anything) so the Pro logo never flashes in and then
+                     gets swapped to the neutral one — that swap was the two
+                     logos "fighting" on the loading screen. -->
+                <img alt="Inflight" class="inflight-splash-logo" id="inflight-splash-logo-img">
             </div>
         </div>
+        <script>
+            (function () {
+                var img = document.getElementById('inflight-splash-logo-img');
+                if (!img) return;
+                var isIOS = (typeof window.isIOSNative === 'function') && window.isIOSNative();
+                img.src = isIOS ? 'Images/inflight.png' : 'Images/InflightPro.png';
+            })();
+        </script>
     </div>
     <script>
         (function() {

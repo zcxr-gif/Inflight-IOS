@@ -319,21 +319,16 @@ init(supabaseClient) {
         shell.style.setProperty('--mdui-accent-glow', variant.g);
     },
 
-    _showToast(htmlContent, type = 'info', duration = 4000) {
-        const container = document.getElementById('mdui-toast-container');
-        if (!container) return;
-
-        const toast = document.createElement('div');
-        toast.className = `mdui-toast mdui-toast-${type}`;
-        toast.innerHTML = htmlContent;
-
-        const dismiss = () => {
-            toast.classList.add('mdui-toast-out');
-            setTimeout(() => toast.remove(), 240);
-        };
-        toast.addEventListener('click', dismiss);
-        container.appendChild(toast);
-        setTimeout(dismiss, duration);
+    _showToast(htmlContent, type = 'info') {
+        // Naturalized: route through the native-iOS banner (nativeUI.js). Legacy
+        // callers pass HTML (icons / <strong>), so flatten it to plain text —
+        // the banner draws its own iconography per type.
+        const text = (typeof htmlContent === 'string')
+            ? htmlContent.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim()
+            : String(htmlContent || '');
+        if (!text) return;
+        const kind = type === 'warn' ? 'warning' : type;
+        if (window.showGlobalNotification) window.showGlobalNotification(text, kind);
     },
 
     _syncBadgeCount() {
@@ -2837,14 +2832,8 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
                 await this._supabase.auth.signOut();
                 cleanup();
                 this.close();
-                if (window.Toastify) {
-                    window.Toastify({
-                        text: "Your account has been deleted.",
-                        duration: 5000,
-                        gravity: "top",
-                        position: "center",
-                        style: { background: "#ef4444" }
-                    }).showToast();
+                if (window.showGlobalNotification) {
+                    window.showGlobalNotification("Your account has been deleted.", "info");
                 }
             } catch (err) {
                 submitBtn.innerHTML = originalHtml;

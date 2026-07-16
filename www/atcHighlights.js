@@ -147,14 +147,21 @@ export function updateActiveSectors(map, layerId, atcData) {
     }
 
     // --- HIGHLIGHT STAFFED SECTORS -------------------------------------------
-    // The full FIR boundary network is drawn by the always-on 'fir-borders'
-    // line layer (set up in initializeMapBoundaries). All we do on each refresh
-    // is give the sectors that currently have a controller online a faint
-    // translucent tint, so staffed airspace reads at a glance. No red overlays,
-    // no text labels — those were the ugly, broken parts of the old behaviour.
+    // We only ever draw the FIRs that currently have a controller online — the
+    // fill layer gives staffed airspace a faint translucent tint, and the
+    // border line layer outlines the same sectors. Both share the identical
+    // active-id filter so the whole global boundary network is never drawn; if
+    // nobody is online, the "NONE_ACTIVE" filter leaves the map clean. No red
+    // overlays, no text labels — those were the ugly, broken parts of the old
+    // behaviour.
     map.setFilter(layerId, filterExpression);
     map.setPaintProperty(layerId, 'fill-color', '#22c55e');
     map.setPaintProperty(layerId, 'fill-opacity', activeIds.length ? 0.12 : 0);
+
+    // Constrain the boundary LINES to the same active sectors as the fills.
+    if (map.getLayer('fir-borders')) {
+        map.setFilter('fir-borders', filterExpression);
+    }
 
     // Remove the legacy red label layer if an older build left it behind.
     if (map.getLayer('fir-active-labels')) {
