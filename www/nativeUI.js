@@ -394,9 +394,12 @@ export function installConnectivityMonitor() {
     if (_connectivityInstalled || typeof window === 'undefined') return;
     _connectivityInstalled = true;
 
-    // Direct connection transitions.
+    // Direct connection transitions. On reconnect we route through the same
+    // reconcile as every other signal, so recovery (the map reboot) only runs
+    // when we'd actually surfaced the offline page — never on a phantom
+    // 'online' with no preceding drop.
     window.addEventListener('offline', () => showOffline());
-    window.addEventListener('online', () => { hideOffline(); runRecovery(); });
+    window.addEventListener('online', () => refreshConnectivityUI());
 
     // Returning to the app (tab re-shown, window refocused, bfcache restore).
     document.addEventListener('visibilitychange', () => {
