@@ -113,11 +113,14 @@ function ensureStyles() {
         z-index: 2147483645;
         display: flex; align-items: flex-end;
         justify-content: center;
-        pointer-events: none;
+        /* Capture every tap/scroll so the app behind is fully blocked while
+           we're offline — nothing back there works without a connection. */
+        pointer-events: auto;
+        touch-action: none;
     }
     #${OFFLINE_ID} .inf-offline__scrim {
         position: absolute; inset: 0;
-        background: rgba(0, 0, 0, 0.4);
+        background: rgba(0, 0, 0, 0.58);
         opacity: 0;
         transition: opacity 360ms ease;
     }
