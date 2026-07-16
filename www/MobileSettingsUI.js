@@ -1521,6 +1521,9 @@ export const MobileSettingsUI = {
 
                 if (setting === 'showAircraftLabels') this.updateLabelPreview();
                 if (window.updateMapFilters) window.updateMapFilters();
+                // Persist the change so the toggle state (e.g. ATC Boundaries
+                // turned off) survives a reload instead of reverting to default.
+                if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
             });
         });
 

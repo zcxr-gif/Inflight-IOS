@@ -3,7 +3,7 @@ import { AirportLayoutManager } from './airportLayout.js';
 import { LandingUI } from './landingUI.js';
 import { initPlaneSizeSlider } from './planeSizeController.js';
 import { GroupFlightManager } from './groupFlightManager.js';
-import { updateActiveSectors } from './atcHighlights.js';
+import { updateActiveSectors, resetActiveSectorCache } from './atcHighlights.js';
 import { applyTerrainMode, removeTerrainMode } from './terrainMode.js';
 import { NatTracksLayer } from './natTracksLayer.js';
 import { FlownPath3D } from './flownPath3D.js';
@@ -5539,15 +5539,19 @@ async function initializeMapBoundaries(map) {
             }, beforeId); // Use safe reference
         }
 
-        // 3. fir-borders Layer — the FULL FIR boundary network, drawn as clean
-        // thin lines. The lines look the same whether or not a sector is
-        // staffed; whether they show at all is controlled by the
-        // showAtcBoundaries toggle (see applyAtcBoundaryVisibility).
+        // 3. fir-borders Layer — outlines ONLY the sectors that currently have a
+        // controller online, drawn as clean thin lines. Starts with the same
+        // impossible "none-active" filter as fir-fills; updateActiveSectors()
+        // widens it to the staffed FIRs on each ATC refresh, so we only ever
+        // draw the active boundaries rather than the entire global network.
+        // Whether they show at all is controlled by the showAtcBoundaries
+        // toggle (see applyAtcBoundaryVisibility).
         if (!map.getLayer('fir-borders')) {
             map.addLayer({
                 id: 'fir-borders',
                 type: 'line',
                 source: 'fir-boundaries',
+                filter: ['==', 'id', 'none-active'],
                 paint: {
                     'line-color': borderColor,
                     'line-width': 0.8,
@@ -5559,6 +5563,19 @@ async function initializeMapBoundaries(map) {
     } catch (err) {
         console.error("Error loading local map boundaries:", err);
     }
+
+    // The boundary source + layers were just (re)created, so any cached
+    // active-sector signature is stale (its layers no longer exist). Reset the
+    // cache and immediately redraw the staffed FIRs from the last known
+    // controllers — otherwise the active fills/borders would stay blank until
+    // the next ATC poll, most visibly right after a map-style change.
+    try { resetActiveSectorCache(); } catch (_) {}
+    try {
+        const centerControllers = (Array.isArray(activeAtcFacilities))
+            ? activeAtcFacilities.filter(f => f.type === 6)
+            : [];
+        updateActiveSectors(map, 'fir-fills', centerControllers);
+    } catch (_) { /* non-fatal — next ATC poll will draw them */ }
 
     // Honour the user's ATC-boundaries toggle for the freshly created layers.
     applyAtcBoundaryVisibility(map);
