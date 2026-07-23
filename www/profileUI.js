@@ -3118,9 +3118,11 @@ if (this._activeTab === 'flight-plan') {
                     <p style="margin: 0 0 14px 0;">
                         This will <strong>permanently delete</strong> your InFlight account, profile, saved preferences, pinned flights, pilot history, and any other data tied to it.
                     </p>
-                    ${iosNative ? '' : `<p style="margin: 0 0 14px 0; font-size: 0.85rem; color: var(--pui-text-tertiary);">
-                        If you have an active Pro subscription, cancel it first at <a href="https://inflight.info" target="_blank" style="color: var(--pui-accent);">inflight.info</a> — deleting your account here does not stop a recurring payment.
-                    </p>`}
+                    <p style="margin: 0 0 14px 0; font-size: 0.85rem; color: var(--pui-text-tertiary);">
+                        ${iosNative
+                            ? `If you have an active InFlight Pro subscription, cancel it in <strong>Settings → Apple ID → Subscriptions</strong> — deleting your account here does not stop an App Store subscription.`
+                            : `If you have an active Pro subscription, cancel it first at <a href="https://inflight.info" target="_blank" style="color: var(--pui-accent);">inflight.info</a> — deleting your account here does not stop a recurring payment.`}
+                    </p>
                     <p style="margin: 0 0 8px 0; font-size: 0.85rem;">
                         Type <strong>DELETE</strong> below to confirm:
                     </p>

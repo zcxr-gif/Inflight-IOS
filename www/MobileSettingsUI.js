@@ -1469,8 +1469,13 @@ export const MobileSettingsUI = {
                     e.stopPropagation();
 
                     if (iosNative) {
-                        // App Store compliance: no in-app upgrade path. The lock
-                        // remains visible but the click is a no-op.
+                        // Open the Apple In-App Purchase paywall (StoreKit).
+                        closeUI();
+                        setTimeout(() => {
+                            if (window.AuthUI && typeof window.AuthUI.openProPaywall === 'function') {
+                                window.AuthUI.openProPaywall();
+                            }
+                        }, 350);
                         return;
                     }
 

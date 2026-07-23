@@ -346,22 +346,65 @@ export const AuthUI = {
 
         html += `</div><div class="auth-form-body">`;
 
-        if (showPaymentOptions) {
+        if (showPaymentOptions && iosNative) {
+            // ── Native iOS paywall — Apple In-App Purchase (StoreKit).
+            // Digital subscriptions on iOS must use IAP (Guideline 3.1.1); we
+            // never surface Stripe/PayPal here. Price is filled in async from the
+            // real StoreKit product. Terms of Use + Privacy + the auto-renew
+            // disclosure are required on a subscription paywall.
+            html += `
+                <div class="iap-paywall">
+                    <ul class="iap-benefits">
+                        <li><i class="fa-solid fa-circle-check"></i> Track up to 3 flights at once</li>
+                        <li><i class="fa-solid fa-circle-check"></i> 3D live traffic &amp; flown-path views</li>
+                        <li><i class="fa-solid fa-circle-check"></i> Premium map styles &amp; label themes</li>
+                        <li><i class="fa-solid fa-circle-check"></i> Advanced airspace &amp; terrain layers</li>
+                    </ul>
+
+                    <button class="auth-submit-btn auth-submit-pro" id="iap-subscribe-btn">
+                        <span id="iap-subscribe-label">Subscribe to InFlight Pro</span>
+                    </button>
+
+                    <p class="iap-price-line" id="iap-price-line">Loading price…</p>
+
+                    <button class="auth-back-btn" id="iap-restore-btn">Restore Purchases</button>
+
+                    <div id="auth-error-message" class="auth-error" style="display: none;"></div>
+                    <div id="auth-success-message" class="auth-success" style="display: none;"></div>
+
+                    <p class="iap-legal">
+                        Payment is charged to your Apple ID. The subscription renews automatically
+                        unless cancelled at least 24 hours before the end of the current period.
+                        Manage or cancel anytime in your Apple ID settings.
+                    </p>
+                    <p class="iap-legal-links">
+                        <a href="terms.html" target="_blank">Terms of Use</a>
+                        &nbsp;·&nbsp;
+                        <a href="privacy.html" target="_blank">Privacy Policy</a>
+                    </p>
+                </div>
+            `;
+
+            if (isRenew) {
+                html += `<button class="auth-back-btn" id="auth-signout-btn">Sign Out</button>`;
+            }
+
+        } else if (showPaymentOptions) {
             html += `
                 <div id="stripe-checkout-section" class="stripe-hosted-container">
                     <button class="auth-submit-btn auth-submit-pro" id="stripe-checkout-btn">
                         <i class="fa-brands fa-stripe stripe-btn-logo"></i>
                         Checkout with Stripe
                     </button>
-                    
+
                     <div class="auth-payment-badges">
                         <span class="badge-item"><i class="fa-brands fa-apple-pay"></i> Apple Pay</span>
                         <span class="badge-item"><i class="fa-brands fa-google-pay"></i> Google Pay</span>
                         <span class="badge-item"><i class="fa-solid fa-credit-card"></i> Cards</span>
                     </div>
-                    
+
                     <p class="stripe-security-notice">
-                        <i class="fa-solid fa-shield-halved"></i> 
+                        <i class="fa-solid fa-shield-halved"></i>
                         Secure checkout hosted by <strong>Stripe</strong>
                     </p>
                 </div>
@@ -375,7 +418,7 @@ export const AuthUI = {
                     <i class="fa-solid fa-circle-notch fa-spin" style="font-size: 1.5rem; margin-bottom: 12px; color: #2563eb;"></i>
                     <p style="margin: 0; font-size: 0.95rem; font-weight: 600;">Redirecting to Secure Payment...</p>
                 </div>
-                
+
             `;
 
             if (isRenew) {
@@ -465,12 +508,101 @@ export const AuthUI = {
 
         html += `</div>`;
         card.innerHTML = html;
-        this.attachContentListeners(); 
+        this.attachContentListeners();
 
-        if (showPaymentOptions) {
+        if (showPaymentOptions && iosNative) {
+            this.loadIapPaywall();
+        } else if (showPaymentOptions) {
             this.loadPayPalAndRender();
             this.loadStripeAndRender();
         }
+    },
+
+    // Open the StoreKit paywall directly (native iOS). Unlike open('payment'),
+    // this bypasses the session/is_pro gating in open() — the entitlement comes
+    // from Apple, not our DB, and a signed-in free user should still see it.
+    openProPaywall() {
+        this._mode = 'payment';
+        this._tempSignUpData = { is_renew: false };
+
+        if (!document.getElementById('auth-modal-overlay')) {
+            this.renderContainer();
+            this.injectStyles();
+            this.attachGlobalListeners();
+        }
+        this.renderContent();
+        setTimeout(() => {
+            document.getElementById('auth-modal-overlay')?.classList.add('open');
+            this._isOpen = true;
+        }, 10);
+    },
+
+    // Fill the iOS paywall with the real localized price and wire the
+    // subscribe / restore buttons to the StoreKit IAP service.
+    async loadIapPaywall() {
+        const iap = (typeof window !== 'undefined') ? window.InflightIAP : null;
+        const priceLine = document.getElementById('iap-price-line');
+        const subscribeLabel = document.getElementById('iap-subscribe-label');
+
+        if (!iap || !iap.isAvailable()) {
+            if (priceLine) priceLine.textContent = 'In-app purchases are unavailable on this device.';
+            const subBtn = document.getElementById('iap-subscribe-btn');
+            if (subBtn) subBtn.disabled = true;
+            return;
+        }
+
+        try {
+            const product = await iap.getProduct();
+            if (product && priceLine) {
+                const period = product.subscriptionPeriod ? ` / ${this._friendlyPeriod(product.subscriptionPeriod)}` : '';
+                priceLine.textContent = `${product.displayPrice}${period}`;
+                if (subscribeLabel) subscribeLabel.textContent = `Subscribe — ${product.displayPrice}${period}`;
+            } else if (priceLine) {
+                priceLine.textContent = 'Pricing unavailable right now. Please try again shortly.';
+            }
+        } catch (_) {
+            if (priceLine) priceLine.textContent = 'Pricing unavailable right now.';
+        }
+
+        document.getElementById('iap-subscribe-btn')?.addEventListener('click', async () => {
+            this.hideError();
+            this.setLoading('iap-subscribe-btn', true, subscribeLabel ? subscribeLabel.outerHTML : 'Subscribe to InFlight Pro');
+            const res = await iap.purchase();
+            this.setLoading('iap-subscribe-btn', false, `<span id="iap-subscribe-label">Subscribe to InFlight Pro</span>`);
+            if (res.ok) {
+                this.showSuccess("You're all set — welcome to InFlight Pro!");
+                setTimeout(() => { this.close(); this.open(); }, 1200);
+            } else if (res.status === 'cancelled') {
+                // User backed out — no message needed.
+            } else {
+                this.showError(res.message || 'Purchase could not be completed.');
+            }
+        });
+
+        document.getElementById('iap-restore-btn')?.addEventListener('click', async () => {
+            this.hideError();
+            this.setLoading('iap-restore-btn', true, 'Restore Purchases');
+            const res = await iap.restore();
+            this.setLoading('iap-restore-btn', false, 'Restore Purchases');
+            if (res.ok && res.active) {
+                this.showSuccess('Your InFlight Pro subscription has been restored.');
+                setTimeout(() => { this.close(); this.open(); }, 1200);
+            } else if (res.ok) {
+                this.showError(res.message || 'No active subscription found for this Apple ID.');
+            } else {
+                this.showError(res.message || 'Restore failed. Please try again.');
+            }
+        });
+    },
+
+    _friendlyPeriod(raw) {
+        // raw looks like "1 month" / "1 year" from the native serializer.
+        const s = String(raw || '').toLowerCase();
+        if (s.includes('month')) return 'month';
+        if (s.includes('year')) return 'year';
+        if (s.includes('week')) return 'week';
+        if (s.includes('day')) return 'day';
+        return 'period';
     },
 
     showError(message) {
@@ -1828,6 +1960,38 @@ export const AuthUI = {
                 color: rgba(235, 235, 245, 0.6) !important;
                 font-size: 14px !important;
             }
+
+            /* ── iOS StoreKit paywall ─────────────────────────────────── */
+            .iap-paywall { text-align: center; }
+            .iap-benefits {
+                list-style: none;
+                margin: 4px 0 20px;
+                padding: 0;
+                text-align: left;
+            }
+            .iap-benefits li {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                font-size: 15px;
+                margin: 10px 2px;
+            }
+            html.ios-native .iap-benefits li { color: rgba(235, 235, 245, 0.9) !important; }
+            .iap-benefits li i { color: #30d158; font-size: 15px; }
+            .iap-price-line {
+                margin: 10px 0 16px;
+                font-size: 14px;
+                font-weight: 600;
+            }
+            html.ios-native .iap-price-line { color: rgba(235, 235, 245, 0.6) !important; }
+            .iap-legal {
+                margin: 18px 4px 6px;
+                font-size: 11px;
+                line-height: 1.45;
+            }
+            html.ios-native .iap-legal { color: rgba(235, 235, 245, 0.45) !important; }
+            .iap-legal-links { margin: 0 0 4px; font-size: 12px; }
+            .iap-legal-links a { color: #0a84ff; text-decoration: none; }
         `;
         
         const style = document.createElement('style');

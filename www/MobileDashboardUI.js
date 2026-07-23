@@ -1928,7 +1928,29 @@ init(supabaseClient) {
               <div id="mdui-settings-msg" class="mdui-alert" style="display:none; margin-bottom: 14px;"></div>
               <button class="mdui-btn-primary mdui-btn-block" id="mdui-save-btn" style="margin-bottom: 26px;">Save Changes</button>
 
-              ${isIos ? '' : `
+              ${isIos ? `
+              <!-- InFlight Pro (Apple In-App Purchase) -->
+              <div class="mdui-section">
+                  <div class="mdui-section-title">InFlight Pro</div>
+                  <div class="mdui-rows">
+                      <button class="mdui-row" id="mdui-iap-upgrade" type="button">
+                          <span class="mdui-row-glyph tone-blue"><i class="fa-solid fa-crown"></i></span>
+                          <div class="mdui-row-main"><span class="mdui-row-title">Upgrade to InFlight Pro</span></div>
+                          <i class="fa-solid fa-chevron-right mdui-row-chev"></i>
+                      </button>
+                      <button class="mdui-row" id="mdui-iap-restore" type="button">
+                          <span class="mdui-row-glyph tone-gray"><i class="fa-solid fa-arrow-rotate-left"></i></span>
+                          <div class="mdui-row-main"><span class="mdui-row-title">Restore Purchases</span></div>
+                          <i class="fa-solid fa-chevron-right mdui-row-chev"></i>
+                      </button>
+                      <button class="mdui-row" id="mdui-iap-manage" type="button">
+                          <span class="mdui-row-glyph tone-gray"><i class="fa-solid fa-gear"></i></span>
+                          <div class="mdui-row-main"><span class="mdui-row-title">Manage Subscription</span></div>
+                          <i class="fa-solid fa-chevron-right mdui-row-chev"></i>
+                      </button>
+                  </div>
+                  <div id="mdui-iap-msg" class="mdui-alert" style="display:none; margin-top: 8px;"></div>
+              </div>` : `
               <!-- Billing -->
               <div class="mdui-section">
                   <div class="mdui-section-title">Subscription</div>
@@ -2745,6 +2767,36 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
     this._showCancellationModal();
 });
 
+            // ── InFlight Pro via Apple In-App Purchase (native iOS) ──────────
+            document.getElementById('mdui-iap-upgrade')?.addEventListener('click', () => {
+                if (window.AuthUI && typeof window.AuthUI.openProPaywall === 'function') {
+                    window.AuthUI.openProPaywall();
+                }
+            });
+            document.getElementById('mdui-iap-restore')?.addEventListener('click', async () => {
+                const msg = document.getElementById('mdui-iap-msg');
+                const show = (text, ok) => {
+                    if (!msg) return;
+                    msg.textContent = text;
+                    msg.className = 'mdui-alert ' + (ok ? 'mdui-alert-success' : 'mdui-alert-error');
+                    msg.style.display = 'flex';
+                };
+                if (!(window.InflightIAP && window.InflightIAP.isAvailable())) {
+                    show('In-app purchases are unavailable on this device.', false);
+                    return;
+                }
+                show('Restoring…', true);
+                const res = await window.InflightIAP.restore();
+                if (res.ok && res.active) show('Your InFlight Pro subscription has been restored.', true);
+                else if (res.ok) show('No active InFlight Pro subscription was found for this Apple ID.', false);
+                else show(res.message || 'Restore failed. Please try again.', false);
+            });
+            document.getElementById('mdui-iap-manage')?.addEventListener('click', () => {
+                if (window.InflightIAP && window.InflightIAP.isAvailable()) {
+                    window.InflightIAP.manageSubscriptions();
+                }
+            });
+
             document.getElementById('mdui-signout')?.addEventListener('click', async () => {
                 if (this._supabase) { await this._supabase.auth.signOut(); this.close(); }
             });
@@ -2781,9 +2833,11 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
                     <p style="margin: 0 0 14px 0; font-size: 0.88rem; color: var(--mdui-muted); line-height: 1.55;">
                         This will <strong>permanently delete</strong> your InFlight account, profile, saved preferences, pinned flights, pilot history, and any other data tied to it.
                     </p>
-                    ${iosNative ? '' : `<p style="margin: 0 0 14px 0; font-size: 0.82rem; color: var(--mdui-tertiary); line-height: 1.5;">
-                        If you have an active Pro subscription, cancel it first at <a href="https://inflight.info" target="_blank" style="color: #38bdf8;">inflight.info</a> — deleting your account here does not stop a recurring payment.
-                    </p>`}
+                    <p style="margin: 0 0 14px 0; font-size: 0.82rem; color: var(--mdui-tertiary); line-height: 1.5;">
+                        ${iosNative
+                            ? `If you have an active InFlight Pro subscription, cancel it in <strong>Settings → Apple ID → Subscriptions</strong> — deleting your account here does not stop an App Store subscription.`
+                            : `If you have an active Pro subscription, cancel it first at <a href="https://inflight.info" target="_blank" style="color: #38bdf8;">inflight.info</a> — deleting your account here does not stop a recurring payment.`}
+                    </p>
                     <p style="margin: 0 0 8px 0; font-size: 0.82rem; color: var(--mdui-text);">
                         Type <strong>DELETE</strong> below to confirm:
                     </p>

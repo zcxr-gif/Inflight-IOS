@@ -15,6 +15,7 @@ import { spriteUVs } from './plane-D2OPBxWC.js';
 import './va-database.js';
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
 import { AuthUI } from './authUI.js';
+import { InflightIAP } from './iapService.js';
 import { ProfileUI } from './profileUI.js';
 import { PerformanceMonitor } from './performanceMonitor.js';
 import { socketDataHub } from './SocketDataHub.js';
@@ -48,6 +49,9 @@ MobileDashboardUI._ifData = ProfileUI._ifData;
 
 window.AuthUI = AuthUI;
 window.AuthUI.init(supabase);
+// Initialize In-App Purchase (StoreKit) on iOS. Resolves the user's Pro
+// entitlement from Apple and keeps window.InflightUser in sync. No-op on web.
+InflightIAP.init(supabase);
 FlightDispatchService.init(supabase);
 
 
@@ -1018,20 +1022,22 @@ window.applyAircraftLayerStyles = applyAircraftLayerStyles;
     // slow/failed query never accidentally unlocks Pro-only behavior.
     window.InflightUser = window.InflightUser || { isPro: false, loaded: false };
     window.isInflightPro = function () {
-        // Native iOS build: no paid tier is offered in-app (Apple Guideline
-        // 3.1.1), so every feature is free and every user is treated as
-        // entitled. The web build keeps the real Supabase-backed check.
-        if (typeof window.isIOSNative === 'function' && window.isIOSNative()) return true;
+        // Source of truth for gating. On iOS the value is driven by StoreKit
+        // (see iapService.js, which sets InflightUser from Apple's on-device
+        // entitlement); on web it comes from the Supabase `profiles.is_pro`
+        // lookup below. Defaults to false so a slow/failed check never
+        // accidentally unlocks Pro.
         return !!(window.InflightUser && window.InflightUser.isPro);
     };
 
     async function refreshProStatus() {
-        // On iOS everything is unlocked (see isInflightPro above); short-circuit
-        // so the cache and any direct `InflightUser.isPro` reads agree.
-        if (typeof window.isIOSNative === 'function' && window.isIOSNative()) {
-            window.InflightUser = { isPro: true, loaded: true };
-            window.dispatchEvent(new CustomEvent('proStatusChanged', { detail: { isPro: true } }));
-            return true;
+        // On iOS, Pro is sold through Apple In-App Purchase and the entitlement
+        // is verified on-device by StoreKit. Defer to the IAP service, which
+        // updates window.InflightUser from Apple's signed entitlement.
+        if (typeof window.isIOSNative === 'function' && window.isIOSNative()
+            && window.InflightIAP && typeof window.InflightIAP.refresh === 'function') {
+            try { return await window.InflightIAP.refresh(); }
+            catch (_) { return !!(window.InflightUser && window.InflightUser.isPro); }
         }
         try {
             const { data: sessionData } = await supabase.auth.getSession();

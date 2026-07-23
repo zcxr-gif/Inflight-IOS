@@ -79,6 +79,11 @@ workflows:
             echo "FATAL: LiveActivityPlugin.swift missing from project.pbxproj after injection."
             exit 1
           fi
+          if ! grep -q 'InAppPurchasePlugin.swift' ios/App/App.xcodeproj/project.pbxproj; then
+            echo "FATAL: InAppPurchasePlugin.swift missing from project.pbxproj after injection."
+            echo "       StoreKit In-App Purchase will not compile into the app."
+            exit 1
+          fi
           echo "==> Plugin references found in project.pbxproj"
 
           # Capacitor 8 reads packageClassList from the bundled
@@ -93,7 +98,13 @@ workflows:
             cat ios/App/App/capacitor.config.json || true
             exit 1
           fi
-          echo "==> packageClassList contains LiveActivityPlugin"
+          if ! grep -q 'InAppPurchasePlugin' ios/App/App/capacitor.config.json; then
+            echo "FATAL: InAppPurchasePlugin missing from ios/App/App/capacitor.config.json packageClassList."
+            echo "       Bridge will not register the plugin; In-App Purchase / Pro upgrade will silently fail."
+            cat ios/App/App/capacitor.config.json || true
+            exit 1
+          fi
+          echo "==> packageClassList contains LiveActivityPlugin + InAppPurchasePlugin"
 
           # Check for Podfile to decide on Pods vs SPM
           cd ios/App
