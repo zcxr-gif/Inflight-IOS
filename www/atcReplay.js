@@ -2013,6 +2013,15 @@ export const AtcReplay = (() => {
                 bubbles: true, cancelable: true, detail: { source: 'atc-replay-3d' }
             }));
         } catch (_) {}
+        try {
+            const iosNative = (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative());
+            if (iosNative && window.AuthUI && typeof window.AuthUI.openProPaywall === 'function') {
+                // Native iOS: open the Apple In-App Purchase paywall.
+                window.AuthUI.openProPaywall();
+            } else if (window.AuthUI && typeof window.AuthUI.open === 'function') {
+                window.AuthUI.open();
+            }
+        } catch (_) {}
     }
 
     function close() {

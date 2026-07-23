@@ -367,7 +367,11 @@ export const MobileLandingChromeUI = {
             if (upgradeBtn) {
                 this._closeInflightSheet();
                 try {
-                    if (window.AuthUI && typeof window.AuthUI.open === 'function') {
+                    const iosNative = (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative());
+                    if (iosNative && window.AuthUI && typeof window.AuthUI.openProPaywall === 'function') {
+                        // Native iOS: open the Apple In-App Purchase paywall.
+                        window.AuthUI.openProPaywall();
+                    } else if (window.AuthUI && typeof window.AuthUI.open === 'function') {
                         window.AuthUI.open();
                     }
                 } catch (_) {}

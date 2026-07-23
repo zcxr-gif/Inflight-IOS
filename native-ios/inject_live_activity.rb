@@ -37,6 +37,17 @@ BUNDLED_CAP_CONFIG = APP_DIR.join('capacitor.config.json')
 WIDGET_TARGET_NAME = 'InflightLiveActivity'
 APP_TARGET_NAME    = 'App'
 
+# Capacitor bridge plugin sources compiled into the App target. Each pair is a
+# .swift implementation + its .m CAP_PLUGIN registration. The Swift class names
+# (PLUGIN_CLASSES) must also land in packageClassList or Capacitor 8 never
+# instantiates them. Add new plugins here — the injection + verification loops
+# below pick them up automatically.
+PLUGIN_FILES   = %w[
+  LiveActivityPlugin.swift LiveActivityPlugin.m
+  InAppPurchasePlugin.swift InAppPurchasePlugin.m
+]
+PLUGIN_CLASSES = %w[LiveActivityPlugin InAppPurchasePlugin]
+
 def log(msg)
   puts "[live-activity] #{msg}"
 end
@@ -61,7 +72,7 @@ die "App target not found." unless app_target
 log "Existing App target sources before: #{app_target.source_build_phase.files_references.map(&:path).compact.sort.join(', ')}"
 
 # Copy plugin sources into the App target's directory.
-['LiveActivityPlugin.swift', 'LiveActivityPlugin.m'].each do |fname|
+PLUGIN_FILES.each do |fname|
   src = SRC_DIR.join(fname)
   die "Source missing: #{src}" unless src.exist?
   FileUtils.cp(src, APP_DIR.join(fname))
@@ -91,7 +102,7 @@ log "Resolved App group: path=#{app_group.path.inspect}, source_tree=#{app_group
 
 # Add the .swift and .m to the App group + source build phase, but only
 # if they aren't already there (handles re-invocations within one build).
-['LiveActivityPlugin.swift', 'LiveActivityPlugin.m'].each do |fname|
+PLUGIN_FILES.each do |fname|
   already = app_target.source_build_phase.files_references.any? { |r| r && r.path == fname }
   if already
     log "App target already has #{fname}"
@@ -110,7 +121,7 @@ log "Phase A saved."
 verify = Xcodeproj::Project.open(PROJECT_PATH.to_s)
 verify_target = verify.targets.find { |t| t.name == APP_TARGET_NAME }
 present = verify_target.source_build_phase.files_references.map { |r| r && r.path }.compact
-%w[LiveActivityPlugin.swift LiveActivityPlugin.m].each do |fname|
+PLUGIN_FILES.each do |fname|
   die "Phase A verification FAILED: #{fname} not in App target source phase after save. Have: #{present.sort.join(', ')}" unless present.include?(fname)
 end
 log "Phase A verified: plugin files are in App target source phase."
@@ -138,18 +149,25 @@ log "Phase A verified: plugin files are in App target source phase."
 if BUNDLED_CAP_CONFIG.exist?
   cfg = JSON.parse(File.read(BUNDLED_CAP_CONFIG.to_s))
   pkg_list = cfg['packageClassList'].is_a?(Array) ? cfg['packageClassList'] : []
-  unless pkg_list.include?('LiveActivityPlugin')
-    pkg_list << 'LiveActivityPlugin'
+  changed = false
+  PLUGIN_CLASSES.each do |cls|
+    if pkg_list.include?(cls)
+      log "'#{cls}' already present in packageClassList"
+    else
+      pkg_list << cls
+      changed = true
+      log "Added '#{cls}' to packageClassList"
+    end
+  end
+  if changed
     cfg['packageClassList'] = pkg_list
     File.write(BUNDLED_CAP_CONFIG.to_s, JSON.pretty_generate(cfg))
-    log "Added 'LiveActivityPlugin' to packageClassList in #{BUNDLED_CAP_CONFIG}"
-  else
-    log "'LiveActivityPlugin' already present in packageClassList"
+    log "Wrote packageClassList to #{BUNDLED_CAP_CONFIG}"
   end
   log "Final packageClassList: #{cfg['packageClassList'].inspect}"
 else
   die "#{BUNDLED_CAP_CONFIG} not found — `cap sync` should have produced it. " \
-      "Without this, the Capacitor 8 bridge cannot discover LiveActivityPlugin."
+      "Without this, the Capacitor 8 bridge cannot discover the plugins."
 end
 
 # ---------------------------------------------------------------------------
