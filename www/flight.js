@@ -1018,10 +1018,21 @@ window.applyAircraftLayerStyles = applyAircraftLayerStyles;
     // slow/failed query never accidentally unlocks Pro-only behavior.
     window.InflightUser = window.InflightUser || { isPro: false, loaded: false };
     window.isInflightPro = function () {
+        // Native iOS build: no paid tier is offered in-app (Apple Guideline
+        // 3.1.1), so every feature is free and every user is treated as
+        // entitled. The web build keeps the real Supabase-backed check.
+        if (typeof window.isIOSNative === 'function' && window.isIOSNative()) return true;
         return !!(window.InflightUser && window.InflightUser.isPro);
     };
 
     async function refreshProStatus() {
+        // On iOS everything is unlocked (see isInflightPro above); short-circuit
+        // so the cache and any direct `InflightUser.isPro` reads agree.
+        if (typeof window.isIOSNative === 'function' && window.isIOSNative()) {
+            window.InflightUser = { isPro: true, loaded: true };
+            window.dispatchEvent(new CustomEvent('proStatusChanged', { detail: { isPro: true } }));
+            return true;
+        }
         try {
             const { data: sessionData } = await supabase.auth.getSession();
             const userId = sessionData?.session?.user?.id;

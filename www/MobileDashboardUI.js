@@ -2760,6 +2760,10 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
         const existing = document.getElementById('mdui-delete-confirm');
         if (existing) existing.remove();
 
+        // The iOS build has no in-app subscription, so the external
+        // "cancel your subscription at inflight.info" note doesn't apply here.
+        const iosNative = (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative());
+
         const overlay = document.createElement('div');
         overlay.id = 'mdui-delete-confirm';
         overlay.className = 'mdui-wrapper-layer mdui-open';
@@ -2777,9 +2781,9 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
                     <p style="margin: 0 0 14px 0; font-size: 0.88rem; color: var(--mdui-muted); line-height: 1.55;">
                         This will <strong>permanently delete</strong> your InFlight account, profile, saved preferences, pinned flights, pilot history, and any other data tied to it.
                     </p>
-                    <p style="margin: 0 0 14px 0; font-size: 0.82rem; color: var(--mdui-tertiary); line-height: 1.5;">
+                    ${iosNative ? '' : `<p style="margin: 0 0 14px 0; font-size: 0.82rem; color: var(--mdui-tertiary); line-height: 1.5;">
                         If you have an active Pro subscription, cancel it first at <a href="https://inflight.info" target="_blank" style="color: #38bdf8;">inflight.info</a> — deleting your account here does not stop a recurring payment.
-                    </p>
+                    </p>`}
                     <p style="margin: 0 0 8px 0; font-size: 0.82rem; color: var(--mdui-text);">
                         Type <strong>DELETE</strong> below to confirm:
                     </p>

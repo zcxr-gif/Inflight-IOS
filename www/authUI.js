@@ -192,6 +192,7 @@ export const AuthUI = {
         const card = document.getElementById('auth-modal-card');
         if (!card) return;
 
+        const iosNative = (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative());
         const isChoose = this._mode === 'choose';
         const isSignIn = this._mode === 'signin';
         const isSignUp = this._mode === 'signup';
@@ -211,9 +212,12 @@ export const AuthUI = {
 
         // ── Choose screen: first step. User picks Log In or Create Account.
         if (isChoose) {
+            // On the native iOS app, account creation happens in-app (below),
+            // so we drop the "on the web" copy and the external-link glyph.
+            // The web build keeps its existing inflight.info signup funnel.
             html += `
                     <h3 class="auth-choose-title">Welcome aboard</h3>
-                    <p class="auth-choose-copy">Sign in to your account, or create a new one on the web.</p>
+                    <p class="auth-choose-copy">Sign in to your account, or create a new one to get started.</p>
                 </div>
                 <div class="auth-form-body auth-choose-body">
                     <button class="auth-submit-btn auth-choose-primary" id="auth-choose-login">
@@ -223,11 +227,11 @@ export const AuthUI = {
                     <button class="auth-choose-secondary" id="auth-choose-signup">
                         <i class="fa-solid fa-user-plus"></i>
                         <span>Create Account</span>
-                        <i class="fa-solid fa-arrow-up-right-from-square auth-choose-ext"></i>
+                        ${iosNative ? '' : '<i class="fa-solid fa-arrow-up-right-from-square auth-choose-ext"></i>'}
                     </button>
-                    <p class="auth-choose-footer">
+                    ${iosNative ? '' : `<p class="auth-choose-footer">
                         New accounts are created at <strong>inflight.info</strong>.
-                    </p>
+                    </p>`}
                 </div>
             `;
             card.innerHTML = html;
@@ -235,8 +239,53 @@ export const AuthUI = {
             return;
         }
 
-        // Sign Up always hands off to the website (web + iOS).
         if (isSignUp) {
+            // ── Native iOS: create the account in-app (Apple Guideline 4).
+            // A real email/password form that registers directly with Supabase —
+            // no hand-off to Safari. The web build still routes signup to
+            // inflight.info (its paid signup funnel) via the redirect view.
+            if (iosNative) {
+                html += `
+                    <div class="auth-payment-header auth-signin-header">
+                        <h3 style="margin: 0; font-size: 1.35rem; font-weight: 700;">Create your account</h3>
+                        <p style="margin: 6px 0 0; font-size: 0.9rem;">Join InFlight — it only takes a moment.</p>
+                    </div>
+                </div>
+                <div class="auth-form-body">
+                    <div class="auth-input-group">
+                        <label>Name</label>
+                        <div class="auth-field-wrapper">
+                            <i class="fa-solid fa-user auth-field-icon"></i>
+                            <input type="text" id="auth-signup-name" placeholder="Your name" class="auth-input" autocomplete="name">
+                        </div>
+                    </div>
+                    <div class="auth-input-group">
+                        <label>Email Address</label>
+                        <div class="auth-field-wrapper">
+                            <i class="fa-solid fa-envelope auth-field-icon"></i>
+                            <input type="email" id="auth-signup-email" placeholder="pilot@example.com" class="auth-input" autocomplete="email" required>
+                        </div>
+                    </div>
+                    <div class="auth-input-group">
+                        <label>Password</label>
+                        <div class="auth-field-wrapper">
+                            <i class="fa-solid fa-lock auth-field-icon"></i>
+                            <input type="password" id="auth-signup-password" placeholder="At least 6 characters" class="auth-input" autocomplete="new-password" required>
+                        </div>
+                    </div>
+
+                    <div id="auth-success-message" class="auth-success" style="display: none;"></div>
+                    <div id="auth-error-message" class="auth-error" style="display: none;"></div>
+
+                    <button class="auth-submit-btn" id="auth-submit-signup-btn">Create Account</button>
+                    <button class="auth-back-btn" id="auth-back-to-choose">Back</button>
+                </div>`;
+                card.innerHTML = html;
+                this.attachContentListeners();
+                return;
+            }
+
+            // Web build: hand off to the website signup funnel.
             html += `</div>
                 <div class="auth-form-body ios-signup-redirect">
                     <div class="ios-redirect-hero">
@@ -655,6 +704,7 @@ export const AuthUI = {
         });
 
         // Signup redirect — open inflight.info. Capacitor routes _system to Safari on iOS.
+        // (Web build only; the iOS app uses the in-app form handler below.)
         document.getElementById('auth-open-signup-site')?.addEventListener('click', () => {
             const url = 'https://inflight.info';
             try {
@@ -662,6 +712,59 @@ export const AuthUI = {
                 if (!opener) window.open(url, '_blank');
             } catch (e) {
                 window.location.href = url;
+            }
+        });
+
+        // In-app account creation (native iOS). Registers directly with Supabase
+        // so the user never leaves the app (Apple Guideline 4).
+        document.getElementById('auth-submit-signup-btn')?.addEventListener('click', async () => {
+            this.hideError();
+            const name = document.getElementById('auth-signup-name')?.value?.trim();
+            const email = document.getElementById('auth-signup-email')?.value?.trim();
+            const password = document.getElementById('auth-signup-password')?.value;
+
+            if (!email || !password) {
+                this.showError("Please enter your email and a password.");
+                return;
+            }
+            if (password.length < 6) {
+                this.showError("Password must be at least 6 characters.");
+                return;
+            }
+
+            this.setLoading('auth-submit-signup-btn', true, 'Create Account');
+
+            const { data, error } = await this._supabase.auth.signUp({
+                email: email,
+                password: password,
+                options: { data: { full_name: name || '' } }
+            });
+
+            this.setLoading('auth-submit-signup-btn', false, 'Create Account');
+
+            if (error) {
+                this.showError(error.message);
+                return;
+            }
+
+            if (data?.session) {
+                // Email confirmation is disabled — the account is active and the
+                // user is signed in. Drop straight into the app.
+                localStorage.setItem('inflight_remembered_email', email);
+                this.close();
+                this.open();
+            } else {
+                // Email confirmation is required. Guide the user to confirm, then
+                // sign in. Keep the modal open on a success state.
+                ['auth-signup-name', 'auth-signup-email', 'auth-signup-password'].forEach(id => {
+                    const grp = document.getElementById(id)?.closest('.auth-input-group');
+                    if (grp) grp.style.display = 'none';
+                });
+                const submitBtn = document.getElementById('auth-submit-signup-btn');
+                if (submitBtn) submitBtn.style.display = 'none';
+                this.showSuccess("Account created! Check your email to confirm your address, then sign in.");
+                const backBtn = document.getElementById('auth-back-to-choose');
+                if (backBtn) backBtn.textContent = 'Back to Sign In';
             }
         });
 

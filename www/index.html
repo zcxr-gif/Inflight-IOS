@@ -62,6 +62,12 @@
     </script>
     <style>
         html.ios-native .ios-hide { display: none !important; }
+        /* iOS build has no paid tier (Apple Guideline 3.1.1): every feature is
+           free, so hide the cosmetic "PRO"/lock badges that would otherwise
+           imply content must be purchased. The controls themselves stay usable. */
+        html.ios-native .pro-lock-badge,
+        html.ios-native .m-style-pro,
+        html.ios-native .m-theme-lock { display: none !important; }
     </style>
 
     <meta name="apple-mobile-web-app-capable" content="yes">
