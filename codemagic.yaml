@@ -117,8 +117,22 @@ workflows:
           # Keeps the Xcode build number in step with the Codemagic build id,
           # which is what stops TestFlight rejecting duplicate versions.
           cd "$XCODE_PROJECT_DIR"
-          echo "Updating build version to $BUILD_NUMBER"
-          agvtool new-version -all "$BUILD_NUMBER"
+
+          # The Capacitor app reached build 199. App Store Connect rejects an
+          # upload whose build number isn't above what it already has, so if
+          # Codemagic's counter ever restarts (new app set up there, project
+          # recreated) uploads would start failing for a non-obvious reason.
+          # Offsetting past the legacy high-water mark keeps it monotonic.
+          LEGACY_HIGH_WATER_MARK=199
+          EFFECTIVE_BUILD_NUMBER="$BUILD_NUMBER"
+          if [ "$EFFECTIVE_BUILD_NUMBER" -le "$LEGACY_HIGH_WATER_MARK" ]; then
+            EFFECTIVE_BUILD_NUMBER=$(( LEGACY_HIGH_WATER_MARK + BUILD_NUMBER ))
+            echo "Codemagic build number $BUILD_NUMBER is at or below the legacy" \
+                 "high-water mark; using $EFFECTIVE_BUILD_NUMBER instead."
+          fi
+
+          echo "Updating build version to $EFFECTIVE_BUILD_NUMBER"
+          agvtool new-version -all "$EFFECTIVE_BUILD_NUMBER"
 
       - name: iOS Code Signing
         script: |
