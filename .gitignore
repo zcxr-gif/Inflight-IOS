@@ -1,2 +1,14 @@
+# Generated Xcode project — rebuilt from ios-native/project.yml by XcodeGen
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+DerivedData/
+build/
+.swiftpm/
+Package.resolved
+
+# Old Capacitor tracker (kept in old/)
 node_modules/
 ios/
+
+.DS_Store

@@ -1,0 +1,76 @@
+import SwiftUI
+
+struct ContentView: View {
+
+    @EnvironmentObject private var feed: LiveFeed
+    @State private var selection: SelectedFlight?
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            TrackerMapView(flights: feed.flights, selection: $selection)
+                .ignoresSafeArea()
+
+            statusBar
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+        }
+        .sheet(item: $selection) { selected in
+            FlightDetailView(flightId: selected.id)
+                .environmentObject(feed)
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
+        }
+        .onAppear { feed.connect() }
+    }
+
+    private var statusBar: some View {
+        HStack(spacing: 12) {
+            Circle()
+                .fill(statusColor)
+                .frame(width: 8, height: 8)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(feed.status.isLive ? "\(feed.flights.count) aircraft" : feed.status.label)
+                    .font(.system(size: 14, weight: .semibold))
+                // Surfaces a packaging problem that would otherwise just look
+                // like an empty map, which is hard to diagnose from TestFlight.
+                Text(PlaneSprites.shared.isReady ? feed.server : "Sprite sheet missing")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 8)
+
+            Menu {
+                Picker("Server", selection: serverBinding) {
+                    ForEach(AppConfig.servers, id: \.self) { server in
+                        Text(server.replacingOccurrences(of: " Server", with: "")).tag(server)
+                    }
+                }
+            } label: {
+                Image(systemName: "antenna.radiowaves.left.and.right")
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(width: 32, height: 32)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.thinMaterial, in: Capsule())
+        .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
+    }
+
+    private var serverBinding: Binding<String> {
+        Binding(
+            get: { feed.server },
+            set: { feed.select(server: $0) }
+        )
+    }
+
+    private var statusColor: Color {
+        switch feed.status {
+        case .live: return .green
+        case .connecting, .idle: return .orange
+        case .offline: return .red
+        }
+    }
+}

@@ -1,0 +1,181 @@
+workflows:
+  ios-workflow:
+    name: iOS Build
+    
+    integrations:
+      app_store_connect: Codemagic CI/CD
+
+    environment:
+      xcode: latest
+      node: latest
+      cocoapods: default
+      
+      # AUTOMATIC SIGNING CONFIGURATION
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.tracker.Inflight  # Ensure this matches your actual ID
+    
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: '*'
+          include: true
+          source: true
+          
+    scripts:
+      - name: Install Dependencies
+        script: |
+          rm -rf node_modules
+          rm -f package-lock.json
+          npm install
+          npm install @capacitor/cli @capacitor/core @capacitor/ios
+      
+      - name: Initialize iOS Platform
+        script: |
+          set -euo pipefail
+
+          # Clean restart of ios folder
+          rm -rf ios
+          npx cap add ios
+
+          # Lock iPhone to portrait orientation. iPad keeps its default
+          # multi-orientation support via UISupportedInterfaceOrientations~ipad
+          # (which `cap add ios` writes separately).
+          echo "==> Locking iPhone orientation to portrait"
+          PLIST="ios/App/App/Info.plist"
+          /usr/libexec/PlistBuddy -c "Delete :UISupportedInterfaceOrientations" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations array" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations:0 string UIInterfaceOrientationPortrait" "$PLIST"
+
+          # Generate iOS app icons from assets/icon-only.png into the freshly
+          # created ios/ project. Must run after `cap add ios` so the
+          # Assets.xcassets target exists, and before `cap sync` so the
+          # generated icons get bundled into the final web sync.
+          npx @capacitor/assets generate --ios
+
+          npx cap sync
+
+          # Inject the Live Activity widget extension into the freshly
+          # generated Xcode project. Idempotent. Source of truth for the
+          # Swift / plist files lives in native-ios/ at the repo root.
+          # CRITICAL: this script must succeed or the LiveActivity plugin
+          # (custom Capacitor bridge) won't be compiled into the App
+          # binary, and JS->native calls will silently fail at runtime.
+          gem list -i xcodeproj > /dev/null 2>&1 || sudo gem install xcodeproj
+          gem list -i plist > /dev/null 2>&1 || sudo gem install plist
+          ruby native-ios/inject_live_activity.rb
+
+          # Post-injection sanity check: grep the saved xcodeproj for the
+          # plugin file references. If they're missing the build is broken
+          # before xcodebuild ever runs — fail loudly here instead of
+          # producing a silently-broken IPA.
+          echo "==> Verifying LiveActivityPlugin is wired into App target"
+          if ! grep -q 'LiveActivityPlugin.m' ios/App/App.xcodeproj/project.pbxproj; then
+            echo "FATAL: LiveActivityPlugin.m missing from project.pbxproj after injection."
+            exit 1
+          fi
+          if ! grep -q 'LiveActivityPlugin.swift' ios/App/App.xcodeproj/project.pbxproj; then
+            echo "FATAL: LiveActivityPlugin.swift missing from project.pbxproj after injection."
+            exit 1
+          fi
+          echo "==> Plugin references found in project.pbxproj"
+
+          # Capacitor 8 reads packageClassList from the bundled
+          # capacitor.config.json at app launch. If LiveActivityPlugin isn't
+          # in that list the bridge silently skips it, the JS plugin proxy
+          # resolves to null, and notification-permission requests never
+          # reach iOS (so the app doesn't appear in Settings -> Notifications).
+          echo "==> Verifying LiveActivityPlugin is in bundled packageClassList"
+          if ! grep -q 'LiveActivityPlugin' ios/App/App/capacitor.config.json; then
+            echo "FATAL: LiveActivityPlugin missing from ios/App/App/capacitor.config.json packageClassList."
+            echo "       Bridge will not register the plugin; notifications + Live Activities will silently fail."
+            cat ios/App/App/capacitor.config.json || true
+            exit 1
+          fi
+          echo "==> packageClassList contains LiveActivityPlugin"
+
+          # Check for Podfile to decide on Pods vs SPM
+          cd ios/App
+          if [ -f "Podfile" ]; then
+            echo "Podfile found. Installing Pods..."
+            pod install
+          else
+            echo "No Podfile found. Skipping CocoaPods (using SPM)."
+          fi
+
+      - name: Increment Build Number
+        script: |
+          # Automatically syncs Xcode build number with Codemagic Build ID
+          # preventing "Duplicate Version" errors in TestFlight.
+          cd ios/App
+          echo "Updating build version to $BUILD_NUMBER"
+          agvtool new-version -all $BUILD_NUMBER
+
+      - name: iOS Code Signing
+        script: |
+          set -e
+
+          # The `ios_signing` block above fetches the distribution certificate
+          # and the profile for the main app's bundle id. The Live Activity
+          # widget extension reuses that same distribution cert but needs its
+          # own provisioning profile. We download just the profile (not the
+          # cert — that would require the private key, which the integration
+          # does not expose to scripts).
+          echo "==> Downloading App Store provisioning profiles"
+          app-store-connect profiles list \
+            --type IOS_APP_STORE \
+            --save
+
+          echo "==> Profiles available on the runner:"
+          ls -la ~/Library/MobileDevice/Provisioning\ Profiles/ 2>/dev/null || true
+
+          cd ios/App
+          echo "==> Widget target signing settings:"
+          xcodebuild -project App.xcodeproj -target InflightLiveActivity -showBuildSettings \
+            -configuration Release 2>/dev/null \
+            | grep -Ei 'CODE_SIGN|PROVISIONING_PROFILE|DEVELOPMENT_TEAM|PRODUCT_BUNDLE_IDENTIFIER' \
+            || true
+
+          # Apply the downloaded provisioning profiles to every target in the
+          # freshly generated Xcode project and write the export options plist
+          # to $HOME/export_options.plist, which is where `xcode-project
+          # build-ipa` looks for it by default. Without this, build-ipa fails
+          # with "Path /Users/builder/export_options.plist does not exist".
+          echo "==> Applying profiles and generating export options"
+          xcode-project use-profiles \
+            --project App.xcodeproj \
+            --export-options-plist "$HOME/export_options.plist"
+
+      - name: Build IPA (Signed)
+        script: |
+          cd ios/App
+          
+          # Check if a Workspace exists (created by CocoaPods) or just a Project
+          if [ -d "App.xcworkspace" ]; then
+            echo "Detailed Build: Detected App.xcworkspace. Building Workspace."
+            
+            xcode-project build-ipa \
+              --workspace "App.xcworkspace" \
+              --scheme "App" \
+              --config "Release"
+              
+          else
+            echo "Detailed Build: No Workspace found. Building App.xcodeproj."
+            
+            xcode-project build-ipa \
+              --project "App.xcodeproj" \
+              --scheme "App" \
+              --config "Release"
+          fi
+
+    artifacts:
+      - "ios/App/build/ios/ipa/*.ipa" # <--- FIXED: Locates the file correctly
+      - "build/ios/ipa/*.ipa"
+      - "*.ipa"
+      - "/tmp/xcodebuild_logs/*.log"
+
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
