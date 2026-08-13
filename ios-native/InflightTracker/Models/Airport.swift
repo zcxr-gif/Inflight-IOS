@@ -101,6 +101,43 @@ final class AirportStore {
         return best
     }
 
+    /// The closest airports to a position, nearest first. Used where one field
+    /// isn't enough — a weather chip has to fall through to the next station
+    /// when the closest strip has never filed a report.
+    func nearestAirports(
+        to coordinate: CLLocationCoordinate2D,
+        withinNM maxNM: Double,
+        limit: Int
+    ) -> [Airport] {
+        guard coordinate.latitude.isFinite, coordinate.longitude.isFinite, limit > 0 else { return [] }
+
+        loadIfNeeded()
+
+        lock.lock()
+        let candidates = airports
+        lock.unlock()
+
+        let latitudeSpan = maxNM / 60.0
+        let cosine = max(cos(coordinate.latitude * .pi / 180), 0.01)
+        let longitudeSpan = latitudeSpan / cosine
+
+        var scored: [(Airport, Double)] = []
+
+        for airport in candidates.values {
+            guard abs(airport.coordinate.latitude - coordinate.latitude) <= latitudeSpan,
+                  abs(airport.coordinate.longitude - coordinate.longitude) <= longitudeSpan else { continue }
+
+            let distance = FlightProgress.distanceNM(from: coordinate, to: airport.coordinate)
+            guard distance <= maxNM else { continue }
+            scored.append((airport, distance))
+        }
+
+        return scored
+            .sorted { $0.1 < $1.1 }
+            .prefix(limit)
+            .map { $0.0 }
+    }
+
     func airport(_ icao: String?) -> Airport? {
         guard let icao = icao?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased(),
               !icao.isEmpty else { return nil }

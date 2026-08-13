@@ -17,18 +17,28 @@ struct ContentView: View {
     /// Latest camera request from the buttons beside the info window.
     @State private var mapCommand: MapCommand?
 
+    /// Weather for the field the map is over, and for the open flight's route.
+    @StateObject private var weather = WeatherModel()
+    @State private var isWeatherExpanded = false
+
     private var peakDetent: PresentationDetent { .height(peakHeight) }
 
-    /// True while the sheet is up. Kept separate from `selection` so tapping a
-    /// second aircraft swaps the window's contents rather than dismissing and
-    /// re-presenting the sheet — a re-presentation loses the peak detent and
-    /// comes back at full height.
-    private var isWindowOpen: Binding<Bool> {
-        Binding(
-            get: { selection != nil },
-            set: { if !$0 { selection = nil } }
-        )
+    /// What the one sheet is showing. A view can only present one thing at a
+    /// time, so the flight window and the controls hub share this rather than
+    /// each carrying their own `.sheet`.
+    ///
+    /// The flight case's id doesn't change with the aircraft, which is what
+    /// lets tapping a second plane swap the window's contents instead of
+    /// dismissing and re-presenting the sheet — a re-presentation loses the
+    /// peak detent and comes back at full height.
+    private enum WindowSheet: String, Identifiable {
+        case flight
+        case hub
+
+        var id: String { rawValue }
     }
+
+    @State private var sheet: WindowSheet?
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -36,35 +46,69 @@ struct ContentView: View {
                 flights: feed.flights,
                 selection: $selection,
                 command: mapCommand,
-                bottomInset: selection == nil ? 0 : peakHeight
+                bottomInset: selection == nil ? 0 : peakHeight,
+                onRegionChange: { weather.updateNearby(to: $0) }
             )
             .ignoresSafeArea()
 
-            statusBar
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
+            // Map chrome: weather on the left, the controls hub on the right.
+            HStack(alignment: .top, spacing: 12) {
+                WeatherChip(model: weather, theme: appearance.theme, isExpanded: $isWeatherExpanded)
+
+                Spacer(minLength: 8)
+
+                ControlHubButton { sheet = .hub }
+                    .environmentObject(feed)
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 8)
 
             mapControls
         }
         .animation(.easeInOut(duration: 0.22), value: selection?.id)
-        .sheet(isPresented: isWindowOpen) {
-            Group {
-                if let selected = selection {
-                    FlightDetailView(flightId: selected.id, peakHeight: $peakHeight)
-                        // Resets the window's own state per aircraft without
-                        // taking the sheet down with it.
-                        .id(selected.id)
-                        .environmentObject(feed)
-                }
+        .onChange(of: selection?.id) { id in
+            detent = peakDetent
+
+            if id == nil {
+                if sheet == .flight { sheet = nil }
+            } else if sheet != .flight {
+                sheet = .flight
             }
-            .presentationDetents([peakDetent, .large], selection: $detent)
-            .presentationDragIndicator(.visible)
-            .flightInfoSheetInteraction(upThrough: peakDetent)
-            // Belt and braces: however the sheet came to be on screen, it
-            // starts in the peak state.
-            .onAppear { detent = peakDetent }
+
+            let flight = selection.flatMap { selected in
+                feed.flights.first { $0.id == selected.id }
+            }
+            weather.updateRoute(departure: flight?.departureIcao, arrival: flight?.arrivalIcao)
         }
-        .onChange(of: selection?.id) { _ in detent = peakDetent }
+        // Whatever takes the sheet away — a drag, or the hub opening — also
+        // lets the map go of the aircraft.
+        .onChange(of: sheet) { value in
+            if value != .flight, selection != nil { selection = nil }
+        }
+        .sheet(item: $sheet) { which in
+            switch which {
+            case .flight:
+                Group {
+                    if let selected = selection {
+                        FlightDetailView(flightId: selected.id, peakHeight: $peakHeight)
+                            // Resets the window's own state per aircraft
+                            // without taking the sheet down with it.
+                            .id(selected.id)
+                            .environmentObject(feed)
+                    }
+                }
+                .presentationDetents([peakDetent, .large], selection: $detent)
+                .presentationDragIndicator(.visible)
+                .flightInfoSheetInteraction(upThrough: peakDetent)
+                // Belt and braces: however the sheet came to be on screen, it
+                // starts in the peak state.
+                .onAppear { detent = peakDetent }
+
+            case .hub:
+                ControlHubPanel()
+                    .environmentObject(feed)
+            }
+        }
         // The detent set changes with the measurement, so the selection has to
         // move to the new value or the sheet snaps to whatever is left.
         .onChange(of: peakHeight) { height in
@@ -133,60 +177,4 @@ struct ContentView: View {
         .accessibilityLabel(label)
     }
 
-    private var statusBar: some View {
-        HStack(spacing: 12) {
-            Circle()
-                .fill(statusColor)
-                .frame(width: 8, height: 8)
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(feed.status.isLive ? "\(feed.flights.count) aircraft" : feed.status.label)
-                    .font(.system(size: 14, weight: .semibold))
-                // Surfaces a packaging problem that would otherwise just look
-                // like an empty map, which is hard to diagnose from TestFlight.
-                Text(PlaneSprites.shared.isReady ? feed.server : "Sprite sheet missing")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer(minLength: 8)
-
-            Menu {
-                Picker("Server", selection: serverBinding) {
-                    ForEach(AppConfig.servers, id: \.self) { server in
-                        Text(server.replacingOccurrences(of: " Server", with: "")).tag(server)
-                    }
-                }
-
-                Divider()
-
-                // The switch the whole info window theme hangs off; off falls
-                // back to the opaque carbon surfaces.
-                Toggle("Glass flight info", isOn: $appearance.isGlassEnabled)
-            } label: {
-                Image(systemName: "antenna.radiowaves.left.and.right")
-                    .font(.system(size: 15, weight: .semibold))
-                    .frame(width: 32, height: 32)
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(.thinMaterial, in: Capsule())
-        .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
-    }
-
-    private var serverBinding: Binding<String> {
-        Binding(
-            get: { feed.server },
-            set: { feed.select(server: $0) }
-        )
-    }
-
-    private var statusColor: Color {
-        switch feed.status {
-        case .live: return .green
-        case .connecting, .idle: return .orange
-        case .offline: return .red
-        }
-    }
 }

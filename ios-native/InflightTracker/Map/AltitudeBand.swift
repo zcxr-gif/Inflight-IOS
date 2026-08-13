@@ -1,8 +1,11 @@
 import UIKit
 
-/// Height bands used to colour a flown path, carried over from the Capacitor
-/// build's 3D path renderer (`old/www/flownPath3D.js`, `ALTITUDE_STOPS`): low
-/// and slow reads warm, cruise reads cool.
+/// Height bands used to colour a flown path, following the Capacitor build's
+/// 3D path renderer (`old/www/flownPath3D.js`, `ALTITUDE_STOPS`) in shape: low
+/// and slow reads hot, cruise reads pale.
+///
+/// The old ramp finished on blue and indigo. This one runs orange to white
+/// instead, keeping the height reading without putting blue on the map.
 ///
 /// Banded rather than interpolated per sample, so the map draws a handful of
 /// polylines instead of one per breadcrumb.
@@ -19,10 +22,10 @@ enum AltitudeBand {
 
     static func color(for band: Int) -> UIColor {
         switch band {
-        case 0: return UIColor(red: 0.976, green: 0.451, blue: 0.086, alpha: 0.95)  // #f97316
-        case 1: return UIColor(red: 0.980, green: 0.800, blue: 0.082, alpha: 0.95)  // #facc15
-        case 2: return UIColor(red: 0.220, green: 0.741, blue: 0.973, alpha: 0.95)  // #38bdf8
-        default: return UIColor(red: 0.506, green: 0.549, blue: 0.973, alpha: 0.95) // #818cf8
+        case 0: return UIColor(red: 0.976, green: 0.451, blue: 0.086, alpha: 0.95)  // low: hot orange
+        case 1: return UIColor(red: 0.980, green: 0.749, blue: 0.184, alpha: 0.95)  // amber
+        case 2: return UIColor(red: 0.988, green: 0.898, blue: 0.667, alpha: 0.95)  // pale gold
+        default: return UIColor(white: 0.98, alpha: 0.95)                           // cruise: white
         }
     }
 }

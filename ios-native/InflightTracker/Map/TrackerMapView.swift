@@ -17,6 +17,9 @@ struct TrackerMapView: UIViewRepresentable {
     /// framed route isn't hidden behind it.
     var bottomInset: CGFloat = 0
 
+    /// Where the map is looking, reported back for the weather chip.
+    var onRegionChange: ((CLLocationCoordinate2D) -> Void)?
+
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeUIView(context: Context) -> MKMapView {
@@ -31,6 +34,10 @@ struct TrackerMapView: UIViewRepresentable {
         // only lines up with the world while the map itself is north-up.
         mapView.isRotateEnabled = false
         mapView.isPitchEnabled = false
+
+        // MapKit's controls and callouts default to the system blue; the
+        // tracker's chrome is white on carbon and stays that way.
+        mapView.tintColor = .white
 
         if #available(iOS 16.0, *) {
             let configuration = MKStandardMapConfiguration(elevationStyle: .flat)
@@ -53,6 +60,7 @@ struct TrackerMapView: UIViewRepresentable {
         context.coordinator.syncSelection(selection, on: mapView)
         context.coordinator.syncRoute(on: mapView)
         context.coordinator.handle(command, on: mapView)
+        context.coordinator.reportInitialRegion(of: mapView)
     }
 
     // MARK: - Coordinator
@@ -78,6 +86,10 @@ struct TrackerMapView: UIViewRepresentable {
         private var routeOverlays: [MKPolyline] = []
 
         private var handledCommand: UUID?
+
+        /// Nothing moves the map at launch, so the first region has to be
+        /// volunteered or the weather chip waits for a pan that may not come.
+        private var hasReportedInitialRegion = false
 
         init(_ parent: TrackerMapView) {
             self.parent = parent
@@ -184,6 +196,16 @@ struct TrackerMapView: UIViewRepresentable {
                 for annotation in mapView.selectedAnnotations {
                     mapView.deselectAnnotation(annotation, animated: true)
                 }
+            }
+        }
+
+        func reportInitialRegion(of mapView: MKMapView) {
+            guard !hasReportedInitialRegion, mapView.bounds.width > 0 else { return }
+            hasReportedInitialRegion = true
+
+            let center = mapView.region.center
+            DispatchQueue.main.async { [weak self] in
+                self?.parent.onRegionChange?(center)
             }
         }
 
@@ -445,6 +467,7 @@ struct TrackerMapView: UIViewRepresentable {
             let work = DispatchWorkItem { [weak self, weak mapView] in
                 guard let self = self, let mapView = mapView else { return }
                 self.sync(flights: self.parent.flights, on: mapView)
+                self.parent.onRegionChange?(mapView.region.center)
             }
 
             pendingCull = work
