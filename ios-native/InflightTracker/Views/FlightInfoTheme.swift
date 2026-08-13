@@ -50,6 +50,12 @@ struct FlightInfoTheme {
     /// makes it look like glass in the first place.
     let chromeTint: Color
 
+    /// Tints for glass inside the window. Lighter again than `chromeTint` —
+    /// these sit on the window's own ground rather than on the map, so they
+    /// only need to lift off it.
+    let surfaceTint: Color
+    let elevatedTint: Color
+
     /// Cards inside the window: route, telemetry cells.
     let surfaceFill: Color
 
@@ -102,6 +108,8 @@ struct FlightInfoTheme {
         windowFill: Color(red: 0.09, green: 0.09, blue: 0.11),
         scrim: Color.black.opacity(0.16),
         chromeTint: Color(red: 0.09, green: 0.09, blue: 0.11).opacity(0.5),
+        surfaceTint: Color.white.opacity(0.05),
+        elevatedTint: Color.white.opacity(0.1),
         surfaceFill: Color.white.opacity(0.08),
         elevatedFill: Color.white.opacity(0.14),
         stroke: Color.white.opacity(0.10),
@@ -119,6 +127,8 @@ struct FlightInfoTheme {
         windowFill: Color(red: 0.09, green: 0.09, blue: 0.11),
         scrim: .clear,
         chromeTint: .clear,
+        surfaceTint: .clear,
+        elevatedTint: .clear,
         surfaceFill: Color(white: 0.15),
         elevatedFill: Color(white: 0.21),
         stroke: Color.white.opacity(0.08),
@@ -154,17 +164,22 @@ struct FlightInfoSurfaceModifier: ViewModifier {
         RoundedRectangle(cornerRadius: radius, style: .continuous)
     }
 
+    /// Cards in the window are the same glass as the chrome floating over the
+    /// map, so the two halves of the app look like one thing. Only the tint
+    /// differs: these already sit on the window's ground, so they need much
+    /// less of it.
     func body(content: Content) -> some View {
-        content
-            .background {
-                // The sheet already blurs the map; cards only need their tint
-                // on top of it, which keeps the layer stack cheap.
-                shape.fill(elevated ? theme.elevatedFill : theme.surfaceFill)
-            }
-            .overlay {
-                shape.strokeBorder(elevated ? theme.strokeStrong : theme.stroke, lineWidth: 1)
-            }
-            .clipShape(shape)
+        if theme.material != nil {
+            content.glassEffect(
+                .regular.tint(elevated ? theme.elevatedTint : theme.surfaceTint),
+                in: shape
+            )
+        } else {
+            content
+                .background { shape.fill(elevated ? theme.elevatedFill : theme.surfaceFill) }
+                .overlay { shape.strokeBorder(elevated ? theme.strokeStrong : theme.stroke, lineWidth: 1) }
+                .clipShape(shape)
+        }
     }
 }
 
@@ -182,6 +197,11 @@ enum FlightInfoLayout {
     /// unusable sheet.
     static let minimumPeakHeight: CGFloat = 220
     static let maximumPeakHeight: CGFloat = 460
+
+    /// Space under the peak state's last card. The window draws into the
+    /// bottom safe area, so this is the whole gap rather than the home
+    /// indicator's inset stacked on top of the card's own padding.
+    static let peakBottomGap: CGFloat = 12
 
     /// How far above the peak height the phases have finished swapping. The
     /// cross-fade rides the drag rather than the detent, so it wants to be

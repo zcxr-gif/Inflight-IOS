@@ -107,12 +107,15 @@ final class WeatherModel: ObservableObject {
 
     private var lastNearbyLookup: CLLocationCoordinate2D?
 
-    /// The field the map is currently over. Small airfields rarely file a
+    /// The field the open aircraft is passing. Small airfields rarely file a
     /// report, so a few of the closest are tried before giving up.
-    func updateNearby(to coordinate: CLLocationCoordinate2D) {
+    ///
+    /// `force` is for a change of aircraft: without it, opening a second plane
+    /// a few miles from the first would keep showing the first one's field.
+    func updateNearby(to coordinate: CLLocationCoordinate2D, force: Bool = false) {
         guard coordinate.latitude.isFinite, coordinate.longitude.isFinite else { return }
 
-        if let last = lastNearbyLookup,
+        if !force, let last = lastNearbyLookup,
            FlightProgress.distanceNM(from: last, to: coordinate) < 12 {
             return
         }

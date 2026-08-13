@@ -93,15 +93,23 @@ struct FlightDetailView: View {
                 // collapse the sheet around the message that replaced it.
                 guard measured > 80 else { return }
 
-                // Detents are measured from the bottom of the screen, so the
-                // home indicator's inset is part of the height the sheet needs.
+                // The window draws into the bottom safe area, so the peak only
+                // needs a small gap under its card rather than the whole home
+                // indicator's height — that inset was the dead band under the
+                // route block. Taking the larger of the two keeps the content
+                // from being clipped if the safe area is still being applied.
+                let gap = max(bottomInset, FlightInfoLayout.peakBottomGap)
                 let wanted = min(
-                    max(measured + bottomInset, FlightInfoLayout.minimumPeakHeight),
+                    max(measured + gap, FlightInfoLayout.minimumPeakHeight),
                     FlightInfoLayout.maximumPeakHeight
                 )
                 if abs(wanted - peakHeight) > 1 { peakHeight = wanted }
             }
         }
+        // The sheet's own ground already covers the home indicator, and the
+        // peak's card should sit close to the bottom edge rather than above a
+        // band of empty sheet the width of that inset.
+        .ignoresSafeArea(edges: .bottom)
         .modifier(FlightInfoWindowChrome(theme: theme))
         .environment(\.colorScheme, .dark)
         .onAppear {
@@ -212,7 +220,8 @@ struct FlightDetailView: View {
                 // photo dissolves into the window instead of sitting inside
                 // one or the other.
                 .padding(.top, -Self.identityLift)
-                .padding(.bottom, 26)
+                // Clears the home indicator, which the window now draws under.
+                .padding(.bottom, 40)
                 // iPad and landscape keep a phone-width column rather than
                 // stretching the cards across the sheet.
                 .frame(maxWidth: 560)

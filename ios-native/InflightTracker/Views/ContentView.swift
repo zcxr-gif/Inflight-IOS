@@ -46,14 +46,18 @@ struct ContentView: View {
                 flights: feed.flights,
                 selection: $selection,
                 command: mapCommand,
-                bottomInset: selection == nil ? 0 : peakHeight,
-                onRegionChange: { weather.updateNearby(to: $0) }
+                bottomInset: selection == nil ? 0 : peakHeight
             )
             .ignoresSafeArea()
 
-            // Map chrome: weather on the left, the controls hub on the right.
+            // Map chrome. The left of this row belongs to search; the weather
+            // chip only takes it while an aircraft is open, and reports on
+            // where that aircraft is rather than where the map is looking.
             HStack(alignment: .top, spacing: 12) {
-                WeatherChip(model: weather, theme: appearance.theme, isExpanded: $isWeatherExpanded)
+                if selection != nil {
+                    WeatherChip(model: weather, theme: appearance.theme, isExpanded: $isWeatherExpanded)
+                        .transition(.opacity.combined(with: .move(edge: .leading)))
+                }
 
                 Spacer(minLength: 8)
 
@@ -75,10 +79,15 @@ struct ContentView: View {
                 sheet = .flight
             }
 
-            let flight = selection.flatMap { selected in
-                feed.flights.first { $0.id == selected.id }
-            }
-            weather.updateRoute(departure: flight?.departureIcao, arrival: flight?.arrivalIcao)
+            isWeatherExpanded = false
+            updateWeather(force: true)
+        }
+        // The aircraft keeps moving while its window is open, so the field it
+        // is passing is re-resolved as it goes. The model only refetches once
+        // the position has actually moved on.
+        .onChange(of: feed.lastUpdate) { _, _ in
+            guard selection != nil else { return }
+            updateWeather()
         }
         // Whatever takes the sheet away — a drag, or the hub opening — also
         // lets the map go of the aircraft.
@@ -116,6 +125,16 @@ struct ContentView: View {
             detent = .height(height)
         }
         .onAppear { feed.connect() }
+    }
+
+    /// Weather follows the open aircraft: the field it is passing, and both
+    /// ends of its route.
+    private func updateWeather(force: Bool = false) {
+        guard let selected = selection,
+              let flight = feed.flights.first(where: { $0.id == selected.id }) else { return }
+
+        weather.updateNearby(to: flight.coordinate, force: force)
+        weather.updateRoute(departure: flight.departureIcao, arrival: flight.arrivalIcao)
     }
 
     /// Sits above the peak state while an aircraft is open. At the full window
