@@ -3,7 +3,12 @@ import SwiftUI
 struct ContentView: View {
 
     @EnvironmentObject private var feed: LiveFeed
+    @ObservedObject private var appearance = FlightInfoAppearance.shared
     @State private var selection: SelectedFlight?
+
+    /// Which phase the info window is in. Owned here so it can be reset to the
+    /// peak state each time a different aircraft is tapped.
+    @State private var detent: PresentationDetent = .flightInfoPeak
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -15,11 +20,12 @@ struct ContentView: View {
                 .padding(.top, 8)
         }
         .sheet(item: $selection) { selected in
-            FlightDetailView(flightId: selected.id)
+            FlightDetailView(flightId: selected.id, detent: $detent)
                 .environmentObject(feed)
-                .presentationDetents([.medium, .large])
+                .presentationDetents([.flightInfoPeak, .large], selection: $detent)
                 .presentationDragIndicator(.visible)
         }
+        .onChange(of: selection?.id) { _ in detent = .flightInfoPeak }
         .onAppear { feed.connect() }
     }
 
@@ -47,6 +53,12 @@ struct ContentView: View {
                         Text(server.replacingOccurrences(of: " Server", with: "")).tag(server)
                     }
                 }
+
+                Divider()
+
+                // The switch the whole info window theme hangs off; off falls
+                // back to the opaque carbon surfaces.
+                Toggle("Glass flight info", isOn: $appearance.isGlassEnabled)
             } label: {
                 Image(systemName: "antenna.radiowaves.left.and.right")
                     .font(.system(size: 15, weight: .semibold))
