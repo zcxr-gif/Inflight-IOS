@@ -15,6 +15,10 @@ struct FlightDetailView: View {
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @StateObject private var photoLoader = AircraftPhotoLoader()
 
+    /// A phone in landscape presents sheets full height and ignores detents,
+    /// which would strand the peak state in the middle of a full-screen sheet.
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+
     let flightId: String
 
     /// Owned by the presenter so the window and the sheet agree on the phase.
@@ -22,7 +26,9 @@ struct FlightDetailView: View {
 
     private var theme: FlightInfoTheme { appearance.theme }
 
-    private var isPeak: Bool { detent == .flightInfoPeak }
+    private var isPeak: Bool {
+        verticalSizeClass != .compact && detent == .flightInfoPeak
+    }
 
     private var flight: Flight? {
         feed.flights.first { $0.id == flightId }
@@ -31,9 +37,6 @@ struct FlightDetailView: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .top) {
-                theme.windowBackground
-                    .ignoresSafeArea()
-
                 if let flight = flight {
                     FlightInfoPeak(flight: flight, photo: photoLoader.photo, theme: theme)
                         .opacity(isPeak ? 1 : 0)
@@ -52,6 +55,10 @@ struct FlightDetailView: View {
             .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
             .clipped()
         }
+        // Applied outside the reader so the ground covers the home-indicator
+        // inset too — with the system sheet background cleared, anything it
+        // misses shows the map through the bottom of the window.
+        .background { theme.windowBackground.ignoresSafeArea() }
         .environment(\.colorScheme, .dark)
         .animation(.easeInOut(duration: 0.28), value: isPeak)
         .modifier(FlightInfoWindowChrome(theme: theme))
@@ -178,9 +185,9 @@ struct FlightDetailView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            let registration = registration(for: flight)
-            if !registration.isEmpty {
-                Text(registration)
+            let tail = registration(for: flight)
+            if !tail.isEmpty {
+                Text(tail)
                     .font(.system(size: 12, weight: .semibold, design: .monospaced))
                     .foregroundStyle(theme.textPrimary)
                     .padding(.horizontal, 10)
