@@ -90,9 +90,10 @@ workflows:
             exit 1
           fi
 
-          # The plane icons are loose bundle resources; if they miss the copy
-          # phase every aircraft silently renders without an icon.
-          for RESOURCE in markers.png sprite-uvs.json; do
+          # The icons and airport table are loose bundle resources; if they miss
+          # the copy phase, aircraft render without icons and every route card
+          # comes up blank — at runtime, with no build error to explain it.
+          for RESOURCE in markers.png sprite-uvs.json airports.txt; do
             if ! grep -q "$RESOURCE" "$XCODE_PROJECT/project.pbxproj"; then
               echo "FATAL: $RESOURCE is not part of the app target."
               exit 1

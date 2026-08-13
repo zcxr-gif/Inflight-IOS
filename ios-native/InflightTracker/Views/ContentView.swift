@@ -17,7 +17,7 @@ struct ContentView: View {
         .sheet(item: $selection) { selected in
             FlightDetailView(flightId: selected.id)
                 .environmentObject(feed)
-                .presentationDetents([.medium])
+                .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
         .onAppear { feed.connect() }

@@ -91,13 +91,6 @@ struct Flight: Decodable, Identifiable, Equatable {
         guard abs(position.lat) <= 90, abs(position.lon) <= 180 else { return false }
         return !(position.lat == 0 && position.lon == 0)
     }
-
-    var route: String? {
-        let departure = departureIcao?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let arrival = arrivalIcao?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if departure.isEmpty && arrival.isEmpty { return nil }
-        return "\(departure.isEmpty ? "—" : departure) → \(arrival.isEmpty ? "—" : arrival)"
-    }
 }
 
 /// The payload broadcast on the `all_flights_update` channel.

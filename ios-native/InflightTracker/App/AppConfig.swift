@@ -10,6 +10,9 @@ enum AppConfig {
     /// Socket.IO endpoint broadcasting `all_flights_update`.
     static let socketURLString = "https://site--acars-backend--6dmjph8ltlhv.code.run"
 
+    /// REST backend behind the community aircraft photos.
+    static let apiBaseURLString = "https://site--indgo-backend--6dmjph8ltlhv.code.run"
+
     /// Rooms the backend broadcasts on, joined via `join_server_room`.
     static let servers = ["Expert Server", "Training Server", "Casual Server"]
 
