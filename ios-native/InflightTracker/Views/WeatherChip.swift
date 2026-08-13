@@ -75,8 +75,8 @@ struct WeatherChip: View {
 
     private var expanded: some View {
         VStack(spacing: 0) {
-            ForEach(Array(stations.enumerated()), id: \.element.id) { index, station in
-                if index > 0 {
+            ForEach(stations) { station in
+                if station.id != stations.first?.id {
                     Rectangle()
                         .fill(theme.stroke)
                         .frame(height: 1)

@@ -1,11 +1,17 @@
 import CoreLocation
 import Foundation
 
-struct Airport {
+struct Airport: Equatable {
     let icao: String
     let name: String
     let coordinate: CLLocationCoordinate2D
     let countryCode: String
+
+    /// Written out rather than synthesised: `CLLocationCoordinate2D` is not
+    /// `Equatable`, and an ICAO identifies an airport anyway.
+    static func == (lhs: Airport, rhs: Airport) -> Bool {
+        lhs.icao == rhs.icao
+    }
 
     /// Regional-indicator flag for the airport's country, or an empty string
     /// when the country couldn't be resolved.
