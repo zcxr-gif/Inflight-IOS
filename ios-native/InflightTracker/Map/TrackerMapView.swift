@@ -39,12 +39,10 @@ struct TrackerMapView: UIViewRepresentable {
         // tracker's chrome is white on carbon and stays that way.
         mapView.tintColor = .white
 
-        if #available(iOS 16.0, *) {
-            let configuration = MKStandardMapConfiguration(elevationStyle: .flat)
-            configuration.emphasisStyle = .muted
-            configuration.pointOfInterestFilter = .excludingAll
-            mapView.preferredConfiguration = configuration
-        }
+        let configuration = MKStandardMapConfiguration(elevationStyle: .flat)
+        configuration.emphasisStyle = .muted
+        configuration.pointOfInterestFilter = .excludingAll
+        mapView.preferredConfiguration = configuration
 
         mapView.register(
             MKAnnotationView.self,

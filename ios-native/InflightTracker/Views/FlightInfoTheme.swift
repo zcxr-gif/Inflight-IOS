@@ -45,6 +45,11 @@ struct FlightInfoTheme {
     /// window into a black slab.
     let scrim: Color
 
+    /// Carried into the system glass on floating chrome. Lighter than `scrim`:
+    /// glass does its own dimming, and a heavy tint kills the lensing that
+    /// makes it look like glass in the first place.
+    let chromeTint: Color
+
     /// Cards inside the window: route, telemetry cells.
     let surfaceFill: Color
 
@@ -96,6 +101,7 @@ struct FlightInfoTheme {
         material: .ultraThinMaterial,
         windowFill: Color(red: 0.09, green: 0.09, blue: 0.11),
         scrim: Color.black.opacity(0.16),
+        chromeTint: Color(red: 0.09, green: 0.09, blue: 0.11).opacity(0.5),
         surfaceFill: Color.white.opacity(0.08),
         elevatedFill: Color.white.opacity(0.14),
         stroke: Color.white.opacity(0.10),
@@ -112,6 +118,7 @@ struct FlightInfoTheme {
         material: nil,
         windowFill: Color(red: 0.09, green: 0.09, blue: 0.11),
         scrim: .clear,
+        chromeTint: .clear,
         surfaceFill: Color(white: 0.15),
         elevatedFill: Color(white: 0.21),
         stroke: Color.white.opacity(0.08),
@@ -192,12 +199,25 @@ extension View {
     ///
     /// The detent is passed in rather than assumed: it has to be the same
     /// value the sheet is actually using, or the system quietly ignores this.
-    @ViewBuilder
     func flightInfoSheetInteraction(upThrough detent: PresentationDetent) -> some View {
-        if #available(iOS 16.4, *) {
-            presentationBackgroundInteraction(.enabled(upThrough: detent))
+        presentationBackgroundInteraction(.enabled(upThrough: detent))
+    }
+
+    /// Chrome that floats over the map — the weather chip, the controls hub,
+    /// the map buttons.
+    ///
+    /// This is the system's own glass rather than a hand-rolled material, so
+    /// the chrome lenses and reacts the way every other iOS 26 control does,
+    /// with the window's carbon carried in as the tint so the two still read
+    /// as one design. Glass-off falls back to the flat carbon surface.
+    @ViewBuilder
+    func flightInfoChrome(_ theme: FlightInfoTheme, in shape: some Shape) -> some View {
+        if theme.material != nil {
+            glassEffect(.regular.tint(theme.chromeTint), in: shape)
         } else {
-            self
+            background { shape.fill(theme.windowFill) }
+                .overlay { shape.stroke(theme.stroke, lineWidth: 1) }
+                .clipShape(shape)
         }
     }
 }

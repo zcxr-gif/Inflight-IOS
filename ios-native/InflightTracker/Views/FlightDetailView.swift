@@ -86,7 +86,7 @@ struct FlightDetailView: View {
             .clipped()
             // Derived in the layout pass rather than read back off the proxy
             // afterwards, which is not something a GeometryProxy promises.
-            .onChange(of: settled) { isCollapsed = $0 }
+            .onChange(of: settled) { _, newValue in isCollapsed = newValue }
             .onPreferenceChange(PeakContentHeightKey.self) { measured in
                 // Zero means the peak state isn't in the tree at all — the
                 // aircraft stopped reporting — which is not a reason to
@@ -108,10 +108,10 @@ struct FlightDetailView: View {
             load(flight)
             loadTrack()
         }
-        .onChange(of: flight?.liveryName) { _ in load(flight) }
-        .onChange(of: photoLoader.photo?.url) { url in imageLoader.load(url) }
+        .onChange(of: flight?.liveryName) { _, _ in load(flight) }
+        .onChange(of: photoLoader.photo?.url) { _, url in imageLoader.load(url) }
         // Live samples extend the path between packets.
-        .onChange(of: feed.lastUpdate) { _ in
+        .onChange(of: feed.lastUpdate) { _, _ in
             let latest = FlightTrailStore.shared.points(for: flightId)
             if latest.count != track.count { track = latest }
         }
@@ -181,7 +181,7 @@ struct FlightDetailView: View {
                 // Rewound while the full window is invisible, so coming back up
                 // always starts at the photo instead of wherever the last look
                 // was left scrolled to.
-                .onChange(of: isCollapsed) { collapsed in
+                .onChange(of: isCollapsed) { _, collapsed in
                     guard collapsed else { return }
                     proxy.scrollTo(Self.topAnchor, anchor: .top)
                 }
@@ -460,16 +460,9 @@ private struct FlightInfoWindowChrome: ViewModifier {
     let theme: FlightInfoTheme
 
     func body(content: Content) -> some View {
-        if #available(iOS 16.4, *) {
-            content
-                .presentationBackground { theme.sheetBackground }
-                .presentationCornerRadius(theme.radiusLarge + 6)
-        } else {
-            // No sheet-background API here, so paint the opaque ground inside
-            // the window instead of leaving it to system chrome that may not
-            // match the window's white-on-carbon text.
-            content.background { theme.windowFill.ignoresSafeArea() }
-        }
+        content
+            .presentationBackground { theme.sheetBackground }
+            .presentationCornerRadius(theme.radiusLarge + 6)
     }
 }
 

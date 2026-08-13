@@ -66,7 +66,7 @@ struct ContentView: View {
             mapControls
         }
         .animation(.easeInOut(duration: 0.22), value: selection?.id)
-        .onChange(of: selection?.id) { id in
+        .onChange(of: selection?.id) { _, id in
             detent = peakDetent
 
             if id == nil {
@@ -82,7 +82,7 @@ struct ContentView: View {
         }
         // Whatever takes the sheet away — a drag, or the hub opening — also
         // lets the map go of the aircraft.
-        .onChange(of: sheet) { value in
+        .onChange(of: sheet) { _, value in
             if value != .flight, selection != nil { selection = nil }
         }
         .sheet(item: $sheet) { which in
@@ -111,7 +111,7 @@ struct ContentView: View {
         }
         // The detent set changes with the measurement, so the selection has to
         // move to the new value or the sheet snaps to whatever is left.
-        .onChange(of: peakHeight) { height in
+        .onChange(of: peakHeight) { _, height in
             guard detent != .large else { return }
             detent = .height(height)
         }
@@ -139,20 +139,10 @@ struct ContentView: View {
                 }
             }
             .frame(width: 44)
-            .background {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(.ultraThinMaterial)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(Color.black.opacity(0.16))
-                    }
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(appearance.theme.stroke, lineWidth: 1)
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .shadow(color: .black.opacity(0.25), radius: 10, y: 4)
+            .flightInfoChrome(
+                appearance.theme,
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            )
             .environment(\.colorScheme, .dark)
             .padding(.trailing, 16)
             .padding(.bottom, peakHeight + 14)

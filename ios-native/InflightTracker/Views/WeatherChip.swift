@@ -67,7 +67,7 @@ struct WeatherChip: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background { chipBackground(cornerRadius: 22) }
+        .flightInfoChrome(theme, in: Capsule())
         .contentShape(Capsule())
     }
 
@@ -84,7 +84,7 @@ struct WeatherChip: View {
                 row(for: station)
             }
         }
-        .background { chipBackground(cornerRadius: theme.radiusMedium) }
+        .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: theme.radiusMedium, style: .continuous))
         .frame(maxWidth: 268, alignment: .leading)
         .transition(.opacity.combined(with: .move(edge: .top)))
     }
@@ -149,15 +149,4 @@ struct WeatherChip: View {
         return "\(metar.conditionLabel) · \(metar.windLabel)"
     }
 
-    // MARK: - Chrome
-
-    private func chipBackground(cornerRadius: CGFloat) -> some View {
-        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-
-        return shape
-            .fill(.ultraThinMaterial)
-            .overlay { shape.fill(Color.black.opacity(0.16)) }
-            .overlay { shape.strokeBorder(theme.stroke, lineWidth: 1) }
-            .shadow(color: .black.opacity(0.25), radius: 10, y: 4)
-    }
 }

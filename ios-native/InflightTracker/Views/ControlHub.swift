@@ -32,13 +32,7 @@ struct ControlHubButton: View {
             }
             .padding(.horizontal, 13)
             .padding(.vertical, 11)
-            .background {
-                Capsule()
-                    .fill(.ultraThinMaterial)
-                    .overlay { Capsule().fill(Color.black.opacity(0.16)) }
-                    .overlay { Capsule().strokeBorder(theme.stroke, lineWidth: 1) }
-                    .shadow(color: .black.opacity(0.25), radius: 10, y: 4)
-            }
+            .flightInfoChrome(theme, in: Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Controls")

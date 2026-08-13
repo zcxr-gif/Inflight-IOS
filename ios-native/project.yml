@@ -6,7 +6,7 @@ name: InflightTracker
 options:
   bundleIdPrefix: com.tracker
   deploymentTarget:
-    iOS: "16.0"
+    iOS: "26.0"
   createIntermediateGroups: true
   groupSortPosition: top
 
@@ -24,7 +24,10 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     VERSIONING_SYSTEM: apple-generic
     SWIFT_VERSION: "5.0"
-    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    # Current OS only. Everything the app uses — Liquid Glass chrome, the
+    # sheet background APIs, the modern onChange — is available unguarded at
+    # this floor, and the CI toolchain is pinned to `xcode: latest`.
+    IPHONEOS_DEPLOYMENT_TARGET: "26.0"
     ENABLE_USER_SCRIPT_SANDBOXING: NO
 
 targets:
