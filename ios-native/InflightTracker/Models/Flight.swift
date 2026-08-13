@@ -1,104 +1,98 @@
 import CoreLocation
 import Foundation
 
-/// Decodes a value that the backend may send as either a string or a number.
-struct LooseID: Decodable, Hashable {
-    let value: String
+/// One aircraft from an `all_flights_update` packet.
+///
+/// Built straight from the socket's dictionary rather than round-tripping
+/// through `JSONSerialization` + `JSONDecoder` — that re-serialised and
+/// re-parsed the entire payload on every update, which on a busy server is
+/// megabytes of pointless work several times a minute.
+///
+/// Fields the app doesn't display aren't parsed at all, and the sprite key is
+/// resolved once here instead of on every draw. Field names mirror the schema
+/// documented in `old/www/SocketDataHub.js`.
+struct Flight: Identifiable, Equatable {
 
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        if let string = try? container.decode(String.self) {
-            value = string
-        } else if let int = try? container.decode(Int.self) {
-            value = String(int)
-        } else if let double = try? container.decode(Double.self) {
-            value = String(Int(double))
-        } else {
-            value = UUID().uuidString
-        }
-    }
-}
-
-/// Wrapper that turns a single malformed element into `nil` instead of
-/// failing the whole payload. One odd aircraft should never blank the map.
-struct Failable<Wrapped: Decodable>: Decodable {
-    let value: Wrapped?
-
-    init(from decoder: Decoder) throws {
-        value = try? Wrapped(from: decoder)
-    }
-}
-
-/// One aircraft from an `all_flights_update` packet. The field names mirror
-/// the schema documented in `old/www/SocketDataHub.js`.
-struct Flight: Decodable, Identifiable, Equatable {
-
-    struct Position: Decodable, Equatable {
-        let lat: Double
-        let lon: Double
-        let alt_ft: Double?
-        let gs_kt: Double?
-        let vs_fpm: Double?
-        let heading_deg: Double?
-    }
-
-    struct Aircraft: Decodable, Equatable {
-        let aircraftName: String?
-        let liveryName: String?
-        let registration: String?
-    }
-
-    let flightId: LooseID
+    let id: String
     let callsign: String?
     let username: String?
-    let userId: LooseID?
-    let position: Position
-    let aircraft: Aircraft?
+
+    let latitude: Double
+    let longitude: Double
+    let altitudeFeet: Double
+    let groundSpeedKnots: Double
+    let verticalSpeedFPM: Double
+    let heading: Double
+
+    let aircraftName: String
+    let liveryName: String
+    let registration: String?
+
     let departureIcao: String?
     let arrivalIcao: String?
-    let pilotState: Int?
 
-    var id: String { flightId.value }
+    /// Resolved once at parse time — the map re-reads this on every frame.
+    let spriteKey: String
 
     var coordinate: CLLocationCoordinate2D {
-        CLLocationCoordinate2D(latitude: position.lat, longitude: position.lon)
+        CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
-
-    var heading: Double { position.heading_deg ?? 0 }
-
-    var altitudeFeet: Double { position.alt_ft ?? 0 }
-
-    var groundSpeedKnots: Double { position.gs_kt ?? 0 }
-
-    var verticalSpeedFPM: Double { position.vs_fpm ?? 0 }
 
     var displayName: String {
-        let trimmed = callsign?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return trimmed.isEmpty ? (username ?? "Unknown") : trimmed
+        guard let callsign = callsign, !callsign.isEmpty else { return username ?? "Unknown" }
+        return callsign
     }
 
-    var aircraftName: String { aircraft?.aircraftName ?? "" }
+    /// Fails when the payload has no usable identity or position, which drops
+    /// a single bad aircraft instead of the whole packet.
+    init?(payload: [String: Any]) {
+        guard let id = Flight.text(payload["flightId"]),
+              let position = payload["position"] as? [String: Any],
+              let latitude = Flight.number(position["lat"]),
+              let longitude = Flight.number(position["lon"]),
+              latitude.isFinite, longitude.isFinite,
+              abs(latitude) <= 90, abs(longitude) <= 180,
+              !(latitude == 0 && longitude == 0) else { return nil }
 
-    var liveryName: String { aircraft?.liveryName ?? "" }
+        self.id = id
+        self.latitude = latitude
+        self.longitude = longitude
 
-    /// Sprite key used to pick the plane icon out of the shared sprite sheet.
-    var spriteKey: String { AircraftCatalog.spriteKey(for: aircraftName) }
+        self.callsign = Flight.text(payload["callsign"])
+        self.username = Flight.text(payload["username"])
+        self.departureIcao = Flight.text(payload["departureIcao"])
+        self.arrivalIcao = Flight.text(payload["arrivalIcao"])
 
-    /// A coordinate check — the backend occasionally reports a null island
-    /// position for a session that is still spawning in.
-    var hasUsableCoordinate: Bool {
-        guard position.lat.isFinite, position.lon.isFinite else { return false }
-        guard abs(position.lat) <= 90, abs(position.lon) <= 180 else { return false }
-        return !(position.lat == 0 && position.lon == 0)
+        self.altitudeFeet = Flight.number(position["alt_ft"]) ?? 0
+        self.groundSpeedKnots = Flight.number(position["gs_kt"]) ?? 0
+        self.verticalSpeedFPM = Flight.number(position["vs_fpm"]) ?? 0
+        self.heading = Flight.number(position["heading_deg"]) ?? 0
+
+        let aircraft = payload["aircraft"] as? [String: Any]
+        self.aircraftName = Flight.text(aircraft?["aircraftName"]) ?? ""
+        self.liveryName = Flight.text(aircraft?["liveryName"]) ?? ""
+        self.registration = Flight.text(aircraft?["registration"])
+
+        self.spriteKey = AircraftCatalog.spriteKey(for: aircraftName)
     }
-}
 
-/// The payload broadcast on the `all_flights_update` channel.
-struct FlightsPayload: Decodable {
-    let server: String?
-    let flights: [Failable<Flight>]
+    // MARK: - Lenient readers
 
-    var validFlights: [Flight] {
-        flights.compactMap { $0.value }.filter { $0.hasUsableCoordinate }
+    /// The backend has sent numbers as both JSON numbers and strings.
+    private static func number(_ value: Any?) -> Double? {
+        if let number = value as? NSNumber { return number.doubleValue }
+        if let string = value as? String { return Double(string) }
+        return nil
+    }
+
+    /// Empty and whitespace-only strings read as absent, and an id sent as a
+    /// number still resolves.
+    private static func text(_ value: Any?) -> String? {
+        if let string = value as? String {
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        if let number = value as? NSNumber { return number.stringValue }
+        return nil
     }
 }

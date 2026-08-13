@@ -10,8 +10,34 @@ import Foundation
 /// it can add coverage without changing existing behaviour.
 enum AircraftCatalog {
 
+    /// Resolved keys, kept because the matching below is ~40 substring scans
+    /// over a freshly uppercased string and the feed re-sends every aircraft
+    /// several times a minute. The old tracker recomputed this per aircraft
+    /// per update; there are only ever a few dozen distinct type names, so a
+    /// small cache removes essentially all of that work.
+    private static var cache: [String: String] = [:]
+    private static let cacheLock = NSLock()
+    private static let cacheLimit = 512
+
     static func spriteKey(for aircraftName: String?) -> String {
-        guard let raw = aircraftName?.uppercased(), !raw.isEmpty else { return "B737" }
+        guard let name = aircraftName, !name.isEmpty else { return "B737" }
+
+        cacheLock.lock()
+        let cached = cache[name]
+        cacheLock.unlock()
+        if let cached = cached { return cached }
+
+        let resolved = resolve(name.uppercased())
+
+        cacheLock.lock()
+        // Bounded purely as a safety net — the key space is tiny in practice.
+        if cache.count < cacheLimit { cache[name] = resolved }
+        cacheLock.unlock()
+
+        return resolved
+    }
+
+    private static func resolve(_ raw: String) -> String {
 
         // ------------------------------------------------------------------
         // Port of getAircraftCategory() — order matters, first match wins.
@@ -57,6 +83,9 @@ enum AircraftCatalog {
         if raw.contains("MD-80") || raw.contains("MD80") || raw.contains("MD-90") { return "MD80" }
         if raw.contains("717") || raw.contains("DC-9") { return "MD80" }
         if raw.contains("FOKKER") || raw.contains("F100") { return "FOKKER100" }
+        // Ahead of the BAe regional jets below: a BAe Hawk is a trainer, and
+        // matching "BAE" first would hand it an RJ100 airliner icon.
+        if raw.contains("HAWK") { return "HAWK" }
         if raw.contains("RJ85") || raw.contains("RJ100") || raw.contains("BAE") { return "RJ100" }
         if raw.contains("ATR 42") || raw.contains("ATR42") || raw.contains("AT42") { return "AT42" }
         if raw.contains("ATR 72") || raw.contains("ATR72") || raw.contains("AT72") { return "AT72" }
@@ -72,7 +101,6 @@ enum AircraftCatalog {
         if raw.contains("B52") || raw.contains("B-52") { return "B52" }
         if raw.contains("U-2") { return "U2" }
         if raw.contains("T-38") || raw.contains("T38") { return "T38" }
-        if raw.contains("HAWK") { return "HAWK" }
         if raw.contains("TORNADO") { return "TOR" }
         if raw.contains("KC-10") || raw.contains("KC-135") || raw.contains("KC135") { return "KC35R" }
         if raw.contains("E-3") || raw.contains("AWACS") { return "E3CF" }

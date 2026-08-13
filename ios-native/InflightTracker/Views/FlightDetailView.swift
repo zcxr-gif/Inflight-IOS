@@ -113,7 +113,7 @@ struct FlightDetailView: View {
     }
 
     private func registration(for flight: Flight) -> String {
-        let fromFeed = flight.aircraft?.registration ?? ""
+        let fromFeed = flight.registration ?? ""
         if !fromFeed.isEmpty { return fromFeed }
         return photoLoader.photo?.tailNumber ?? ""
     }

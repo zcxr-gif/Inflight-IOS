@@ -58,6 +58,9 @@ struct TrackerMapView: UIViewRepresentable {
         /// don't bounce the change straight back into the map.
         private var isApplyingSelection = false
 
+        /// Debounced viewport re-cull, cancelled if the map keeps moving.
+        private var pendingCull: DispatchWorkItem?
+
         init(_ parent: TrackerMapView) {
             self.parent = parent
         }
@@ -113,8 +116,8 @@ struct TrackerMapView: UIViewRepresentable {
             let center = region.center
 
             let inView = flights.filter { flight in
-                abs(flight.position.lat - center.latitude) <= latitudeMargin
-                    && longitudeDelta(flight.position.lon, center.longitude) <= longitudeMargin
+                abs(flight.latitude - center.latitude) <= latitudeMargin
+                    && longitudeDelta(flight.longitude, center.longitude) <= longitudeMargin
             }
 
             guard inView.count > AppConfig.maxRenderedFlights else { return inView }
@@ -127,8 +130,8 @@ struct TrackerMapView: UIViewRepresentable {
         }
 
         private static func squaredDistance(_ flight: Flight, _ center: CLLocationCoordinate2D) -> Double {
-            let deltaLat = flight.position.lat - center.latitude
-            let deltaLon = longitudeDelta(flight.position.lon, center.longitude)
+            let deltaLat = flight.latitude - center.latitude
+            let deltaLon = longitudeDelta(flight.longitude, center.longitude)
             return deltaLat * deltaLat + deltaLon * deltaLon
         }
 
@@ -212,7 +215,17 @@ struct TrackerMapView: UIViewRepresentable {
 
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
             // Re-cull for the new viewport using the traffic we already have.
-            sync(flights: parent.flights, on: mapView)
+            // Coalesced because this fires repeatedly through a pan or a
+            // pinch, and each pass walks every aircraft on the server.
+            pendingCull?.cancel()
+
+            let work = DispatchWorkItem { [weak self, weak mapView] in
+                guard let self = self, let mapView = mapView else { return }
+                self.sync(flights: self.parent.flights, on: mapView)
+            }
+
+            pendingCull = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
         }
     }
 }

@@ -142,18 +142,23 @@ final class LiveFeed: ObservableObject {
     // MARK: - Payload handling
 
     private func handle(_ data: [Any]) {
-        guard let dictionary = data.first as? [String: Any],
-              JSONSerialization.isValidJSONObject(dictionary),
-              let raw = try? JSONSerialization.data(withJSONObject: dictionary),
-              let payload = try? JSONDecoder().decode(FlightsPayload.self, from: raw) else { return }
+        guard let payload = data.first as? [String: Any] else { return }
 
-        // Ignore packets still arriving for a room we just left.
-        if let packetServer = payload.server, !packetServer.isEmpty,
+        // Ignore packets still arriving for a room we just left. Checked before
+        // parsing so a stale packet costs nothing.
+        if let packetServer = payload["server"] as? String, !packetServer.isEmpty,
            packetServer.caseInsensitiveCompare(room) != .orderedSame {
             return
         }
 
-        let parsed = payload.validFlights
+        guard let rawFlights = payload["flights"] as? [Any] else { return }
+
+        var parsed: [Flight] = []
+        parsed.reserveCapacity(rawFlights.count)
+
+        for case let entry as [String: Any] in rawFlights {
+            if let flight = Flight(payload: entry) { parsed.append(flight) }
+        }
 
         publish { feed in
             feed.flights = parsed
