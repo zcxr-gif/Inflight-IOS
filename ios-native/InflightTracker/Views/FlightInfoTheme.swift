@@ -232,7 +232,13 @@ enum FlightInfoLayout {
 
     /// Bounds on that measurement, so a bad layout pass can't produce an
     /// unusable sheet.
-    static let minimumPeakHeight: CGFloat = 220
+    ///
+    /// The floor is deliberately below anything the peak actually lays out to:
+    /// it is a guard against a broken measurement, not a target. Set close to
+    /// the real content height it becomes the height, and a short peak — a
+    /// parked aircraft, with no route strip to draw — pads itself back out
+    /// with the empty band it was measured to avoid.
+    static let minimumPeakHeight: CGFloat = 180
 
     /// Generous enough for the photo peak, which is the full window's header
     /// plus its route card.
@@ -243,9 +249,10 @@ enum FlightInfoLayout {
     /// window put it in exactly the same place.
     static let heroSeamLift: CGFloat = 30
 
-    /// Space under the peak state's last card. The window draws into the
-    /// bottom safe area, so this is the whole gap rather than the home
-    /// indicator's inset stacked on top of the card's own padding.
+    /// Space under the peak state's last card, measured from the card to the
+    /// bottom edge of the sheet. The window draws into the bottom safe area,
+    /// so this is the whole gap — the home indicator floats inside it rather
+    /// than claiming its own band underneath.
     static let peakBottomGap: CGFloat = 12
 
     /// How far above the peak height the phases have finished swapping. The
@@ -253,6 +260,15 @@ enum FlightInfoLayout {
     /// done early in the travel — by the time the sheet is a third of the way
     /// up, the full window should already be the thing you are looking at.
     static let phaseTravel: CGFloat = 220
+
+    /// Travel that doesn't count as a drag at all.
+    ///
+    /// The sheet's measured height and its detent agree to within a point or
+    /// two, not exactly — rounding, and the resize animation settling. Without
+    /// a dead band at the foot of the travel that difference reads as the
+    /// window being fractionally open, which washes the peak out and ghosts
+    /// the full window's photo in behind it while the sheet is sitting still.
+    static let phaseDeadZone: CGFloat = 8
 }
 
 extension View {

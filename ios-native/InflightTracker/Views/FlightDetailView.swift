@@ -45,11 +45,15 @@ struct FlightDetailView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let bottomInset = geometry.safeAreaInsets.bottom
             let expansion = sheetExpansion(for: geometry)
-            let peakOpacity = 1 - ramp(expansion, from: 0.02, to: 0.46)
-            let fullOpacity = ramp(expansion, from: 0.16, to: 0.68)
-            let settled = expansion < 0.04
+            // While the sheet is sitting at its peak detent the peak state is
+            // the only thing on screen — the full window is not faintly behind
+            // it. Both phases are snapped at the foot of the travel rather
+            // than left to the ramps, so no residual fraction of a point can
+            // put a ghost of the hero photo behind the peak.
+            let settled = expansion < 0.02
+            let peakOpacity = settled ? 1 : 1 - ramp(expansion, from: 0.02, to: 0.46)
+            let fullOpacity = settled ? 0 : ramp(expansion, from: 0.16, to: 0.68)
 
             ZStack(alignment: .top) {
                 if let flight = flight {
@@ -101,14 +105,14 @@ struct FlightDetailView: View {
                 // collapse the sheet around the message that replaced it.
                 guard measured > 80 else { return }
 
-                // The window draws into the bottom safe area, so the peak only
-                // needs a small gap under its card rather than the whole home
-                // indicator's height — that inset was the dead band under the
-                // route block. Taking the larger of the two keeps the content
-                // from being clipped if the safe area is still being applied.
-                let gap = max(bottomInset, FlightInfoLayout.peakBottomGap)
+                // The window draws into the bottom safe area — `measured` is
+                // content that already runs down to the screen's edge — so the
+                // peak only wants a small gap under its card. Taking the home
+                // indicator's inset instead put that whole band below the
+                // route block a second time, which was the dead space under
+                // the peak state.
                 let wanted = min(
-                    max(measured + gap, FlightInfoLayout.minimumPeakHeight),
+                    max(measured + FlightInfoLayout.peakBottomGap, FlightInfoLayout.minimumPeakHeight),
                     FlightInfoLayout.maximumPeakHeight
                 )
                 if abs(wanted - peakHeight) > 1 { peakHeight = wanted }
@@ -137,15 +141,18 @@ struct FlightDetailView: View {
 
     /// How far the sheet is between the peak state and the full window, 0...1.
     ///
-    /// The safe-area insets are added back because the sheet's content is laid
-    /// out inside them: without that the peak would measure short of its own
-    /// detent height and the fade would start late.
+    /// Only the top inset is added back. The window is laid out inside that
+    /// one, so without it the sheet would measure short of its own detent and
+    /// the fade would start late — but it draws *through* the bottom inset,
+    /// so `size.height` already covers the ground the home indicator sits on.
+    /// Adding that back counted it twice, which read as the sheet being a
+    /// sixth of the way open the moment it appeared: the peak state opened
+    /// washed out with the full window's photo showing faintly behind it.
     private func sheetExpansion(for geometry: GeometryProxy) -> Double {
-        let height = geometry.size.height
-            + geometry.safeAreaInsets.top
-            + geometry.safeAreaInsets.bottom
+        let height = geometry.size.height + geometry.safeAreaInsets.top
 
-        let travelled = (height - peakHeight) / FlightInfoLayout.phaseTravel
+        let travelled = (height - peakHeight - FlightInfoLayout.phaseDeadZone)
+            / FlightInfoLayout.phaseTravel
         return Double(min(max(travelled, 0), 1))
     }
 
