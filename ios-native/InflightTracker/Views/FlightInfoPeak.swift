@@ -1,20 +1,34 @@
 import SwiftUI
+import UIKit
 
 /// The peak state — the compact bar the info window opens in.
 ///
 /// Everything a tap on the map is asking for: who it is, what they're flying,
-/// and how far along the route they are. Dragging the sheet up cross-fades this
-/// into the full window.
+/// and where it is going. Dragging the sheet up cross-fades this into the full
+/// window.
 struct FlightInfoPeak: View {
 
     let flight: Flight
-    let photo: AircraftPhoto?
+    let image: UIImage?
     let theme: FlightInfoTheme
+
+    /// Width of the photo. Its height follows the photo's own aspect ratio, so
+    /// a square shot and a wide airliner shot both sit in the row properly
+    /// instead of being cropped to one fixed box.
+    private let thumbnailWidth: CGFloat = 148
+
+    private var thumbnailHeight: CGFloat {
+        guard let image = image, image.size.width > 0, image.size.height > 0 else {
+            return 92
+        }
+        let ratio = image.size.height / image.size.width
+        return min(max(thumbnailWidth * ratio, 78), 110)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             identityRow
-            routeCard
+            situationCard
         }
         // Clears the drag indicator, which floats over the top of the sheet.
         .padding(.top, 20)
@@ -55,12 +69,13 @@ struct FlightInfoPeak: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             AircraftPhotoImage(
-                photo: photo,
+                image: image,
                 spriteKey: flight.spriteKey,
                 theme: theme,
-                iconSize: 30
+                iconSize: 38,
+                contentMode: .fit
             )
-            .frame(width: 104, height: 66)
+            .frame(width: thumbnailWidth, height: thumbnailHeight)
             .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous)
@@ -74,72 +89,93 @@ struct FlightInfoPeak: View {
         return parts.isEmpty ? "Tap for details" : parts.joined(separator: " · ")
     }
 
-    // MARK: - Route
+    // MARK: - Route / where it is
 
-    private var routeCard: some View {
-        let progress = FlightProgress(flight: flight)
+    /// Same rule as the full window: a filed destination gets the route strip,
+    /// otherwise the card says where the aircraft is sitting.
+    @ViewBuilder
+    private var situationCard: some View {
+        switch FlightSituation.from(flight) {
+        case .enroute(let progress):
+            VStack(spacing: 11) {
+                RouteStrip(
+                    departureIcao: flight.departureIcao,
+                    arrivalIcao: flight.arrivalIcao,
+                    fraction: progress?.fraction ?? 0,
+                    theme: theme,
+                    icaoSize: 22,
+                    trackWidth: 84
+                )
 
-        return VStack(spacing: 11) {
-            HStack(alignment: .top, spacing: 10) {
-                port(icao: flight.departureIcao, alignment: .leading)
+                if let progress = progress {
+                    hairline
 
-                RouteTrack(fraction: progress?.fraction ?? 0, theme: theme)
-                    // A fixed middle: the ports take what is left, so a long
-                    // airport name can only shrink, never widen the card.
-                    .frame(width: 84)
-                    .padding(.top, 8)
-
-                port(icao: flight.arrivalIcao, alignment: .trailing)
-            }
-
-            if let progress = progress {
-                Rectangle()
-                    .fill(theme.stroke)
-                    .frame(height: 1)
-
-                HStack(spacing: 8) {
-                    MiniStat(
-                        label: "FLOWN",
-                        value: "\(Format.number(progress.flownNM)) NM",
-                        theme: theme
-                    )
-                    MiniStat(
-                        label: "REMAINING",
-                        value: "\(Format.number(progress.remainingNM)) NM",
-                        theme: theme,
-                        alignment: .center
-                    )
-                    MiniStat(
-                        label: "ETE",
-                        value: eteLabel(progress),
-                        theme: theme,
-                        alignment: .trailing
-                    )
+                    HStack(spacing: 8) {
+                        MiniStat(
+                            label: "FLOWN",
+                            value: "\(Format.number(progress.flownNM)) NM",
+                            theme: theme
+                        )
+                        MiniStat(
+                            label: "REMAINING",
+                            value: "\(Format.number(progress.remainingNM)) NM",
+                            theme: theme,
+                            alignment: .center
+                        )
+                        MiniStat(
+                            label: "ETE",
+                            value: eteLabel(progress),
+                            theme: theme,
+                            alignment: .trailing
+                        )
+                    }
                 }
             }
+            .padding(13)
+            .flightInfoSurface(theme, radius: theme.radiusMedium)
+
+        case .grounded(let airport, let isTaxiing):
+            PlaceCard(
+                kicker: isTaxiing ? "TAXIING AT" : "PARKED AT",
+                symbol: isTaxiing ? "airplane" : "parkingsign",
+                airport: airport,
+                theme: theme
+            )
+            .padding(13)
+            .flightInfoSurface(theme, radius: theme.radiusMedium)
+
+        case .unplanned(let departure, let nearest):
+            VStack(spacing: 11) {
+                PlaceCard(
+                    kicker: nearest == nil ? "IN THE AIR" : "PASSING",
+                    symbol: "airplane",
+                    airport: nearest,
+                    theme: theme
+                )
+
+                if departure != nil {
+                    hairline
+
+                    HStack(spacing: 8) {
+                        MiniStat(label: "DEPARTED", value: departure?.icao ?? "—", theme: theme)
+                        MiniStat(
+                            label: "DESTINATION",
+                            value: "NOT FILED",
+                            theme: theme,
+                            alignment: .trailing
+                        )
+                    }
+                }
+            }
+            .padding(13)
+            .flightInfoSurface(theme, radius: theme.radiusMedium)
         }
-        .padding(13)
-        .flightInfoSurface(theme, radius: theme.radiusMedium)
     }
 
-    private func port(icao: String?, alignment: HorizontalAlignment) -> some View {
-        let code = (icao ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let airport = AirportStore.shared.airport(icao)
-        let frameAlignment: Alignment = alignment == .leading ? .leading : .trailing
-
-        return VStack(alignment: alignment, spacing: 4) {
-            Text(code.isEmpty ? "———" : code)
-                .font(.system(size: 22, weight: .heavy, design: .rounded))
-                .foregroundStyle(theme.textPrimary)
-                .flightInfoLine(minimumScale: 0.6)
-
-            Text((airport?.name ?? "Unknown").uppercased())
-                .font(.system(size: 9, weight: .semibold))
-                .tracking(0.4)
-                .foregroundStyle(theme.textDim)
-                .flightInfoLine(minimumScale: 0.7)
-        }
-        .frame(maxWidth: .infinity, alignment: frameAlignment)
+    private var hairline: some View {
+        Rectangle()
+            .fill(theme.stroke)
+            .frame(height: 1)
     }
 
     private func eteLabel(_ progress: FlightProgress) -> String {

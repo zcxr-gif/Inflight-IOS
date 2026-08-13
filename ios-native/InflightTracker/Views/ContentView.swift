@@ -24,6 +24,7 @@ struct ContentView: View {
                 .environmentObject(feed)
                 .presentationDetents([.flightInfoPeak, .large], selection: $detent)
                 .presentationDragIndicator(.visible)
+                .flightInfoSheetInteraction()
         }
         .onChange(of: selection?.id) { _ in detent = .flightInfoPeak }
         .onAppear { feed.connect() }

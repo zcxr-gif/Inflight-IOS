@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Pieces shared by the peak state and the expanded window, so the two phases
 /// can't drift apart as either one is worked on.
@@ -34,7 +35,57 @@ struct FlightPhaseChip: View {
     }
 }
 
-// MARK: - Route track
+// MARK: - Route
+
+/// Origin and destination either side of the live progress track.
+struct RouteStrip: View {
+
+    let departureIcao: String?
+    let arrivalIcao: String?
+    let fraction: Double
+    let theme: FlightInfoTheme
+    var icaoSize: CGFloat = 24
+    var trackWidth: CGFloat = 92
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            port(icao: departureIcao, alignment: .leading)
+
+            RouteTrack(fraction: fraction, theme: theme)
+                .frame(width: trackWidth)
+                .padding(.top, icaoSize * 0.4)
+
+            port(icao: arrivalIcao, alignment: .trailing)
+        }
+    }
+
+    private func port(icao: String?, alignment: HorizontalAlignment) -> some View {
+        let code = (icao ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let airport = AirportStore.shared.airport(icao)
+        let frameAlignment: Alignment = alignment == .leading ? .leading : .trailing
+
+        return VStack(alignment: alignment, spacing: 4) {
+            Text(code.isEmpty ? "———" : code)
+                .font(.system(size: icaoSize, weight: .heavy, design: .rounded))
+                .foregroundStyle(theme.textPrimary)
+                .flightInfoLine(minimumScale: 0.6)
+
+            HStack(spacing: 4) {
+                if let flag = airport?.flag, !flag.isEmpty {
+                    Text(flag).font(.system(size: 9))
+                }
+                Text((airport?.name ?? "Unknown").uppercased())
+                    .font(.system(size: 9, weight: .semibold))
+                    .tracking(0.4)
+                    .foregroundStyle(theme.textDim)
+                    .flightInfoLine(minimumScale: 0.7)
+            }
+        }
+        // The track is the fixed part of the row, so the ports share what is
+        // left and a long airport name can only shrink, never widen the card.
+        .frame(maxWidth: .infinity, alignment: frameAlignment)
+    }
+}
 
 /// The progress track: filled to `fraction`, with the plane riding the head of
 /// the fill. Endpoint dots match the web tracker — filled at the origin, hollow
@@ -80,33 +131,90 @@ struct RouteTrack: View {
     }
 }
 
+/// Where an aircraft is when there is no route to draw — parked at a gate,
+/// taxiing, or airborne with no destination filed.
+struct PlaceCard: View {
+
+    let kicker: String
+    let symbol: String
+    let airport: Airport?
+    let theme: FlightInfoTheme
+    var icaoSize: CGFloat = 22
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: symbol)
+                .font(.system(size: icaoSize * 0.52, weight: .semibold))
+                .foregroundStyle(theme.onAccent)
+                .frame(width: icaoSize * 1.7, height: icaoSize * 1.7)
+                .background(Circle().fill(theme.accent))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(kicker)
+                    .font(.system(size: 8.5, weight: .bold))
+                    .tracking(0.7)
+                    .foregroundStyle(theme.textDim)
+                    .flightInfoLine(minimumScale: 0.8)
+
+                Text(airport?.icao ?? "———")
+                    .font(.system(size: icaoSize, weight: .heavy, design: .rounded))
+                    .foregroundStyle(theme.textPrimary)
+                    .flightInfoLine(minimumScale: 0.6)
+
+                HStack(spacing: 4) {
+                    if let flag = airport?.flag, !flag.isEmpty {
+                        Text(flag).font(.system(size: 9))
+                    }
+                    Text((airport?.name ?? "Position unknown").uppercased())
+                        .font(.system(size: 9, weight: .semibold))
+                        .tracking(0.4)
+                        .foregroundStyle(theme.textDim)
+                        .flightInfoLine(minimumScale: 0.7)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
 // MARK: - Aircraft photo
 
-/// Community aircraft photo, scaled to fill its frame, with the sprite
-/// placeholder underneath so the frame is never empty while the request is in
-/// flight.
+/// Community aircraft photo with the sprite placeholder underneath, so the
+/// frame is never empty while the request is in flight.
 struct AircraftPhotoImage: View {
 
-    let photo: AircraftPhoto?
+    let image: UIImage?
     let spriteKey: String
     let theme: FlightInfoTheme
     var iconSize: CGFloat = 44
 
+    /// `.fit` keeps the whole airframe in frame — a blurred, scaled copy of
+    /// the same photo fills what is left, so the frame is still edge to edge
+    /// but the nose and tail are never cropped off.
+    var contentMode: ContentMode = .fit
+
     var body: some View {
         ZStack {
-            placeholder
+            if let image = image {
+                if contentMode == .fit {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .blur(radius: 18, opaque: true)
+                        // Blur samples past the edges, so oversize the backdrop
+                        // rather than letting it fade out at the frame.
+                        .scaleEffect(1.2)
 
-            if let photo = photo {
-                AsyncImage(url: photo.url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .scaledToFill()
-                    default:
-                        Color.clear
-                    }
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                } else {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
                 }
+            } else {
+                placeholder
             }
         }
         // Fill the frame, then clip: a resizable image reports its own

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// The flight info window.
 ///
@@ -13,6 +14,7 @@ struct FlightDetailView: View {
     @EnvironmentObject private var feed: LiveFeed
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @StateObject private var photoLoader = AircraftPhotoLoader()
+    @StateObject private var imageLoader = RemoteImageLoader()
 
     /// A phone in landscape presents sheets full height and ignores detents,
     /// which would strand the peak state in the middle of a full-screen sheet.
@@ -37,7 +39,7 @@ struct FlightDetailView: View {
         GeometryReader { geometry in
             ZStack(alignment: .top) {
                 if let flight = flight {
-                    FlightInfoPeak(flight: flight, photo: photoLoader.photo, theme: theme)
+                    FlightInfoPeak(flight: flight, image: imageLoader.image, theme: theme)
                         .opacity(isPeak ? 1 : 0)
                         .allowsHitTesting(isPeak)
 
@@ -59,11 +61,13 @@ struct FlightDetailView: View {
         .environment(\.colorScheme, .dark)
         .onAppear { load(flight) }
         .onChange(of: flight?.liveryName) { _ in load(flight) }
+        .onChange(of: photoLoader.photo?.url) { url in imageLoader.load(url) }
     }
 
     private func load(_ flight: Flight?) {
         guard let flight = flight else { return }
         photoLoader.load(type: flight.aircraftName, livery: flight.liveryName)
+        imageLoader.load(photoLoader.photo?.url)
     }
 
     private var ended: some View {
@@ -89,7 +93,7 @@ struct FlightDetailView: View {
                 hero(for: flight, width: width)
 
                 VStack(spacing: 10) {
-                    routeCard(for: flight)
+                    situationCard(for: flight)
                     telemetry(for: flight)
                 }
                 .padding(.horizontal, 14)
@@ -107,20 +111,33 @@ struct FlightDetailView: View {
     // MARK: - Hero
 
     private func hero(for flight: Flight, width: CGFloat) -> some View {
-        // Tied to the sheet's width so the photo fills the top on every device
-        // without ever taking the whole peak-to-large travel.
-        let height = min(max(width * 0.58, 200), 270)
-
-        return AircraftPhotoImage(
-            photo: photoLoader.photo,
+        AircraftPhotoImage(
+            image: imageLoader.image,
             spriteKey: flight.spriteKey,
             theme: theme,
-            iconSize: 64
+            iconSize: 64,
+            // Airliner photos are wide; filling this frame would cut the nose
+            // and tail off, so the whole airframe is fitted onto a blurred
+            // copy of itself instead.
+            contentMode: .fit
         )
-        .frame(width: width, height: height)
+        .frame(width: width, height: heroHeight(for: width))
         .overlay { PhotoScrim() }
         .overlay(alignment: .topTrailing) { credit }
         .overlay(alignment: .bottom) { identity(for: flight) }
+    }
+
+    /// The hero takes the photo's own shape where it can, so a fitted photo
+    /// fills the header edge to edge instead of sitting between blurred bars.
+    /// Extremes are clamped — a panoramic shot may not eat the whole sheet.
+    private func heroHeight(for width: CGFloat) -> CGFloat {
+        guard let image = imageLoader.image,
+              image.size.width > 0, image.size.height > 0 else {
+            return min(max(width * 0.56, 190), 250)
+        }
+
+        let ratio = image.size.height / image.size.width
+        return min(max(width * ratio, 180), 300)
     }
 
     @ViewBuilder
@@ -196,31 +213,24 @@ struct FlightDetailView: View {
         return photoLoader.photo?.tailNumber ?? ""
     }
 
-    // MARK: - Route
+    // MARK: - Route / where it is
 
+    /// A filed destination gets the route strip. Without one, the card says
+    /// where the aircraft actually is instead of drawing a route to nowhere.
     @ViewBuilder
-    private func routeCard(for flight: Flight) -> some View {
-        let progress = FlightProgress(flight: flight)
-        let hasRoute = flight.departureIcao?.isEmpty == false || flight.arrivalIcao?.isEmpty == false
-
-        if hasRoute {
+    private func situationCard(for flight: Flight) -> some View {
+        switch FlightSituation.from(flight) {
+        case .enroute(let progress):
             VStack(spacing: 12) {
-                HStack(alignment: .top, spacing: 10) {
-                    port(icao: flight.departureIcao, alignment: .leading)
-
-                    RouteTrack(fraction: progress?.fraction ?? 0, theme: theme)
-                        // A fixed middle: the ports take what is left, so a long
-                        // airport name can only shrink, never widen the card.
-                        .frame(width: 92)
-                        .padding(.top, 9)
-
-                    port(icao: flight.arrivalIcao, alignment: .trailing)
-                }
+                RouteStrip(
+                    departureIcao: flight.departureIcao,
+                    arrivalIcao: flight.arrivalIcao,
+                    fraction: progress?.fraction ?? 0,
+                    theme: theme
+                )
 
                 if let progress = progress {
-                    Rectangle()
-                        .fill(theme.stroke)
-                        .frame(height: 1)
+                    hairline
 
                     HStack(spacing: 8) {
                         MiniStat(
@@ -245,32 +255,51 @@ struct FlightDetailView: View {
             }
             .padding(14)
             .flightInfoSurface(theme, radius: theme.radiusMedium)
+
+        case .grounded(let airport, let isTaxiing):
+            PlaceCard(
+                kicker: isTaxiing ? "TAXIING AT" : "PARKED AT",
+                symbol: isTaxiing ? "airplane" : "parkingsign",
+                airport: airport,
+                theme: theme,
+                icaoSize: 24
+            )
+            .padding(14)
+            .flightInfoSurface(theme, radius: theme.radiusMedium)
+
+        case .unplanned(let departure, let nearest):
+            VStack(spacing: 12) {
+                PlaceCard(
+                    kicker: nearest == nil ? "IN THE AIR" : "PASSING",
+                    symbol: "airplane",
+                    airport: nearest,
+                    theme: theme,
+                    icaoSize: 24
+                )
+
+                if departure != nil {
+                    hairline
+
+                    HStack(spacing: 8) {
+                        MiniStat(label: "DEPARTED", value: departure?.icao ?? "—", theme: theme)
+                        MiniStat(
+                            label: "DESTINATION",
+                            value: "NOT FILED",
+                            theme: theme,
+                            alignment: .trailing
+                        )
+                    }
+                }
+            }
+            .padding(14)
+            .flightInfoSurface(theme, radius: theme.radiusMedium)
         }
     }
 
-    private func port(icao: String?, alignment: HorizontalAlignment) -> some View {
-        let code = (icao ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let airport = AirportStore.shared.airport(icao)
-        let frameAlignment: Alignment = alignment == .leading ? .leading : .trailing
-
-        return VStack(alignment: alignment, spacing: 4) {
-            Text(code.isEmpty ? "———" : code)
-                .font(.system(size: 24, weight: .heavy, design: .rounded))
-                .foregroundStyle(theme.textPrimary)
-                .flightInfoLine(minimumScale: 0.6)
-
-            HStack(spacing: 4) {
-                if let flag = airport?.flag, !flag.isEmpty {
-                    Text(flag).font(.system(size: 10))
-                }
-                Text((airport?.name ?? "Unknown").uppercased())
-                    .font(.system(size: 9, weight: .semibold))
-                    .tracking(0.4)
-                    .foregroundStyle(theme.textDim)
-                    .flightInfoLine(minimumScale: 0.7)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: frameAlignment)
+    private var hairline: some View {
+        Rectangle()
+            .fill(theme.stroke)
+            .frame(height: 1)
     }
 
     private func eteLabel(for flight: Flight, progress: FlightProgress) -> String {

@@ -164,5 +164,21 @@ struct FlightInfoSurfaceModifier: ViewModifier {
 extension PresentationDetent {
 
     /// The peak state: the compact bar the info window opens in.
-    static let flightInfoPeak = PresentationDetent.height(286)
+    static let flightInfoPeak = PresentationDetent.height(322)
+}
+
+extension View {
+
+    /// Keeps the map live behind the peak state: the sheet stops being modal
+    /// up through that detent, so panning and zooming still reach the map —
+    /// and the system stops dimming everything behind the sheet, which is what
+    /// put a dark wash over the map as soon as the window opened.
+    @ViewBuilder
+    func flightInfoSheetInteraction() -> some View {
+        if #available(iOS 16.4, *) {
+            presentationBackgroundInteraction(.enabled(upThrough: .flightInfoPeak))
+        } else {
+            self
+        }
+    }
 }
