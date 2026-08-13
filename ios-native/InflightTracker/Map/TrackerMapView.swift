@@ -316,9 +316,61 @@ struct TrackerMapView: UIViewRepresentable {
             handledCommand = command.id
 
             switch command.kind {
-            case .centerOnFlight: center(on: mapView)
-            case .fitRoute: fitRoute(on: mapView)
+            case .centerOnFlight:
+                center(on: mapView)
+            case .fitRoute:
+                fitRoute(on: mapView)
+            case .focus(let latitude, let longitude, let spanMeters):
+                focus(
+                    on: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
+                    spanMeters: spanMeters,
+                    on: mapView
+                )
             }
+        }
+
+        /// Takes the map to somewhere it isn't currently looking — a search
+        /// result, a field with a tower open. Unlike `center`, this sets the
+        /// zoom as well as the position: the whole point is that whatever was
+        /// picked may be nowhere near the current view.
+        private func focus(
+            on coordinate: CLLocationCoordinate2D,
+            spanMeters: Double,
+            on mapView: MKMapView
+        ) {
+            guard coordinate.latitude.isFinite, coordinate.longitude.isFinite else { return }
+
+            let region = MKCoordinateRegion(
+                center: coordinate,
+                latitudinalMeters: spanMeters,
+                longitudinalMeters: spanMeters
+            )
+
+            // Via a map rect rather than `setRegion`, which takes no edge
+            // padding — and the chrome over the bottom of the map is exactly
+            // what the target must not land behind.
+            mapView.setVisibleMapRect(
+                Self.mapRect(for: region),
+                edgePadding: edgeInsets(),
+                animated: true
+            )
+        }
+
+        private static func mapRect(for region: MKCoordinateRegion) -> MKMapRect {
+            let north = min(region.center.latitude + region.span.latitudeDelta / 2, 85)
+            let south = max(region.center.latitude - region.span.latitudeDelta / 2, -85)
+            let west = region.center.longitude - region.span.longitudeDelta / 2
+            let east = region.center.longitude + region.span.longitudeDelta / 2
+
+            let topLeft = MKMapPoint(CLLocationCoordinate2D(latitude: north, longitude: west))
+            let bottomRight = MKMapPoint(CLLocationCoordinate2D(latitude: south, longitude: east))
+
+            return MKMapRect(
+                x: min(topLeft.x, bottomRight.x),
+                y: min(topLeft.y, bottomRight.y),
+                width: abs(bottomRight.x - topLeft.x),
+                height: abs(bottomRight.y - topLeft.y)
+            )
         }
 
         /// Keeps the current zoom and puts the aircraft in the part of the map
@@ -466,9 +518,15 @@ struct SelectedFlight: Identifiable, Equatable {
 /// nothing it has already carried out.
 struct MapCommand: Equatable {
 
-    enum Kind {
+    enum Kind: Equatable {
         case centerOnFlight
         case fitRoute
+
+        /// Somewhere on the map by position rather than by aircraft — what a
+        /// search result or an open tower resolves to. Carried as plain
+        /// numbers because `CLLocationCoordinate2D` is not `Equatable`, and
+        /// the command has to be comparable to be one-shot.
+        case focus(latitude: Double, longitude: Double, spanMeters: Double)
     }
 
     let kind: Kind

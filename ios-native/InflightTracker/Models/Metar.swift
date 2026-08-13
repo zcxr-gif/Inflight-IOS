@@ -143,18 +143,29 @@ struct Metar: Equatable {
 
     // MARK: - Presentation
 
-    var temperatureLabel: String {
+    /// The temperature in the unit the user reads in. The degree sign carries
+    /// no letter: the chip is small, and the scale is a setting the reader
+    /// chose rather than something each reading has to restate.
+    func temperatureLabel(in unit: TemperatureUnit) -> String {
         guard let temperatureC = temperatureC else { return "—" }
-        return "\(Int(temperatureC.rounded()))°"
+        return "\(Int(unit.convert(fromCelsius: temperatureC).rounded()))°"
     }
 
-    var windLabel: String {
+    /// Direction, speed, and the gust when there is one — `240° @ 12G20 kt`.
+    ///
+    /// The unit is written out here, unlike the temperature: a bare number
+    /// beside a heading could be any of the three.
+    func windLabel(in unit: WindUnit) -> String {
         guard let speed = windSpeedKnots else { return "Calm" }
         if speed == 0 { return "Calm" }
 
+        func convert(_ knots: Int) -> Int { Int(unit.convert(fromKnots: Double(knots)).rounded()) }
+
         let heading = windDirectionDegrees.map { String(format: "%03d°", $0) } ?? "VRB"
-        guard let gust = windGustKnots else { return "\(heading) @ \(speed) kt" }
-        return "\(heading) @ \(speed)G\(gust) kt"
+        guard let gust = windGustKnots else {
+            return "\(heading) @ \(convert(speed)) \(unit.label)"
+        }
+        return "\(heading) @ \(convert(speed))G\(convert(gust)) \(unit.label)"
     }
 
     var conditionLabel: String {

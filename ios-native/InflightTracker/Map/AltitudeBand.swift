@@ -11,6 +11,21 @@ import UIKit
 /// polylines instead of one per breadcrumb.
 enum AltitudeBand {
 
+    /// Every band, low to high. The map filters offer exactly these, so the
+    /// heights you can filter by and the heights the path is coloured by are
+    /// the same set of numbers.
+    static let all = [0, 1, 2, 3]
+
+    /// How the band reads as a range of feet.
+    static func label(for band: Int) -> String {
+        switch band {
+        case 0: return "Below 10,000"
+        case 1: return "10,000 – 25,000"
+        case 2: return "25,000 – 40,000"
+        default: return "Above 40,000"
+        }
+    }
+
     /// Band index for an altitude, from ground to the flight levels.
     static func band(forFeet feet: Double) -> Int {
         guard feet.isFinite else { return 0 }

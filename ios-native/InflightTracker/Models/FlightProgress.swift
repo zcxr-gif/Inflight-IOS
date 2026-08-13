@@ -2,11 +2,26 @@ import CoreLocation
 import Foundation
 
 /// Flight phase, derived from telemetry since the feed doesn't send one.
-enum FlightPhase: String {
+enum FlightPhase: String, CaseIterable {
     case ground = "GROUND"
     case climb = "CLIMB"
     case cruise = "CRUISE"
     case descent = "DESCENT"
+
+    /// Sentence case, for anywhere the phase is read as a word rather than
+    /// stamped as a label — the map filters list them this way.
+    var label: String { rawValue.capitalized }
+
+    /// A glyph per phase, used where the phases are a set of controls rather
+    /// than a readout of one aircraft's state.
+    var symbol: String {
+        switch self {
+        case .ground: return "airplane.circle"
+        case .climb: return "arrow.up.right.circle"
+        case .cruise: return "airplane"
+        case .descent: return "arrow.down.right.circle"
+        }
+    }
 
     static func from(_ flight: Flight) -> FlightPhase {
         if flight.groundSpeedKnots < 40 && flight.altitudeFeet < 10_000 { return .ground }
