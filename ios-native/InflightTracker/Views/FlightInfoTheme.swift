@@ -161,10 +161,23 @@ struct FlightInfoSurfaceModifier: ViewModifier {
     }
 }
 
+/// Fixed measurements the window and its sheet have to agree on.
+enum FlightInfoLayout {
+
+    /// Height of the peak state.
+    static let peakHeight: CGFloat = 322
+
+    /// How far above the peak height the phases have finished swapping. The
+    /// cross-fade rides the drag rather than the detent, so it wants to be
+    /// done early in the travel — by the time the sheet is a third of the way
+    /// up, the full window should already be the thing you are looking at.
+    static let phaseTravel: CGFloat = 220
+}
+
 extension PresentationDetent {
 
     /// The peak state: the compact bar the info window opens in.
-    static let flightInfoPeak = PresentationDetent.height(322)
+    static let flightInfoPeak = PresentationDetent.height(FlightInfoLayout.peakHeight)
 }
 
 extension View {

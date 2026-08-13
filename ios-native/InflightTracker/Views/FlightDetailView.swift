@@ -4,8 +4,14 @@ import UIKit
 /// The flight info window.
 ///
 /// Two phases, stacked and cross-faded: the peak state (`FlightInfoPeak`) the
-/// sheet opens in, and the full window below. Which one is showing follows the
-/// sheet's detent, so dragging the sheet morphs small info into big info.
+/// sheet opens in, and the full window below.
+///
+/// The swap rides the sheet's measured height rather than its detent. A detent
+/// binding only changes once a drag commits, so the phases used to swap on
+/// their own animation curve while UIKit resized the sheet on another — which
+/// is why collapsing left the big photo sitting there until the drag landed
+/// and then cut. Reading the height instead makes the cross-fade track the
+/// finger, and behave the same in both directions.
 ///
 /// The flight is re-read from the feed by id on every update, so everything
 /// here keeps ticking while the sheet is open.
@@ -16,20 +22,13 @@ struct FlightDetailView: View {
     @StateObject private var photoLoader = AircraftPhotoLoader()
     @StateObject private var imageLoader = RemoteImageLoader()
 
-    /// A phone in landscape presents sheets full height and ignores detents,
-    /// which would strand the peak state in the middle of a full-screen sheet.
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    /// Set when the window has settled back into the peak state, which is when
+    /// the full window's scroll position is rewound.
+    @State private var isCollapsed = true
 
     let flightId: String
 
-    /// Owned by the presenter so the window and the sheet agree on the phase.
-    @Binding var detent: PresentationDetent
-
     private var theme: FlightInfoTheme { appearance.theme }
-
-    private var isPeak: Bool {
-        verticalSizeClass != .compact && detent == .flightInfoPeak
-    }
 
     private var flight: Flight? {
         feed.flights.first { $0.id == flightId }
@@ -37,15 +36,27 @@ struct FlightDetailView: View {
 
     var body: some View {
         GeometryReader { geometry in
+            let expansion = sheetExpansion(for: geometry)
+            let peakOpacity = 1 - ramp(expansion, from: 0.02, to: 0.46)
+            let fullOpacity = ramp(expansion, from: 0.16, to: 0.68)
+            let settled = expansion < 0.04
+
             ZStack(alignment: .top) {
                 if let flight = flight {
                     FlightInfoPeak(flight: flight, image: imageLoader.image, theme: theme)
-                        .opacity(isPeak ? 1 : 0)
-                        .allowsHitTesting(isPeak)
+                        // Both phases travel the same way as the sheet grows —
+                        // one receding as the other arrives, rather than
+                        // crossing past each other.
+                        .offset(y: CGFloat(-14 * expansion))
+                        .scaleEffect(CGFloat(0.985 + 0.015 * peakOpacity), anchor: .top)
+                        .opacity(peakOpacity)
+                        .allowsHitTesting(expansion < 0.3)
 
                     expanded(for: flight, width: geometry.size.width)
-                        .opacity(isPeak ? 0 : 1)
-                        .allowsHitTesting(!isPeak)
+                        .offset(y: CGFloat(14 * (1 - fullOpacity)))
+                        .scaleEffect(CGFloat(0.985 + 0.015 * fullOpacity), anchor: .top)
+                        .opacity(fullOpacity)
+                        .allowsHitTesting(expansion > 0.5)
                 } else {
                     ended
                 }
@@ -55,13 +66,40 @@ struct FlightDetailView: View {
             // widens the whole column and pushes it off both edges.
             .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
             .clipped()
+            // Derived in the layout pass rather than read back off the proxy
+            // afterwards, which is not something a GeometryProxy promises.
+            .onChange(of: settled) { isCollapsed = $0 }
         }
         .modifier(FlightInfoWindowChrome(theme: theme))
-        .animation(.easeInOut(duration: 0.26), value: isPeak)
         .environment(\.colorScheme, .dark)
         .onAppear { load(flight) }
         .onChange(of: flight?.liveryName) { _ in load(flight) }
         .onChange(of: photoLoader.photo?.url) { url in imageLoader.load(url) }
+    }
+
+    // MARK: - Phase
+
+    /// How far the sheet is between the peak state and the full window, 0...1.
+    ///
+    /// The safe-area insets are added back because the sheet's content is laid
+    /// out inside them: without that the peak would measure short of its own
+    /// detent height and the fade would start late.
+    private func sheetExpansion(for geometry: GeometryProxy) -> Double {
+        let height = geometry.size.height
+            + geometry.safeAreaInsets.top
+            + geometry.safeAreaInsets.bottom
+
+        let travelled = (height - FlightInfoLayout.peakHeight) / FlightInfoLayout.phaseTravel
+        return Double(min(max(travelled, 0), 1))
+    }
+
+    /// Smoothstep across a slice of the drag. The two slices overlap, so the
+    /// phases dissolve through each other instead of one snapping off as the
+    /// other snaps on.
+    private func ramp(_ value: Double, from start: Double, to end: Double) -> Double {
+        guard end > start else { return value >= end ? 1 : 0 }
+        let t = min(max((value - start) / (end - start), 0), 1)
+        return t * t * (3 - 2 * t)
     }
 
     private func load(_ flight: Flight?) {
@@ -86,11 +124,27 @@ struct FlightDetailView: View {
     // MARK: - Expanded window
 
     private func expanded(for flight: Flight, width: CGFloat) -> some View {
+        ScrollViewReader { proxy in
+            scrollBody(for: flight, width: width)
+                // Rewound while the full window is invisible, so coming back up
+                // always starts at the photo instead of wherever the last look
+                // was left scrolled to.
+                .onChange(of: isCollapsed) { collapsed in
+                    guard collapsed else { return }
+                    proxy.scrollTo(Self.topAnchor, anchor: .top)
+                }
+        }
+    }
+
+    private static let topAnchor = "flightInfoTop"
+
+    private func scrollBody(for flight: Flight, width: CGFloat) -> some View {
         ScrollView {
             VStack(spacing: 0) {
                 // Full bleed, flush with the top of the sheet: the photo is the
                 // window's header, not a card inside it.
                 hero(for: flight, width: width)
+                    .id(Self.topAnchor)
 
                 VStack(spacing: 10) {
                     situationCard(for: flight)

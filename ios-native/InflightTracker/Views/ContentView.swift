@@ -20,7 +20,7 @@ struct ContentView: View {
                 .padding(.top, 8)
         }
         .sheet(item: $selection) { selected in
-            FlightDetailView(flightId: selected.id, detent: $detent)
+            FlightDetailView(flightId: selected.id)
                 .environmentObject(feed)
                 .presentationDetents([.flightInfoPeak, .large], selection: $detent)
                 .presentationDragIndicator(.visible)
