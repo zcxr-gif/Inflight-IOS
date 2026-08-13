@@ -37,26 +37,70 @@ struct FlightPhaseChip: View {
 
 // MARK: - Route
 
-/// Origin and destination either side of the live progress track.
-struct RouteStrip: View {
+/// The route card, shared by both phases: endpoints, then the progress bar
+/// full width as the divider between them and what has been flown, then the
+/// aircraft it is being flown in.
+struct RouteCard: View {
 
-    let departureIcao: String?
-    let arrivalIcao: String?
-    let fraction: Double
+    let flight: Flight
+    let progress: FlightProgress?
     let theme: FlightInfoTheme
     var icaoSize: CGFloat = 24
-    var trackWidth: CGFloat = 92
+    var inset: CGFloat = 14
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            port(icao: departureIcao, alignment: .leading)
+        VStack(spacing: 11) {
+            HStack(alignment: .top, spacing: 12) {
+                port(icao: flight.departureIcao, alignment: .leading)
+                port(icao: flight.arrivalIcao, alignment: .trailing)
+            }
 
-            RouteTrack(fraction: fraction, theme: theme)
-                .frame(width: trackWidth)
-                .padding(.top, icaoSize * 0.4)
+            // Full width, and doing the divider's job: endpoints above, what
+            // has actually been flown below.
+            RouteTrack(fraction: progress?.fraction ?? 0, theme: theme)
 
-            port(icao: arrivalIcao, alignment: .trailing)
+            if let progress = progress {
+                HStack(spacing: 8) {
+                    MiniStat(
+                        label: "FLOWN",
+                        value: "\(Format.number(progress.flownNM)) NM",
+                        theme: theme
+                    )
+                    MiniStat(
+                        label: "REMAINING",
+                        value: "\(Format.number(progress.remainingNM)) NM",
+                        theme: theme,
+                        alignment: .center
+                    )
+                    MiniStat(
+                        label: "ETE",
+                        value: eteLabel,
+                        theme: theme,
+                        alignment: .trailing
+                    )
+                }
+            }
+
+            Text(aircraftLine)
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(theme.textDim)
+                .flightInfoLine(minimumScale: 0.7)
+                .frame(maxWidth: .infinity)
         }
+        .padding(inset)
+        .flightInfoSurface(theme, radius: theme.radiusMedium)
+    }
+
+    private var aircraftLine: String {
+        let parts = [flight.aircraftName, flight.liveryName].filter { !$0.isEmpty }
+        return parts.isEmpty ? "Unknown aircraft" : parts.joined(separator: " · ")
+    }
+
+    private var eteLabel: String {
+        guard let ete = progress?.estimatedTimeEnroute(groundSpeedKnots: flight.groundSpeedKnots) else {
+            return "—"
+        }
+        return Format.duration(ete)
     }
 
     private func port(icao: String?, alignment: HorizontalAlignment) -> some View {
@@ -81,8 +125,8 @@ struct RouteStrip: View {
                     .flightInfoLine(minimumScale: 0.7)
             }
         }
-        // The track is the fixed part of the row, so the ports share what is
-        // left and a long airport name can only shrink, never widen the card.
+        // Each endpoint takes half the row, so a long airport name can only
+        // shrink, never widen the card.
         .frame(maxWidth: .infinity, alignment: frameAlignment)
     }
 }
@@ -279,6 +323,123 @@ struct PhotoScrim: View {
             startPoint: .top,
             endPoint: .bottom
         )
+    }
+}
+
+// MARK: - Flown path
+
+/// What the flown path looks like from the side.
+///
+/// Built from the same breadcrumbs the map draws — the backend's history plus
+/// live samples — so the window shows the whole climb, cruise and descent
+/// rather than just the current numbers.
+struct AltitudeProfileCard: View {
+
+    let points: [TrackPoint]
+    let theme: FlightInfoTheme
+
+    private var altitudes: [Double] {
+        points.map { $0.altitudeFeet.isFinite ? max($0.altitudeFeet, 0) : 0 }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Text("FLOWN PROFILE")
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(1)
+                    .foregroundStyle(theme.textDim)
+
+                Spacer(minLength: 4)
+
+                Image(systemName: "chart.xyaxis.line")
+                    .font(.system(size: 10))
+                    .foregroundStyle(theme.textDim)
+            }
+
+            profile
+                .frame(height: 62)
+
+            HStack(spacing: 8) {
+                MiniStat(label: "PEAK", value: "\(Format.number(peakAltitude)) ft", theme: theme)
+                MiniStat(
+                    label: "TOP SPEED",
+                    value: "\(Format.number(topSpeed)) kts",
+                    theme: theme,
+                    alignment: .center
+                )
+                MiniStat(
+                    label: "TRACKED",
+                    value: "\(Format.number(trackedNM)) NM",
+                    theme: theme,
+                    alignment: .trailing
+                )
+            }
+        }
+        .padding(14)
+        .flightInfoSurface(theme, radius: theme.radiusMedium)
+    }
+
+    private var profile: some View {
+        GeometryReader { geometry in
+            let size = geometry.size
+            let values = altitudes
+            let ceiling = max(values.max() ?? 1, 1)
+
+            ZStack {
+                shape(in: size, values: values, ceiling: ceiling, closed: true)
+                    .fill(
+                        LinearGradient(
+                            colors: [theme.accent.opacity(0.22), theme.accent.opacity(0.02)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+
+                shape(in: size, values: values, ceiling: ceiling, closed: false)
+                    .stroke(theme.accent.opacity(0.85), style: StrokeStyle(lineWidth: 1.8, lineJoin: .round))
+            }
+        }
+    }
+
+    private func shape(in size: CGSize, values: [Double], ceiling: Double, closed: Bool) -> Path {
+        Path { path in
+            guard values.count >= 2, size.width > 0, size.height > 0 else { return }
+
+            let step = size.width / CGFloat(values.count - 1)
+
+            func point(_ index: Int) -> CGPoint {
+                let normalised = CGFloat(values[index] / ceiling)
+                return CGPoint(
+                    x: CGFloat(index) * step,
+                    // A little headroom so the peak doesn't sit on the edge.
+                    y: size.height - normalised * (size.height - 3) - 1
+                )
+            }
+
+            path.move(to: point(0))
+            for index in 1..<values.count { path.addLine(to: point(index)) }
+
+            guard closed else { return }
+            path.addLine(to: CGPoint(x: size.width, y: size.height))
+            path.addLine(to: CGPoint(x: 0, y: size.height))
+            path.closeSubpath()
+        }
+    }
+
+    private var peakAltitude: Double { altitudes.max() ?? 0 }
+
+    private var topSpeed: Double {
+        points.map { $0.groundSpeedKnots.isFinite ? $0.groundSpeedKnots : 0 }.max() ?? 0
+    }
+
+    /// Length of the path itself, which is longer than the great-circle
+    /// distance whenever the aircraft has been vectored around.
+    private var trackedNM: Double {
+        guard points.count >= 2 else { return 0 }
+        return zip(points, points.dropFirst()).reduce(0) { total, pair in
+            total + FlightProgress.distanceNM(from: pair.0.coordinate, to: pair.1.coordinate)
+        }
     }
 }
 

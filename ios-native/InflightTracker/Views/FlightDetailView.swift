@@ -26,6 +26,11 @@ struct FlightDetailView: View {
     /// the full window's scroll position is rewound.
     @State private var isCollapsed = true
 
+    /// The path this flight has flown — the backend's history once it lands,
+    /// extended by live samples. Held here so the profile redraws when it
+    /// arrives.
+    @State private var track: [TrackPoint] = []
+
     let flightId: String
 
     /// Reported upward so the sheet's peak detent is exactly as tall as the
@@ -99,9 +104,17 @@ struct FlightDetailView: View {
         }
         .modifier(FlightInfoWindowChrome(theme: theme))
         .environment(\.colorScheme, .dark)
-        .onAppear { load(flight) }
+        .onAppear {
+            load(flight)
+            loadTrack()
+        }
         .onChange(of: flight?.liveryName) { _ in load(flight) }
         .onChange(of: photoLoader.photo?.url) { url in imageLoader.load(url) }
+        // Live samples extend the path between packets.
+        .onChange(of: feed.lastUpdate) { _ in
+            let latest = FlightTrailStore.shared.points(for: flightId)
+            if latest.count != track.count { track = latest }
+        }
     }
 
     // MARK: - Phase
@@ -133,6 +146,18 @@ struct FlightDetailView: View {
         guard let flight = flight else { return }
         photoLoader.load(type: flight.aircraftName, livery: flight.liveryName)
         imageLoader.load(photoLoader.photo?.url)
+    }
+
+    /// Pulls the flown path the backend already has for this flight, which
+    /// covers it from departure rather than from whenever the app happened to
+    /// start watching.
+    private func loadTrack() {
+        track = FlightTrailStore.shared.points(for: flightId)
+
+        FlightHistoryService.shared.load(flightId: flightId) { history in
+            FlightTrailStore.shared.seed(history, for: flightId)
+            track = FlightTrailStore.shared.points(for: flightId)
+        }
     }
 
     private var ended: some View {
@@ -177,6 +202,10 @@ struct FlightDetailView: View {
                     identity(for: flight)
                     situationCard(for: flight)
                     telemetry(for: flight)
+
+                    if track.count >= 4 {
+                        AltitudeProfileCard(points: track, theme: theme)
+                    }
                 }
                 .padding(.horizontal, 14)
                 // Negative, so the identity block rides the seam where the
@@ -271,7 +300,8 @@ struct FlightDetailView: View {
                         .flightInfoLine()
                 }
 
-                Text(aircraftLine(for: flight))
+                // Aircraft and livery sit at the foot of the route card now.
+                Text(operatorLine(for: flight))
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .flightInfoLine()
@@ -294,9 +324,13 @@ struct FlightDetailView: View {
         .padding(.horizontal, 2)
     }
 
-    private func aircraftLine(for flight: Flight) -> String {
-        let parts = [flight.aircraftName, flight.liveryName].filter { !$0.isEmpty }
-        return parts.isEmpty ? "Unknown aircraft" : parts.joined(separator: " · ")
+    /// Where the flight is in its day, rather than what it is being flown in —
+    /// that moved to the route card's footer.
+    private func operatorLine(for flight: Flight) -> String {
+        let phase = FlightPhase.from(flight)
+        let altitude = "\(Format.number(flight.altitudeFeet)) ft"
+        let speed = "\(Format.number(flight.groundSpeedKnots)) kts"
+        return "\(phase.rawValue.capitalized) · \(altitude) · \(speed)"
     }
 
     private func registration(for flight: Flight) -> String {
@@ -313,40 +347,7 @@ struct FlightDetailView: View {
     private func situationCard(for flight: Flight) -> some View {
         switch FlightSituation.from(flight) {
         case .enroute(let progress):
-            VStack(spacing: 12) {
-                RouteStrip(
-                    departureIcao: flight.departureIcao,
-                    arrivalIcao: flight.arrivalIcao,
-                    fraction: progress?.fraction ?? 0,
-                    theme: theme
-                )
-
-                if let progress = progress {
-                    hairline
-
-                    HStack(spacing: 8) {
-                        MiniStat(
-                            label: "FLOWN",
-                            value: "\(Format.number(progress.flownNM)) NM",
-                            theme: theme
-                        )
-                        MiniStat(
-                            label: "REMAINING",
-                            value: "\(Format.number(progress.remainingNM)) NM",
-                            theme: theme,
-                            alignment: .center
-                        )
-                        MiniStat(
-                            label: "ETE",
-                            value: eteLabel(for: flight, progress: progress),
-                            theme: theme,
-                            alignment: .trailing
-                        )
-                    }
-                }
-            }
-            .padding(14)
-            .flightInfoSurface(theme, radius: theme.radiusMedium)
+            RouteCard(flight: flight, progress: progress, theme: theme)
 
         case .grounded(let airport, let isTaxiing):
             PlaceCard(
@@ -392,13 +393,6 @@ struct FlightDetailView: View {
         Rectangle()
             .fill(theme.stroke)
             .frame(height: 1)
-    }
-
-    private func eteLabel(for flight: Flight, progress: FlightProgress) -> String {
-        guard let ete = progress.estimatedTimeEnroute(groundSpeedKnots: flight.groundSpeedKnots) else {
-            return "—"
-        }
-        return Format.duration(ete)
     }
 
     // MARK: - Telemetry

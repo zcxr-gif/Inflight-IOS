@@ -67,8 +67,10 @@ struct FlightInfoPeak: View {
                         .flightInfoLine()
                 }
 
-                Text(aircraftLine)
-                    .font(.system(size: 10.5, weight: .medium))
+                // The aircraft and its livery live at the foot of the route
+                // card now, which is where the empty space was.
+                Text(registration.isEmpty ? " " : registration)
+                    .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
                     .foregroundStyle(theme.textDim)
                     .flightInfoLine()
             }
@@ -90,9 +92,8 @@ struct FlightInfoPeak: View {
         }
     }
 
-    private var aircraftLine: String {
-        let parts = [flight.aircraftName, flight.liveryName].filter { !$0.isEmpty }
-        return parts.isEmpty ? "Tap for details" : parts.joined(separator: " · ")
+    private var registration: String {
+        flight.registration ?? ""
     }
 
     // MARK: - Route / where it is
@@ -103,42 +104,7 @@ struct FlightInfoPeak: View {
     private var situationCard: some View {
         switch FlightSituation.from(flight) {
         case .enroute(let progress):
-            VStack(spacing: 11) {
-                RouteStrip(
-                    departureIcao: flight.departureIcao,
-                    arrivalIcao: flight.arrivalIcao,
-                    fraction: progress?.fraction ?? 0,
-                    theme: theme,
-                    icaoSize: 22,
-                    trackWidth: 84
-                )
-
-                if let progress = progress {
-                    hairline
-
-                    HStack(spacing: 8) {
-                        MiniStat(
-                            label: "FLOWN",
-                            value: "\(Format.number(progress.flownNM)) NM",
-                            theme: theme
-                        )
-                        MiniStat(
-                            label: "REMAINING",
-                            value: "\(Format.number(progress.remainingNM)) NM",
-                            theme: theme,
-                            alignment: .center
-                        )
-                        MiniStat(
-                            label: "ETE",
-                            value: eteLabel(progress),
-                            theme: theme,
-                            alignment: .trailing
-                        )
-                    }
-                }
-            }
-            .padding(13)
-            .flightInfoSurface(theme, radius: theme.radiusMedium)
+            RouteCard(flight: flight, progress: progress, theme: theme, icaoSize: 22, inset: 13)
 
         case .grounded(let airport, let isTaxiing):
             PlaceCard(
@@ -182,12 +148,5 @@ struct FlightInfoPeak: View {
         Rectangle()
             .fill(theme.stroke)
             .frame(height: 1)
-    }
-
-    private func eteLabel(_ progress: FlightProgress) -> String {
-        guard let ete = progress.estimatedTimeEnroute(groundSpeedKnots: flight.groundSpeedKnots) else {
-            return "—"
-        }
-        return Format.duration(ete)
     }
 }

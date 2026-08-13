@@ -79,14 +79,37 @@ struct ContentView: View {
     @ViewBuilder
     private var mapControls: some View {
         if selection != nil {
-            VStack(spacing: 10) {
-                mapButton("scope", "Centre on aircraft") {
+            // One grouped control rather than free-floating circles: it reads
+            // as part of the window's chrome instead of two loose buttons.
+            VStack(spacing: 0) {
+                mapButton("location.fill", "Centre on aircraft") {
                     mapCommand = MapCommand(kind: .centerOnFlight)
                 }
-                mapButton("arrow.up.left.and.arrow.down.right", "Show whole route") {
+
+                Rectangle()
+                    .fill(appearance.theme.stroke)
+                    .frame(height: 1)
+
+                mapButton("arrow.down.left.and.arrow.up.right", "Show whole route") {
                     mapCommand = MapCommand(kind: .fitRoute)
                 }
             }
+            .frame(width: 44)
+            .background {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(Color.black.opacity(0.16))
+                    }
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(appearance.theme.stroke, lineWidth: 1)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .shadow(color: .black.opacity(0.25), radius: 10, y: 4)
+            .environment(\.colorScheme, .dark)
             .padding(.trailing, 16)
             .padding(.bottom, peakHeight + 14)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
@@ -101,14 +124,12 @@ struct ContentView: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 15, weight: .semibold))
-                .frame(width: 44, height: 44)
-                .background(.thinMaterial, in: Circle())
-                .overlay {
-                    Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
-                }
-                .shadow(color: .black.opacity(0.22), radius: 8, y: 3)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(appearance.theme.textPrimary)
+                .frame(width: 44, height: 42)
+                .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         .accessibilityLabel(label)
     }
 

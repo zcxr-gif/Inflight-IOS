@@ -13,6 +13,16 @@ enum AppConfig {
     /// REST backend behind the community aircraft photos.
     static let apiBaseURLString = "https://site--indgo-backend--6dmjph8ltlhv.code.run"
 
+    /// Breadcrumb history for one flight — the path it has already flown.
+    /// Same endpoint the Capacitor build fetches (`old/www/flight.js`, where
+    /// `LIVE_FLIGHTS_API_URL` has `/flights` swapped for `/api/flights`).
+    static func flightHistoryURL(flightId: String) -> URL? {
+        guard let encoded = flightId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
+            return nil
+        }
+        return URL(string: "\(socketURLString)/api/flights/\(encoded)/history")
+    }
+
     /// Rooms the backend broadcasts on, joined via `join_server_room`.
     static let servers = ["Expert Server", "Training Server", "Casual Server"]
 

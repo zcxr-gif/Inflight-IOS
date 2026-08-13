@@ -203,7 +203,7 @@ struct TrackerMapView: UIViewRepresentable {
                 return
             }
 
-            let trail = FlightTrailStore.shared.trail(for: flight.id)
+            let trail = FlightTrailStore.shared.points(for: flight.id)
             let key = [
                 flight.id,
                 String(trail.count),
@@ -221,21 +221,26 @@ struct TrackerMapView: UIViewRepresentable {
 
             var flown = trail
             // The aircraft's live position is the head of its own track.
-            if flown.last.map({ FlightProgress.distanceNM(from: $0, to: flight.coordinate) > 0.1 }) ?? true {
-                flown.append(flight.coordinate)
+            let livePoint = TrackPoint(
+                coordinate: flight.coordinate,
+                altitudeFeet: flight.altitudeFeet,
+                groundSpeedKnots: flight.groundSpeedKnots,
+                date: Date()
+            )
+            if flown.last.map({ FlightProgress.distanceNM(from: $0.coordinate, to: flight.coordinate) > 0.1 }) ?? true {
+                flown.append(livePoint)
             }
 
-            if flown.count >= 2 {
-                let line = MKGeodesicPolyline(coordinates: flown, count: flown.count)
-                line.title = Self.flownTitle
-                routeOverlays.append(line)
-            }
+            // Split into runs of constant altitude band so the track is
+            // coloured by height the way the web tracker draws it, without one
+            // overlay per sample.
+            routeOverlays.append(contentsOf: Self.altitudeSegments(of: flown))
 
-            // Before we were watching: departure to the first point we saw.
+            // Before we were watching: departure to the first point we have.
             if let departure = AirportStore.shared.airport(flight.departureIcao),
                let first = flown.first,
-               FlightProgress.distanceNM(from: departure.coordinate, to: first) > 1 {
-                routeOverlays.append(dashed(from: departure.coordinate, to: first))
+               FlightProgress.distanceNM(from: departure.coordinate, to: first.coordinate) > 1 {
+                routeOverlays.append(dashed(from: departure.coordinate, to: first.coordinate))
             }
 
             // Still to come.
@@ -252,6 +257,41 @@ struct TrackerMapView: UIViewRepresentable {
             let line = MKGeodesicPolyline(coordinates: [from, to], count: 2)
             line.title = Self.plannedTitle
             return line
+        }
+
+        /// One polyline per run of samples sharing an altitude band. A real
+        /// flight climbs and descends through them once each, so this is a
+        /// handful of overlays rather than one per point.
+        private static func altitudeSegments(of points: [TrackPoint]) -> [MKPolyline] {
+            guard points.count >= 2 else { return [] }
+
+            var lines: [MKPolyline] = []
+            var run: [CLLocationCoordinate2D] = [points[0].coordinate]
+            var band = AltitudeBand.band(forFeet: points[0].altitudeFeet)
+
+            for point in points.dropFirst() {
+                let next = AltitudeBand.band(forFeet: point.altitudeFeet)
+                run.append(point.coordinate)
+
+                if next != band {
+                    if run.count >= 2 {
+                        let line = MKGeodesicPolyline(coordinates: run, count: run.count)
+                        line.title = "\(Self.flownTitle):\(band)"
+                        lines.append(line)
+                    }
+                    // The shared point keeps the runs joined.
+                    run = [point.coordinate]
+                    band = next
+                }
+            }
+
+            if run.count >= 2 {
+                let line = MKGeodesicPolyline(coordinates: run, count: run.count)
+                line.title = "\(Self.flownTitle):\(band)"
+                lines.append(line)
+            }
+
+            return lines
         }
 
         private func clearRoute(on mapView: MKMapView) {
@@ -309,7 +349,7 @@ struct TrackerMapView: UIViewRepresentable {
             }
 
             include(flight.coordinate)
-            for point in FlightTrailStore.shared.trail(for: flight.id) { include(point) }
+            for point in FlightTrailStore.shared.points(for: flight.id) { include(point.coordinate) }
             if let departure = AirportStore.shared.airport(flight.departureIcao) {
                 include(departure.coordinate)
             }
@@ -343,8 +383,12 @@ struct TrackerMapView: UIViewRepresentable {
                 renderer.lineWidth = 2
                 renderer.lineDashPattern = [2, 7]
             } else {
-                renderer.strokeColor = UIColor.white.withAlphaComponent(0.92)
-                renderer.lineWidth = 3
+                let band = line.title.flatMap { title -> Int? in
+                    guard let raw = title.split(separator: ":").last else { return nil }
+                    return Int(String(raw))
+                }
+                renderer.strokeColor = AltitudeBand.color(for: band ?? 0)
+                renderer.lineWidth = 3.5
             }
 
             return renderer

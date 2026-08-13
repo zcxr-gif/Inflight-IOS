@@ -1,31 +1,35 @@
 import CoreLocation
 import Foundation
 
-/// Where each aircraft has actually been seen, so the map can draw the path a
-/// flight has flown rather than a straight line between its endpoints.
+/// The path each aircraft has flown.
 ///
-/// The feed has no history — it broadcasts current positions only — so a trail
-/// starts the moment the app first sees that aircraft. Nothing here is
-/// fabricated: the part of the route that happened before then is drawn as a
-/// dashed assumption, not as flown track.
+/// Two sources feed this. The backend's `/api/flights/<id>/history` breadcrumb
+/// trail is the authoritative one and covers the flight from departure — it is
+/// fetched when a window opens and seeded here. The live feed then keeps
+/// extending whatever is stored, so an open window's path stays current, and
+/// aircraft nobody has opened still accumulate a path from the moment the app
+/// first saw them.
 ///
 /// Points are thinned by distance, and a trail that fills up is halved and its
-/// spacing doubled instead of dropping its oldest points, so a long-haul still
-/// keeps a complete (if coarser) path rather than a recent fragment.
+/// spacing doubled instead of dropping its oldest points, so a long-haul keeps
+/// a complete if coarser path rather than a recent fragment.
 final class FlightTrailStore {
 
     static let shared = FlightTrailStore()
 
     private struct Trail {
-        var points: [CLLocationCoordinate2D]
+        var points: [TrackPoint]
         var spacingNM: Double
+        /// Set once the backend's history has been merged in, so live samples
+        /// never get thinned away back to a fragment.
+        var isSeeded: Bool
     }
 
     private let lock = NSLock()
     private var trails: [String: Trail] = [:]
 
     private let initialSpacingNM: Double = 2
-    private let maximumPoints = 100
+    private let maximumPoints = 260
 
     private init() {}
 
@@ -39,17 +43,24 @@ final class FlightTrailStore {
         for flight in flights {
             live.insert(flight.id)
 
+            let sample = TrackPoint(
+                coordinate: flight.coordinate,
+                altitudeFeet: flight.altitudeFeet,
+                groundSpeedKnots: flight.groundSpeedKnots,
+                date: Date()
+            )
+
             guard var trail = trails[flight.id] else {
-                trails[flight.id] = Trail(points: [flight.coordinate], spacingNM: initialSpacingNM)
+                trails[flight.id] = Trail(points: [sample], spacingNM: initialSpacingNM, isSeeded: false)
                 continue
             }
 
             if let last = trail.points.last {
-                let moved = FlightProgress.distanceNM(from: last, to: flight.coordinate)
+                let moved = FlightProgress.distanceNM(from: last.coordinate, to: sample.coordinate)
                 guard moved >= trail.spacingNM else { continue }
             }
 
-            trail.points.append(flight.coordinate)
+            trail.points.append(sample)
 
             if trail.points.count > maximumPoints {
                 // Halve the resolution rather than forget where it came from.
@@ -67,7 +78,36 @@ final class FlightTrailStore {
         }
     }
 
-    func trail(for flightId: String) -> [CLLocationCoordinate2D] {
+    /// Replaces a locally-observed fragment with the backend's full history.
+    /// Anything recorded after the last history point is kept on the end, so a
+    /// path fetched mid-flight doesn't rewind.
+    func seed(_ history: [TrackPoint], for flightId: String) {
+        guard !history.isEmpty else { return }
+
+        lock.lock()
+        defer { lock.unlock() }
+
+        var merged = history
+
+        if let existing = trails[flightId]?.points, let cutoff = history.last?.date {
+            let newer = existing.filter { point in
+                guard let date = point.date else { return false }
+                return date > cutoff
+            }
+            merged.append(contentsOf: newer)
+        }
+
+        let spacing = max(initialSpacingNM, Double(merged.count) / Double(maximumPoints) * initialSpacingNM)
+        trails[flightId] = Trail(points: merged, spacingNM: spacing, isSeeded: true)
+    }
+
+    func hasHistory(for flightId: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return trails[flightId]?.isSeeded ?? false
+    }
+
+    func points(for flightId: String) -> [TrackPoint] {
         lock.lock()
         defer { lock.unlock() }
         return trails[flightId]?.points ?? []
