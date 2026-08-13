@@ -239,16 +239,42 @@ struct AircraftPhotoImage: View {
     }
 }
 
-/// Bottom-up gradient that carries text over a photo.
+/// Dissolves the bottom of the hero photo into whatever the window is sitting
+/// on.
+///
+/// Used as a mask rather than as a black gradient painted on top: a black fade
+/// leaves a dark band that belongs to neither the photo nor the window, while
+/// fading the photo's own alpha lets the sheet's blur (or the carbon ground)
+/// come through and the two blend into each other.
+struct PhotoFadeMask: View {
+
+    var body: some View {
+        LinearGradient(
+            stops: [
+                .init(color: .black, location: 0),
+                .init(color: .black, location: 0.58),
+                .init(color: .black.opacity(0.55), location: 0.82),
+                .init(color: .black.opacity(0.12), location: 0.95),
+                .init(color: .clear, location: 1)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+}
+
+/// Just enough shading under the identity block to keep white text off a
+/// bright sky. Fades out again at the very bottom so it can't reintroduce the
+/// band the mask is there to avoid.
 struct PhotoScrim: View {
 
     var body: some View {
         LinearGradient(
             stops: [
                 .init(color: .clear, location: 0),
-                .init(color: .black.opacity(0.30), location: 0.32),
-                .init(color: .black.opacity(0.74), location: 0.66),
-                .init(color: .black.opacity(0.93), location: 1)
+                .init(color: .black.opacity(0.10), location: 0.45),
+                .init(color: .black.opacity(0.30), location: 0.78),
+                .init(color: .black.opacity(0.10), location: 1)
             ],
             startPoint: .top,
             endPoint: .bottom

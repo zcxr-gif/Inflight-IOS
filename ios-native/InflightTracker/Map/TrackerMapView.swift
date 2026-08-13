@@ -1,5 +1,6 @@
 import MapKit
 import SwiftUI
+import UIKit
 
 /// The live map. A thin SwiftUI wrapper over `MKMapView` — MapKit gives us a
 /// fully native map with no API key, tile budget, or web view involved.
@@ -7,6 +8,14 @@ struct TrackerMapView: UIViewRepresentable {
 
     let flights: [Flight]
     @Binding var selection: SelectedFlight?
+
+    /// One-shot camera moves from the buttons beside the info window. Carries a
+    /// token so the same request isn't replayed on every feed tick.
+    var command: MapCommand?
+
+    /// How much of the bottom of the map the info window is covering, so a
+    /// framed route isn't hidden behind it.
+    var bottomInset: CGFloat = 0
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -42,6 +51,8 @@ struct TrackerMapView: UIViewRepresentable {
         context.coordinator.parent = self
         context.coordinator.sync(flights: flights, on: mapView)
         context.coordinator.syncSelection(selection, on: mapView)
+        context.coordinator.syncRoute(on: mapView)
+        context.coordinator.handle(command, on: mapView)
     }
 
     // MARK: - Coordinator
@@ -60,6 +71,13 @@ struct TrackerMapView: UIViewRepresentable {
 
         /// Debounced viewport re-cull, cancelled if the map keeps moving.
         private var pendingCull: DispatchWorkItem?
+
+        /// What the drawn route currently represents, so overlays are only
+        /// rebuilt when the trail actually grows.
+        private var renderedRouteKey: String?
+        private var routeOverlays: [MKPolyline] = []
+
+        private var handledCommand: UUID?
 
         init(_ parent: TrackerMapView) {
             self.parent = parent
@@ -169,7 +187,168 @@ struct TrackerMapView: UIViewRepresentable {
             }
         }
 
+        // MARK: Route overlays
+
+        private func selectedFlight() -> Flight? {
+            guard let id = parent.selection?.id else { return nil }
+            return parent.flights.first { $0.id == id }
+        }
+
+        /// Draws the selected aircraft's path: the track we have actually
+        /// watched it fly, plus dashed legs for the parts we can only infer —
+        /// what happened before the app first saw it, and what is still ahead.
+        func syncRoute(on mapView: MKMapView) {
+            guard let flight = selectedFlight() else {
+                clearRoute(on: mapView)
+                return
+            }
+
+            let trail = FlightTrailStore.shared.trail(for: flight.id)
+            let key = [
+                flight.id,
+                String(trail.count),
+                flight.departureIcao ?? "",
+                flight.arrivalIcao ?? ""
+            ].joined(separator: "|")
+
+            guard key != renderedRouteKey else { return }
+            renderedRouteKey = key
+
+            if !routeOverlays.isEmpty {
+                mapView.removeOverlays(routeOverlays)
+                routeOverlays.removeAll(keepingCapacity: true)
+            }
+
+            var flown = trail
+            // The aircraft's live position is the head of its own track.
+            if flown.last.map({ FlightProgress.distanceNM(from: $0, to: flight.coordinate) > 0.1 }) ?? true {
+                flown.append(flight.coordinate)
+            }
+
+            if flown.count >= 2 {
+                let line = MKGeodesicPolyline(coordinates: flown, count: flown.count)
+                line.title = Self.flownTitle
+                routeOverlays.append(line)
+            }
+
+            // Before we were watching: departure to the first point we saw.
+            if let departure = AirportStore.shared.airport(flight.departureIcao),
+               let first = flown.first,
+               FlightProgress.distanceNM(from: departure.coordinate, to: first) > 1 {
+                routeOverlays.append(dashed(from: departure.coordinate, to: first))
+            }
+
+            // Still to come.
+            if let arrival = AirportStore.shared.airport(flight.arrivalIcao) {
+                routeOverlays.append(dashed(from: flight.coordinate, to: arrival.coordinate))
+            }
+
+            if !routeOverlays.isEmpty {
+                mapView.addOverlays(routeOverlays, level: .aboveRoads)
+            }
+        }
+
+        private func dashed(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) -> MKPolyline {
+            let line = MKGeodesicPolyline(coordinates: [from, to], count: 2)
+            line.title = Self.plannedTitle
+            return line
+        }
+
+        private func clearRoute(on mapView: MKMapView) {
+            guard !routeOverlays.isEmpty else {
+                renderedRouteKey = nil
+                return
+            }
+            mapView.removeOverlays(routeOverlays)
+            routeOverlays.removeAll(keepingCapacity: true)
+            renderedRouteKey = nil
+        }
+
+        static let flownTitle = "flown"
+        static let plannedTitle = "planned"
+
+        // MARK: Camera
+
+        func handle(_ command: MapCommand?, on mapView: MKMapView) {
+            guard let command = command, command.id != handledCommand else { return }
+            handledCommand = command.id
+
+            switch command.kind {
+            case .centerOnFlight: center(on: mapView)
+            case .fitRoute: fitRoute(on: mapView)
+            }
+        }
+
+        /// Keeps the current zoom and puts the aircraft in the part of the map
+        /// the info window isn't covering.
+        private func center(on mapView: MKMapView) {
+            guard let flight = selectedFlight() else { return }
+
+            let visible = mapView.visibleMapRect
+            let point = MKMapPoint(flight.coordinate)
+            let rect = MKMapRect(
+                x: point.x - visible.width / 2,
+                y: point.y - visible.height / 2,
+                width: visible.width,
+                height: visible.height
+            )
+
+            mapView.setVisibleMapRect(rect, edgePadding: edgeInsets(), animated: true)
+        }
+
+        /// Frames everything the route touches: the flown track, both
+        /// endpoints, and where the aircraft is now.
+        private func fitRoute(on mapView: MKMapView) {
+            guard let flight = selectedFlight() else { return }
+
+            var rect = MKMapRect.null
+
+            func include(_ coordinate: CLLocationCoordinate2D) {
+                let point = MKMapPoint(coordinate)
+                rect = rect.union(MKMapRect(x: point.x, y: point.y, width: 0.01, height: 0.01))
+            }
+
+            include(flight.coordinate)
+            for point in FlightTrailStore.shared.trail(for: flight.id) { include(point) }
+            if let departure = AirportStore.shared.airport(flight.departureIcao) {
+                include(departure.coordinate)
+            }
+            if let arrival = AirportStore.shared.airport(flight.arrivalIcao) {
+                include(arrival.coordinate)
+            }
+
+            guard !rect.isNull, rect.width.isFinite, rect.height.isFinite else { return }
+
+            mapView.setVisibleMapRect(rect, edgePadding: edgeInsets(), animated: true)
+        }
+
+        private func edgeInsets() -> UIEdgeInsets {
+            UIEdgeInsets(top: 96, left: 44, bottom: parent.bottomInset + 28, right: 44)
+        }
+
         // MARK: MKMapViewDelegate
+
+        func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
+            guard let line = overlay as? MKPolyline else {
+                return MKOverlayRenderer(overlay: overlay)
+            }
+
+            let renderer = MKPolylineRenderer(polyline: line)
+            renderer.lineCap = .round
+            renderer.lineJoin = .round
+
+            if line.title == Self.plannedTitle {
+                // Inferred, so it reads as an assumption rather than as track.
+                renderer.strokeColor = UIColor.white.withAlphaComponent(0.34)
+                renderer.lineWidth = 2
+                renderer.lineDashPattern = [2, 7]
+            } else {
+                renderer.strokeColor = UIColor.white.withAlphaComponent(0.92)
+                renderer.lineWidth = 3
+            }
+
+            return renderer
+        }
 
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
             guard let flightAnnotation = annotation as? FlightAnnotation else { return nil }
@@ -234,4 +413,18 @@ struct TrackerMapView: UIViewRepresentable {
 /// the sheet itself always reads the newest data for that id.
 struct SelectedFlight: Identifiable, Equatable {
     let id: String
+}
+
+/// A one-shot camera move. The token is what makes it one-shot: SwiftUI hands
+/// the same value to `updateUIView` on every feed tick, so the map replays
+/// nothing it has already carried out.
+struct MapCommand: Equatable {
+
+    enum Kind {
+        case centerOnFlight
+        case fitRoute
+    }
+
+    let kind: Kind
+    let id = UUID()
 }

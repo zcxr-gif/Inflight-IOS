@@ -146,12 +146,16 @@ struct FlightDetailView: View {
                 hero(for: flight, width: width)
                     .id(Self.topAnchor)
 
-                VStack(spacing: 10) {
+                VStack(spacing: 12) {
+                    identity(for: flight)
                     situationCard(for: flight)
                     telemetry(for: flight)
                 }
                 .padding(.horizontal, 14)
-                .padding(.top, 12)
+                // Negative, so the identity block rides the seam where the
+                // photo dissolves into the window instead of sitting inside
+                // one or the other.
+                .padding(.top, -Self.identityLift)
                 .padding(.bottom, 26)
                 // iPad and landscape keep a phone-width column rather than
                 // stretching the cards across the sheet.
@@ -177,9 +181,15 @@ struct FlightDetailView: View {
         )
         .frame(width: width, height: heroHeight(for: width))
         .overlay { PhotoScrim() }
+        // The photo's own alpha is faded out at the bottom, so it melts into
+        // the window's ground rather than ending on a black band.
+        .mask { PhotoFadeMask() }
         .overlay(alignment: .topTrailing) { credit }
-        .overlay(alignment: .bottom) { identity(for: flight) }
     }
+
+    /// How far the identity block is pulled up into the photo. Roughly half
+    /// its own height, which centres it on the seam.
+    private static let identityLift: CGFloat = 30
 
     /// The hero takes the photo's own shape where it can, so a fitted photo
     /// fills the header edge to edge instead of sitting between blurred bars.
@@ -252,8 +262,9 @@ struct FlightDetailView: View {
                     .fixedSize()
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 14)
+        // Sits in the content column now, so it carries no padding of its own
+        // beyond a little breathing room against the card below it.
+        .padding(.horizontal, 2)
     }
 
     private func aircraftLine(for flight: Flight) -> String {

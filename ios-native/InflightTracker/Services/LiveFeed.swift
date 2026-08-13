@@ -160,6 +160,10 @@ final class LiveFeed: ObservableObject {
             if let flight = Flight(payload: entry) { parsed.append(flight) }
         }
 
+        // Still on the decode queue: the trail store is what lets the map draw
+        // where a flight has been, and it only ever sees what we receive.
+        FlightTrailStore.shared.record(parsed)
+
         publish { feed in
             feed.flights = parsed
             feed.lastUpdate = Date()

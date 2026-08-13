@@ -10,15 +10,26 @@ struct ContentView: View {
     /// peak state each time a different aircraft is tapped.
     @State private var detent: PresentationDetent = .flightInfoPeak
 
+    /// Latest camera request from the buttons beside the info window.
+    @State private var mapCommand: MapCommand?
+
     var body: some View {
         ZStack(alignment: .top) {
-            TrackerMapView(flights: feed.flights, selection: $selection)
-                .ignoresSafeArea()
+            TrackerMapView(
+                flights: feed.flights,
+                selection: $selection,
+                command: mapCommand,
+                bottomInset: selection == nil ? 0 : FlightInfoLayout.peakHeight
+            )
+            .ignoresSafeArea()
 
             statusBar
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
+
+            mapControls
         }
+        .animation(.easeInOut(duration: 0.22), value: selection?.id)
         .sheet(item: $selection) { selected in
             FlightDetailView(flightId: selected.id)
                 .environmentObject(feed)
@@ -28,6 +39,44 @@ struct ContentView: View {
         }
         .onChange(of: selection?.id) { _ in detent = .flightInfoPeak }
         .onAppear { feed.connect() }
+    }
+
+    /// Sits above the peak state while an aircraft is open. At the full window
+    /// the sheet covers this corner anyway, so there is nothing to hide.
+    @ViewBuilder
+    private var mapControls: some View {
+        if selection != nil {
+            VStack(spacing: 10) {
+                mapButton("scope", "Centre on aircraft") {
+                    mapCommand = MapCommand(kind: .centerOnFlight)
+                }
+                mapButton("arrow.up.left.and.arrow.down.right", "Show whole route") {
+                    mapCommand = MapCommand(kind: .fitRoute)
+                }
+            }
+            .padding(.trailing, 16)
+            .padding(.bottom, FlightInfoLayout.peakHeight + 14)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+            .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))
+        }
+    }
+
+    private func mapButton(
+        _ symbol: String,
+        _ label: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 15, weight: .semibold))
+                .frame(width: 44, height: 44)
+                .background(.thinMaterial, in: Circle())
+                .overlay {
+                    Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+                }
+                .shadow(color: .black.opacity(0.22), radius: 8, y: 3)
+        }
+        .accessibilityLabel(label)
     }
 
     private var statusBar: some View {
