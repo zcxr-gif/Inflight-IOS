@@ -25,27 +25,30 @@ final class FlightInfoAppearance: ObservableObject {
     }
 }
 
-/// Design tokens for the flight info window.
-///
-/// Carried over from the web tracker's "Carbon & Titanium" theme: a monochrome
-/// dark palette whose only accent is white. Flight phase is spelled out rather
-/// than colour-coded, so the window never competes with the map underneath.
+/// Design tokens for the flight info window: a monochrome carbon palette whose
+/// only accent is white, so the window never competes with the map underneath.
 ///
 /// Adding a look means adding another `static let` here — nothing downstream
 /// branches on which theme is in use.
 struct FlightInfoTheme {
 
-    /// Blur behind the window and its surfaces. `nil` is the opaque fallback,
+    /// Blur used for the sheet's own background. `nil` is the opaque fallback,
     /// which is what glass-off resolves to.
     let material: Material?
 
-    /// Painted over `material` (or on its own when opaque) as the sheet ground.
+    /// Opaque sheet ground, used when glass is off and on iOS versions with no
+    /// `presentationBackground`.
     let windowFill: Color
 
-    /// Cards inside the window: route, progress, telemetry cells.
+    /// Darkens the blur just enough to keep white text legible over snow,
+    /// desert and daylight ocean. Deliberately light — heavier tints turn the
+    /// window into a black slab.
+    let scrim: Color
+
+    /// Cards inside the window: route, telemetry cells.
     let surfaceFill: Color
 
-    /// One step brighter, for cards that sit on top of another surface.
+    /// One step brighter, for chips that sit on top of a photo or a card.
     let elevatedFill: Color
 
     let stroke: Color
@@ -64,22 +67,26 @@ struct FlightInfoTheme {
     /// Unfilled part of a progress track.
     let trackFill: Color
 
-    let radiusSmall: CGFloat = 10
-    let radiusMedium: CGFloat = 14
-    let radiusLarge: CGFloat = 20
+    let radiusSmall: CGFloat = 12
+    let radiusMedium: CGFloat = 16
+    let radiusLarge: CGFloat = 22
 
     /// Phase accent. Deliberately the neutral accent for both shipping themes —
     /// a theme that wants per-phase colour changes this one method.
     func phaseAccent(for phase: FlightPhase) -> Color { accent }
 
-    /// Sheet ground: the blur, plus the carbon tint that keeps text legible
-    /// over bright terrain.
+    /// The sheet's own background.
+    ///
+    /// This has to be the *sheet's* background rather than a layer inside the
+    /// content: a material only blurs what sits behind it in the same render
+    /// tree, so a material drawn inside a sheet whose background was cleared
+    /// has nothing to sample and renders as a near-black slab.
     @ViewBuilder
-    var windowBackground: some View {
+    var sheetBackground: some View {
         if let material = material {
             Rectangle()
-                .fill(windowFill)
-                .background(material)
+                .fill(material)
+                .overlay { Rectangle().fill(scrim) }
         } else {
             Rectangle().fill(windowFill)
         }
@@ -87,39 +94,40 @@ struct FlightInfoTheme {
 
     static let glass = FlightInfoTheme(
         material: .ultraThinMaterial,
-        windowFill: Color(red: 0.09, green: 0.09, blue: 0.11).opacity(0.55),
-        surfaceFill: Color.white.opacity(0.07),
-        elevatedFill: Color.white.opacity(0.11),
+        windowFill: Color(red: 0.09, green: 0.09, blue: 0.11),
+        scrim: Color.black.opacity(0.16),
+        surfaceFill: Color.white.opacity(0.08),
+        elevatedFill: Color.white.opacity(0.14),
         stroke: Color.white.opacity(0.10),
         strokeStrong: Color.white.opacity(0.16),
         textPrimary: Color(white: 0.98),
-        textSecondary: Color(white: 0.66),
-        textDim: Color(white: 0.42),
+        textSecondary: Color(white: 0.70),
+        textDim: Color(white: 0.48),
         accent: .white,
         onAccent: Color(red: 0.09, green: 0.09, blue: 0.11),
-        trackFill: Color.white.opacity(0.14)
+        trackFill: Color.white.opacity(0.16)
     )
 
     static let solid = FlightInfoTheme(
         material: nil,
         windowFill: Color(red: 0.09, green: 0.09, blue: 0.11),
-        surfaceFill: Color(white: 0.16),
-        elevatedFill: Color(white: 0.20),
+        scrim: .clear,
+        surfaceFill: Color(white: 0.15),
+        elevatedFill: Color(white: 0.21),
         stroke: Color.white.opacity(0.08),
         strokeStrong: Color.white.opacity(0.13),
         textPrimary: Color(white: 0.98),
-        textSecondary: Color(white: 0.66),
-        textDim: Color(white: 0.42),
+        textSecondary: Color(white: 0.70),
+        textDim: Color(white: 0.48),
         accent: .white,
         onAccent: Color(red: 0.09, green: 0.09, blue: 0.11),
-        trackFill: Color.white.opacity(0.12)
+        trackFill: Color.white.opacity(0.14)
     )
 }
 
 extension View {
 
-    /// Card background for the flight info window: the theme's blur where glass
-    /// is on, a flat fill where it isn't, hairline stroke either way.
+    /// Card background for the flight info window.
     func flightInfoSurface(
         _ theme: FlightInfoTheme,
         radius: CGFloat,
@@ -139,16 +147,12 @@ struct FlightInfoSurfaceModifier: ViewModifier {
         RoundedRectangle(cornerRadius: radius, style: .continuous)
     }
 
-    private var fill: Color {
-        elevated ? theme.elevatedFill : theme.surfaceFill
-    }
-
     func body(content: Content) -> some View {
         content
             .background {
-                // The window already blurs the map; surfaces only need their
-                // tint on top of it, which keeps the stack cheap to composite.
-                shape.fill(fill)
+                // The sheet already blurs the map; cards only need their tint
+                // on top of it, which keeps the layer stack cheap.
+                shape.fill(elevated ? theme.elevatedFill : theme.surfaceFill)
             }
             .overlay {
                 shape.strokeBorder(elevated ? theme.strokeStrong : theme.stroke, lineWidth: 1)
@@ -159,7 +163,6 @@ struct FlightInfoSurfaceModifier: ViewModifier {
 
 extension PresentationDetent {
 
-    /// The peak state: the compact bar the info window opens in, sized so the
-    /// identity row and the route card are fully on screen and nothing else is.
-    static let flightInfoPeak = PresentationDetent.height(300)
+    /// The peak state: the compact bar the info window opens in.
+    static let flightInfoPeak = PresentationDetent.height(286)
 }

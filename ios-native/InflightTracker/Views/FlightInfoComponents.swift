@@ -10,24 +10,27 @@ struct FlightPhaseChip: View {
 
     let phase: FlightPhase
     let theme: FlightInfoTheme
-    var compact: Bool = false
+    var elevated: Bool = false
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 5) {
             Circle()
                 .fill(theme.phaseAccent(for: phase))
                 .frame(width: 5, height: 5)
 
             Text(phase.rawValue)
-                .font(.system(size: compact ? 9 : 10, weight: .bold))
-                .tracking(0.8)
-                .foregroundStyle(theme.textSecondary)
+                .font(.system(size: 9, weight: .bold))
+                .tracking(0.7)
+                .foregroundStyle(theme.textPrimary)
                 .lineLimit(1)
                 .fixedSize()
         }
-        .padding(.horizontal, compact ? 8 : 11)
-        .padding(.vertical, compact ? 4 : 6)
-        .flightInfoSurface(theme, radius: 99)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .flightInfoSurface(theme, radius: 99, elevated: elevated)
+        // Never allowed to shrink: it sits next to a callsign that may be long,
+        // and the callsign is the piece that gives way.
+        .fixedSize()
     }
 }
 
@@ -40,7 +43,7 @@ struct RouteTrack: View {
 
     let fraction: Double
     let theme: FlightInfoTheme
-    var planeSize: CGFloat = 12
+    var planeSize: CGFloat = 11
 
     var body: some View {
         GeometryReader { geometry in
@@ -50,20 +53,19 @@ struct RouteTrack: View {
             ZStack(alignment: .leading) {
                 Capsule()
                     .fill(theme.trackFill)
-                    .frame(height: 4)
+                    .frame(height: 3)
 
                 Capsule()
                     .fill(theme.accent)
-                    .frame(width: max(0, width * clamped), height: 4)
+                    .frame(width: max(0, width * clamped), height: 3)
 
                 Circle()
                     .fill(theme.accent)
-                    .frame(width: 7, height: 7)
-                    .offset(x: -1)
+                    .frame(width: 6, height: 6)
 
                 Circle()
-                    .strokeBorder(theme.trackFill, lineWidth: 2)
-                    .frame(width: 7, height: 7)
+                    .strokeBorder(theme.trackFill, lineWidth: 1.5)
+                    .frame(width: 6, height: 6)
                     .offset(x: max(0, width - 6))
 
                 Image(systemName: "airplane")
@@ -74,20 +76,21 @@ struct RouteTrack: View {
             }
             .frame(height: geometry.size.height, alignment: .center)
         }
-        .frame(height: max(14, planeSize + 4))
+        .frame(height: planeSize + 3)
     }
 }
 
 // MARK: - Aircraft photo
 
-/// Community aircraft photo with the sprite placeholder underneath, so the
-/// frame is never empty while the request is in flight.
+/// Community aircraft photo, scaled to fill its frame, with the sprite
+/// placeholder underneath so the frame is never empty while the request is in
+/// flight.
 struct AircraftPhotoImage: View {
 
     let photo: AircraftPhoto?
     let spriteKey: String
     let theme: FlightInfoTheme
-    var iconSize: CGFloat = 54
+    var iconSize: CGFloat = 44
 
     var body: some View {
         ZStack {
@@ -99,31 +102,76 @@ struct AircraftPhotoImage: View {
                     case .success(let image):
                         image
                             .resizable()
-                            .aspectRatio(contentMode: .fill)
+                            .scaledToFill()
                     default:
                         Color.clear
                     }
                 }
             }
         }
-        // Fill first, then clip: without this the image lays itself out at its
-        // intrinsic size and pushes the whole column wider than the sheet.
+        // Fill the frame, then clip: a resizable image reports its own
+        // intrinsic size, which would otherwise widen everything around it.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
+        .contentShape(Rectangle())
     }
 
     private var placeholder: some View {
         ZStack {
-            Rectangle().fill(theme.elevatedFill)
+            Rectangle().fill(theme.surfaceFill)
 
             if let icon = PlaneSprites.shared.icon(forKey: spriteKey, selected: false) {
                 Image(uiImage: icon)
                     .resizable()
                     .frame(width: iconSize, height: iconSize)
                     .rotationEffect(.degrees(90))
-                    .opacity(0.5)
+                    .opacity(0.45)
             }
         }
+    }
+}
+
+/// Bottom-up gradient that carries text over a photo.
+struct PhotoScrim: View {
+
+    var body: some View {
+        LinearGradient(
+            stops: [
+                .init(color: .clear, location: 0),
+                .init(color: .black.opacity(0.30), location: 0.32),
+                .init(color: .black.opacity(0.74), location: 0.66),
+                .init(color: .black.opacity(0.93), location: 1)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+}
+
+// MARK: - Small readouts
+
+/// Label-over-value readout used for the route's flown / remaining / ETE row.
+struct MiniStat: View {
+
+    let label: String
+    let value: String
+    let theme: FlightInfoTheme
+    var alignment: HorizontalAlignment = .leading
+
+    var body: some View {
+        VStack(alignment: alignment, spacing: 3) {
+            Text(label)
+                .font(.system(size: 8.5, weight: .bold))
+                .tracking(0.6)
+                .foregroundStyle(theme.textDim)
+                .flightInfoLine(minimumScale: 0.8)
+
+            Text(value)
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .foregroundStyle(theme.textPrimary)
+                .flightInfoLine(minimumScale: 0.6)
+        }
+        .frame(maxWidth: .infinity, alignment: Alignment(horizontal: alignment, vertical: .center))
     }
 }
 

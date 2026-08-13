@@ -2,10 +2,9 @@ import SwiftUI
 
 /// The flight info window.
 ///
-/// Two phases, stacked and cross-faded exactly like the Capacitor build's
-/// window: the peak state (`FlightInfoPeak`) that the sheet opens in, and the
-/// full window below. Which one is showing follows the sheet's detent, so
-/// dragging the sheet morphs small info into big info.
+/// Two phases, stacked and cross-faded: the peak state (`FlightInfoPeak`) the
+/// sheet opens in, and the full window below. Which one is showing follows the
+/// sheet's detent, so dragging the sheet morphs small info into big info.
 ///
 /// The flight is re-read from the feed by id on every update, so everything
 /// here keeps ticking while the sheet is open.
@@ -42,7 +41,7 @@ struct FlightDetailView: View {
                         .opacity(isPeak ? 1 : 0)
                         .allowsHitTesting(isPeak)
 
-                    expanded(for: flight)
+                    expanded(for: flight, width: geometry.size.width)
                         .opacity(isPeak ? 0 : 1)
                         .allowsHitTesting(!isPeak)
                 } else {
@@ -55,13 +54,9 @@ struct FlightDetailView: View {
             .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
             .clipped()
         }
-        // Applied outside the reader so the ground covers the home-indicator
-        // inset too — with the system sheet background cleared, anything it
-        // misses shows the map through the bottom of the window.
-        .background { theme.windowBackground.ignoresSafeArea() }
-        .environment(\.colorScheme, .dark)
-        .animation(.easeInOut(duration: 0.28), value: isPeak)
         .modifier(FlightInfoWindowChrome(theme: theme))
+        .animation(.easeInOut(duration: 0.26), value: isPeak)
+        .environment(\.colorScheme, .dark)
         .onAppear { load(flight) }
         .onChange(of: flight?.liveryName) { _ in load(flight) }
     }
@@ -72,140 +67,127 @@ struct FlightDetailView: View {
     }
 
     private var ended: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             Text("Flight ended")
-                .font(.system(size: 17, weight: .bold, design: .rounded))
+                .font(.system(size: 16, weight: .bold, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
             Text("This aircraft is no longer reporting.")
-                .font(.system(size: 13))
+                .font(.system(size: 12))
                 .foregroundStyle(theme.textSecondary)
         }
         .frame(maxWidth: .infinity)
-        .padding(.top, 70)
+        .padding(.top, 64)
     }
 
     // MARK: - Expanded window
 
-    private func expanded(for flight: Flight) -> some View {
-        VStack(spacing: 0) {
-            header(for: flight)
+    private func expanded(for flight: Flight, width: CGFloat) -> some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                // Full bleed, flush with the top of the sheet: the photo is the
+                // window's header, not a card inside it.
+                hero(for: flight, width: width)
 
-            ScrollView {
-                VStack(spacing: 12) {
-                    hero(for: flight)
+                VStack(spacing: 10) {
                     routeCard(for: flight)
                     telemetry(for: flight)
                 }
                 .padding(.horizontal, 14)
-                .padding(.bottom, 28)
-                // iPad and landscape keep the phone-width column rather than
+                .padding(.top, 12)
+                .padding(.bottom, 26)
+                // iPad and landscape keep a phone-width column rather than
                 // stretching the cards across the sheet.
                 .frame(maxWidth: 560)
                 .frame(maxWidth: .infinity)
             }
-            .scrollIndicators(.hidden)
+        }
+        .scrollIndicators(.hidden)
+    }
+
+    // MARK: - Hero
+
+    private func hero(for flight: Flight, width: CGFloat) -> some View {
+        // Tied to the sheet's width so the photo fills the top on every device
+        // without ever taking the whole peak-to-large travel.
+        let height = min(max(width * 0.58, 200), 270)
+
+        return AircraftPhotoImage(
+            photo: photoLoader.photo,
+            spriteKey: flight.spriteKey,
+            theme: theme,
+            iconSize: 64
+        )
+        .frame(width: width, height: height)
+        .overlay { PhotoScrim() }
+        .overlay(alignment: .topTrailing) { credit }
+        .overlay(alignment: .bottom) { identity(for: flight) }
+    }
+
+    @ViewBuilder
+    private var credit: some View {
+        if let contributor = photoLoader.photo?.contributor {
+            Text("© \(contributor)")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(theme.textPrimary)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .flightInfoSurface(theme, radius: 6, elevated: true)
+                .flightInfoLine(minimumScale: 0.8)
+                // Clear of the drag indicator, which floats over the photo.
+                .frame(maxWidth: 150, alignment: .trailing)
+                .padding(.top, 12)
+                .padding(.trailing, 12)
         }
     }
 
-    // MARK: - Header
+    private func identity(for flight: Flight) -> some View {
+        HStack(alignment: .bottom, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Text(flight.displayName)
+                        .font(.system(size: 21, weight: .heavy, design: .rounded))
+                        .foregroundStyle(theme.textPrimary)
+                        .flightInfoLine(minimumScale: 0.6)
 
-    private func header(for flight: Flight) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text(flight.displayName)
-                    .font(.system(size: 28, weight: .heavy, design: .rounded))
-                    .tracking(-1)
-                    .foregroundStyle(theme.textPrimary)
-                    .flightInfoLine(minimumScale: 0.6)
+                    FlightPhaseChip(phase: FlightPhase.from(flight), theme: theme, elevated: true)
+                }
 
-                HStack(spacing: 6) {
+                HStack(spacing: 5) {
                     Image(systemName: "person.fill")
-                        .font(.system(size: 10))
+                        .font(.system(size: 9))
                         .foregroundStyle(theme.textDim)
 
-                    Text((flight.username ?? "Pilot").uppercased())
+                    Text(flight.username ?? "Pilot")
                         .font(.system(size: 11, weight: .semibold))
-                        .tracking(0.4)
                         .foregroundStyle(theme.textSecondary)
                         .flightInfoLine()
                 }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
 
-            FlightPhaseChip(phase: FlightPhase.from(flight), theme: theme)
-        }
-        .padding(.horizontal, 18)
-        .padding(.top, 22)
-        .padding(.bottom, 12)
-    }
-
-    // MARK: - Hero photo
-
-    private func hero(for flight: Flight) -> some View {
-        AircraftPhotoImage(photo: photoLoader.photo, spriteKey: flight.spriteKey, theme: theme)
-            // A fixed height rather than an aspect ratio: inside a ScrollView
-            // the proposed height is unspecified, and a ratio resolved against
-            // that collapses the frame.
-            .frame(height: 190)
-            .frame(maxWidth: .infinity)
-            .overlay(alignment: .topLeading) {
-                if let contributor = photoLoader.photo?.contributor {
-                    Text("© \(contributor)".uppercased())
-                        .font(.system(size: 9, weight: .semibold))
-                        .tracking(0.4)
-                        .foregroundStyle(theme.textPrimary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .flightInfoSurface(theme, radius: 6, elevated: true)
-                        .padding(10)
-                }
-            }
-            .overlay(alignment: .bottom) { heroCaption(for: flight) }
-            .clipShape(RoundedRectangle(cornerRadius: theme.radiusMedium, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: theme.radiusMedium, style: .continuous)
-                    .strokeBorder(theme.stroke, lineWidth: 1)
-            }
-    }
-
-    private func heroCaption(for flight: Flight) -> some View {
-        HStack(alignment: .bottom, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(flight.aircraftName.isEmpty ? "Unknown type" : flight.aircraftName)
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(theme.textPrimary)
+                Text(aircraftLine(for: flight))
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(theme.textDim)
                     .flightInfoLine()
-
-                if !flight.liveryName.isEmpty {
-                    Text(flight.liveryName)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(theme.textSecondary)
-                        .flightInfoLine()
-                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
             let tail = registration(for: flight)
             if !tail.isEmpty {
                 Text(tail)
-                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     .foregroundStyle(theme.textPrimary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .flightInfoSurface(theme, radius: 8, elevated: true)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .flightInfoSurface(theme, radius: 7, elevated: true)
                     .fixedSize()
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.top, 40)
-        .padding(.bottom, 12)
-        .background {
-            LinearGradient(
-                colors: [.clear, .black.opacity(0.55), .black.opacity(0.85)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 14)
+    }
+
+    private func aircraftLine(for flight: Flight) -> String {
+        let parts = [flight.aircraftName, flight.liveryName].filter { !$0.isEmpty }
+        return parts.isEmpty ? "Unknown aircraft" : parts.joined(separator: " · ")
     }
 
     private func registration(for flight: Flight) -> String {
@@ -222,85 +204,91 @@ struct FlightDetailView: View {
         let hasRoute = flight.departureIcao?.isEmpty == false || flight.arrivalIcao?.isEmpty == false
 
         if hasRoute {
-            VStack(spacing: 16) {
+            VStack(spacing: 12) {
                 HStack(alignment: .top, spacing: 10) {
-                    endpoint(icao: flight.departureIcao, alignment: .leading)
+                    port(icao: flight.departureIcao, alignment: .leading)
 
-                    Image(systemName: "airplane")
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(theme.onAccent)
-                        .frame(width: 44, height: 44)
-                        .background(Circle().fill(theme.accent))
-                        .padding(.top, 4)
+                    RouteTrack(fraction: progress?.fraction ?? 0, theme: theme)
+                        // A fixed middle: the ports take what is left, so a long
+                        // airport name can only shrink, never widen the card.
+                        .frame(width: 92)
+                        .padding(.top, 9)
 
-                    endpoint(icao: flight.arrivalIcao, alignment: .trailing)
+                    port(icao: flight.arrivalIcao, alignment: .trailing)
                 }
 
                 if let progress = progress {
-                    VStack(spacing: 10) {
-                        RouteTrack(fraction: progress.fraction, theme: theme, planeSize: 13)
+                    Rectangle()
+                        .fill(theme.stroke)
+                        .frame(height: 1)
 
-                        HStack(spacing: 10) {
-                            Text("\(Format.number(progress.flownNM)) NM")
-                            Spacer(minLength: 8)
-                            Text(remainingLabel(for: flight, progress: progress))
-                        }
-                        .font(.system(size: 12, weight: .medium, design: .monospaced))
-                        .foregroundStyle(theme.textSecondary)
-                        .flightInfoLine(minimumScale: 0.8)
+                    HStack(spacing: 8) {
+                        MiniStat(
+                            label: "FLOWN",
+                            value: "\(Format.number(progress.flownNM)) NM",
+                            theme: theme
+                        )
+                        MiniStat(
+                            label: "REMAINING",
+                            value: "\(Format.number(progress.remainingNM)) NM",
+                            theme: theme,
+                            alignment: .center
+                        )
+                        MiniStat(
+                            label: "ETE",
+                            value: eteLabel(for: flight, progress: progress),
+                            theme: theme,
+                            alignment: .trailing
+                        )
                     }
                 }
             }
-            .padding(16)
+            .padding(14)
             .flightInfoSurface(theme, radius: theme.radiusMedium)
         }
     }
 
-    private func endpoint(icao: String?, alignment: HorizontalAlignment) -> some View {
+    private func port(icao: String?, alignment: HorizontalAlignment) -> some View {
         let code = (icao ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let airport = AirportStore.shared.airport(icao)
+        let frameAlignment: Alignment = alignment == .leading ? .leading : .trailing
 
-        return VStack(alignment: alignment, spacing: 6) {
+        return VStack(alignment: alignment, spacing: 4) {
             Text(code.isEmpty ? "———" : code)
-                .font(.system(size: 40, weight: .heavy, design: .rounded))
-                .tracking(-1.5)
+                .font(.system(size: 24, weight: .heavy, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
-                .flightInfoLine(minimumScale: 0.5)
+                .flightInfoLine(minimumScale: 0.6)
 
             HStack(spacing: 4) {
                 if let flag = airport?.flag, !flag.isEmpty {
-                    Text(flag).font(.system(size: 11))
+                    Text(flag).font(.system(size: 10))
                 }
                 Text((airport?.name ?? "Unknown").uppercased())
-                    .font(.system(size: 10, weight: .semibold))
-                    .tracking(0.5)
+                    .font(.system(size: 9, weight: .semibold))
+                    .tracking(0.4)
                     .foregroundStyle(theme.textDim)
-                    .flightInfoLine(minimumScale: 0.8)
+                    .flightInfoLine(minimumScale: 0.7)
             }
         }
-        .frame(maxWidth: .infinity, alignment: alignment == .leading ? .leading : .trailing)
+        .frame(maxWidth: .infinity, alignment: frameAlignment)
     }
 
-    private func remainingLabel(for flight: Flight, progress: FlightProgress) -> String {
-        let distance = "\(Format.number(progress.remainingNM)) NM"
+    private func eteLabel(for flight: Flight, progress: FlightProgress) -> String {
         guard let ete = progress.estimatedTimeEnroute(groundSpeedKnots: flight.groundSpeedKnots) else {
-            return distance
+            return "—"
         }
-        return "\(distance) · ETE \(Format.duration(ete))"
+        return Format.duration(ete)
     }
 
     // MARK: - Telemetry
 
     private func telemetry(for flight: Flight) -> some View {
-        let progress = FlightProgress(flight: flight)
-
-        return VStack(alignment: .leading, spacing: 8) {
-            Text("LIVE TELEMETRY")
-                .font(.system(size: 10, weight: .bold))
+        VStack(alignment: .leading, spacing: 8) {
+            Text("TELEMETRY")
+                .font(.system(size: 9, weight: .bold))
                 .tracking(1)
                 .foregroundStyle(theme.textDim)
-                .padding(.leading, 4)
-                .padding(.top, 4)
+                .padding(.leading, 2)
 
             LazyVGrid(
                 columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 2),
@@ -310,49 +298,48 @@ struct FlightDetailView: View {
                 metric("GND SPEED", "speedometer", Format.number(flight.groundSpeedKnots), "kts")
                 metric("VERTICAL", "arrow.up.arrow.down", Format.signed(flight.verticalSpeedFPM), "fpm")
                 metric("HEADING", "safari", Format.heading(flight.heading), "°")
-
-                if let progress = progress {
-                    metric("DISTANCE", "map", Format.number(progress.totalNM), "NM")
-                    metric("REMAINING", "hourglass", Format.percent(1 - progress.fraction), "%")
-                }
             }
         }
+        .padding(.top, 2)
     }
 
     private func metric(_ title: String, _ symbol: String, _ value: String, _ unit: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 6) {
                 Text(title)
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: 9, weight: .bold))
                     .tracking(0.5)
                     .foregroundStyle(theme.textSecondary)
                     .flightInfoLine(minimumScale: 0.8)
-                Spacer(minLength: 4)
+
+                Spacer(minLength: 2)
+
                 Image(systemName: symbol)
-                    .font(.system(size: 11))
+                    .font(.system(size: 10))
                     .foregroundStyle(theme.textDim)
             }
 
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 3) {
                 Text(value)
-                    .font(.system(size: 24, weight: .semibold, design: .monospaced))
-                    .tracking(-1)
+                    .font(.system(size: 17, weight: .semibold, design: .monospaced))
                     .foregroundStyle(theme.textPrimary)
-                    .flightInfoLine(minimumScale: 0.5)
+                    .flightInfoLine(minimumScale: 0.6)
+
                 Text(unit)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(theme.textDim)
+                    .fixedSize()
             }
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .flightInfoSurface(theme, radius: theme.radiusSmall)
     }
 }
 
-/// Sheet chrome that only exists from iOS 16.4. Clearing the system background
-/// is what lets the window's own blur sample the map behind it — without it the
-/// glass look flattens into plain grey.
+/// Sheet chrome. The blur has to be the *sheet's* background rather than a
+/// layer inside the content — a material inside a sheet whose background was
+/// cleared has nothing behind it to sample and renders as a black slab.
 private struct FlightInfoWindowChrome: ViewModifier {
 
     let theme: FlightInfoTheme
@@ -360,10 +347,13 @@ private struct FlightInfoWindowChrome: ViewModifier {
     func body(content: Content) -> some View {
         if #available(iOS 16.4, *) {
             content
-                .presentationBackground(.clear)
-                .presentationCornerRadius(theme.radiusLarge + 8)
+                .presentationBackground { theme.sheetBackground }
+                .presentationCornerRadius(theme.radiusLarge + 6)
         } else {
-            content
+            // No sheet-background API here, so paint the opaque ground inside
+            // the window instead of leaving it to system chrome that may not
+            // match the window's white-on-carbon text.
+            content.background { theme.windowFill.ignoresSafeArea() }
         }
     }
 }
@@ -415,12 +405,6 @@ enum Format {
         var degrees = Int(value.rounded()) % 360
         if degrees < 0 { degrees += 360 }
         return String(format: "%03d", degrees)
-    }
-
-    /// A 0...1 fraction as whole percent.
-    static func percent(_ value: Double) -> String {
-        guard value.isFinite else { return "—" }
-        return String(Int((min(max(value, 0), 1) * 100).rounded()))
     }
 
     /// Hours and minutes, as `04:14`.
