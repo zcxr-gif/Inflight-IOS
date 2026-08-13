@@ -75,13 +75,19 @@ struct ControlHubPanel: View {
                     }
                 }
 
-                section("APPEARANCE") {
-                    Toggle(isOn: $appearance.isGlassEnabled) {
-                        rowLabel("Glass flight info", symbol: "square.on.square.dashed")
+                section("FLIGHT WINDOW") {
+                    VStack(spacing: 0) {
+                        Toggle(isOn: $appearance.isGlassEnabled) {
+                            rowLabel("Glass flight info", symbol: "square.on.square.dashed")
+                        }
+                        .tint(theme.accent)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 11)
+
+                        Rectangle().fill(theme.stroke).frame(height: 1)
+
+                        peakStylePicker
                     }
-                    .tint(theme.accent)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 11)
                 }
 
                 section("COMING NEXT") {
@@ -129,6 +135,27 @@ struct ControlHubPanel: View {
             }
             .buttonStyle(.plain)
         }
+    }
+
+    /// How much the window shows before it is opened. The peak measures itself,
+    /// so switching this resizes the sheet even while it is on screen.
+    private var peakStylePicker: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            rowLabel("Peek", symbol: "rectangle.portrait.bottomhalf.filled")
+
+            Picker("Peek", selection: $appearance.peakStyle) {
+                ForEach(FlightInfoPeakStyle.allCases) { style in
+                    Text(style.label).tag(style)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            Text(appearance.peakStyle.detail)
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(theme.textDim)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
     }
 
     private var feedSummary: String {

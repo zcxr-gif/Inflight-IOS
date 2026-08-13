@@ -12,16 +12,53 @@ final class FlightInfoAppearance: ObservableObject {
     static let shared = FlightInfoAppearance()
 
     private static let glassKey = "flightInfoGlassEnabled"
+    private static let peakStyleKey = "flightInfoPeakStyle"
 
     @Published var isGlassEnabled: Bool {
         didSet { UserDefaults.standard.set(isGlassEnabled, forKey: Self.glassKey) }
     }
 
+    @Published var peakStyle: FlightInfoPeakStyle {
+        didSet { UserDefaults.standard.set(peakStyle.rawValue, forKey: Self.peakStyleKey) }
+    }
+
     var theme: FlightInfoTheme { isGlassEnabled ? .glass : .solid }
 
     private init() {
+        let defaults = UserDefaults.standard
+
         // No stored value means the user has never chosen, which is glass on.
-        isGlassEnabled = UserDefaults.standard.object(forKey: Self.glassKey) as? Bool ?? true
+        isGlassEnabled = defaults.object(forKey: Self.glassKey) as? Bool ?? true
+        peakStyle = FlightInfoPeakStyle(rawValue: defaults.string(forKey: Self.peakStyleKey) ?? "")
+            ?? .compact
+    }
+}
+
+/// How much the info window shows before it is opened.
+enum FlightInfoPeakStyle: String, CaseIterable, Identifiable {
+
+    /// A bar: identity beside a thumbnail, then the route.
+    case compact
+
+    /// The full window's header — the photo at the size it will keep, with
+    /// identity and route under it — so opening the window grows what is
+    /// already there rather than replacing it.
+    case rich
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .compact: return "Compact"
+        case .rich: return "Photo"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .compact: return "A bar with a thumbnail"
+        case .rich: return "Opens on the aircraft photo"
+        }
     }
 }
 
@@ -196,7 +233,15 @@ enum FlightInfoLayout {
     /// Bounds on that measurement, so a bad layout pass can't produce an
     /// unusable sheet.
     static let minimumPeakHeight: CGFloat = 220
-    static let maximumPeakHeight: CGFloat = 460
+
+    /// Generous enough for the photo peak, which is the full window's header
+    /// plus its route card.
+    static let maximumPeakHeight: CGFloat = 560
+
+    /// How far the identity block is pulled up into the photo above it, so it
+    /// rides the seam where the two meet. Shared, so the peak and the full
+    /// window put it in exactly the same place.
+    static let heroSeamLift: CGFloat = 30
 
     /// Space under the peak state's last card. The window draws into the
     /// bottom safe area, so this is the whole gap rather than the home

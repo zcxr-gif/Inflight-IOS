@@ -10,7 +10,11 @@ struct FlightInfoPeak: View {
 
     let flight: Flight
     let image: UIImage?
+    let contributor: String?
+    let registration: String
     let theme: FlightInfoTheme
+    let style: FlightInfoPeakStyle
+    let width: CGFloat
 
     /// Width of the photo. Its height follows the photo's own aspect ratio, so
     /// a square shot and a wide airliner shot both sit in the row properly
@@ -29,15 +33,47 @@ struct FlightInfoPeak: View {
         return min(max(thumbnailWidth * ratio, 76), 96)
     }
 
+    @ViewBuilder
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            identityRow
-            situationCard
+        switch style {
+        case .compact:
+            VStack(alignment: .leading, spacing: 12) {
+                identityRow
+                situationCard
+            }
+            // Clears the drag indicator, which floats over the top of the sheet.
+            .padding(.top, 20)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 14)
+
+        case .rich:
+            rich
         }
-        // Clears the drag indicator, which floats over the top of the sheet.
-        .padding(.top, 20)
-        .padding(.horizontal, 16)
-        .padding(.bottom, 14)
+    }
+
+    /// The full window's header, stopping after the route.
+    ///
+    /// Everything here is the same component at the same size the full window
+    /// uses, so dragging up grows the window around what is already on screen
+    /// rather than swapping it for a different layout.
+    private var rich: some View {
+        VStack(spacing: 0) {
+            FlightHero(
+                image: image,
+                spriteKey: flight.spriteKey,
+                contributor: contributor,
+                theme: theme,
+                width: width
+            )
+
+            VStack(spacing: 12) {
+                FlightIdentityBlock(flight: flight, registration: registration, theme: theme)
+                situationCard
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, -FlightInfoLayout.heroSeamLift)
+            .padding(.bottom, 14)
+        }
     }
 
     // MARK: - Identity
@@ -92,11 +128,14 @@ struct FlightInfoPeak: View {
         }
     }
 
-    private var registration: String {
-        flight.registration ?? ""
-    }
-
     // MARK: - Route / where it is
+
+    /// The photo peak shares the full window's card metrics so the two dissolve
+    /// into each other without anything shifting; the compact bar runs a little
+    /// tighter.
+    private var icaoSize: CGFloat { style == .rich ? 24 : 22 }
+    private var cardInset: CGFloat { style == .rich ? 14 : 13 }
+
 
     /// Same rule as the full window: a filed destination gets the route strip,
     /// otherwise the card says where the aircraft is sitting.
@@ -104,16 +143,17 @@ struct FlightInfoPeak: View {
     private var situationCard: some View {
         switch FlightSituation.from(flight) {
         case .enroute(let progress):
-            RouteCard(flight: flight, progress: progress, theme: theme, icaoSize: 22, inset: 13)
+            RouteCard(flight: flight, progress: progress, theme: theme, icaoSize: icaoSize, inset: cardInset)
 
         case .grounded(let airport, let isTaxiing):
             PlaceCard(
                 kicker: isTaxiing ? "TAXIING AT" : "PARKED AT",
                 symbol: isTaxiing ? "airplane" : "parkingsign",
                 airport: airport,
-                theme: theme
+                theme: theme,
+                icaoSize: icaoSize
             )
-            .padding(13)
+            .padding(cardInset)
             .flightInfoSurface(theme, radius: theme.radiusMedium)
 
         case .unplanned(let departure, let nearest):
@@ -122,7 +162,8 @@ struct FlightInfoPeak: View {
                     kicker: nearest == nil ? "IN THE AIR" : "PASSING",
                     symbol: "airplane",
                     airport: nearest,
-                    theme: theme
+                    theme: theme,
+                    icaoSize: icaoSize
                 )
 
                 if departure != nil {
@@ -139,7 +180,7 @@ struct FlightInfoPeak: View {
                     }
                 }
             }
-            .padding(13)
+            .padding(cardInset)
             .flightInfoSurface(theme, radius: theme.radiusMedium)
         }
     }

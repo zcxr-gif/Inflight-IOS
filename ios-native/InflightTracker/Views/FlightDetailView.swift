@@ -53,7 +53,15 @@ struct FlightDetailView: View {
 
             ZStack(alignment: .top) {
                 if let flight = flight {
-                    FlightInfoPeak(flight: flight, image: imageLoader.image, theme: theme)
+                    FlightInfoPeak(
+                        flight: flight,
+                        image: imageLoader.image,
+                        contributor: photoLoader.photo?.contributor,
+                        registration: registration(for: flight),
+                        theme: theme,
+                        style: appearance.peakStyle,
+                        width: geometry.size.width
+                    )
                         .background {
                             GeometryReader { peak in
                                 Color.clear.preference(
@@ -203,11 +211,21 @@ struct FlightDetailView: View {
             VStack(spacing: 0) {
                 // Full bleed, flush with the top of the sheet: the photo is the
                 // window's header, not a card inside it.
-                hero(for: flight, width: width)
-                    .id(Self.topAnchor)
+                FlightHero(
+                    image: imageLoader.image,
+                    spriteKey: flight.spriteKey,
+                    contributor: photoLoader.photo?.contributor,
+                    theme: theme,
+                    width: width
+                )
+                .id(Self.topAnchor)
 
                 VStack(spacing: 12) {
-                    identity(for: flight)
+                    FlightIdentityBlock(
+                        flight: flight,
+                        registration: registration(for: flight),
+                        theme: theme
+                    )
                     situationCard(for: flight)
                     telemetry(for: flight)
 
@@ -219,7 +237,7 @@ struct FlightDetailView: View {
                 // Negative, so the identity block rides the seam where the
                 // photo dissolves into the window instead of sitting inside
                 // one or the other.
-                .padding(.top, -Self.identityLift)
+                .padding(.top, -FlightInfoLayout.heroSeamLift)
                 // Clears the home indicator, which the window now draws under.
                 .padding(.bottom, 40)
                 // iPad and landscape keep a phone-width column rather than
@@ -229,117 +247,6 @@ struct FlightDetailView: View {
             }
         }
         .scrollIndicators(.hidden)
-    }
-
-    // MARK: - Hero
-
-    private func hero(for flight: Flight, width: CGFloat) -> some View {
-        AircraftPhotoImage(
-            image: imageLoader.image,
-            spriteKey: flight.spriteKey,
-            theme: theme,
-            iconSize: 64,
-            // Airliner photos are wide; filling this frame would cut the nose
-            // and tail off, so the whole airframe is fitted onto a blurred
-            // copy of itself instead.
-            contentMode: .fit
-        )
-        .frame(width: width, height: heroHeight(for: width))
-        .overlay { PhotoScrim() }
-        // The photo's own alpha is faded out at the bottom, so it melts into
-        // the window's ground rather than ending on a black band.
-        .mask { PhotoFadeMask() }
-        .overlay(alignment: .topTrailing) { credit }
-    }
-
-    /// How far the identity block is pulled up into the photo. Roughly half
-    /// its own height, which centres it on the seam.
-    private static let identityLift: CGFloat = 30
-
-    /// The hero takes the photo's own shape where it can, so a fitted photo
-    /// fills the header edge to edge instead of sitting between blurred bars.
-    /// Extremes are clamped — a panoramic shot may not eat the whole sheet.
-    private func heroHeight(for width: CGFloat) -> CGFloat {
-        guard let image = imageLoader.image,
-              image.size.width > 0, image.size.height > 0 else {
-            return min(max(width * 0.56, 190), 250)
-        }
-
-        let ratio = image.size.height / image.size.width
-        return min(max(width * ratio, 180), 300)
-    }
-
-    @ViewBuilder
-    private var credit: some View {
-        if let contributor = photoLoader.photo?.contributor {
-            Text("© \(contributor)")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(theme.textPrimary)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 3)
-                .flightInfoSurface(theme, radius: 6, elevated: true)
-                .flightInfoLine(minimumScale: 0.8)
-                // Clear of the drag indicator, which floats over the photo.
-                .frame(maxWidth: 150, alignment: .trailing)
-                .padding(.top, 12)
-                .padding(.trailing, 12)
-        }
-    }
-
-    private func identity(for flight: Flight) -> some View {
-        HStack(alignment: .bottom, spacing: 10) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
-                    Text(flight.displayName)
-                        .font(.system(size: 21, weight: .heavy, design: .rounded))
-                        .foregroundStyle(theme.textPrimary)
-                        .flightInfoLine(minimumScale: 0.6)
-
-                    FlightPhaseChip(phase: FlightPhase.from(flight), theme: theme, elevated: true)
-                }
-
-                HStack(spacing: 5) {
-                    Image(systemName: "person.fill")
-                        .font(.system(size: 9))
-                        .foregroundStyle(theme.textDim)
-
-                    Text(flight.username ?? "Pilot")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(theme.textSecondary)
-                        .flightInfoLine()
-                }
-
-                // Aircraft and livery sit at the foot of the route card now.
-                Text(operatorLine(for: flight))
-                    .font(.system(size: 10.5, weight: .medium))
-                    .foregroundStyle(theme.textDim)
-                    .flightInfoLine()
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            let tail = registration(for: flight)
-            if !tail.isEmpty {
-                Text(tail)
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(theme.textPrimary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .flightInfoSurface(theme, radius: 7, elevated: true)
-                    .fixedSize()
-            }
-        }
-        // Sits in the content column now, so it carries no padding of its own
-        // beyond a little breathing room against the card below it.
-        .padding(.horizontal, 2)
-    }
-
-    /// Where the flight is in its day, rather than what it is being flown in —
-    /// that moved to the route card's footer.
-    private func operatorLine(for flight: Flight) -> String {
-        let phase = FlightPhase.from(flight)
-        let altitude = "\(Format.number(flight.altitudeFeet)) ft"
-        let speed = "\(Format.number(flight.groundSpeedKnots)) kts"
-        return "\(phase.rawValue.capitalized) · \(altitude) · \(speed)"
     }
 
     private func registration(for flight: Flight) -> String {
