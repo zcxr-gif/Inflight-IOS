@@ -1,11 +1,17 @@
 import CoreLocation
 import Foundation
 
-struct Airport {
+struct Airport: Equatable {
     let icao: String
     let name: String
     let coordinate: CLLocationCoordinate2D
     let countryCode: String
+
+    /// Written out rather than synthesised: `CLLocationCoordinate2D` is not
+    /// `Equatable`, and an ICAO identifies an airport anyway.
+    static func == (lhs: Airport, rhs: Airport) -> Bool {
+        lhs.icao == rhs.icao
+    }
 
     /// Regional-indicator flag for the airport's country, or an empty string
     /// when the country couldn't be resolved.
@@ -30,6 +36,10 @@ final class AirportStore {
     static let shared = AirportStore()
 
     private var airports: [String: Airport] = [:]
+
+    /// Memoised `nearestAirport` answers, keyed by rounded position.
+    private var nearestCache: [String: Airport?] = [:]
+
     private var isLoaded = false
     private let lock = NSLock()
 
@@ -41,6 +51,97 @@ final class AirportStore {
         DispatchQueue.global(qos: .utility).async { [weak self] in
             self?.loadIfNeeded()
         }
+    }
+
+    /// Closest airport to a position, or nil when there is nothing within
+    /// `maxNM`. Used to say where an aircraft with no filed destination
+    /// actually is — a parked airframe is sitting at a gate somewhere.
+    ///
+    /// Results are memoised on a ~100 m grid: a parked aircraft reports the
+    /// same position for hours, and the window re-reads this on every feed
+    /// tick.
+    func nearestAirport(to coordinate: CLLocationCoordinate2D, withinNM maxNM: Double = 6) -> Airport? {
+        guard coordinate.latitude.isFinite, coordinate.longitude.isFinite else { return nil }
+
+        loadIfNeeded()
+
+        let key = String(
+            format: "%.3f|%.3f|%.0f",
+            coordinate.latitude, coordinate.longitude, maxNM
+        )
+
+        lock.lock()
+        if let cached = nearestCache[key] {
+            lock.unlock()
+            return cached
+        }
+        let candidates = airports
+        lock.unlock()
+
+        // Cheap bounding box first: haversine over 17k airports on every tick
+        // is wasteful, and everything outside the box is out of range anyway.
+        let latitudeSpan = maxNM / 60.0
+        let cosine = max(cos(coordinate.latitude * .pi / 180), 0.01)
+        let longitudeSpan = latitudeSpan / cosine
+
+        var best: Airport?
+        var bestDistance = maxNM
+
+        for airport in candidates.values {
+            guard abs(airport.coordinate.latitude - coordinate.latitude) <= latitudeSpan,
+                  abs(airport.coordinate.longitude - coordinate.longitude) <= longitudeSpan else { continue }
+
+            let distance = FlightProgress.distanceNM(from: coordinate, to: airport.coordinate)
+            if distance <= bestDistance {
+                bestDistance = distance
+                best = airport
+            }
+        }
+
+        lock.lock()
+        // A taxiing aircraft would otherwise grow this without bound.
+        if nearestCache.count > 400 { nearestCache.removeAll(keepingCapacity: true) }
+        nearestCache[key] = best
+        lock.unlock()
+
+        return best
+    }
+
+    /// The closest airports to a position, nearest first. Used where one field
+    /// isn't enough — a weather chip has to fall through to the next station
+    /// when the closest strip has never filed a report.
+    func nearestAirports(
+        to coordinate: CLLocationCoordinate2D,
+        withinNM maxNM: Double,
+        limit: Int
+    ) -> [Airport] {
+        guard coordinate.latitude.isFinite, coordinate.longitude.isFinite, limit > 0 else { return [] }
+
+        loadIfNeeded()
+
+        lock.lock()
+        let candidates = airports
+        lock.unlock()
+
+        let latitudeSpan = maxNM / 60.0
+        let cosine = max(cos(coordinate.latitude * .pi / 180), 0.01)
+        let longitudeSpan = latitudeSpan / cosine
+
+        var scored: [(Airport, Double)] = []
+
+        for airport in candidates.values {
+            guard abs(airport.coordinate.latitude - coordinate.latitude) <= latitudeSpan,
+                  abs(airport.coordinate.longitude - coordinate.longitude) <= longitudeSpan else { continue }
+
+            let distance = FlightProgress.distanceNM(from: coordinate, to: airport.coordinate)
+            guard distance <= maxNM else { continue }
+            scored.append((airport, distance))
+        }
+
+        return scored
+            .sorted { $0.1 < $1.1 }
+            .prefix(limit)
+            .map { $0.0 }
     }
 
     func airport(_ icao: String?) -> Airport? {

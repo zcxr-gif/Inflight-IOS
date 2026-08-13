@@ -1,115 +1,252 @@
 import SwiftUI
+import UIKit
 
-/// Flight info window, modelled on the web tracker's: hero photo, identity,
-/// route with progress, and a live telemetry grid.
+/// The flight info window.
+///
+/// Two phases, stacked and cross-faded: the peak state (`FlightInfoPeak`) the
+/// sheet opens in, and the full window below.
+///
+/// The swap rides the sheet's measured height rather than its detent. A detent
+/// binding only changes once a drag commits, so the phases used to swap on
+/// their own animation curve while UIKit resized the sheet on another — which
+/// is why collapsing left the big photo sitting there until the drag landed
+/// and then cut. Reading the height instead makes the cross-fade track the
+/// finger, and behave the same in both directions.
 ///
 /// The flight is re-read from the feed by id on every update, so everything
 /// here keeps ticking while the sheet is open.
 struct FlightDetailView: View {
 
     @EnvironmentObject private var feed: LiveFeed
+    @ObservedObject private var appearance = FlightInfoAppearance.shared
     @StateObject private var photoLoader = AircraftPhotoLoader()
+    @StateObject private var imageLoader = RemoteImageLoader()
+
+    /// Set when the window has settled back into the peak state, which is when
+    /// the full window's scroll position is rewound.
+    @State private var isCollapsed = true
+
+    /// The path this flight has flown — the backend's history once it lands,
+    /// extended by live samples. Held here so the profile redraws when it
+    /// arrives.
+    @State private var track: [TrackPoint] = []
 
     let flightId: String
+
+    /// Reported upward so the sheet's peak detent is exactly as tall as the
+    /// peak state's content, instead of leaving a band of empty sheet below it.
+    @Binding var peakHeight: CGFloat
+
+    private var theme: FlightInfoTheme { appearance.theme }
 
     private var flight: Flight? {
         feed.flights.first { $0.id == flightId }
     }
 
     var body: some View {
-        ScrollView {
-            if let flight = flight {
-                VStack(spacing: 12) {
-                    photoHeader(for: flight)
-                    identity(for: flight)
-                    summary(for: flight)
-                    routeCard(for: flight)
-                    telemetry(for: flight)
+        GeometryReader { geometry in
+            let bottomInset = geometry.safeAreaInsets.bottom
+            let expansion = sheetExpansion(for: geometry)
+            let peakOpacity = 1 - ramp(expansion, from: 0.02, to: 0.46)
+            let fullOpacity = ramp(expansion, from: 0.16, to: 0.68)
+            let settled = expansion < 0.04
+
+            ZStack(alignment: .top) {
+                if let flight = flight {
+                    FlightInfoPeak(
+                        flight: flight,
+                        image: imageLoader.image,
+                        contributor: photoLoader.photo?.contributor,
+                        registration: registration(for: flight),
+                        theme: theme,
+                        style: appearance.peakStyle,
+                        width: geometry.size.width
+                    )
+                        .background {
+                            GeometryReader { peak in
+                                Color.clear.preference(
+                                    key: PeakContentHeightKey.self,
+                                    value: peak.size.height
+                                )
+                            }
+                        }
+                        // Both phases travel the same way as the sheet grows —
+                        // one receding as the other arrives, rather than
+                        // crossing past each other.
+                        .offset(y: CGFloat(-14 * expansion))
+                        .scaleEffect(CGFloat(0.985 + 0.015 * peakOpacity), anchor: .top)
+                        .opacity(peakOpacity)
+                        .allowsHitTesting(expansion < 0.3)
+
+                    expanded(for: flight, width: geometry.size.width)
+                        .offset(y: CGFloat(14 * (1 - fullOpacity)))
+                        .scaleEffect(CGFloat(0.985 + 0.015 * fullOpacity), anchor: .top)
+                        .opacity(fullOpacity)
+                        .allowsHitTesting(expansion > 0.5)
+                } else {
+                    ended
                 }
-                .padding(16)
-                .onAppear {
-                    photoLoader.load(type: flight.aircraftName, livery: flight.liveryName)
-                }
-            } else {
-                VStack(spacing: 8) {
-                    Text("Flight ended")
-                        .font(.headline)
-                    Text("This aircraft is no longer reporting.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.top, 80)
             }
+            // Pins the window to the sheet's width. Feed strings are arbitrary
+            // length, and without a hard width one long airport name or livery
+            // widens the whole column and pushes it off both edges.
+            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
+            .clipped()
+            // Derived in the layout pass rather than read back off the proxy
+            // afterwards, which is not something a GeometryProxy promises.
+            .onChange(of: settled) { _, newValue in isCollapsed = newValue }
+            .onPreferenceChange(PeakContentHeightKey.self) { measured in
+                // Zero means the peak state isn't in the tree at all — the
+                // aircraft stopped reporting — which is not a reason to
+                // collapse the sheet around the message that replaced it.
+                guard measured > 80 else { return }
+
+                // The window draws into the bottom safe area, so the peak only
+                // needs a small gap under its card rather than the whole home
+                // indicator's height — that inset was the dead band under the
+                // route block. Taking the larger of the two keeps the content
+                // from being clipped if the safe area is still being applied.
+                let gap = max(bottomInset, FlightInfoLayout.peakBottomGap)
+                let wanted = min(
+                    max(measured + gap, FlightInfoLayout.minimumPeakHeight),
+                    FlightInfoLayout.maximumPeakHeight
+                )
+                if abs(wanted - peakHeight) > 1 { peakHeight = wanted }
+            }
+        }
+        // The sheet's own ground already covers the home indicator, and the
+        // peak's card should sit close to the bottom edge rather than above a
+        // band of empty sheet the width of that inset.
+        .ignoresSafeArea(edges: .bottom)
+        .modifier(FlightInfoWindowChrome(theme: theme))
+        .environment(\.colorScheme, .dark)
+        .onAppear {
+            load(flight)
+            loadTrack()
+        }
+        .onChange(of: flight?.liveryName) { _, _ in load(flight) }
+        .onChange(of: photoLoader.photo?.url) { _, url in imageLoader.load(url) }
+        // Live samples extend the path between packets.
+        .onChange(of: feed.lastUpdate) { _, _ in
+            let latest = FlightTrailStore.shared.points(for: flightId)
+            if latest.count != track.count { track = latest }
         }
     }
 
-    // MARK: - Photo
+    // MARK: - Phase
 
-    private func photoHeader(for flight: Flight) -> some View {
-        ZStack(alignment: .bottomTrailing) {
-            if let photo = photoLoader.photo {
-                AsyncImage(url: photo.url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                    default:
-                        placeholderArtwork(for: flight)
+    /// How far the sheet is between the peak state and the full window, 0...1.
+    ///
+    /// The safe-area insets are added back because the sheet's content is laid
+    /// out inside them: without that the peak would measure short of its own
+    /// detent height and the fade would start late.
+    private func sheetExpansion(for geometry: GeometryProxy) -> Double {
+        let height = geometry.size.height
+            + geometry.safeAreaInsets.top
+            + geometry.safeAreaInsets.bottom
+
+        let travelled = (height - peakHeight) / FlightInfoLayout.phaseTravel
+        return Double(min(max(travelled, 0), 1))
+    }
+
+    /// Smoothstep across a slice of the drag. The two slices overlap, so the
+    /// phases dissolve through each other instead of one snapping off as the
+    /// other snaps on.
+    private func ramp(_ value: Double, from start: Double, to end: Double) -> Double {
+        guard end > start else { return value >= end ? 1 : 0 }
+        let t = min(max((value - start) / (end - start), 0), 1)
+        return t * t * (3 - 2 * t)
+    }
+
+    private func load(_ flight: Flight?) {
+        guard let flight = flight else { return }
+        photoLoader.load(type: flight.aircraftName, livery: flight.liveryName)
+        imageLoader.load(photoLoader.photo?.url)
+    }
+
+    /// Pulls the flown path the backend already has for this flight, which
+    /// covers it from departure rather than from whenever the app happened to
+    /// start watching.
+    private func loadTrack() {
+        track = FlightTrailStore.shared.points(for: flightId)
+
+        FlightHistoryService.shared.load(flightId: flightId) { history in
+            FlightTrailStore.shared.seed(history, for: flightId)
+            track = FlightTrailStore.shared.points(for: flightId)
+        }
+    }
+
+    private var ended: some View {
+        VStack(spacing: 6) {
+            Text("Flight ended")
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .foregroundStyle(theme.textPrimary)
+            Text("This aircraft is no longer reporting.")
+                .font(.system(size: 12))
+                .foregroundStyle(theme.textSecondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 64)
+    }
+
+    // MARK: - Expanded window
+
+    private func expanded(for flight: Flight, width: CGFloat) -> some View {
+        ScrollViewReader { proxy in
+            scrollBody(for: flight, width: width)
+                // Rewound while the full window is invisible, so coming back up
+                // always starts at the photo instead of wherever the last look
+                // was left scrolled to.
+                .onChange(of: isCollapsed) { _, collapsed in
+                    guard collapsed else { return }
+                    proxy.scrollTo(Self.topAnchor, anchor: .top)
+                }
+        }
+    }
+
+    private static let topAnchor = "flightInfoTop"
+
+    private func scrollBody(for flight: Flight, width: CGFloat) -> some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                // Full bleed, flush with the top of the sheet: the photo is the
+                // window's header, not a card inside it.
+                FlightHero(
+                    image: imageLoader.image,
+                    spriteKey: flight.spriteKey,
+                    contributor: photoLoader.photo?.contributor,
+                    theme: theme,
+                    width: width
+                )
+                .id(Self.topAnchor)
+
+                VStack(spacing: 12) {
+                    FlightIdentityBlock(
+                        flight: flight,
+                        registration: registration(for: flight),
+                        theme: theme
+                    )
+                    situationCard(for: flight)
+                    telemetry(for: flight)
+
+                    if track.count >= 4 {
+                        AltitudeProfileCard(points: track, theme: theme)
                     }
                 }
-
-                if let contributor = photo.contributor {
-                    Text("© \(contributor)")
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(.ultraThinMaterial, in: Capsule())
-                        .padding(8)
-                }
-            } else {
-                placeholderArtwork(for: flight)
+                .padding(.horizontal, 14)
+                // Negative, so the identity block rides the seam where the
+                // photo dissolves into the window instead of sitting inside
+                // one or the other.
+                .padding(.top, -FlightInfoLayout.heroSeamLift)
+                // Clears the home indicator, which the window now draws under.
+                .padding(.bottom, 40)
+                // iPad and landscape keep a phone-width column rather than
+                // stretching the cards across the sheet.
+                .frame(maxWidth: 560)
+                .frame(maxWidth: .infinity)
             }
         }
-        .frame(height: 190)
-        .frame(maxWidth: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
-
-    /// Shown while the photo loads, and for airframes with no community photo.
-    private func placeholderArtwork(for flight: Flight) -> some View {
-        ZStack {
-            Rectangle().fill(.quaternary)
-            if let icon = PlaneSprites.shared.icon(forKey: flight.spriteKey, selected: false) {
-                Image(uiImage: icon)
-                    .resizable()
-                    .frame(width: 54, height: 54)
-                    .rotationEffect(.degrees(90))
-                    .opacity(0.55)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    // MARK: - Identity
-
-    private func identity(for flight: Flight) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(flight.displayName)
-                .font(.system(size: 27, weight: .bold, design: .rounded))
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-
-            Text(line(flight.aircraftName, flight.username))
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(.secondary)
-
-            Text(line(flight.liveryName, registration(for: flight)))
-                .font(.system(size: 13))
-                .foregroundStyle(.tertiary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .scrollIndicators(.hidden)
     }
 
     private func registration(for flight: Flight) -> String {
@@ -118,159 +255,75 @@ struct FlightDetailView: View {
         return photoLoader.photo?.tailNumber ?? ""
     }
 
-    private func line(_ parts: String?...) -> String {
-        parts.compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
-    }
+    // MARK: - Route / where it is
 
-    // MARK: - Status / altitude / speed
-
-    private func summary(for flight: Flight) -> some View {
-        let phase = FlightPhase.from(flight)
-
-        return HStack(spacing: 0) {
-            summaryColumn("Status") {
-                Text(phase.rawValue)
-                    .font(.system(size: 17, weight: .bold, design: .rounded))
-                    .foregroundStyle(color(for: phase))
-            }
-            summaryColumn("Altitude") {
-                Text(Format.number(flight.altitudeFeet) + " ft")
-                    .font(.system(size: 17, weight: .bold, design: .rounded))
-            }
-            summaryColumn("Speed") {
-                Text(Format.number(flight.groundSpeedKnots) + " kts")
-                    .font(.system(size: 17, weight: .bold, design: .rounded))
-            }
-        }
-        .padding(.vertical, 14)
-        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
-
-    private func summaryColumn<Content: View>(
-        _ title: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(spacing: 4) {
-            Text(title)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
-            content()
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private func color(for phase: FlightPhase) -> Color {
-        switch phase {
-        case .cruise: return .green
-        case .climb: return .blue
-        case .descent: return .orange
-        case .ground: return .secondary
-        }
-    }
-
-    // MARK: - Route
-
+    /// A filed destination gets the route strip. Without one, the card says
+    /// where the aircraft actually is instead of drawing a route to nowhere.
     @ViewBuilder
-    private func routeCard(for flight: Flight) -> some View {
-        let progress = FlightProgress(flight: flight)
-        let departure = AirportStore.shared.airport(flight.departureIcao)
-        let arrival = AirportStore.shared.airport(flight.arrivalIcao)
+    private func situationCard(for flight: Flight) -> some View {
+        switch FlightSituation.from(flight) {
+        case .enroute(let progress):
+            RouteCard(flight: flight, progress: progress, theme: theme)
 
-        if flight.departureIcao?.isEmpty == false || flight.arrivalIcao?.isEmpty == false {
-            VStack(spacing: 14) {
-                HStack(alignment: .top, spacing: 8) {
-                    endpoint(icao: flight.departureIcao, airport: departure, alignment: .leading)
+        case .grounded(let airport, let isTaxiing):
+            PlaceCard(
+                kicker: isTaxiing ? "TAXIING AT" : "PARKED AT",
+                symbol: isTaxiing ? "airplane" : "parkingsign",
+                airport: airport,
+                theme: theme,
+                icaoSize: 24
+            )
+            .padding(14)
+            .flightInfoSurface(theme, radius: theme.radiusMedium)
 
-                    Image(systemName: "airplane")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(.black)
-                        .frame(width: 30, height: 30)
-                        .background(Circle().fill(.white))
-                        .padding(.top, 6)
+        case .unplanned(let departure, let nearest):
+            VStack(spacing: 12) {
+                PlaceCard(
+                    kicker: nearest == nil ? "IN THE AIR" : "PASSING",
+                    symbol: "airplane",
+                    airport: nearest,
+                    theme: theme,
+                    icaoSize: 24
+                )
 
-                    endpoint(icao: flight.arrivalIcao, airport: arrival, alignment: .trailing)
-                }
+                if departure != nil {
+                    hairline
 
-                if let progress = progress {
-                    progressBar(fraction: progress.fraction)
-
-                    HStack {
-                        Text("\(Format.number(progress.flownNM)) NM")
-                        Spacer()
-                        Text(remainingLabel(for: flight, progress: progress))
+                    HStack(spacing: 8) {
+                        MiniStat(label: "DEPARTED", value: departure?.icao ?? "—", theme: theme)
+                        MiniStat(
+                            label: "DESTINATION",
+                            value: "NOT FILED",
+                            theme: theme,
+                            alignment: .trailing
+                        )
                     }
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
                 }
             }
-            .padding(16)
-            .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .padding(14)
+            .flightInfoSurface(theme, radius: theme.radiusMedium)
         }
     }
 
-    private func endpoint(icao: String?, airport: Airport?, alignment: HorizontalAlignment) -> some View {
-        let code = icao?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-
-        return VStack(alignment: alignment, spacing: 2) {
-            Text(code.isEmpty ? "—" : code)
-                .font(.system(size: 30, weight: .heavy, design: .rounded))
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-
-            HStack(spacing: 4) {
-                if let flag = airport?.flag, !flag.isEmpty {
-                    Text(flag).font(.system(size: 11))
-                }
-                Text(airport?.name ?? "Unknown")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: alignment == .leading ? .leading : .trailing)
-    }
-
-    private func progressBar(fraction: Double) -> some View {
-        GeometryReader { geometry in
-            let width = geometry.size.width
-
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(.quaternary)
-                    .frame(height: 3)
-
-                Capsule()
-                    .fill(.white)
-                    .frame(width: max(0, width * fraction), height: 3)
-
-                Image(systemName: "airplane")
-                    .font(.system(size: 12, weight: .bold))
-                    .offset(x: min(max(0, width * fraction - 6), max(0, width - 14)))
-            }
-            .frame(height: geometry.size.height)
-        }
-        .frame(height: 16)
-    }
-
-    private func remainingLabel(for flight: Flight, progress: FlightProgress) -> String {
-        let distance = "\(Format.number(progress.remainingNM)) NM"
-        guard let ete = progress.estimatedTimeEnroute(groundSpeedKnots: flight.groundSpeedKnots) else {
-            return distance
-        }
-        return "\(distance) · ETE \(Format.duration(ete))"
+    private var hairline: some View {
+        Rectangle()
+            .fill(theme.stroke)
+            .frame(height: 1)
     }
 
     // MARK: - Telemetry
 
     private func telemetry(for flight: Flight) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Live Telemetry")
-                .font(.system(size: 20, weight: .bold, design: .rounded))
-                .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: .leading, spacing: 8) {
+            Text("TELEMETRY")
+                .font(.system(size: 9, weight: .bold))
+                .tracking(1)
+                .foregroundStyle(theme.textDim)
+                .padding(.leading, 2)
 
             LazyVGrid(
-                columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 2),
-                spacing: 10
+                columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 2),
+                spacing: 8
             ) {
                 metric("ALTITUDE", "cloud", Format.number(flight.altitudeFeet), "ft")
                 metric("GND SPEED", "speedometer", Format.number(flight.groundSpeedKnots), "kts")
@@ -278,33 +331,54 @@ struct FlightDetailView: View {
                 metric("HEADING", "safari", Format.heading(flight.heading), "°")
             }
         }
+        .padding(.top, 2)
     }
 
     private func metric(_ title: String, _ symbol: String, _ value: String, _ unit: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 6) {
                 Text(title)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                Spacer()
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(0.5)
+                    .foregroundStyle(theme.textSecondary)
+                    .flightInfoLine(minimumScale: 0.8)
+
+                Spacer(minLength: 2)
+
                 Image(systemName: symbol)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 10))
+                    .foregroundStyle(theme.textDim)
             }
 
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 3) {
                 Text(value)
-                    .font(.system(size: 26, weight: .semibold, design: .rounded))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
+                    .font(.system(size: 17, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(theme.textPrimary)
+                    .flightInfoLine(minimumScale: 0.6)
+
                 Text(unit)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(theme.textDim)
+                    .fixedSize()
             }
         }
-        .padding(14)
+        .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .flightInfoSurface(theme, radius: theme.radiusSmall)
+    }
+}
+
+/// Sheet chrome. The blur has to be the *sheet's* background rather than a
+/// layer inside the content — a material inside a sheet whose background was
+/// cleared has nothing behind it to sample and renders as a black slab.
+private struct FlightInfoWindowChrome: ViewModifier {
+
+    let theme: FlightInfoTheme
+
+    func body(content: Content) -> some View {
+        content
+            .presentationBackground { theme.sheetBackground }
+            .presentationCornerRadius(theme.radiusLarge + 6)
     }
 }
 
@@ -327,7 +401,7 @@ final class AircraftPhotoLoader: ObservableObject {
     }
 }
 
-/// Number formatting shared by the detail sheet.
+/// Number formatting shared by the info window.
 enum Format {
 
     private static let decimal: NumberFormatter = {
