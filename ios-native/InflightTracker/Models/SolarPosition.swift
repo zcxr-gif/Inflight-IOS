@@ -21,8 +21,11 @@ enum SolarPosition {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC") ?? .current
 
-        let components = calendar.dateComponents([.dayOfYear, .hour, .minute, .second], from: date)
-        guard let dayOfYear = components.dayOfYear else { return 0 }
+        // `Calendar.Component.dayOfYear` is iOS 18, and this ships to 16, so
+        // the day of the year comes from `ordinality` instead.
+        guard let dayOfYear = calendar.ordinality(of: .day, in: .year, for: date) else { return 0 }
+
+        let components = calendar.dateComponents([.hour, .minute, .second], from: date)
 
         let hour = Double(components.hour ?? 0)
         let minute = Double(components.minute ?? 0)
