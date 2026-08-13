@@ -28,6 +28,10 @@ struct FlightDetailView: View {
 
     let flightId: String
 
+    /// Reported upward so the sheet's peak detent is exactly as tall as the
+    /// peak state's content, instead of leaving a band of empty sheet below it.
+    @Binding var peakHeight: CGFloat
+
     private var theme: FlightInfoTheme { appearance.theme }
 
     private var flight: Flight? {
@@ -36,6 +40,7 @@ struct FlightDetailView: View {
 
     var body: some View {
         GeometryReader { geometry in
+            let bottomInset = geometry.safeAreaInsets.bottom
             let expansion = sheetExpansion(for: geometry)
             let peakOpacity = 1 - ramp(expansion, from: 0.02, to: 0.46)
             let fullOpacity = ramp(expansion, from: 0.16, to: 0.68)
@@ -44,6 +49,14 @@ struct FlightDetailView: View {
             ZStack(alignment: .top) {
                 if let flight = flight {
                     FlightInfoPeak(flight: flight, image: imageLoader.image, theme: theme)
+                        .background {
+                            GeometryReader { peak in
+                                Color.clear.preference(
+                                    key: PeakContentHeightKey.self,
+                                    value: peak.size.height
+                                )
+                            }
+                        }
                         // Both phases travel the same way as the sheet grows —
                         // one receding as the other arrives, rather than
                         // crossing past each other.
@@ -69,6 +82,20 @@ struct FlightDetailView: View {
             // Derived in the layout pass rather than read back off the proxy
             // afterwards, which is not something a GeometryProxy promises.
             .onChange(of: settled) { isCollapsed = $0 }
+            .onPreferenceChange(PeakContentHeightKey.self) { measured in
+                // Zero means the peak state isn't in the tree at all — the
+                // aircraft stopped reporting — which is not a reason to
+                // collapse the sheet around the message that replaced it.
+                guard measured > 80 else { return }
+
+                // Detents are measured from the bottom of the screen, so the
+                // home indicator's inset is part of the height the sheet needs.
+                let wanted = min(
+                    max(measured + bottomInset, FlightInfoLayout.minimumPeakHeight),
+                    FlightInfoLayout.maximumPeakHeight
+                )
+                if abs(wanted - peakHeight) > 1 { peakHeight = wanted }
+            }
         }
         .modifier(FlightInfoWindowChrome(theme: theme))
         .environment(\.colorScheme, .dark)
@@ -89,7 +116,7 @@ struct FlightDetailView: View {
             + geometry.safeAreaInsets.top
             + geometry.safeAreaInsets.bottom
 
-        let travelled = (height - FlightInfoLayout.peakHeight) / FlightInfoLayout.phaseTravel
+        let travelled = (height - peakHeight) / FlightInfoLayout.phaseTravel
         return Double(min(max(travelled, 0), 1))
     }
 

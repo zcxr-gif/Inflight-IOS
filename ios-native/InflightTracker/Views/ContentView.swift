@@ -6,12 +6,29 @@ struct ContentView: View {
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @State private var selection: SelectedFlight?
 
+    /// Height the peak state needs for its own content, reported back by the
+    /// window once it has measured itself.
+    @State private var peakHeight = FlightInfoLayout.basePeakHeight
+
     /// Which phase the info window is in. Owned here so it can be reset to the
     /// peak state each time a different aircraft is tapped.
-    @State private var detent: PresentationDetent = .flightInfoPeak
+    @State private var detent: PresentationDetent = .height(FlightInfoLayout.basePeakHeight)
 
     /// Latest camera request from the buttons beside the info window.
     @State private var mapCommand: MapCommand?
+
+    private var peakDetent: PresentationDetent { .height(peakHeight) }
+
+    /// True while the sheet is up. Kept separate from `selection` so tapping a
+    /// second aircraft swaps the window's contents rather than dismissing and
+    /// re-presenting the sheet — a re-presentation loses the peak detent and
+    /// comes back at full height.
+    private var isWindowOpen: Binding<Bool> {
+        Binding(
+            get: { selection != nil },
+            set: { if !$0 { selection = nil } }
+        )
+    }
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -19,7 +36,7 @@ struct ContentView: View {
                 flights: feed.flights,
                 selection: $selection,
                 command: mapCommand,
-                bottomInset: selection == nil ? 0 : FlightInfoLayout.peakHeight
+                bottomInset: selection == nil ? 0 : peakHeight
             )
             .ignoresSafeArea()
 
@@ -30,14 +47,30 @@ struct ContentView: View {
             mapControls
         }
         .animation(.easeInOut(duration: 0.22), value: selection?.id)
-        .sheet(item: $selection) { selected in
-            FlightDetailView(flightId: selected.id)
-                .environmentObject(feed)
-                .presentationDetents([.flightInfoPeak, .large], selection: $detent)
-                .presentationDragIndicator(.visible)
-                .flightInfoSheetInteraction()
+        .sheet(isPresented: isWindowOpen) {
+            Group {
+                if let selected = selection {
+                    FlightDetailView(flightId: selected.id, peakHeight: $peakHeight)
+                        // Resets the window's own state per aircraft without
+                        // taking the sheet down with it.
+                        .id(selected.id)
+                        .environmentObject(feed)
+                }
+            }
+            .presentationDetents([peakDetent, .large], selection: $detent)
+            .presentationDragIndicator(.visible)
+            .flightInfoSheetInteraction(upThrough: peakDetent)
+            // Belt and braces: however the sheet came to be on screen, it
+            // starts in the peak state.
+            .onAppear { detent = peakDetent }
         }
-        .onChange(of: selection?.id) { _ in detent = .flightInfoPeak }
+        .onChange(of: selection?.id) { _ in detent = peakDetent }
+        // The detent set changes with the measurement, so the selection has to
+        // move to the new value or the sheet snaps to whatever is left.
+        .onChange(of: peakHeight) { height in
+            guard detent != .large else { return }
+            detent = .height(height)
+        }
         .onAppear { feed.connect() }
     }
 
@@ -55,7 +88,7 @@ struct ContentView: View {
                 }
             }
             .padding(.trailing, 16)
-            .padding(.bottom, FlightInfoLayout.peakHeight + 14)
+            .padding(.bottom, peakHeight + 14)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))
         }

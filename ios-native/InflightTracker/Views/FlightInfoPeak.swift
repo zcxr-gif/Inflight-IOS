@@ -15,14 +15,18 @@ struct FlightInfoPeak: View {
     /// Width of the photo. Its height follows the photo's own aspect ratio, so
     /// a square shot and a wide airliner shot both sit in the row properly
     /// instead of being cropped to one fixed box.
+    ///
+    /// The clamp is deliberately narrow: the sheet is only as tall as this row
+    /// plus the card, so a very tall crop would buy empty space beside the
+    /// text rather than a better photo.
     private let thumbnailWidth: CGFloat = 148
 
     private var thumbnailHeight: CGFloat {
         guard let image = image, image.size.width > 0, image.size.height > 0 else {
-            return 92
+            return 88
         }
         let ratio = image.size.height / image.size.width
-        return min(max(thumbnailWidth * ratio, 78), 110)
+        return min(max(thumbnailWidth * ratio, 76), 96)
     }
 
     var body: some View {
@@ -39,7 +43,9 @@ struct FlightInfoPeak: View {
     // MARK: - Identity
 
     private var identityRow: some View {
-        HStack(alignment: .top, spacing: 12) {
+        // Centred, not top-aligned: the text block is shorter than the photo,
+        // and pinning it to the top left an obvious hole under it.
+        HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 8) {
                     Text(flight.displayName)

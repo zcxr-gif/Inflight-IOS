@@ -161,11 +161,20 @@ struct FlightInfoSurfaceModifier: ViewModifier {
     }
 }
 
-/// Fixed measurements the window and its sheet have to agree on.
+/// Measurements the window and its sheet have to agree on.
 enum FlightInfoLayout {
 
-    /// Height of the peak state.
-    static let peakHeight: CGFloat = 322
+    /// Starting height for the peak state, used until the window has measured
+    /// what its own content actually needs. The real detent follows that
+    /// measurement, so the peak never opens with a band of empty sheet under
+    /// it — content height varies with the photo's shape and the device's home
+    /// indicator, and no single constant fits all of them.
+    static let basePeakHeight: CGFloat = 300
+
+    /// Bounds on that measurement, so a bad layout pass can't produce an
+    /// unusable sheet.
+    static let minimumPeakHeight: CGFloat = 220
+    static let maximumPeakHeight: CGFloat = 460
 
     /// How far above the peak height the phases have finished swapping. The
     /// cross-fade rides the drag rather than the detent, so it wants to be
@@ -174,24 +183,31 @@ enum FlightInfoLayout {
     static let phaseTravel: CGFloat = 220
 }
 
-extension PresentationDetent {
-
-    /// The peak state: the compact bar the info window opens in.
-    static let flightInfoPeak = PresentationDetent.height(FlightInfoLayout.peakHeight)
-}
-
 extension View {
 
     /// Keeps the map live behind the peak state: the sheet stops being modal
     /// up through that detent, so panning and zooming still reach the map —
     /// and the system stops dimming everything behind the sheet, which is what
     /// put a dark wash over the map as soon as the window opened.
+    ///
+    /// The detent is passed in rather than assumed: it has to be the same
+    /// value the sheet is actually using, or the system quietly ignores this.
     @ViewBuilder
-    func flightInfoSheetInteraction() -> some View {
+    func flightInfoSheetInteraction(upThrough detent: PresentationDetent) -> some View {
         if #available(iOS 16.4, *) {
-            presentationBackgroundInteraction(.enabled(upThrough: .flightInfoPeak))
+            presentationBackgroundInteraction(.enabled(upThrough: detent))
         } else {
             self
         }
+    }
+}
+
+/// Carries the peak state's measured content height up to the sheet.
+struct PeakContentHeightKey: PreferenceKey {
+
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
