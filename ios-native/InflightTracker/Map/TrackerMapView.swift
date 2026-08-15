@@ -166,21 +166,22 @@ struct TrackerMapView: UIViewRepresentable {
             }
         }
 
-        /// Keeps MapKit's workload bounded: viewport first, then the aircraft
-        /// nearest the centre of the map.
+        /// Everything within reach of the viewport — all of it.
         ///
-        /// Two things here exist to stop traffic flickering. The boundary is
-        /// hysteretic — an aircraft has to come well inside the view to be
-        /// added, and travel well outside it to be dropped — so nothing sitting
-        /// on the edge can flip on every pass. And when there is more traffic
-        /// than the cap allows, aircraft already on the map are scored as
-        /// nearer than they are, so the cap keeps the set it has rather than
-        /// re-picking its winners every packet and swapping out everything near
-        /// the cut.
+        /// There is no ceiling on how many aircraft the map will draw: if the
+        /// server has two thousand aeroplanes in view, the map has two thousand
+        /// aeroplanes on it. Culling is by position only, and it exists to keep
+        /// MapKit from holding annotations for traffic on the other side of the
+        /// world rather than to ration what you can see.
+        ///
+        /// The boundary is hysteretic: an aircraft has to come well inside the
+        /// view to be added, and travel well outside it to be dropped, so
+        /// nothing sitting on the edge can flip between the two on consecutive
+        /// passes.
         private func cull(flights: [Flight], to mapView: MKMapView) -> [Flight] {
             let region = mapView.region
             guard region.span.latitudeDelta.isFinite, region.span.longitudeDelta.isFinite else {
-                return Array(flights.prefix(AppConfig.maxRenderedFlights))
+                return flights
             }
 
             let center = region.center
@@ -189,40 +190,17 @@ struct TrackerMapView: UIViewRepresentable {
             let keepLatitude = region.span.latitudeDelta * AppConfig.flightKeepMargin
             let keepLongitude = region.span.longitudeDelta * AppConfig.flightKeepMargin
 
-            var candidates: [(flight: Flight, score: Double)] = []
-            candidates.reserveCapacity(min(flights.count, AppConfig.maxRenderedFlights * 2))
-
-            for flight in flights {
+            return flights.filter { flight in
                 let deltaLatitude = abs(flight.latitude - center.latitude)
                 let deltaLongitude = Self.longitudeDelta(flight.longitude, center.longitude)
 
+                // Already on the map, so it is held to the wider boundary.
                 let isDrawn = annotations[flight.id] != nil
-                let latitudeLimit = isDrawn ? keepLatitude : addLatitude
-                let longitudeLimit = isDrawn ? keepLongitude : addLongitude
 
-                guard deltaLatitude <= latitudeLimit, deltaLongitude <= longitudeLimit else { continue }
-
-                let distance = deltaLatitude * deltaLatitude + deltaLongitude * deltaLongitude
-                // A discount rather than absolute priority: an aircraft much
-                // closer to the middle still takes a slot from one already
-                // drawn out near the edge.
-                candidates.append((flight, isDrawn ? distance * Self.drawnAdvantage : distance))
+                return deltaLatitude <= (isDrawn ? keepLatitude : addLatitude)
+                    && deltaLongitude <= (isDrawn ? keepLongitude : addLongitude)
             }
-
-            guard candidates.count > AppConfig.maxRenderedFlights else {
-                return candidates.map(\.flight)
-            }
-
-            return candidates
-                .sorted { $0.score < $1.score }
-                .prefix(AppConfig.maxRenderedFlights)
-                .map(\.flight)
         }
-
-        /// How much of a head start an aircraft already on the map gets when
-        /// the cap has to choose. Enough to stop the set churning, not enough
-        /// to wall out traffic that has flown into the middle of the view.
-        private static let drawnAdvantage: Double = 0.6
 
         /// Shortest angular distance between two longitudes, so traffic either
         /// side of the antimeridian isn't treated as half a world away.

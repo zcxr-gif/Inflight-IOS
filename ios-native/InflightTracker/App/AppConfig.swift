@@ -31,11 +31,6 @@ enum AppConfig {
     /// Key used to remember the last picked server between launches.
     static let serverDefaultsKey = "preferredServer"
 
-    /// Upper bound on how many aircraft are handed to MapKit at once. Traffic
-    /// is culled to the visible region first, then trimmed to the aircraft
-    /// closest to the centre of the map, so a zoomed-out view stays smooth.
-    static let maxRenderedFlights = 500
-
     /// On-screen size of a plane sprite, in points. The web tracker draws its
     /// icons at a uniform ~19px (every sprite is normalised to 128 logical px
     /// and then drawn at `icon-size: 0.15`), so a single size for all types
