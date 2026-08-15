@@ -28,6 +28,10 @@ struct Flight: Identifiable, Equatable {
     let liveryName: String
     let registration: String?
 
+    /// Whether anyone is actually flying it — sent alongside the position, and
+    /// not something the telemetry could be made to tell us.
+    let pilotState: PilotState
+
     let departureIcao: String?
     let arrivalIcao: String?
 
@@ -60,6 +64,12 @@ struct Flight: Identifiable, Equatable {
 
         self.callsign = Flight.text(payload["callsign"])
         self.username = Flight.text(payload["username"])
+        // Via `number` because the backend has sent it as both a number and a
+        // string; `Int(_:)` traps on a non-finite double, so it is checked
+        // rather than force-converted.
+        self.pilotState = PilotState.from(
+            Flight.number(payload["pilotState"]).flatMap { $0.isFinite ? Int($0) : nil }
+        )
         self.departureIcao = Flight.text(payload["departureIcao"])
         self.arrivalIcao = Flight.text(payload["arrivalIcao"])
 

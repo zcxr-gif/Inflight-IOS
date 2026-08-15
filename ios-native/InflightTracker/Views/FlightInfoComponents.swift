@@ -35,6 +35,37 @@ struct FlightPhaseChip: View {
     }
 }
 
+/// What the pilot is doing, as a pill beside their name.
+///
+/// The phase chip says what the aircraft is doing; this says whether anyone is
+/// flying it. Both are needed: an airframe at cruise reads identically whether
+/// it is being hand-flown or sitting on autopilot with nobody watching.
+struct PilotStateChip: View {
+
+    let state: PilotState
+    let theme: FlightInfoTheme
+    var elevated: Bool = false
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: state.symbol)
+                .font(.system(size: 7.5, weight: .semibold))
+
+            Text(state.label)
+                .font(.system(size: 8.5, weight: .bold))
+                .tracking(0.6)
+        }
+        .foregroundStyle(theme.pilotStateAccent(for: state))
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+        .flightInfoSurface(theme, radius: 99, elevated: elevated)
+        // Never allowed to shrink: it sits beside a username of arbitrary
+        // length, and the username is the piece that gives way.
+        .fixedSize()
+        .accessibilityLabel("\(state.label). \(state.detail)")
+    }
+}
+
 // MARK: - Route
 
 /// The route card, shared by both phases: endpoints, then the progress bar
@@ -304,7 +335,7 @@ struct FlightIdentityBlock: View {
                     FlightPhaseChip(phase: FlightPhase.from(flight), theme: theme, elevated: true)
                 }
 
-                HStack(spacing: 5) {
+                HStack(spacing: 6) {
                     Image(systemName: "person.fill")
                         .font(.system(size: 9))
                         .foregroundStyle(theme.textDim)
@@ -313,6 +344,8 @@ struct FlightIdentityBlock: View {
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(theme.textSecondary)
                         .flightInfoLine()
+
+                    PilotStateChip(state: flight.pilotState, theme: theme, elevated: true)
                 }
 
                 // Where the flight is in its day. What it is being flown in

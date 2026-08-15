@@ -123,6 +123,13 @@ struct FlightInfoTheme {
     /// a theme that wants per-phase colour changes this one method.
     func phaseAccent(for phase: FlightPhase) -> Color { accent }
 
+    /// Same again for what the pilot is doing. The window is monochrome by
+    /// design — the state is carried by its glyph and its word, not by going
+    /// amber — and a theme that wants to colour AWAY changes it here.
+    func pilotStateAccent(for state: PilotState) -> Color {
+        state.isNoteworthy ? accent : textSecondary
+    }
+
     /// The sheet's own background.
     ///
     /// This has to be the *sheet's* background rather than a layer inside the
@@ -140,17 +147,25 @@ struct FlightInfoTheme {
         }
     }
 
+    /// Tuned to let the map through.
+    ///
+    /// Every tint here had been carrying too much carbon: glass does its own
+    /// dimming, so a tint heavy enough to guarantee contrast on its own leaves
+    /// a dark slab with none of the lensing that makes it read as glass. The
+    /// scrim and the chrome tint are the two that were doing it — both are now
+    /// a wash rather than a coat — and the strokes are brighter to give each
+    /// surface the lit edge glass has.
     static let glass = FlightInfoTheme(
         material: .ultraThinMaterial,
         windowFill: Color(red: 0.09, green: 0.09, blue: 0.11),
-        scrim: Color.black.opacity(0.16),
-        chromeTint: Color(red: 0.09, green: 0.09, blue: 0.11).opacity(0.5),
-        surfaceTint: Color.white.opacity(0.05),
-        elevatedTint: Color.white.opacity(0.1),
+        scrim: Color.black.opacity(0.06),
+        chromeTint: Color(red: 0.09, green: 0.09, blue: 0.11).opacity(0.16),
+        surfaceTint: Color.white.opacity(0.04),
+        elevatedTint: Color.white.opacity(0.09),
         surfaceFill: Color.white.opacity(0.08),
         elevatedFill: Color.white.opacity(0.14),
-        stroke: Color.white.opacity(0.10),
-        strokeStrong: Color.white.opacity(0.16),
+        stroke: Color.white.opacity(0.16),
+        strokeStrong: Color.white.opacity(0.26),
         textPrimary: Color(white: 0.98),
         textSecondary: Color(white: 0.70),
         textDim: Color(white: 0.48),

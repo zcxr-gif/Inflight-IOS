@@ -107,6 +107,13 @@ struct FlightInfoPeak: View {
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(theme.textSecondary)
                         .flightInfoLine()
+
+                    // Only when it says something. The bar is a photo wide and
+                    // a name long; ACTIVE is the ordinary case and doesn't earn
+                    // the space here the way AWAY or AP+ does.
+                    if flight.pilotState.isNoteworthy {
+                        PilotStateChip(state: flight.pilotState, theme: theme)
+                    }
                 }
 
                 // The aircraft and its livery live at the foot of the route

@@ -52,3 +52,38 @@ final class FlightAnnotation: NSObject, MKAnnotation {
         return headingChanged || spriteChanged
     }
 }
+
+/// The aircraft a replay is drawing.
+///
+/// Separate from `FlightAnnotation` because it is not one of the server's
+/// aircraft: it is a position on a path we already have, and it moves twenty
+/// times a second rather than once a packet. Same KVO treatment on
+/// `coordinate`, for the same reason — MapKit slides the view to each new
+/// position instead of being handed a new annotation each frame.
+final class ReplayAnnotation: NSObject, MKAnnotation {
+
+    private var storedCoordinate: CLLocationCoordinate2D
+
+    var coordinate: CLLocationCoordinate2D {
+        get { storedCoordinate }
+        set {
+            willChangeValue(forKey: "coordinate")
+            storedCoordinate = newValue
+            didChangeValue(forKey: "coordinate")
+        }
+    }
+
+    /// Bearing along the track, which is what the sprite is rotated by.
+    var heading: Double
+
+    /// Held here rather than read from the feed each frame, so the replay
+    /// keeps its aircraft even if the flight stops reporting mid-playback.
+    var spriteKey: String
+
+    init(coordinate: CLLocationCoordinate2D, heading: Double, spriteKey: String) {
+        self.storedCoordinate = coordinate
+        self.heading = heading
+        self.spriteKey = spriteKey
+        super.init()
+    }
+}

@@ -28,6 +28,10 @@ struct ContentView: View {
     @StateObject private var weather = WeatherModel()
     @State private var isWeatherExpanded = false
 
+    /// Playback of the open aircraft's own track, started from the window and
+    /// watched on the map.
+    @StateObject private var replay = FlightReplay()
+
     private var theme: FlightInfoTheme { appearance.theme }
 
     private var peakDetent: PresentationDetent { .height(peakHeight) }
@@ -73,7 +77,8 @@ struct ContentView: View {
                 flights: visibleFlights,
                 selection: $selection,
                 command: mapCommand,
-                bottomInset: selection == nil ? MapToolbar.reservedHeight : peakHeight
+                bottomInset: selection == nil ? MapToolbar.reservedHeight : peakHeight,
+                replayFrame: replay.frame
             )
             .ignoresSafeArea()
 
@@ -98,9 +103,17 @@ struct ContentView: View {
 
             mapControls
             mapToolbar
+            replayBar
         }
         .animation(.easeInOut(duration: 0.22), value: selection?.id)
+        .animation(.easeInOut(duration: 0.22), value: replay.isActive)
         .onChange(of: selection?.id) { _, id in
+            // A replay belongs to the aircraft it was started from, and to the
+            // window that drew the track under it. Opening another aircraft,
+            // or closing the window, ends it rather than leaving a ghost
+            // flying a path nothing on screen refers to.
+            if replay.isActive, id != replay.flightId { replay.stop() }
+
             detent = peakDetent
 
             if id == nil {
@@ -129,7 +142,11 @@ struct ContentView: View {
             case .flight:
                 Group {
                     if let selected = selection {
-                        FlightDetailView(flightId: selected.id, peakHeight: $peakHeight)
+                        FlightDetailView(
+                            flightId: selected.id,
+                            peakHeight: $peakHeight,
+                            onReplay: { track in startReplay(of: selected.id, track: track) }
+                        )
                             // Resets the window's own state per aircraft
                             // without taking the sheet down with it.
                             .id(selected.id)
@@ -201,6 +218,38 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Replay
+
+    /// Starts playback and gets out of its way: the window drops back to its
+    /// peak so the map — which is the thing being watched — is most of the
+    /// screen, and the camera is put on the start of the track.
+    private func startReplay(of flightId: String, track: [TrackPoint]) {
+        guard track.count >= FlightReplay.minimumPoints else { return }
+
+        let title = feed.flights.first { $0.id == flightId }?.displayName ?? "Flight"
+        replay.start(flightId: flightId, title: title, points: track)
+
+        detent = peakDetent
+
+        if let first = track.first {
+            focus(on: first.coordinate, spanMeters: 320_000)
+        }
+    }
+
+    @ViewBuilder
+    private var replayBar: some View {
+        if replay.isActive {
+            ReplayBar(replay: replay, theme: theme)
+                .padding(.horizontal, 14)
+                // Clears the info window when one is open, and the bottom of
+                // the screen when the replay has outlived it.
+                .padding(.bottom, selection == nil ? 6 : peakHeight + 14)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .ignoresSafeArea(.keyboard, edges: .bottom)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+        }
+    }
+
     private func focus(on coordinate: CLLocationCoordinate2D, spanMeters: Double) {
         mapCommand = MapCommand(
             kind: .focus(
@@ -248,9 +297,12 @@ struct ContentView: View {
 
     /// Sits above the peak state while an aircraft is open. At the full window
     /// the sheet covers this corner anyway, so there is nothing to hide.
+    ///
+    /// A running replay takes the corner: it is driving the camera itself, and
+    /// its bar wants the room these buttons would be sitting in.
     @ViewBuilder
     private var mapControls: some View {
-        if selection != nil {
+        if selection != nil, !replay.isActive {
             // One grouped control rather than free-floating circles: it reads
             // as part of the window's chrome instead of two loose buttons.
             VStack(spacing: 0) {

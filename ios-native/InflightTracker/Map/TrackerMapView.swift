@@ -17,6 +17,11 @@ struct TrackerMapView: UIViewRepresentable {
     /// framed route isn't hidden behind it.
     var bottomInset: CGFloat = 0
 
+    /// Where the replay has got to, when one is running. The map draws a
+    /// second aircraft at this position, riding the track the selected flight
+    /// has already flown.
+    var replayFrame: FlightReplay.Frame?
+
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeUIView(context: Context) -> MKMapView {
@@ -46,6 +51,11 @@ struct TrackerMapView: UIViewRepresentable {
             forAnnotationViewWithReuseIdentifier: Coordinator.reuseIdentifier
         )
 
+        mapView.register(
+            MKAnnotationView.self,
+            forAnnotationViewWithReuseIdentifier: Coordinator.replayReuseIdentifier
+        )
+
         return mapView
     }
 
@@ -54,6 +64,7 @@ struct TrackerMapView: UIViewRepresentable {
         context.coordinator.sync(flights: flights, on: mapView)
         context.coordinator.syncSelection(selection, on: mapView)
         context.coordinator.syncRoute(on: mapView)
+        context.coordinator.syncReplay(on: mapView)
         context.coordinator.handle(command, on: mapView)
     }
 
@@ -62,6 +73,7 @@ struct TrackerMapView: UIViewRepresentable {
     final class Coordinator: NSObject, MKMapViewDelegate {
 
         static let reuseIdentifier = "flight"
+        static let replayReuseIdentifier = "replay"
 
         var parent: TrackerMapView
 
@@ -78,6 +90,9 @@ struct TrackerMapView: UIViewRepresentable {
         /// rebuilt when the trail actually grows.
         private var renderedRouteKey: String?
         private var routeOverlays: [MKPolyline] = []
+
+        /// The replay's aircraft, while one is playing.
+        private var replayAnnotation: ReplayAnnotation?
 
         private var handledCommand: UUID?
 
@@ -309,6 +324,78 @@ struct TrackerMapView: UIViewRepresentable {
         static let flownTitle = "flown"
         static let plannedTitle = "planned"
 
+        // MARK: Replay
+
+        /// The aircraft the replay is currently drawing, moved rather than
+        /// replaced on each frame — `coordinate` is KVO-observed by MapKit, so
+        /// assigning it slides the view instead of removing and re-adding an
+        /// annotation twenty times a second.
+        func syncReplay(on mapView: MKMapView) {
+            guard let frame = parent.replayFrame else {
+                if let existing = replayAnnotation {
+                    mapView.removeAnnotation(existing)
+                    replayAnnotation = nil
+                }
+                return
+            }
+
+            // The replayed aircraft is the open one; its key is held on the
+            // annotation so the sprite survives the flight dropping out of the
+            // feed part way through a playback.
+            let spriteKey = selectedFlight()?.spriteKey
+
+            if let existing = replayAnnotation {
+                existing.coordinate = frame.coordinate
+                existing.heading = frame.heading
+                if let spriteKey = spriteKey { existing.spriteKey = spriteKey }
+
+                if let view = mapView.view(for: existing) {
+                    apply(replay: existing, to: view)
+                }
+            } else {
+                let annotation = ReplayAnnotation(
+                    coordinate: frame.coordinate,
+                    heading: frame.heading,
+                    spriteKey: spriteKey ?? ""
+                )
+                replayAnnotation = annotation
+                mapView.addAnnotation(annotation)
+            }
+
+            keepReplayInView(frame.coordinate, on: mapView)
+        }
+
+        /// Pans to follow the replay, but only once it has left the middle of
+        /// the map. Re-centring on every frame would take the map away from
+        /// wherever the user had just dragged it.
+        private func keepReplayInView(_ coordinate: CLLocationCoordinate2D, on mapView: MKMapView) {
+            let point = MKMapPoint(coordinate)
+            let visible = mapView.visibleMapRect
+
+            // The middle half. Inside it, the aircraft is comfortably on
+            // screen and the map is left alone.
+            let comfortable = visible.insetBy(
+                dx: visible.width * 0.25,
+                dy: visible.height * 0.25
+            )
+
+            guard !comfortable.contains(point) else { return }
+
+            let rect = MKMapRect(
+                x: point.x - visible.width / 2,
+                y: point.y - visible.height / 2,
+                width: visible.width,
+                height: visible.height
+            )
+
+            mapView.setVisibleMapRect(rect, edgePadding: edgeInsets(), animated: true)
+        }
+
+        private func apply(replay annotation: ReplayAnnotation, to view: MKAnnotationView) {
+            view.image = PlaneSprites.shared.icon(forKey: annotation.spriteKey, selected: true)
+            view.transform = CGAffineTransform(rotationAngle: CGFloat(annotation.heading) * .pi / 180)
+        }
+
         // MARK: Camera
 
         func handle(_ command: MapCommand?, on mapView: MKMapView) {
@@ -449,6 +536,22 @@ struct TrackerMapView: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
+            if let replay = annotation as? ReplayAnnotation {
+                let view = mapView.dequeueReusableAnnotationView(
+                    withIdentifier: Coordinator.replayReuseIdentifier,
+                    for: replay
+                )
+                view.canShowCallout = false
+                view.displayPriority = .required
+                // Never hidden behind live traffic: the replay is the thing
+                // being watched.
+                view.zPriority = .max
+                view.isEnabled = false
+
+                apply(replay: replay, to: view)
+                return view
+            }
+
             guard let flightAnnotation = annotation as? FlightAnnotation else { return nil }
 
             let view = mapView.dequeueReusableAnnotationView(

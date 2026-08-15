@@ -37,6 +37,11 @@ struct FlightDetailView: View {
     /// peak state's content, instead of leaving a band of empty sheet below it.
     @Binding var peakHeight: CGFloat
 
+    /// Asked for from the window, carried out by the map: the replay needs the
+    /// sheet out of the way and the map free, neither of which is this view's
+    /// to arrange.
+    var onReplay: ([TrackPoint]) -> Void = { _ in }
+
     private var theme: FlightInfoTheme { appearance.theme }
 
     private var flight: Flight? {
@@ -233,6 +238,14 @@ struct FlightDetailView: View {
                         registration: registration(for: flight),
                         theme: theme
                     )
+
+                    FlightActionRow(
+                        flight: flight,
+                        theme: theme,
+                        track: track,
+                        onReplay: { onReplay(track) }
+                    )
+
                     situationCard(for: flight)
                     telemetry(for: flight)
 
