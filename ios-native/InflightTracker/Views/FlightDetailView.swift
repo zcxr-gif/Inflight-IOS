@@ -388,9 +388,10 @@ struct FlightDetailView: View {
     }
 }
 
-/// Sheet chrome. The blur has to be the *sheet's* background rather than a
-/// layer inside the content — a material inside a sheet whose background was
-/// cleared has nothing behind it to sample and renders as a black slab.
+/// Sheet chrome. The glass has to be the *sheet's* background rather than a
+/// layer inside the content — anything that samples what is behind it, drawn
+/// inside a sheet whose background was cleared, has nothing to sample and
+/// renders as a black slab.
 private struct FlightInfoWindowChrome: ViewModifier {
 
     let theme: FlightInfoTheme

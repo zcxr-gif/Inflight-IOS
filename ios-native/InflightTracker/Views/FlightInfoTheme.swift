@@ -69,9 +69,11 @@ enum FlightInfoPeakStyle: String, CaseIterable, Identifiable {
 /// branches on which theme is in use.
 struct FlightInfoTheme {
 
-    /// Blur used for the sheet's own background. `nil` is the opaque fallback,
-    /// which is what glass-off resolves to.
-    let material: Material?
+    /// Whether this theme is drawn on glass. Every surface in the window and
+    /// every piece of chrome over the map branches on this one flag, so the two
+    /// looks can't drift apart — glass off is flat carbon, everywhere, in one
+    /// step.
+    let isGlass: Bool
 
     /// Opaque sheet ground, used when glass is off and on iOS versions with no
     /// `presentationBackground`.
@@ -133,15 +135,24 @@ struct FlightInfoTheme {
     /// The sheet's own background.
     ///
     /// This has to be the *sheet's* background rather than a layer inside the
-    /// content: a material only blurs what sits behind it in the same render
-    /// tree, so a material drawn inside a sheet whose background was cleared
+    /// content: anything that samples what is behind it only sees its own
+    /// render tree, so a blur drawn inside a sheet whose background was cleared
     /// has nothing to sample and renders as a near-black slab.
+    ///
+    /// The ground is the system's glass rather than a material. A material
+    /// frosts what is behind it — it takes the map and turns it into fog, which
+    /// is what made the window read as a slab however far the tint came down.
+    /// Glass lenses instead: the map stays legible through it, and the window
+    /// behaves like the floating chrome around it, which has been glass all
+    /// along. The carbon underneath is a legibility floor rather than a colour —
+    /// white text has to survive a snowfield and a daylight ocean — and it is
+    /// the one number to raise if any of it turns out to be too thin to read.
     @ViewBuilder
     var sheetBackground: some View {
-        if let material = material {
+        if isGlass {
             Rectangle()
-                .fill(material)
-                .overlay { Rectangle().fill(scrim) }
+                .fill(windowFill.opacity(0.1))
+                .glassEffect(.regular.tint(scrim), in: Rectangle())
         } else {
             Rectangle().fill(windowFill)
         }
@@ -156,10 +167,10 @@ struct FlightInfoTheme {
     /// a wash rather than a coat — and the strokes are brighter to give each
     /// surface the lit edge glass has.
     static let glass = FlightInfoTheme(
-        material: .ultraThinMaterial,
+        isGlass: true,
         windowFill: Color(red: 0.09, green: 0.09, blue: 0.11),
         scrim: Color.black.opacity(0.06),
-        chromeTint: Color(red: 0.09, green: 0.09, blue: 0.11).opacity(0.16),
+        chromeTint: Color(red: 0.09, green: 0.09, blue: 0.11).opacity(0.12),
         surfaceTint: Color.white.opacity(0.04),
         elevatedTint: Color.white.opacity(0.09),
         surfaceFill: Color.white.opacity(0.08),
@@ -175,7 +186,7 @@ struct FlightInfoTheme {
     )
 
     static let solid = FlightInfoTheme(
-        material: nil,
+        isGlass: false,
         windowFill: Color(red: 0.09, green: 0.09, blue: 0.11),
         scrim: .clear,
         chromeTint: .clear,
@@ -221,7 +232,7 @@ struct FlightInfoSurfaceModifier: ViewModifier {
     /// differs: these already sit on the window's ground, so they need much
     /// less of it.
     func body(content: Content) -> some View {
-        if theme.material != nil {
+        if theme.isGlass {
             content.glassEffect(
                 .regular.tint(elevated ? theme.elevatedTint : theme.surfaceTint),
                 in: shape
@@ -308,7 +319,7 @@ extension View {
     /// as one design. Glass-off falls back to the flat carbon surface.
     @ViewBuilder
     func flightInfoChrome(_ theme: FlightInfoTheme, in shape: some Shape) -> some View {
-        if theme.material != nil {
+        if theme.isGlass {
             glassEffect(.regular.tint(theme.chromeTint), in: shape)
         } else {
             background { shape.fill(theme.windowFill) }
