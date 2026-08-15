@@ -144,14 +144,19 @@ struct FlightInfoTheme {
     /// is what made the window read as a slab however far the tint came down.
     /// Glass lenses instead: the map stays legible through it, and the window
     /// behaves like the floating chrome around it, which has been glass all
-    /// along. The carbon underneath is a legibility floor rather than a colour —
-    /// white text has to survive a snowfield and a daylight ocean — and it is
-    /// the one number to raise if any of it turns out to be too thin to read.
+    /// along.
+    ///
+    /// The carbon underneath is down to a trace — 3% — so the glass itself is
+    /// doing essentially all of the work and the map reads clearly through the
+    /// window. That leaves white text leaning on the system's own adaptive
+    /// dimming rather than on a ground of our own, which is the deliberate
+    /// trade: this is the number to raise if a caption ever gets lost over
+    /// snow or a bright ocean.
     @ViewBuilder
     var sheetBackground: some View {
         if isGlass {
             Rectangle()
-                .fill(windowFill.opacity(0.1))
+                .fill(windowFill.opacity(0.03))
                 .glassEffect(.regular.tint(scrim), in: Rectangle())
         } else {
             Rectangle().fill(windowFill)
