@@ -1,11 +1,13 @@
 import SwiftUI
 
-/// The four places the toolbar goes.
+/// The five places the toolbar goes.
 ///
-/// Ordered as they are read: what is happening on the server, then what the map
-/// is showing, then how it reads, then the app itself.
+/// Ordered as they are read: who you came to see, then what is happening on
+/// the server, then what the map is showing, then how it reads, then the app
+/// itself. Friends leads because it is the only one that is about a person.
 enum MapPanelKind: String, Identifiable, CaseIterable {
 
+    case friends
     case atc
     case filters
     case weather
@@ -15,6 +17,7 @@ enum MapPanelKind: String, Identifiable, CaseIterable {
 
     var label: String {
         switch self {
+        case .friends: return "Friends"
         case .atc: return "ATC"
         case .filters: return "Filters"
         case .weather: return "Weather"
@@ -24,6 +27,7 @@ enum MapPanelKind: String, Identifiable, CaseIterable {
 
     var symbol: String {
         switch self {
+        case .friends: return "person.2.fill"
         case .atc: return "antenna.radiowaves.left.and.right"
         case .filters: return "line.3.horizontal.decrease"
         case .weather: return "cloud.sun.fill"
@@ -56,6 +60,10 @@ struct MapToolbar: View {
     /// out on the bar itself — the point is that the map is not showing
     /// everything.
     let activeFilters: Int
+
+    /// Watched pilots currently in the air. Badged for the same reason ATC is:
+    /// it is the one number you would open the panel to find out.
+    let friendsAloft: Int
 
     let action: (MapPanelKind) -> Void
 
@@ -103,6 +111,15 @@ struct MapToolbar: View {
     @ViewBuilder
     private func badge(for kind: MapPanelKind) -> some View {
         switch kind {
+        case .friends where friendsAloft > 0:
+            Text(friendsAloft > 99 ? "99+" : "\(friendsAloft)")
+                .font(.system(size: 8.5, weight: .bold))
+                .foregroundStyle(theme.onAccent)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1.5)
+                .background { Capsule().fill(theme.accent) }
+                .fixedSize()
+
         case .atc where atcCount > 0:
             Text(atcCount > 99 ? "99+" : "\(atcCount)")
                 .font(.system(size: 8.5, weight: .bold))
@@ -124,6 +141,8 @@ struct MapToolbar: View {
 
     private func accessibilityLabel(for kind: MapPanelKind) -> String {
         switch kind {
+        case .friends where friendsAloft > 0:
+            return "Friends, \(friendsAloft) flying"
         case .atc where atcCount > 0:
             return "ATC, \(atcCount) positions open"
         case .filters where activeFilters > 0:

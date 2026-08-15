@@ -12,6 +12,12 @@ workflows:
       # Same bundle identifier the Capacitor build shipped under, so the
       # existing App Store Connect record, certificates and TestFlight train
       # keep working with no manual setup.
+      #
+      # The match is a prefix rather than exact, so the widget extension
+      # (com.tracker.Inflight.widgets) is signed from the same fetch. Both App
+      # IDs need App Groups enabled in the developer portal, and the app's
+      # needs Push Notifications — see ios-native/NOTIFICATIONS.md. Signing
+      # fails with a missing-profile error until they are.
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.tracker.Inflight
@@ -96,6 +102,33 @@ workflows:
           for RESOURCE in markers.png sprite-uvs.json airports.txt; do
             if ! grep -q "$RESOURCE" "$XCODE_PROJECT/project.pbxproj"; then
               echo "FATAL: $RESOURCE is not part of the app target."
+              exit 1
+            fi
+          done
+
+          # The widget extension has to be generated AND embedded. An extension
+          # that builds but isn't embedded produces a perfectly successful
+          # build with no widgets in the gallery and no Live Activity — the
+          # failure is entirely invisible until someone installs the build and
+          # goes looking for a tile that was never in the .ipa.
+          if ! grep -q 'InflightWidgets.appex' "$XCODE_PROJECT/project.pbxproj"; then
+            echo "FATAL: the InflightWidgets extension is missing from the project."
+            exit 1
+          fi
+          # dstSubfolderSpec 13 is PlugIns — the copy phase that actually puts
+          # the .appex inside the .app. Matched on the spec rather than the
+          # phase's name, which Xcode has renamed between versions.
+          if ! grep -q 'dstSubfolderSpec = 13' "$XCODE_PROJECT/project.pbxproj"; then
+            echo "FATAL: InflightWidgets is not embedded in the app."
+            exit 1
+          fi
+
+          # Both targets need the app group, and they need the SAME one: the
+          # widgets read the flight the app wrote, so a mismatch renders the
+          # empty state forever without erroring anywhere.
+          for ENTITLEMENTS in Support/InflightTracker.entitlements Support/InflightWidgets.entitlements; do
+            if ! grep -q 'group.com.tracker.Inflight' "$ENTITLEMENTS"; then
+              echo "FATAL: $ENTITLEMENTS is missing the shared app group."
               exit 1
             fi
           done

@@ -246,6 +246,8 @@ struct FlightDetailView: View {
                         onReplay: { onReplay(track) }
                     )
 
+                    FlightWatchRow(flight: flight, theme: theme)
+
                     situationCard(for: flight)
                     telemetry(for: flight)
 

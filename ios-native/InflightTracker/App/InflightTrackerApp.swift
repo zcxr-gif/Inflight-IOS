@@ -3,6 +3,11 @@ import SwiftUI
 @main
 struct InflightTrackerApp: App {
 
+    /// APNs hands device tokens and notification taps to a
+    /// `UIApplicationDelegate` and nowhere else, so the SwiftUI app keeps one
+    /// for that alone — see `AppDelegate` in PushService.swift.
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
     @StateObject private var feed = LiveFeed()
 
     init() {
