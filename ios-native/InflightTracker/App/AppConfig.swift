@@ -46,6 +46,29 @@ enum AppConfig {
     /// but the annotation view is big enough to be tapped comfortably.
     static let iconCanvasSize: CGFloat = 44
 
-    /// Aircraft older than this are dropped from the map.
-    static let staleFlightInterval: TimeInterval = 300
+    /// How long an aircraft that has stopped appearing in the feed keeps its
+    /// place on the map.
+    ///
+    /// The backend drops an aircraft from the odd packet and has it back in the
+    /// next one. Removing it the moment it goes missing and adding it again a
+    /// few seconds later is the blink that made traffic look like it was
+    /// popping in and out; holding its last position for a few packets costs
+    /// nothing and covers the gap. Long enough to ride out a stutter, short
+    /// enough that an aircraft which has actually landed doesn't hang about.
+    static let flightGracePeriod: TimeInterval = 30
+
+    /// Fraction of the visible span, beyond the edge of the screen, within
+    /// which an aircraft is added to the map.
+    ///
+    /// Generous on purpose: the map is loaded well past what it is showing, so
+    /// a pan reveals aircraft that are already drawn instead of waiting for the
+    /// next cull to put them there.
+    static let flightAddMargin: Double = 0.9
+
+    /// The same boundary for *keeping* an aircraft that is already drawn.
+    ///
+    /// Wider than the add margin, and that gap is the point: with one shared
+    /// boundary, an aircraft sitting on it — or the map's own region jittering
+    /// across it — flips between added and removed on consecutive passes.
+    static let flightKeepMargin: Double = 1.35
 }

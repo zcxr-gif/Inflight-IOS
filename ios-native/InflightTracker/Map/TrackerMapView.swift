@@ -79,6 +79,13 @@ struct TrackerMapView: UIViewRepresentable {
 
         private var annotations: [String: FlightAnnotation] = [:]
 
+        /// When each drawn aircraft was last in a packet, so one the feed skips
+        /// for a moment can be held rather than removed and re-added.
+        private var lastSeen: [String: Date] = [:]
+
+        /// Throttle for the re-cull that runs *during* a drag.
+        private var lastLiveCull = Date.distantPast
+
         /// Set while MapKit's own selection callbacks are being handled, so we
         /// don't bounce the change straight back into the map.
         private var isApplyingSelection = false
@@ -103,12 +110,14 @@ struct TrackerMapView: UIViewRepresentable {
         // MARK: Annotation syncing
 
         func sync(flights: [Flight], on mapView: MKMapView) {
-            let visible = Self.cull(flights: flights, to: mapView)
+            let now = Date()
+            let visible = cull(flights: flights, to: mapView)
             var seen = Set<String>()
             var additions: [FlightAnnotation] = []
 
             for flight in visible {
                 seen.insert(flight.id)
+                lastSeen[flight.id] = now
 
                 if let existing = annotations[flight.id] {
                     if existing.update(with: flight) {
@@ -121,15 +130,35 @@ struct TrackerMapView: UIViewRepresentable {
                 }
             }
 
-            // Anything that left the viewport, went stale, or is the aircraft
-            // the user is currently reading about (kept so the sheet's target
-            // doesn't vanish underneath them).
+            // An aircraft still in the packet but outside the keep margin has
+            // been culled deliberately: it is off screen, so dropping it now
+            // costs nothing to look at. One that has vanished from the packet
+            // altogether is a different case — the feed skips an aircraft for a
+            // packet or two and has it back, and removing it in the gap is
+            // exactly the blink this is here to stop. Those keep their last
+            // position until the grace period is up.
             let selectedId = parent.selection?.id
-            let removals = annotations.filter { !seen.contains($0.key) && $0.key != selectedId }
+            let reported = Set(flights.map(\.id))
+
+            var removals: [FlightAnnotation] = []
+
+            for (id, annotation) in annotations {
+                guard id != selectedId, !seen.contains(id) else { continue }
+
+                if !reported.contains(id),
+                   now.timeIntervalSince(lastSeen[id] ?? .distantPast) < AppConfig.flightGracePeriod {
+                    continue
+                }
+
+                removals.append(annotation)
+            }
 
             if !removals.isEmpty {
-                mapView.removeAnnotations(Array(removals.values))
-                for key in removals.keys { annotations.removeValue(forKey: key) }
+                mapView.removeAnnotations(removals)
+                for annotation in removals {
+                    annotations.removeValue(forKey: annotation.flightId)
+                    lastSeen.removeValue(forKey: annotation.flightId)
+                }
             }
 
             if !additions.isEmpty {
@@ -139,36 +168,61 @@ struct TrackerMapView: UIViewRepresentable {
 
         /// Keeps MapKit's workload bounded: viewport first, then the aircraft
         /// nearest the centre of the map.
-        private static func cull(flights: [Flight], to mapView: MKMapView) -> [Flight] {
+        ///
+        /// Two things here exist to stop traffic flickering. The boundary is
+        /// hysteretic — an aircraft has to come well inside the view to be
+        /// added, and travel well outside it to be dropped — so nothing sitting
+        /// on the edge can flip on every pass. And when there is more traffic
+        /// than the cap allows, aircraft already on the map are scored as
+        /// nearer than they are, so the cap keeps the set it has rather than
+        /// re-picking its winners every packet and swapping out everything near
+        /// the cut.
+        private func cull(flights: [Flight], to mapView: MKMapView) -> [Flight] {
             let region = mapView.region
             guard region.span.latitudeDelta.isFinite, region.span.longitudeDelta.isFinite else {
                 return Array(flights.prefix(AppConfig.maxRenderedFlights))
             }
 
-            // A little margin so aircraft don't pop in at the very edge.
-            let latitudeMargin = region.span.latitudeDelta * 0.6
-            let longitudeMargin = region.span.longitudeDelta * 0.6
             let center = region.center
+            let addLatitude = region.span.latitudeDelta * AppConfig.flightAddMargin
+            let addLongitude = region.span.longitudeDelta * AppConfig.flightAddMargin
+            let keepLatitude = region.span.latitudeDelta * AppConfig.flightKeepMargin
+            let keepLongitude = region.span.longitudeDelta * AppConfig.flightKeepMargin
 
-            let inView = flights.filter { flight in
-                abs(flight.latitude - center.latitude) <= latitudeMargin
-                    && longitudeDelta(flight.longitude, center.longitude) <= longitudeMargin
+            var candidates: [(flight: Flight, score: Double)] = []
+            candidates.reserveCapacity(min(flights.count, AppConfig.maxRenderedFlights * 2))
+
+            for flight in flights {
+                let deltaLatitude = abs(flight.latitude - center.latitude)
+                let deltaLongitude = Self.longitudeDelta(flight.longitude, center.longitude)
+
+                let isDrawn = annotations[flight.id] != nil
+                let latitudeLimit = isDrawn ? keepLatitude : addLatitude
+                let longitudeLimit = isDrawn ? keepLongitude : addLongitude
+
+                guard deltaLatitude <= latitudeLimit, deltaLongitude <= longitudeLimit else { continue }
+
+                let distance = deltaLatitude * deltaLatitude + deltaLongitude * deltaLongitude
+                // A discount rather than absolute priority: an aircraft much
+                // closer to the middle still takes a slot from one already
+                // drawn out near the edge.
+                candidates.append((flight, isDrawn ? distance * Self.drawnAdvantage : distance))
             }
 
-            guard inView.count > AppConfig.maxRenderedFlights else { return inView }
-
-            return inView.sorted { first, second in
-                Self.squaredDistance(first, center) < Self.squaredDistance(second, center)
+            guard candidates.count > AppConfig.maxRenderedFlights else {
+                return candidates.map(\.flight)
             }
-            .prefix(AppConfig.maxRenderedFlights)
-            .map { $0 }
+
+            return candidates
+                .sorted { $0.score < $1.score }
+                .prefix(AppConfig.maxRenderedFlights)
+                .map(\.flight)
         }
 
-        private static func squaredDistance(_ flight: Flight, _ center: CLLocationCoordinate2D) -> Double {
-            let deltaLat = flight.latitude - center.latitude
-            let deltaLon = longitudeDelta(flight.longitude, center.longitude)
-            return deltaLat * deltaLat + deltaLon * deltaLon
-        }
+        /// How much of a head start an aircraft already on the map gets when
+        /// the cap has to choose. Enough to stop the set churning, not enough
+        /// to wall out traffic that has flown into the middle of the view.
+        private static let drawnAdvantage: Double = 0.6
 
         /// Shortest angular distance between two longitudes, so traffic either
         /// side of the antimeridian isn't treated as half a world away.
@@ -592,6 +646,20 @@ struct TrackerMapView: UIViewRepresentable {
             parent.selection = nil
             isApplyingSelection = false
         }
+
+        /// Fires continuously through a drag or a pinch, which is the point:
+        /// waiting for the gesture to end meant aircraft arrived in a batch
+        /// once the map settled, and a pan into empty sky stayed empty until
+        /// you let go. Throttled, since this can fire every frame.
+        func mapViewDidChangeVisibleRegion(_ mapView: MKMapView) {
+            let now = Date()
+            guard now.timeIntervalSince(lastLiveCull) >= Self.liveCullInterval else { return }
+            lastLiveCull = now
+
+            sync(flights: parent.flights, on: mapView)
+        }
+
+        private static let liveCullInterval: TimeInterval = 0.25
 
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
             // Re-cull for the new viewport using the traffic we already have.
