@@ -14,24 +14,39 @@ struct WeatherChip: View {
 
     @Binding var isExpanded: Bool
 
+    @ObservedObject private var preferences = WeatherPreferences.shared
+
+    /// What opening the chip shows. With route ends turned off it is only ever
+    /// about the field being passed — and one station is the collapsed chip
+    /// again, so there is nothing to open into.
     private var stations: [WeatherModel.Station] {
-        [model.nearby, model.departure, model.arrival].compactMap { $0 }
+        guard preferences.showsRouteEnds else { return [] }
+        return [model.nearby, model.departure, model.arrival].compactMap { $0 }
     }
+
+    /// There is only something to open into when the chip would say more than
+    /// it already does — a route with both ends filed. One station is the
+    /// collapsed chip over again, so it stays shut and stops being a button.
+    private var isExpandable: Bool { stations.count >= 2 }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let nearby = model.nearby {
-                Button {
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) {
-                        isExpanded.toggle()
+                if isExpandable {
+                    Button {
+                        withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) {
+                            isExpanded.toggle()
+                        }
+                    } label: {
+                        summary(for: nearby)
                     }
-                } label: {
+                    .buttonStyle(.plain)
+                } else {
                     summary(for: nearby)
                 }
-                .buttonStyle(.plain)
             }
 
-            if isExpanded, !stations.isEmpty {
+            if isExpanded, isExpandable {
                 expanded
             }
         }
@@ -48,7 +63,7 @@ struct WeatherChip: View {
                 .foregroundStyle(theme.textPrimary)
                 .frame(width: 22)
 
-            Text(station.metar?.temperatureLabel ?? "—")
+            Text(station.metar?.temperatureLabel(in: preferences.temperatureUnit) ?? "—")
                 .font(.system(size: 19, weight: .bold, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
                 .fixedSize()
@@ -58,7 +73,7 @@ struct WeatherChip: View {
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(theme.textSecondary)
 
-                Text(station.metar?.windLabel ?? station.airport.name)
+                Text(station.metar?.windLabel(in: preferences.windUnit) ?? station.airport.name)
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .flightInfoLine(minimumScale: 0.8)
@@ -118,7 +133,7 @@ struct WeatherChip: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text(station.metar?.temperatureLabel ?? "—")
+            Text(station.metar?.temperatureLabel(in: preferences.temperatureUnit) ?? "—")
                 .font(.system(size: 16, weight: .bold, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
                 .fixedSize()
@@ -146,7 +161,7 @@ struct WeatherChip: View {
 
     private func detail(for station: WeatherModel.Station) -> String {
         guard let metar = station.metar else { return station.airport.name }
-        return "\(metar.conditionLabel) · \(metar.windLabel)"
+        return "\(metar.conditionLabel) · \(metar.windLabel(in: preferences.windUnit))"
     }
 
 }

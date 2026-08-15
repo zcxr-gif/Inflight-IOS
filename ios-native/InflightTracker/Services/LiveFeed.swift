@@ -5,8 +5,9 @@ import SocketIO
 ///
 /// Mirrors what `initializeSectorOpsSocket()` does in the web tracker:
 /// connect, `emit("join_server_room", <server>)`, then listen for
-/// `all_flights_update`. Payloads are decoded off the main thread and only
-/// the finished array is published back to SwiftUI.
+/// `all_flights_update` and `secondary_data_update` — traffic on one channel,
+/// the controllers working it on the other. Payloads are decoded off the main
+/// thread and only the finished arrays are published back to SwiftUI.
 final class LiveFeed: ObservableObject {
 
     enum Status: Equatable {
@@ -31,9 +32,19 @@ final class LiveFeed: ObservableObject {
     }
 
     @Published private(set) var flights: [Flight] = []
+
+    /// Who is on frequency, grouped by the field or FIR they are working.
+    /// Broadcast on its own channel and on its own schedule, so this updates
+    /// independently of the traffic.
+    @Published private(set) var atcStations: [AtcStation] = []
+
     @Published private(set) var status: Status = .idle
     @Published private(set) var lastUpdate: Date?
     @Published private(set) var server: String
+
+    /// Total positions open, which is what the toolbar badges. Counted here
+    /// rather than by the views, which would each walk the stations to do it.
+    @Published private(set) var atcCount = 0
 
     private var manager: SocketManager?
     private var socket: SocketIOClient?
@@ -110,6 +121,10 @@ final class LiveFeed: ObservableObject {
             self?.handle(data)
         }
 
+        socket.on("secondary_data_update") { [weak self] data, _ in
+            self?.handleSecondary(data)
+        }
+
         self.manager = manager
         self.socket = socket
 
@@ -132,8 +147,11 @@ final class LiveFeed: ObservableObject {
         room = newServer
         UserDefaults.standard.set(newServer, forKey: AppConfig.serverDefaultsKey)
 
-        // Traffic from the previous room is no longer relevant.
+        // Traffic from the previous room is no longer relevant, and neither is
+        // who was controlling it.
         flights = []
+        atcStations = []
+        atcCount = 0
         status = .connecting
 
         socket?.emit("join_server_room", newServer)
@@ -168,6 +186,40 @@ final class LiveFeed: ObservableObject {
             feed.flights = parsed
             feed.lastUpdate = Date()
             feed.status = .live
+        }
+    }
+
+    /// `secondary_data_update`: the controllers currently open on this server.
+    ///
+    /// Same room guard as the traffic — the socket keeps delivering the old
+    /// room's packets for a moment after a switch, and a list of controllers
+    /// working a server you just left is worse than an empty one.
+    private func handleSecondary(_ data: [Any]) {
+        guard let payload = data.first as? [String: Any] else { return }
+
+        if let packetServer = payload["server"] as? String, !packetServer.isEmpty,
+           packetServer.caseInsensitiveCompare(room) != .orderedSame {
+            return
+        }
+
+        guard let rawFacilities = payload["atc"] as? [Any] else { return }
+
+        var parsed: [AtcFacility] = []
+        parsed.reserveCapacity(rawFacilities.count)
+
+        for case let entry as [String: Any] in rawFacilities {
+            if let facility = AtcFacility(payload: entry) { parsed.append(facility) }
+        }
+
+        // Grouped here, on the decode queue, rather than in the panel's body:
+        // the panel is rebuilt on every packet either way, and this is the part
+        // that costs something.
+        let stations = AtcStation.group(parsed)
+        let count = parsed.count
+
+        publish { feed in
+            feed.atcStations = stations
+            feed.atcCount = count
         }
     }
 

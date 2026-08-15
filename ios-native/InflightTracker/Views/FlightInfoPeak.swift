@@ -42,9 +42,12 @@ struct FlightInfoPeak: View {
                 situationCard
             }
             // Clears the drag indicator, which floats over the top of the sheet.
-            .padding(.top, 20)
+            .padding(.top, 18)
             .padding(.horizontal, 16)
-            .padding(.bottom, 14)
+            // Small: the sheet adds `peakBottomGap` under this, and the two
+            // together are the whole distance from the card to the bottom of
+            // the window. Anything more here is space with nothing in it.
+            .padding(.bottom, 4)
 
         case .rich:
             rich
@@ -72,7 +75,10 @@ struct FlightInfoPeak: View {
             }
             .padding(.horizontal, 14)
             .padding(.top, -FlightInfoLayout.heroSeamLift)
-            .padding(.bottom, 14)
+            // As with the compact bar: the sheet's own gap finishes this off,
+            // so the card sits close to the bottom edge instead of above a
+            // band of empty window.
+            .padding(.bottom, 4)
         }
     }
 
@@ -101,6 +107,13 @@ struct FlightInfoPeak: View {
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(theme.textSecondary)
                         .flightInfoLine()
+
+                    // Only when it says something. The bar is a photo wide and
+                    // a name long; ACTIVE is the ordinary case and doesn't earn
+                    // the space here the way AWAY or AP+ does.
+                    if flight.pilotState.isNoteworthy {
+                        PilotStateChip(state: flight.pilotState, theme: theme)
+                    }
                 }
 
                 // The aircraft and its livery live at the foot of the route

@@ -17,6 +17,11 @@ struct TrackerMapView: UIViewRepresentable {
     /// framed route isn't hidden behind it.
     var bottomInset: CGFloat = 0
 
+    /// Where the replay has got to, when one is running. The map draws a
+    /// second aircraft at this position, riding the track the selected flight
+    /// has already flown.
+    var replayFrame: FlightReplay.Frame?
+
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeUIView(context: Context) -> MKMapView {
@@ -46,6 +51,11 @@ struct TrackerMapView: UIViewRepresentable {
             forAnnotationViewWithReuseIdentifier: Coordinator.reuseIdentifier
         )
 
+        mapView.register(
+            MKAnnotationView.self,
+            forAnnotationViewWithReuseIdentifier: Coordinator.replayReuseIdentifier
+        )
+
         return mapView
     }
 
@@ -54,6 +64,7 @@ struct TrackerMapView: UIViewRepresentable {
         context.coordinator.sync(flights: flights, on: mapView)
         context.coordinator.syncSelection(selection, on: mapView)
         context.coordinator.syncRoute(on: mapView)
+        context.coordinator.syncReplay(on: mapView)
         context.coordinator.handle(command, on: mapView)
     }
 
@@ -62,10 +73,18 @@ struct TrackerMapView: UIViewRepresentable {
     final class Coordinator: NSObject, MKMapViewDelegate {
 
         static let reuseIdentifier = "flight"
+        static let replayReuseIdentifier = "replay"
 
         var parent: TrackerMapView
 
         private var annotations: [String: FlightAnnotation] = [:]
+
+        /// When each drawn aircraft was last in a packet, so one the feed skips
+        /// for a moment can be held rather than removed and re-added.
+        private var lastSeen: [String: Date] = [:]
+
+        /// Throttle for the re-cull that runs *during* a drag.
+        private var lastLiveCull = Date.distantPast
 
         /// Set while MapKit's own selection callbacks are being handled, so we
         /// don't bounce the change straight back into the map.
@@ -79,6 +98,9 @@ struct TrackerMapView: UIViewRepresentable {
         private var renderedRouteKey: String?
         private var routeOverlays: [MKPolyline] = []
 
+        /// The replay's aircraft, while one is playing.
+        private var replayAnnotation: ReplayAnnotation?
+
         private var handledCommand: UUID?
 
         init(_ parent: TrackerMapView) {
@@ -88,12 +110,14 @@ struct TrackerMapView: UIViewRepresentable {
         // MARK: Annotation syncing
 
         func sync(flights: [Flight], on mapView: MKMapView) {
-            let visible = Self.cull(flights: flights, to: mapView)
+            let now = Date()
+            let visible = cull(flights: flights, to: mapView)
             var seen = Set<String>()
             var additions: [FlightAnnotation] = []
 
             for flight in visible {
                 seen.insert(flight.id)
+                lastSeen[flight.id] = now
 
                 if let existing = annotations[flight.id] {
                     if existing.update(with: flight) {
@@ -106,15 +130,35 @@ struct TrackerMapView: UIViewRepresentable {
                 }
             }
 
-            // Anything that left the viewport, went stale, or is the aircraft
-            // the user is currently reading about (kept so the sheet's target
-            // doesn't vanish underneath them).
+            // An aircraft still in the packet but outside the keep margin has
+            // been culled deliberately: it is off screen, so dropping it now
+            // costs nothing to look at. One that has vanished from the packet
+            // altogether is a different case — the feed skips an aircraft for a
+            // packet or two and has it back, and removing it in the gap is
+            // exactly the blink this is here to stop. Those keep their last
+            // position until the grace period is up.
             let selectedId = parent.selection?.id
-            let removals = annotations.filter { !seen.contains($0.key) && $0.key != selectedId }
+            let reported = Set(flights.map(\.id))
+
+            var removals: [FlightAnnotation] = []
+
+            for (id, annotation) in annotations {
+                guard id != selectedId, !seen.contains(id) else { continue }
+
+                if !reported.contains(id),
+                   now.timeIntervalSince(lastSeen[id] ?? .distantPast) < AppConfig.flightGracePeriod {
+                    continue
+                }
+
+                removals.append(annotation)
+            }
 
             if !removals.isEmpty {
-                mapView.removeAnnotations(Array(removals.values))
-                for key in removals.keys { annotations.removeValue(forKey: key) }
+                mapView.removeAnnotations(removals)
+                for annotation in removals {
+                    annotations.removeValue(forKey: annotation.flightId)
+                    lastSeen.removeValue(forKey: annotation.flightId)
+                }
             }
 
             if !additions.isEmpty {
@@ -122,37 +166,40 @@ struct TrackerMapView: UIViewRepresentable {
             }
         }
 
-        /// Keeps MapKit's workload bounded: viewport first, then the aircraft
-        /// nearest the centre of the map.
-        private static func cull(flights: [Flight], to mapView: MKMapView) -> [Flight] {
+        /// Everything within reach of the viewport — all of it.
+        ///
+        /// There is no ceiling on how many aircraft the map will draw: if the
+        /// server has two thousand aeroplanes in view, the map has two thousand
+        /// aeroplanes on it. Culling is by position only, and it exists to keep
+        /// MapKit from holding annotations for traffic on the other side of the
+        /// world rather than to ration what you can see.
+        ///
+        /// The boundary is hysteretic: an aircraft has to come well inside the
+        /// view to be added, and travel well outside it to be dropped, so
+        /// nothing sitting on the edge can flip between the two on consecutive
+        /// passes.
+        private func cull(flights: [Flight], to mapView: MKMapView) -> [Flight] {
             let region = mapView.region
             guard region.span.latitudeDelta.isFinite, region.span.longitudeDelta.isFinite else {
-                return Array(flights.prefix(AppConfig.maxRenderedFlights))
+                return flights
             }
 
-            // A little margin so aircraft don't pop in at the very edge.
-            let latitudeMargin = region.span.latitudeDelta * 0.6
-            let longitudeMargin = region.span.longitudeDelta * 0.6
             let center = region.center
+            let addLatitude = region.span.latitudeDelta * AppConfig.flightAddMargin
+            let addLongitude = region.span.longitudeDelta * AppConfig.flightAddMargin
+            let keepLatitude = region.span.latitudeDelta * AppConfig.flightKeepMargin
+            let keepLongitude = region.span.longitudeDelta * AppConfig.flightKeepMargin
 
-            let inView = flights.filter { flight in
-                abs(flight.latitude - center.latitude) <= latitudeMargin
-                    && longitudeDelta(flight.longitude, center.longitude) <= longitudeMargin
+            return flights.filter { flight in
+                let deltaLatitude = abs(flight.latitude - center.latitude)
+                let deltaLongitude = Self.longitudeDelta(flight.longitude, center.longitude)
+
+                // Already on the map, so it is held to the wider boundary.
+                let isDrawn = annotations[flight.id] != nil
+
+                return deltaLatitude <= (isDrawn ? keepLatitude : addLatitude)
+                    && deltaLongitude <= (isDrawn ? keepLongitude : addLongitude)
             }
-
-            guard inView.count > AppConfig.maxRenderedFlights else { return inView }
-
-            return inView.sorted { first, second in
-                Self.squaredDistance(first, center) < Self.squaredDistance(second, center)
-            }
-            .prefix(AppConfig.maxRenderedFlights)
-            .map { $0 }
-        }
-
-        private static func squaredDistance(_ flight: Flight, _ center: CLLocationCoordinate2D) -> Double {
-            let deltaLat = flight.latitude - center.latitude
-            let deltaLon = longitudeDelta(flight.longitude, center.longitude)
-            return deltaLat * deltaLat + deltaLon * deltaLon
         }
 
         /// Shortest angular distance between two longitudes, so traffic either
@@ -309,6 +356,78 @@ struct TrackerMapView: UIViewRepresentable {
         static let flownTitle = "flown"
         static let plannedTitle = "planned"
 
+        // MARK: Replay
+
+        /// The aircraft the replay is currently drawing, moved rather than
+        /// replaced on each frame — `coordinate` is KVO-observed by MapKit, so
+        /// assigning it slides the view instead of removing and re-adding an
+        /// annotation twenty times a second.
+        func syncReplay(on mapView: MKMapView) {
+            guard let frame = parent.replayFrame else {
+                if let existing = replayAnnotation {
+                    mapView.removeAnnotation(existing)
+                    replayAnnotation = nil
+                }
+                return
+            }
+
+            // The replayed aircraft is the open one; its key is held on the
+            // annotation so the sprite survives the flight dropping out of the
+            // feed part way through a playback.
+            let spriteKey = selectedFlight()?.spriteKey
+
+            if let existing = replayAnnotation {
+                existing.coordinate = frame.coordinate
+                existing.heading = frame.heading
+                if let spriteKey = spriteKey { existing.spriteKey = spriteKey }
+
+                if let view = mapView.view(for: existing) {
+                    apply(replay: existing, to: view)
+                }
+            } else {
+                let annotation = ReplayAnnotation(
+                    coordinate: frame.coordinate,
+                    heading: frame.heading,
+                    spriteKey: spriteKey ?? ""
+                )
+                replayAnnotation = annotation
+                mapView.addAnnotation(annotation)
+            }
+
+            keepReplayInView(frame.coordinate, on: mapView)
+        }
+
+        /// Pans to follow the replay, but only once it has left the middle of
+        /// the map. Re-centring on every frame would take the map away from
+        /// wherever the user had just dragged it.
+        private func keepReplayInView(_ coordinate: CLLocationCoordinate2D, on mapView: MKMapView) {
+            let point = MKMapPoint(coordinate)
+            let visible = mapView.visibleMapRect
+
+            // The middle half. Inside it, the aircraft is comfortably on
+            // screen and the map is left alone.
+            let comfortable = visible.insetBy(
+                dx: visible.width * 0.25,
+                dy: visible.height * 0.25
+            )
+
+            guard !comfortable.contains(point) else { return }
+
+            let rect = MKMapRect(
+                x: point.x - visible.width / 2,
+                y: point.y - visible.height / 2,
+                width: visible.width,
+                height: visible.height
+            )
+
+            mapView.setVisibleMapRect(rect, edgePadding: edgeInsets(), animated: true)
+        }
+
+        private func apply(replay annotation: ReplayAnnotation, to view: MKAnnotationView) {
+            view.image = PlaneSprites.shared.icon(forKey: annotation.spriteKey, selected: true)
+            view.transform = CGAffineTransform(rotationAngle: CGFloat(annotation.heading) * .pi / 180)
+        }
+
         // MARK: Camera
 
         func handle(_ command: MapCommand?, on mapView: MKMapView) {
@@ -316,9 +435,61 @@ struct TrackerMapView: UIViewRepresentable {
             handledCommand = command.id
 
             switch command.kind {
-            case .centerOnFlight: center(on: mapView)
-            case .fitRoute: fitRoute(on: mapView)
+            case .centerOnFlight:
+                center(on: mapView)
+            case .fitRoute:
+                fitRoute(on: mapView)
+            case .focus(let latitude, let longitude, let spanMeters):
+                focus(
+                    on: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
+                    spanMeters: spanMeters,
+                    on: mapView
+                )
             }
+        }
+
+        /// Takes the map to somewhere it isn't currently looking — a search
+        /// result, a field with a tower open. Unlike `center`, this sets the
+        /// zoom as well as the position: the whole point is that whatever was
+        /// picked may be nowhere near the current view.
+        private func focus(
+            on coordinate: CLLocationCoordinate2D,
+            spanMeters: Double,
+            on mapView: MKMapView
+        ) {
+            guard coordinate.latitude.isFinite, coordinate.longitude.isFinite else { return }
+
+            let region = MKCoordinateRegion(
+                center: coordinate,
+                latitudinalMeters: spanMeters,
+                longitudinalMeters: spanMeters
+            )
+
+            // Via a map rect rather than `setRegion`, which takes no edge
+            // padding — and the chrome over the bottom of the map is exactly
+            // what the target must not land behind.
+            mapView.setVisibleMapRect(
+                Self.mapRect(for: region),
+                edgePadding: edgeInsets(),
+                animated: true
+            )
+        }
+
+        private static func mapRect(for region: MKCoordinateRegion) -> MKMapRect {
+            let north = min(region.center.latitude + region.span.latitudeDelta / 2, 85)
+            let south = max(region.center.latitude - region.span.latitudeDelta / 2, -85)
+            let west = region.center.longitude - region.span.longitudeDelta / 2
+            let east = region.center.longitude + region.span.longitudeDelta / 2
+
+            let topLeft = MKMapPoint(CLLocationCoordinate2D(latitude: north, longitude: west))
+            let bottomRight = MKMapPoint(CLLocationCoordinate2D(latitude: south, longitude: east))
+
+            return MKMapRect(
+                x: min(topLeft.x, bottomRight.x),
+                y: min(topLeft.y, bottomRight.y),
+                width: abs(bottomRight.x - topLeft.x),
+                height: abs(bottomRight.y - topLeft.y)
+            )
         }
 
         /// Keeps the current zoom and puts the aircraft in the part of the map
@@ -397,6 +568,22 @@ struct TrackerMapView: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
+            if let replay = annotation as? ReplayAnnotation {
+                let view = mapView.dequeueReusableAnnotationView(
+                    withIdentifier: Coordinator.replayReuseIdentifier,
+                    for: replay
+                )
+                view.canShowCallout = false
+                view.displayPriority = .required
+                // Never hidden behind live traffic: the replay is the thing
+                // being watched.
+                view.zPriority = .max
+                view.isEnabled = false
+
+                apply(replay: replay, to: view)
+                return view
+            }
+
             guard let flightAnnotation = annotation as? FlightAnnotation else { return nil }
 
             let view = mapView.dequeueReusableAnnotationView(
@@ -438,6 +625,20 @@ struct TrackerMapView: UIViewRepresentable {
             isApplyingSelection = false
         }
 
+        /// Fires continuously through a drag or a pinch, which is the point:
+        /// waiting for the gesture to end meant aircraft arrived in a batch
+        /// once the map settled, and a pan into empty sky stayed empty until
+        /// you let go. Throttled, since this can fire every frame.
+        func mapViewDidChangeVisibleRegion(_ mapView: MKMapView) {
+            let now = Date()
+            guard now.timeIntervalSince(lastLiveCull) >= Self.liveCullInterval else { return }
+            lastLiveCull = now
+
+            sync(flights: parent.flights, on: mapView)
+        }
+
+        private static let liveCullInterval: TimeInterval = 0.25
+
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
             // Re-cull for the new viewport using the traffic we already have.
             // Coalesced because this fires repeatedly through a pan or a
@@ -466,9 +667,15 @@ struct SelectedFlight: Identifiable, Equatable {
 /// nothing it has already carried out.
 struct MapCommand: Equatable {
 
-    enum Kind {
+    enum Kind: Equatable {
         case centerOnFlight
         case fitRoute
+
+        /// Somewhere on the map by position rather than by aircraft — what a
+        /// search result or an open tower resolves to. Carried as plain
+        /// numbers because `CLLocationCoordinate2D` is not `Equatable`, and
+        /// the command has to be comparable to be one-shot.
+        case focus(latitude: Double, longitude: Double, spanMeters: Double)
     }
 
     let kind: Kind

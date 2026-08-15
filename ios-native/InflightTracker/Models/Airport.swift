@@ -7,6 +7,19 @@ struct Airport: Equatable {
     let coordinate: CLLocationCoordinate2D
     let countryCode: String
 
+    /// The name, folded once at load. Search runs over every airport in the
+    /// dataset on each keystroke, and case-folding 18,000 names per character
+    /// typed is the whole cost of the query.
+    let searchableName: String
+
+    init(icao: String, name: String, coordinate: CLLocationCoordinate2D, countryCode: String) {
+        self.icao = icao
+        self.name = name
+        self.coordinate = coordinate
+        self.countryCode = countryCode
+        self.searchableName = name.uppercased()
+    }
+
     /// Written out rather than synthesised: `CLLocationCoordinate2D` is not
     /// `Equatable`, and an ICAO identifies an airport anyway.
     static func == (lhs: Airport, rhs: Airport) -> Bool {
@@ -140,6 +153,50 @@ final class AirportStore {
 
         return scored
             .sorted { $0.1 < $1.1 }
+            .prefix(limit)
+            .map { $0.0 }
+    }
+
+    /// Airports matching what has been typed so far, best first.
+    ///
+    /// Ranked rather than merely filtered: an exact ICAO is what someone
+    /// typing four letters means, and a code that starts with those letters is
+    /// a better guess than an airport with them buried in its name. Within a
+    /// rank it is alphabetical by ICAO, so the list doesn't reshuffle as the
+    /// dictionary's own order changes underneath it.
+    func search(_ query: String, limit: Int = 6) -> [Airport] {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard needle.count >= 2, limit > 0 else { return [] }
+
+        loadIfNeeded()
+
+        lock.lock()
+        let candidates = airports
+        lock.unlock()
+
+        var scored: [(Airport, Int)] = []
+
+        for airport in candidates.values {
+            let rank: Int
+            if airport.icao == needle {
+                rank = 0
+            } else if airport.icao.hasPrefix(needle) {
+                rank = 1
+            } else if airport.searchableName.hasPrefix(needle) {
+                rank = 2
+            } else if airport.searchableName.contains(needle) {
+                rank = 3
+            } else {
+                continue
+            }
+
+            scored.append((airport, rank))
+        }
+
+        return scored
+            .sorted { first, second in
+                first.1 == second.1 ? first.0.icao < second.0.icao : first.1 < second.1
+            }
             .prefix(limit)
             .map { $0.0 }
     }

@@ -69,9 +69,11 @@ enum FlightInfoPeakStyle: String, CaseIterable, Identifiable {
 /// branches on which theme is in use.
 struct FlightInfoTheme {
 
-    /// Blur used for the sheet's own background. `nil` is the opaque fallback,
-    /// which is what glass-off resolves to.
-    let material: Material?
+    /// Whether this theme is drawn on glass. Every surface in the window and
+    /// every piece of chrome over the map branches on this one flag, so the two
+    /// looks can't drift apart — glass off is flat carbon, everywhere, in one
+    /// step.
+    let isGlass: Bool
 
     /// Opaque sheet ground, used when glass is off and on iOS versions with no
     /// `presentationBackground`.
@@ -123,34 +125,63 @@ struct FlightInfoTheme {
     /// a theme that wants per-phase colour changes this one method.
     func phaseAccent(for phase: FlightPhase) -> Color { accent }
 
+    /// Same again for what the pilot is doing. The window is monochrome by
+    /// design — the state is carried by its glyph and its word, not by going
+    /// amber — and a theme that wants to colour AWAY changes it here.
+    func pilotStateAccent(for state: PilotState) -> Color {
+        state.isNoteworthy ? accent : textSecondary
+    }
+
     /// The sheet's own background.
     ///
     /// This has to be the *sheet's* background rather than a layer inside the
-    /// content: a material only blurs what sits behind it in the same render
-    /// tree, so a material drawn inside a sheet whose background was cleared
+    /// content: anything that samples what is behind it only sees its own
+    /// render tree, so a blur drawn inside a sheet whose background was cleared
     /// has nothing to sample and renders as a near-black slab.
+    ///
+    /// The ground is the system's glass rather than a material. A material
+    /// frosts what is behind it — it takes the map and turns it into fog, which
+    /// is what made the window read as a slab however far the tint came down.
+    /// Glass lenses instead: the map stays legible through it, and the window
+    /// behaves like the floating chrome around it, which has been glass all
+    /// along.
+    ///
+    /// The carbon underneath is down to a trace — 3% — so the glass itself is
+    /// doing essentially all of the work and the map reads clearly through the
+    /// window. That leaves white text leaning on the system's own adaptive
+    /// dimming rather than on a ground of our own, which is the deliberate
+    /// trade: this is the number to raise if a caption ever gets lost over
+    /// snow or a bright ocean.
     @ViewBuilder
     var sheetBackground: some View {
-        if let material = material {
+        if isGlass {
             Rectangle()
-                .fill(material)
-                .overlay { Rectangle().fill(scrim) }
+                .fill(windowFill.opacity(0.03))
+                .glassEffect(.regular.tint(scrim), in: Rectangle())
         } else {
             Rectangle().fill(windowFill)
         }
     }
 
+    /// Tuned to let the map through.
+    ///
+    /// Every tint here had been carrying too much carbon: glass does its own
+    /// dimming, so a tint heavy enough to guarantee contrast on its own leaves
+    /// a dark slab with none of the lensing that makes it read as glass. The
+    /// scrim and the chrome tint are the two that were doing it — both are now
+    /// a wash rather than a coat — and the strokes are brighter to give each
+    /// surface the lit edge glass has.
     static let glass = FlightInfoTheme(
-        material: .ultraThinMaterial,
+        isGlass: true,
         windowFill: Color(red: 0.09, green: 0.09, blue: 0.11),
-        scrim: Color.black.opacity(0.16),
-        chromeTint: Color(red: 0.09, green: 0.09, blue: 0.11).opacity(0.5),
-        surfaceTint: Color.white.opacity(0.05),
-        elevatedTint: Color.white.opacity(0.1),
+        scrim: Color.black.opacity(0.06),
+        chromeTint: Color(red: 0.09, green: 0.09, blue: 0.11).opacity(0.12),
+        surfaceTint: Color.white.opacity(0.04),
+        elevatedTint: Color.white.opacity(0.09),
         surfaceFill: Color.white.opacity(0.08),
         elevatedFill: Color.white.opacity(0.14),
-        stroke: Color.white.opacity(0.10),
-        strokeStrong: Color.white.opacity(0.16),
+        stroke: Color.white.opacity(0.16),
+        strokeStrong: Color.white.opacity(0.26),
         textPrimary: Color(white: 0.98),
         textSecondary: Color(white: 0.70),
         textDim: Color(white: 0.48),
@@ -160,7 +191,7 @@ struct FlightInfoTheme {
     )
 
     static let solid = FlightInfoTheme(
-        material: nil,
+        isGlass: false,
         windowFill: Color(red: 0.09, green: 0.09, blue: 0.11),
         scrim: .clear,
         chromeTint: .clear,
@@ -206,7 +237,7 @@ struct FlightInfoSurfaceModifier: ViewModifier {
     /// differs: these already sit on the window's ground, so they need much
     /// less of it.
     func body(content: Content) -> some View {
-        if theme.material != nil {
+        if theme.isGlass {
             content.glassEffect(
                 .regular.tint(elevated ? theme.elevatedTint : theme.surfaceTint),
                 in: shape
@@ -232,7 +263,13 @@ enum FlightInfoLayout {
 
     /// Bounds on that measurement, so a bad layout pass can't produce an
     /// unusable sheet.
-    static let minimumPeakHeight: CGFloat = 220
+    ///
+    /// The floor is deliberately below anything the peak actually lays out to:
+    /// it is a guard against a broken measurement, not a target. Set close to
+    /// the real content height it becomes the height, and a short peak — a
+    /// parked aircraft, with no route strip to draw — pads itself back out
+    /// with the empty band it was measured to avoid.
+    static let minimumPeakHeight: CGFloat = 180
 
     /// Generous enough for the photo peak, which is the full window's header
     /// plus its route card.
@@ -243,9 +280,10 @@ enum FlightInfoLayout {
     /// window put it in exactly the same place.
     static let heroSeamLift: CGFloat = 30
 
-    /// Space under the peak state's last card. The window draws into the
-    /// bottom safe area, so this is the whole gap rather than the home
-    /// indicator's inset stacked on top of the card's own padding.
+    /// Space under the peak state's last card, measured from the card to the
+    /// bottom edge of the sheet. The window draws into the bottom safe area,
+    /// so this is the whole gap — the home indicator floats inside it rather
+    /// than claiming its own band underneath.
     static let peakBottomGap: CGFloat = 12
 
     /// How far above the peak height the phases have finished swapping. The
@@ -253,6 +291,15 @@ enum FlightInfoLayout {
     /// done early in the travel — by the time the sheet is a third of the way
     /// up, the full window should already be the thing you are looking at.
     static let phaseTravel: CGFloat = 220
+
+    /// Travel that doesn't count as a drag at all.
+    ///
+    /// The sheet's measured height and its detent agree to within a point or
+    /// two, not exactly — rounding, and the resize animation settling. Without
+    /// a dead band at the foot of the travel that difference reads as the
+    /// window being fractionally open, which washes the peak out and ghosts
+    /// the full window's photo in behind it while the sheet is sitting still.
+    static let phaseDeadZone: CGFloat = 8
 }
 
 extension View {
@@ -277,7 +324,7 @@ extension View {
     /// as one design. Glass-off falls back to the flat carbon surface.
     @ViewBuilder
     func flightInfoChrome(_ theme: FlightInfoTheme, in shape: some Shape) -> some View {
-        if theme.material != nil {
+        if theme.isGlass {
             glassEffect(.regular.tint(theme.chromeTint), in: shape)
         } else {
             background { shape.fill(theme.windowFill) }
