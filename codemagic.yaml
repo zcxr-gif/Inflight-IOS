@@ -215,6 +215,23 @@ workflows:
           # precisely — xcodebuild's own version of the error names neither the
           # App ID nor the capability, and only appears once the archive is
           # nearly done.
+
+          # What Apple itself reports, before looking at what was downloaded.
+          #
+          # These two views can disagree, and when they do every other symptom
+          # is misleading: a profile that exists in the portal but never lands
+          # on the builder is a fetch problem, and one Apple has never heard of
+          # is a portal problem, and the identical error comes out either way.
+          # Printing both sides turns that into a comparison rather than a
+          # guess. Listing touches no certificates, so unlike fetch-signing-files
+          # it works under managed signing.
+          echo "==> Identifiers Apple reports for this API key"
+          app-store-connect bundle-ids list || \
+            echo "    (could not list — the App Store Connect key may be scoped elsewhere)"
+
+          echo "==> Profiles Apple reports for this API key"
+          app-store-connect profiles list || \
+            echo "    (could not list)"
           python3 Scripts/check-provisioning.py \
             --require "com.tracker.Inflight:com.apple.security.application-groups=group.com.tracker.Inflight" \
             --require "com.tracker.Inflight:aps-environment" \
