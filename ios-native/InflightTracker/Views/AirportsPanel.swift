@@ -87,13 +87,7 @@ struct AirportsPanel: View {
                         // opening it: a field with a tower open is a different
                         // proposition from a busy one without.
                         if controlled.contains(entry.airport.icao) {
-                            Image(systemName: "antenna.radiowaves.left.and.right")
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundStyle(theme.onAccent)
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 3)
-                                .background { Capsule().fill(theme.accent) }
-                                .accessibilityLabel("Controlled")
+                            AtcOnlineBadge(theme: theme)
                         }
                     }
 

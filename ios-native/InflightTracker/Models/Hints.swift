@@ -98,6 +98,11 @@ struct Hint: Identifiable, Equatable {
             placement: .flight,
             text: "Tap either end of the route to open that airport — its weather, who is on frequency, and everything else heading there. The way back is the first row."
         ),
+        Hint(
+            id: "flight.controlled",
+            placement: .flight,
+            text: "An aerial beside an airport code means somebody is working that field right now."
+        ),
 
         // MARK: One field
 

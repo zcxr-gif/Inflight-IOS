@@ -66,6 +66,30 @@ struct PilotStateChip: View {
     }
 }
 
+// MARK: - Controlled marker
+
+/// Somebody is on frequency here.
+///
+/// Shared by the airports board and the route card so that "controlled" looks
+/// like one thing wherever a field is named. Filled with the accent rather than
+/// outlined: in a monochrome window this is the one state worth spending the
+/// accent on, because it is the difference between a field you can be talked
+/// into and one you cannot.
+struct AtcOnlineBadge: View {
+
+    let theme: FlightInfoTheme
+
+    var body: some View {
+        Image(systemName: "antenna.radiowaves.left.and.right")
+            .font(.system(size: 9, weight: .bold))
+            .foregroundStyle(theme.onAccent)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 3)
+            .background { Capsule().fill(theme.accent) }
+            .accessibilityLabel("Controlled")
+    }
+}
+
 // MARK: - Route
 
 /// The route card, shared by both phases: endpoints, then the progress bar
@@ -85,6 +109,14 @@ struct RouteCard: View {
     /// tappable: the whole peak is a drag target, and endpoints that could
     /// swallow a drag as a tap would make the window hard to open.
     var onSelectAirport: ((Airport) -> Void)? = nil
+
+    /// Fields with somebody on frequency, so an end of the route can say so.
+    ///
+    /// Passed in rather than read from the feed here: this card is drawn in the
+    /// peak state too, and a component that reached for the feed itself would
+    /// re-render both phases on every ATC packet. The peak leaves it empty on
+    /// purpose — it is the glance, and this is a detail you open the window for.
+    var controlledFields: Set<String> = []
 
     var body: some View {
         VStack(spacing: 11) {
@@ -169,12 +201,20 @@ struct RouteCard: View {
     ) -> some View {
         let code = (icao ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let frameAlignment: Alignment = alignment == .leading ? .leading : .trailing
+        let isControlled = airport.map { controlledFields.contains($0.icao) } ?? false
 
         return VStack(alignment: alignment, spacing: 4) {
-            Text(code.isEmpty ? "———" : code)
-                .font(.system(size: icaoSize, weight: .heavy, design: .rounded))
-                .foregroundStyle(theme.textPrimary)
-                .flightInfoLine(minimumScale: 0.6)
+            // Against the code rather than down with the airport's name: "is my
+            // destination controlled" is a question about the field, and the
+            // name line is already carrying a flag and a chevron.
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(code.isEmpty ? "———" : code)
+                    .font(.system(size: icaoSize, weight: .heavy, design: .rounded))
+                    .foregroundStyle(theme.textPrimary)
+                    .flightInfoLine(minimumScale: 0.6)
+
+                if isControlled { AtcOnlineBadge(theme: theme) }
+            }
 
             HStack(spacing: 4) {
                 if let flag = airport?.flag, !flag.isEmpty {
@@ -263,6 +303,9 @@ struct PlaceCard: View {
     /// belongs to the drag.
     var onSelectAirport: ((Airport) -> Void)? = nil
 
+    /// Fields with somebody on frequency — see `RouteCard.controlledFields`.
+    var controlledFields: Set<String> = []
+
     var body: some View {
         if let airport = airport, let onSelectAirport = onSelectAirport {
             Button {
@@ -292,10 +335,16 @@ struct PlaceCard: View {
                     .foregroundStyle(theme.textDim)
                     .flightInfoLine(minimumScale: 0.8)
 
-                Text(airport?.icao ?? "———")
-                    .font(.system(size: icaoSize, weight: .heavy, design: .rounded))
-                    .foregroundStyle(theme.textPrimary)
-                    .flightInfoLine(minimumScale: 0.6)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(airport?.icao ?? "———")
+                        .font(.system(size: icaoSize, weight: .heavy, design: .rounded))
+                        .foregroundStyle(theme.textPrimary)
+                        .flightInfoLine(minimumScale: 0.6)
+
+                    if let airport = airport, controlledFields.contains(airport.icao) {
+                        AtcOnlineBadge(theme: theme)
+                    }
+                }
 
                 HStack(spacing: 4) {
                     if let flag = airport?.flag, !flag.isEmpty {

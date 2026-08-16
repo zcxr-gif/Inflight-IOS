@@ -53,6 +53,14 @@ struct FlightDetailView: View {
         feed.flights.first { $0.id == flightId }
     }
 
+    /// Fields with somebody on frequency, for the route card's marker. Centres
+    /// are excluded: their identifier is an FIR rather than an ICAO, so one
+    /// could never match an endpoint anyway, and leaving them in would only
+    /// invite a coincidence to.
+    private var controlledFields: Set<String> {
+        Set(feed.atcStations.filter { !$0.isCenter }.map(\.identifier))
+    }
+
     var body: some View {
         GeometryReader { geometry in
             let expansion = sheetExpansion(for: geometry)
@@ -296,7 +304,8 @@ struct FlightDetailView: View {
                 flight: flight,
                 progress: progress,
                 theme: theme,
-                onSelectAirport: onSelectAirport
+                onSelectAirport: onSelectAirport,
+                controlledFields: controlledFields
             )
 
         case .grounded(let airport, let isTaxiing):
@@ -306,7 +315,8 @@ struct FlightDetailView: View {
                 airport: airport,
                 theme: theme,
                 icaoSize: 24,
-                onSelectAirport: onSelectAirport
+                onSelectAirport: onSelectAirport,
+                controlledFields: controlledFields
             )
             .padding(14)
             .flightInfoSurface(theme, radius: theme.radiusMedium)
@@ -319,7 +329,8 @@ struct FlightDetailView: View {
                     airport: nearest,
                     theme: theme,
                     icaoSize: 24,
-                    onSelectAirport: onSelectAirport
+                    onSelectAirport: onSelectAirport,
+                    controlledFields: controlledFields
                 )
 
                 if departure != nil {
