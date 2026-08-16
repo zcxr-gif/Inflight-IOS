@@ -173,13 +173,61 @@ workflows:
           set -euo pipefail
 
           # The ios_signing block above has already fetched the distribution
-          # certificate and the App Store profile for com.tracker.Inflight.
-          # This applies them to the freshly generated project and writes the
-          # export options plist where build-ipa expects to find it.
+          # certificate and the App Store profiles for every App ID starting
+          # with com.tracker.Inflight — which is how the widget extension's
+          # profile is meant to arrive alongside the app's.
           cd "$XCODE_PROJECT_DIR"
+
+          # If the extension's App ID has never been registered there is
+          # nothing for that prefix to match, and the fetch comes back with
+          # only the app's profile without complaining. Register it explicitly
+          # so that half of the problem cannot happen; an App ID that already
+          # exists is reused, so this is idempotent.
+          #
+          # Not fatal on its own: if the App Store Connect credentials are not
+          # exported into this step the check below still gives a far better
+          # error than xcodebuild would.
+          if ! app-store-connect fetch-signing-files "com.tracker.Inflight.widgets" \
+                 --platform IOS \
+                 --type IOS_APP_STORE \
+                 --strict-match-identifier \
+                 --create; then
+            echo "==> Could not fetch/create the widgets signing files; " \
+                 "continuing to the profile check for a specific diagnosis."
+          fi
+
+          # --create can register the App ID but cannot tick App Groups on it:
+          # the App Store Connect API has no way to attach a group to an
+          # identifier, so that stays a portal action. Verify what we actually
+          # hold before spending the build compiling something unsignable —
+          # xcodebuild's own version of this error names neither the App ID nor
+          # the group, and only appears once the archive is nearly done.
+          python3 Scripts/check-provisioning.py \
+            --require "com.tracker.Inflight:com.apple.security.application-groups=group.com.tracker.Inflight" \
+            --require "com.tracker.Inflight:aps-environment" \
+            --require "com.tracker.Inflight.widgets:com.apple.security.application-groups=group.com.tracker.Inflight"
+
+          # Applies the profiles to the freshly generated project and writes the
+          # export options plist where build-ipa expects to find it.
           xcode-project use-profiles \
             --project "$XCODE_PROJECT" \
             --export-options-plist "$HOME/export_options.plist"
+
+          # use-profiles reports success as long as it matched *something*, so
+          # a target it skipped goes unmentioned. Confirm both came away with a
+          # profile — the extension is the one that historically did not.
+          for TARGET in InflightTracker InflightWidgets; do
+            SPECIFIER=$(xcodebuild -project "$XCODE_PROJECT" \
+              -target "$TARGET" \
+              -configuration Release \
+              -showBuildSettings 2>/dev/null \
+              | awk -F' = ' '/ PROVISIONING_PROFILE_SPECIFIER = /{print $2; exit}')
+            if [ -z "${SPECIFIER:-}" ]; then
+              echo "FATAL: no provisioning profile was applied to $TARGET."
+              exit 1
+            fi
+            echo "==> $TARGET signs with: $SPECIFIER"
+          done
 
       - name: Build IPA (Signed)
         script: |

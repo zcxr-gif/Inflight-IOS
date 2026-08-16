@@ -20,8 +20,45 @@ leaves every tile on its empty state with nothing logged anywhere.
 
 Codemagic's signing block matches bundle identifiers by prefix, so the
 extension's profile comes down with the app's — but only once the App ID
-exists with the capability enabled. Until then the build fails at
-`use-profiles` with a missing-profile error.
+exists with the capability enabled.
+
+### The one-time setup, in order
+
+Nothing below can be done from CI. `--create` can register an App ID, but the
+App Store Connect API cannot attach an app group to one, so the group has to be
+ticked by hand in **Certificates, Identifiers & Profiles**.
+
+1. **Identifiers → App Groups.** Create `group.com.tracker.Inflight` if it does
+   not exist yet. Everything else refers back to it.
+2. **Identifiers → App IDs → `com.tracker.Inflight`.** Enable **App Groups**
+   and **Push Notifications**. Enabling App Groups is not enough on its own —
+   click *Edit* next to it and tick `group.com.tracker.Inflight`. An identifier
+   with the capability on and no group selected still signs nothing.
+3. **Identifiers → App IDs → `com.tracker.Inflight.widgets`.** Register it as an
+   explicit (non-wildcard) App ID if the build has not already created it, then
+   enable **App Groups** and tick the same group. It does *not* need Push.
+4. **Profiles.** Delete any App Store profile already issued for either App ID.
+   A profile is a snapshot of the capabilities at the moment it was generated,
+   so one issued before step 2 or 3 stays wrong forever; the next build fetches
+   a fresh one.
+
+The failure this prevents is:
+
+```
+"InflightWidgets" requires a provisioning profile with the App Groups feature.
+Select a provisioning profile in the Signing & Capabilities editor.
+```
+
+which xcodebuild raises at archive time when the extension target ended up with
+no profile at all — not, despite the wording, when a profile was chosen badly.
+`Scripts/check-provisioning.py` runs in the signing step and fails earlier with
+the specific App ID and capability at fault; it can be pointed at a profiles
+directory by hand to diagnose the same thing off the builder:
+
+```
+python3 ios-native/Scripts/check-provisioning.py \
+  --require "com.tracker.Inflight.widgets:com.apple.security.application-groups=group.com.tracker.Inflight"
+```
 
 ## APNs key
 
