@@ -98,6 +98,13 @@ def matches(profile_bundle_id: str, wanted: str) -> bool:
     return False
 
 
+def issued_label(profile: dict) -> str:
+    created = profile.get("CreationDate")
+    if not isinstance(created, datetime):
+        return "date unknown"
+    return created.strftime("%Y-%m-%d")
+
+
 def is_expired(profile: dict) -> bool:
     expires = profile.get("ExpirationDate")
     if not isinstance(expires, datetime):
@@ -162,7 +169,11 @@ def main() -> int:
     for path, bundle_id, profile in profiles:
         name = profile.get("Name", path.name)
         note = " (EXPIRED)" if is_expired(profile) else ""
-        print(f"      {bundle_id} -> {name}{note}")
+        # When it was issued, because the usual reason a run looks identical to
+        # the last one is that a regenerate in the portal did not take. A date
+        # from weeks ago against an App ID somebody has just edited says so
+        # immediately; the name alone is reused and says nothing.
+        print(f"      {bundle_id} -> {name}{note}   issued {issued_label(profile)}")
 
     # Two live profiles for one bundle id is not an error — either may sign
     # perfectly well — but it is a coin toss the moment one of them goes stale,
