@@ -56,6 +56,21 @@ Groups — the API cannot add it — and issues a profile against that. Enabling
 the capability afterwards then invalidates the profile that was just made, and
 step 4 has to be done a second time.
 
+### When the portal and the build disagree
+
+If a change in the portal has no effect on the build at all — a profile
+deleted there still turns up on the builder, a new one never does — then the
+profiles being signed with are not coming from Apple. Codemagic stores uploaded
+provisioning profiles under **Team settings → Code signing identities**, installs
+them on every build machine, and those copies shadow the `ios_signing` fetch
+entirely. Ones left over from the Capacitor pipeline will happily sign this one
+for months.
+
+Deleting them from Codemagic hands the portal back its authority. The signature
+of having done so is the error changing to `No matching profiles found for
+bundle identifier ...` — that is the API fetch running for the first time and
+reporting honestly, rather than a stored file quietly standing in.
+
 The failure this prevents is:
 
 ```
