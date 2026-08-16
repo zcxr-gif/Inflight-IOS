@@ -200,30 +200,21 @@ workflows:
           # profile is meant to arrive alongside the app's.
           cd "$XCODE_PROJECT_DIR"
 
-          # If the extension's App ID has never been registered there is
-          # nothing for that prefix to match, and the fetch comes back with
-          # only the app's profile without complaining. Register it explicitly
-          # so that half of the problem cannot happen; an App ID that already
-          # exists is reused, so this is idempotent.
+          # There is deliberately no attempt to register the extension's App ID
+          # from here. `fetch-signing-files --create` looked like the answer,
+          # but it fetches certificates as well as profiles and fails with
+          # "Cannot save Signing Certificates without certificate private key"
+          # under managed signing, where the key belongs to Codemagic and is
+          # never exported. Worse, even a working version could not finish the
+          # job: the App Store Connect API cannot attach an app group to an
+          # identifier, so a freshly created App ID would come back without the
+          # one capability the extension needs, and the profile issued against
+          # it would be wrong from birth.
           #
-          # Not fatal on its own: if the App Store Connect credentials are not
-          # exported into this step the check below still gives a far better
-          # error than xcodebuild would.
-          if ! app-store-connect fetch-signing-files "com.tracker.Inflight.widgets" \
-                 --platform IOS \
-                 --type IOS_APP_STORE \
-                 --strict-match-identifier \
-                 --create; then
-            echo "==> Could not fetch/create the widgets signing files; " \
-                 "continuing to the profile check for a specific diagnosis."
-          fi
-
-          # --create can register the App ID but cannot tick App Groups on it:
-          # the App Store Connect API has no way to attach a group to an
-          # identifier, so that stays a portal action. Verify what we actually
-          # hold before spending the build compiling something unsignable —
-          # xcodebuild's own version of this error names neither the App ID nor
-          # the group, and only appears once the archive is nearly done.
+          # So the App ID is a portal action, and this step's job is to say so
+          # precisely — xcodebuild's own version of the error names neither the
+          # App ID nor the capability, and only appears once the archive is
+          # nearly done.
           python3 Scripts/check-provisioning.py \
             --require "com.tracker.Inflight:com.apple.security.application-groups=group.com.tracker.Inflight" \
             --require "com.tracker.Inflight:aps-environment" \

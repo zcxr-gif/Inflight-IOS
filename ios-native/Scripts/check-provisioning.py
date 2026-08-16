@@ -164,6 +164,23 @@ def main() -> int:
         note = " (EXPIRED)" if is_expired(profile) else ""
         print(f"      {bundle_id} -> {name}{note}")
 
+    # Two live profiles for one bundle id is not an error — either may sign
+    # perfectly well — but it is a coin toss the moment one of them goes stale,
+    # and the loser is a build that fails for no reason anybody changed. Worth
+    # saying out loud while somebody is already looking at the portal.
+    seen: dict[str, list[str]] = {}
+    for path, bundle_id, profile in profiles:
+        if is_expired(profile):
+            continue
+        seen.setdefault(bundle_id, []).append(str(profile.get("Name", path.name)))
+
+    for bundle_id, names in seen.items():
+        if len(names) > 1:
+            print(
+                f"  ! {bundle_id} has {len(names)} live profiles: {', '.join(names)}.\n"
+                f"    Whichever is chosen is arbitrary. Delete all but one."
+            )
+
     # Group the requirements so one missing profile reports once rather than
     # once per entitlement it was supposed to carry.
     wanted: dict[str, list[tuple[str, str | None]]] = {}
