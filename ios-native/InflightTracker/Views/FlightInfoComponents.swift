@@ -79,6 +79,13 @@ struct RouteCard: View {
     var icaoSize: CGFloat = 24
     var inset: CGFloat = 14
 
+    /// Opens one end of the route as a field of its own.
+    ///
+    /// Optional because the peak state uses this same card and must not become
+    /// tappable: the whole peak is a drag target, and endpoints that could
+    /// swallow a drag as a tap would make the window hard to open.
+    var onSelectAirport: ((Airport) -> Void)? = nil
+
     var body: some View {
         VStack(spacing: 11) {
             HStack(alignment: .top, spacing: 12) {
@@ -134,9 +141,33 @@ struct RouteCard: View {
         return Format.duration(ete)
     }
 
+    @ViewBuilder
     private func port(icao: String?, alignment: HorizontalAlignment) -> some View {
-        let code = (icao ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let airport = AirportStore.shared.airport(icao)
+
+        // Tappable only where there is a field behind the code to open. A route
+        // filed to an ICAO the dataset has never heard of still draws — it just
+        // isn't a button.
+        if let airport = airport, let onSelectAirport = onSelectAirport {
+            Button {
+                onSelectAirport(airport)
+            } label: {
+                portLabel(icao: icao, airport: airport, alignment: alignment, isLink: true)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(airport.icao), \(airport.name). Open this airport.")
+        } else {
+            portLabel(icao: icao, airport: airport, alignment: alignment, isLink: false)
+        }
+    }
+
+    private func portLabel(
+        icao: String?,
+        airport: Airport?,
+        alignment: HorizontalAlignment,
+        isLink: Bool
+    ) -> some View {
+        let code = (icao ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let frameAlignment: Alignment = alignment == .leading ? .leading : .trailing
 
         return VStack(alignment: alignment, spacing: 4) {
@@ -154,11 +185,22 @@ struct RouteCard: View {
                     .tracking(0.4)
                     .foregroundStyle(theme.textDim)
                     .flightInfoLine(minimumScale: 0.7)
+
+                // The only mark that either end goes anywhere. Sits after the
+                // name on both sides rather than mirroring, so the two
+                // endpoints read as the same kind of thing rather than as a
+                // pair pointing at each other.
+                if isLink {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(theme.textDim)
+                }
             }
         }
         // Each endpoint takes half the row, so a long airport name can only
         // shrink, never widen the card.
         .frame(maxWidth: .infinity, alignment: frameAlignment)
+        .contentShape(Rectangle())
     }
 }
 
@@ -216,7 +258,26 @@ struct PlaceCard: View {
     let theme: FlightInfoTheme
     var icaoSize: CGFloat = 22
 
+    /// Opens the field this card names. Optional for the same reason the route
+    /// card's is — the peak state draws this too, and everything in the peak
+    /// belongs to the drag.
+    var onSelectAirport: ((Airport) -> Void)? = nil
+
     var body: some View {
+        if let airport = airport, let onSelectAirport = onSelectAirport {
+            Button {
+                onSelectAirport(airport)
+            } label: {
+                card(isLink: true)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(kicker) \(airport.icao), \(airport.name). Open this airport.")
+        } else {
+            card(isLink: false)
+        }
+    }
+
+    private func card(isLink: Bool) -> some View {
         HStack(spacing: 12) {
             Image(systemName: symbol)
                 .font(.system(size: icaoSize * 0.52, weight: .semibold))
@@ -248,7 +309,14 @@ struct PlaceCard: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            if isLink {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(theme.textDim)
+            }
         }
+        .contentShape(Rectangle())
     }
 }
 

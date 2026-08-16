@@ -93,6 +93,11 @@ struct Hint: Identifiable, Equatable {
             placement: .flight,
             text: "Pin puts this flight on the home-screen widget, drawn on the aircraft's own photo."
         ),
+        Hint(
+            id: "flight.route",
+            placement: .flight,
+            text: "Tap either end of the route to open that airport — its weather, who is on frequency, and everything else heading there. The way back is the first row."
+        ),
 
         // MARK: One field
 

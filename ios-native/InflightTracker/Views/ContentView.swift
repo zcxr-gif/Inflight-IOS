@@ -28,6 +28,11 @@ struct ContentView: View {
     /// it — framing a whole route, or closing the window entirely.
     @State private var isFollowing = false
 
+    /// The flight an open field panel was reached from, so it can be gone back
+    /// to. Nil whenever the field was opened from anywhere with nothing behind
+    /// it — the search results, the ATC panel, the board.
+    @State private var airportOrigin: SelectedFlight?
+
     /// What has been typed into the search field at the top of the map.
     @State private var query = ""
 
@@ -44,8 +49,8 @@ struct ContentView: View {
     private var peakDetent: PresentationDetent { .height(peakHeight) }
 
     /// What the sheet is showing. A view can only present one thing at a time,
-    /// so the flight window and the toolbar's four panels share this rather
-    /// than each carrying their own `.sheet`.
+    /// so the flight window, the toolbar's panels and a field all share this
+    /// rather than each carrying their own `.sheet`.
     ///
     /// The flight case's id doesn't change with the aircraft, which is what
     /// lets tapping a second plane swap the window's contents instead of
@@ -55,9 +60,10 @@ struct ContentView: View {
         case flight
         case panel(MapPanelKind)
 
-        /// A field, opened from the search results. Carries the ICAO rather
-        /// than the `Airport` so the case stays `Equatable` and cheap — the
-        /// dataset resolves it back when the sheet is built.
+        /// A field — from the search results, the ATC panel, the board, or an
+        /// open flight's route card. Carries the ICAO rather than the `Airport`
+        /// so the case stays `Equatable` and cheap; the dataset resolves it
+        /// back when the sheet is built.
         case airport(String)
 
         var id: String {
@@ -191,7 +197,8 @@ struct ContentView: View {
                         FlightDetailView(
                             flightId: selected.id,
                             peakHeight: $peakHeight,
-                            onReplay: { track in startReplay(of: selected.id, track: track) }
+                            onReplay: { track in startReplay(of: selected.id, track: track) },
+                            onSelectAirport: { field in openAirport(field, from: selected) }
                         )
                             // Resets the window's own state per aircraft
                             // without taking the sheet down with it.
@@ -227,7 +234,8 @@ struct ContentView: View {
                             sheet = nil
                             selection = SelectedFlight(id: flight.id)
                             focus(on: flight.coordinate, spanMeters: 240_000)
-                        }
+                        },
+                        origin: airportReturn
                     )
                     .environmentObject(feed)
                 }
@@ -266,13 +274,13 @@ struct ContentView: View {
         // flight case deliberately keeps one id for every aircraft.
         case .atc:
             AtcPanel { airport in
-                sheet = .airport(airport.icao)
+                openAirport(airport)
             }
             .environmentObject(feed)
 
         case .airports:
             AirportsPanel { airport in
-                sheet = .airport(airport.icao)
+                openAirport(airport)
             }
             .environmentObject(feed)
 
@@ -286,6 +294,44 @@ struct ContentView: View {
         case .settings:
             SettingsPanel()
                 .environmentObject(feed)
+        }
+    }
+
+    // MARK: - Fields
+
+    /// Open a field, remembering the flight it was opened from.
+    ///
+    /// The sheet's identity changes, which dismisses the flight window and —
+    /// through the selection watcher below — lets go of the aircraft. That is
+    /// the behaviour every other panel wants; here it is the thing `origin`
+    /// exists to undo.
+    private func openAirport(_ airport: Airport, from flight: SelectedFlight?) {
+        airportOrigin = flight
+        sheet = .airport(airport.icao)
+    }
+
+    /// Open a field from somewhere with nothing to come back to.
+    private func openAirport(_ airport: Airport) {
+        openAirport(airport, from: nil)
+    }
+
+    /// The back row for the field panel, when there is a flight behind it.
+    ///
+    /// Named from the packet rather than from whatever the callsign was when
+    /// the field was opened, so a flight that has since stopped reporting is
+    /// still offered — going back to it lands on the window's own "this flight
+    /// has ended" state, which is a better answer than the row quietly
+    /// vanishing.
+    private var airportReturn: AirportPanel.Origin? {
+        guard let origin = airportOrigin else { return nil }
+
+        let label = feed.flights.first { $0.id == origin.id }?.displayName ?? "the flight"
+
+        return AirportPanel.Origin(label: label) {
+            // One assignment does it: the selection watcher puts the flight
+            // window back up, resets the detent and re-reads the weather, the
+            // same as it would for any other way of opening an aircraft.
+            selection = origin
         }
     }
 
@@ -311,8 +357,13 @@ struct ContentView: View {
             // identity dismisses and re-presents, which is exactly what the
             // flight case avoids — but what it is avoiding is losing the peak
             // detent, and a panel has no detent state to lose.
+            //
+            // No origin: a field typed into the search field was not arrived at
+            // from anywhere, even if a flight window happened to be open behind
+            // it. Offering to go "back" to an aircraft nobody navigated from
+            // would be inventing a history.
             selection = nil
-            sheet = .airport(airport.icao)
+            openAirport(airport)
         }
     }
 

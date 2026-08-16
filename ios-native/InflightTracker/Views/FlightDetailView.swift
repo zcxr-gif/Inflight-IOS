@@ -42,6 +42,11 @@ struct FlightDetailView: View {
     /// to arrange.
     var onReplay: ([TrackPoint]) -> Void = { _ in }
 
+    /// Opening one end of the route, or the field this aircraft is sitting at.
+    /// Swapping one sheet for another is the presenter's business, and so is
+    /// remembering the way back here.
+    var onSelectAirport: (Airport) -> Void = { _ in }
+
     private var theme: FlightInfoTheme { appearance.theme }
 
     private var flight: Flight? {
@@ -287,7 +292,12 @@ struct FlightDetailView: View {
     private func situationCard(for flight: Flight) -> some View {
         switch FlightSituation.from(flight) {
         case .enroute(let progress):
-            RouteCard(flight: flight, progress: progress, theme: theme)
+            RouteCard(
+                flight: flight,
+                progress: progress,
+                theme: theme,
+                onSelectAirport: onSelectAirport
+            )
 
         case .grounded(let airport, let isTaxiing):
             PlaceCard(
@@ -295,7 +305,8 @@ struct FlightDetailView: View {
                 symbol: isTaxiing ? "airplane" : "parkingsign",
                 airport: airport,
                 theme: theme,
-                icaoSize: 24
+                icaoSize: 24,
+                onSelectAirport: onSelectAirport
             )
             .padding(14)
             .flightInfoSurface(theme, radius: theme.radiusMedium)
@@ -307,7 +318,8 @@ struct FlightDetailView: View {
                     symbol: "airplane",
                     airport: nearest,
                     theme: theme,
-                    icaoSize: 24
+                    icaoSize: 24,
+                    onSelectAirport: onSelectAirport
                 )
 
                 if departure != nil {

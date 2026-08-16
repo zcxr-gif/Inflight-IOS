@@ -26,6 +26,22 @@ struct AirportPanel: View {
     /// Open one of the aircraft listed here.
     let onSelectFlight: (Flight) -> Void
 
+    /// The flight this field was reached from, when it was reached from one.
+    ///
+    /// Opening a field replaces whatever sheet was up, so arriving here from an
+    /// aircraft's route card costs you the aircraft. That is fine from the
+    /// search results or the board, where there was nothing to come back to,
+    /// and not fine from a flight — which is why the way back is carried in
+    /// rather than assumed.
+    var origin: Origin? = nil
+
+    /// Where the panel was opened from, and how to get back to it.
+    struct Origin {
+        /// What to call it on the row — a callsign, normally.
+        let label: String
+        let action: () -> Void
+    }
+
     @EnvironmentObject private var feed: LiveFeed
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @ObservedObject private var weatherPreferences = WeatherPreferences.shared
@@ -73,6 +89,19 @@ struct AirportPanel: View {
             accessory: airport.flag.isEmpty ? nil : AnyView(flag)
         ) {
             PanelSection(title: "FIELD") {
+                // First, above the map row: it is the way out of somewhere you
+                // arrived at by a tap, and burying that under the field's own
+                // actions is how a panel becomes a trap.
+                if let origin = origin {
+                    PanelActionRow(
+                        title: "Back to \(origin.label)",
+                        symbol: "chevron.backward",
+                        action: origin.action
+                    )
+
+                    PanelDivider()
+                }
+
                 PanelActionRow(
                     title: "Show on map",
                     symbol: "location.magnifyingglass",
