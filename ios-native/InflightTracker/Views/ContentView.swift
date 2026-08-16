@@ -23,6 +23,11 @@ struct ContentView: View {
     /// Latest camera request from the chrome around the map.
     @State private var mapCommand: MapCommand?
 
+    /// Whether the map is staying with the open aircraft. Lives here rather
+    /// than in the map so it can be turned off by the things that contradict
+    /// it — framing a whole route, or closing the window entirely.
+    @State private var isFollowing = false
+
     /// What has been typed into the search field at the top of the map.
     @State private var query = ""
 
@@ -100,7 +105,11 @@ struct ContentView: View {
                 selection: $selection,
                 command: mapCommand,
                 bottomInset: selection == nil ? MapToolbar.reservedHeight : peakHeight,
-                replayFrame: replay.frame
+                replayFrame: replay.frame,
+                // A replay is driving the camera down the old track; following
+                // the live aircraft at the same time would be two things
+                // fighting over one map.
+                isFollowing: isFollowing && !replay.isActive
             )
             .ignoresSafeArea()
 
@@ -135,6 +144,10 @@ struct ContentView: View {
             // or closing the window, ends it rather than leaving a ghost
             // flying a path nothing on screen refers to.
             if replay.isActive, id != replay.flightId { replay.stop() }
+
+            // Following is about one aircraft. Another one — or none — is not
+            // something to carry the mode over to.
+            isFollowing = false
 
             detent = peakDetent
 
@@ -398,6 +411,24 @@ struct ContentView: View {
             // One grouped control rather than free-floating circles: it reads
             // as part of the window's chrome instead of two loose buttons.
             VStack(spacing: 0) {
+                mapButton(
+                    "viewfinder",
+                    isFollowing ? "Stop following this aircraft" : "Follow this aircraft",
+                    isOn: isFollowing
+                ) {
+                    isFollowing.toggle()
+                    // Turning it on takes the map to the aircraft straight
+                    // away. Follow itself only acts once the aircraft has
+                    // drifted out of the middle of the view, which from a map
+                    // pointed somewhere else entirely would leave the mode
+                    // looking like it had done nothing.
+                    if isFollowing { mapCommand = MapCommand(kind: .centerOnFlight) }
+                }
+
+                Rectangle()
+                    .fill(theme.stroke)
+                    .frame(height: 1)
+
                 mapButton("location.fill", "Centre on aircraft") {
                     mapCommand = MapCommand(kind: .centerOnFlight)
                 }
@@ -407,10 +438,20 @@ struct ContentView: View {
                     .frame(height: 1)
 
                 mapButton("arrow.down.left.and.arrow.up.right", "Show whole route") {
+                    // Framing the whole route and staying with the aircraft are
+                    // different intents, and following would pull the camera
+                    // back off the route within a packet or two of getting
+                    // there.
+                    isFollowing = false
                     mapCommand = MapCommand(kind: .fitRoute)
                 }
             }
             .frame(width: 44)
+            // The follow button fills itself when it is on, and it is the top
+            // of the stack. Glass draws behind its content rather than
+            // clipping it, so without this the accent squares off the hub's
+            // rounded corners.
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .environment(\.colorScheme, .dark)
             .padding(.trailing, 16)
@@ -421,20 +462,29 @@ struct ContentView: View {
         }
     }
 
+    /// `isOn` is for the one control in the hub that is a mode rather than a
+    /// move. It reads as on the way every other switched-on thing in the app
+    /// does — filled with the accent, glyph knocked out of it — so the state is
+    /// legible without colour carrying the meaning.
     private func mapButton(
         _ symbol: String,
         _ label: String,
+        isOn: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(theme.textPrimary)
+                .foregroundStyle(isOn ? theme.onAccent : theme.textPrimary)
                 .frame(width: 44, height: 42)
+                .background {
+                    if isOn { Rectangle().fill(theme.accent) }
+                }
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
+        .accessibilityAddTraits(isOn ? .isSelected : [])
     }
 
 }
