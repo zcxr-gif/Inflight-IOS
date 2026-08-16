@@ -50,10 +50,16 @@ struct ContentView: View {
         case flight
         case panel(MapPanelKind)
 
+        /// A field, opened from the search results. Carries the ICAO rather
+        /// than the `Airport` so the case stays `Equatable` and cheap — the
+        /// dataset resolves it back when the sheet is built.
+        case airport(String)
+
         var id: String {
             switch self {
             case .flight: return "flight"
             case .panel(let kind): return kind.rawValue
+            case .airport(let icao): return "airport|\(icao)"
             }
         }
     }
@@ -189,6 +195,29 @@ struct ContentView: View {
 
             case .panel(let kind):
                 panel(kind)
+
+            case .airport(let icao):
+                // Resolved here rather than carried in the case: the sheet can
+                // outlive the search result it was opened from, and an ICAO the
+                // dataset doesn't have is nothing to present.
+                if let airport = AirportStore.shared.airport(icao) {
+                    AirportPanel(
+                        airport: airport,
+                        onShowOnMap: { field in
+                            // Same order as the other panels: close first, then
+                            // move, so the field isn't framed underneath the
+                            // sheet it was picked in.
+                            sheet = nil
+                            focus(on: field.coordinate, spanMeters: 90_000)
+                        },
+                        onSelectFlight: { flight in
+                            sheet = nil
+                            selection = SelectedFlight(id: flight.id)
+                            focus(on: flight.coordinate, spanMeters: 240_000)
+                        }
+                    )
+                    .environmentObject(feed)
+                }
             }
         }
         // The detent set changes with the measurement, so the selection has to
@@ -240,9 +269,14 @@ struct ContentView: View {
 
     // MARK: - Search
 
-    /// Acting on a search result: aircraft open their window, fields just move
-    /// the map. Both bring the target into view, since what was picked is
-    /// quite possibly not on screen at all.
+    /// Acting on a search result: each kind opens its own window.
+    ///
+    /// An aircraft is brought into view straight away, since what was picked is
+    /// quite possibly not on screen at all. A field isn't: its panel is what
+    /// was actually asked for — who is controlling, what is inbound, what is on
+    /// the apron — and moving the map under a half-height sheet would frame the
+    /// airport somewhere behind it. The panel's own first row does the move,
+    /// once the sheet is out of the way.
     private func open(_ result: MapSearchResult) {
         switch result {
         case .flight(let flight):
@@ -250,8 +284,13 @@ struct ContentView: View {
             focus(on: flight.coordinate, spanMeters: 240_000)
 
         case .airport(let airport):
+            // Searching is live over an open flight window, so this can be a
+            // swap rather than a fresh presentation. Changing the sheet's
+            // identity dismisses and re-presents, which is exactly what the
+            // flight case avoids — but what it is avoiding is losing the peak
+            // detent, and a panel has no detent state to lose.
             selection = nil
-            focus(on: airport.coordinate, spanMeters: 90_000)
+            sheet = .airport(airport.icao)
         }
     }
 

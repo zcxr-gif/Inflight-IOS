@@ -5,7 +5,7 @@ import SwiftUI
 /// Both halves of what it finds are already on the device — the traffic packet
 /// and the offline airport dataset — so results appear as the query is typed,
 /// with no debounce and nothing to wait for. Picking an aircraft opens its
-/// window; picking a field takes the map there.
+/// window; picking a field opens the field's own panel.
 struct MapSearchField: View {
 
     @Binding var query: String

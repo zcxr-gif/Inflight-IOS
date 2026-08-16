@@ -113,7 +113,7 @@ struct AtcPanel: View {
                 }
 
                 ForEach(station.facilities) { facility in
-                    facilityLine(facility)
+                    PanelFacilityLine(facility: facility, now: now)
                 }
             }
             .padding(.horizontal, 14)
@@ -134,41 +134,11 @@ struct AtcPanel: View {
                 .flightInfoLine(minimumScale: 0.7)
 
             ForEach(station.facilities) { facility in
-                facilityLine(facility)
+                PanelFacilityLine(facility: facility, now: now)
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func facilityLine(_ facility: AtcFacility) -> some View {
-        HStack(spacing: 9) {
-            Text(facility.kind.code)
-                .font(.system(size: 9, weight: .bold))
-                .tracking(0.6)
-                .foregroundStyle(theme.textPrimary)
-                .frame(width: 38)
-                .padding(.vertical, 4)
-                .background { Capsule().fill(theme.elevatedFill) }
-
-            Text(facility.controller)
-                .font(.system(size: 12.5, weight: .semibold))
-                .foregroundStyle(theme.textSecondary)
-                .flightInfoLine(minimumScale: 0.7)
-
-            Spacer(minLength: 6)
-
-            if let online = facility.onlineLabel(now: now) {
-                HStack(spacing: 4) {
-                    Image(systemName: "clock")
-                        .font(.system(size: 8.5))
-                    Text(online)
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                }
-                .foregroundStyle(theme.textDim)
-                .fixedSize()
-            }
-        }
     }
 }

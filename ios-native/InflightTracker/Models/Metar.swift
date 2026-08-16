@@ -168,6 +168,20 @@ struct Metar: Equatable {
         return "\(heading) @ \(convert(speed))G\(convert(gust)) \(unit.label)"
     }
 
+    /// How far you can see, written the way the range itself asks for: metres
+    /// while that is a number worth reading, kilometres once it isn't.
+    ///
+    /// Ten kilometres is the top of the scale a METAR reports rather than a
+    /// measurement, so it is written as a floor — the report is saying "at
+    /// least this", and rendering it as a flat `10.0 km` claims a precision the
+    /// observation never had.
+    var visibilityLabel: String? {
+        guard let metres = visibilityMetres, metres >= 0 else { return nil }
+        if metres >= 9_999 { return "10 km+" }
+        if metres >= 1_000 { return String(format: "%.1f km", Double(metres) / 1000) }
+        return "\(metres) m"
+    }
+
     var conditionLabel: String {
         if let precipitation = precipitation {
             switch precipitation {
