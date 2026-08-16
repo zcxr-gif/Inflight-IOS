@@ -23,6 +23,30 @@ enum AppConfig {
         return URL(string: "\(socketURLString)/api/flights/\(encoded)/history")
     }
 
+    /// What the backend will actually do for us — push, watchlist storage,
+    /// which event kinds it knows about. Probed on launch rather than assumed,
+    /// so a client shipped ahead of a backend rollout shows the friends list
+    /// as unavailable instead of silently registering for pushes that will
+    /// never arrive.
+    static var watchlistCapabilitiesURL: URL? {
+        URL(string: "\(socketURLString)/api/watchlist/capabilities")
+    }
+
+    /// Where this device registers its APNs token. The token is the identity —
+    /// the tracker has no accounts.
+    static var pushSubscriptionsURL: URL? {
+        URL(string: "\(socketURLString)/api/push/subscriptions")
+    }
+
+    static func pushSubscriptionURL(deviceToken: String) -> URL? {
+        URL(string: "\(socketURLString)/api/push/subscriptions/\(deviceToken)")
+    }
+
+    /// Live Activity push tokens, tied to the device rather than an account.
+    static var liveActivityTokensURL: URL? {
+        URL(string: "\(socketURLString)/api/push/device-live-activity-tokens")
+    }
+
     /// Rooms the backend broadcasts on, joined via `join_server_room`.
     static let servers = ["Expert Server", "Training Server", "Casual Server"]
 

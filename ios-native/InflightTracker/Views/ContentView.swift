@@ -7,6 +7,8 @@ struct ContentView: View {
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @ObservedObject private var filters = MapFilters.shared
     @ObservedObject private var weatherPreferences = WeatherPreferences.shared
+    @ObservedObject private var friends = FriendsStore.shared
+    @ObservedObject private var push = PushService.shared
 
     @State private var selection: SelectedFlight?
 
@@ -71,6 +73,20 @@ struct ContentView: View {
         MapSearch.results(for: query, in: feed.flights, limit: 6)
     }
 
+    /// Watched pilots the feed can currently see, for the toolbar's badge.
+    /// Counted over the whole packet rather than `visibleFlights` — a friend
+    /// hidden by an altitude filter is still flying.
+    private var friendsAloft: Int {
+        let watched = Set(friends.friends)
+        guard !watched.isEmpty else { return 0 }
+        var seen = Set<String>()
+        for flight in feed.flights {
+            guard let username = flight.username?.lowercased(), watched.contains(username) else { continue }
+            seen.insert(username)
+        }
+        return seen.count
+    }
+
     var body: some View {
         ZStack(alignment: .top) {
             TrackerMapView(
@@ -129,8 +145,19 @@ struct ContentView: View {
         // is passing is re-resolved as it goes. The model only refetches once
         // the position has actually moved on.
         .onChange(of: feed.lastUpdate) { _, _ in
+            // Keeps the home-screen tiles fed. Cheap on every packet — the
+            // bridge does the throttling, because only it knows what a widget
+            // would actually notice.
+            WidgetBridge.shared.update(flights: feed.flights)
+
             guard selection != nil else { return }
             updateWeather()
+        }
+        // A tapped notification names a pilot; the map goes and finds them.
+        .onChange(of: push.pendingPilot) { _, username in
+            guard let username = username else { return }
+            push.pendingPilot = nil
+            openPilot(username)
         }
         // Whatever takes the sheet away — a drag, or a panel opening — also
         // lets the map go of the aircraft.
@@ -178,6 +205,16 @@ struct ContentView: View {
     @ViewBuilder
     private func panel(_ kind: MapPanelKind) -> some View {
         switch kind {
+        case .friends:
+            FriendsPanel { flight in
+                // Same order as the ATC panel: close first, then move, so the
+                // aircraft isn't framed underneath the sheet it was picked in.
+                sheet = nil
+                selection = SelectedFlight(id: flight.id)
+                focus(on: flight.coordinate, spanMeters: 240_000)
+            }
+            .environmentObject(feed)
+
         case .atc:
             AtcPanel { airport in
                 // Closing first, then moving: the map's edge padding is sized
@@ -216,6 +253,21 @@ struct ContentView: View {
             selection = nil
             focus(on: airport.coordinate, spanMeters: 90_000)
         }
+    }
+
+    /// Open the aircraft a notification was about.
+    ///
+    /// The pilot may well not be in the packet: the push arrives within
+    /// seconds of the event, and the app may have been launched by the tap and
+    /// still be connecting. Nothing happens in that case rather than something
+    /// misleading — the friends panel is where they can be looked up once the
+    /// feed has caught up.
+    private func openPilot(_ username: String) {
+        let wanted = username.lowercased()
+        guard let flight = feed.flights.first(where: { $0.username?.lowercased() == wanted }) else { return }
+        sheet = nil
+        selection = SelectedFlight(id: flight.id)
+        focus(on: flight.coordinate, spanMeters: 240_000)
     }
 
     // MARK: - Replay
@@ -281,7 +333,8 @@ struct ContentView: View {
             MapToolbar(
                 theme: theme,
                 atcCount: feed.atcCount,
-                activeFilters: filters.activeCount
+                activeFilters: filters.activeCount,
+                friendsAloft: friendsAloft
             ) { kind in
                 sheet = .panel(kind)
             }

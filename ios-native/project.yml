@@ -36,17 +36,22 @@ targets:
     platform: iOS
 
     sources:
+      # Sweeps in InflightTracker/Shared, which the widget extension compiles
+      # too — see the note on that target.
       - path: InflightTracker
 
     dependencies:
       - package: SocketIO
         product: SocketIO
+      - target: InflightWidgets
+        embed: true
 
     settings:
       base:
         PRODUCT_NAME: Inflight
         PRODUCT_BUNDLE_IDENTIFIER: com.tracker.Inflight
         INFOPLIST_FILE: Support/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Support/InflightTracker.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_STYLE: Manual
@@ -54,11 +59,39 @@ targets:
         SWIFT_EMIT_LOC_STRINGS: NO
         ENABLE_BITCODE: NO
 
+  # Home-screen widgets, lock-screen accessories and the Live Activity.
+  #
+  # The shared sources are compiled into both targets rather than split into a
+  # framework: it is four small files with no dependencies of their own, and an
+  # embedded framework costs the widget launch time it does not have — a widget
+  # that misses its render budget is a blank tile.
+  InflightWidgets:
+    type: app-extension
+    platform: iOS
+
+    sources:
+      - path: InflightWidgets
+      - path: InflightTracker/Shared
+
+    settings:
+      base:
+        PRODUCT_NAME: InflightWidgets
+        PRODUCT_BUNDLE_IDENTIFIER: com.tracker.Inflight.widgets
+        INFOPLIST_FILE: Support/Widgets-Info.plist
+        CODE_SIGN_ENTITLEMENTS: Support/InflightWidgets.entitlements
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Manual
+        GENERATE_INFOPLIST_FILE: NO
+        SWIFT_EMIT_LOC_STRINGS: NO
+        ENABLE_BITCODE: NO
+        SKIP_INSTALL: YES
+
 schemes:
   InflightTracker:
     build:
       targets:
         InflightTracker: all
+        InflightWidgets: all
     run:
       config: Debug
     test:

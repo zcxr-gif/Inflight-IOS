@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The container the app and its widgets both read: the pinned flight, the
+	     friends list, and the cached aircraft photos the widgets draw on. -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.com.tracker.Inflight</string>
+	</array>
+	<!-- Overridden to "production" by the release export. Notifications are the
+	     whole point of the friends list, so a build signed without this is a
+	     build where the feature silently does nothing. -->
+	<key>aps-environment</key>
+	<string>development</string>
+</dict>
+</plist>

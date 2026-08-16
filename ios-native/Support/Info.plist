@@ -24,6 +24,15 @@
 	<true/>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<!-- Live Activities: the "live banner" a watched pilot's takeoff raises. -->
+	<key>NSSupportsLiveActivities</key>
+	<true/>
+	<!-- The backend pushes progress roughly once a minute for the whole of a
+	     long-haul, which is well past what iOS budgets for an activity that
+	     hasn't declared it. Without this the system quietly starts dropping
+	     updates part-way through the flight. -->
+	<key>NSSupportsLiveActivitiesFrequentUpdates</key>
+	<true/>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

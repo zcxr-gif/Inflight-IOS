@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Must match the app's group exactly: it is the only way the widget can
+	     see the flight the app pinned or the photo it cached. A widget whose
+	     group doesn't match doesn't error — it just renders the empty state
+	     forever. -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.com.tracker.Inflight</string>
+	</array>
+</dict>
+</plist>
