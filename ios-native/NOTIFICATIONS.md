@@ -39,8 +39,22 @@ ticked by hand in **Certificates, Identifiers & Profiles**.
    enable **App Groups** and tick the same group. It does *not* need Push.
 4. **Profiles.** Delete any App Store profile already issued for either App ID.
    A profile is a snapshot of the capabilities at the moment it was generated,
-   so one issued before step 2 or 3 stays wrong forever; the next build fetches
-   a fresh one.
+   so one issued before step 2 or 3 is wrong: changing an App ID's capabilities
+   marks its existing profiles **Invalid**, and an invalid profile has to be
+   regenerated before it can sign anything again. Deleting is the blunter half
+   of the same fix and leaves nothing for the build to pick up by mistake — the
+   next build fetches a fresh one.
+
+   `com.tracker.Inflight` has been signing releases for a long time, so it
+   certainly has a profile that predates all of this and needs replacing.
+   `com.tracker.Inflight.widgets` most likely has none at all, which is the
+   whole reason the archive failed — nothing to delete there.
+
+**Do all of it before the next build.** Left until after, the pipeline's
+`--create` registers `com.tracker.Inflight.widgets` for you *without* App
+Groups — the API cannot add it — and issues a profile against that. Enabling
+the capability afterwards then invalidates the profile that was just made, and
+step 4 has to be done a second time.
 
 The failure this prevents is:
 
