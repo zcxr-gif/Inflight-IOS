@@ -158,6 +158,11 @@ struct Hint: Identifiable, Equatable {
             placement: .filters,
             text: "The altitude colours here are the same ones the map paints a flown path in, so the filter and the track agree on what \"low\" means."
         ),
+        Hint(
+            id: "filters.aircraft",
+            placement: .filters,
+            text: "Aircraft kinds come from the same table that picks each plane's icon, so anything the map can draw, this can narrow down to."
+        ),
 
         // MARK: Weather
 

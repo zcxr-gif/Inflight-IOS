@@ -13,6 +13,7 @@ The previous Capacitor/web build is preserved untouched in [`old/`](old/).
 - Tap an aircraft for callsign, pilot, type/livery, route, altitude, ground speed, vertical speed and heading. The sheet keeps updating while it's open, and the map can be set to follow the aircraft as it flies.
 - Open a field — from the search results, from the ATC panel, or from the airports board — for who is on frequency, its METAR, what is inbound and how long it has to run, what has just left, and what is sitting on the apron. Every aircraft on it taps through to its own window.
 - Airports board: where the server actually is, ranked by the routes aircraft have filed, with controlled fields marked.
+- Filters: phase, altitude band, aircraft kind (airliners, regional, light & private, military, helicopters), and filed-destination-only. All of them views onto traffic already received, so nothing is re-fetched.
 - Server switcher: Expert / Training / Casual.
 - Hints: one dim line at the foot of a screen, about that screen. Each retires after a few sessions or when dismissed; the whole thing can be switched off, or restored, under Settings.
 - Connection status and live aircraft count.
