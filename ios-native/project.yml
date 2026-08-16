@@ -39,6 +39,13 @@ targets:
       # Sweeps in InflightTracker/Shared, which the widget extension compiles
       # too — see the note on that target.
       - path: InflightTracker
+      # Apple fixes both the name and the location — it has to be called
+      # PrivacyInfo.xcprivacy and sit at the root of the bundle — so each
+      # target's copy gets a directory of its own rather than the Info.plist
+      # treatment of a prefixed filename. Declared explicitly so it is a
+      # resource rather than whatever XcodeGen infers an unknown extension to be.
+      - path: Support/Privacy/App/PrivacyInfo.xcprivacy
+        buildPhase: resources
 
     dependencies:
       - package: SocketIO
@@ -72,6 +79,8 @@ targets:
     sources:
       - path: InflightWidgets
       - path: InflightTracker/Shared
+      - path: Support/Privacy/Widgets/PrivacyInfo.xcprivacy
+        buildPhase: resources
 
     settings:
       base:

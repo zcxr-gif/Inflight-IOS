@@ -133,6 +133,28 @@ workflows:
             fi
           done
 
+          # Both bundles need a privacy manifest, and it has to be copied
+          # rather than compiled. Missing one does not fail the build: the
+          # upload succeeds, TestFlight shows the build, and an ITMS-91053
+          # email arrives afterwards saying it cannot be distributed. That is
+          # an hour of round trip to learn something checkable here.
+          if [ "$(grep -c 'PrivacyInfo.xcprivacy' "$XCODE_PROJECT/project.pbxproj")" -lt 2 ]; then
+            echo "FATAL: a privacy manifest is missing from the project."
+            echo "Expected one for each of the app and the widget extension."
+            exit 1
+          fi
+
+          # The manifests are declarations about code that keeps changing, so
+          # they are worth reading rather than merely counting. Every UserDefaults
+          # suite in the app is the app group's or its own; both reasons must be
+          # claimed.
+          for REASON in CA92.1 1C8F.1 C617.1; do
+            if ! grep -q "$REASON" Support/Privacy/App/PrivacyInfo.xcprivacy; then
+              echo "FATAL: the app's privacy manifest does not claim $REASON."
+              exit 1
+            fi
+          done
+
           echo "==> Project generated and verified"
 
       - name: Resolve Swift Packages

@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+    The app's privacy manifest.
+
+    Required since May 2024: an app that calls a "required reason" API without
+    declaring why is rejected at upload with ITMS-91053, which arrives as an
+    email after the upload appears to have succeeded. Every declaration below
+    is a fact about this app's code, so each one has to be re-checked when that
+    code changes.
+
+    Copied to the root of the .app — the name and the location are both fixed
+    by Apple, which is why this lives in a directory of its own rather than
+    being prefixed the way the Info.plists are.
+-->
+<plist version="1.0">
+<dict>
+	<!-- The tracker has no advertising, no analytics, and no third-party SDK
+	     that does either. The only network it speaks to is its own backend. -->
+	<key>NSPrivacyTracking</key>
+	<false/>
+
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+
+	<!--
+	    Empty is an assertion, not a blank: it says this app collects nothing.
+
+	    That has to agree with the privacy answers on the App Store Connect
+	    record, and the one thing worth thinking about before it does is the
+	    APNs device token. The backend stores it, keyed to the watchlist, for
+	    as long as the device is registered — the app has no accounts, so the
+	    token *is* the identity. It is used only to deliver the notifications
+	    the user asked for, which is what makes it App Functionality rather
+	    than tracking, but whether it counts as collected data is a call for
+	    whoever owns the App Store listing.
+	-->
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<!-- CA92.1 — the app's own defaults: which server is selected,
+				     the filters, the weather units, the window's appearance,
+				     which hints have been read. -->
+				<string>CA92.1</string>
+				<!-- 1C8F.1 — the app group's defaults, which is how the app and
+				     its widget extension agree on the watchlist, the push
+				     registration and the pinned flight. -->
+				<string>1C8F.1</string>
+			</array>
+		</dict>
+
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<!-- C617.1 — timestamps of files inside the app group
+				     container. `SharedStore` reads them to expire the cached
+				     aircraft photos the widgets are drawn on. Nothing outside
+				     the container is ever inspected. -->
+				<string>C617.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

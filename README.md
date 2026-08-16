@@ -51,6 +51,26 @@ same one the old build used, so signing and the TestFlight app record work as-is
 To change project settings — deployment target, capabilities, dependencies, build
 settings — edit `ios-native/project.yml`. It is plain YAML and needs no Mac.
 
+## App Store paperwork
+
+The things App Store Connect rejects an upload over, and where each is answered.
+Most of them fail *after* a green build, by email, which is why the generate step
+checks what it can.
+
+| Requirement | Where it is answered |
+| --- | --- |
+| Privacy manifest (`ITMS-91053`) | `Support/Privacy/App/` and `Support/Privacy/Widgets/`. Declares the UserDefaults and file-timestamp APIs the code actually calls, with reasons `CA92.1`, `1C8F.1`, `C617.1`. Both are verified in CI. |
+| Export compliance | `ITSAppUsesNonExemptEncryption = false` in `Support/Info.plist`. Only standard HTTPS is used, which is exempt. Without this key TestFlight holds every build asking the question by hand. |
+| Build number always increasing | `agvtool` in CI, offset past the Capacitor build's high-water mark of 199. |
+| Extension version matching the app | Both Info.plists read `$(MARKETING_VERSION)` and `$(CURRENT_PROJECT_VERSION)` from the same project-level settings, so they cannot drift. |
+| App icon (`CFBundleIconName`) | Injected at build time from `Assets.xcassets` because `ASSETCATALOG_COMPILER_APPICON_NAME` is set — it is deliberately *not* in `Info.plist`. |
+| Production push | Not set here at all. `aps-environment` is taken from the provisioning profile at signing, overriding whatever the entitlements file says — so the App Store profile must have **Push Notifications** enabled or the entitlement is dropped silently. See [NOTIFICATIONS.md](ios-native/NOTIFICATIONS.md). |
+
+The one entry that is a judgement call rather than a fact about the code is
+`NSPrivacyCollectedDataTypes`, currently empty — an assertion that the app
+collects nothing. It has to agree with the privacy answers on the App Store
+Connect record; the manifest's own comments set out what to weigh.
+
 ## Data feed
 
 Live traffic comes from the same ACARS backend the web tracker uses:

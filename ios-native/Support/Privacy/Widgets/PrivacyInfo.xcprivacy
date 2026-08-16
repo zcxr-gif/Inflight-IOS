@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+    The widget extension's privacy manifest.
+
+    Separate from the app's because the extension ships as its own bundle
+    inside the .app, with its own binary — and it is binaries that Apple's
+    upload check scans. One manifest at the app's root may well satisfy it, but
+    a second here costs nothing and removes the question.
+
+    Deliberately shorter than the app's. The extension compiles
+    `InflightTracker/Shared` and nothing else of the app, so it touches the app
+    group's *files* but never its user defaults: everything the widgets draw
+    arrives through `SharedStore`'s snapshot on disk. If a widget ever reads a
+    default directly, `NSPrivacyAccessedAPICategoryUserDefaults` has to be
+    added here with reason 1C8F.1.
+-->
+<plist version="1.0">
+<dict>
+	<key>NSPrivacyTracking</key>
+	<false/>
+
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<!-- C617.1 — app group container only. `SharedStore` is
+				     compiled into this target, and it reads modification dates
+				     to expire the cached aircraft photos. -->
+				<string>C617.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>
