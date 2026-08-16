@@ -249,21 +249,30 @@ struct ContentView: View {
         switch kind {
         case .friends:
             FriendsPanel { flight in
-                // Same order as the ATC panel: close first, then move, so the
-                // aircraft isn't framed underneath the sheet it was picked in.
+                // Close first, then move: the map's edge padding is sized for
+                // the toolbar rather than for a half-height sheet, so the
+                // aircraft would otherwise be framed underneath the panel it
+                // was picked in.
                 sheet = nil
                 selection = SelectedFlight(id: flight.id)
                 focus(on: flight.coordinate, spanMeters: 240_000)
             }
             .environmentObject(feed)
 
+        // Both of these hand off to the field's own panel rather than closing
+        // and moving the map, which the field's first row does anyway. The
+        // sheet's identity changes, so this dismisses and re-presents — fine
+        // between panels, which carry no detent to lose, and the reason the
+        // flight case deliberately keeps one id for every aircraft.
         case .atc:
             AtcPanel { airport in
-                // Closing first, then moving: the map's edge padding is sized
-                // for the toolbar rather than for a half-height sheet, so the
-                // field would otherwise land under the panel it was picked in.
-                sheet = nil
-                focus(on: airport.coordinate, spanMeters: 60_000)
+                sheet = .airport(airport.icao)
+            }
+            .environmentObject(feed)
+
+        case .airports:
+            AirportsPanel { airport in
+                sheet = .airport(airport.icao)
             }
             .environmentObject(feed)
 

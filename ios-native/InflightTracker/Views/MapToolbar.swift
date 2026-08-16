@@ -1,14 +1,17 @@
 import SwiftUI
 
-/// The five places the toolbar goes.
+/// The six places the toolbar goes.
 ///
 /// Ordered as they are read: who you came to see, then what is happening on
 /// the server, then what the map is showing, then how it reads, then the app
 /// itself. Friends leads because it is the only one that is about a person.
+/// ATC and airports are a pair — who is working, and where everyone is — so
+/// they sit together in the middle.
 enum MapPanelKind: String, Identifiable, CaseIterable {
 
     case friends
     case atc
+    case airports
     case filters
     case weather
     case settings
@@ -19,6 +22,7 @@ enum MapPanelKind: String, Identifiable, CaseIterable {
         switch self {
         case .friends: return "Friends"
         case .atc: return "ATC"
+        case .airports: return "Airports"
         case .filters: return "Filters"
         case .weather: return "Weather"
         case .settings: return "Settings"
@@ -29,6 +33,9 @@ enum MapPanelKind: String, Identifiable, CaseIterable {
         switch self {
         case .friends: return "person.2.fill"
         case .atc: return "antenna.radiowaves.left.and.right"
+        // The same glyph the search results mark an airport with, so the two
+        // ways into a field look like the same thing.
+        case .airports: return "mappin.and.ellipse"
         case .filters: return "line.3.horizontal.decrease"
         case .weather: return "cloud.sun.fill"
         case .settings: return "gearshape.fill"

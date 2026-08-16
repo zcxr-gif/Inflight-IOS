@@ -11,7 +11,8 @@ The previous Capacitor/web build is preserved untouched in [`old/`](old/).
 - Live map of every aircraft on the selected server (MapKit — no API key, no tiles to pay for).
 - The original sprite-sheet plane icons, picked per aircraft type and rotated to true heading.
 - Tap an aircraft for callsign, pilot, type/livery, route, altitude, ground speed, vertical speed and heading. The sheet keeps updating while it's open, and the map can be set to follow the aircraft as it flies.
-- Search a callsign, pilot, registration or ICAO. Picking a field opens the field itself: who is on frequency, its METAR, what is inbound and how long it has to run, what has just left, and what is sitting on the apron — every aircraft on it tappable through to its own window.
+- Open a field — from the search results, from the ATC panel, or from the airports board — for who is on frequency, its METAR, what is inbound and how long it has to run, what has just left, and what is sitting on the apron. Every aircraft on it taps through to its own window.
+- Airports board: where the server actually is, ranked by the routes aircraft have filed, with controlled fields marked.
 - Server switcher: Expert / Training / Casual.
 - Connection status and live aircraft count.
 

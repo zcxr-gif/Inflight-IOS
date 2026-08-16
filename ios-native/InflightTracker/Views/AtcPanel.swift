@@ -20,9 +20,12 @@ struct AtcPanel: View {
 
     private var theme: FlightInfoTheme { appearance.theme }
 
-    /// Tapping a field takes the map to it and closes the panel, which is the
-    /// point of knowing a tower is open in the first place. Declared last, so
-    /// it is the panel's trailing closure.
+    /// Tapping a field opens the field: its traffic, its weather, and these
+    /// same controllers, with the map move on the panel's own first row.
+    /// Knowing a tower is open is mostly a question about what is landing
+    /// there, and that used to mean reading the ICAO off this row and typing it
+    /// into the search field. Declared last, so it is the panel's trailing
+    /// closure.
     let onSelectAirport: (Airport) -> Void
 
     var body: some View {
@@ -106,7 +109,7 @@ struct AtcPanel: View {
                     Spacer(minLength: 4)
 
                     if station.airport != nil {
-                        Image(systemName: "location.magnifyingglass")
+                        Image(systemName: "chevron.right")
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(theme.textDim)
                     }
@@ -122,7 +125,7 @@ struct AtcPanel: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        // Nothing to fly to for a field the dataset doesn't have.
+        // Nothing to open for a field the dataset doesn't have.
         .disabled(station.airport == nil)
     }
 

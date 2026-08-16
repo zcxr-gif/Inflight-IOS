@@ -163,3 +163,74 @@ struct AirportActivity {
         return first.flight.displayName < second.flight.displayName
     }
 }
+
+/// One field's share of what the server is flying, for ranking the whole board
+/// rather than reading one airport.
+///
+/// Counted from what aircraft have *filed*, which is a dictionary of string
+/// keys and nothing else. The obvious alternative — asking `AirportActivity`
+/// about every airport — would be the airport dataset times the packet, and
+/// working out what is physically parked at a field costs a nearest-airport
+/// search per aircraft. That is affordable for the one field you have opened
+/// and not for all of them at once, so the board ranks on flight plans and the
+/// apron is counted when you go in.
+struct AirportTraffic: Identifiable {
+
+    let airport: Airport
+
+    /// Aircraft with this field filed as their destination.
+    let inbound: Int
+
+    /// Aircraft that filed out of it.
+    let outbound: Int
+
+    var total: Int { inbound + outbound }
+
+    var id: String { airport.icao }
+
+    /// The busiest fields on the server, most traffic first.
+    ///
+    /// Codes the dataset has never heard of are dropped rather than listed: a
+    /// row here exists to be opened, and there is nothing behind an ICAO that
+    /// resolves to no airport. They are dropped while taking the top `limit`,
+    /// so a few unknown codes cost a shorter list rather than a wrong ranking.
+    static func busiest(in flights: [Flight], limit: Int) -> [AirportTraffic] {
+        guard limit > 0 else { return [] }
+
+        var arrivals: [String: Int] = [:]
+        var departures: [String: Int] = [:]
+
+        for flight in flights {
+            if let arrival = flight.arrivalIcao?.uppercased(), !arrival.isEmpty {
+                arrivals[arrival, default: 0] += 1
+            }
+            if let departure = flight.departureIcao?.uppercased(), !departure.isEmpty {
+                departures[departure, default: 0] += 1
+            }
+        }
+
+        let ranked = Set(arrivals.keys).union(departures.keys)
+            .map { icao in (icao, (arrivals[icao] ?? 0) + (departures[icao] ?? 0)) }
+            .sorted { first, second in
+                first.1 == second.1 ? first.0 < second.0 : first.1 > second.1
+            }
+
+        var board: [AirportTraffic] = []
+        board.reserveCapacity(limit)
+
+        for (icao, _) in ranked {
+            guard board.count < limit else { break }
+            guard let airport = AirportStore.shared.airport(icao) else { continue }
+
+            board.append(
+                AirportTraffic(
+                    airport: airport,
+                    inbound: arrivals[icao] ?? 0,
+                    outbound: departures[icao] ?? 0
+                )
+            )
+        }
+
+        return board
+    }
+}
