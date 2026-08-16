@@ -254,6 +254,8 @@ struct FlightDetailView: View {
                     if track.count >= 4 {
                         AltitudeProfileCard(points: track, theme: theme)
                     }
+
+                    HintStrip(placement: .flight)
                 }
                 .padding(.horizontal, 14)
                 // Negative, so the identity block rides the seam where the

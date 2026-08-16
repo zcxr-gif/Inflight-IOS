@@ -391,13 +391,23 @@ struct ContentView: View {
     @ViewBuilder
     private var mapToolbar: some View {
         if selection == nil {
-            MapToolbar(
-                theme: theme,
-                atcCount: feed.atcCount,
-                activeFilters: filters.activeCount,
-                friendsAloft: friendsAloft
-            ) { kind in
-                sheet = .panel(kind)
+            VStack(spacing: 8) {
+                // Above the bar rather than over the map proper: it is an
+                // aside about the chrome it is sitting on, and anywhere else
+                // it would be something laid over the traffic. The map's
+                // reserved inset is not grown to match — hints retire, and
+                // permanently shrinking where the map can frame things for
+                // something that goes away would be the wrong trade.
+                HintStrip(placement: .map, isFloating: true)
+
+                MapToolbar(
+                    theme: theme,
+                    atcCount: feed.atcCount,
+                    activeFilters: filters.activeCount,
+                    friendsAloft: friendsAloft
+                ) { kind in
+                    sheet = .panel(kind)
+                }
             }
             .padding(.horizontal, 14)
             .padding(.bottom, 6)

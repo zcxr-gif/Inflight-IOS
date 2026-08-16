@@ -85,6 +85,8 @@ struct FiltersPanel: View {
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(theme.textDim)
                 .padding(.horizontal, 2)
+
+            HintStrip(placement: .filters)
         }
     }
 

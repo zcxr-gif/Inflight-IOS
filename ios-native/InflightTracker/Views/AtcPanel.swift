@@ -51,8 +51,8 @@ struct AtcPanel: View {
                 }
 
                 // Centres work an airspace, and their identifier is an FIR
-                // rather than an ICAO — nowhere to fly the map to, so they are
-                // listed apart from the fields instead of pretending to be one.
+                // rather than an ICAO — no field behind it to open, so they are
+                // listed apart from the airports instead of pretending to be one.
                 if !centers.isEmpty {
                     PanelSection(title: "CENTRE") {
                         ForEach(centers) { station in
@@ -62,6 +62,8 @@ struct AtcPanel: View {
                     }
                 }
             }
+
+            HintStrip(placement: .atc)
         }
         .onReceive(clock) { now = $0 }
     }
