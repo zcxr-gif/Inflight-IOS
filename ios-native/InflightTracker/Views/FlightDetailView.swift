@@ -73,6 +73,19 @@ struct FlightDetailView: View {
             let peakOpacity = settled ? 1 : 1 - ramp(expansion, from: 0.02, to: 0.46)
             let fullOpacity = settled ? 0 : ramp(expansion, from: 0.16, to: 0.68)
 
+            // Which phase owns the taps. Decided by comparing the two
+            // opacities rather than by testing the raw expansion against
+            // thresholds of its own, so whatever is on screen is always the
+            // thing you can touch — and exactly one of them ever is.
+            //
+            // The thresholds this replaces (`< 0.3` and `> 0.5`) left a gap.
+            // Expansion is the sheet's growth over a fixed nominal travel, so
+            // a tall peak on a short screen — the photo peek on a small phone
+            // — can run out of sheet before it reaches 0.5. The full window
+            // was then the visible phase while still being the untouchable
+            // one, which is a window whose buttons simply do not respond.
+            let fullWindowOwnsTaps = fullOpacity >= peakOpacity
+
             ZStack(alignment: .top) {
                 if let flight = flight {
                     FlightInfoPeak(
@@ -98,13 +111,13 @@ struct FlightDetailView: View {
                         .offset(y: CGFloat(-14 * expansion))
                         .scaleEffect(CGFloat(0.985 + 0.015 * peakOpacity), anchor: .top)
                         .opacity(peakOpacity)
-                        .allowsHitTesting(expansion < 0.3)
+                        .allowsHitTesting(!fullWindowOwnsTaps)
 
                     expanded(for: flight, width: geometry.size.width)
                         .offset(y: CGFloat(14 * (1 - fullOpacity)))
                         .scaleEffect(CGFloat(0.985 + 0.015 * fullOpacity), anchor: .top)
                         .opacity(fullOpacity)
-                        .allowsHitTesting(expansion > 0.5)
+                        .allowsHitTesting(fullWindowOwnsTaps)
                 } else {
                     ended
                 }
@@ -252,14 +265,16 @@ struct FlightDetailView: View {
                         theme: theme
                     )
 
+                    // Six tiles in two rows — what to do with the flight now,
+                    // and what to keep after the window closes. Watching,
+                    // banners and pinning used to be a separate row of
+                    // differently shaped chips under this one.
                     FlightActionRow(
                         flight: flight,
                         theme: theme,
                         track: track,
                         onReplay: { onReplay(track) }
                     )
-
-                    FlightWatchRow(flight: flight, theme: theme)
 
                     situationCard(for: flight)
                     telemetry(for: flight)

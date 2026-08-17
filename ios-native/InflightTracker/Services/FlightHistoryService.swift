@@ -44,9 +44,21 @@ final class FlightHistoryService {
 
     // MARK: - Parsing
 
-    /// `{ ok: true, path: [ { latitude, longitude, altitude, groundSpeed,
-    /// date } ] }`, with `route` accepted as the older key the web tracker
-    /// also reads.
+    /// `{ ok: true, path: [ { lat, lon, alt, gs, time, hdg } ] }`.
+    ///
+    /// Those are the names the backend actually encodes — see `path_codec.cjs`,
+    /// which packs exactly that tuple, and `getFlightPath`, which clamps a
+    /// trail with `p.time <= untilMs`. The longer spellings below are the ones
+    /// the web tracker's own reader accepts, kept as fallbacks so a payload
+    /// from either shape parses.
+    ///
+    /// Getting these wrong is silent and expensive, which is why they are now
+    /// written down. Latitude and longitude were the only two being read
+    /// correctly, so paths drew — while `alt`, `gs` and `time` all missed,
+    /// leaving every historical point at zero feet, zero knots and *no date*.
+    /// The altitude profile was therefore a flat line on the floor, and the
+    /// window's elapsed clock had nothing to count from and showed "—:—" for
+    /// the whole flight.
     private static func parse(_ data: Data?) -> [TrackPoint] {
         guard let data = data,
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -69,9 +81,9 @@ final class FlightHistoryService {
             points.append(
                 TrackPoint(
                     coordinate: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
-                    altitudeFeet: number(entry["altitude"] ?? entry["alt_ft"]) ?? 0,
-                    groundSpeedKnots: number(entry["groundSpeed"] ?? entry["speed"] ?? entry["gs_kt"]) ?? 0,
-                    date: date(entry["date"] ?? entry["timestamp"])
+                    altitudeFeet: number(entry["alt"] ?? entry["altitude"] ?? entry["alt_ft"]) ?? 0,
+                    groundSpeedKnots: number(entry["gs"] ?? entry["groundSpeed"] ?? entry["speed"] ?? entry["gs_kt"]) ?? 0,
+                    date: date(entry["time"] ?? entry["date"] ?? entry["timestamp"])
                 )
             )
         }
