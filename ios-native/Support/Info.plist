@@ -54,5 +54,23 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<!-- Deep links from the widgets. `inflight://open?flight=…` and
+	     `airport=…` — see InflightLink, which is the only thing that builds or
+	     reads these, in either process. Not a claim on a public namespace:
+	     nothing else is expected to link to the app, and the scheme exists so
+	     a tile can name what it is about. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.tracker.Inflight.deeplink</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>inflight</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

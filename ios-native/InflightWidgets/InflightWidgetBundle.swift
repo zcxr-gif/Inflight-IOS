@@ -9,6 +9,7 @@ struct InflightWidgetBundle: WidgetBundle {
     var body: some Widget {
         FlightWidget()
         FriendsWidget()
+        AirportWidget()
         InflightLiveActivity()
     }
 }

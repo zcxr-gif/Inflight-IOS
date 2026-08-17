@@ -44,6 +44,7 @@ struct AirportPanel: View {
 
     @EnvironmentObject private var feed: LiveFeed
     @ObservedObject private var appearance = FlightInfoAppearance.shared
+    @ObservedObject private var widgets = WidgetBridge.shared
     @ObservedObject private var weatherPreferences = WeatherPreferences.shared
 
     /// The field's own report. Seeded from the cache so a field looked at twice
@@ -109,6 +110,44 @@ struct AirportPanel: View {
                 ) {
                     onShowOnMap(airport)
                 }
+
+                PanelDivider()
+
+                // One pinned field at a time, so this is a toggle rather than a
+                // list to manage: pinning a second field replaces the first,
+                // which is the same bargain the flight tile makes.
+                Button {
+                    widgets.pinAirport(isPinned ? nil : airport.icao)
+                } label: {
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            PanelRowLabel(
+                                title: isPinned ? "Pinned to home screen" : "Pin to home screen",
+                                symbol: isPinned ? "square.grid.2x2.fill" : "square.grid.2x2"
+                            )
+
+                            Text(isPinned
+                                 ? "The Airport widget is showing \(airport.icao)."
+                                 : "Puts this field's traffic, ATC and weather on the Airport widget.")
+                                .font(.system(size: 10.5, weight: .medium))
+                                .foregroundStyle(theme.textDim)
+                                .padding(.leading, 30)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        Spacer(minLength: 8)
+
+                        if isPinned {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(theme.textPrimary)
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
 
             frequencies
@@ -244,6 +283,8 @@ struct AirportPanel: View {
         if let visibility = metar.visibilityLabel { parts.append(visibility) }
         return parts.joined(separator: " · ")
     }
+
+    private var isPinned: Bool { widgets.isAirportPinned(airport.icao) }
 
     private var isDaylight: Bool { SolarPosition.isDaylight(at: airport.coordinate) }
 

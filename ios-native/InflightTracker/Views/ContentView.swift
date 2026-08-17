@@ -63,6 +63,19 @@ struct ContentView: View {
     /// Raised when a locked map style is picked.
     @State private var isShowingStylePaywall = false
 
+    /// A widget tap that hasn't been acted on yet.
+    ///
+    /// A field resolves offline and lands immediately. An aircraft cannot: the
+    /// tap may well have launched the app, and the feed is still connecting, so
+    /// the id is held here and retried as packets arrive — the same shape as a
+    /// tapped push notification. It is dropped after a while rather than
+    /// waiting forever for an aircraft that has landed.
+    @State private var pendingFlightId: String?
+    @State private var pendingSince = Date.distantPast
+
+    /// How long a widget tap keeps looking for its aircraft.
+    private static let pendingLinkWindow: TimeInterval = 20
+
     /// What the sheet is showing. A view can only present one thing at a time,
     /// so the flight window, the toolbar's panels and a field all share this
     /// rather than each carrying their own `.sheet`.
@@ -213,7 +226,17 @@ struct ContentView: View {
             // Keeps the home-screen tiles fed. Cheap on every packet — the
             // bridge does the throttling, because only it knows what a widget
             // would actually notice.
-            WidgetBridge.shared.update(flights: feed.flights)
+            WidgetBridge.shared.update(flights: feed.flights, atcStations: feed.atcStations)
+
+            // A widget tap waiting on the aircraft to appear in a packet.
+            if let wanted = pendingFlightId {
+                if feed.flights.contains(where: { $0.id == wanted }) {
+                    pendingFlightId = nil
+                    openFlight(wanted)
+                } else if Date().timeIntervalSince(pendingSince) > Self.pendingLinkWindow {
+                    pendingFlightId = nil
+                }
+            }
 
             guard selection != nil else { return }
             updateWeather()
@@ -289,6 +312,10 @@ struct ContentView: View {
         }
         .sheet(isPresented: $isShowingAccount) { AccountPanel() }
         .sheet(isPresented: $isShowingStylePaywall) { ProPanel(highlighted: .mapStyles) }
+        .onOpenURL { url in
+            guard let link = InflightLink.parse(url) else { return }
+            open(link)
+        }
         .onAppear { feed.connect() }
         .task {
             // Both are launch work rather than panel work: the App Store
@@ -382,6 +409,43 @@ struct ContentView: View {
             // window back up, resets the detent and re-reads the weather, the
             // same as it would for any other way of opening an aircraft.
             selection = origin
+        }
+    }
+
+    // MARK: - Deep links
+
+    /// Acting on a widget tap.
+    private func open(_ link: InflightLink) {
+        switch link {
+        case .flight(let id):
+            // Already in the packet: straight there. Otherwise held for the
+            // next few packets — see `pendingFlightId`.
+            if feed.flights.contains(where: { $0.id == id }) {
+                openFlight(id)
+            } else {
+                pendingFlightId = id
+                pendingSince = Date()
+            }
+
+        case .airport(let icao):
+            // Resolves against the offline table, so this works on a cold
+            // launch with no feed at all.
+            guard let airport = AirportStore.shared.airport(icao) else { return }
+            selection = nil
+            openAirport(airport)
+
+        case .panel(let name):
+            guard let kind = MapPanelKind(rawValue: name) else { return }
+            selection = nil
+            sheet = .panel(kind)
+        }
+    }
+
+    private func openFlight(_ id: String) {
+        sheet = nil
+        selection = SelectedFlight(id: id)
+        if let flight = feed.flights.first(where: { $0.id == id }) {
+            focus(on: flight.coordinate, spanMeters: 240_000)
         }
     }
 

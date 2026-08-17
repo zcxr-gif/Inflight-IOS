@@ -15,7 +15,7 @@ struct FriendsWidget: Widget {
         }
         .configurationDisplayName("Friends")
         .description("Which of the pilots you watch are in the air.")
-        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge, .accessoryRectangular])
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge, .systemExtraLarge, .accessoryRectangular])
     }
 }
 
@@ -91,6 +91,8 @@ struct FriendsWidgetView: View {
                     )
                 }
         }
+        // Anywhere that isn't one of the rows opens the list itself.
+        .widgetURL(InflightLink.panel("friends").url)
     }
 
     // MARK: - Home screen
@@ -106,7 +108,12 @@ struct FriendsWidgetView: View {
                 header
 
                 ForEach(aloft.prefix(rowLimit)) { friend in
-                    FriendTile(friend: friend, now: entry.date, compact: family == .systemSmall)
+                    // Per-row links rather than one target for the tile: the
+                    // whole point of a list of friends is that you are after
+                    // one of them.
+                    Link(destination: InflightLink.flight(id: friend.id).url ?? FriendsWidgetView.fallbackURL) {
+                        FriendTile(friend: friend, now: entry.date, compact: family == .systemSmall)
+                    }
                 }
 
                 if aloft.count > rowLimit {
@@ -120,13 +127,26 @@ struct FriendsWidgetView: View {
         }
     }
 
+    /// How many friends each family draws.
+    ///
+    /// Raised across the board. The snapshot used to be truncated to eight
+    /// before the tile ever saw it, so "+N more" was counting against a list
+    /// that had already been cut — the numbers disagreed with the friends panel
+    /// and there was no way to see the rest. The data ceiling is 24 now, and
+    /// these are simply how many fit.
     private var rowLimit: Int {
         switch family {
-        case .systemSmall: return 2
-        case .systemLarge: return 6
-        default: return 3
+        case .systemSmall: return 3
+        case .systemLarge: return 9
+        case .systemExtraLarge: return 14
+        default: return 4
         }
     }
+
+    /// Only reachable if a URL built from a string we control failed to build,
+    /// which it will not — `Link` just needs something non-nil.
+    static let fallbackURL = URL(string: "\(InflightLink.scheme)://open")
+        ?? URL(fileURLWithPath: "/")
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {

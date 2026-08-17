@@ -86,6 +86,14 @@ struct FlightWidgetView: View {
     @Environment(\.widgetFamily) private var family
 
     var body: some View {
+        content
+            // One aircraft, one destination. A tile with nothing pinned falls
+            // back to opening the app, which is what a tap on it should do.
+            .widgetURL(entry.flight.map { InflightLink.flight(id: $0.id).url } ?? nil)
+    }
+
+    @ViewBuilder
+    private var content: some View {
         switch family {
         case .accessoryRectangular, .accessoryInline:
             // Lock-screen accessories are rendered monochrome by the system,
