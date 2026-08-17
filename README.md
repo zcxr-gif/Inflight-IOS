@@ -16,6 +16,10 @@ The previous Capacitor/web build is preserved untouched in [`old/`](old/).
 - Filters: phase, altitude band, aircraft kind (airliners, regional, light & private, military, helicopters), and filed-destination-only. All of them views onto traffic already received, so nothing is re-fetched.
 - Server switcher: Expert / Training / Casual.
 - Hints: one dim line at the foot of a screen, about that screen. Each retires after a few sessions or when dismissed; the whole thing can be switched off, or restored, under Settings.
+- Map styles, from the control in the map's bottom corner or Settings › Appearance: Muted (the default), Detailed, Satellite, and **Globe** — MapKit's own 3D planet, free to spin and tilt, with the server's traffic on it. The globe is the only style that unlocks rotation, and sprite headings are corrected against the camera so a spun planet doesn't turn every aircraft on it.
+- Light and dark, under Settings › Appearance: Auto follows iOS, or pin it either way. Every surface — the panels, the floating chrome, the info window, and MapKit's own cartography — turns together.
+- An optional account, on the same Supabase project the web tracker uses, so an account made on inflight.info signs in here. Sign in, sign up, reset a password, delete the account.
+- Inflight Pro: a one-off App Store purchase that unlocks flight replay and lifts the watchlist cap. A web subscription (or the grandfathered `legacy_pro` flag) unlocks the same things, for anyone who already has one.
 - Connection status and live aircraft count.
 
 ## Layout
@@ -31,6 +35,8 @@ ios-native/
     Map/                          Sprite slicing, annotations, MKMapView wrapper
     Views/                        SwiftUI screens
     Resources/                    markers.png, sprite-uvs.json, app icon
+  Support/Inflight.storekit       StoreKit config, for testing Pro in the simulator
+supabase/functions/               Edge Functions (account deletion)
 codemagic.yaml                    CI: generate project -> sign -> IPA -> TestFlight
 old/                              The previous Capacitor tracker, as it was
 ```
@@ -70,6 +76,55 @@ The one entry that is a judgement call rather than a fact about the code is
 `NSPrivacyCollectedDataTypes`, currently empty — an assertion that the app
 collects nothing. It has to agree with the privacy answers on the App Store
 Connect record; the manifest's own comments set out what to weigh.
+
+## Accounts and Inflight Pro
+
+### The account
+
+Sign-in talks to the same Supabase project the Capacitor build did — see
+`old/www/flight.js` for where the URL and anon key come from — through a
+hand-rolled client (`Services/SupabaseAuth.swift`) rather than the
+`supabase-swift` package: it is four requests and one row, and the package would
+add a dependency graph to a CI build that currently resolves exactly one.
+
+The refresh token lives in the Keychain (`ThisDeviceOnly`); the access token is
+held in memory only. The app works perfectly well signed out — the account
+exists so Pro follows you between devices.
+
+**Account deletion is required.** App Store Guideline 5.1.1(v) says an app that
+lets you create an account has to let you delete it in-app. The button is in
+Settings › Account, and it calls the Edge Function in
+`supabase/functions/delete-account/`, which **has to be deployed** before that
+button works:
+
+```
+supabase functions deploy delete-account --project-ref lcgaoiqwwpyqndaucyzu
+```
+
+Until it is, the button reports that deletion isn't available on the server yet.
+Deleting an auth user needs the `service_role` key, which is why it cannot be
+done from the client.
+
+### Pro
+
+`com.tracker.Inflight.pro`, a **non-consumable** at the US $1.99 tier. It needs
+creating on the App Store Connect record under that exact identifier, with the
+paid-apps agreement in place, or `Product.products(for:)` returns nothing and
+the paywall shows no price.
+
+Two things grant it, OR-ed rather than reconciled (`Services/Entitlements.swift`):
+
+| Source | Where it comes from |
+| --- | --- |
+| App Store | `Transaction.currentEntitlements`, tied to the Apple Account. What the paywall sells. |
+| `profiles.is_pro` / `legacy_pro` | The web subscription and the grandfathering flag. Read-only from the app. |
+
+Nothing is written back the other way. An App Store purchase is **not** mirrored
+into `profiles.is_pro`, because the only thing that could write it is the
+client, and a client that can set its own `is_pro` can grant itself Pro.
+
+What Pro gates is `ProFeature.allCases` and nothing else — the paywall lists the
+same enum the gates check, so the two cannot describe different products.
 
 ## Data feed
 

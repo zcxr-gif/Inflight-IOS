@@ -1,0 +1,89 @@
+# A compile of the app, and nothing else.
+#
+# Codemagic already builds, signs and ships the IPA — this does not replace it.
+# What it adds is a *readable* failure: Codemagic reports `xcodebuild exited
+# with status code 65` to GitHub and keeps the compiler output behind a login,
+# so a build that fails to compile says only that it failed. This job puts the
+# `error:` lines in a public log.
+#
+# No signing, no archive, no upload: it builds for the simulator with signing
+# switched off, so it needs no certificates and no secrets, and it is finished
+# in a fraction of the time the real build takes.
+name: Compile check
+
+on:
+  pull_request:
+  push:
+    branches:
+      - 'claude/**'
+  workflow_dispatch:
+
+concurrency:
+  group: compile-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 40
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The app targets iOS 26 and uses APIs from that SDK, so which Xcode the
+      # runner has is the difference between a real answer and a page of noise
+      # about unavailable symbols. Printed first, and the newest is selected,
+      # so a runner that is simply too old is obvious from the log rather than
+      # looking like a hundred compile errors.
+      - name: Pick the newest Xcode
+        run: |
+          set -euo pipefail
+          echo "Xcodes on this runner:"
+          ls -1 /Applications | grep -i '^Xcode' || true
+
+          newest=$(ls -1d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          echo "Selecting: $newest"
+          sudo xcode-select -s "$newest/Contents/Developer"
+
+          xcodebuild -version
+          echo "SDKs:"
+          xcodebuild -showsdks | grep -i ios || true
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate the project
+        working-directory: ios-native
+        run: xcodegen generate
+
+      # `-destination generic/platform=iOS Simulator` keeps this off any
+      # specific simulator runtime, which the runner may not have downloaded.
+      # Signing is switched off outright: nothing here is going to be run or
+      # shipped, and requiring a certificate would put this behind the same
+      # secrets the real build needs.
+      - name: Build
+        working-directory: ios-native
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project InflightTracker.xcodeproj \
+            -scheme InflightTracker \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            2>&1 | tee /tmp/build.log
+
+      # Runs whether or not the build succeeded, and repeats just the lines
+      # that say what was wrong at the very end of the log — where they are
+      # actually findable, rather than a thousand lines up.
+      - name: Errors
+        if: always()
+        run: |
+          echo "───────── errors ─────────"
+          grep -E "error:|warning: will never be executed|cannot find|has no member" /tmp/build.log \
+            | sort -u \
+            | head -100 \
+            || echo "(no error: lines found)"

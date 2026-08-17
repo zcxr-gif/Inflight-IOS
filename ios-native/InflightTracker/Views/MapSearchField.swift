@@ -38,7 +38,7 @@ struct MapSearchField: View {
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.86), value: isSearching)
         .animation(.easeInOut(duration: 0.16), value: results.map(\.id))
-        .environment(\.colorScheme, .dark)
+        .environment(\.colorScheme, theme.colorScheme)
     }
 
     // MARK: - Field

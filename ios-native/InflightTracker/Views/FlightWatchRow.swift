@@ -16,9 +16,13 @@ struct FlightWatchRow: View {
     let theme: FlightInfoTheme
 
     @ObservedObject private var friends = FriendsStore.shared
+    @ObservedObject private var entitlements = Entitlements.shared
     @ObservedObject private var liveActivity = LiveActivityController.shared
     @ObservedObject private var widgets = WidgetBridge.shared
     @ObservedObject private var push = PushService.shared
+
+    /// Raised when the free watchlist is full — see `toggleWatch`.
+    @State private var isShowingPaywall = false
 
     private var pilot: String? {
         guard let username = flight.username, !username.isEmpty else { return nil }
@@ -69,12 +73,21 @@ struct FlightWatchRow: View {
             }
             .accessibilityLabel("Pin this flight to the home screen widget")
         }
+        .sheet(isPresented: $isShowingPaywall) { ProPanel(highlighted: .watchlist) }
     }
 
     private func toggleWatch(_ pilot: String) {
         if friends.contains(pilot) {
             friends.remove(pilot)
         } else {
+            // Taking somebody *off* the list is never gated, which is why the
+            // check sits on this branch alone: a full list must still be a list
+            // you can make room in.
+            guard entitlements.canWatchMore(current: friends.count) else {
+                isShowingPaywall = true
+                return
+            }
+
             friends.add(pilot)
             // The first pilot somebody watches is the moment the permission
             // prompt has something concrete to be about, so it is asked here

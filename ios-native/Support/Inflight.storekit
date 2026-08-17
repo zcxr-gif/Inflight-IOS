@@ -1,0 +1,35 @@
+{
+  "identifier" : "A1F4C0D2",
+  "nonRenewingSubscriptions" : [],
+  "products" : [
+    {
+      "displayPrice" : "1.99",
+      "familyShareable" : false,
+      "internalID" : "B27E4A11",
+      "localizations" : [
+        {
+          "description" : "Flight replay and an unlimited watchlist, bought once.",
+          "displayName" : "Inflight Pro",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.tracker.Inflight.pro",
+      "referenceName" : "Inflight Pro",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+    "_applicationInternalID" : "InflightTracker",
+    "_developerTeamID" : "",
+    "_failTransactionsEnabled" : false,
+    "_lastSynchronizedDate" : 0,
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_storeKitErrors" : []
+  },
+  "subscriptionGroups" : [],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}

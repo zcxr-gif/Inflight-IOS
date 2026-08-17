@@ -105,6 +105,99 @@ public struct WidgetFlight: Codable, Hashable, Identifiable {
     }
 }
 
+/// One field, flattened for a widget.
+///
+/// Counts and a handful of rows rather than the whole movement list: a widget
+/// draws a few lines and needs the numbers above them, and shipping every
+/// aircraft at a busy field would be most of a packet on disk for nothing.
+public struct WidgetAirport: Codable, Hashable, Identifiable {
+
+    public var id: String { icao }
+
+    public var icao: String
+    public var name: String
+
+    /// Flag emoji, or empty where the country didn't resolve.
+    public var flag: String
+
+    public var inboundCount: Int
+    public var departedCount: Int
+    public var onGroundCount: Int
+
+    /// Positions currently staffed — "TWR", "GND" — in the order they read.
+    /// Empty at the overwhelming majority of fields, which is information in
+    /// itself and drawn as such rather than as a gap.
+    public var atcPositions: [String]
+
+    /// The METAR's one-line summary and temperature, when the app had one
+    /// cached. Nil rather than stale-looking placeholder text.
+    public var conditions: String?
+    public var temperature: String?
+
+    /// The next few arrivals, soonest first, for the roomier families.
+    public var arrivals: [WidgetMovement]
+
+    /// Whether the app managed to put this field's photograph in the shared
+    /// cache. False means the tile draws the sky instead — most fields have no
+    /// picture, and that is a normal outcome rather than a failure.
+    public var hasPhoto: Bool
+
+    public var capturedAt: Date
+
+    public init(icao: String,
+                name: String = "",
+                flag: String = "",
+                inboundCount: Int = 0,
+                departedCount: Int = 0,
+                onGroundCount: Int = 0,
+                atcPositions: [String] = [],
+                conditions: String? = nil,
+                temperature: String? = nil,
+                arrivals: [WidgetMovement] = [],
+                hasPhoto: Bool = false,
+                capturedAt: Date = Date()) {
+        self.icao = icao
+        self.name = name
+        self.flag = flag
+        self.inboundCount = inboundCount
+        self.departedCount = departedCount
+        self.onGroundCount = onGroundCount
+        self.atcPositions = atcPositions
+        self.conditions = conditions
+        self.temperature = temperature
+        self.arrivals = arrivals
+        self.hasPhoto = hasPhoto
+        self.capturedAt = capturedAt
+    }
+
+    /// Where this field's photo lives in the shared cache. Built from the ICAO
+    /// through the same key maker the aircraft photos use, so the app writes
+    /// and the widget reads the same filename by construction.
+    public var photoKey: String { PhotoKey.make(type: "airport", livery: icao) }
+
+    public var movementCount: Int { inboundCount + departedCount + onGroundCount }
+
+    public var isControlled: Bool { !atcPositions.isEmpty }
+}
+
+/// One aircraft on a field's tile: who it is and the one number that matters.
+public struct WidgetMovement: Codable, Hashable, Identifiable {
+
+    public var id: String
+    public var callsign: String
+    public var aircraftType: String
+
+    /// "12 min" for an arrival with an estimate, "48 NM" for one without.
+    public var detail: String
+
+    public init(id: String, callsign: String, aircraftType: String = "", detail: String = "") {
+        self.id = id
+        self.callsign = callsign
+        self.aircraftType = aircraftType
+        self.detail = detail
+    }
+}
+
 /// Everything the widgets read, written by the app in one go.
 ///
 /// One file rather than several: a widget that read a pinned flight from one
@@ -122,15 +215,20 @@ public struct WidgetSnapshot: Codable {
     /// flying", which needs both numbers.
     public var friendCount: Int
 
+    /// The field the user pinned, if any.
+    public var airport: WidgetAirport?
+
     public var updatedAt: Date
 
     public init(pinned: WidgetFlight? = nil,
                 friends: [WidgetFlight] = [],
                 friendCount: Int = 0,
+                airport: WidgetAirport? = nil,
                 updatedAt: Date = Date()) {
         self.pinned = pinned
         self.friends = friends
         self.friendCount = friendCount
+        self.airport = airport
         self.updatedAt = updatedAt
     }
 
@@ -155,7 +253,23 @@ public struct WidgetSnapshot: Codable {
             totalNM: 3_000,
             eta: Date().addingTimeInterval(3 * 3600 + 15 * 60)
         ),
-        friendCount: 8
+        friendCount: 8,
+        airport: WidgetAirport(
+            icao: "EGLL",
+            name: "London Heathrow",
+            flag: "🇬🇧",
+            inboundCount: 14,
+            departedCount: 9,
+            onGroundCount: 22,
+            atcPositions: ["GND", "TWR", "APP"],
+            conditions: "Light rain",
+            temperature: "11°",
+            arrivals: [
+                WidgetMovement(id: "p1", callsign: "BAW214", aircraftType: "Boeing 777", detail: "8 min"),
+                WidgetMovement(id: "p2", callsign: "DLH900", aircraftType: "Airbus A320", detail: "16 min"),
+                WidgetMovement(id: "p3", callsign: "UAE29", aircraftType: "Airbus A380", detail: "31 min")
+            ]
+        )
     )
 }
 

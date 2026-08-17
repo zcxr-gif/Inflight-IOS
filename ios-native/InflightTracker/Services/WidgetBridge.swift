@@ -20,7 +20,20 @@ final class WidgetBridge: ObservableObject {
     /// The flight the user chose to keep on their home screen.
     @Published private(set) var pinnedFlightId: String?
 
+    /// The field the user chose to keep on their home screen.
+    @Published private(set) var pinnedAirportIcao: String?
+
     private static let pinnedKey = "widget.pinnedFlightId"
+    private static let pinnedAirportKey = "widget.pinnedAirportIcao"
+
+    /// How many watched pilots the snapshot carries.
+    ///
+    /// Was eight, which was the bug: the largest tile draws more than that on
+    /// an iPad, and "+3 more" under a list that had already been silently
+    /// truncated upstream was counting friends it had thrown away. This is the
+    /// data ceiling — each family still draws as many rows as it has room for,
+    /// and the number it reports is now the real one.
+    private static let friendCapacity = 24
 
     private let defaults: UserDefaults
 
@@ -35,6 +48,7 @@ final class WidgetBridge: ObservableObject {
     private init() {
         defaults = UserDefaults(suiteName: SharedStore.appGroupIdentifier) ?? .standard
         pinnedFlightId = defaults.string(forKey: Self.pinnedKey)
+        pinnedAirportIcao = defaults.string(forKey: Self.pinnedAirportKey)
     }
 
     // MARK: - Pinning
@@ -52,6 +66,21 @@ final class WidgetBridge: ObservableObject {
 
     func isPinned(_ flightId: String) -> Bool { pinnedFlightId == flightId }
 
+    func pinAirport(_ icao: String?) {
+        let key = icao?.uppercased()
+        pinnedAirportIcao = key
+        if let key = key {
+            defaults.set(key, forKey: Self.pinnedAirportKey)
+        } else {
+            defaults.removeObject(forKey: Self.pinnedAirportKey)
+        }
+        lastReload = .distantPast
+    }
+
+    func isAirportPinned(_ icao: String) -> Bool {
+        pinnedAirportIcao == icao.uppercased()
+    }
+
     // MARK: - Snapshot
 
     /// Rebuild the widget snapshot from the current packet.
@@ -59,7 +88,7 @@ final class WidgetBridge: ObservableObject {
     /// Called on every feed update. Everything expensive — route geometry, the
     /// airport lookups behind it — happens here, in the app, where there is
     /// time for it; the widget process only ever reads finished numbers.
-    func update(flights: [Flight]) {
+    func update(flights: [Flight], atcStations: [AtcStation] = []) {
         let friendUsernames = Set(FriendsStore.shared.friends)
 
         var pinned: WidgetFlight?
@@ -86,14 +115,57 @@ final class WidgetBridge: ObservableObject {
 
         let snapshot = WidgetSnapshot(
             pinned: pinned,
-            friends: Array(friends.prefix(8)),
+            friends: Array(friends.prefix(Self.friendCapacity)),
             friendCount: FriendsStore.shared.count,
+            airport: pinnedAirport(in: flights, atcStations: atcStations),
             updatedAt: Date()
         )
         SharedStore.save(snapshot)
 
         prefetchPhotos(for: snapshot)
         reloadIfWorthwhile(snapshot)
+    }
+
+    /// The pinned field, worked out here for the same reason route geometry is:
+    /// it is a pass over the whole packet plus an airport-table lookup, and the
+    /// widget process has neither the table nor the time.
+    private func pinnedAirport(in flights: [Flight], atcStations: [AtcStation]) -> WidgetAirport? {
+        guard let icao = pinnedAirportIcao,
+              let airport = AirportStore.shared.airport(icao) else { return nil }
+
+        let activity = AirportActivity.at(airport, in: flights)
+        let metar = WeatherService.shared.cached(airport.icao)
+
+        return WidgetAirport(
+            icao: airport.icao,
+            name: airport.name,
+            flag: airport.flag,
+            inboundCount: activity.inbound.count,
+            departedCount: activity.outbound.count,
+            onGroundCount: activity.onGround.count,
+            atcPositions: atcPositions(at: airport.icao, in: atcStations),
+            conditions: metar?.conditionLabel,
+            temperature: metar.map { $0.temperatureLabel(in: WeatherPreferences.shared.temperatureUnit) },
+            // Six is more than the largest tile draws, so the same snapshot
+            // serves every family without the app guessing which is installed.
+            arrivals: activity.inbound.prefix(6).map { movement in
+                WidgetMovement(
+                    id: movement.flight.id,
+                    callsign: movement.flight.displayName,
+                    aircraftType: movement.flight.aircraftName,
+                    detail: movement.etaLabel ?? "\(Int(movement.distanceNM.rounded())) NM"
+                )
+            },
+            hasPhoto: SharedStore.hasPhoto(for: PhotoKey.make(type: "airport", livery: airport.icao)),
+            capturedAt: Date()
+        )
+    }
+
+    private func atcPositions(at icao: String, in stations: [AtcStation]) -> [String] {
+        guard let station = stations.first(where: { !$0.isCenter && $0.identifier == icao }) else {
+            return []
+        }
+        return station.facilities.map { $0.kind.code }
     }
 
     private func widgetFlight(from flight: Flight) -> WidgetFlight {
@@ -136,6 +208,21 @@ final class WidgetBridge: ObservableObject {
         // would fill the cache with backgrounds nothing draws.
         wanted.append(contentsOf: snapshot.friends.prefix(3))
 
+        // The pinned field's own photograph, on the same terms: fetched by the
+        // app because a widget cannot go to the network, and only when it is
+        // not already sitting in the shared cache.
+        if let airport = snapshot.airport, !SharedStore.hasPhoto(for: airport.photoKey) {
+            let key = airport.photoKey
+            AirportImageService.shared.image(for: airport.icao) { url in
+                guard let url = url else { return }
+                URLSession.shared.dataTask(with: url) { data, _, _ in
+                    guard let data = data, SharedStore.storePhoto(data, for: key) else { return }
+                    WidgetCenter.shared.reloadAllTimelines()
+                }
+                .resume()
+            }
+        }
+
         for flight in wanted where !flight.aircraftType.isEmpty {
             let key = flight.photoKey
             guard !SharedStore.hasPhoto(for: key) else { continue }
@@ -164,7 +251,8 @@ final class WidgetBridge: ObservableObject {
             snapshot.pinned?.id ?? "-",
             snapshot.pinned?.phaseLabel ?? "-",
             snapshot.friends.map { "\($0.id):\($0.phaseLabel)" }.joined(separator: ","),
-            String(snapshot.friendCount)
+            String(snapshot.friendCount),
+            snapshot.airport.map { "\($0.icao):\($0.movementCount):\($0.atcPositions.joined())" } ?? "-"
         ].joined(separator: "|")
 
         let changed = signature != lastSignature

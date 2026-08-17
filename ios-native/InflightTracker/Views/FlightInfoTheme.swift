@@ -1,11 +1,41 @@
 import SwiftUI
 
-/// Runtime appearance switches for the flight info window.
+/// Which way round the app is drawn.
 ///
-/// Every surface in the window is drawn through `FlightInfoTheme`, so flipping
-/// `isGlassEnabled` restyles the whole sheet without any view knowing which
-/// look is active — that is the switch the glass look hangs off. The choice is
-/// persisted, and published so a toggle anywhere in the app restyles a sheet
+/// `system` is the default and the only one that changes on its own — the two
+/// explicit choices are for people who want the app light in a dark house, or
+/// dark in a bright one, regardless of what iOS is doing.
+enum AppAppearanceMode: String, CaseIterable, Identifiable {
+
+    case system
+    case light
+    case dark
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .system: return "Auto"
+        case .light: return "Light"
+        case .dark: return "Dark"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .system: return "Follows iOS — light by day if your phone does."
+        case .light: return "Light everywhere, whatever iOS is set to."
+        case .dark: return "Dark everywhere, whatever iOS is set to."
+        }
+    }
+}
+
+/// Runtime appearance switches for the app.
+///
+/// Every surface in the window — and every piece of chrome over the map — is
+/// drawn through `FlightInfoTheme`, so flipping `isGlassEnabled` or `mode`
+/// restyles the whole app without any view knowing which look is active. The
+/// choices are persisted, and published so a toggle anywhere restyles a sheet
 /// that is already open.
 final class FlightInfoAppearance: ObservableObject {
 
@@ -13,6 +43,8 @@ final class FlightInfoAppearance: ObservableObject {
 
     private static let glassKey = "flightInfoGlassEnabled"
     private static let peakStyleKey = "flightInfoPeakStyle"
+    private static let modeKey = "appAppearanceMode"
+    private static let mapStyleKey = "mapStyleMode"
 
     @Published var isGlassEnabled: Bool {
         didSet { UserDefaults.standard.set(isGlassEnabled, forKey: Self.glassKey) }
@@ -22,7 +54,54 @@ final class FlightInfoAppearance: ObservableObject {
         didSet { UserDefaults.standard.set(peakStyle.rawValue, forKey: Self.peakStyleKey) }
     }
 
-    var theme: FlightInfoTheme { isGlassEnabled ? .glass : .solid }
+    @Published var mode: AppAppearanceMode {
+        didSet { UserDefaults.standard.set(mode.rawValue, forKey: Self.modeKey) }
+    }
+
+    /// How the map itself is drawn. Lives here rather than under the filters:
+    /// the filters are about *which traffic* is on the map, and this is about
+    /// what the map looks like — the same question as light and dark.
+    @Published var mapStyle: MapStyleMode {
+        didSet { UserDefaults.standard.set(mapStyle.rawValue, forKey: Self.mapStyleKey) }
+    }
+
+    /// What iOS itself is set to, reported in by the root view.
+    ///
+    /// Read rather than forced: the app never calls `preferredColorScheme`, so
+    /// nothing overrides the window's own trait and this stays the *system's*
+    /// answer even while the user has pinned the app light or dark. Forcing the
+    /// window would make this read back whatever was forced, and switching to
+    /// Auto would then stick on the old choice until the phone's own setting
+    /// happened to change.
+    @Published private(set) var systemScheme: ColorScheme = .dark
+
+    var resolvedScheme: ColorScheme {
+        switch mode {
+        case .system: return systemScheme
+        case .light: return .light
+        case .dark: return .dark
+        }
+    }
+
+    var theme: FlightInfoTheme {
+        FlightInfoTheme.resolved(scheme: resolvedScheme, glass: isGlassEnabled)
+    }
+
+    /// What the map should actually draw.
+    ///
+    /// The choice is kept exactly as made even when it is a Pro style and Pro
+    /// is not active — a lapsed subscription drops you back to the standard map
+    /// without forgetting that you liked the globe, so it is there again the
+    /// moment Pro is. Everything that draws the map reads this; the picker
+    /// reads `mapStyle`, because it is showing you your choice.
+    var resolvedMapStyle: MapStyleMode {
+        mapStyle.isPro && !Entitlements.shared.isPro ? .muted : mapStyle
+    }
+
+    func adopt(systemScheme scheme: ColorScheme) {
+        guard systemScheme != scheme else { return }
+        systemScheme = scheme
+    }
 
     private init() {
         let defaults = UserDefaults.standard
@@ -31,6 +110,14 @@ final class FlightInfoAppearance: ObservableObject {
         isGlassEnabled = defaults.object(forKey: Self.glassKey) as? Bool ?? true
         peakStyle = FlightInfoPeakStyle(rawValue: defaults.string(forKey: Self.peakStyleKey) ?? "")
             ?? .compact
+        // Dark was the only look the app had, so an install that predates this
+        // setting keeps what it had rather than turning light overnight. New
+        // installs follow iOS.
+        mode = AppAppearanceMode(rawValue: defaults.string(forKey: Self.modeKey) ?? "")
+            ?? (defaults.object(forKey: Self.glassKey) == nil ? .system : .dark)
+        // Muted is the map the app has always drawn, so nobody's map changes
+        // under them on update — the globe is something you go and switch on.
+        mapStyle = MapStyleMode(rawValue: defaults.string(forKey: Self.mapStyleKey) ?? "") ?? .muted
     }
 }
 
@@ -75,6 +162,21 @@ struct FlightInfoTheme {
     /// step.
     let isGlass: Bool
 
+    /// Whether this theme is the light one.
+    ///
+    /// Nothing in the app is expected to branch on this to pick a colour — that
+    /// is what every token below is for. It exists so the two things that live
+    /// outside SwiftUI's colour system can be told which way round we are: the
+    /// `colorScheme` stamped on system controls, and MapKit's own light/dark
+    /// map style.
+    let isLight: Bool
+
+    /// Which way round system-drawn controls inside this theme should be. Every
+    /// surface stamps this rather than hard-coding `.dark`, so switches,
+    /// segmented pickers and the keyboard follow the app's own setting instead
+    /// of iOS's.
+    var colorScheme: ColorScheme { isLight ? .light : .dark }
+
     /// Opaque sheet ground, used when glass is off and on iOS versions with no
     /// `presentationBackground`.
     let windowFill: Color
@@ -117,6 +219,29 @@ struct FlightInfoTheme {
     /// Unfilled part of a progress track.
     let trackFill: Color
 
+    /// How much of `windowFill` is laid under the glass on the sheet's ground.
+    ///
+    /// Zero in the dark themes. It used to be a wash of carbon under the glass,
+    /// there to keep white text legible over snow and daylight ocean, and it did
+    /// that by making the window darker than the glass wanted to be — the map
+    /// went muddy behind it and the whole thing read as a slab. Legibility is
+    /// `textHalo`'s job now, which costs the map nothing.
+    ///
+    /// Light still needs a real ground. The system's glass *dims* what is behind
+    /// it, which helps white text and hurts black, so black ink on it has to sit
+    /// on something of its own.
+    let groundOpacity: Double
+
+    /// A soft halo drawn behind text on this theme, or clear for none.
+    ///
+    /// This is the honest way round: the window stays as clear as the glass can
+    /// make it, and the few characters that need help get it *where they are*,
+    /// instead of every pixel of the map behind the window paying for the
+    /// contrast of a caption. Tight radius and no offset — it is a halo to lift
+    /// glyphs off a busy background, not a drop shadow, and at this opacity it
+    /// is invisible until the thing underneath is bright.
+    let textHalo: Color
+
     let radiusSmall: CGFloat = 12
     let radiusMedium: CGFloat = 16
     let radiusLarge: CGFloat = 22
@@ -156,10 +281,23 @@ struct FlightInfoTheme {
     var sheetBackground: some View {
         if isGlass {
             Rectangle()
-                .fill(windowFill.opacity(0.03))
+                .fill(windowFill.opacity(groundOpacity))
                 .glassEffect(.regular.tint(scrim), in: Rectangle())
         } else {
             Rectangle().fill(windowFill)
+        }
+    }
+
+    /// The four shipping looks, from the two switches that pick between them.
+    ///
+    /// Adding a look means adding a `static let` and a case here — nothing
+    /// downstream branches on which theme is in use.
+    static func resolved(scheme: ColorScheme, glass: Bool) -> FlightInfoTheme {
+        switch (scheme, glass) {
+        case (.light, true): return .lightGlass
+        case (.light, false): return .lightSolid
+        case (_, true): return .glass
+        case (_, false): return .solid
         }
     }
 
@@ -173,8 +311,9 @@ struct FlightInfoTheme {
     /// surface the lit edge glass has.
     static let glass = FlightInfoTheme(
         isGlass: true,
+        isLight: false,
         windowFill: Color(red: 0.09, green: 0.09, blue: 0.11),
-        scrim: Color.black.opacity(0.06),
+        scrim: .clear,
         chromeTint: Color(red: 0.09, green: 0.09, blue: 0.11).opacity(0.12),
         surfaceTint: Color.white.opacity(0.04),
         elevatedTint: Color.white.opacity(0.09),
@@ -187,11 +326,14 @@ struct FlightInfoTheme {
         textDim: Color(white: 0.48),
         accent: .white,
         onAccent: Color(red: 0.09, green: 0.09, blue: 0.11),
-        trackFill: Color.white.opacity(0.16)
+        trackFill: Color.white.opacity(0.16),
+        groundOpacity: 0,
+        textHalo: Color.black.opacity(0.55)
     )
 
     static let solid = FlightInfoTheme(
         isGlass: false,
+        isLight: false,
         windowFill: Color(red: 0.09, green: 0.09, blue: 0.11),
         scrim: .clear,
         chromeTint: .clear,
@@ -206,11 +348,87 @@ struct FlightInfoTheme {
         textDim: Color(white: 0.48),
         accent: .white,
         onAccent: Color(red: 0.09, green: 0.09, blue: 0.11),
-        trackFill: Color.white.opacity(0.14)
+        trackFill: Color.white.opacity(0.14),
+        groundOpacity: 1,
+        textHalo: .clear
+    )
+
+    /// The dark themes inverted, not recoloured.
+    ///
+    /// Same monochrome discipline: paper rather than carbon, ink rather than
+    /// white, and no accent hue introduced — so a light window competes with
+    /// the map exactly as little as the dark one does, and every view that
+    /// reads `accent` still gets a colour that white text can sit on top of.
+    ///
+    /// The one number that is not a straight inversion is the ground: black ink
+    /// on glass needs a real surface under it, where white text could lean on
+    /// the system's own dimming. Raise `groundOpacity` before any of the text
+    /// tokens if a caption is ever lost over a dark coastline.
+    static let lightGlass = FlightInfoTheme(
+        isGlass: true,
+        isLight: true,
+        windowFill: Color(red: 0.96, green: 0.96, blue: 0.97),
+        scrim: Color.white.opacity(0.10),
+        chromeTint: Color.white.opacity(0.22),
+        surfaceTint: Color.black.opacity(0.035),
+        elevatedTint: Color.black.opacity(0.075),
+        surfaceFill: Color.black.opacity(0.055),
+        elevatedFill: Color.black.opacity(0.10),
+        stroke: Color.black.opacity(0.10),
+        strokeStrong: Color.black.opacity(0.18),
+        textPrimary: Color(white: 0.08),
+        textSecondary: Color(white: 0.32),
+        textDim: Color(white: 0.52),
+        accent: Color(white: 0.10),
+        onAccent: Color(white: 0.98),
+        trackFill: Color.black.opacity(0.14),
+        groundOpacity: 0.55,
+        textHalo: Color.white.opacity(0.5)
+    )
+
+    static let lightSolid = FlightInfoTheme(
+        isGlass: false,
+        isLight: true,
+        windowFill: Color(red: 0.96, green: 0.96, blue: 0.97),
+        scrim: .clear,
+        chromeTint: .clear,
+        surfaceTint: .clear,
+        elevatedTint: .clear,
+        surfaceFill: .white,
+        elevatedFill: Color(white: 0.92),
+        stroke: Color.black.opacity(0.09),
+        strokeStrong: Color.black.opacity(0.15),
+        textPrimary: Color(white: 0.08),
+        textSecondary: Color(white: 0.32),
+        textDim: Color(white: 0.52),
+        accent: Color(white: 0.10),
+        onAccent: Color(white: 0.98),
+        trackFill: Color.black.opacity(0.12),
+        groundOpacity: 1,
+        textHalo: .clear
     )
 }
 
 extension View {
+
+    /// Lifts text off whatever the glass is showing through it.
+    ///
+    /// Applied once, to the whole of a window's content, rather than to every
+    /// `Text` in the app: SwiftUI's shadow is drawn from the alpha of what it
+    /// wraps, so on a tree that is mostly glyphs and SF Symbols it haloes
+    /// exactly the strokes that need it and does nothing to a filled card,
+    /// which has no transparent edge to bleed from.
+    ///
+    /// A no-op on the flat themes and on light, where the ground is opaque and
+    /// there is nothing showing through to compete with.
+    @ViewBuilder
+    func flightInfoLegible(_ theme: FlightInfoTheme) -> some View {
+        if theme.isGlass, theme.textHalo != Color.clear {
+            shadow(color: theme.textHalo, radius: 2.5)
+        } else {
+            self
+        }
+    }
 
     /// Card background for the flight info window.
     func flightInfoSurface(

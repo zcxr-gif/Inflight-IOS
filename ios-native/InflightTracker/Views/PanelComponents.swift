@@ -32,7 +32,7 @@ struct MapPanel<Content: View>: View {
     private var theme: FlightInfoTheme { appearance.theme }
 
     var body: some View {
-        ScrollView {
+        ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 14) {
                 header
                 content
@@ -42,9 +42,27 @@ struct MapPanel<Content: View>: View {
             // the last section wants clearance from the home indicator the
             // sheet is sitting over.
             .padding(.bottom, 16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // Pins the content to exactly the sheet's width, which is what
+            // stops the panel sliding about sideways.
+            //
+            // A vertical `ScrollView` is still a `UIScrollView`, and it scrolls
+            // — with rubber-banding — in *any* direction its content overflows.
+            // Nothing here asks to be wide, but the panels are full of rows
+            // whose two ends are `.fixedSize()` around feed strings of
+            // arbitrary length, and one long airport name or controller handle
+            // is enough to push a row's ideal width past the sheet. That made
+            // the whole panel draggable left and right, springing back when
+            // let go. Sizing the content to the container means there is no
+            // horizontal overflow to scroll, whatever a row measures.
+            .containerRelativeFrame(.horizontal)
         }
+        // ...and this stops the vertical rubber-banding on a short panel, so a
+        // field with nothing on it no longer bounces against a fixed sheet.
+        .scrollBounceBehavior(.basedOnSize)
+        .flightInfoLegible(theme)
         .background { theme.windowFill.ignoresSafeArea() }
-        .environment(\.colorScheme, .dark)
+        .environment(\.colorScheme, theme.colorScheme)
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
     }

@@ -44,6 +44,13 @@ struct AirportPanel: View {
 
     @EnvironmentObject private var feed: LiveFeed
     @ObservedObject private var appearance = FlightInfoAppearance.shared
+    @ObservedObject private var widgets = WidgetBridge.shared
+    @StateObject private var imageLoader = RemoteImageLoader()
+
+    /// The field's photograph, once the backend has answered about it. Nil
+    /// covers both "no picture" and "not asked yet" — the header simply has no
+    /// image in either case, which is the same thing to look at.
+    @State private var imageURL: URL?
     @ObservedObject private var weatherPreferences = WeatherPreferences.shared
 
     /// The field's own report. Seeded from the cache so a field looked at twice
@@ -88,6 +95,8 @@ struct AirportPanel: View {
             subtitle: subtitle(for: activity),
             accessory: airport.flag.isEmpty ? nil : AnyView(flag)
         ) {
+            hero
+
             PanelSection(title: "FIELD") {
                 // First, above the map row: it is the way out of somewhere you
                 // arrived at by a tap, and burying that under the field's own
@@ -109,6 +118,44 @@ struct AirportPanel: View {
                 ) {
                     onShowOnMap(airport)
                 }
+
+                PanelDivider()
+
+                // One pinned field at a time, so this is a toggle rather than a
+                // list to manage: pinning a second field replaces the first,
+                // which is the same bargain the flight tile makes.
+                Button {
+                    widgets.pinAirport(isPinned ? nil : airport.icao)
+                } label: {
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            PanelRowLabel(
+                                title: isPinned ? "Pinned to home screen" : "Pin to home screen",
+                                symbol: isPinned ? "square.grid.2x2.fill" : "square.grid.2x2"
+                            )
+
+                            Text(isPinned
+                                 ? "The Airport widget is showing \(airport.icao)."
+                                 : "Puts this field's traffic, ATC and weather on the Airport widget.")
+                                .font(.system(size: 10.5, weight: .medium))
+                                .foregroundStyle(theme.textDim)
+                                .padding(.leading, 30)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        Spacer(minLength: 8)
+
+                        if isPinned {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(theme.textPrimary)
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
 
             frequencies
@@ -125,7 +172,9 @@ struct AirportPanel: View {
                 hasWeatherAnswer = true
             }
             loadMetar()
+            loadImage()
         }
+        .animation(.easeInOut(duration: 0.25), value: imageLoader.image != nil)
         .onReceive(clock) { tick in
             now = tick
             // The service holds a report for ten minutes, so this costs a
@@ -140,6 +189,41 @@ struct AirportPanel: View {
         guard movements > 0 else { return "\(airport.name) · \(feed.server)" }
         let label = movements == 1 ? "1 aircraft" : "\(movements) aircraft"
         return "\(label) · \(feed.server)"
+    }
+
+    /// The field's own photograph, when the backend has one.
+    ///
+    /// Drawn only once an image has actually arrived — no placeholder, no
+    /// spinner, no reserved band. A field with no picture is the common case,
+    /// and holding a grey rectangle open for one that is never coming is worse
+    /// than the panel simply starting at its first card.
+    @ViewBuilder
+    private var hero: some View {
+        if let image = imageLoader.image {
+            Image(uiImage: image)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(height: 150)
+                .frame(maxWidth: .infinity)
+                .clipShape(RoundedRectangle(cornerRadius: theme.radiusMedium, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: theme.radiusMedium, style: .continuous)
+                        .strokeBorder(theme.stroke, lineWidth: 1)
+                }
+                .overlay(alignment: .bottomLeading) {
+                    // The name rides the photo rather than repeating under it —
+                    // the header above is the ICAO, and this is the one place
+                    // the field's full name is worth the room.
+                    Text(airport.name)
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.7), radius: 3, y: 1)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .flightInfoLine(minimumScale: 0.7)
+                }
+                .transition(.opacity)
+        }
     }
 
     /// Sits opposite the ICAO in the header. Left off entirely for the handful
@@ -245,7 +329,24 @@ struct AirportPanel: View {
         return parts.joined(separator: " · ")
     }
 
+    private var isPinned: Bool { widgets.isAirportPinned(airport.icao) }
+
     private var isDaylight: Bool { SolarPosition.isDaylight(at: airport.coordinate) }
+
+    private func loadImage() {
+        // Seeded from the cache so a field looked at twice draws its photo
+        // immediately rather than fading it in again.
+        if let known = AirportImageService.shared.cached(airport.icao) {
+            imageURL = known
+            imageLoader.load(known)
+            return
+        }
+
+        AirportImageService.shared.image(for: airport.icao) { url in
+            imageURL = url
+            imageLoader.load(url)
+        }
+    }
 
     private func loadMetar() {
         WeatherService.shared.metar(for: airport.icao) { fetched in

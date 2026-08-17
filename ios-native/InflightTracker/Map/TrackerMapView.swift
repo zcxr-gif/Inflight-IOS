@@ -28,6 +28,29 @@ struct TrackerMapView: UIViewRepresentable {
     /// is a mode, and it keeps acting on every packet for as long as it is on.
     var isFollowing = false
 
+    /// Which way round the app is drawn, so MapKit's own light and dark styles
+    /// follow the app's appearance setting rather than iOS's. Passed in rather
+    /// than read from the environment: the map is the one surface underneath
+    /// everything else, so it has to be told, not stamped.
+    var colorScheme: ColorScheme = .dark
+
+    /// How the map underneath the traffic is drawn — and, for the globe,
+    /// whether the camera is free to rotate and tilt.
+    var style: MapStyleMode = .muted
+
+    /// Fields worth marking — controlled, or busy. Empty when the filter is
+    /// off, which is how the whole feature is switched off.
+    var airports: [MapAirport] = []
+
+    /// Opening a field that was tapped on the map. Separate from `selection`,
+    /// which is an aircraft and drives the flight window.
+    var onSelectAirport: (String) -> Void = { _ in }
+
+    /// Which aircraft get picked out of the traffic, and in what colour.
+    /// Equatable, so the coordinator repaints the sprites only when something
+    /// about it actually changed.
+    var highlighting = PilotHighlighting()
+
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeUIView(context: Context) -> MKMapView {
@@ -38,19 +61,18 @@ struct TrackerMapView: UIViewRepresentable {
         mapView.showsUserLocation = false
         mapView.pointOfInterestFilter = .excludingAll
 
-        // Heading is applied as a plain rotation on each annotation view, which
-        // only lines up with the world while the map itself is north-up.
+        // Both are driven by the style from `updateUIView`. A sprite's rotation
+        // is its true heading, so anything but north-up means correcting every
+        // annotation against the camera — which only the globe asks for.
         mapView.isRotateEnabled = false
         mapView.isPitchEnabled = false
 
         // MapKit's controls and callouts default to the system blue; the
-        // tracker's chrome is white on carbon and stays that way.
-        mapView.tintColor = .white
-
-        let configuration = MKStandardMapConfiguration(elevationStyle: .flat)
-        configuration.emphasisStyle = .muted
-        configuration.pointOfInterestFilter = .excludingAll
-        mapView.preferredConfiguration = configuration
+        // tracker's chrome is monochrome and stays that way — white on carbon,
+        // ink on paper, resolved against whichever style the map is in.
+        mapView.tintColor = UIColor { traits in
+            traits.userInterfaceStyle == .light ? UIColor(white: 0.10, alpha: 1) : .white
+        }
 
         mapView.register(
             MKAnnotationView.self,
@@ -62,12 +84,37 @@ struct TrackerMapView: UIViewRepresentable {
             forAnnotationViewWithReuseIdentifier: Coordinator.replayReuseIdentifier
         )
 
+        mapView.register(
+            AirportAnnotationView.self,
+            forAnnotationViewWithReuseIdentifier: AirportAnnotationView.reuseIdentifier
+        )
+
         return mapView
     }
 
     func updateUIView(_ mapView: MKMapView, context: Context) {
         context.coordinator.parent = self
+
+        // Drives MapKit's own light/dark cartography, and with it every dynamic
+        // colour the overlays and annotations resolve — so the map, its route
+        // lines and the chrome floating over it all turn together.
+        let interfaceStyle: UIUserInterfaceStyle = colorScheme == .light ? .light : .dark
+        if mapView.overrideUserInterfaceStyle != interfaceStyle {
+            mapView.overrideUserInterfaceStyle = interfaceStyle
+
+            // A renderer resolves its dynamic stroke colour once and keeps the
+            // resolved one, so the route drawn before the switch would stay the
+            // old theme's until it was rebuilt. Asking each one to redraw is
+            // cheaper than tearing the overlays down and re-adding them.
+            for overlay in mapView.overlays {
+                mapView.renderer(for: overlay)?.setNeedsDisplay()
+            }
+        }
+
+        context.coordinator.applyStyle(style, on: mapView)
+        context.coordinator.applyHighlighting(highlighting, on: mapView)
         context.coordinator.sync(flights: flights, on: mapView)
+        context.coordinator.syncAirports(airports, on: mapView)
         context.coordinator.syncSelection(selection, on: mapView)
         context.coordinator.syncRoute(on: mapView)
         context.coordinator.syncReplay(on: mapView)
@@ -112,8 +159,175 @@ struct TrackerMapView: UIViewRepresentable {
 
         private var handledCommand: UUID?
 
+        /// The style currently applied to the map view, so the configuration is
+        /// only swapped when it actually changes — assigning
+        /// `preferredConfiguration` reloads the map's tiles.
+        private var appliedStyle: MapStyleMode?
+
+        /// Field markers currently on the map, by ICAO.
+        private var airportAnnotations: [String: AirportAnnotation] = [:]
+
+        /// The highlighting the drawn sprites were painted with.
+        private var appliedHighlighting = PilotHighlighting()
+
+        /// The camera bearing every drawn sprite is currently corrected
+        /// against.
+        ///
+        /// North-up styles hold this at zero and the correction is a no-op. On
+        /// the globe it is whatever the camera has been spun to, and a sprite's
+        /// rotation is its true heading *minus* this — otherwise turning the
+        /// planet turns every aircraft on it, and they all point the wrong way.
+        private var appliedCameraHeading: CLLocationDirection = 0
+
         init(_ parent: TrackerMapView) {
             self.parent = parent
+        }
+
+        // MARK: Style
+
+        func applyStyle(_ style: MapStyleMode, on mapView: MKMapView) {
+            guard appliedStyle != style else { return }
+            let previous = appliedStyle
+            appliedStyle = style
+
+            mapView.preferredConfiguration = style.configuration()
+            mapView.isRotateEnabled = style.isFreeCamera
+            mapView.isPitchEnabled = style.isFreeCamera
+
+            if style.isFreeCamera {
+                // Only when the style actually changes — which the guard above
+                // has already established — and never on a redraw, or the globe
+                // would yank itself back out to arm's length each time a packet
+                // landed. A stored globe gets this on launch too, which is
+                // right: it is the whole reason the style was saved.
+                if let distance = style.openingDistance {
+                    let camera = MKMapCamera(
+                        lookingAtCenter: mapView.centerCoordinate,
+                        fromDistance: distance,
+                        pitch: 0,
+                        heading: 0
+                    )
+                    mapView.setCamera(camera, animated: previous != nil)
+                }
+            } else {
+                // Leaving the globe with the camera spun would leave every
+                // sprite crooked on a map that can no longer be straightened,
+                // so north-up is restored on the way out. Built fresh rather
+                // than mutated: `mapView.camera` hands back the map's own
+                // object, and editing it in place is not how it is meant to be
+                // driven.
+                let current = mapView.camera
+                if current.heading != 0 || current.pitch != 0 {
+                    let camera = MKMapCamera(
+                        lookingAtCenter: mapView.centerCoordinate,
+                        fromDistance: current.centerCoordinateDistance,
+                        pitch: 0,
+                        heading: 0
+                    )
+                    mapView.setCamera(camera, animated: true)
+                }
+                realign(on: mapView, heading: 0)
+            }
+        }
+
+        /// Re-applies every drawn sprite's rotation against a new camera
+        /// bearing.
+        ///
+        /// Cheap enough to run from the live gesture callback: it walks the
+        /// annotations that currently have views — the ones on screen — and
+        /// sets a transform on each. The gate is in the caller, on the bearing
+        /// having actually moved.
+        private func realign(on mapView: MKMapView, heading: CLLocationDirection) {
+            appliedCameraHeading = heading
+
+            for annotation in mapView.annotations {
+                guard let view = mapView.view(for: annotation) else { continue }
+
+                if let flight = annotation as? FlightAnnotation {
+                    view.transform = rotation(for: flight.flight.heading)
+                } else if let replay = annotation as? ReplayAnnotation {
+                    view.transform = rotation(for: replay.heading)
+                }
+            }
+        }
+
+        /// A sprite's transform: its true heading, corrected for wherever the
+        /// camera is pointing.
+        private func rotation(for heading: Double) -> CGAffineTransform {
+            CGAffineTransform(rotationAngle: CGFloat(heading - appliedCameraHeading) * .pi / 180)
+        }
+
+        /// Repaints every drawn sprite when the highlighting changes.
+        ///
+        /// One `Equatable` comparison guards the whole thing, so the common
+        /// case — nothing changed, which is every packet — costs nothing.
+        func applyHighlighting(_ highlighting: PilotHighlighting, on mapView: MKMapView) {
+            guard appliedHighlighting != highlighting else { return }
+            appliedHighlighting = highlighting
+
+            for annotation in mapView.annotations {
+                guard let flight = annotation as? FlightAnnotation,
+                      let view = mapView.view(for: flight) else { continue }
+                apply(annotation: flight, to: view, selected: flight.flightId == parent.selection?.id)
+            }
+        }
+
+        // MARK: Airports
+
+        /// Adds, updates and removes the field markers.
+        ///
+        /// Culled to the viewport like the traffic is, and for the same reason:
+        /// a busy server can have a hundred-odd fields worth marking, and the
+        /// ones off screen cost layout for nothing. Unlike an aircraft there is
+        /// no grace period — a field does not flicker in and out of a packet.
+        func syncAirports(_ airports: [MapAirport], on mapView: MKMapView) {
+            guard !airports.isEmpty else {
+                if !airportAnnotations.isEmpty {
+                    mapView.removeAnnotations(Array(airportAnnotations.values))
+                    airportAnnotations.removeAll()
+                }
+                return
+            }
+
+            let region = mapView.region
+            guard region.span.latitudeDelta.isFinite, region.span.longitudeDelta.isFinite else { return }
+
+            let latitudeMargin = region.span.latitudeDelta * AppConfig.flightAddMargin
+            let longitudeMargin = region.span.longitudeDelta * AppConfig.flightAddMargin
+
+            var wanted: [String: MapAirport] = [:]
+            for field in airports {
+                let coordinate = field.airport.coordinate
+                guard abs(coordinate.latitude - region.center.latitude) <= latitudeMargin,
+                      Self.longitudeDelta(coordinate.longitude, region.center.longitude) <= longitudeMargin
+                else { continue }
+                wanted[field.airport.icao] = field
+            }
+
+            var additions: [AirportAnnotation] = []
+
+            for (icao, field) in wanted {
+                if let existing = airportAnnotations[icao] {
+                    guard existing.field != field else { continue }
+                    existing.field = field
+                    if let view = mapView.view(for: existing) as? AirportAnnotationView {
+                        view.apply(existing)
+                    }
+                } else {
+                    let annotation = AirportAnnotation(field: field)
+                    airportAnnotations[icao] = annotation
+                    additions.append(annotation)
+                }
+            }
+
+            var removals: [AirportAnnotation] = []
+            for (icao, annotation) in airportAnnotations where wanted[icao] == nil {
+                removals.append(annotation)
+                airportAnnotations.removeValue(forKey: icao)
+            }
+
+            if !removals.isEmpty { mapView.removeAnnotations(removals) }
+            if !additions.isEmpty { mapView.addAnnotations(additions) }
         }
 
         // MARK: Annotation syncing
@@ -225,8 +439,12 @@ struct TrackerMapView: UIViewRepresentable {
 
         private func apply(annotation: FlightAnnotation, to view: MKAnnotationView, selected: Bool) {
             let key = annotation.flight.spriteKey
-            view.image = PlaneSprites.shared.icon(forKey: key, selected: selected)
-            view.transform = CGAffineTransform(rotationAngle: CGFloat(annotation.flight.heading) * .pi / 180)
+            view.image = PlaneSprites.shared.icon(
+                forKey: key,
+                selected: selected,
+                tint: appliedHighlighting.tint(for: annotation.flight.username)
+            )
+            view.transform = rotation(for: annotation.flight.heading)
 
             annotation.renderedSpriteKey = key
             annotation.renderedHeading = annotation.flight.heading
@@ -449,7 +667,7 @@ struct TrackerMapView: UIViewRepresentable {
 
         private func apply(replay annotation: ReplayAnnotation, to view: MKAnnotationView) {
             view.image = PlaneSprites.shared.icon(forKey: annotation.spriteKey, selected: true)
-            view.transform = CGAffineTransform(rotationAngle: CGFloat(annotation.heading) * .pi / 180)
+            view.transform = rotation(for: annotation.heading)
         }
 
         // MARK: Camera
@@ -576,7 +794,11 @@ struct TrackerMapView: UIViewRepresentable {
 
             if line.title == Self.plannedTitle {
                 // Inferred, so it reads as an assumption rather than as track.
-                renderer.strokeColor = UIColor.white.withAlphaComponent(0.34)
+                renderer.strokeColor = UIColor { traits in
+                    traits.userInterfaceStyle == .light
+                        ? UIColor(white: 0.20, alpha: 0.34)
+                        : UIColor(white: 1, alpha: 0.34)
+                }
                 renderer.lineWidth = 2
                 renderer.lineDashPattern = [2, 7]
             } else {
@@ -592,6 +814,15 @@ struct TrackerMapView: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
+            if let field = annotation as? AirportAnnotation {
+                let view = mapView.dequeueReusableAnnotationView(
+                    withIdentifier: AirportAnnotationView.reuseIdentifier,
+                    for: field
+                )
+                (view as? AirportAnnotationView)?.apply(field)
+                return view
+            }
+
             if let replay = annotation as? ReplayAnnotation {
                 let view = mapView.dequeueReusableAnnotationView(
                     withIdentifier: Coordinator.replayReuseIdentifier,
@@ -628,6 +859,15 @@ struct TrackerMapView: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView) {
+            if let field = view.annotation as? AirportAnnotation {
+                // Deselected immediately: a field opens a panel and is not a
+                // selection the map holds, so leaving it selected would leave a
+                // marker stuck in a highlighted state behind the sheet.
+                mapView.deselectAnnotation(field, animated: false)
+                parent.onSelectAirport(field.icao)
+                return
+            }
+
             guard let annotation = view.annotation as? FlightAnnotation else { return }
 
             apply(annotation: annotation, to: view, selected: true)
@@ -649,11 +889,25 @@ struct TrackerMapView: UIViewRepresentable {
             isApplyingSelection = false
         }
 
-        /// Fires continuously through a drag or a pinch, which is the point:
-        /// waiting for the gesture to end meant aircraft arrived in a batch
-        /// once the map settled, and a pan into empty sky stayed empty until
-        /// you let go. Throttled, since this can fire every frame.
+        /// Fires continuously through a drag, a pinch or a twist, which is the
+        /// point: waiting for the gesture to end meant aircraft arrived in a
+        /// batch once the map settled, and a pan into empty sky stayed empty
+        /// until you let go.
+        ///
+        /// Two jobs, on two different clocks, which is why they share one
+        /// callback rather than being throttled together. Straightening the
+        /// sprites has to keep up with the finger or the aircraft visibly lag
+        /// behind a spinning globe, and it is gated on the bearing having
+        /// actually moved — on a north-up map it costs one comparison. Re-culling
+        /// walks every aircraft on the server, so it stays on its own throttle.
         func mapViewDidChangeVisibleRegion(_ mapView: MKMapView) {
+            if parent.style.isFreeCamera {
+                let heading = mapView.camera.heading
+                if abs(heading - appliedCameraHeading) > 1 {
+                    realign(on: mapView, heading: heading)
+                }
+            }
+
             let now = Date()
             guard now.timeIntervalSince(lastLiveCull) >= Self.liveCullInterval else { return }
             lastLiveCull = now
