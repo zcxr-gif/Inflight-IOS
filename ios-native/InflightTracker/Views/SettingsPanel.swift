@@ -10,11 +10,42 @@ struct SettingsPanel: View {
     @EnvironmentObject private var feed: LiveFeed
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @ObservedObject private var hints = HintsStore.shared
+    @ObservedObject private var accounts = AccountStore.shared
+    @ObservedObject private var entitlements = Entitlements.shared
+    // Observed for the price alone: it arrives from the App Store a moment
+    // after launch, and the row that quotes it has to redraw when it does.
+    @ObservedObject private var store = ProStore.shared
+
+    /// Both open over this panel rather than replacing it: they are somewhere
+    /// you go and come back from, and losing the settings sheet to get to them
+    /// would make coming back a matter of finding it again.
+    @State private var isShowingAccount = false
+    @State private var isShowingPaywall = false
 
     private var theme: FlightInfoTheme { appearance.theme }
 
     var body: some View {
         MapPanel(title: "Settings", subtitle: feedSummary) {
+            PanelSection(title: "ACCOUNT") {
+                PanelActionRow(
+                    title: accounts.account?.handle ?? "Sign in",
+                    symbol: accounts.isSignedIn ? "person.crop.circle.fill" : "person.crop.circle",
+                    detail: accountDetail
+                ) {
+                    isShowingAccount = true
+                }
+
+                PanelDivider()
+
+                PanelActionRow(
+                    title: entitlements.isPro ? "Inflight Pro" : "Get Inflight Pro",
+                    symbol: entitlements.isPro ? "checkmark.seal.fill" : "sparkles",
+                    detail: proDetail
+                ) {
+                    isShowingPaywall = true
+                }
+            }
+
             PanelSection(title: "FEED") {
                 ForEach(AppConfig.servers, id: \.self) { server in
                     if server != AppConfig.servers.first { PanelDivider() }
@@ -22,11 +53,24 @@ struct SettingsPanel: View {
                 }
             }
 
-            PanelSection(title: "FLIGHT WINDOW") {
+            PanelSection(title: "APPEARANCE") {
+                // Light is a whole-app setting rather than a flight-window one,
+                // so it leads the section the window's own switches sit in.
+                PanelPickerRow(
+                    title: "Theme",
+                    symbol: "circle.lefthalf.filled",
+                    options: AppAppearanceMode.allCases,
+                    label: { $0.label },
+                    detail: appearance.mode.detail,
+                    selection: $appearance.mode
+                )
+
+                PanelDivider()
+
                 PanelToggleRow(
                     title: "Glass flight info",
                     symbol: "square.on.square.dashed",
-                    detail: "Frosts the window and its chrome. Off, everything draws on flat carbon.",
+                    detail: "Frosts the window and its chrome. Off, everything draws flat.",
                     isOn: $appearance.isGlassEnabled
                 )
 
@@ -91,11 +135,35 @@ struct SettingsPanel: View {
                 aboutRow("Traffic", value: "\(feed.flights.count) aircraft")
             }
         }
+        .sheet(isPresented: $isShowingAccount) { AccountPanel() }
+        .sheet(isPresented: $isShowingPaywall) { ProPanel() }
     }
 
     private var feedSummary: String {
         guard feed.status.isLive else { return feed.status.label }
         return "\(feed.flights.count) aircraft · \(feed.server)"
+    }
+
+    private var accountDetail: String {
+        guard let account = accounts.account else {
+            return "Carries your Pro between devices. The app works without one."
+        }
+        return account.email
+    }
+
+    private var proDetail: String {
+        guard !entitlements.isPro else {
+            switch entitlements.source {
+            case .appStore: return "Active — bought on the App Store."
+            case .subscription: return "Active — from your inflight.info subscription."
+            case .legacy: return "Active on your account."
+            case .none: return "Active."
+            }
+        }
+        guard let price = store.displayPrice else {
+            return "Flight replay and the whole watchlist, bought once."
+        }
+        return "\(price) once. Flight replay and the whole watchlist."
     }
 
     private var version: String {

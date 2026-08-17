@@ -47,6 +47,39 @@ enum AppConfig {
         URL(string: "\(socketURLString)/api/push/device-live-activity-tokens")
     }
 
+    /// The Supabase project the web tracker has always used — same accounts,
+    /// same passwords, same `profiles` table (`old/www/flight.js`, where
+    /// `supabaseUrl` and `supabaseKey` are declared). Signing in here is
+    /// signing into the account you already have on inflight.info.
+    static let supabaseURLString = "https://lcgaoiqwwpyqndaucyzu.supabase.co"
+
+    /// The project's publishable `anon` key.
+    ///
+    /// Not a secret, and not treated as one: it identifies the project to
+    /// PostgREST and grants exactly what row-level security allows an
+    /// unauthenticated caller. It shipped in the web bundle for the same
+    /// reason. The thing that must never appear here is the `service_role`
+    /// key, which bypasses RLS entirely.
+    static let supabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxjZ2FvaXF3d3B5cW5kYXVjeXp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwNjkyOTksImV4cCI6MjA4NzY0NTI5OX0.9TO21knXR_P9E80pea7gUOu-gTjb17sCGk7BYgRRe3U"
+
+    /// The App Store product behind Inflight Pro — a non-consumable, US tier
+    /// $1.99. The identifier has to match the one on the App Store Connect
+    /// record exactly; the price lives there rather than here, so every
+    /// storefront gets its own.
+    static let proProductID = "com.tracker.Inflight.pro"
+
+    /// Erases the signed-in account, from the app.
+    ///
+    /// Guideline 5.1.1(v) requires an app that lets you *make* an account to
+    /// let you delete it from inside the app — not by email, and not on a
+    /// website. Deleting an auth user needs the `service_role` key, which must
+    /// never be in a client, so it is an Edge Function that checks the caller's
+    /// own token and deletes only that caller. Source, and how to deploy it, in
+    /// `supabase/functions/delete-account/`.
+    static var accountDeletionURL: URL? {
+        URL(string: "\(supabaseURLString)/functions/v1/delete-account")
+    }
+
     /// Rooms the backend broadcasts on, joined via `join_server_room`.
     static let servers = ["Expert Server", "Training Server", "Casual Server"]
 

@@ -12,8 +12,13 @@ struct FriendsPanel: View {
     @EnvironmentObject private var feed: LiveFeed
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @ObservedObject private var friends = FriendsStore.shared
+    @ObservedObject private var entitlements = Entitlements.shared
     @ObservedObject private var push = PushService.shared
     @ObservedObject private var liveActivity = LiveActivityController.shared
+
+    /// Raised when the free list is full. The limit is a Pro thing, so the
+    /// place it is explained is the place Pro is explained.
+    @State private var isShowingPaywall = false
 
     /// Focuses the map on a friend's aircraft and closes the panel.
     let onSelect: (Flight) -> Void
@@ -77,6 +82,7 @@ struct FriendsPanel: View {
 
             HintStrip(placement: .friends)
         }
+        .sheet(isPresented: $isShowingPaywall) { ProPanel(highlighted: .watchlist) }
     }
 
     private func summary(aloft: Int) -> String {
@@ -181,6 +187,15 @@ struct FriendsPanel: View {
     private func commit() {
         let name = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
+
+        // Checked before the add rather than reported after it, so nothing is
+        // written and then undone. An existing list that is already over the
+        // cap is left exactly as it is — this only stops it growing.
+        guard entitlements.canWatchMore(current: friends.count) || friends.contains(name) else {
+            problem = "Free keeps \(ProFeature.freeWatchlistLimit) pilots. Inflight Pro lifts the limit."
+            isShowingPaywall = true
+            return
+        }
 
         if friends.add(name) {
             draft = ""

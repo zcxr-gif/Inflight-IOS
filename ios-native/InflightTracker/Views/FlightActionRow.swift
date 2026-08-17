@@ -19,9 +19,17 @@ struct FlightActionRow: View {
 
     let onReplay: () -> Void
 
+    @ObservedObject private var entitlements = Entitlements.shared
+
     /// The clock tile flips between how long it has been flying and how long
     /// is left. Both are useful, neither is worth its own tile.
     @State private var showsRemaining = false
+
+    /// Raised by the replay tile when the account doesn't have Pro. Presented
+    /// from here rather than reported upward, so the paywall arrives on the
+    /// tile that was tapped and the window underneath is exactly as it was
+    /// when it is dismissed.
+    @State private var isShowingPaywall = false
 
     /// Ticked once a minute so the elapsed time keeps up without redrawing the
     /// window on every frame.
@@ -38,6 +46,7 @@ struct FlightActionRow: View {
             shareTile
         }
         .onReceive(clock) { now = $0 }
+        .sheet(isPresented: $isShowingPaywall) { ProPanel(highlighted: .replay) }
     }
 
     // MARK: - Tiles
@@ -60,9 +69,27 @@ struct FlightActionRow: View {
         .accessibilityHint("Switches between elapsed and remaining")
     }
 
+    /// Pro. Locked rather than hidden: the tile still says what it is, and
+    /// tapping it explains itself — a feature you cannot see is a feature
+    /// nobody knows they are missing.
+    ///
+    /// The lock is checked *after* the track: a flight with nothing to replay
+    /// yet has nothing to sell either, and dangling the paywall off a tile that
+    /// would be disabled anyway would be the shabbiest version of this.
     private var replayTile: some View {
-        Button(action: onReplay) {
-            tile(symbol: "clock.arrow.circlepath", title: "Replay", caption: nil, filled: false)
+        Button {
+            if entitlements.has(.replay) {
+                onReplay()
+            } else {
+                isShowingPaywall = true
+            }
+        } label: {
+            tile(
+                symbol: entitlements.has(.replay) ? "clock.arrow.circlepath" : "lock",
+                title: "Replay",
+                caption: entitlements.has(.replay) ? nil : "PRO",
+                filled: false
+            )
         }
         .buttonStyle(.plain)
         // Nothing to play back yet: the backend's history hasn't arrived, or

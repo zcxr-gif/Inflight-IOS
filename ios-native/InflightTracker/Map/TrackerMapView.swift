@@ -28,6 +28,12 @@ struct TrackerMapView: UIViewRepresentable {
     /// is a mode, and it keeps acting on every packet for as long as it is on.
     var isFollowing = false
 
+    /// Which way round the app is drawn, so MapKit's own light and dark styles
+    /// follow the app's appearance setting rather than iOS's. Passed in rather
+    /// than read from the environment: the map is the one surface underneath
+    /// everything else, so it has to be told, not stamped.
+    var colorScheme: ColorScheme = .dark
+
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeUIView(context: Context) -> MKMapView {
@@ -44,8 +50,11 @@ struct TrackerMapView: UIViewRepresentable {
         mapView.isPitchEnabled = false
 
         // MapKit's controls and callouts default to the system blue; the
-        // tracker's chrome is white on carbon and stays that way.
-        mapView.tintColor = .white
+        // tracker's chrome is monochrome and stays that way — white on carbon,
+        // ink on paper, resolved against whichever style the map is in.
+        mapView.tintColor = UIColor { traits in
+            traits.userInterfaceStyle == .light ? UIColor(white: 0.10, alpha: 1) : .white
+        }
 
         let configuration = MKStandardMapConfiguration(elevationStyle: .flat)
         configuration.emphasisStyle = .muted
@@ -67,6 +76,23 @@ struct TrackerMapView: UIViewRepresentable {
 
     func updateUIView(_ mapView: MKMapView, context: Context) {
         context.coordinator.parent = self
+
+        // Drives MapKit's own light/dark cartography, and with it every dynamic
+        // colour the overlays and annotations resolve — so the map, its route
+        // lines and the chrome floating over it all turn together.
+        let style: UIUserInterfaceStyle = colorScheme == .light ? .light : .dark
+        if mapView.overrideUserInterfaceStyle != style {
+            mapView.overrideUserInterfaceStyle = style
+
+            // A renderer resolves its dynamic stroke colour once and keeps the
+            // resolved one, so the route drawn before the switch would stay the
+            // old theme's until it was rebuilt. Asking each one to redraw is
+            // cheaper than tearing the overlays down and re-adding them.
+            for overlay in mapView.overlays {
+                mapView.renderer(for: overlay)?.setNeedsDisplay()
+            }
+        }
+
         context.coordinator.sync(flights: flights, on: mapView)
         context.coordinator.syncSelection(selection, on: mapView)
         context.coordinator.syncRoute(on: mapView)
@@ -576,7 +602,11 @@ struct TrackerMapView: UIViewRepresentable {
 
             if line.title == Self.plannedTitle {
                 // Inferred, so it reads as an assumption rather than as track.
-                renderer.strokeColor = UIColor.white.withAlphaComponent(0.34)
+                renderer.strokeColor = UIColor { traits in
+                    traits.userInterfaceStyle == .light
+                        ? UIColor(white: 0.20, alpha: 0.34)
+                        : UIColor(white: 1, alpha: 0.34)
+                }
                 renderer.lineWidth = 2
                 renderer.lineDashPattern = [2, 7]
             } else {

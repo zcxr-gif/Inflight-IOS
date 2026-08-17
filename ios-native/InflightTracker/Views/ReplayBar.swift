@@ -30,7 +30,7 @@ struct ReplayBar: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .environment(\.colorScheme, .dark)
+        .environment(\.colorScheme, theme.colorScheme)
     }
 
     private var header: some View {

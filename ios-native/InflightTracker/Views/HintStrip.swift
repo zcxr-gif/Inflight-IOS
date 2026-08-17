@@ -39,7 +39,7 @@ struct HintStrip: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 9)
                 .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .environment(\.colorScheme, .dark)
+                .environment(\.colorScheme, theme.colorScheme)
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
         } else {
             // Level with a panel's own footnotes rather than boxed: on a card

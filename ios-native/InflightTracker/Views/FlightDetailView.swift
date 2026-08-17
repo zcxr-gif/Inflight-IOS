@@ -141,7 +141,7 @@ struct FlightDetailView: View {
         // band of empty sheet the width of that inset.
         .ignoresSafeArea(edges: .bottom)
         .modifier(FlightInfoWindowChrome(theme: theme))
-        .environment(\.colorScheme, .dark)
+        .environment(\.colorScheme, theme.colorScheme)
         .onAppear {
             load(flight)
             loadTrack()
@@ -232,7 +232,7 @@ struct FlightDetailView: View {
     private static let topAnchor = "flightInfoTop"
 
     private func scrollBody(for flight: Flight, width: CGFloat) -> some View {
-        ScrollView {
+        ScrollView(.vertical) {
             VStack(spacing: 0) {
                 // Full bleed, flush with the top of the sheet: the photo is the
                 // window's header, not a card inside it.
@@ -282,8 +282,13 @@ struct FlightDetailView: View {
                 .frame(maxWidth: 560)
                 .frame(maxWidth: .infinity)
             }
+            // Same guard the toolbar panels carry: a vertical scroll view still
+            // rubber-bands sideways if anything inside it measures wider than
+            // the sheet, and the window is full of feed strings that could.
+            .frame(width: width)
         }
         .scrollIndicators(.hidden)
+        .scrollBounceBehavior(.basedOnSize)
     }
 
     private func registration(for flight: Flight) -> String {

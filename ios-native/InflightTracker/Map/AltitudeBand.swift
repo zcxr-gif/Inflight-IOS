@@ -40,7 +40,16 @@ enum AltitudeBand {
         case 0: return UIColor(red: 0.976, green: 0.451, blue: 0.086, alpha: 0.95)  // low: hot orange
         case 1: return UIColor(red: 0.980, green: 0.749, blue: 0.184, alpha: 0.95)  // amber
         case 2: return UIColor(red: 0.988, green: 0.898, blue: 0.667, alpha: 0.95)  // pale gold
-        default: return UIColor(white: 0.98, alpha: 0.95)                           // cruise: white
+        default:
+            // Cruise is the cold end of the ramp — the band with no heat left
+            // in it — which on a dark map is white and on a light one has to be
+            // ink, or the highest band is the one you cannot see. The three
+            // warm bands read on either ground and stay fixed.
+            return UIColor { traits in
+                traits.userInterfaceStyle == .light
+                    ? UIColor(white: 0.16, alpha: 0.95)
+                    : UIColor(white: 0.98, alpha: 0.95)
+            }
         }
     }
 }

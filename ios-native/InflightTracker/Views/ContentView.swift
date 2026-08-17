@@ -115,7 +115,8 @@ struct ContentView: View {
                 // A replay is driving the camera down the old track; following
                 // the live aircraft at the same time would be two things
                 // fighting over one map.
-                isFollowing: isFollowing && !replay.isActive
+                isFollowing: isFollowing && !replay.isActive,
+                colorScheme: theme.colorScheme
             )
             .ignoresSafeArea()
 
@@ -248,6 +249,14 @@ struct ContentView: View {
             detent = .height(height)
         }
         .onAppear { feed.connect() }
+        .task {
+            // Both are launch work rather than panel work: the App Store
+            // entitlement decides whether a Pro tile is locked on the first
+            // flight window that opens, and the session has to be rebuilt
+            // before anything asks who is signed in. Neither blocks the map.
+            ProStore.shared.start()
+            await AccountStore.shared.restore()
+        }
     }
 
     // MARK: - Panels
@@ -523,7 +532,7 @@ struct ContentView: View {
             // rounded corners.
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .environment(\.colorScheme, .dark)
+            .environment(\.colorScheme, theme.colorScheme)
             .padding(.trailing, 16)
             .padding(.bottom, peakHeight + 14)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)

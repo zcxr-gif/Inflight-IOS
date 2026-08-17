@@ -89,7 +89,7 @@ struct MapToolbar: View {
         .padding(.horizontal, 4)
         .padding(.vertical, 4)
         .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .environment(\.colorScheme, .dark)
+        .environment(\.colorScheme, theme.colorScheme)
     }
 
     private func item(_ kind: MapPanelKind) -> some View {

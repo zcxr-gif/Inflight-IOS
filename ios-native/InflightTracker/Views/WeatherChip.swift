@@ -50,7 +50,7 @@ struct WeatherChip: View {
                 expanded
             }
         }
-        .environment(\.colorScheme, .dark)
+        .environment(\.colorScheme, theme.colorScheme)
     }
 
     // MARK: - Collapsed
