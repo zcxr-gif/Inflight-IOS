@@ -71,9 +71,19 @@ struct Hint: Identifiable, Equatable {
             text: "Filters change only what is drawn, never what is received, so turning them all back on is instant."
         ),
         Hint(
+            id: "map.chips",
+            placement: .map,
+            text: "The chips under the search field are the narrowings worth one tap, with what each would leave you counted beside it. They and the Filters panel are the same setting, so neither can disagree with the other."
+        ),
+        Hint(
             id: "map.rail",
             placement: .map,
-            text: "The bubbles on the right stay put when a flight window is open, which is when the bar down here is not — weather, filters and the map's own look are always a tap away."
+            text: "The bubbles top right stay put when a flight window is open, which is when the bar down here is not — weather and filters are always a tap away."
+        ),
+        Hint(
+            id: "map.radar",
+            placement: .map,
+            text: "The rain cloud bottom right lays precipitation radar under the traffic. Nothing is fetched while it is off, and the sweep it draws is stamped with the time it was taken."
         ),
         Hint(
             id: "map.placement",
@@ -84,7 +94,12 @@ struct Hint: Identifiable, Equatable {
         Hint(
             id: "map.style",
             placement: .map,
-            text: "The bottom bubble cycles the map through standard, satellite and hybrid. Satellite is worth it over an airport you have not flown into before."
+            text: "The top button in the bottom-right stack cycles the map through standard, satellite and hybrid. Satellite is worth it over an airport you have not flown into before."
+        ),
+        Hint(
+            id: "map.3d",
+            placement: .map,
+            text: "3D raises the terrain into relief and tilts the camera — the quickest way to see what an aircraft on approach is actually flying over. The map stays north-up, so the traffic still points where it is going."
         ),
 
         // MARK: A flight

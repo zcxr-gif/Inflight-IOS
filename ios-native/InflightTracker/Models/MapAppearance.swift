@@ -45,19 +45,25 @@ enum MapGroundStyle: String, CaseIterable, Identifiable {
     /// Points of interest are excluded throughout: the map is carrying a
     /// couple of thousand aircraft, and every café MapKit knows about is
     /// something else for a plane icon to hide behind.
-    var configuration: MKMapConfiguration {
+    ///
+    /// `elevated` is the 3D mode. It is part of the configuration rather than a
+    /// camera setting, so switching it re-renders the map — which is why the
+    /// map view only assigns a configuration when the answer has changed.
+    func configuration(elevated: Bool) -> MKMapConfiguration {
+        let elevation: MKMapConfiguration.ElevationStyle = elevated ? .realistic : .flat
+
         switch self {
         case .standard:
-            let configuration = MKStandardMapConfiguration(elevationStyle: .flat)
+            let configuration = MKStandardMapConfiguration(elevationStyle: elevation)
             configuration.emphasisStyle = .muted
             configuration.pointOfInterestFilter = .excludingAll
             return configuration
 
         case .satellite:
-            return MKImageryMapConfiguration(elevationStyle: .flat)
+            return MKImageryMapConfiguration(elevationStyle: elevation)
 
         case .hybrid:
-            let configuration = MKHybridMapConfiguration(elevationStyle: .flat)
+            let configuration = MKHybridMapConfiguration(elevationStyle: elevation)
             configuration.pointOfInterestFilter = .excludingAll
             return configuration
         }
@@ -71,14 +77,44 @@ final class MapAppearance: ObservableObject {
     static let shared = MapAppearance()
 
     private static let styleKey = "mapStyle"
+    private static let elevatedKey = "mapElevated"
+    private static let radarKey = "mapRadarVisible"
 
     @Published var style: MapGroundStyle {
         didSet { UserDefaults.standard.set(style.rawValue, forKey: Self.styleKey) }
     }
 
+    /// Terrain in relief, with the camera tilted off vertical. Worth having on
+    /// a map of aeroplanes: it is the one setting that shows you what an
+    /// aircraft on approach is actually flying over.
+    @Published var isElevated: Bool {
+        didSet { UserDefaults.standard.set(isElevated, forKey: Self.elevatedKey) }
+    }
+
+    /// Precipitation radar under the traffic.
+    ///
+    /// Persisted like the rest, and the service that feeds it follows this —
+    /// off, nothing is fetched at all.
+    @Published var isRadarVisible: Bool {
+        didSet {
+            UserDefaults.standard.set(isRadarVisible, forKey: Self.radarKey)
+            RadarService.shared.setActive(isRadarVisible)
+        }
+    }
+
     private init() {
-        style = MapGroundStyle(rawValue: UserDefaults.standard.string(forKey: Self.styleKey) ?? "")
+        let defaults = UserDefaults.standard
+
+        style = MapGroundStyle(rawValue: defaults.string(forKey: Self.styleKey) ?? "")
             ?? .standard
+        isElevated = defaults.bool(forKey: Self.elevatedKey)
+        isRadarVisible = defaults.bool(forKey: Self.radarKey)
+
+        // `didSet` does not run for assignments in an initialiser, so the
+        // service is told directly — otherwise a radar layer restored from a
+        // previous launch would be switched on with nothing fetching frames
+        // for it.
+        RadarService.shared.setActive(isRadarVisible)
     }
 
     func cycleStyle() {

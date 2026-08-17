@@ -7,6 +7,7 @@ struct ContentView: View {
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @ObservedObject private var filters = MapFilters.shared
     @ObservedObject private var mapAppearance = MapAppearance.shared
+    @ObservedObject private var radar = RadarService.shared
     @ObservedObject private var friends = FriendsStore.shared
     @ObservedObject private var push = PushService.shared
 
@@ -138,6 +139,13 @@ struct ContentView: View {
         MapSearch.results(for: query, in: feed.flights, limit: 6)
     }
 
+    /// How much traffic each chip in the row accounts for. One pass over the
+    /// packet for all of them, since this is redrawn whenever the feed
+    /// publishes.
+    private var quickFilterCounts: [MapFilters.QuickFilter: Int] {
+        MapQuickFilters.counts(for: feed.flights)
+    }
+
     /// Watched pilots the feed can currently see, for the toolbar's badge.
     /// Counted over the whole packet rather than `visibleFlights` — a friend
     /// hidden by an altitude filter is still flying.
@@ -166,6 +174,8 @@ struct ContentView: View {
                 // fighting over one map.
                 isFollowing: isFollowing && !replay.isActive,
                 style: mapAppearance.style,
+                isElevated: mapAppearance.isElevated,
+                radarFrame: mapAppearance.isRadarVisible ? radar.frame : nil,
                 plan: selectedPlan,
                 onRegionSettled: { center in
                     mapCenter = center
@@ -179,6 +189,7 @@ struct ContentView: View {
 
             searchLayer
             mapRail
+            mapLook
             mapControls
             mapToolbar
             replayBar
@@ -369,23 +380,45 @@ struct ContentView: View {
     @ViewBuilder
     private var searchLayer: some View {
         if selection == nil || isSideWindow {
-            MapSearchField(
-                query: $query,
-                results: results,
-                theme: theme,
-                onSelect: open
-            )
-            // Capped rather than stretched. On a phone this is wider than the
-            // screen and changes nothing; on an iPad a field running most of a
-            // metre across is a worse target than a short one, and the results
-            // under it would be six names adrift in a very wide card.
-            .frame(maxWidth: Self.chromeMaxWidth, alignment: .leading)
+            VStack(alignment: .leading, spacing: 9) {
+                MapSearchField(
+                    query: $query,
+                    results: results,
+                    theme: theme,
+                    onSelect: open
+                )
+                // Capped rather than stretched. On a phone this is wider than
+                // the screen and changes nothing; on an iPad a field running
+                // most of a metre across is a worse target than a short one,
+                // and the results under it would be six names adrift in a very
+                // wide card.
+                .frame(maxWidth: Self.chromeMaxWidth, alignment: .leading)
+
+                // Hidden while there are results under the field: the two
+                // would otherwise be stacked, and what has been typed is the
+                // thing being answered.
+                if !isSearching {
+                    MapQuickFilters(theme: theme, counts: quickFilterCounts)
+                        .transition(.opacity)
+                }
+            }
             .padding(.leading, 14)
+            // Both the field and the chip row stop where the rail begins. The
+            // row scrolls, so it ends by being cut off rather than by running
+            // out — which reads as "there is more this way" without any of it
+            // disappearing behind a bubble.
             .padding(.trailing, 14 + Self.railLane + mapTrailingInset)
             .padding(.top, 8)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .transition(.opacity.combined(with: .move(edge: .top)))
         }
+    }
+
+    /// Whether the search field has results open under it, which is when the
+    /// chip row gets out of the way — the two would otherwise be stacked,
+    /// and what has been typed is the thing being answered.
+    private var isSearching: Bool {
+        query.trimmingCharacters(in: .whitespacesAndNewlines).count >= MapSearch.minimumLength
     }
 
     /// Puts an open aircraft's window wherever the current placement says it
@@ -633,14 +666,12 @@ struct ContentView: View {
                 .frame(maxWidth: Self.chromeMaxWidth)
                 .frame(maxWidth: .infinity)
                 .padding(.leading, 14)
-                .padding(.trailing, 14 + mapTrailingInset)
-                // Above whatever is already along the bottom: the toolbar where
-                // that is up, the info window's peek where the window is a
-                // sheet over the map instead.
-                .padding(
-                    .bottom,
-                    isToolbarVisible ? MapToolbar.reservedHeight + 6 : peakHeight + 14
-                )
+                // The bar shares this band with the map's own look controls,
+                // which do not go away for a replay — they are about the map,
+                // and a replay is the one time you most want to change what it
+                // is drawn on. So the bar gives way rather than the stack.
+                .padding(.trailing, 14 + Self.railLane + mapTrailingInset)
+                .padding(.bottom, bottomChromeInset)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 .ignoresSafeArea(.keyboard, edges: .bottom)
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -737,10 +768,79 @@ struct ContentView: View {
         }
     }
 
-    /// The camera controls for the open aircraft, in the bottom corner of
-    /// whatever map is left: above the peak state with a sheet, above the
-    /// toolbar and inside the column's lane with a column. At the full sheet
-    /// the window covers this corner anyway, so there is nothing to hide.
+    /// How the map itself looks: the ground under the traffic, the weather
+    /// radar over it, and whether the terrain is in relief.
+    ///
+    /// The bottom right corner, and it stays there whatever else is happening —
+    /// these are about the map rather than about anything on it, so nothing an
+    /// aircraft does should move them. Deliberately the opposite corner from
+    /// the flight controls: one set answers "what am I looking at", the other
+    /// "where is my aeroplane", and sharing a corner would mean they took turns.
+    private var mapLook: some View {
+        VStack(spacing: 0) {
+            MapRailButton(
+                symbol: mapAppearance.style.symbol,
+                label: "Map ground: \(mapAppearance.style.label). Tap for \(mapAppearance.style.next.label)",
+                theme: theme
+            ) {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    mapAppearance.cycleStyle()
+                }
+            }
+
+            MapRailDivider(theme: theme)
+
+            MapRailButton(
+                symbol: "cloud.rain.fill",
+                label: radarAccessibilityLabel,
+                theme: theme,
+                isOn: mapAppearance.isRadarVisible
+            ) {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    mapAppearance.isRadarVisible.toggle()
+                }
+            }
+
+            MapRailDivider(theme: theme)
+
+            MapRailButton(
+                symbol: "view.3d",
+                label: mapAppearance.isElevated ? "Back to a flat map" : "Show terrain in 3D",
+                theme: theme,
+                isOn: mapAppearance.isElevated
+            ) {
+                mapAppearance.isElevated.toggle()
+            }
+        }
+        .frame(width: 44)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .environment(\.colorScheme, .dark)
+        .padding(.trailing, 16 + mapTrailingInset)
+        .padding(.bottom, bottomChromeInset)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+        .ignoresSafeArea(.keyboard, edges: .bottom)
+    }
+
+    /// Says what the layer is showing as well as that it is on: radar with no
+    /// time on it is a claim about now that could be two hours old, and the
+    /// frame's own timestamp is the only thing that settles it.
+    private var radarAccessibilityLabel: String {
+        guard mapAppearance.isRadarVisible else { return "Show precipitation radar" }
+        guard let frame = radar.frame else { return "Precipitation radar on, loading" }
+        return "Precipitation radar on, observed \(frame.label). Tap to hide"
+    }
+
+    /// What everything sitting at the foot of the map has to clear — the
+    /// toolbar where that is up, the info window's peek where the window is a
+    /// sheet over the map instead.
+    private var bottomChromeInset: CGFloat {
+        isToolbarVisible ? MapToolbar.reservedHeight + 6 : peakHeight + 14
+    }
+
+    /// The camera controls for the open aircraft, in the bottom *left* — the
+    /// map's own look owns the right-hand corner, and these come and go with a
+    /// selection while those never move.
     ///
     /// A running replay takes the corner: it is driving the camera itself, and
     /// its bar wants the room these buttons would be sitting in.
@@ -795,14 +895,11 @@ struct ContentView: View {
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .environment(\.colorScheme, .dark)
-            .padding(.trailing, 16 + mapTrailingInset)
-            .padding(
-                .bottom,
-                isToolbarVisible ? MapToolbar.reservedHeight + 6 : peakHeight + 14
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+            .padding(.leading, 16)
+            .padding(.bottom, bottomChromeInset)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
             .ignoresSafeArea(.keyboard, edges: .bottom)
-            .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))
+            .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomLeading)))
         }
     }
 

@@ -37,6 +37,13 @@ struct TrackerMapView: UIViewRepresentable {
     /// assigning a configuration re-renders the whole map.
     var style: MapGroundStyle = .standard
 
+    /// Terrain in relief with the camera tilted. Part of the configuration, so
+    /// it is applied alongside the style.
+    var isElevated = false
+
+    /// The precipitation frame to draw under the traffic, or nil for none.
+    var radarFrame: RadarFrame?
+
     /// The open aircraft's filed route, when it has one. Drawn ahead of it in
     /// place of the great circle to its destination, which is a guess at the
     /// same thing.
@@ -57,16 +64,19 @@ struct TrackerMapView: UIViewRepresentable {
         mapView.pointOfInterestFilter = .excludingAll
 
         // Heading is applied as a plain rotation on each annotation view, which
-        // only lines up with the world while the map itself is north-up.
+        // only lines up with the world while the map itself is north-up. Pitch
+        // does not turn the map, so 3D leaves the sprites pointing true — which
+        // is why that one is allowed and rotation still is not.
         mapView.isRotateEnabled = false
-        mapView.isPitchEnabled = false
+        mapView.isPitchEnabled = true
 
         // MapKit's controls and callouts default to the system blue; the
         // tracker's chrome is white on carbon and stays that way.
         mapView.tintColor = .white
 
-        mapView.preferredConfiguration = style.configuration
+        mapView.preferredConfiguration = style.configuration(elevated: isElevated)
         context.coordinator.appliedStyle = style
+        context.coordinator.appliedElevation = isElevated
 
         mapView.register(
             MKAnnotationView.self,
@@ -83,7 +93,8 @@ struct TrackerMapView: UIViewRepresentable {
 
     func updateUIView(_ mapView: MKMapView, context: Context) {
         context.coordinator.parent = self
-        context.coordinator.applyStyle(style, on: mapView)
+        context.coordinator.applyStyle(style, elevated: isElevated, on: mapView)
+        context.coordinator.syncRadar(radarFrame, on: mapView)
         context.coordinator.sync(flights: flights, on: mapView)
         context.coordinator.syncSelection(selection, on: mapView)
         context.coordinator.syncRoute(on: mapView)
@@ -624,6 +635,15 @@ struct TrackerMapView: UIViewRepresentable {
         // MARK: MKMapViewDelegate
 
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
+            if let tiles = overlay as? MKTileOverlay {
+                let renderer = MKTileOverlayRenderer(tileOverlay: tiles)
+                // Enough to read the weather through, light enough to read the
+                // map and the traffic through it. Radar is context for what the
+                // aircraft are doing, not the subject.
+                renderer.alpha = 0.55
+                return renderer
+            }
+
             guard let line = overlay as? MKPolyline else {
                 return MKOverlayRenderer(overlay: overlay)
             }
@@ -732,11 +752,74 @@ struct TrackerMapView: UIViewRepresentable {
         /// whole map, so it is only done when the answer has actually changed —
         /// `updateUIView` runs on every feed tick.
         var appliedStyle: MapGroundStyle?
+        var appliedElevation: Bool?
 
-        func applyStyle(_ style: MapGroundStyle, on mapView: MKMapView) {
-            guard appliedStyle != style else { return }
+        func applyStyle(_ style: MapGroundStyle, elevated: Bool, on mapView: MKMapView) {
+            guard appliedStyle != style || appliedElevation != elevated else { return }
+
+            let wasElevated = appliedElevation
             appliedStyle = style
-            mapView.preferredConfiguration = style.configuration
+            appliedElevation = elevated
+
+            mapView.preferredConfiguration = style.configuration(elevated: elevated)
+
+            // Relief with the camera looking straight down is a flat map that
+            // costs more to draw, so 3D tilts as well as raising the terrain.
+            // Only on the change, though — reapplying the pitch every pass
+            // would take the camera back off any angle the user had set by
+            // hand.
+            guard let wasElevated = wasElevated, wasElevated != elevated,
+                  let camera = mapView.camera.copy() as? MKMapCamera else { return }
+
+            camera.pitch = elevated ? Self.elevatedPitch : 0
+            mapView.setCamera(camera, animated: true)
+        }
+
+        /// Steep enough for terrain to read as terrain, shallow enough that the
+        /// map is still a map — past about sixty degrees the far half of the
+        /// screen is horizon and the traffic on it is unreadable.
+        private static let elevatedPitch: CGFloat = 50
+
+        // MARK: Radar
+
+        /// The precipitation layer, when one is drawn.
+        private var radarOverlay: MKTileOverlay?
+        private var radarTemplate: String?
+
+        /// Adds, swaps or removes the radar to match what the service is
+        /// publishing.
+        ///
+        /// Inserted at the bottom of its level rather than appended: the routes
+        /// and the traffic are drawn in the same pass, and radar over the top
+        /// of a flown track would hide the thing the layer is context for.
+        func syncRadar(_ frame: RadarFrame?, on mapView: MKMapView) {
+            guard let frame = frame else {
+                if let existing = radarOverlay {
+                    mapView.removeOverlay(existing)
+                    radarOverlay = nil
+                    radarTemplate = nil
+                }
+                return
+            }
+
+            guard frame.urlTemplate != radarTemplate else { return }
+            radarTemplate = frame.urlTemplate
+
+            if let existing = radarOverlay {
+                mapView.removeOverlay(existing)
+            }
+
+            let overlay = MKTileOverlay(urlTemplate: frame.urlTemplate)
+            overlay.tileSize = CGSize(width: 512, height: 512)
+            // RainViewer stopped serving free tiles past zoom 10. Told rather
+            // than discovered, so MapKit stretches the last level it has
+            // instead of asking for tiles that come back as errors and leaving
+            // the layer full of holes as you zoom in.
+            overlay.maximumZ = 10
+            overlay.canReplaceMapContent = false
+
+            radarOverlay = overlay
+            mapView.insertOverlay(overlay, at: 0, level: .aboveRoads)
         }
 
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {

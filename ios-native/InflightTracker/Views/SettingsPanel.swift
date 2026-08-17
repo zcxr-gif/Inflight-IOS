@@ -10,6 +10,7 @@ struct SettingsPanel: View {
     @EnvironmentObject private var feed: LiveFeed
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @ObservedObject private var mapAppearance = MapAppearance.shared
+    @ObservedObject private var radar = RadarService.shared
     /// Whether the screen behind this panel is wide enough for the flight
     /// window to have a choice about where it sits.
     ///
@@ -37,9 +38,11 @@ struct SettingsPanel: View {
                 }
             }
 
-            // Also the bottom bubble on the map's own rail, which is where it
-            // gets used. Repeated here because a control that only cycles is
-            // one you have to tap three times to see the options of.
+            // All three are in the stack in the map's bottom right corner,
+            // which is where they get used. Repeated here because a control
+            // that only cycles is one you have to tap three times to see the
+            // options of, and because a toggle nobody has found is a feature
+            // nobody has.
             PanelSection(title: "MAP") {
                 PanelPickerRow(
                     title: "Ground",
@@ -48,6 +51,24 @@ struct SettingsPanel: View {
                     label: { $0.label },
                     detail: "What the map is drawn on, under the traffic.",
                     selection: $mapAppearance.style
+                )
+
+                PanelDivider()
+
+                PanelToggleRow(
+                    title: "Precipitation radar",
+                    symbol: "cloud.rain.fill",
+                    detail: radarDetail,
+                    isOn: $mapAppearance.isRadarVisible
+                )
+
+                PanelDivider()
+
+                PanelToggleRow(
+                    title: "3D terrain",
+                    symbol: "view.3d",
+                    detail: "Raises the ground into relief and tilts the camera. The map stays north-up, so the aircraft still point where they are going.",
+                    isOn: $mapAppearance.isElevated
                 )
             }
 
@@ -143,6 +164,22 @@ struct SettingsPanel: View {
                 aboutRow("Traffic", value: "\(feed.flights.count) aircraft")
             }
         }
+    }
+
+    /// Says how old the picture is when there is one. Radar with no time
+    /// against it is a claim about now that could be a couple of hours out.
+    private var radarDetail: String {
+        guard mapAppearance.isRadarVisible else {
+            return "Rain and snow under the traffic, from RainViewer. Nothing is fetched while this is off."
+        }
+
+        guard let frame = radar.frame else {
+            return radar.hasAnswered
+                ? "No radar picture available right now."
+                : "Looking for the latest sweep…"
+        }
+
+        return "Showing the sweep observed at \(frame.label). A new one lands about every ten minutes."
     }
 
     private var feedSummary: String {

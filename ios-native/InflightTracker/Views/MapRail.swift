@@ -1,11 +1,16 @@
 import SwiftUI
 
-/// The bubbles down the top right of the map.
+/// The bubbles down the top right of the map: what the weather is, and what the
+/// map is being narrowed to.
 ///
-/// One grouped stack of glass rather than three loose circles, the same call
-/// the flight window's centring controls make in the opposite corner — so the
-/// two read as the same piece of furniture on either side of the screen, and
-/// the map keeps its middle.
+/// One grouped stack of glass rather than loose circles, the same call every
+/// other stack of map buttons makes, so they read as one set of furniture
+/// rather than as controls that happen to be near each other.
+///
+/// This is the "what is on the map" corner. How the map itself *looks* — the
+/// ground, the radar, the tilt — is the opposite corner's business, and the two
+/// are kept apart because they answer different questions and get reached for
+/// at different times.
 ///
 /// Everything here is available at all times, with an aircraft open or without
 /// one. That is the point of moving it: the toolbar along the bottom is gone
@@ -27,7 +32,6 @@ struct MapRail: View {
     let onFilters: () -> Void
 
     @ObservedObject private var preferences = WeatherPreferences.shared
-    @ObservedObject private var mapAppearance = MapAppearance.shared
 
     /// What the expanded card lists: the field being reported on, plus the
     /// open route's ends when there is one and the setting allows it.
@@ -80,18 +84,6 @@ struct MapRail: View {
                 badge: activeFilters > 0,
                 action: onFilters
             )
-
-            MapRailDivider(theme: theme)
-
-            MapRailButton(
-                symbol: mapAppearance.style.symbol,
-                label: "Map style: \(mapAppearance.style.label). Tap for \(mapAppearance.style.next.label)",
-                theme: theme
-            ) {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    mapAppearance.cycleStyle()
-                }
-            }
         }
         .frame(width: 44)
         // Glass draws behind its content rather than clipping it, so anything
