@@ -12,6 +12,8 @@ struct AccountPanel: View {
     @ObservedObject private var accounts = AccountStore.shared
     @ObservedObject private var entitlements = Entitlements.shared
     @ObservedObject private var store = ProStore.shared
+    @ObservedObject private var identity = PilotIdentity.shared
+    @ObservedObject private var highlight = PilotHighlightPreferences.shared
 
     /// Sign in, or make one. One form either way — the fields are the same and
     /// the difference is one word on the button — so this is a segmented
@@ -36,6 +38,11 @@ struct AccountPanel: View {
     @State private var isShowingPaywall = false
     @State private var isConfirmingDeletion = false
 
+    /// The IFC handle being edited. Committed on submit rather than per
+    /// keystroke, so a half-typed name never briefly matches somebody.
+    @State private var handleDraft = ""
+    @State private var handleProblem: String?
+
     @FocusState private var focus: Field?
 
     private enum Field { case email, password }
@@ -44,6 +51,10 @@ struct AccountPanel: View {
 
     var body: some View {
         MapPanel(title: "Account", subtitle: subtitle) {
+            pilotSection
+
+            colorSection
+
             if accounts.isRestoring && accounts.account == nil {
                 PanelSection(title: "ACCOUNT") {
                     HStack(spacing: 10) {
@@ -65,6 +76,12 @@ struct AccountPanel: View {
             await accounts.restore()
             await accounts.refreshProfile()
             if email.isEmpty { email = accounts.rememberedEmail }
+            if handleDraft.isEmpty { handleDraft = identity.username }
+        }
+        // A name set on the website arrives with the session, after this panel
+        // has already drawn its empty field.
+        .onChange(of: identity.username) { _, name in
+            if handleDraft.isEmpty { handleDraft = name }
         }
         .sheet(isPresented: $isShowingPaywall) { ProPanel() }
         .confirmationDialog(
@@ -86,6 +103,160 @@ struct AccountPanel: View {
             return entitlements.isPro ? "\(account.email) · Pro" : account.email
         }
         return "Your watchlist and your Pro, on every device"
+    }
+
+    // MARK: - Who you are on the server
+
+    /// Your Infinite Flight community handle.
+    ///
+    /// The feed names the pilot of every aircraft but has no idea which one is
+    /// yours, so this is the one thing it cannot work out for itself. The
+    /// Capacitor build asked for exactly this and stored it in the same place
+    /// — `user_metadata.if_username` — so a handle set on the website is
+    /// already here.
+    ///
+    /// Above the sign-in form on purpose: it works signed out, and finding your
+    /// own aircraft is not something anyone should need an account for.
+    private var pilotSection: some View {
+        PanelSection(title: "YOUR CALLSIGN") {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 10) {
+                    Image(systemName: "person.text.rectangle")
+                        .font(.system(size: 13))
+                        .foregroundStyle(theme.textDim)
+                        .frame(width: 20)
+
+                    TextField("Infinite Flight username", text: $handleDraft)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(theme.textPrimary)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .submitLabel(.done)
+                        .onSubmit { commitHandle() }
+
+                    if handleDraft != identity.username {
+                        Button("Save") { commitHandle() }
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(theme.textPrimary)
+                            .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 11)
+                .background {
+                    RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous)
+                        .fill(theme.surfaceFill)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous)
+                                .strokeBorder(theme.stroke, lineWidth: 1)
+                        }
+                }
+
+                if let problem = handleProblem {
+                    message(problem, symbol: "exclamationmark.triangle", isProblem: true)
+                }
+
+                Text(identity.isSet
+                     ? "The tracker marks \(identity.username)'s aircraft as yours."
+                     : "Exactly as it appears in Infinite Flight, so the tracker can pick your aircraft out of the traffic.")
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(theme.textDim)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+        }
+    }
+
+    private func commitHandle() {
+        focus = nil
+        let typed = handleDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if typed.isEmpty {
+            identity.clear()
+            handleDraft = ""
+            handleProblem = nil
+            return
+        }
+
+        guard let saved = identity.set(typed) else {
+            handleProblem = "That doesn't look like an Infinite Flight username — letters, numbers, dots, dashes and underscores only."
+            return
+        }
+
+        handleDraft = saved
+        handleProblem = nil
+
+        // Mirrored onto the account so it follows you to another device, the
+        // same field the website reads. Best effort: the handle is already
+        // saved on this device, and a failed sync is not worth a message.
+        Task { await accounts.syncPilotName(saved) }
+    }
+
+    // MARK: - Colours
+
+    /// What your own aircraft and your watchlist are painted.
+    ///
+    /// Pro. The defaults are the web build's amber and amethyst, which is what
+    /// anyone coming from it will expect to see.
+    @ViewBuilder
+    private var colorSection: some View {
+        PanelSection(title: "PICK YOUR TRAFFIC OUT") {
+            if entitlements.has(.pilotColours) {
+                PanelToggleRow(
+                    title: "Colour my traffic",
+                    symbol: "paintpalette",
+                    detail: "Your aircraft and everyone you watch, painted on the map.",
+                    isOn: $highlight.isEnabled
+                )
+
+                if highlight.isEnabled {
+                    PanelDivider()
+
+                    colorRow("Your aircraft", symbol: "airplane", selection: $highlight.ownColor)
+
+                    PanelDivider()
+
+                    colorRow("Watched pilots", symbol: "person.2.fill", selection: $highlight.friendColor)
+
+                    PanelDivider()
+
+                    Button {
+                        highlight.resetColors()
+                    } label: {
+                        HStack(spacing: 10) {
+                            PanelRowLabel(title: "Back to the defaults", symbol: "arrow.counterclockwise")
+                            Spacer(minLength: 8)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            } else {
+                PanelActionRow(
+                    title: "Colour my traffic",
+                    symbol: "paintpalette",
+                    detail: "Pro. Your own aircraft and every pilot you watch, picked out of the traffic in colours you choose."
+                ) {
+                    isShowingPaywall = true
+                }
+            }
+        }
+    }
+
+    private func colorRow(_ title: String, symbol: String, selection: Binding<Color>) -> some View {
+        HStack(spacing: 10) {
+            PanelRowLabel(title: title, symbol: symbol)
+
+            Spacer(minLength: 8)
+
+            ColorPicker("", selection: selection, supportsOpacity: false)
+                .labelsHidden()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
     }
 
     // MARK: - Signed in

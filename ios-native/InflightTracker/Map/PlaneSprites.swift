@@ -42,17 +42,50 @@ final class PlaneSprites {
     /// Icon for an aircraft, padded into a larger transparent canvas so the
     /// annotation stays easy to tap while the plane itself stays small.
     /// `selected` swaps in the sheet's `_S` highlight variant.
-    func icon(forKey key: String, selected: Bool) -> UIImage? {
+    ///
+    /// `tint` repaints the icon in one flat colour, for the aircraft the user
+    /// has asked to pick out — their own, and the pilots they watch. It is a
+    /// silhouette rather than a wash: the sprites carry their own liveries, and
+    /// a colour laid over one is neither the livery nor the colour. The whole
+    /// point is to be findable at a glance in a screen full of traffic, which a
+    /// solid shape is and a tinted photograph is not. This is also what the web
+    /// build did — Mapbox recoloured the icon outright.
+    func icon(forKey key: String, selected: Bool, tint: UIColor? = nil) -> UIImage? {
         let resolvedKey = selected && uvs["\(key)_S"] != nil ? "\(key)_S" : key
-        if let cached = cache[resolvedKey] { return cached }
+
+        // Tinted icons are cached under their own colour, so the untinted sheet
+        // is never evicted by somebody cycling through colour choices.
+        let cacheKey = tint.map { "\(resolvedKey)|\($0.tintCacheKey)" } ?? resolvedKey
+        if let cached = cache[cacheKey] { return cached }
 
         guard let sheet = sheet,
               let uv = uvs[resolvedKey], uv.count == 4,
               let cropped = crop(sheet: sheet, uv: uv) else { return nil }
 
-        let image = pad(cropped)
-        cache[resolvedKey] = image
+        var image = pad(cropped)
+        if let tint = tint { image = Self.painted(image, in: tint) }
+
+        cache[cacheKey] = image
         return image
+    }
+
+    /// The icon's own shape, filled flat.
+    ///
+    /// Drawn as colour-then-`destinationIn` rather than with a template
+    /// rendering mode: an `MKAnnotationView` takes a plain `UIImage` and has no
+    /// tint colour to resolve a template against, so the colour has to be baked
+    /// into the bitmap.
+    private static func painted(_ image: UIImage, in color: UIColor) -> UIImage {
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = image.scale
+        format.opaque = false
+
+        return UIGraphicsImageRenderer(size: image.size, format: format).image { context in
+            let bounds = CGRect(origin: .zero, size: image.size)
+            color.setFill()
+            context.fill(bounds)
+            image.draw(in: bounds, blendMode: .destinationIn, alpha: 1)
+        }
     }
 
     private func crop(sheet: CGImage, uv: [Double]) -> CGImage? {
@@ -86,5 +119,23 @@ final class PlaneSprites {
         return renderer.image { _ in
             UIImage(cgImage: cropped).draw(in: target)
         }
+    }
+}
+
+extension UIColor {
+
+    /// A short, stable string for this colour, for use in a cache key.
+    ///
+    /// Rounded to the nearest 1/255 on purpose: colours arrive here from a
+    /// `Color` round-tripped through user defaults, and two that are a
+    /// floating-point hair apart are the same colour to look at. Without the
+    /// rounding a slider drag would mint a new cache entry per frame.
+    var tintCacheKey: String {
+        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+        guard getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
+            return description
+        }
+        let scale = { (value: CGFloat) in Int((value * 255).rounded()) }
+        return "\(scale(red)),\(scale(green)),\(scale(blue)),\(scale(alpha))"
     }
 }

@@ -64,6 +64,19 @@ enum MapStyleMode: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Whether this style is part of Inflight Pro.
+    ///
+    /// The two standard maps stay free, and they are the two the app has always
+    /// had — nobody loses the map they have been using. What Pro buys is the
+    /// imagery and the planet, which are the two that are worth going to look
+    /// at rather than the two you need.
+    var isPro: Bool {
+        switch self {
+        case .muted, .detailed: return false
+        case .satellite, .globe: return true
+        }
+    }
+
     /// Whether the camera is free to rotate and tilt in this style.
     ///
     /// Only the globe. Every other style is north-up on purpose: a sprite's

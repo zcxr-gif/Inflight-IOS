@@ -87,6 +87,17 @@ final class FlightInfoAppearance: ObservableObject {
         FlightInfoTheme.resolved(scheme: resolvedScheme, glass: isGlassEnabled)
     }
 
+    /// What the map should actually draw.
+    ///
+    /// The choice is kept exactly as made even when it is a Pro style and Pro
+    /// is not active — a lapsed subscription drops you back to the standard map
+    /// without forgetting that you liked the globe, so it is there again the
+    /// moment Pro is. Everything that draws the map reads this; the picker
+    /// reads `mapStyle`, because it is showing you your choice.
+    var resolvedMapStyle: MapStyleMode {
+        mapStyle.isPro && !Entitlements.shared.isPro ? .muted : mapStyle
+    }
+
     func adopt(systemScheme scheme: ColorScheme) {
         guard systemScheme != scheme else { return }
         systemScheme = scheme
@@ -210,12 +221,26 @@ struct FlightInfoTheme {
 
     /// How much of `windowFill` is laid under the glass on the sheet's ground.
     ///
-    /// A trace in the dark themes — the glass does essentially all of the work
-    /// and the map reads clearly through the window. Light needs materially
-    /// more: the system's glass dims what is behind it, which helps white text
-    /// and hurts black, so the light window puts a real ground under its own
-    /// ink rather than leaning on the blur.
+    /// Zero in the dark themes. It used to be a wash of carbon under the glass,
+    /// there to keep white text legible over snow and daylight ocean, and it did
+    /// that by making the window darker than the glass wanted to be — the map
+    /// went muddy behind it and the whole thing read as a slab. Legibility is
+    /// `textHalo`'s job now, which costs the map nothing.
+    ///
+    /// Light still needs a real ground. The system's glass *dims* what is behind
+    /// it, which helps white text and hurts black, so black ink on it has to sit
+    /// on something of its own.
     let groundOpacity: Double
+
+    /// A soft halo drawn behind text on this theme, or clear for none.
+    ///
+    /// This is the honest way round: the window stays as clear as the glass can
+    /// make it, and the few characters that need help get it *where they are*,
+    /// instead of every pixel of the map behind the window paying for the
+    /// contrast of a caption. Tight radius and no offset — it is a halo to lift
+    /// glyphs off a busy background, not a drop shadow, and at this opacity it
+    /// is invisible until the thing underneath is bright.
+    let textHalo: Color
 
     let radiusSmall: CGFloat = 12
     let radiusMedium: CGFloat = 16
@@ -288,7 +313,7 @@ struct FlightInfoTheme {
         isGlass: true,
         isLight: false,
         windowFill: Color(red: 0.09, green: 0.09, blue: 0.11),
-        scrim: Color.black.opacity(0.06),
+        scrim: .clear,
         chromeTint: Color(red: 0.09, green: 0.09, blue: 0.11).opacity(0.12),
         surfaceTint: Color.white.opacity(0.04),
         elevatedTint: Color.white.opacity(0.09),
@@ -302,7 +327,8 @@ struct FlightInfoTheme {
         accent: .white,
         onAccent: Color(red: 0.09, green: 0.09, blue: 0.11),
         trackFill: Color.white.opacity(0.16),
-        groundOpacity: 0.03
+        groundOpacity: 0,
+        textHalo: Color.black.opacity(0.55)
     )
 
     static let solid = FlightInfoTheme(
@@ -323,7 +349,8 @@ struct FlightInfoTheme {
         accent: .white,
         onAccent: Color(red: 0.09, green: 0.09, blue: 0.11),
         trackFill: Color.white.opacity(0.14),
-        groundOpacity: 0.03
+        groundOpacity: 1,
+        textHalo: .clear
     )
 
     /// The dark themes inverted, not recoloured.
@@ -355,7 +382,8 @@ struct FlightInfoTheme {
         accent: Color(white: 0.10),
         onAccent: Color(white: 0.98),
         trackFill: Color.black.opacity(0.14),
-        groundOpacity: 0.55
+        groundOpacity: 0.55,
+        textHalo: Color.white.opacity(0.5)
     )
 
     static let lightSolid = FlightInfoTheme(
@@ -376,11 +404,31 @@ struct FlightInfoTheme {
         accent: Color(white: 0.10),
         onAccent: Color(white: 0.98),
         trackFill: Color.black.opacity(0.12),
-        groundOpacity: 1
+        groundOpacity: 1,
+        textHalo: .clear
     )
 }
 
 extension View {
+
+    /// Lifts text off whatever the glass is showing through it.
+    ///
+    /// Applied once, to the whole of a window's content, rather than to every
+    /// `Text` in the app: SwiftUI's shadow is drawn from the alpha of what it
+    /// wraps, so on a tree that is mostly glyphs and SF Symbols it haloes
+    /// exactly the strokes that need it and does nothing to a filled card,
+    /// which has no transparent edge to bleed from.
+    ///
+    /// A no-op on the flat themes and on light, where the ground is opaque and
+    /// there is nothing showing through to compete with.
+    @ViewBuilder
+    func flightInfoLegible(_ theme: FlightInfoTheme) -> some View {
+        if theme.isGlass, theme.textHalo != Color.clear {
+            shadow(color: theme.textHalo, radius: 2.5)
+        } else {
+            self
+        }
+    }
 
     /// Card background for the flight info window.
     func flightInfoSurface(

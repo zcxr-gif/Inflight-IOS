@@ -38,6 +38,11 @@ struct TrackerMapView: UIViewRepresentable {
     /// whether the camera is free to rotate and tilt.
     var style: MapStyleMode = .muted
 
+    /// Which aircraft get picked out of the traffic, and in what colour.
+    /// Equatable, so the coordinator repaints the sprites only when something
+    /// about it actually changed.
+    var highlighting = PilotHighlighting()
+
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeUIView(context: Context) -> MKMapView {
@@ -94,6 +99,7 @@ struct TrackerMapView: UIViewRepresentable {
         }
 
         context.coordinator.applyStyle(style, on: mapView)
+        context.coordinator.applyHighlighting(highlighting, on: mapView)
         context.coordinator.sync(flights: flights, on: mapView)
         context.coordinator.syncSelection(selection, on: mapView)
         context.coordinator.syncRoute(on: mapView)
@@ -143,6 +149,9 @@ struct TrackerMapView: UIViewRepresentable {
         /// only swapped when it actually changes — assigning
         /// `preferredConfiguration` reloads the map's tiles.
         private var appliedStyle: MapStyleMode?
+
+        /// The highlighting the drawn sprites were painted with.
+        private var appliedHighlighting = PilotHighlighting()
 
         /// The camera bearing every drawn sprite is currently corrected
         /// against.
@@ -229,6 +238,21 @@ struct TrackerMapView: UIViewRepresentable {
         /// camera is pointing.
         private func rotation(for heading: Double) -> CGAffineTransform {
             CGAffineTransform(rotationAngle: CGFloat(heading - appliedCameraHeading) * .pi / 180)
+        }
+
+        /// Repaints every drawn sprite when the highlighting changes.
+        ///
+        /// One `Equatable` comparison guards the whole thing, so the common
+        /// case — nothing changed, which is every packet — costs nothing.
+        func applyHighlighting(_ highlighting: PilotHighlighting, on mapView: MKMapView) {
+            guard appliedHighlighting != highlighting else { return }
+            appliedHighlighting = highlighting
+
+            for annotation in mapView.annotations {
+                guard let flight = annotation as? FlightAnnotation,
+                      let view = mapView.view(for: flight) else { continue }
+                apply(annotation: flight, to: view, selected: flight.flightId == parent.selection?.id)
+            }
         }
 
         // MARK: Annotation syncing
@@ -340,7 +364,11 @@ struct TrackerMapView: UIViewRepresentable {
 
         private func apply(annotation: FlightAnnotation, to view: MKAnnotationView, selected: Bool) {
             let key = annotation.flight.spriteKey
-            view.image = PlaneSprites.shared.icon(forKey: key, selected: selected)
+            view.image = PlaneSprites.shared.icon(
+                forKey: key,
+                selected: selected,
+                tint: appliedHighlighting.tint(for: annotation.flight.username)
+            )
             view.transform = rotation(for: annotation.flight.heading)
 
             annotation.renderedSpriteKey = key

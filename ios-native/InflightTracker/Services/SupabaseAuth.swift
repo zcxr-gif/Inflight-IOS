@@ -74,10 +74,24 @@ enum SupabaseAuth {
         let email: String?
         let createdAt: Date?
 
+        /// The Infinite Flight community handle, from
+        /// `user_metadata.if_username` — the same key the Capacitor build wrote
+        /// (`old/www/flight.js`, `myIfName`), so the two builds share it.
+        let pilotName: String?
+
         enum CodingKeys: String, CodingKey {
             case id
             case email
             case createdAt = "created_at"
+            case userMetadata = "user_metadata"
+        }
+
+        private struct Metadata: Decodable {
+            let ifUsername: String?
+
+            enum CodingKeys: String, CodingKey {
+                case ifUsername = "if_username"
+            }
         }
 
         init(from decoder: Decoder) throws {
@@ -86,6 +100,9 @@ enum SupabaseAuth {
             email = try container.decodeIfPresent(String.self, forKey: .email)
             createdAt = (try? container.decode(String.self, forKey: .createdAt))
                 .flatMap(Self.date(from:))
+
+            let metadata = try? container.decode(Metadata.self, forKey: .userMetadata)
+            pilotName = (metadata?.ifUsername).flatMap { $0.isEmpty ? nil : $0 }
         }
 
         /// Postgres timestamps come back with a variable number of fractional
@@ -176,6 +193,33 @@ enum SupabaseAuth {
     /// failure here is not something to put in front of the user.
     static func signOut(accessToken: String) async {
         _ = try? await postData(path: "/auth/v1/logout", body: [:], accessToken: accessToken)
+    }
+
+    /// Writes the Infinite Flight handle onto the signed-in user.
+    ///
+    /// `user_metadata` is the user's own to write — GoTrue scopes the update to
+    /// whoever the token belongs to — which is exactly why the handle lives
+    /// there and the Pro flag does not.
+    static func updatePilotName(_ name: String, accessToken: String) async throws {
+        guard let url = URL(string: AppConfig.supabaseURLString + "/auth/v1/user") else {
+            throw Failure(message: "Bad user URL.")
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue(AppConfig.supabaseAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(
+            withJSONObject: ["data": ["if_username": name]]
+        )
+        request.timeoutInterval = 20
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(status) else {
+            throw Failure.from(data: data, status: status)
+        }
     }
 
     /// Erases the account this token belongs to.

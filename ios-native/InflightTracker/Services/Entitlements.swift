@@ -15,6 +15,13 @@ enum ProFeature: String, CaseIterable, Identifiable {
     /// More than a handful of watched pilots.
     case watchlist
 
+    /// Your own aircraft and the pilots you watch, painted so you can find
+    /// them in a screen full of traffic.
+    case pilotColours
+
+    /// Satellite, and the globe.
+    case mapStyles
+
     /// How many pilots a free account can watch. Low enough to be a real
     /// difference, high enough that the feature is genuinely usable free —
     /// nobody should have to pay to find out whether the list works.
@@ -29,6 +36,8 @@ enum ProFeature: String, CaseIterable, Identifiable {
         switch self {
         case .replay: return "Flight replay"
         case .watchlist: return "The whole watchlist"
+        case .pilotColours: return "Your traffic, in your colours"
+        case .mapStyles: return "Satellite and the globe"
         }
     }
 
@@ -38,6 +47,10 @@ enum ProFeature: String, CaseIterable, Identifiable {
             return "Fly any aircraft's track back from departure, at your own speed."
         case .watchlist:
             return "Watch as many pilots as you like. Free keeps \(Self.freeWatchlistLimit)."
+        case .pilotColours:
+            return "Your own aircraft and every pilot you watch, picked out of the traffic in colours you choose."
+        case .mapStyles:
+            return "Imagery, and the whole planet — free to spin and tilt with the traffic on it."
         }
     }
 
@@ -45,6 +58,8 @@ enum ProFeature: String, CaseIterable, Identifiable {
         switch self {
         case .replay: return "clock.arrow.circlepath"
         case .watchlist: return "person.2.badge.plus"
+        case .pilotColours: return "paintpalette"
+        case .mapStyles: return "globe"
         }
     }
 }

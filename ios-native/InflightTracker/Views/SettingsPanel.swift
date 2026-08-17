@@ -46,6 +46,16 @@ struct SettingsPanel: View {
                 }
             }
 
+            // Its own section rather than a row in Appearance: four styles
+            // with a sentence each is a list, and two of them are Pro, which a
+            // segmented control has nowhere to say.
+            PanelSection(title: "MAP") {
+                ForEach(MapStyleMode.allCases) { style in
+                    if style != MapStyleMode.allCases.first { PanelDivider() }
+                    mapStyleRow(style)
+                }
+            }
+
             PanelSection(title: "FEED") {
                 ForEach(AppConfig.servers, id: \.self) { server in
                     if server != AppConfig.servers.first { PanelDivider() }
@@ -63,17 +73,6 @@ struct SettingsPanel: View {
                     label: { $0.label },
                     detail: appearance.mode.detail,
                     selection: $appearance.mode
-                )
-
-                PanelDivider()
-
-                PanelPickerRow(
-                    title: "Map",
-                    symbol: appearance.mapStyle.symbol,
-                    options: MapStyleMode.allCases,
-                    label: { $0.label },
-                    detail: appearance.mapStyle.detail,
-                    selection: $appearance.mapStyle
                 )
 
                 PanelDivider()
@@ -208,6 +207,55 @@ struct SettingsPanel: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    /// One map style. Locked styles are shown, not hidden — you cannot want
+    /// something you have never seen — and tapping one opens the paywall
+    /// rather than silently doing nothing.
+    private func mapStyleRow(_ style: MapStyleMode) -> some View {
+        let locked = style.isPro && !entitlements.isPro
+        let selected = appearance.mapStyle == style
+
+        return Button {
+            appearance.mapStyle = style
+            if locked { isShowingPaywall = true }
+        } label: {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    PanelRowLabel(title: style.label, symbol: style.symbol)
+
+                    Text(style.detail)
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(theme.textDim)
+                        .padding(.leading, 30)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 8)
+
+                if locked {
+                    Text("PRO")
+                        .font(.system(size: 8.5, weight: .bold))
+                        .tracking(0.8)
+                        .foregroundStyle(theme.onAccent)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background { Capsule().fill(theme.accent) }
+                        .fixedSize()
+                } else if selected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(theme.textPrimary)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        // Dimmed rather than disabled: it is still tappable, because the tap is
+        // how you find out what it costs.
+        .opacity(locked ? 0.6 : 1)
     }
 
     private func aboutRow(_ title: String, value: String) -> some View {

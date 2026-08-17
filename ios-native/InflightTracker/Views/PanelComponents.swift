@@ -60,6 +60,7 @@ struct MapPanel<Content: View>: View {
         // ...and this stops the vertical rubber-banding on a short panel, so a
         // field with nothing on it no longer bounces against a fixed sheet.
         .scrollBounceBehavior(.basedOnSize)
+        .flightInfoLegible(theme)
         .background { theme.windowFill.ignoresSafeArea() }
         .environment(\.colorScheme, theme.colorScheme)
         .presentationDetents([.medium, .large])

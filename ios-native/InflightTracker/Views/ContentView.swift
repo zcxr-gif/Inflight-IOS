@@ -9,6 +9,10 @@ struct ContentView: View {
     @ObservedObject private var weatherPreferences = WeatherPreferences.shared
     @ObservedObject private var friends = FriendsStore.shared
     @ObservedObject private var push = PushService.shared
+    @ObservedObject private var entitlements = Entitlements.shared
+    @ObservedObject private var accounts = AccountStore.shared
+    @ObservedObject private var identity = PilotIdentity.shared
+    @ObservedObject private var highlightPreferences = PilotHighlightPreferences.shared
 
     @State private var selection: SelectedFlight?
 
@@ -47,6 +51,17 @@ struct ContentView: View {
     private var theme: FlightInfoTheme { appearance.theme }
 
     private var peakDetent: PresentationDetent { .height(peakHeight) }
+
+    /// Rebuilt each redraw, and compared by value inside the map — so watching
+    /// a new pilot, picking a colour, or Pro lapsing all repaint the traffic
+    /// without anything here having to know that it should.
+    private var highlighting: PilotHighlighting { PilotHighlighting.current() }
+
+    /// Opened from the avatar button, and from Settings.
+    @State private var isShowingAccount = false
+
+    /// Raised when a locked map style is picked.
+    @State private var isShowingStylePaywall = false
 
     /// What the sheet is showing. A view can only present one thing at a time,
     /// so the flight window, the toolbar's panels and a field all share this
@@ -117,7 +132,8 @@ struct ContentView: View {
                 // fighting over one map.
                 isFollowing: isFollowing && !replay.isActive,
                 colorScheme: theme.colorScheme,
-                style: appearance.mapStyle
+                style: appearance.resolvedMapStyle,
+                highlighting: highlighting
             )
             .ignoresSafeArea()
 
@@ -132,12 +148,18 @@ struct ContentView: View {
             // thing you just tapped.
             VStack(alignment: .leading, spacing: 10) {
                 if selection == nil {
-                    MapSearchField(
-                        query: $query,
-                        results: results,
-                        theme: theme,
-                        onSelect: open
-                    )
+                    // Top-aligned so the results card drops below the field
+                    // rather than pushing the avatar down the screen with it.
+                    HStack(alignment: .top, spacing: 10) {
+                        MapSearchField(
+                            query: $query,
+                            results: results,
+                            theme: theme,
+                            onSelect: open
+                        )
+
+                        profileButton
+                    }
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
 
@@ -265,6 +287,8 @@ struct ContentView: View {
             guard detent != .large else { return }
             detent = .height(height)
         }
+        .sheet(isPresented: $isShowingAccount) { AccountPanel() }
+        .sheet(isPresented: $isShowingStylePaywall) { ProPanel(highlighted: .mapStyles) }
         .onAppear { feed.connect() }
         .task {
             // Both are launch work rather than panel work: the App Store
@@ -496,6 +520,67 @@ struct ContentView: View {
         }
     }
 
+    /// The way in to your profile: an avatar beside the search field.
+    ///
+    /// Top right, where an account lives in almost every app, and on the one
+    /// screen you always come back to — Settings still has the same row, but
+    /// nobody should have to go three taps deep to find out whether they are
+    /// signed in. Its initials *are* the state: two letters means signed in, a
+    /// glyph means not, and a dot marks Pro.
+    private var profileButton: some View {
+        Button {
+            isShowingAccount = true
+        } label: {
+            Group {
+                if let account = accounts.account {
+                    Text(account.initials)
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundStyle(theme.onAccent)
+                        .frame(width: 38, height: 38)
+                        .background { Circle().fill(theme.accent) }
+                } else {
+                    Image(systemName: "person.crop.circle")
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(theme.textPrimary)
+                        .frame(width: 38, height: 38)
+                }
+            }
+            // Small, and outside the circle, so it reads as a state marker on
+            // the avatar rather than as a badge with a number missing.
+            .overlay(alignment: .bottomTrailing) {
+                if entitlements.isPro {
+                    Circle()
+                        .fill(theme.accent)
+                        .frame(width: 9, height: 9)
+                        .overlay { Circle().strokeBorder(theme.windowFill, lineWidth: 1.5) }
+                }
+            }
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .clipShape(Circle())
+        .flightInfoChrome(theme, in: Circle())
+        .environment(\.colorScheme, theme.colorScheme)
+        .accessibilityLabel(profileLabel)
+    }
+
+    private var profileLabel: String {
+        guard let account = accounts.account else { return "Sign in" }
+        return entitlements.isPro ? "\(account.handle), Pro account" : account.handle
+    }
+
+    /// Switching the map, or being told why you cannot.
+    ///
+    /// The choice is still stored when it is refused, which is the point: the
+    /// paywall is opened *from* picking the globe, and buying Pro there leaves
+    /// you on the globe rather than back where you started having to pick it
+    /// again.
+    private func select(_ style: MapStyleMode) {
+        appearance.mapStyle = style
+        if style.isPro, !entitlements.isPro { isShowingStylePaywall = true }
+    }
+
     /// How the map is drawn, in the corner that holds the map's controls.
     ///
     /// The same corner as the follow/centre/route hub, and shown on exactly the
@@ -511,19 +596,28 @@ struct ContentView: View {
     private var mapStyleControl: some View {
         if selection == nil, !replay.isActive {
             Menu {
-                Picker("Map", selection: $appearance.mapStyle) {
-                    ForEach(MapStyleMode.allCases) { style in
-                        Label(style.label, systemImage: style.symbol).tag(style)
+                // Buttons rather than a `Picker` bound to the setting: two of
+                // these are Pro, and a binding would have already changed the
+                // map by the time anything could check. Each one decides for
+                // itself whether it is switching the map or opening the paywall.
+                ForEach(MapStyleMode.allCases) { style in
+                    Button {
+                        select(style)
+                    } label: {
+                        Label(
+                            style.isPro && !entitlements.isPro ? "\(style.label) (Pro)" : style.label,
+                            systemImage: appearance.mapStyle == style ? "checkmark" : style.symbol
+                        )
                     }
                 }
             } label: {
-                Image(systemName: appearance.mapStyle.symbol)
+                Image(systemName: appearance.resolvedMapStyle.symbol)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(theme.textPrimary)
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }
-            .accessibilityLabel("Map style, \(appearance.mapStyle.label)")
+            .accessibilityLabel("Map style, \(appearance.resolvedMapStyle.label)")
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .environment(\.colorScheme, theme.colorScheme)

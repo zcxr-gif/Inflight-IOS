@@ -140,6 +140,7 @@ struct FlightDetailView: View {
         // peak's card should sit close to the bottom edge rather than above a
         // band of empty sheet the width of that inset.
         .ignoresSafeArea(edges: .bottom)
+        .flightInfoLegible(theme)
         .modifier(FlightInfoWindowChrome(theme: theme))
         .environment(\.colorScheme, theme.colorScheme)
         .onAppear {

@@ -187,6 +187,18 @@ final class AccountStore: ObservableObject {
         }
     }
 
+    /// Pushes the pilot handle onto the account, if there is one.
+    ///
+    /// Silent either way. The handle is already saved on the device — this only
+    /// makes it follow you — so a failed sync is not something to interrupt
+    /// anyone about.
+    @MainActor
+    func syncPilotName(_ name: String) async {
+        guard account != nil else { return }
+        guard let token = try? await validAccessToken() else { return }
+        try? await SupabaseAuth.updatePilotName(name, accessToken: token)
+    }
+
     // MARK: - Profile
 
     /// Re-reads `profiles` for the signed-in account.
@@ -249,6 +261,10 @@ final class AccountStore: ObservableObject {
             isLegacyPro: false,
             joined: session.user.createdAt
         )
+
+        // A handle set on another device, or on the website. Only taken when
+        // this device has none of its own — see `adoptFromAccount`.
+        PilotIdentity.shared.adoptFromAccount(session.user.pilotName)
 
         // The row is a separate request, and a slow or failed one shouldn't
         // hold up being signed in — the account lands first, Pro follows.
