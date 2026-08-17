@@ -54,7 +54,45 @@ struct ContentView: View {
     /// watched on the map.
     @StateObject private var replay = FlightReplay()
 
+    /// Whether this screen is wide enough for the window to have a choice about
+    /// where it lives. Read from the size class rather than from the device, so
+    /// an iPad in a narrow split view gets the phone's answer — which at that
+    /// width is the right one.
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
     private var theme: FlightInfoTheme { appearance.theme }
+
+    /// Whether the open flight is a column beside the map rather than a sheet
+    /// over it. The setting alone is not enough: it is stored on a phone too,
+    /// where there is no width to honour it with.
+    private var isSideWindow: Bool {
+        appearance.placement == .side && horizontalSizeClass == .regular
+    }
+
+    /// Whether the window is currently a column on screen.
+    private var hasSideWindow: Bool {
+        isSideWindow && selection != nil
+    }
+
+    /// How far in from the trailing edge the map's chrome — and the map's own
+    /// framing — has to stay to clear the column.
+    private var sideWindowLane: CGFloat {
+        FlightInfoLayout.sideWindowWidth + FlightInfoLayout.sideWindowGap
+    }
+
+    /// What the map keeps clear at the bottom when it frames something.
+    ///
+    /// The column does not cover the bottom of the map, so the toolbar stays up
+    /// with a flight open and the reserved band stays the toolbar's — it is the
+    /// sheet, and only the sheet, that takes the bottom of the screen.
+    private var mapBottomInset: CGFloat {
+        if isSideWindow { return MapToolbar.reservedHeight }
+        return selection == nil ? MapToolbar.reservedHeight : peakHeight
+    }
+
+    private var mapTrailingInset: CGFloat {
+        hasSideWindow ? sideWindowLane : 0
+    }
 
     private var peakDetent: PresentationDetent { .height(peakHeight) }
 
@@ -120,7 +158,8 @@ struct ContentView: View {
                 flights: visibleFlights,
                 selection: $selection,
                 command: mapCommand,
-                bottomInset: selection == nil ? MapToolbar.reservedHeight : peakHeight,
+                bottomInset: mapBottomInset,
+                trailingInset: mapTrailingInset,
                 replayFrame: replay.frame,
                 // A replay is driving the camera down the old track; following
                 // the live aircraft at the same time would be two things
@@ -143,6 +182,7 @@ struct ContentView: View {
             mapControls
             mapToolbar
             replayBar
+            sideWindow
         }
         .animation(.easeInOut(duration: 0.22), value: selection?.id)
         .animation(.easeInOut(duration: 0.22), value: replay.isActive)
@@ -159,18 +199,26 @@ struct ContentView: View {
 
             detent = peakDetent
 
-            if id == nil {
-                if sheet == .flight { sheet = nil }
-            } else if sheet != .flight {
-                sheet = .flight
+            // A column is not a sheet: it is drawn in place, so the sheet is
+            // left alone entirely — including whatever panel happens to be up
+            // over the map, which on a screen this wide can perfectly well
+            // stay there.
+            if !isSideWindow {
+                if id == nil {
+                    if sheet == .flight { sheet = nil }
+                } else if sheet != .flight {
+                    sheet = .flight
+                }
             }
 
             isWeatherExpanded = false
 
             // The field goes away with the window opening, so anything left in
             // it goes too — otherwise closing the flight brings back a search
-            // for something you stopped looking for two aircraft ago.
-            if id != nil { query = "" }
+            // for something you stopped looking for two aircraft ago. The
+            // column leaves the field where it is, so there is nothing to tidy
+            // up after.
+            if id != nil, !isSideWindow { query = "" }
 
             loadPlan(for: id)
 
@@ -206,9 +254,19 @@ struct ContentView: View {
             openPilot(username)
         }
         // Whatever takes the sheet away — a drag, or a panel opening — also
-        // lets the map go of the aircraft.
+        // lets the map go of the aircraft. Not so for a column, which is not
+        // in the sheet at all: a field opened beside it sits over the map, and
+        // both being on screen at once is what the width is for.
         .onChange(of: sheet) { _, value in
+            guard !isSideWindow else { return }
             if value != .flight, selection != nil { selection = nil }
+        }
+        // Both of the things that can change where an open window belongs: the
+        // setting, and the screen it is on.
+        .onChange(of: appearance.placement) { _, _ in reconcileWindowPlacement() }
+        .onChange(of: horizontalSizeClass) { _, _ in
+            reconcileWindowPlacement()
+            publishScreenWidth()
         }
         .sheet(item: $sheet) { which in
             switch which {
@@ -268,7 +326,21 @@ struct ContentView: View {
             guard detent != .large else { return }
             detent = .height(height)
         }
-        .onAppear { feed.connect() }
+        .onAppear {
+            feed.connect()
+            publishScreenWidth()
+        }
+    }
+
+    /// Tells the hints store how wide the screen actually is.
+    ///
+    /// This view is the only place that sees it: every strip that asks for a
+    /// hint is inside a sheet, and a sheet on an iPad reports a compact size
+    /// class however large the iPad behind it is. Set from `onAppear` and the
+    /// size-class watcher rather than from `body`, which would be publishing a
+    /// change in the middle of a view update.
+    private func publishScreenWidth() {
+        HintsStore.shared.isWideScreen = horizontalSizeClass == .regular
     }
 
     // MARK: - Top chrome
@@ -278,27 +350,122 @@ struct ContentView: View {
     /// stops here rather than running under the bubbles.
     private static let railLane: CGFloat = 44 + 10
 
-    /// Search, top left — and only while the map is the whole screen.
+    /// How wide the floating chrome is allowed to get.
     ///
-    /// It goes when an aircraft is opened. The window below it is the thing
-    /// being read, the map above it is the thing being watched, and a field
-    /// you are not typing into is neither: it was sitting over the traffic
-    /// taking up the one band of map the window leaves you.
+    /// Wider than any phone, so this is an iPad measure and nothing else: a bar
+    /// or a field stretched the full width of a 13-inch screen has its controls
+    /// a hand's travel apart, and reads as a strip of furniture rather than as
+    /// something floating over a map.
+    private static let chromeMaxWidth: CGFloat = 560
+
+    /// Search, top left — while the map is the whole screen, and whenever the
+    /// window is beside the map rather than over it.
+    ///
+    /// It goes with a sheet, because the sheet takes the bottom of the screen:
+    /// the window below is the thing being read, the map above is the thing
+    /// being watched, and a search field you are not typing into is neither —
+    /// it was sitting over the one band of traffic the window leaves you. A
+    /// column takes no band of map at all, so nothing has to give way to it.
     @ViewBuilder
     private var searchLayer: some View {
-        if selection == nil {
+        if selection == nil || isSideWindow {
             MapSearchField(
                 query: $query,
                 results: results,
                 theme: theme,
                 onSelect: open
             )
+            // Capped rather than stretched. On a phone this is wider than the
+            // screen and changes nothing; on an iPad a field running most of a
+            // metre across is a worse target than a short one, and the results
+            // under it would be six names adrift in a very wide card.
+            .frame(maxWidth: Self.chromeMaxWidth, alignment: .leading)
             .padding(.leading, 14)
-            .padding(.trailing, 14 + Self.railLane)
+            .padding(.trailing, 14 + Self.railLane + mapTrailingInset)
             .padding(.top, 8)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .transition(.opacity.combined(with: .move(edge: .top)))
         }
+    }
+
+    /// Puts an open aircraft's window wherever the current placement says it
+    /// goes.
+    ///
+    /// Called when the setting changes and when the screen does. The second is
+    /// the one that matters: an iPad dragged into a narrow split view loses the
+    /// column, and without this the aircraft would stay selected with no window
+    /// anywhere — a map with a highlighted aeroplane and nothing to read.
+    private func reconcileWindowPlacement() {
+        guard selection != nil else { return }
+
+        if isSideWindow {
+            if sheet == .flight { sheet = nil }
+        } else if sheet != .flight {
+            detent = peakDetent
+            sheet = .flight
+        }
+    }
+
+    // MARK: - The window as a column
+
+    /// The flight window down the trailing edge, on a screen wide enough for it
+    /// and when that is what has been chosen.
+    ///
+    /// Held at its full state: there is no peek here, because a peek exists to
+    /// give the map back the screen and beside the map there is nothing to give
+    /// back. It floats with a gap all round rather than filling the edge —
+    /// the map runs underneath it, and a column that touched three sides would
+    /// read as a second screen rather than as a window over one.
+    @ViewBuilder
+    private var sideWindow: some View {
+        if hasSideWindow, let selected = selection {
+            let shape = RoundedRectangle(
+                cornerRadius: theme.radiusLarge + 6,
+                style: .continuous
+            )
+
+            FlightDetailView(
+                flightId: selected.id,
+                peakHeight: $peakHeight,
+                onReplay: { track in startReplay(of: selected.id, track: track) },
+                onSelectAirport: { field in openAirport(field, from: nil) },
+                isPinnedOpen: true
+            )
+                // Same as the sheet's: resets the window's own state per
+                // aircraft without tearing the column down and building it up
+                // again.
+                .id(selected.id)
+                .environmentObject(feed)
+                .frame(width: FlightInfoLayout.sideWindowWidth)
+                .background { theme.windowGround(in: shape) }
+                .clipShape(shape)
+                .overlay { shape.strokeBorder(theme.stroke, lineWidth: 1) }
+                .overlay(alignment: .topTrailing) { sideWindowClose }
+                .padding(.trailing, FlightInfoLayout.sideWindowGap)
+                .padding(.vertical, FlightInfoLayout.sideWindowGap)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                .ignoresSafeArea(.keyboard, edges: .bottom)
+                .transition(.opacity.combined(with: .move(edge: .trailing)))
+        }
+    }
+
+    /// A sheet is closed by dragging it away; a column has to be given a
+    /// button. It sits over the photo at the top of the window, which is where
+    /// the web tracker put the same control on its own airport window.
+    private var sideWindowClose: some View {
+        Button {
+            selection = nil
+        } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(theme.textPrimary)
+                .frame(width: 30, height: 30)
+                .background { Circle().fill(.black.opacity(0.35)) }
+                .overlay { Circle().strokeBorder(.white.opacity(0.22), lineWidth: 1) }
+        }
+        .buttonStyle(.plain)
+        .padding(12)
+        .accessibilityLabel("Close this flight")
     }
 
     /// Weather, filters and the map's own look, down the top right.
@@ -310,7 +477,7 @@ struct ContentView: View {
             activeFilters: filters.activeCount,
             onFilters: { sheet = .panel(.filters) }
         )
-        .padding(.trailing, 14)
+        .padding(.trailing, 14 + mapTrailingInset)
         .padding(.top, 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
     }
@@ -357,7 +524,7 @@ struct ContentView: View {
             WeatherSettingsPanel(model: weather)
 
         case .settings:
-            SettingsPanel()
+            SettingsPanel(isWideScreen: horizontalSizeClass == .regular)
                 .environmentObject(feed)
         }
     }
@@ -418,8 +585,10 @@ struct ContentView: View {
 
         case .airport(let airport):
             // No origin: a field typed into the search field was not arrived
-            // at from anywhere. The search field is only up while no aircraft
-            // is open, so there is no history here to offer a way back to.
+            // at from anywhere, even when a column happens to be open beside
+            // it. Offering to go "back" to an aircraft nobody navigated from
+            // would be inventing a history — and with a column there is
+            // nothing to go back to anyway, since it never left.
             openAirport(airport)
         }
     }
@@ -461,10 +630,17 @@ struct ContentView: View {
     private var replayBar: some View {
         if replay.isActive {
             ReplayBar(replay: replay, theme: theme)
-                .padding(.horizontal, 14)
-                // Clears the info window when one is open, and the bottom of
-                // the screen when the replay has outlived it.
-                .padding(.bottom, selection == nil ? 6 : peakHeight + 14)
+                .frame(maxWidth: Self.chromeMaxWidth)
+                .frame(maxWidth: .infinity)
+                .padding(.leading, 14)
+                .padding(.trailing, 14 + mapTrailingInset)
+                // Above whatever is already along the bottom: the toolbar where
+                // that is up, the info window's peek where the window is a
+                // sheet over the map instead.
+                .padding(
+                    .bottom,
+                    isToolbarVisible ? MapToolbar.reservedHeight + 6 : peakHeight + 14
+                )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 .ignoresSafeArea(.keyboard, edges: .bottom)
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -512,12 +688,21 @@ struct ContentView: View {
 
     // MARK: - Bottom chrome
 
-    /// The toolbar, along the bottom while the map is the whole screen. With an
-    /// aircraft open the info window is sitting over this, so it gives way to
-    /// the window's own controls rather than hiding behind it.
+    /// Whether the bar along the bottom is up, which decides what else at the
+    /// bottom of the map has to clear it.
+    private var isToolbarVisible: Bool {
+        selection == nil || isSideWindow
+    }
+
+    /// The toolbar, along the bottom while nothing is sitting over it.
+    ///
+    /// A sheet takes this whole band, so the bar gives way to the window's own
+    /// controls rather than hiding behind it. A column takes none of it, and
+    /// the bar stays — which is most of the point of the column: the six
+    /// destinations along the bottom remain reachable with a flight open.
     @ViewBuilder
     private var mapToolbar: some View {
-        if selection == nil {
+        if isToolbarVisible {
             VStack(spacing: 8) {
                 // Above the bar rather than over the map proper: it is an
                 // aside about the chrome it is sitting on, and anywhere else
@@ -536,7 +721,13 @@ struct ContentView: View {
                     sheet = .panel(kind)
                 }
             }
-            .padding(.horizontal, 14)
+            // Capped, then centred in whatever map is left over — so on an
+            // iPad with a column open the bar sits in the middle of the map
+            // rather than the middle of the screen.
+            .frame(maxWidth: Self.chromeMaxWidth)
+            .frame(maxWidth: .infinity)
+            .padding(.leading, 14)
+            .padding(.trailing, 14 + mapTrailingInset)
             .padding(.bottom, 6)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             // The keyboard is the search field's business. Without this the bar
@@ -546,8 +737,10 @@ struct ContentView: View {
         }
     }
 
-    /// Sits above the peak state while an aircraft is open. At the full window
-    /// the sheet covers this corner anyway, so there is nothing to hide.
+    /// The camera controls for the open aircraft, in the bottom corner of
+    /// whatever map is left: above the peak state with a sheet, above the
+    /// toolbar and inside the column's lane with a column. At the full sheet
+    /// the window covers this corner anyway, so there is nothing to hide.
     ///
     /// A running replay takes the corner: it is driving the camera itself, and
     /// its bar wants the room these buttons would be sitting in.
@@ -602,8 +795,11 @@ struct ContentView: View {
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .environment(\.colorScheme, .dark)
-            .padding(.trailing, 16)
-            .padding(.bottom, peakHeight + 14)
+            .padding(.trailing, 16 + mapTrailingInset)
+            .padding(
+                .bottom,
+                isToolbarVisible ? MapToolbar.reservedHeight + 6 : peakHeight + 14
+            )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))

@@ -13,6 +13,7 @@ final class FlightInfoAppearance: ObservableObject {
 
     private static let glassKey = "flightInfoGlassEnabled"
     private static let peakStyleKey = "flightInfoPeakStyle"
+    private static let placementKey = "flightInfoPlacement"
 
     @Published var isGlassEnabled: Bool {
         didSet { UserDefaults.standard.set(isGlassEnabled, forKey: Self.glassKey) }
@@ -20,6 +21,12 @@ final class FlightInfoAppearance: ObservableObject {
 
     @Published var peakStyle: FlightInfoPeakStyle {
         didSet { UserDefaults.standard.set(peakStyle.rawValue, forKey: Self.peakStyleKey) }
+    }
+
+    /// Where the window sits on a screen with room for a choice. Ignored
+    /// entirely on a phone, which has room for exactly one answer.
+    @Published var placement: FlightWindowPlacement {
+        didSet { UserDefaults.standard.set(placement.rawValue, forKey: Self.placementKey) }
     }
 
     var theme: FlightInfoTheme { isGlassEnabled ? .glass : .solid }
@@ -31,6 +38,47 @@ final class FlightInfoAppearance: ObservableObject {
         isGlassEnabled = defaults.object(forKey: Self.glassKey) as? Bool ?? true
         peakStyle = FlightInfoPeakStyle(rawValue: defaults.string(forKey: Self.peakStyleKey) ?? "")
             ?? .compact
+
+        // A column, where there is room for one. The sheet is a phone answer —
+        // it covers the map because a phone has no width to spare, and an iPad
+        // does, so defaulting to the sheet there would be shipping the
+        // compromise to the device that does not have to make it.
+        placement = FlightWindowPlacement(rawValue: defaults.string(forKey: Self.placementKey) ?? "")
+            ?? .side
+    }
+}
+
+/// Where the flight info window lives.
+///
+/// Only a question on a regular-width screen. On a phone the window is a sheet
+/// over the map and there is nothing to decide; on an iPad the map is wide
+/// enough to keep whole, and putting the window beside it rather than over it
+/// means the traffic, the toolbar and the search field all stay where they are.
+enum FlightWindowPlacement: String, CaseIterable, Identifiable {
+
+    /// A sheet up from the bottom, opening at its peek — the phone's window,
+    /// and what an iPad had before it was offered anything else.
+    case sheet
+
+    /// A column down the trailing edge, always at its full height. There is no
+    /// peek state here: a peek exists to give the map back the screen, and
+    /// beside the map it would be giving back width nothing else wants.
+    case side
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .sheet: return "Sheet"
+        case .side: return "Side"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .sheet: return "Up from the bottom, opening at its peek"
+        case .side: return "A column down the right, opened in full"
+        }
     }
 }
 
@@ -152,14 +200,21 @@ struct FlightInfoTheme {
     /// dimming rather than on a ground of our own, which is the deliberate
     /// trade: this is the number to raise if a caption ever gets lost over
     /// snow or a bright ocean.
-    @ViewBuilder
     var sheetBackground: some View {
+        windowGround(in: Rectangle())
+    }
+
+    /// The window's ground in whatever shape is holding it — the sheet's full
+    /// rectangle, or the rounded column of the side placement. One definition,
+    /// so the two placements cannot end up looking like different windows.
+    @ViewBuilder
+    func windowGround(in shape: some Shape) -> some View {
         if isGlass {
-            Rectangle()
+            shape
                 .fill(windowFill.opacity(0.03))
-                .glassEffect(.regular.tint(scrim), in: Rectangle())
+                .glassEffect(.regular.tint(scrim), in: shape)
         } else {
-            Rectangle().fill(windowFill)
+            shape.fill(windowFill)
         }
     }
 
@@ -291,6 +346,20 @@ enum FlightInfoLayout {
     /// done early in the travel — by the time the sheet is a third of the way
     /// up, the full window should already be the thing you are looking at.
     static let phaseTravel: CGFloat = 220
+
+    /// How wide the side placement's column is.
+    ///
+    /// Fixed rather than a fraction: the narrowest screen this placement is
+    /// ever offered on is a half-width split on a 12.9-inch iPad, a little
+    /// under 700 points, and a proportion generous enough to look right on a
+    /// full-screen iPad leaves that case with no map. This is the width the
+    /// window's own cards were designed at, which is the other reason not to
+    /// stretch it.
+    static let sideWindowWidth: CGFloat = 360
+
+    /// Gap between the column and everything else — the screen edges it floats
+    /// inside, and the map chrome that has to clear it.
+    static let sideWindowGap: CGFloat = 14
 
     /// Travel that doesn't count as a drag at all.
     ///

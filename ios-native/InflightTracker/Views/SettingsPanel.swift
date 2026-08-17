@@ -10,9 +10,23 @@ struct SettingsPanel: View {
     @EnvironmentObject private var feed: LiveFeed
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @ObservedObject private var mapAppearance = MapAppearance.shared
+    /// Whether the screen behind this panel is wide enough for the flight
+    /// window to have a choice about where it sits.
+    ///
+    /// Passed in rather than read from the environment here, and that is not a
+    /// style preference: this panel is presented in a sheet, and a sheet on an
+    /// iPad is a form sheet a few hundred points wide, which reports a
+    /// *compact* size class however large the iPad behind it is. Asking here
+    /// would hide the row on exactly the device it exists for.
+    var isWideScreen: Bool = false
+
     @ObservedObject private var hints = HintsStore.shared
 
     private var theme: FlightInfoTheme { appearance.theme }
+
+    private var isSideWindow: Bool {
+        appearance.placement == .side && isWideScreen
+    }
 
     var body: some View {
         MapPanel(title: "Settings", subtitle: feedSummary) {
@@ -38,6 +52,22 @@ struct SettingsPanel: View {
             }
 
             PanelSection(title: "FLIGHT WINDOW") {
+                // Only a question where there is room for two answers. On a
+                // phone the window is a sheet and there is nothing to decide,
+                // so the row is not there to be decided.
+                if isWideScreen {
+                    PanelPickerRow(
+                        title: "Placement",
+                        symbol: "rectangle.trailinghalf.inset.filled",
+                        options: FlightWindowPlacement.allCases,
+                        label: { $0.label },
+                        detail: appearance.placement.detail,
+                        selection: $appearance.placement
+                    )
+
+                    PanelDivider()
+                }
+
                 PanelToggleRow(
                     title: "Glass flight info",
                     symbol: "square.on.square.dashed",
@@ -48,15 +78,22 @@ struct SettingsPanel: View {
                 PanelDivider()
 
                 // The peak measures itself, so switching this resizes the sheet
-                // even while it is on screen.
+                // even while it is on screen. It is a sheet's setting — the
+                // column has no peek to style — so it steps back rather than
+                // disappearing, which would leave the section looking like it
+                // had lost a row.
                 PanelPickerRow(
                     title: "Peek",
                     symbol: "rectangle.portrait.bottomhalf.filled",
                     options: FlightInfoPeakStyle.allCases,
                     label: { $0.label },
-                    detail: appearance.peakStyle.detail,
+                    detail: isSideWindow
+                        ? "The column opens in full, so there is no peek to style."
+                        : appearance.peakStyle.detail,
                     selection: $appearance.peakStyle
                 )
+                .disabled(isSideWindow)
+                .opacity(isSideWindow ? 0.45 : 1)
             }
 
             PanelSection(title: "HINTS") {

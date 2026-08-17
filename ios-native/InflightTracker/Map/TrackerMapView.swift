@@ -17,6 +17,11 @@ struct TrackerMapView: UIViewRepresentable {
     /// framed route isn't hidden behind it.
     var bottomInset: CGFloat = 0
 
+    /// The same for the trailing edge, which the side placement's column
+    /// covers. Without it a centred aircraft lands underneath the window that
+    /// is describing it.
+    var trailingInset: CGFloat = 0
+
     /// Where the replay has got to, when one is running. The map draws a
     /// second aircraft at this position, riding the track the selected flight
     /// has already flown.
@@ -608,7 +613,12 @@ struct TrackerMapView: UIViewRepresentable {
         }
 
         private func edgeInsets() -> UIEdgeInsets {
-            UIEdgeInsets(top: 96, left: 44, bottom: parent.bottomInset + 28, right: 44)
+            UIEdgeInsets(
+                top: 96,
+                left: 44,
+                bottom: parent.bottomInset + 28,
+                right: parent.trailingInset + 44
+            )
         }
 
         // MARK: MKMapViewDelegate

@@ -3,8 +3,15 @@ import UIKit
 
 /// The flight info window.
 ///
-/// Two phases, stacked and cross-faded: the peak state (`FlightInfoPeak`) the
-/// sheet opens in, and the full window below.
+/// It appears two ways, and the difference is entirely about how much room
+/// there is. As a sheet — the phone's answer, and an option on anything — it
+/// has two phases, stacked and cross-faded: the peak state (`FlightInfoPeak`)
+/// it opens in, and the full window below. Held open as a column beside the map
+/// (`isPinnedOpen`) it is the full window and nothing else, because the peak
+/// exists to give the map back the screen and a column is not taking any.
+///
+/// Both draw the same scroll body, so the two are one window rather than two
+/// that have to be kept in step.
 ///
 /// The swap rides the sheet's measured height rather than its detent. A detent
 /// binding only changes once a drag commits, so the phases used to swap on
@@ -52,6 +59,16 @@ struct FlightDetailView: View {
     /// remembering the way back here.
     var onSelectAirport: (Airport) -> Void = { _ in }
 
+    /// Whether the window is held open at its full height rather than presented
+    /// as a sheet that can be dragged down to a peek.
+    ///
+    /// This is the side placement on a wide screen. The peak state and the
+    /// cross-fade that reveals the full window both exist to answer one
+    /// question — how much of the map is the window allowed to cover — and
+    /// beside the map that question does not arise, so neither does any of the
+    /// machinery for it.
+    var isPinnedOpen = false
+
     private var theme: FlightInfoTheme { appearance.theme }
 
     private var flight: Flight? {
@@ -67,6 +84,52 @@ struct FlightDetailView: View {
     }
 
     var body: some View {
+        Group {
+            if isPinnedOpen {
+                pinnedWindow
+            } else {
+                sheetWindow
+            }
+        }
+        .environment(\.colorScheme, .dark)
+        .onAppear {
+            load(flight)
+            loadTrack()
+            loadPlan()
+        }
+        .onChange(of: flight?.liveryName) { _, _ in load(flight) }
+        .onChange(of: photoLoader.photo?.url) { _, url in imageLoader.load(url) }
+        // Live samples extend the path between packets.
+        .onChange(of: feed.lastUpdate) { _, _ in
+            let latest = FlightTrailStore.shared.points(for: flightId)
+            if latest.count != track.count { track = latest }
+        }
+    }
+
+    // MARK: - Held open
+
+    /// The window as a column: the full state and nothing else.
+    ///
+    /// No peak, no cross-fade, no height reported back — the presenter gives
+    /// this a fixed column and the window fills it. The scroll body is the same
+    /// one the sheet shows at full height, so the two placements are the same
+    /// window rather than two that have to be kept in step.
+    private var pinnedWindow: some View {
+        GeometryReader { geometry in
+            Group {
+                if let flight = flight {
+                    scrollBody(for: flight, width: geometry.size.width)
+                } else {
+                    ended
+                }
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
+        }
+    }
+
+    // MARK: - Presented as a sheet
+
+    private var sheetWindow: some View {
         GeometryReader { geometry in
             let expansion = sheetExpansion(for: geometry)
             // While the sheet is sitting at its peak detent the peak state is
@@ -146,19 +209,6 @@ struct FlightDetailView: View {
         // band of empty sheet the width of that inset.
         .ignoresSafeArea(edges: .bottom)
         .modifier(FlightInfoWindowChrome(theme: theme))
-        .environment(\.colorScheme, .dark)
-        .onAppear {
-            load(flight)
-            loadTrack()
-            loadPlan()
-        }
-        .onChange(of: flight?.liveryName) { _, _ in load(flight) }
-        .onChange(of: photoLoader.photo?.url) { _, url in imageLoader.load(url) }
-        // Live samples extend the path between packets.
-        .onChange(of: feed.lastUpdate) { _, _ in
-            let latest = FlightTrailStore.shared.points(for: flightId)
-            if latest.count != track.count { track = latest }
-        }
     }
 
     // MARK: - Phase
@@ -303,8 +353,10 @@ struct FlightDetailView: View {
                 // photo dissolves into the window instead of sitting inside
                 // one or the other.
                 .padding(.top, -FlightInfoLayout.heroSeamLift)
-                // Clears the home indicator, which the window now draws under.
-                .padding(.bottom, 40)
+                // Clears the home indicator, which the sheet draws under. The
+                // column floats clear of the bottom edge already, so it only
+                // wants the ordinary gap under its last card.
+                .padding(.bottom, isPinnedOpen ? 18 : 40)
                 // iPad and landscape keep a phone-width column rather than
                 // stretching the cards across the sheet.
                 .frame(maxWidth: 560)

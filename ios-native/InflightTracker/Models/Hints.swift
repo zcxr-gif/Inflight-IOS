@@ -31,6 +31,11 @@ struct Hint: Identifiable, Equatable {
     let placement: HintPlacement
     let text: String
 
+    /// Whether this line is only true on a screen wide enough to offer the
+    /// thing it describes. A hint that lies is worse than no hint, and telling
+    /// a phone about a setting it does not have is a lie.
+    var requiresWideScreen = false
+
     /// Everything the app has to say, in the order each place says it.
     ///
     /// Every line here is a claim about behaviour, so each one has to stay true
@@ -69,6 +74,12 @@ struct Hint: Identifiable, Equatable {
             id: "map.rail",
             placement: .map,
             text: "The bubbles on the right stay put when a flight window is open, which is when the bar down here is not — weather, filters and the map's own look are always a tap away."
+        ),
+        Hint(
+            id: "map.placement",
+            placement: .map,
+            text: "On a screen this wide the flight window can be a column down the right instead of a sheet over the map — opened in full, with the bar and the search field still where they were. Settings, under Flight window.",
+            requiresWideScreen: true
         ),
         Hint(
             id: "map.style",
@@ -248,6 +259,23 @@ final class HintsStore: ObservableObject {
     /// re-asks instead of sitting on a line that has been retired underneath it.
     @Published private(set) var revision = 0
 
+    /// Whether this app is running somewhere wide enough for the hints that
+    /// only apply to a large screen.
+    ///
+    /// Told to the store rather than read from the environment, because the
+    /// strips that ask are inside sheets — and a sheet on an iPad reports a
+    /// compact size class however large the iPad behind it is. `ContentView`
+    /// sets this from the one place that sees the real screen.
+    var isWideScreen = false {
+        didSet {
+            guard isWideScreen != oldValue else { return }
+            // What each place should be saying has changed, so anything
+            // already memoised for this launch is re-picked.
+            chosen.removeAll()
+            revision += 1
+        }
+    }
+
     private var shown: [String: Int]
 
     /// Hints already counted in this launch — see `appearances`.
@@ -312,6 +340,11 @@ final class HintsStore: ObservableObject {
         var bestCount = Self.appearances
 
         for hint in Hint.all where hint.placement == placement {
+            // Never say it on a screen it isn't true of. Not counted as shown
+            // either, so an iPhone user who later opens the app on an iPad
+            // still has the line waiting for them.
+            if hint.requiresWideScreen, !isWideScreen { continue }
+
             let count = shown[hint.id] ?? 0
             // Strictly less, so ties go to the earlier entry in `Hint.all` and
             // the order a place says things in stays the written one.
