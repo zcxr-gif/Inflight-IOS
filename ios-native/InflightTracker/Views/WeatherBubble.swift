@@ -1,94 +1,50 @@
 import CoreLocation
 import SwiftUI
 
-/// Weather where the map is looking, top left.
+/// The weather bubble's face: what conditions are, and how warm it is, in the
+/// width of one rail button.
 ///
-/// Collapsed it is the field being passed over: conditions, temperature, ICAO
-/// and wind. Tapped, it opens out to add both ends of whatever route is open,
-/// each marked day or night, so a long-haul's destination weather is one tap
-/// away from the map.
-struct WeatherChip: View {
+/// This used to be a pill across the top left, which put it in the search
+/// field's lane and meant it could only be shown while the search field was
+/// out of the way. As a bubble it lives in the rail on the right with the
+/// filters and the map's own look, and opens into the card below.
+struct WeatherBubbleFace: View {
 
-    @ObservedObject var model: WeatherModel
+    let station: WeatherModel.Station
     let theme: FlightInfoTheme
-
-    @Binding var isExpanded: Bool
 
     @ObservedObject private var preferences = WeatherPreferences.shared
 
-    /// What opening the chip shows. With route ends turned off it is only ever
-    /// about the field being passed — and one station is the collapsed chip
-    /// again, so there is nothing to open into.
-    private var stations: [WeatherModel.Station] {
-        guard preferences.showsRouteEnds else { return [] }
-        return [model.nearby, model.departure, model.arrival].compactMap { $0 }
-    }
-
-    /// There is only something to open into when the chip would say more than
-    /// it already does — a route with both ends filed. One station is the
-    /// collapsed chip over again, so it stays shut and stops being a button.
-    private var isExpandable: Bool { stations.count >= 2 }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let nearby = model.nearby {
-                if isExpandable {
-                    Button {
-                        withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) {
-                            isExpanded.toggle()
-                        }
-                    } label: {
-                        summary(for: nearby)
-                    }
-                    .buttonStyle(.plain)
-                } else {
-                    summary(for: nearby)
-                }
-            }
-
-            if isExpanded, isExpandable {
-                expanded
-            }
-        }
-        .environment(\.colorScheme, .dark)
-    }
-
-    // MARK: - Collapsed
-
-    private func summary(for station: WeatherModel.Station) -> some View {
-        HStack(spacing: 9) {
+        VStack(spacing: 1) {
             Image(systemName: station.metar?.symbol(isDaylight: station.isDaylight)
                   ?? (station.isDaylight ? "sun.max.fill" : "moon.stars.fill"))
-                .font(.system(size: 17))
+                .font(.system(size: 14))
                 .foregroundStyle(theme.textPrimary)
-                .frame(width: 22)
 
             Text(station.metar?.temperatureLabel(in: preferences.temperatureUnit) ?? "—")
-                .font(.system(size: 19, weight: .bold, design: .rounded))
+                .font(.system(size: 11, weight: .bold, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
-                .fixedSize()
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(station.airport.icao)
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(theme.textSecondary)
-
-                Text(station.metar?.windLabel(in: preferences.windUnit) ?? station.airport.name)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(theme.textDim)
-                    .flightInfoLine(minimumScale: 0.8)
-            }
-            .frame(maxWidth: 118, alignment: .leading)
+                .flightInfoLine(minimumScale: 0.7)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .flightInfoChrome(theme, in: Capsule())
-        .contentShape(Capsule())
+        .frame(width: 44, height: 46)
+        .contentShape(Rectangle())
     }
+}
 
-    // MARK: - Expanded
+/// What the weather bubble opens into: the field being reported on, and — for
+/// an open flight — both ends of its route, each marked day or night.
+///
+/// Anchored under the rail rather than beside it, so a long airport name grows
+/// downwards into the map instead of pushing the rail off the screen.
+struct WeatherStationList: View {
 
-    private var expanded: some View {
+    let stations: [WeatherModel.Station]
+    let theme: FlightInfoTheme
+
+    @ObservedObject private var preferences = WeatherPreferences.shared
+
+    var body: some View {
         VStack(spacing: 0) {
             ForEach(stations) { station in
                 if station.id != stations.first?.id {
@@ -100,8 +56,8 @@ struct WeatherChip: View {
             }
         }
         .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: theme.radiusMedium, style: .continuous))
-        .frame(maxWidth: 268, alignment: .leading)
-        .transition(.opacity.combined(with: .move(edge: .top)))
+        .frame(maxWidth: 268, alignment: .trailing)
+        .environment(\.colorScheme, .dark)
     }
 
     private func row(for station: WeatherModel.Station) -> some View {
@@ -122,6 +78,13 @@ struct WeatherChip: View {
                     Text(station.airport.icao)
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(theme.textPrimary)
+
+                    // The one thing on the card that colour carries, and the
+                    // reason it does: four categories that all read the same
+                    // in monochrome.
+                    if let category = station.metar?.flightCategory {
+                        FlightCategoryBadge(category: category)
+                    }
 
                     dayNight(for: station)
                 }
@@ -163,5 +126,4 @@ struct WeatherChip: View {
         guard let metar = station.metar else { return station.airport.name }
         return "\(metar.conditionLabel) · \(metar.windLabel(in: preferences.windUnit))"
     }
-
 }

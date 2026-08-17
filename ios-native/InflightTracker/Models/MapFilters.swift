@@ -160,6 +160,113 @@ final class MapFilters: ObservableObject {
         }
     }
 
+    // MARK: - Quick filters
+
+    /// The narrowings worth one tap, for the row of chips under the search
+    /// field.
+    ///
+    /// Not a second filter model — every one of these is a shorthand for a
+    /// state the panel can already express, and each reads its own selected
+    /// state back off the live filter. So a chip is lit exactly when the map is
+    /// in that state however it got there, and the two controls can never
+    /// disagree about what is being shown.
+    enum QuickFilter: String, CaseIterable, Identifiable {
+
+        case all
+        case airborne
+        case airliners
+        case regional
+        case light
+        case military
+        case helicopters
+        case filed
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .all: return "All traffic"
+            case .airborne: return "Airborne"
+            case .airliners: return "Airliners"
+            case .regional: return "Regional"
+            case .light: return "Light"
+            case .military: return "Military"
+            case .helicopters: return "Helicopters"
+            case .filed: return "Filed route"
+            }
+        }
+
+        var symbol: String {
+            switch self {
+            case .all: return "circle.grid.2x2"
+            case .airborne: return "arrow.up.forward"
+            case .airliners: return "airplane"
+            case .regional: return "airplane.departure"
+            case .light: return "paperplane"
+            case .military: return "shield"
+            case .helicopters: return "fan.desk"
+            case .filed: return "point.topleft.down.to.point.bottomright.curvepath"
+            }
+        }
+
+        /// The aircraft group this chip narrows to, for the four that are about
+        /// what is flying rather than about what it is doing.
+        var category: AircraftCategory? {
+            switch self {
+            case .airliners: return .airliner
+            case .regional: return .regional
+            case .light: return .light
+            case .military: return .military
+            case .helicopters: return .helicopter
+            case .all, .airborne, .filed: return nil
+            }
+        }
+    }
+
+    /// Whether the map is currently in the state this chip describes.
+    func isActive(_ quick: QuickFilter) -> Bool {
+        switch quick {
+        case .all:
+            return !isFiltering
+
+        case .airborne:
+            return !phases.contains(.ground)
+
+        case .filed:
+            return filedRouteOnly
+
+        default:
+            guard let category = quick.category else { return false }
+            // Lit only when it is the *only* kind being drawn. A chip that lit
+            // whenever its group happened to be included would be lit on a map
+            // showing everything, which says nothing.
+            return categories == [category]
+        }
+    }
+
+    /// One tap on a chip. Every one of these is its own opposite, so tapping a
+    /// lit chip puts back what it took away rather than being a dead end.
+    func toggle(_ quick: QuickFilter) {
+        switch quick {
+        case .all:
+            reset()
+
+        case .airborne:
+            // Through the phase toggle rather than straight at the set, so the
+            // rule that the last phase cannot be turned off holds here too —
+            // a map filtered down to the ground only must not be emptied by a
+            // chip.
+            toggle(FlightPhase.ground)
+
+        case .filed:
+            filedRouteOnly.toggle()
+
+        default:
+            guard let category = quick.category else { return }
+            categories = isActive(quick) ? Set(AircraftCategory.allCases) : [category]
+        }
+    }
+
     private func persist() {
         let defaults = UserDefaults.standard
         defaults.set(phases.map(\.rawValue), forKey: Self.phasesKey)

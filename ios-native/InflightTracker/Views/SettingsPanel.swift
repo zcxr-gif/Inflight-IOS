@@ -9,9 +9,25 @@ struct SettingsPanel: View {
 
     @EnvironmentObject private var feed: LiveFeed
     @ObservedObject private var appearance = FlightInfoAppearance.shared
+    @ObservedObject private var mapAppearance = MapAppearance.shared
+    @ObservedObject private var radar = RadarService.shared
+    /// Whether the screen behind this panel is wide enough for the flight
+    /// window to have a choice about where it sits.
+    ///
+    /// Passed in rather than read from the environment here, and that is not a
+    /// style preference: this panel is presented in a sheet, and a sheet on an
+    /// iPad is a form sheet a few hundred points wide, which reports a
+    /// *compact* size class however large the iPad behind it is. Asking here
+    /// would hide the row on exactly the device it exists for.
+    var isWideScreen: Bool = false
+
     @ObservedObject private var hints = HintsStore.shared
 
     private var theme: FlightInfoTheme { appearance.theme }
+
+    private var isSideWindow: Bool {
+        appearance.placement == .side && isWideScreen
+    }
 
     var body: some View {
         MapPanel(title: "Settings", subtitle: feedSummary) {
@@ -22,7 +38,57 @@ struct SettingsPanel: View {
                 }
             }
 
+            // All three are in the stack in the map's bottom right corner,
+            // which is where they get used. Repeated here because a control
+            // that only cycles is one you have to tap three times to see the
+            // options of, and because a toggle nobody has found is a feature
+            // nobody has.
+            PanelSection(title: "MAP") {
+                PanelPickerRow(
+                    title: "Ground",
+                    symbol: "map",
+                    options: MapGroundStyle.allCases,
+                    label: { $0.label },
+                    detail: "What the map is drawn on, under the traffic.",
+                    selection: $mapAppearance.style
+                )
+
+                PanelDivider()
+
+                PanelToggleRow(
+                    title: "Precipitation radar",
+                    symbol: "cloud.rain.fill",
+                    detail: radarDetail,
+                    isOn: $mapAppearance.isRadarVisible
+                )
+
+                PanelDivider()
+
+                PanelToggleRow(
+                    title: "3D terrain",
+                    symbol: "view.3d",
+                    detail: "Raises the ground into relief and tilts the camera. The map stays north-up, so the aircraft still point where they are going.",
+                    isOn: $mapAppearance.isElevated
+                )
+            }
+
             PanelSection(title: "FLIGHT WINDOW") {
+                // Only a question where there is room for two answers. On a
+                // phone the window is a sheet and there is nothing to decide,
+                // so the row is not there to be decided.
+                if isWideScreen {
+                    PanelPickerRow(
+                        title: "Placement",
+                        symbol: "rectangle.trailinghalf.inset.filled",
+                        options: FlightWindowPlacement.allCases,
+                        label: { $0.label },
+                        detail: appearance.placement.detail,
+                        selection: $appearance.placement
+                    )
+
+                    PanelDivider()
+                }
+
                 PanelToggleRow(
                     title: "Glass flight info",
                     symbol: "square.on.square.dashed",
@@ -33,15 +99,22 @@ struct SettingsPanel: View {
                 PanelDivider()
 
                 // The peak measures itself, so switching this resizes the sheet
-                // even while it is on screen.
+                // even while it is on screen. It is a sheet's setting — the
+                // column has no peek to style — so it steps back rather than
+                // disappearing, which would leave the section looking like it
+                // had lost a row.
                 PanelPickerRow(
                     title: "Peek",
                     symbol: "rectangle.portrait.bottomhalf.filled",
                     options: FlightInfoPeakStyle.allCases,
                     label: { $0.label },
-                    detail: appearance.peakStyle.detail,
+                    detail: isSideWindow
+                        ? "The column opens in full, so there is no peek to style."
+                        : appearance.peakStyle.detail,
                     selection: $appearance.peakStyle
                 )
+                .disabled(isSideWindow)
+                .opacity(isSideWindow ? 0.45 : 1)
             }
 
             PanelSection(title: "HINTS") {
@@ -91,6 +164,22 @@ struct SettingsPanel: View {
                 aboutRow("Traffic", value: "\(feed.flights.count) aircraft")
             }
         }
+    }
+
+    /// Says how old the picture is when there is one. Radar with no time
+    /// against it is a claim about now that could be a couple of hours out.
+    private var radarDetail: String {
+        guard mapAppearance.isRadarVisible else {
+            return "Rain and snow under the traffic, from RainViewer. Nothing is fetched while this is off."
+        }
+
+        guard let frame = radar.frame else {
+            return radar.hasAnswered
+                ? "No radar picture available right now."
+                : "Looking for the latest sweep…"
+        }
+
+        return "Showing the sweep observed at \(frame.label). A new one lands about every ten minutes."
     }
 
     private var feedSummary: String {

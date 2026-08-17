@@ -17,6 +17,11 @@ struct TrackerMapView: UIViewRepresentable {
     /// framed route isn't hidden behind it.
     var bottomInset: CGFloat = 0
 
+    /// The same for the trailing edge, which the side placement's column
+    /// covers. Without it a centred aircraft lands underneath the window that
+    /// is describing it.
+    var trailingInset: CGFloat = 0
+
     /// Where the replay has got to, when one is running. The map draws a
     /// second aircraft at this position, riding the track the selected flight
     /// has already flown.
@@ -27,6 +32,26 @@ struct TrackerMapView: UIViewRepresentable {
     /// Distinct from the centre button beside it, which is a single move: this
     /// is a mode, and it keeps acting on every packet for as long as it is on.
     var isFollowing = false
+
+    /// What the ground is drawn as. Applied on change rather than every pass —
+    /// assigning a configuration re-renders the whole map.
+    var style: MapGroundStyle = .standard
+
+    /// Terrain in relief with the camera tilted. Part of the configuration, so
+    /// it is applied alongside the style.
+    var isElevated = false
+
+    /// The precipitation frame to draw under the traffic, or nil for none.
+    var radarFrame: RadarFrame?
+
+    /// The open aircraft's filed route, when it has one. Drawn ahead of it in
+    /// place of the great circle to its destination, which is a guess at the
+    /// same thing.
+    var plan: FlightPlan?
+
+    /// Where the map settled, after a pan or a pinch. Lets the chrome report
+    /// on wherever you are looking when no aircraft is open.
+    var onRegionSettled: ((CLLocationCoordinate2D) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -39,18 +64,19 @@ struct TrackerMapView: UIViewRepresentable {
         mapView.pointOfInterestFilter = .excludingAll
 
         // Heading is applied as a plain rotation on each annotation view, which
-        // only lines up with the world while the map itself is north-up.
+        // only lines up with the world while the map itself is north-up. Pitch
+        // does not turn the map, so 3D leaves the sprites pointing true — which
+        // is why that one is allowed and rotation still is not.
         mapView.isRotateEnabled = false
-        mapView.isPitchEnabled = false
+        mapView.isPitchEnabled = true
 
         // MapKit's controls and callouts default to the system blue; the
         // tracker's chrome is white on carbon and stays that way.
         mapView.tintColor = .white
 
-        let configuration = MKStandardMapConfiguration(elevationStyle: .flat)
-        configuration.emphasisStyle = .muted
-        configuration.pointOfInterestFilter = .excludingAll
-        mapView.preferredConfiguration = configuration
+        mapView.preferredConfiguration = style.configuration(elevated: isElevated)
+        context.coordinator.appliedStyle = style
+        context.coordinator.appliedElevation = isElevated
 
         mapView.register(
             MKAnnotationView.self,
@@ -67,6 +93,8 @@ struct TrackerMapView: UIViewRepresentable {
 
     func updateUIView(_ mapView: MKMapView, context: Context) {
         context.coordinator.parent = self
+        context.coordinator.applyStyle(style, elevated: isElevated, on: mapView)
+        context.coordinator.syncRadar(radarFrame, on: mapView)
         context.coordinator.sync(flights: flights, on: mapView)
         context.coordinator.syncSelection(selection, on: mapView)
         context.coordinator.syncRoute(on: mapView)
@@ -262,11 +290,20 @@ struct TrackerMapView: UIViewRepresentable {
             }
 
             let trail = FlightTrailStore.shared.points(for: flight.id)
+
+            // The planned leg shortens as fixes are passed, so which fix is
+            // active is part of what is drawn — without it the line would keep
+            // running back to a waypoint the aircraft left behind.
+            let plan = parent.plan
+            let activeFix = plan?.activeIndex(for: flight)
+
             let key = [
                 flight.id,
                 String(trail.count),
                 flight.departureIcao ?? "",
-                flight.arrivalIcao ?? ""
+                flight.arrivalIcao ?? "",
+                plan.map { String($0.waypoints.count) } ?? "",
+                activeFix.map(String.init) ?? ""
             ].joined(separator: "|")
 
             guard key != renderedRouteKey else { return }
@@ -301,8 +338,26 @@ struct TrackerMapView: UIViewRepresentable {
                 routeOverlays.append(dashed(from: departure.coordinate, to: first.coordinate))
             }
 
-            // Still to come.
-            if let arrival = AirportStore.shared.airport(flight.arrivalIcao) {
+            // Still to come. A filed route is the real answer and is drawn as
+            // one — fix to fix, out on the departure and in on the arrival. The
+            // great circle to the destination is only the fallback for an
+            // aircraft that filed nothing but its two ICAO codes, and it is
+            // drawn thinner precisely because it is an assumption.
+            let ahead = plan?.remaining(for: flight) ?? []
+
+            if ahead.count >= 2 {
+                let line = MKGeodesicPolyline(coordinates: ahead, count: ahead.count)
+                line.title = Self.filedTitle
+                routeOverlays.append(line)
+
+                // The last fix is rarely the field itself, so the run in from
+                // it is closed off the same way the rest of the guesswork is.
+                if let arrival = AirportStore.shared.airport(flight.arrivalIcao),
+                   let last = ahead.last,
+                   FlightProgress.distanceNM(from: last, to: arrival.coordinate) > 1 {
+                    routeOverlays.append(dashed(from: last, to: arrival.coordinate))
+                }
+            } else if let arrival = AirportStore.shared.airport(flight.arrivalIcao) {
                 routeOverlays.append(dashed(from: flight.coordinate, to: arrival.coordinate))
             }
 
@@ -364,6 +419,10 @@ struct TrackerMapView: UIViewRepresentable {
 
         static let flownTitle = "flown"
         static let plannedTitle = "planned"
+
+        /// The route the pilot actually filed, as opposed to the line we drew
+        /// because nothing better was known.
+        static let filedTitle = "filed"
 
         // MARK: Replay
 
@@ -554,18 +613,37 @@ struct TrackerMapView: UIViewRepresentable {
                 include(arrival.coordinate)
             }
 
+            // A filed route can swing a long way off the direct line — a
+            // Pacific track, an airway round terrain — and framing only the two
+            // ends would put half of what is drawn off the screen.
+            for waypoint in parent.plan?.waypoints ?? [] { include(waypoint.coordinate) }
+
             guard !rect.isNull, rect.width.isFinite, rect.height.isFinite else { return }
 
             mapView.setVisibleMapRect(rect, edgePadding: edgeInsets(), animated: true)
         }
 
         private func edgeInsets() -> UIEdgeInsets {
-            UIEdgeInsets(top: 96, left: 44, bottom: parent.bottomInset + 28, right: 44)
+            UIEdgeInsets(
+                top: 96,
+                left: 44,
+                bottom: parent.bottomInset + 28,
+                right: parent.trailingInset + 44
+            )
         }
 
         // MARK: MKMapViewDelegate
 
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
+            if let tiles = overlay as? MKTileOverlay {
+                let renderer = MKTileOverlayRenderer(tileOverlay: tiles)
+                // Enough to read the weather through, light enough to read the
+                // map and the traffic through it. Radar is context for what the
+                // aircraft are doing, not the subject.
+                renderer.alpha = 0.55
+                return renderer
+            }
+
             guard let line = overlay as? MKPolyline else {
                 return MKOverlayRenderer(overlay: overlay)
             }
@@ -579,6 +657,13 @@ struct TrackerMapView: UIViewRepresentable {
                 renderer.strokeColor = UIColor.white.withAlphaComponent(0.34)
                 renderer.lineWidth = 2
                 renderer.lineDashPattern = [2, 7]
+            } else if line.title == Self.filedTitle {
+                // Filed rather than guessed: brighter and heavier than the
+                // straight line it replaces, and still dashed, because it is
+                // ahead of the aeroplane rather than behind it.
+                renderer.strokeColor = UIColor.white.withAlphaComponent(0.62)
+                renderer.lineWidth = 2.5
+                renderer.lineDashPattern = [7, 5]
             } else {
                 let band = line.title.flatMap { title -> Int? in
                     guard let raw = title.split(separator: ":").last else { return nil }
@@ -663,7 +748,86 @@ struct TrackerMapView: UIViewRepresentable {
 
         private static let liveCullInterval: TimeInterval = 0.25
 
+        /// The look currently applied. Assigning a configuration re-renders the
+        /// whole map, so it is only done when the answer has actually changed —
+        /// `updateUIView` runs on every feed tick.
+        var appliedStyle: MapGroundStyle?
+        var appliedElevation: Bool?
+
+        func applyStyle(_ style: MapGroundStyle, elevated: Bool, on mapView: MKMapView) {
+            guard appliedStyle != style || appliedElevation != elevated else { return }
+
+            let wasElevated = appliedElevation
+            appliedStyle = style
+            appliedElevation = elevated
+
+            mapView.preferredConfiguration = style.configuration(elevated: elevated)
+
+            // Relief with the camera looking straight down is a flat map that
+            // costs more to draw, so 3D tilts as well as raising the terrain.
+            // Only on the change, though — reapplying the pitch every pass
+            // would take the camera back off any angle the user had set by
+            // hand.
+            guard let wasElevated = wasElevated, wasElevated != elevated,
+                  let camera = mapView.camera.copy() as? MKMapCamera else { return }
+
+            camera.pitch = elevated ? Self.elevatedPitch : 0
+            mapView.setCamera(camera, animated: true)
+        }
+
+        /// Steep enough for terrain to read as terrain, shallow enough that the
+        /// map is still a map — past about sixty degrees the far half of the
+        /// screen is horizon and the traffic on it is unreadable.
+        private static let elevatedPitch: CGFloat = 50
+
+        // MARK: Radar
+
+        /// The precipitation layer, when one is drawn.
+        private var radarOverlay: MKTileOverlay?
+        private var radarTemplate: String?
+
+        /// Adds, swaps or removes the radar to match what the service is
+        /// publishing.
+        ///
+        /// Inserted at the bottom of its level rather than appended: the routes
+        /// and the traffic are drawn in the same pass, and radar over the top
+        /// of a flown track would hide the thing the layer is context for.
+        func syncRadar(_ frame: RadarFrame?, on mapView: MKMapView) {
+            guard let frame = frame else {
+                if let existing = radarOverlay {
+                    mapView.removeOverlay(existing)
+                    radarOverlay = nil
+                    radarTemplate = nil
+                }
+                return
+            }
+
+            guard frame.urlTemplate != radarTemplate else { return }
+            radarTemplate = frame.urlTemplate
+
+            if let existing = radarOverlay {
+                mapView.removeOverlay(existing)
+            }
+
+            let overlay = MKTileOverlay(urlTemplate: frame.urlTemplate)
+            overlay.tileSize = CGSize(width: 512, height: 512)
+            // RainViewer stopped serving free tiles past zoom 10. Told rather
+            // than discovered, so MapKit stretches the last level it has
+            // instead of asking for tiles that come back as errors and leaving
+            // the layer full of holes as you zoom in.
+            overlay.maximumZ = 10
+            overlay.canReplaceMapContent = false
+
+            radarOverlay = overlay
+            mapView.insertOverlay(overlay, at: 0, level: .aboveRoads)
+        }
+
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
+            // Where the map came to rest, for the chrome that reports on what
+            // is under it. Fired here rather than through the drag so it is
+            // one answer per gesture rather than one per frame.
+            parent.onRegionSettled?(mapView.region.center)
+
             // Re-cull for the new viewport using the traffic we already have.
             // Coalesced because this fires repeatedly through a pan or a
             // pinch, and each pass walks every aircraft on the server.

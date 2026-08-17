@@ -35,6 +35,11 @@ struct Metar: Equatable {
     let coverage: Coverage
     let precipitation: Precipitation?
 
+    /// Height of the lowest broken or overcast layer, in feet above the field.
+    /// Nil when nothing is broken or worse, which is the same as an unlimited
+    /// ceiling — scattered cloud is not a ceiling however low it sits.
+    let ceilingFeet: Int?
+
     /// Reads the parts of a report the window shows and ignores the rest —
     /// remarks, runway state, trends.
     static func parse(_ raw: String) -> Metar? {
@@ -54,6 +59,7 @@ struct Metar: Equatable {
         var visibility: Int?
         var coverage: Coverage = .clear
         var precipitation: Precipitation?
+        var ceiling: Int?
 
         for token in tokens.dropFirst() {
             if token.hasSuffix("KT"), token.count >= 7 {
@@ -94,8 +100,21 @@ struct Metar: Equatable {
 
             if token.hasPrefix("FEW") { coverage = max(coverage, .few) }
             else if token.hasPrefix("SCT") { coverage = max(coverage, .scattered) }
-            else if token.hasPrefix("BKN") { coverage = max(coverage, .broken) }
-            else if token.hasPrefix("OVC") || token.hasPrefix("VV") { coverage = max(coverage, .overcast) }
+            else if token.hasPrefix("BKN") {
+                coverage = max(coverage, .broken)
+                ceiling = lowest(ceiling, layerBase(token, prefixLength: 3))
+            }
+            else if token.hasPrefix("OVC") {
+                coverage = max(coverage, .overcast)
+                ceiling = lowest(ceiling, layerBase(token, prefixLength: 3))
+            }
+            else if token.hasPrefix("VV") {
+                // Vertical visibility: the sky is obscured, and the figure is
+                // how far up you can see rather than a cloud base. It counts
+                // as a ceiling for the flight category all the same.
+                coverage = max(coverage, .overcast)
+                ceiling = lowest(ceiling, layerBase(token, prefixLength: 2))
+            }
 
             if precipitation == nil {
                 precipitation = weather(in: token)
@@ -112,8 +131,23 @@ struct Metar: Equatable {
             windGustKnots: gust,
             visibilityMetres: visibility,
             coverage: coverage,
-            precipitation: precipitation
+            precipitation: precipitation,
+            ceilingFeet: ceiling
         )
+    }
+
+    /// `BKN012` -> 1,200 ft. The three digits after the coverage code are
+    /// hundreds of feet; `///` is the observation declining to say.
+    private static func layerBase(_ token: String, prefixLength: Int) -> Int? {
+        let digits = token.dropFirst(prefixLength).prefix(3)
+        guard digits.count == 3, let hundreds = Int(digits) else { return nil }
+        return hundreds * 100
+    }
+
+    private static func lowest(_ current: Int?, _ candidate: Int?) -> Int? {
+        guard let candidate = candidate else { return current }
+        guard let current = current else { return candidate }
+        return min(current, candidate)
     }
 
     /// `12/07`, `M03/M05` — temperature over dew point, `M` for below zero.
@@ -200,6 +234,99 @@ struct Metar: Equatable {
         case .broken: return "Broken"
         case .overcast: return "Overcast"
         }
+    }
+
+    /// What the field is legally good for, from ceiling and visibility.
+    ///
+    /// The Capacitor build worked this out by looking for the words `LIFR`,
+    /// `IFR` and `MVFR` in the raw report (`old/www/flight.js`), which no METAR
+    /// contains — the category is derived, never reported, so every field there
+    /// came out VFR in fair weather and in fog alike. This is the real rule.
+    enum FlightCategory: String {
+        case vfr = "VFR"
+        case mvfr = "MVFR"
+        case ifr = "IFR"
+        case lifr = "LIFR"
+
+        var label: String { rawValue }
+
+        var detail: String {
+            switch self {
+            case .vfr: return "Ceiling above 3,000 ft, better than 5 miles"
+            case .mvfr: return "Ceiling 1,000–3,000 ft, or 3–5 miles"
+            case .ifr: return "Ceiling 500–1,000 ft, or 1–3 miles"
+            case .lifr: return "Ceiling below 500 ft, or under a mile"
+            }
+        }
+
+        /// Each category's conventional aviation colour. The only place in the
+        /// app that spends colour on meaning: these four are a standard pilots
+        /// already read, and rendering them monochrome would throw away the
+        /// one thing the strip is for.
+        var tint: (red: Double, green: Double, blue: Double) {
+            switch self {
+            case .vfr: return (0.29, 0.87, 0.50)
+            case .mvfr: return (0.38, 0.65, 0.98)
+            case .ifr: return (0.97, 0.44, 0.44)
+            case .lifr: return (0.75, 0.52, 0.99)
+            }
+        }
+    }
+
+    /// Statute miles of visibility, which is the unit the category rule is
+    /// written in whatever the report used.
+    private var visibilityStatuteMiles: Double? {
+        guard let metres = visibilityMetres else { return nil }
+        return Double(metres) / 1609.34
+    }
+
+    /// The worse of what the ceiling says and what the visibility says — a
+    /// field with ten miles under a 300 ft overcast is LIFR, not VFR.
+    var flightCategory: FlightCategory? {
+        // Neither figure recorded is no answer rather than a good one. A
+        // report with no visibility group and no cloud layers is most often a
+        // partial observation, and calling that VFR is a claim about a field
+        // nobody has looked at.
+        guard ceilingFeet != nil || visibilityMetres != nil else { return nil }
+
+        var category = FlightCategory.vfr
+
+        func worsen(to candidate: FlightCategory) {
+            let order: [FlightCategory] = [.vfr, .mvfr, .ifr, .lifr]
+            guard let current = order.firstIndex(of: category),
+                  let next = order.firstIndex(of: candidate),
+                  next > current else { return }
+            category = candidate
+        }
+
+        if let ceiling = ceilingFeet {
+            if ceiling < 500 { worsen(to: .lifr) }
+            else if ceiling < 1_000 { worsen(to: .ifr) }
+            else if ceiling <= 3_000 { worsen(to: .mvfr) }
+        }
+
+        if let miles = visibilityStatuteMiles {
+            if miles < 1 { worsen(to: .lifr) }
+            else if miles < 3 { worsen(to: .ifr) }
+            else if miles <= 5 { worsen(to: .mvfr) }
+        }
+
+        return category
+    }
+
+    /// `1,200 ft` — how far up the lowest solid layer is, or that there isn't
+    /// one.
+    var ceilingLabel: String {
+        guard let ceiling = ceilingFeet else { return "Unlimited" }
+        return "\(Format.number(Double(ceiling))) ft"
+    }
+
+    /// How close the air is to saturation. Worth showing beside the
+    /// temperature: a small spread is fog on the way, which is the single most
+    /// useful thing a dew point tells you.
+    var dewPointSpreadC: Double? {
+        guard let temperatureC = temperatureC, let dewPointC = dewPointC else { return nil }
+        return temperatureC - dewPointC
     }
 
     /// SF Symbol for the report, which needs to know whether the sun is up.

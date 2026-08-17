@@ -73,13 +73,14 @@ final class WeatherPreferences: ObservableObject {
         didSet { UserDefaults.standard.set(windUnit.rawValue, forKey: Self.windKey) }
     }
 
-    /// Whether the chip appears over the map at all while an aircraft is open.
+    /// Whether the weather bubble appears at the top of the map's right-hand
+    /// rail at all.
     @Published var isChipVisible: Bool {
         didSet { UserDefaults.standard.set(isChipVisible, forKey: Self.chipKey) }
     }
 
-    /// Whether opening the chip adds the route's two ends to the field being
-    /// passed. Off, the chip is only ever about where the aircraft is now.
+    /// Whether opening the bubble adds the route's two ends to the field being
+    /// passed. Off, it is only ever about where the map is looking now.
     @Published var showsRouteEnds: Bool {
         didSet { UserDefaults.standard.set(showsRouteEnds, forKey: Self.routeEndsKey) }
     }

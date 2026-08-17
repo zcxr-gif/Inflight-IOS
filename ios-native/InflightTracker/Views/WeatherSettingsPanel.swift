@@ -47,9 +47,9 @@ struct WeatherSettingsPanel: View {
 
             PanelSection(title: "ON THE MAP") {
                 PanelToggleRow(
-                    title: "Weather chip",
+                    title: "Weather bubble",
                     symbol: "cloud.sun.fill",
-                    detail: "The pill top left while an aircraft is open, reporting the field it is passing.",
+                    detail: "Top of the rail on the right. Reports the field an open aircraft is passing, or the one the map is pointed at.",
                     isOn: $preferences.isChipVisible
                 )
 
@@ -58,7 +58,7 @@ struct WeatherSettingsPanel: View {
                 PanelToggleRow(
                     title: "Include route ends",
                     symbol: "arrow.left.arrow.right",
-                    detail: "Opening the chip adds the departure and arrival fields to the one being passed.",
+                    detail: "Opening the bubble adds the departure and arrival fields to the one being passed.",
                     isOn: $preferences.showsRouteEnds
                 )
                 .disabled(!preferences.isChipVisible)

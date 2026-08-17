@@ -72,6 +72,12 @@ struct AirportsPanel: View {
             onSelect(entry.airport)
         } label: {
             HStack(spacing: 10) {
+                // The field's own photograph, where the backend has one. It
+                // makes the board scannable by sight rather than by reading
+                // twelve four-letter codes — and the lookup it fires is the
+                // one the field's panel would otherwise wait on.
+                AirportThumbnail(icao: entry.airport.icao, theme: theme)
+
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 7) {
                         Text(entry.airport.icao)
