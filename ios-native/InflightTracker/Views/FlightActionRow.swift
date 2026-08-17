@@ -1,12 +1,19 @@
 import Combine
 import SwiftUI
 
-/// The three tiles under the identity block: how long it has been going, a
-/// replay of where it has been, and a way to send it to someone.
+/// The six things you do with a flight once you have found it, as one grid of
+/// identical tiles under the identity block.
 ///
-/// They sit together because they are the three things you do with a flight
-/// once you have found it, and they read as one control rather than three
-/// buttons scattered through the window.
+/// Two rows, three across, and the split between them is meaningful. The top
+/// row acts on the flight *now* — how long it has been going, where it has
+/// been, sending it to somebody. The bottom row outlives the window: watching
+/// the pilot survives the flight entirely, and the banner and the home-screen
+/// tile go on running with the app closed.
+///
+/// Every one of them is a `FlightInfoTile`, which is what makes them the same
+/// size. They previously weren't: this row drew three tiles that rendered
+/// their caption only when they had one, and the watch controls were three
+/// capsules of a different shape in a separate view below.
 struct FlightActionRow: View {
 
     let flight: Flight
@@ -19,6 +26,11 @@ struct FlightActionRow: View {
 
     let onReplay: () -> Void
 
+    @ObservedObject private var friends = FriendsStore.shared
+    @ObservedObject private var liveActivity = LiveActivityController.shared
+    @ObservedObject private var widgets = WidgetBridge.shared
+    @ObservedObject private var push = PushService.shared
+
     /// The clock tile flips between how long it has been flying and how long
     /// is left. Both are useful, neither is worth its own tile.
     @State private var showsRemaining = false
@@ -27,32 +39,59 @@ struct FlightActionRow: View {
     /// window on every frame.
     @State private var now = Date()
 
+    /// Set when Share is tapped, which is also when the message is composed.
+    /// Nothing the feed does while the sheet is open can change it.
+    @State private var share: FlightShare?
+
     private let clock = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
 
     private var canReplay: Bool { track.count >= FlightReplay.minimumPoints }
 
-    var body: some View {
-        HStack(spacing: 10) {
-            timeTile
-            replayTile
-            shareTile
-        }
-        .onReceive(clock) { now = $0 }
+    private var pilot: String? {
+        guard let username = flight.username, !username.isEmpty else { return nil }
+        return username
     }
 
-    // MARK: - Tiles
+    private var isWatching: Bool { pilot.map { friends.contains($0) } ?? false }
 
-    /// Filled rather than outlined: of the three this is the one that is also a
-    /// readout, so it carries the row the way the callsign carries the header.
+    private var isBannerRunning: Bool { liveActivity.isTracking(flightId: flight.id) }
+
+    private var isPinned: Bool { widgets.isPinned(flight.id) }
+
+    var body: some View {
+        VStack(spacing: FlightInfoLayout.actionTileSpacing) {
+            HStack(spacing: FlightInfoLayout.actionTileSpacing) {
+                timeTile
+                replayTile
+                shareTile
+            }
+
+            HStack(spacing: FlightInfoLayout.actionTileSpacing) {
+                watchTile
+                bannerTile
+                pinTile
+            }
+        }
+        .onReceive(clock) { now = $0 }
+        .sheet(item: $share) { pending in
+            ShareSheet(share: pending) { share = nil }
+        }
+    }
+
+    // MARK: - Now
+
+    /// Filled rather than outlined: of the six this is the one that is also a
+    /// readout, so it carries the grid the way the callsign carries the header.
     private var timeTile: some View {
         Button {
             withAnimation(.easeInOut(duration: 0.18)) { showsRemaining.toggle() }
         } label: {
-            tile(
+            FlightInfoTile(
                 symbol: showsRemaining ? "flag.pattern.checkered" : "airplane",
                 title: showsRemaining ? remainingLabel : elapsedLabel,
                 caption: showsRemaining ? "TO RUN" : "ELAPSED",
-                filled: true
+                isFilled: true,
+                theme: theme
             )
         }
         .buttonStyle(.plain)
@@ -62,54 +101,93 @@ struct FlightActionRow: View {
 
     private var replayTile: some View {
         Button(action: onReplay) {
-            tile(symbol: "clock.arrow.circlepath", title: "Replay", caption: nil, filled: false)
+            FlightInfoTile(symbol: "clock.arrow.circlepath", title: "Replay", caption: "TRACK", theme: theme)
         }
         .buttonStyle(.plain)
         // Nothing to play back yet: the backend's history hasn't arrived, or
         // the aircraft has only just started reporting.
         .disabled(!canReplay)
         .opacity(canReplay ? 1 : 0.45)
+        .accessibilityLabel("Replay this flight's track")
     }
 
     private var shareTile: some View {
-        ShareLink(item: summary) {
-            tile(symbol: "square.and.arrow.up", title: "Share", caption: nil, filled: false)
+        Button {
+            share = FlightShare(subject: shareSubject, body: shareBody)
+        } label: {
+            FlightInfoTile(symbol: "square.and.arrow.up", title: "Share", caption: "FLIGHT", theme: theme)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("Share this flight")
     }
 
-    private func tile(symbol: String, title: String, caption: String?, filled: Bool) -> some View {
-        VStack(spacing: 4) {
-            Image(systemName: symbol)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(filled ? theme.onAccent : theme.textPrimary)
-                .frame(height: 18)
+    // MARK: - Later
 
-            Text(title)
-                .font(.system(size: 14, weight: .bold, design: .rounded))
-                .foregroundStyle(filled ? theme.onAccent : theme.textPrimary)
-                .flightInfoLine(minimumScale: 0.7)
-
-            if let caption = caption {
-                Text(caption)
-                    .font(.system(size: 8, weight: .bold))
-                    .tracking(0.6)
-                    .foregroundStyle(filled ? theme.onAccent.opacity(0.6) : theme.textDim)
-            }
-        }
-        .padding(.vertical, 11)
-        .frame(maxWidth: .infinity)
-        .background {
-            let shape = RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous)
-
-            if filled {
-                shape.fill(theme.accent)
+    private var watchTile: some View {
+        Button {
+            guard let pilot = pilot else { return }
+            if friends.contains(pilot) {
+                friends.remove(pilot)
             } else {
-                shape.fill(theme.surfaceFill)
-                    .overlay { shape.strokeBorder(theme.stroke, lineWidth: 1) }
+                friends.add(pilot)
+                // The first pilot somebody watches is the moment the
+                // permission prompt has something concrete to be about, so it
+                // is asked here rather than at launch.
+                if push.authorization == .notDetermined { push.requestAuthorization() }
             }
+        } label: {
+            FlightInfoTile(
+                symbol: isWatching ? "person.fill.checkmark" : "person.badge.plus",
+                title: isWatching ? "Watching" : "Watch",
+                caption: "PILOT",
+                isFilled: isWatching,
+                theme: theme
+            )
         }
-        .contentShape(Rectangle())
+        .buttonStyle(.plain)
+        // An aircraft with no pilot name attached — rare, but the feed does it
+        // — has nobody to watch.
+        .disabled(pilot == nil)
+        .opacity(pilot == nil ? 0.45 : 1)
+        .accessibilityLabel(isWatching ? "Stop watching \(pilot ?? "this pilot")" : "Watch \(pilot ?? "this pilot")")
+    }
+
+    private var bannerTile: some View {
+        Button {
+            if isBannerRunning {
+                liveActivity.stop(flightId: flight.id)
+            } else {
+                liveActivity.start(for: flight)
+            }
+        } label: {
+            FlightInfoTile(
+                symbol: "livephoto",
+                title: isBannerRunning ? "Showing" : "Banner",
+                caption: "LIVE",
+                isFilled: isBannerRunning,
+                theme: theme
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(!liveActivity.isSupported)
+        .opacity(liveActivity.isSupported ? 1 : 0.45)
+        .accessibilityLabel(isBannerRunning ? "Stop the live banner" : "Show a live banner for this flight")
+    }
+
+    private var pinTile: some View {
+        Button {
+            widgets.pin(isPinned ? nil : flight.id)
+        } label: {
+            FlightInfoTile(
+                symbol: isPinned ? "square.grid.2x2.fill" : "square.grid.2x2",
+                title: isPinned ? "Pinned" : "Pin",
+                caption: "WIDGET",
+                isFilled: isPinned,
+                theme: theme
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isPinned ? "Unpin from the home screen widget" : "Pin to the home screen widget")
     }
 
     // MARK: - Labels
@@ -119,7 +197,7 @@ struct FlightActionRow: View {
     /// started watching when it doesn't — so it is never presented as anything
     /// more precise than "elapsed".
     private var elapsedLabel: String {
-        guard let first = track.compactMap(\.date).first else { return "—:—" }
+        guard let first = track.compactMap(\.date).min() else { return "—:—" }
         let interval = now.timeIntervalSince(first)
         guard interval > 60 else { return "00:00" }
         return Format.duration(interval)
@@ -133,9 +211,22 @@ struct FlightActionRow: View {
         return Format.duration(ete)
     }
 
-    /// What gets sent. Plain text: it has to read as well pasted into a message
-    /// as it does in a share sheet's preview.
-    private var summary: String {
+    // MARK: - Sharing
+
+    /// The sheet's heading and an email's subject line.
+    private var shareSubject: String {
+        let route = [flight.departureIcao, flight.arrivalIcao].compactMap { $0 }
+        guard route.count == 2 else { return flight.displayName }
+        return "\(flight.displayName) · \(route[0]) → \(route[1])"
+    }
+
+    /// What actually gets sent. Plain text: it has to read as well pasted into
+    /// a message as it does in the share sheet's preview.
+    ///
+    /// Ends with the time it was taken. Every number above it is a live
+    /// reading, and a bare "37,000 ft" arriving in somebody's messages with no
+    /// time attached is not a fact they can do anything with.
+    private var shareBody: String {
         var lines: [String] = []
 
         let aircraft = [flight.aircraftName, flight.liveryName]
@@ -143,7 +234,7 @@ struct FlightActionRow: View {
             .joined(separator: " · ")
         lines.append(aircraft.isEmpty ? flight.displayName : "\(flight.displayName) — \(aircraft)")
 
-        if let pilot = flight.username {
+        if let pilot = pilot {
             lines.append("Flown by \(pilot) · \(flight.pilotState.detail.lowercased())")
         }
 
@@ -152,9 +243,7 @@ struct FlightActionRow: View {
             let departure = flight.departureIcao ?? "———"
             let arrival = flight.arrivalIcao ?? "———"
             if let progress = progress {
-                lines.append(
-                    "\(departure) → \(arrival) · \(Format.number(progress.remainingNM)) NM to run"
-                )
+                lines.append("\(departure) → \(arrival) · \(Format.number(progress.remainingNM)) NM to run")
             } else {
                 lines.append("\(departure) → \(arrival)")
             }
@@ -167,9 +256,10 @@ struct FlightActionRow: View {
             lines.append(nearest.map { "Passing \($0.icao)" } ?? "Airborne, no destination filed")
         }
 
-        lines.append(
-            "\(Format.number(flight.altitudeFeet)) ft · \(Format.number(flight.groundSpeedKnots)) kts"
-        )
+        lines.append("\(Format.number(flight.altitudeFeet)) ft · \(Format.number(flight.groundSpeedKnots)) kts")
+
+        let stamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .short)
+        lines.append("As of \(stamp) · tracked with Inflight")
 
         return lines.joined(separator: "\n")
     }

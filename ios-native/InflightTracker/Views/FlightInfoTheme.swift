@@ -275,6 +275,16 @@ enum FlightInfoLayout {
     /// plus its route card.
     static let maximumPeakHeight: CGFloat = 560
 
+    /// Floor height for the six action tiles, so both rows of the grid match
+    /// each other however their labels differ. A minimum rather than a fixed
+    /// height: larger accessibility type has to be able to grow the grid, and
+    /// because every tile shares this they grow in step.
+    static let actionTileHeight: CGFloat = 74
+
+    /// Gap between action tiles, across and down. One value so the grid reads
+    /// as a grid rather than as two rows that happen to be near each other.
+    static let actionTileSpacing: CGFloat = 10
+
     /// How far the identity block is pulled up into the photo above it, so it
     /// rides the seam where the two meet. Shared, so the peak and the full
     /// window put it in exactly the same place.
