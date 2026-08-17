@@ -58,6 +58,12 @@ struct AirportPanel: View {
     /// of announcing "no report" for the second before one arrives.
     @State private var hasWeatherAnswer = false
 
+    /// The field's photograph and the details the bundled dataset never
+    /// carried — city, elevation, airspace class, 3D buildings. Nil until the
+    /// lookup answers, which is what lets the hero tell "still asking" from
+    /// "nothing to show".
+    @State private var info: AirportInfo?
+
     /// Re-read once a minute so "online for" counts up and the report is
     /// refreshed while the panel is open. The traffic lists are redrawn by the
     /// feed itself.
@@ -80,14 +86,40 @@ struct AirportPanel: View {
         feed.atcStations.first { !$0.isCenter && $0.identifier == airport.icao }
     }
 
+    /// Every open runway here, longest first. Read from the bundled dataset, so
+    /// this costs a dictionary lookup and works with no connectivity at all.
+    private var runways: [Runway] {
+        RunwayStore.shared.runways(at: airport.icao)
+    }
+
     var body: some View {
+        // Both are walked more than once by the sections below, and the body
+        // is re-run on every feed tick — read once here rather than three
+        // times per redraw.
         let activity = self.activity
+        let runways = self.runways
 
         MapPanel(
             title: airport.icao,
             subtitle: subtitle(for: activity),
             accessory: airport.flag.isEmpty ? nil : AnyView(flag)
         ) {
+            AirportHero(
+                airport: airport,
+                info: info,
+                isControlled: station != nil,
+                category: metar?.flightCategory,
+                theme: theme
+            )
+
+            AirportStatStrip(
+                inbound: activity.inbound.count,
+                outbound: activity.outbound.count,
+                onGround: activity.onGround.count,
+                longestRunway: runways.first,
+                theme: theme
+            )
+
             PanelSection(title: "FIELD") {
                 // First, above the map row: it is the way out of somewhere you
                 // arrived at by a tap, and burying that under the field's own
@@ -115,6 +147,10 @@ struct AirportPanel: View {
 
             weather
 
+            runwaySection(runways)
+
+            details(runways)
+
             traffic(activity)
 
             HintStrip(placement: .airport)
@@ -124,7 +160,11 @@ struct AirportPanel: View {
                 metar = cached
                 hasWeatherAnswer = true
             }
+            // Seeded from the cache so a field opened twice draws its
+            // photograph on the first frame instead of fading one in again.
+            info = AirportInfoService.shared.cached(airport.icao)
             loadMetar()
+            loadInfo()
         }
         .onReceive(clock) { tick in
             now = tick
@@ -180,6 +220,8 @@ struct AirportPanel: View {
                 VStack(alignment: .leading, spacing: 0) {
                     report(metar)
                     PanelDivider()
+                    facts(metar)
+                    PanelDivider()
                     raw(metar)
                 }
             } else {
@@ -224,6 +266,64 @@ struct AirportPanel: View {
         .padding(.vertical, 12)
     }
 
+    /// The three figures a pilot reads the report for, under the headline:
+    /// what the field is legally good for, how low the cloud is, and how close
+    /// the air is to fogging over.
+    ///
+    /// The category is derived here rather than reported — no METAR contains
+    /// the word — which is the fix for what the web build did: it searched the
+    /// raw text for "IFR" and found it nowhere, so every field read VFR.
+    private func facts(_ metar: Metar) -> some View {
+        HStack(spacing: 10) {
+            if let category = metar.flightCategory {
+                VStack(alignment: .leading, spacing: 3) {
+                    FlightCategoryBadge(category: category)
+
+                    Text(category.detail)
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(theme.textDim)
+                        .flightInfoLine(minimumScale: 0.7)
+                }
+            }
+
+            Spacer(minLength: 6)
+
+            fact("CEILING", value: metar.ceilingLabel)
+
+            if let spread = metar.dewPointSpreadC {
+                fact(
+                    "SPREAD",
+                    value: "\(Int(spread.rounded()))°",
+                    // A degree or two between temperature and dew point is fog
+                    // forming, which is the whole reason to show the number.
+                    caption: spread <= 2 ? "Fog likely" : nil
+                )
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+    }
+
+    private func fact(_ label: String, value: String, caption: String? = nil) -> some View {
+        VStack(alignment: .trailing, spacing: 2) {
+            Text(label)
+                .font(.system(size: 8, weight: .bold))
+                .tracking(0.5)
+                .foregroundStyle(theme.textDim)
+
+            Text(value)
+                .font(.system(size: 13, weight: .bold, design: .rounded))
+                .foregroundStyle(theme.textPrimary)
+
+            if let caption = caption {
+                Text(caption)
+                    .font(.system(size: 8.5, weight: .semibold))
+                    .foregroundStyle(theme.textSecondary)
+            }
+        }
+        .fixedSize()
+    }
+
     /// The report as it was written. Kept because it is the only thing on the
     /// panel that says something the parser dropped — runway state, trends,
     /// remarks — and anyone reading a field's weather in an ICAO panel can read
@@ -246,6 +346,126 @@ struct AirportPanel: View {
     }
 
     private var isDaylight: Bool { SolarPosition.isDaylight(at: airport.coordinate) }
+
+    // MARK: - Runways
+
+    /// Only drawn where the dataset has runways, which is most fields but not
+    /// all — heliports and water aerodromes have none surveyed, and an empty
+    /// card saying so would be furniture.
+    @ViewBuilder
+    private func runwaySection(_ runways: [Runway]) -> some View {
+        if !runways.isEmpty {
+            let favoured = FavouredRunway.best(for: runways, metar: metar)
+
+            PanelSection(title: runways.count == 1 ? "RUNWAY" : "RUNWAYS · \(runways.count)") {
+                ForEach(runways) { runway in
+                    if runway.id != runways.first?.id { PanelDivider() }
+                    RunwayCard(runway: runway, favoured: favoured, theme: theme)
+                }
+
+                if favoured != nil {
+                    PanelDivider()
+
+                    Text("Favoured end is the one with the most wind down it, from the field's own report. Headings are true, so a runway number won't always match to the degree.")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(theme.textDim)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                }
+            }
+        }
+    }
+
+    // MARK: - Details
+
+    /// The reference figures: where it is, how high, what airspace, what time
+    /// it is there. The same grid the web tracker's airport window carried
+    /// under its tabs, kept because every line of it is a thing you would
+    /// otherwise leave the app to look up.
+    @ViewBuilder
+    private func details(_ runways: [Runway]) -> some View {
+        let rows = detailRows(runways)
+
+        if !rows.isEmpty {
+            PanelSection(title: "DETAILS") {
+                ForEach(rows) { row in
+                    if row.id != rows.first?.id { PanelDivider() }
+
+                    HStack(spacing: 10) {
+                        PanelRowLabel(title: row.label, symbol: row.symbol)
+
+                        Spacer(minLength: 8)
+
+                        Text(row.value)
+                            .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                            .foregroundStyle(theme.textSecondary)
+                            .fixedSize()
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 11)
+                }
+            }
+        }
+    }
+
+    /// Built rather than laid out, so a line the backend didn't answer is
+    /// absent instead of being an em dash. The coordinates always resolve —
+    /// they come from the bundled dataset — so the grid is never empty.
+    private func detailRows(_ runways: [Runway]) -> [DetailRow] {
+        var rows: [DetailRow] = [
+            DetailRow(
+                label: "Coordinates",
+                symbol: "location.circle",
+                value: String(
+                    format: "%.3f, %.3f",
+                    airport.coordinate.latitude,
+                    airport.coordinate.longitude
+                )
+            )
+        ]
+
+        if let elevation = info?.elevationLabel {
+            rows.append(DetailRow(label: "Elevation", symbol: "arrow.up.and.down", value: elevation))
+        }
+
+        if let airspace = info?.airspaceClass, !airspace.isEmpty {
+            rows.append(DetailRow(label: "Airspace", symbol: "chart.bar.fill", value: "Class \(airspace)"))
+        }
+
+        if let zone = info?.timezoneLabel {
+            rows.append(DetailRow(label: "Timezone", symbol: "globe", value: zone))
+        }
+
+        if !airport.countryCode.isEmpty {
+            rows.append(DetailRow(label: "Country", symbol: "flag", value: airport.countryCode.uppercased()))
+        }
+
+        if !runways.isEmpty {
+            rows.append(DetailRow(label: "Runways", symbol: "road.lanes", value: "\(runways.count)"))
+        }
+
+        return rows
+    }
+
+    /// One line of the details grid. Identified by its label, which is unique
+    /// within the grid and stable across the lookup landing — so a row
+    /// appearing when the backend answers doesn't re-key the ones already
+    /// drawn.
+    private struct DetailRow: Identifiable {
+        let label: String
+        let symbol: String
+        let value: String
+
+        var id: String { label }
+    }
+
+    private func loadInfo() {
+        AirportInfoService.shared.info(for: airport.icao) { resolved in
+            info = resolved
+        }
+    }
 
     private func loadMetar() {
         WeatherService.shared.metar(for: airport.icao) { fetched in

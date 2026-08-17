@@ -65,6 +65,16 @@ struct Hint: Identifiable, Equatable {
             placement: .map,
             text: "Filters change only what is drawn, never what is received, so turning them all back on is instant."
         ),
+        Hint(
+            id: "map.rail",
+            placement: .map,
+            text: "The bubbles on the right stay put when a flight window is open, which is when the bar down here is not — weather, filters and the map's own look are always a tap away."
+        ),
+        Hint(
+            id: "map.style",
+            placement: .map,
+            text: "The bottom bubble cycles the map through standard, satellite and hybrid. Satellite is worth it over an airport you have not flown into before."
+        ),
 
         // MARK: A flight
 
@@ -120,6 +130,16 @@ struct Hint: Identifiable, Equatable {
             id: "airport.parked",
             placement: .airport,
             text: "Aircraft that filed here but have not left their gate sort to the bottom of Inbound, marked Parked."
+        ),
+        Hint(
+            id: "airport.runways",
+            placement: .airport,
+            text: "The runway the wind favours is picked out, worked out from the field's own report — most wind down it, least across."
+        ),
+        Hint(
+            id: "airport.category",
+            placement: .airport,
+            text: "VFR, MVFR, IFR and LIFR come from the ceiling and the visibility in the report, so they say what the field is actually like rather than what the forecast hoped."
         ),
 
         // MARK: The board
