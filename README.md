@@ -11,8 +11,10 @@ The previous Capacitor/web build is preserved untouched in [`old/`](old/).
 - Live map of every aircraft on the selected server (MapKit — no API key, no tiles to pay for).
 - The original sprite-sheet plane icons, picked per aircraft type and rotated to true heading.
 - Tap an aircraft for callsign, pilot, type/livery, route, altitude, ground speed, vertical speed and heading. The sheet keeps updating while it's open, and the map can be set to follow the aircraft as it flies.
-- Open a field — from the search results, from the ATC panel, from the airports board, or by tapping either end of an open flight's route — for who is on frequency, its METAR, what is inbound and how long it has to run, what has just left, and what is sitting on the apron. Every aircraft on it taps through to its own window, and a field reached from a flight offers the way back to it. Either end of an open route is marked when somebody is working it.
-- Airports board: where the server actually is, ranked by the routes aircraft have filed, with controlled fields marked.
+- The route the pilot actually filed, where there is one: drawn on the map fix by fix — out on the departure procedure, down the airways, in on the arrival — and listed in the window with the fix being flown to picked out. Aircraft that filed nothing but two ICAO codes still get the straight line, which is all anyone knows about them.
+- Open a field — from the search results, from the ATC panel, from the airports board, or by tapping either end of an open flight's route — for its photograph, who is on frequency, its ATIS, its METAR and what that makes it (VFR through LIFR), its runways with the one the wind favours marked, what is inbound and how long it has to run, what has just left, and what is sitting on the apron. Every aircraft on it taps through to its own window, and a field reached from a flight offers the way back to it.
+- Airports board: where the server actually is, ranked by the routes aircraft have filed, with controlled fields marked and each field's own photograph beside it.
+- A rail of bubbles down the top right, which stays put when a flight window covers the bottom bar: weather for wherever you are looking, filters, and what the map itself is drawn on — chart, satellite or hybrid.
 - Filters: phase, altitude band, aircraft kind (airliners, regional, light & private, military, helicopters), and filed-destination-only. All of them views onto traffic already received, so nothing is re-fetched.
 - Server switcher: Expert / Training / Casual.
 - Hints: one dim line at the foot of a screen, about that screen. Each retires after a few sessions or when dismissed; the whole thing can be switched off, or restored, under Settings.
@@ -83,6 +85,41 @@ on       all_flights_update  -> { server, flights: [...] }
 
 Payloads are decoded off the main thread; a malformed aircraft is dropped rather
 than failing the whole packet.
+
+Everything else the app asks for is a plain REST call on top of that, and each
+one is cached so a screen opened twice costs nothing:
+
+| What | Where |
+| --- | --- |
+| Aircraft photo | `indgo /api/aircraft/lookup?type=&livery=` |
+| Airport photo | `indgo /api/airports/{icao}` |
+| Airport details — city, elevation, airspace class, timezone, 3D buildings | `acars /api/airport/{icao}` |
+| Flown path so far | `acars /api/flights/{id}/history` |
+| Filed route | `acars /flights/{session}/{id}/plan` |
+| ATIS | `acars /api/live/airport/{session}/{icao}/atis` |
+| METAR | `metar.vatsim.net` |
+
+The last two are addressed by session rather than by server, so they resolve one
+through `acars /if-sessions` first — held for five minutes, per server, because
+switching servers must not hand the new one the old one's id.
+
+## Bundled datasets
+
+Three things ship in the app rather than being fetched, so the parts of the
+tracker that don't need the network don't wait on it:
+
+| File | Rows | From |
+| --- | --- | --- |
+| `airports.txt` | 17,737 | VAT-Spy, as the old tracker shipped it |
+| `runways.txt` | 14,511 | `old/www/runways.json`, distilled |
+| `sprite-uvs.json` | — | the old tracker's icon sheet |
+
+`runways.json` is 26 MB of survey rows, most of them for strips the airport table
+has never heard of. The bundled table keeps only the columns the field panel
+shows, only for airports that resolve, and only for runways that are still open —
+467 KB, parsed off the main thread at launch. To regenerate it after the source
+changes, keep the pipe-delimited shape `ICAO|low|high|length|width|surface|lighted|lowHeading|highHeading`,
+with `-1` for a heading neither the survey nor the designator gave.
 
 ## Plane icons
 
