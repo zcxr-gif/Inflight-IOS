@@ -137,6 +137,11 @@ public struct WidgetAirport: Codable, Hashable, Identifiable {
     /// The next few arrivals, soonest first, for the roomier families.
     public var arrivals: [WidgetMovement]
 
+    /// Whether the app managed to put this field's photograph in the shared
+    /// cache. False means the tile draws the sky instead — most fields have no
+    /// picture, and that is a normal outcome rather than a failure.
+    public var hasPhoto: Bool
+
     public var capturedAt: Date
 
     public init(icao: String,
@@ -149,6 +154,7 @@ public struct WidgetAirport: Codable, Hashable, Identifiable {
                 conditions: String? = nil,
                 temperature: String? = nil,
                 arrivals: [WidgetMovement] = [],
+                hasPhoto: Bool = false,
                 capturedAt: Date = Date()) {
         self.icao = icao
         self.name = name
@@ -160,8 +166,14 @@ public struct WidgetAirport: Codable, Hashable, Identifiable {
         self.conditions = conditions
         self.temperature = temperature
         self.arrivals = arrivals
+        self.hasPhoto = hasPhoto
         self.capturedAt = capturedAt
     }
+
+    /// Where this field's photo lives in the shared cache. Built from the ICAO
+    /// through the same key maker the aircraft photos use, so the app writes
+    /// and the widget reads the same filename by construction.
+    public var photoKey: String { PhotoKey.make(type: "airport", livery: icao) }
 
     public var movementCount: Int { inboundCount + departedCount + onGroundCount }
 

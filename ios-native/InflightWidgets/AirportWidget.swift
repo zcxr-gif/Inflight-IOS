@@ -86,11 +86,13 @@ struct AirportWidgetView: View {
     private var home: some View {
         content
             .containerBackground(for: .widget) {
-                // A field has no aircraft of its own to be photographed, so the
-                // backdrop is the drawn sky at ground level rather than a photo
-                // that would belong to whichever aircraft happened to be first.
+                // The field's own photograph when the app managed to cache
+                // one, and the drawn sky at ground level when it didn't —
+                // never an aircraft's photo, which would belong to whichever
+                // movement happened to be listed first and say nothing about
+                // the field.
                 PlaneBackdrop(
-                    photoKey: "",
+                    photoKey: entry.airport?.hasPhoto == true ? (entry.airport?.photoKey ?? "") : "",
                     style: family == .systemSmall ? .dense : .framed,
                     altitudeFt: 0
                 )

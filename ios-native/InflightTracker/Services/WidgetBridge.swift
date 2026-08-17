@@ -156,6 +156,7 @@ final class WidgetBridge: ObservableObject {
                     detail: movement.etaLabel ?? "\(Int(movement.distanceNM.rounded())) NM"
                 )
             },
+            hasPhoto: SharedStore.hasPhoto(for: PhotoKey.make(type: "airport", livery: airport.icao)),
             capturedAt: Date()
         )
     }
@@ -206,6 +207,21 @@ final class WidgetBridge: ObservableObject {
         // Only the friends a widget could actually show. Fetching all eight
         // would fill the cache with backgrounds nothing draws.
         wanted.append(contentsOf: snapshot.friends.prefix(3))
+
+        // The pinned field's own photograph, on the same terms: fetched by the
+        // app because a widget cannot go to the network, and only when it is
+        // not already sitting in the shared cache.
+        if let airport = snapshot.airport, !SharedStore.hasPhoto(for: airport.photoKey) {
+            let key = airport.photoKey
+            AirportImageService.shared.image(for: airport.icao) { url in
+                guard let url = url else { return }
+                URLSession.shared.dataTask(with: url) { data, _, _ in
+                    guard let data = data, SharedStore.storePhoto(data, for: key) else { return }
+                    WidgetCenter.shared.reloadAllTimelines()
+                }
+                .resume()
+            }
+        }
 
         for flight in wanted where !flight.aircraftType.isEmpty {
             let key = flight.photoKey
