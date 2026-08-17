@@ -142,6 +142,11 @@ struct Hint: Identifiable, Equatable {
             text: "The runway the wind favours is picked out, worked out from the field's own report — most wind down it, least across."
         ),
         Hint(
+            id: "airport.atis",
+            placement: .airport,
+            text: "Where a controller is running an ATIS, it is here in full — runways in use, the approach to expect, and whatever they added on the end."
+        ),
+        Hint(
             id: "airport.category",
             placement: .airport,
             text: "VFR, MVFR, IFR and LIFR come from the ceiling and the visibility in the report, so they say what the field is actually like rather than what the forecast hoped."

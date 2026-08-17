@@ -64,6 +64,11 @@ struct AirportPanel: View {
     /// "nothing to show".
     @State private var info: AirportInfo?
 
+    /// The field's ATIS, when a controller is running one. Nil throughout for
+    /// the great majority of fields, which is why there is no empty state for
+    /// it — the section simply isn't there.
+    @State private var atis: Atis?
+
     /// Re-read once a minute so "online for" counts up and the report is
     /// refreshed while the panel is open. The traffic lists are redrawn by the
     /// feed itself.
@@ -104,21 +109,26 @@ struct AirportPanel: View {
             subtitle: subtitle(for: activity),
             accessory: airport.flag.isEmpty ? nil : AnyView(flag)
         ) {
-            AirportHero(
-                airport: airport,
-                info: info,
-                isControlled: station != nil,
-                category: metar?.flightCategory,
-                theme: theme
-            )
+            // The photograph and the figures under it are one header, grouped
+            // rather than listed — and the panel's own builder only takes ten
+            // things, which these two would otherwise both spend.
+            VStack(alignment: .leading, spacing: 14) {
+                AirportHero(
+                    airport: airport,
+                    info: info,
+                    isControlled: station != nil,
+                    category: metar?.flightCategory,
+                    theme: theme
+                )
 
-            AirportStatStrip(
-                inbound: activity.inbound.count,
-                outbound: activity.outbound.count,
-                onGround: activity.onGround.count,
-                longestRunway: runways.first,
-                theme: theme
-            )
+                AirportStatStrip(
+                    inbound: activity.inbound.count,
+                    outbound: activity.outbound.count,
+                    onGround: activity.onGround.count,
+                    longestRunway: runways.first,
+                    theme: theme
+                )
+            }
 
             PanelSection(title: "FIELD") {
                 // First, above the map row: it is the way out of somewhere you
@@ -145,6 +155,8 @@ struct AirportPanel: View {
 
             frequencies
 
+            atisSection
+
             weather
 
             runwaySection(runways)
@@ -163,8 +175,10 @@ struct AirportPanel: View {
             // Seeded from the cache so a field opened twice draws its
             // photograph on the first frame instead of fading one in again.
             info = AirportInfoService.shared.cached(airport.icao)
+            atis = AtisService.shared.cached(airport.icao, server: feed.server)
             loadMetar()
             loadInfo()
+            loadAtis()
         }
         .onReceive(clock) { tick in
             now = tick
@@ -172,6 +186,11 @@ struct AirportPanel: View {
             // dictionary lookup nine times out of ten and picks up the new
             // hour's observation on the tenth.
             loadMetar()
+            // The ATIS is reissued whenever conditions change and its service
+            // holds one for two minutes, so this actually re-asks — which is
+            // the point. An information letter you are reading should be the
+            // one currently being broadcast.
+            loadAtis()
         }
     }
 
@@ -209,6 +228,110 @@ struct AirportPanel: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
             }
+        }
+    }
+
+    // MARK: - ATIS
+
+    /// Only there while one is being broadcast, which is only while somebody is
+    /// controlling. Nothing is said for a field without one — the absence is
+    /// the same information as a card announcing "no ATIS" on every quiet
+    /// airport in the world.
+    @ViewBuilder
+    private var atisSection: some View {
+        if let atis = atis {
+            PanelSection(title: atis.information.map { "ATIS · INFORMATION \($0)" } ?? "ATIS") {
+                VStack(alignment: .leading, spacing: 0) {
+                    if atis.hasStructure {
+                        atisChips(atis)
+                        PanelDivider()
+                    }
+
+                    if let remarks = atis.remarks {
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "exclamationmark.bubble")
+                                .font(.system(size: 11))
+                                .foregroundStyle(theme.textSecondary)
+
+                            Text(remarks)
+                                .font(.system(size: 11.5, weight: .semibold))
+                                .foregroundStyle(theme.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 11)
+
+                        PanelDivider()
+                    }
+
+                    // The broadcast as written. Same call as the raw METAR
+                    // below it: the parser above reads what it recognises, and
+                    // everything it didn't is still here to be read.
+                    Text(atis.raw)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(theme.textDim)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 11)
+                }
+            }
+        }
+    }
+
+    /// Runways in use and what to expect on the way in — the reason anyone
+    /// listens to the thing.
+    private func atisChips(_ atis: Atis) -> some View {
+        HStack(spacing: 8) {
+            if let landing = atis.landingRunways {
+                atisChip("LANDING", value: landing, symbol: "airplane.arrival")
+            }
+
+            if let departing = atis.departingRunways {
+                atisChip("DEPARTING", value: departing, symbol: "airplane.departure")
+            }
+
+            if let approach = atis.approach {
+                atisChip("APPROACH", value: approach, symbol: "arrow.down.right")
+            }
+
+            Spacer(minLength: 0)
+
+            if let time = atis.time {
+                Text(time)
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(theme.textDim)
+                    .fixedSize()
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+    }
+
+    private func atisChip(_ label: String, value: String, symbol: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 4) {
+                Image(systemName: symbol)
+                    .font(.system(size: 8, weight: .semibold))
+                Text(label)
+                    .font(.system(size: 8, weight: .bold))
+                    .tracking(0.5)
+            }
+            .foregroundStyle(theme.textDim)
+
+            Text(value)
+                .font(.system(size: 13, weight: .bold, design: .rounded))
+                .foregroundStyle(theme.textPrimary)
+                .flightInfoLine(minimumScale: 0.7)
+        }
+        .fixedSize()
+    }
+
+    private func loadAtis() {
+        AtisService.shared.atis(for: airport.icao, server: feed.server) { fetched in
+            atis = fetched
         }
     }
 
