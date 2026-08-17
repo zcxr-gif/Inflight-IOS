@@ -94,8 +94,9 @@ struct MapRail: View {
             }
         }
         .frame(width: 44)
-        // Glass draws behind its content rather than clipping it, so without
-        // this the weather bubble's own fill squares off the rail's corners.
+        // Glass draws behind its content rather than clipping it, so anything
+        // a button fills its own square with — the accent behind a switched-on
+        // one — would otherwise square off the rail's rounded corners.
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }

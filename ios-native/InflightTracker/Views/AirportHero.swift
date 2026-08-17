@@ -205,7 +205,6 @@ struct AirportThumbnail: View {
     var size: CGFloat = 42
 
     @StateObject private var loader = RemoteImageLoader()
-    @State private var info: AirportInfo?
 
     var body: some View {
         ZStack {
@@ -229,11 +228,11 @@ struct AirportThumbnail: View {
         }
         .accessibilityHidden(true)
         .onAppear {
-            info = AirportInfoService.shared.cached(icao)
-            loader.load(info?.imageURL)
+            // Straight from the cache first, so a board scrolled back up draws
+            // its photographs rather than fading them in again.
+            loader.load(AirportInfoService.shared.cached(icao)?.imageURL)
 
             AirportInfoService.shared.info(for: icao) { resolved in
-                info = resolved
                 loader.load(resolved.imageURL)
             }
         }

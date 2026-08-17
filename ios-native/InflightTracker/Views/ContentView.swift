@@ -6,7 +6,6 @@ struct ContentView: View {
     @EnvironmentObject private var feed: LiveFeed
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @ObservedObject private var filters = MapFilters.shared
-    @ObservedObject private var weatherPreferences = WeatherPreferences.shared
     @ObservedObject private var mapAppearance = MapAppearance.shared
     @ObservedObject private var friends = FriendsStore.shared
     @ObservedObject private var push = PushService.shared
