@@ -89,6 +89,55 @@ python3 ios-native/Scripts/check-provisioning.py \
   --require "com.tracker.Inflight.widgets:com.apple.security.application-groups=group.com.tracker.Inflight"
 ```
 
+## Signing files, from Windows
+
+The build signs with three files uploaded to Codemagic by hand, referenced by
+name from `codemagic.yaml`. Two are downloaded from the portal; the third has to
+be assembled, because Apple hands out a certificate and keeps the private key
+question to itself.
+
+A `.p12` is the certificate *and* its private key in one archive. Exporting one
+from Keychain needs the Mac that generated the original request. Without that
+Mac the key does not exist anywhere, and the only way forward is a new
+certificate — which is a CSR, and a CSR is openssl, which runs anywhere.
+
+```bash
+# 1. A private key, and a request built from it. This key never leaves the
+#    machine and is half of the .p12 at the end.
+openssl genrsa -out inflight.key 2048
+openssl req -new -key inflight.key -out inflight.csr \
+  -subj "/emailAddress=you@example.com/CN=Inflight Distribution/C=US"
+
+# 2. Upload inflight.csr at Certificates -> + -> Apple Distribution, download
+#    the .cer, then join the two halves.
+openssl x509 -in distribution.cer -inform DER -out distribution.pem -outform PEM
+openssl pkcs12 -export -inkey inflight.key -in distribution.pem \
+  -out inflight_distribution.p12
+```
+
+In Git Bash, prefix the `req` line with `MSYS_NO_PATHCONV=1`. MSYS rewrites any
+argument starting with `/` into a Windows path, so `-subj` silently arrives
+mangled and the certificate comes out with the wrong subject.
+
+Apple allows two Apple Distribution certificates per account, so a new one
+usually means revoking an old one first. Revoking does not affect builds already
+on the App Store, but it **does** invalidate every profile issued against that
+certificate — so regenerate both profiles afterwards, selecting the new
+certificate, and download them again.
+
+Uploaded under **Team settings -> Code signing identities**, with reference
+names matching what `codemagic.yaml` asks for:
+
+| File | Reference name |
+| --- | --- |
+| `inflight_distribution.p12` (with its password) | `inflight_distribution_cert` |
+| App Store profile for `com.tracker.Inflight` | `inflight_distribution` |
+| App Store profile for `com.tracker.Inflight.widgets` | `inflight_widgets_distribution` |
+
+Leave nothing else in that list. Profiles stored there are installed on every
+builder whether or not anything asks for them, which is how a set left over from
+the Capacitor pipeline came to sign this one for months — see above.
+
 ## APNs key
 
 The backend signs its own provider JWTs (`push.cjs`) and needs a `.p8` auth
