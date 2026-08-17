@@ -28,6 +28,14 @@ struct TrackerMapView: UIViewRepresentable {
     /// is a mode, and it keeps acting on every packet for as long as it is on.
     var isFollowing = false
 
+    /// What the ground is drawn as. Applied on change rather than every pass —
+    /// assigning a configuration re-renders the whole map.
+    var style: MapGroundStyle = .standard
+
+    /// Where the map settled, after a pan or a pinch. Lets the chrome report
+    /// on wherever you are looking when no aircraft is open.
+    var onRegionSettled: ((CLLocationCoordinate2D) -> Void)?
+
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeUIView(context: Context) -> MKMapView {
@@ -47,10 +55,8 @@ struct TrackerMapView: UIViewRepresentable {
         // tracker's chrome is white on carbon and stays that way.
         mapView.tintColor = .white
 
-        let configuration = MKStandardMapConfiguration(elevationStyle: .flat)
-        configuration.emphasisStyle = .muted
-        configuration.pointOfInterestFilter = .excludingAll
-        mapView.preferredConfiguration = configuration
+        mapView.preferredConfiguration = style.configuration
+        context.coordinator.appliedStyle = style
 
         mapView.register(
             MKAnnotationView.self,
@@ -67,6 +73,7 @@ struct TrackerMapView: UIViewRepresentable {
 
     func updateUIView(_ mapView: MKMapView, context: Context) {
         context.coordinator.parent = self
+        context.coordinator.applyStyle(style, on: mapView)
         context.coordinator.sync(flights: flights, on: mapView)
         context.coordinator.syncSelection(selection, on: mapView)
         context.coordinator.syncRoute(on: mapView)
@@ -663,7 +670,23 @@ struct TrackerMapView: UIViewRepresentable {
 
         private static let liveCullInterval: TimeInterval = 0.25
 
+        /// The look currently applied. Assigning a configuration re-renders the
+        /// whole map, so it is only done when the answer has actually changed —
+        /// `updateUIView` runs on every feed tick.
+        var appliedStyle: MapGroundStyle?
+
+        func applyStyle(_ style: MapGroundStyle, on mapView: MKMapView) {
+            guard appliedStyle != style else { return }
+            appliedStyle = style
+            mapView.preferredConfiguration = style.configuration
+        }
+
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
+            // Where the map came to rest, for the chrome that reports on what
+            // is under it. Fired here rather than through the drag so it is
+            // one answer per gesture rather than one per frame.
+            parent.onRegionSettled?(mapView.region.center)
+
             // Re-cull for the new viewport using the traffic we already have.
             // Coalesced because this fires repeatedly through a pan or a
             // pinch, and each pass walks every aircraft on the server.

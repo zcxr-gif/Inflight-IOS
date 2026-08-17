@@ -7,6 +7,7 @@ struct ContentView: View {
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @ObservedObject private var filters = MapFilters.shared
     @ObservedObject private var weatherPreferences = WeatherPreferences.shared
+    @ObservedObject private var mapAppearance = MapAppearance.shared
     @ObservedObject private var friends = FriendsStore.shared
     @ObservedObject private var push = PushService.shared
 
@@ -39,6 +40,11 @@ struct ContentView: View {
     /// Weather for the field the map is over, and for the open flight's route.
     @StateObject private var weather = WeatherModel()
     @State private var isWeatherExpanded = false
+
+    /// Where the map last came to rest. With an aircraft open the weather
+    /// bubble follows the aircraft; without one it follows this, so the rail
+    /// still reports on wherever you have panned to.
+    @State private var mapCenter: CLLocationCoordinate2D?
 
     /// Playback of the open aircraft's own track, started from the window and
     /// watched on the map.
@@ -115,29 +121,20 @@ struct ContentView: View {
                 // A replay is driving the camera down the old track; following
                 // the live aircraft at the same time would be two things
                 // fighting over one map.
-                isFollowing: isFollowing && !replay.isActive
+                isFollowing: isFollowing && !replay.isActive,
+                style: mapAppearance.style,
+                onRegionSettled: { center in
+                    mapCenter = center
+                    // With an aircraft open the weather is about the aircraft,
+                    // and panning the map is not a request to change that.
+                    guard selection == nil else { return }
+                    weather.updateNearby(to: center)
+                }
             )
             .ignoresSafeArea()
 
-            // Map chrome, top down: search always, then the weather chip while
-            // an aircraft is open — it reports on where that aircraft is, so
-            // there is nothing for it to say without one.
-            VStack(alignment: .leading, spacing: 10) {
-                MapSearchField(
-                    query: $query,
-                    results: results,
-                    theme: theme,
-                    onSelect: open
-                )
-
-                if selection != nil, weatherPreferences.isChipVisible {
-                    WeatherChip(model: weather, theme: theme, isExpanded: $isWeatherExpanded)
-                        .transition(.opacity.combined(with: .move(edge: .leading)))
-                }
-            }
-            .padding(.horizontal, 14)
-            .padding(.top, 8)
-
+            searchLayer
+            mapRail
             mapControls
             mapToolbar
             replayBar
@@ -164,7 +161,24 @@ struct ContentView: View {
             }
 
             isWeatherExpanded = false
-            updateWeather(force: true)
+
+            // The field goes away with the window opening, so anything left in
+            // it goes too — otherwise closing the flight brings back a search
+            // for something you stopped looking for two aircraft ago.
+            if id != nil { query = "" }
+
+            if id == nil {
+                // Back to a bare map: the rail goes back to reporting on
+                // wherever the camera is pointed. Without this the bubble
+                // would keep the closed flight's field until something moved
+                // the map.
+                weather.updateRoute(departure: nil, arrival: nil)
+                if let center = mapCenter {
+                    weather.updateNearby(to: center, force: true)
+                }
+            } else {
+                updateWeather(force: true)
+            }
         }
         // The aircraft keeps moving while its window is open, so the field it
         // is passing is re-resolved as it goes. The model only refetches once
@@ -248,6 +262,50 @@ struct ContentView: View {
             detent = .height(height)
         }
         .onAppear { feed.connect() }
+    }
+
+    // MARK: - Top chrome
+
+    /// Width the rail on the right claims, plus the gap the search field keeps
+    /// from it. The two share the top of the map, so the search field's lane
+    /// stops here rather than running under the bubbles.
+    private static let railLane: CGFloat = 44 + 10
+
+    /// Search, top left — and only while the map is the whole screen.
+    ///
+    /// It goes when an aircraft is opened. The window below it is the thing
+    /// being read, the map above it is the thing being watched, and a field
+    /// you are not typing into is neither: it was sitting over the traffic
+    /// taking up the one band of map the window leaves you.
+    @ViewBuilder
+    private var searchLayer: some View {
+        if selection == nil {
+            MapSearchField(
+                query: $query,
+                results: results,
+                theme: theme,
+                onSelect: open
+            )
+            .padding(.leading, 14)
+            .padding(.trailing, 14 + Self.railLane)
+            .padding(.top, 8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .transition(.opacity.combined(with: .move(edge: .top)))
+        }
+    }
+
+    /// Weather, filters and the map's own look, down the top right.
+    private var mapRail: some View {
+        MapRail(
+            theme: theme,
+            weather: weather,
+            isWeatherExpanded: $isWeatherExpanded,
+            activeFilters: filters.activeCount,
+            onFilters: { sheet = .panel(.filters) }
+        )
+        .padding(.trailing, 14)
+        .padding(.top, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
     }
 
     // MARK: - Panels
@@ -352,17 +410,9 @@ struct ContentView: View {
             focus(on: flight.coordinate, spanMeters: 240_000)
 
         case .airport(let airport):
-            // Searching is live over an open flight window, so this can be a
-            // swap rather than a fresh presentation. Changing the sheet's
-            // identity dismisses and re-presents, which is exactly what the
-            // flight case avoids — but what it is avoiding is losing the peak
-            // detent, and a panel has no detent state to lose.
-            //
-            // No origin: a field typed into the search field was not arrived at
-            // from anywhere, even if a flight window happened to be open behind
-            // it. Offering to go "back" to an aircraft nobody navigated from
-            // would be inventing a history.
-            selection = nil
+            // No origin: a field typed into the search field was not arrived
+            // at from anywhere. The search field is only up while no aircraft
+            // is open, so there is no history here to offer a way back to.
             openAirport(airport)
         }
     }
@@ -479,11 +529,13 @@ struct ContentView: View {
     private var mapControls: some View {
         if selection != nil, !replay.isActive {
             // One grouped control rather than free-floating circles: it reads
-            // as part of the window's chrome instead of two loose buttons.
+            // as part of the window's chrome instead of three loose buttons —
+            // and it is the same stack the rail on the right is built from.
             VStack(spacing: 0) {
-                mapButton(
-                    "viewfinder",
-                    isFollowing ? "Stop following this aircraft" : "Follow this aircraft",
+                MapRailButton(
+                    symbol: "viewfinder",
+                    label: isFollowing ? "Stop following this aircraft" : "Follow this aircraft",
+                    theme: theme,
                     isOn: isFollowing
                 ) {
                     isFollowing.toggle()
@@ -495,19 +547,19 @@ struct ContentView: View {
                     if isFollowing { mapCommand = MapCommand(kind: .centerOnFlight) }
                 }
 
-                Rectangle()
-                    .fill(theme.stroke)
-                    .frame(height: 1)
+                MapRailDivider(theme: theme)
 
-                mapButton("location.fill", "Centre on aircraft") {
+                MapRailButton(symbol: "location.fill", label: "Centre on aircraft", theme: theme) {
                     mapCommand = MapCommand(kind: .centerOnFlight)
                 }
 
-                Rectangle()
-                    .fill(theme.stroke)
-                    .frame(height: 1)
+                MapRailDivider(theme: theme)
 
-                mapButton("arrow.down.left.and.arrow.up.right", "Show whole route") {
+                MapRailButton(
+                    symbol: "arrow.down.left.and.arrow.up.right",
+                    label: "Show whole route",
+                    theme: theme
+                ) {
                     // Framing the whole route and staying with the aircraft are
                     // different intents, and following would pull the camera
                     // back off the route within a packet or two of getting
@@ -530,31 +582,6 @@ struct ContentView: View {
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))
         }
-    }
-
-    /// `isOn` is for the one control in the hub that is a mode rather than a
-    /// move. It reads as on the way every other switched-on thing in the app
-    /// does — filled with the accent, glyph knocked out of it — so the state is
-    /// legible without colour carrying the meaning.
-    private func mapButton(
-        _ symbol: String,
-        _ label: String,
-        isOn: Bool = false,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(isOn ? theme.onAccent : theme.textPrimary)
-                .frame(width: 44, height: 42)
-                .background {
-                    if isOn { Rectangle().fill(theme.accent) }
-                }
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
-        .accessibilityAddTraits(isOn ? .isSelected : [])
     }
 
 }

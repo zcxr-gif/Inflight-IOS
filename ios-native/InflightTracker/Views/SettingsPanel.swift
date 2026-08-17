@@ -9,6 +9,7 @@ struct SettingsPanel: View {
 
     @EnvironmentObject private var feed: LiveFeed
     @ObservedObject private var appearance = FlightInfoAppearance.shared
+    @ObservedObject private var mapAppearance = MapAppearance.shared
     @ObservedObject private var hints = HintsStore.shared
 
     private var theme: FlightInfoTheme { appearance.theme }
@@ -20,6 +21,20 @@ struct SettingsPanel: View {
                     if server != AppConfig.servers.first { PanelDivider() }
                     serverRow(server)
                 }
+            }
+
+            // Also the bottom bubble on the map's own rail, which is where it
+            // gets used. Repeated here because a control that only cycles is
+            // one you have to tap three times to see the options of.
+            PanelSection(title: "MAP") {
+                PanelPickerRow(
+                    title: "Ground",
+                    symbol: "map",
+                    options: MapGroundStyle.allCases,
+                    label: { $0.label },
+                    detail: "What the map is drawn on, under the traffic.",
+                    selection: $mapAppearance.style
+                )
             }
 
             PanelSection(title: "FLIGHT WINDOW") {
