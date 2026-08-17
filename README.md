@@ -14,7 +14,8 @@ The previous Capacitor/web build is preserved untouched in [`old/`](old/).
 - The route the pilot actually filed, where there is one: drawn on the map fix by fix — out on the departure procedure, down the airways, in on the arrival — and listed in the window with the fix being flown to picked out. Aircraft that filed nothing but two ICAO codes still get the straight line, which is all anyone knows about them.
 - Open a field — from the search results, from the ATC panel, from the airports board, or by tapping either end of an open flight's route — for its photograph, who is on frequency, its ATIS, its METAR and what that makes it (VFR through LIFR), its runways with the one the wind favours marked, what is inbound and how long it has to run, what has just left, and what is sitting on the apron. Every aircraft on it taps through to its own window, and a field reached from a flight offers the way back to it.
 - Airports board: where the server actually is, ranked by the routes aircraft have filed, with controlled fields marked and each field's own photograph beside it.
-- A rail of bubbles down the top right, which stays put when a flight window covers the bottom bar: weather for wherever you are looking, filters, and what the map itself is drawn on — chart, satellite or hybrid.
+- A row of chips under the search field for the narrowings worth one tap — airborne only, airliners, military, filed routes — each with how much of the server it would leave you counted beside it. They and the Filters panel are the same setting read two ways, so neither can disagree with the other.
+- Map chrome split by what it answers. Top right: weather for wherever you are looking, and filters — both of which stay put when a flight window covers the bottom bar. Bottom right, and never moving: what the map is drawn on (chart, satellite, hybrid), precipitation radar under the traffic, and 3D terrain. Bottom left: the open flight's camera controls.
 - On iPad, a choice of where the flight window goes: a sheet up from the bottom, as on a phone, or a column down the right held open in full — where it covers no map at all, so the toolbar, the search field and the traffic all stay exactly where they were. Settings → Flight window → Placement. The choice only appears on a screen wide enough to honour it, and an iPad dragged into a narrow split view hands the window back to a sheet on its own.
 - Filters: phase, altitude band, aircraft kind (airliners, regional, light & private, military, helicopters), and filed-destination-only. All of them views onto traffic already received, so nothing is re-fetched.
 - Server switcher: Expert / Training / Casual.
@@ -99,6 +100,7 @@ one is cached so a screen opened twice costs nothing:
 | Filed route | `acars /flights/{session}/{id}/plan` |
 | ATIS | `acars /api/live/airport/{session}/{icao}/atis` |
 | METAR | `metar.vatsim.net` |
+| Precipitation radar frames | `api.rainviewer.com/public/weather-maps.json` |
 
 The last two are addressed by session rather than by server, so they resolve one
 through `acars /if-sessions` first — held for five minutes, per server, because

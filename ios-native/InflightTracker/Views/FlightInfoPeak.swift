@@ -40,6 +40,13 @@ struct FlightInfoPeak: View {
             VStack(alignment: .leading, spacing: 12) {
                 identityRow
                 situationCard
+
+                // Only on the compact bar. The photo peak is deliberately the
+                // full window's header at the full window's metrics, so that
+                // dragging up grows what is already there — adding a row here
+                // that the window does not have in the same place would put a
+                // seam in the one transition built to avoid one.
+                FlightTelemetryStrip(flight: flight, theme: theme)
             }
             // Clears the drag indicator, which floats over the top of the sheet.
             .padding(.top, 18)

@@ -495,6 +495,89 @@ struct FlightIdentityBlock: View {
     }
 }
 
+// MARK: - Telemetry
+
+/// Speed, height and rate, in one row.
+///
+/// The peak state answered who and where and left out how fast, which is the
+/// number you tap an aeroplane to see. It was in the full window only — behind
+/// a drag — so the compact bar told you everything about a flight except what
+/// it was doing.
+///
+/// Three, not four: heading is in the full window's grid and is the one of the
+/// four you can read off the map, because the icon is already pointing at it.
+struct FlightTelemetryStrip: View {
+
+    let flight: Flight
+    let theme: FlightInfoTheme
+
+    var body: some View {
+        HStack(spacing: 0) {
+            cell(
+                symbol: "speedometer",
+                value: Format.number(flight.groundSpeedKnots),
+                unit: "kts"
+            )
+
+            divider
+
+            cell(
+                symbol: "cloud",
+                value: Format.number(flight.altitudeFeet),
+                unit: "ft"
+            )
+
+            divider
+
+            cell(
+                // Points where the aeroplane is going: level flight gets a
+                // dash rather than an arrow that has to mean "neither".
+                symbol: rateSymbol,
+                value: Format.signed(flight.verticalSpeedFPM),
+                unit: "fpm"
+            )
+        }
+        .flightInfoSurface(theme, radius: theme.radiusSmall)
+    }
+
+    private var rateSymbol: String {
+        if flight.verticalSpeedFPM > 300 { return "arrow.up.right" }
+        if flight.verticalSpeedFPM < -300 { return "arrow.down.right" }
+        return "arrow.right"
+    }
+
+    private var divider: some View {
+        Rectangle()
+            .fill(theme.stroke)
+            .frame(width: 1, height: 22)
+    }
+
+    private func cell(symbol: String, value: String, unit: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: symbol)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(theme.textDim)
+
+            HStack(alignment: .firstTextBaseline, spacing: 3) {
+                Text(value)
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .foregroundStyle(theme.textPrimary)
+                    .flightInfoLine(minimumScale: 0.6)
+
+                Text(unit)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(theme.textDim)
+                    .fixedSize()
+            }
+        }
+        .padding(.vertical, 11)
+        .padding(.horizontal, 8)
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(value) \(unit)")
+    }
+}
+
 // MARK: - Aircraft photo
 
 /// Community aircraft photo with the sprite placeholder underneath, so the
