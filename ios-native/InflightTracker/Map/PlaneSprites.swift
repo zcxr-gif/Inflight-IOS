@@ -69,6 +69,25 @@ final class PlaneSprites {
         return image
     }
 
+    /// The sprite as it is on the sheet, with no padding around it.
+    ///
+    /// The padded variant exists so an aircraft stays small while its
+    /// annotation stays tappable. An airport marker sizes its own image view
+    /// and wants the crop itself — padding it would shrink the glyph inside a
+    /// box the marker has no use for.
+    func rawIcon(forKey key: String) -> UIImage? {
+        let cacheKey = "raw|\(key)"
+        if let cached = cache[cacheKey] { return cached }
+
+        guard let sheet = sheet,
+              let uv = uvs[key], uv.count == 4,
+              let cropped = crop(sheet: sheet, uv: uv) else { return nil }
+
+        let image = UIImage(cgImage: cropped)
+        cache[cacheKey] = image
+        return image
+    }
+
     /// The icon's own shape, filled flat.
     ///
     /// Drawn as colour-then-`destinationIn` rather than with a template

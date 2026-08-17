@@ -38,6 +38,14 @@ struct TrackerMapView: UIViewRepresentable {
     /// whether the camera is free to rotate and tilt.
     var style: MapStyleMode = .muted
 
+    /// Fields worth marking — controlled, or busy. Empty when the filter is
+    /// off, which is how the whole feature is switched off.
+    var airports: [MapAirport] = []
+
+    /// Opening a field that was tapped on the map. Separate from `selection`,
+    /// which is an aircraft and drives the flight window.
+    var onSelectAirport: (String) -> Void = { _ in }
+
     /// Which aircraft get picked out of the traffic, and in what colour.
     /// Equatable, so the coordinator repaints the sprites only when something
     /// about it actually changed.
@@ -76,6 +84,11 @@ struct TrackerMapView: UIViewRepresentable {
             forAnnotationViewWithReuseIdentifier: Coordinator.replayReuseIdentifier
         )
 
+        mapView.register(
+            AirportAnnotationView.self,
+            forAnnotationViewWithReuseIdentifier: AirportAnnotationView.reuseIdentifier
+        )
+
         return mapView
     }
 
@@ -101,6 +114,7 @@ struct TrackerMapView: UIViewRepresentable {
         context.coordinator.applyStyle(style, on: mapView)
         context.coordinator.applyHighlighting(highlighting, on: mapView)
         context.coordinator.sync(flights: flights, on: mapView)
+        context.coordinator.syncAirports(airports, on: mapView)
         context.coordinator.syncSelection(selection, on: mapView)
         context.coordinator.syncRoute(on: mapView)
         context.coordinator.syncReplay(on: mapView)
@@ -149,6 +163,9 @@ struct TrackerMapView: UIViewRepresentable {
         /// only swapped when it actually changes — assigning
         /// `preferredConfiguration` reloads the map's tiles.
         private var appliedStyle: MapStyleMode?
+
+        /// Field markers currently on the map, by ICAO.
+        private var airportAnnotations: [String: AirportAnnotation] = [:]
 
         /// The highlighting the drawn sprites were painted with.
         private var appliedHighlighting = PilotHighlighting()
@@ -253,6 +270,64 @@ struct TrackerMapView: UIViewRepresentable {
                       let view = mapView.view(for: flight) else { continue }
                 apply(annotation: flight, to: view, selected: flight.flightId == parent.selection?.id)
             }
+        }
+
+        // MARK: Airports
+
+        /// Adds, updates and removes the field markers.
+        ///
+        /// Culled to the viewport like the traffic is, and for the same reason:
+        /// a busy server can have a hundred-odd fields worth marking, and the
+        /// ones off screen cost layout for nothing. Unlike an aircraft there is
+        /// no grace period — a field does not flicker in and out of a packet.
+        func syncAirports(_ airports: [MapAirport], on mapView: MKMapView) {
+            guard !airports.isEmpty else {
+                if !airportAnnotations.isEmpty {
+                    mapView.removeAnnotations(Array(airportAnnotations.values))
+                    airportAnnotations.removeAll()
+                }
+                return
+            }
+
+            let region = mapView.region
+            guard region.span.latitudeDelta.isFinite, region.span.longitudeDelta.isFinite else { return }
+
+            let latitudeMargin = region.span.latitudeDelta * AppConfig.flightAddMargin
+            let longitudeMargin = region.span.longitudeDelta * AppConfig.flightAddMargin
+
+            var wanted: [String: MapAirport] = [:]
+            for field in airports {
+                let coordinate = field.airport.coordinate
+                guard abs(coordinate.latitude - region.center.latitude) <= latitudeMargin,
+                      Self.longitudeDelta(coordinate.longitude, region.center.longitude) <= longitudeMargin
+                else { continue }
+                wanted[field.airport.icao] = field
+            }
+
+            var additions: [AirportAnnotation] = []
+
+            for (icao, field) in wanted {
+                if let existing = airportAnnotations[icao] {
+                    guard existing.field != field else { continue }
+                    existing.field = field
+                    if let view = mapView.view(for: existing) as? AirportAnnotationView {
+                        view.apply(existing)
+                    }
+                } else {
+                    let annotation = AirportAnnotation(field: field)
+                    airportAnnotations[icao] = annotation
+                    additions.append(annotation)
+                }
+            }
+
+            var removals: [AirportAnnotation] = []
+            for (icao, annotation) in airportAnnotations where wanted[icao] == nil {
+                removals.append(annotation)
+                airportAnnotations.removeValue(forKey: icao)
+            }
+
+            if !removals.isEmpty { mapView.removeAnnotations(removals) }
+            if !additions.isEmpty { mapView.addAnnotations(additions) }
         }
 
         // MARK: Annotation syncing
@@ -739,6 +814,15 @@ struct TrackerMapView: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
+            if let field = annotation as? AirportAnnotation {
+                let view = mapView.dequeueReusableAnnotationView(
+                    withIdentifier: AirportAnnotationView.reuseIdentifier,
+                    for: field
+                )
+                (view as? AirportAnnotationView)?.apply(field)
+                return view
+            }
+
             if let replay = annotation as? ReplayAnnotation {
                 let view = mapView.dequeueReusableAnnotationView(
                     withIdentifier: Coordinator.replayReuseIdentifier,
@@ -775,6 +859,15 @@ struct TrackerMapView: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView) {
+            if let field = view.annotation as? AirportAnnotation {
+                // Deselected immediately: a field opens a panel and is not a
+                // selection the map holds, so leaving it selected would leave a
+                // marker stuck in a highlighted state behind the sheet.
+                mapView.deselectAnnotation(field, animated: false)
+                parent.onSelectAirport(field.icao)
+                return
+            }
+
             guard let annotation = view.annotation as? FlightAnnotation else { return }
 
             apply(annotation: annotation, to: view, selected: true)

@@ -57,6 +57,21 @@ struct ContentView: View {
     /// without anything here having to know that it should.
     private var highlighting: PilotHighlighting { PilotHighlighting.current() }
 
+    /// How many uncontrolled fields the map marks, on top of every field
+    /// somebody is working. Enough to show where the server actually is,
+    /// short of littering the map with places one aircraft filed through.
+    private static let busiestAirportsOnMap = 40
+
+    /// Fields to mark. Empty when the toggle is off, which is the whole switch.
+    private var mapAirports: [MapAirport] {
+        guard filters.showsAirports else { return [] }
+        return MapAirport.active(
+            in: feed.flights,
+            stations: feed.atcStations,
+            busiestLimit: Self.busiestAirportsOnMap
+        )
+    }
+
     /// Opened from the avatar button, and from Settings.
     @State private var isShowingAccount = false
 
@@ -146,6 +161,16 @@ struct ContentView: View {
                 isFollowing: isFollowing && !replay.isActive,
                 colorScheme: theme.colorScheme,
                 style: appearance.resolvedMapStyle,
+                airports: mapAirports,
+                onSelectAirport: { icao in
+                    guard let field = AirportStore.shared.airport(icao) else { return }
+                    // No origin: a field tapped on the map was not arrived at
+                    // from an aircraft, even if one happens to be open behind
+                    // it, and offering to go "back" to one would be inventing a
+                    // history.
+                    selection = nil
+                    openAirport(field)
+                },
                 highlighting: highlighting
             )
             .ignoresSafeArea()

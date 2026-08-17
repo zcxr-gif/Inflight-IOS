@@ -39,6 +39,15 @@ struct FiltersPanel: View {
             subtitle: "\(tally.shown) of \(feed.flights.count) aircraft shown",
             accessory: filters.isFiltering ? AnyView(resetButton) : nil
         ) {
+            PanelSection(title: "AIRPORTS") {
+                PanelToggleRow(
+                    title: "Show airports",
+                    symbol: "mappin.and.ellipse",
+                    detail: "Marks fields with somebody on frequency, and the busiest of the rest. Tap one to open it.",
+                    isOn: $filters.showsAirports
+                )
+            }
+
             PanelSection(title: "PHASE") {
                 ForEach(FlightPhase.allCases, id: \.self) { phase in
                     if phase != FlightPhase.allCases.first { PanelDivider() }
