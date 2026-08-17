@@ -235,7 +235,7 @@ struct AccountPanel: View {
                     detail: "Your account has Pro from before it was sold separately. It stays that way."
                 )
 
-            case .none:
+            case .free:
                 PanelActionRow(
                     title: "Get Inflight Pro",
                     symbol: "sparkles",

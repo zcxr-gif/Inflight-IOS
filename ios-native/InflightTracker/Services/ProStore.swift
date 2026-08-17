@@ -15,7 +15,6 @@ import StoreKit
 /// validate against: `Transaction.currentEntitlements` is the Apple-signed
 /// answer to "has this Apple Account bought it", and it is the only thing this
 /// class treats as proof.
-@MainActor
 final class ProStore: ObservableObject {
 
     static let shared = ProStore()
@@ -57,10 +56,14 @@ final class ProStore: ObservableObject {
     // MARK: - Lifecycle
 
     /// Called once at launch. Safe to call again.
+    ///
+    /// Deliberately not isolated itself, so it can be called from wherever the
+    /// app happens to start up. Both tasks it spawns pin themselves to the main
+    /// actor instead, which is where everything they touch lives.
     func start() {
         guard updates == nil else { return }
 
-        updates = Task { [weak self] in
+        updates = Task { @MainActor [weak self] in
             for await update in Transaction.updates {
                 guard let self = self else { return }
                 if case .verified(let transaction) = update {
@@ -70,14 +73,16 @@ final class ProStore: ObservableObject {
             }
         }
 
-        Task {
-            await refreshEntitlement()
-            await loadProduct()
+        Task { @MainActor [weak self] in
+            guard let self = self else { return }
+            await self.refreshEntitlement()
+            await self.loadProduct()
         }
     }
 
     // MARK: - Catalogue
 
+    @MainActor
     func loadProduct() async {
         guard product == nil, !isLoadingProduct else { return }
 
@@ -100,6 +105,7 @@ final class ProStore: ObservableObject {
 
     // MARK: - Buying
 
+    @MainActor
     func purchase() async {
         guard !isPurchasing else { return }
 
@@ -152,6 +158,7 @@ final class ProStore: ObservableObject {
     /// `AppStore.sync()` is deliberately the last resort it is meant to be — it
     /// asks for an Apple Account password — so the cheap check runs first and
     /// only a genuine miss goes on to the expensive one.
+    @MainActor
     func restore() async {
         guard !isRestoring else { return }
 
@@ -176,6 +183,7 @@ final class ProStore: ObservableObject {
 
     // MARK: - Entitlement
 
+    @MainActor
     func refreshEntitlement() async {
         var owned = false
 

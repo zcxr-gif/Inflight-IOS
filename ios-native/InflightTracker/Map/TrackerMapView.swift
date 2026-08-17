@@ -168,18 +168,6 @@ struct TrackerMapView: UIViewRepresentable {
             mapView.isRotateEnabled = style.isFreeCamera
             mapView.isPitchEnabled = style.isFreeCamera
 
-            // The globe only exists at the far end of the zoom range, so the
-            // range has to actually reach there. Cleared for every other style,
-            // which restores MapKit's default.
-            if style.isFreeCamera, let distance = style.openingDistance {
-                mapView.setCameraZoomRange(
-                    MKMapView.CameraZoomRange(maxCenterCoordinateDistance: distance * 1.5),
-                    animated: false
-                )
-            } else {
-                mapView.setCameraZoomRange(nil, animated: false)
-            }
-
             if style.isFreeCamera {
                 // Only when the style actually changes — which the guard above
                 // has already established — and never on a redraw, or the globe

@@ -9,20 +9,19 @@ import Foundation
 /// used — nothing else.
 enum ProFeature: String, CaseIterable, Identifiable {
 
-    /// How many pilots a free account can watch. Low enough to be a real
-    /// difference, high enough that the feature is genuinely usable free —
-    /// nobody should have to pay to find out whether the list works.
-    ///
-    /// Lives here rather than on `Entitlements` so the copy below, the gate and
-    /// the paywall all read the same number without reaching into a main-actor
-    /// type from wherever they happen to run.
-    static let freeWatchlistLimit = 3
-
     /// Playing back the path an aircraft has already flown.
     case replay
 
     /// More than a handful of watched pilots.
     case watchlist
+
+    /// How many pilots a free account can watch. Low enough to be a real
+    /// difference, high enough that the feature is genuinely usable free —
+    /// nobody should have to pay to find out whether the list works.
+    ///
+    /// Lives on the feature rather than on `Entitlements` so the copy below,
+    /// the gate and the paywall all read the same number.
+    static let freeWatchlistLimit = 3
 
     var id: String { rawValue }
 
@@ -66,7 +65,6 @@ enum ProFeature: String, CaseIterable, Identifiable {
 /// `profiles`. It could only be written by the client, and a client that can
 /// set its own `is_pro` is a client that can grant itself Pro — so the device
 /// keeps its own receipt and the cloud keeps its own, and either is enough.
-@MainActor
 final class Entitlements: ObservableObject {
 
     static let shared = Entitlements()
@@ -77,13 +75,13 @@ final class Entitlements: ObservableObject {
     /// whose Pro came from the web subscription should not be shown a "Restore
     /// purchases" button as if their entitlement were an App Store one.
     enum Source: Equatable {
-        case none
+        case free
         case appStore
         case subscription
         case legacy
     }
 
-    @Published private(set) var source: Source = .none
+    @Published private(set) var source: Source = .free
 
     private init() {}
 
@@ -117,12 +115,12 @@ final class Entitlements: ObservableObject {
         } else if account?.isLegacyPro == true {
             resolved = .legacy
         } else {
-            resolved = .none
+            resolved = .free
         }
 
         if source != resolved { source = resolved }
 
-        let unlocked = resolved != .none
+        let unlocked = resolved != .free
         if isPro != unlocked { isPro = unlocked }
     }
 }

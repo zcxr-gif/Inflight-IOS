@@ -163,14 +163,15 @@ struct SettingsPanel: View {
     }
 
     private var proDetail: String {
-        guard !entitlements.isPro else {
+        if entitlements.isPro {
             switch entitlements.source {
             case .appStore: return "Active — bought on the App Store."
             case .subscription: return "Active — from your inflight.info subscription."
             case .legacy: return "Active on your account."
-            case .none: return "Active."
+            case .free: return "Active."
             }
         }
+
         guard let price = store.displayPrice else {
             return "Flight replay and the whole watchlist, bought once."
         }

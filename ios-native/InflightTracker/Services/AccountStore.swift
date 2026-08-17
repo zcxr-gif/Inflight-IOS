@@ -13,7 +13,6 @@ import Foundation
 /// Only the access token is kept in memory. The refresh token — the thing that
 /// is actually worth stealing — is in the Keychain, and the session is rebuilt
 /// from it on launch.
-@MainActor
 final class AccountStore: ObservableObject {
 
     static let shared = AccountStore()
@@ -88,6 +87,7 @@ final class AccountStore: ObservableObject {
     // MARK: - Launch
 
     /// Rebuilds the session from the Keychain. Safe to call more than once.
+    @MainActor
     func restore() async {
         guard account == nil, let token = SessionKeychain.read() else {
             isRestoring = false
@@ -114,6 +114,7 @@ final class AccountStore: ObservableObject {
 
     // MARK: - Sign in / up / out
 
+    @MainActor
     func signIn(email: String, password: String) async {
         await run {
             let session = try await SupabaseAuth.signIn(
@@ -124,6 +125,7 @@ final class AccountStore: ObservableObject {
         }
     }
 
+    @MainActor
     func signUp(email: String, password: String) async {
         await run {
             switch try await SupabaseAuth.signUp(email: Self.clean(email), password: password) {
@@ -136,6 +138,7 @@ final class AccountStore: ObservableObject {
         }
     }
 
+    @MainActor
     func sendPasswordReset(email: String) async {
         await run {
             let address = Self.clean(email)
@@ -144,6 +147,7 @@ final class AccountStore: ObservableObject {
         }
     }
 
+    @MainActor
     func signOut() async {
         if let token = accessToken {
             await SupabaseAuth.signOut(accessToken: token)
@@ -166,6 +170,7 @@ final class AccountStore: ObservableObject {
     /// the server keyed to it. What it does *not* touch is anything local — the
     /// watchlist is filed under the device, and deleting an account is not a
     /// reason to take it away.
+    @MainActor
     func deleteAccount() async {
         guard account != nil else { return }
 
@@ -190,6 +195,7 @@ final class AccountStore: ObservableObject {
     /// the row can change without this device doing anything — a web
     /// subscription renewing or lapsing is the whole point of reading it at
     /// all.
+    @MainActor
     func refreshProfile() async {
         guard let account = account else { return }
 
@@ -208,6 +214,7 @@ final class AccountStore: ObservableObject {
     /// Wraps the shared shape of every user-initiated request: one at a time,
     /// the previous complaint cleared, and a thrown error turned into something
     /// to read.
+    @MainActor
     private func run(_ work: @escaping () async throws -> Void) async {
         guard !isWorking else { return }
 
@@ -226,6 +233,7 @@ final class AccountStore: ObservableObject {
         isWorking = false
     }
 
+    @MainActor
     private func adopt(_ session: SupabaseAuth.Session) async throws {
         accessToken = session.accessToken
         accessTokenExpiry = session.expiry
@@ -251,6 +259,7 @@ final class AccountStore: ObservableObject {
         apply(profile)
     }
 
+    @MainActor
     private func apply(_ profile: SupabaseAuth.Profile?) {
         guard var updated = account else { return }
         updated.isPro = profile?.isPro ?? false
@@ -263,6 +272,7 @@ final class AccountStore: ObservableObject {
 
     /// An access token that is good for the next minute, refreshing first if it
     /// isn't. GoTrue's are short-lived, and the app can sit open for hours.
+    @MainActor
     private func validAccessToken() async throws -> String {
         if let token = accessToken,
            let expiry = accessTokenExpiry,
