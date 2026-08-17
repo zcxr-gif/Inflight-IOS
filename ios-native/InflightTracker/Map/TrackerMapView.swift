@@ -34,6 +34,10 @@ struct TrackerMapView: UIViewRepresentable {
     /// everything else, so it has to be told, not stamped.
     var colorScheme: ColorScheme = .dark
 
+    /// How the map underneath the traffic is drawn — and, for the globe,
+    /// whether the camera is free to rotate and tilt.
+    var style: MapStyleMode = .muted
+
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeUIView(context: Context) -> MKMapView {
@@ -44,8 +48,9 @@ struct TrackerMapView: UIViewRepresentable {
         mapView.showsUserLocation = false
         mapView.pointOfInterestFilter = .excludingAll
 
-        // Heading is applied as a plain rotation on each annotation view, which
-        // only lines up with the world while the map itself is north-up.
+        // Both are driven by the style from `updateUIView`. A sprite's rotation
+        // is its true heading, so anything but north-up means correcting every
+        // annotation against the camera — which only the globe asks for.
         mapView.isRotateEnabled = false
         mapView.isPitchEnabled = false
 
@@ -55,11 +60,6 @@ struct TrackerMapView: UIViewRepresentable {
         mapView.tintColor = UIColor { traits in
             traits.userInterfaceStyle == .light ? UIColor(white: 0.10, alpha: 1) : .white
         }
-
-        let configuration = MKStandardMapConfiguration(elevationStyle: .flat)
-        configuration.emphasisStyle = .muted
-        configuration.pointOfInterestFilter = .excludingAll
-        mapView.preferredConfiguration = configuration
 
         mapView.register(
             MKAnnotationView.self,
@@ -80,9 +80,9 @@ struct TrackerMapView: UIViewRepresentable {
         // Drives MapKit's own light/dark cartography, and with it every dynamic
         // colour the overlays and annotations resolve — so the map, its route
         // lines and the chrome floating over it all turn together.
-        let style: UIUserInterfaceStyle = colorScheme == .light ? .light : .dark
-        if mapView.overrideUserInterfaceStyle != style {
-            mapView.overrideUserInterfaceStyle = style
+        let interfaceStyle: UIUserInterfaceStyle = colorScheme == .light ? .light : .dark
+        if mapView.overrideUserInterfaceStyle != interfaceStyle {
+            mapView.overrideUserInterfaceStyle = interfaceStyle
 
             // A renderer resolves its dynamic stroke colour once and keeps the
             // resolved one, so the route drawn before the switch would stay the
@@ -93,6 +93,7 @@ struct TrackerMapView: UIViewRepresentable {
             }
         }
 
+        context.coordinator.applyStyle(style, on: mapView)
         context.coordinator.sync(flights: flights, on: mapView)
         context.coordinator.syncSelection(selection, on: mapView)
         context.coordinator.syncRoute(on: mapView)
@@ -138,8 +139,108 @@ struct TrackerMapView: UIViewRepresentable {
 
         private var handledCommand: UUID?
 
+        /// The style currently applied to the map view, so the configuration is
+        /// only swapped when it actually changes — assigning
+        /// `preferredConfiguration` reloads the map's tiles.
+        private var appliedStyle: MapStyleMode?
+
+        /// The camera bearing every drawn sprite is currently corrected
+        /// against.
+        ///
+        /// North-up styles hold this at zero and the correction is a no-op. On
+        /// the globe it is whatever the camera has been spun to, and a sprite's
+        /// rotation is its true heading *minus* this — otherwise turning the
+        /// planet turns every aircraft on it, and they all point the wrong way.
+        private var appliedCameraHeading: CLLocationDirection = 0
+
         init(_ parent: TrackerMapView) {
             self.parent = parent
+        }
+
+        // MARK: Style
+
+        func applyStyle(_ style: MapStyleMode, on mapView: MKMapView) {
+            guard appliedStyle != style else { return }
+            let previous = appliedStyle
+            appliedStyle = style
+
+            mapView.preferredConfiguration = style.configuration()
+            mapView.isRotateEnabled = style.isFreeCamera
+            mapView.isPitchEnabled = style.isFreeCamera
+
+            // The globe only exists at the far end of the zoom range, so the
+            // range has to actually reach there. Cleared for every other style,
+            // which restores MapKit's default.
+            if style.isFreeCamera, let distance = style.openingDistance {
+                mapView.setCameraZoomRange(
+                    MKMapView.CameraZoomRange(maxCenterCoordinateDistance: distance * 1.5),
+                    animated: false
+                )
+            } else {
+                mapView.setCameraZoomRange(nil, animated: false)
+            }
+
+            if style.isFreeCamera {
+                // Only when the style actually changes — which the guard above
+                // has already established — and never on a redraw, or the globe
+                // would yank itself back out to arm's length each time a packet
+                // landed. A stored globe gets this on launch too, which is
+                // right: it is the whole reason the style was saved.
+                if let distance = style.openingDistance {
+                    let camera = MKMapCamera(
+                        lookingAtCenter: mapView.centerCoordinate,
+                        fromDistance: distance,
+                        pitch: 0,
+                        heading: 0
+                    )
+                    mapView.setCamera(camera, animated: previous != nil)
+                }
+            } else {
+                // Leaving the globe with the camera spun would leave every
+                // sprite crooked on a map that can no longer be straightened,
+                // so north-up is restored on the way out. Built fresh rather
+                // than mutated: `mapView.camera` hands back the map's own
+                // object, and editing it in place is not how it is meant to be
+                // driven.
+                let current = mapView.camera
+                if current.heading != 0 || current.pitch != 0 {
+                    let camera = MKMapCamera(
+                        lookingAtCenter: mapView.centerCoordinate,
+                        fromDistance: current.centerCoordinateDistance,
+                        pitch: 0,
+                        heading: 0
+                    )
+                    mapView.setCamera(camera, animated: true)
+                }
+                realign(on: mapView, heading: 0)
+            }
+        }
+
+        /// Re-applies every drawn sprite's rotation against a new camera
+        /// bearing.
+        ///
+        /// Cheap enough to run from the live gesture callback: it walks the
+        /// annotations that currently have views — the ones on screen — and
+        /// sets a transform on each. The gate is in the caller, on the bearing
+        /// having actually moved.
+        private func realign(on mapView: MKMapView, heading: CLLocationDirection) {
+            appliedCameraHeading = heading
+
+            for annotation in mapView.annotations {
+                guard let view = mapView.view(for: annotation) else { continue }
+
+                if let flight = annotation as? FlightAnnotation {
+                    view.transform = rotation(for: flight.flight.heading)
+                } else if let replay = annotation as? ReplayAnnotation {
+                    view.transform = rotation(for: replay.heading)
+                }
+            }
+        }
+
+        /// A sprite's transform: its true heading, corrected for wherever the
+        /// camera is pointing.
+        private func rotation(for heading: Double) -> CGAffineTransform {
+            CGAffineTransform(rotationAngle: CGFloat(heading - appliedCameraHeading) * .pi / 180)
         }
 
         // MARK: Annotation syncing
@@ -252,7 +353,7 @@ struct TrackerMapView: UIViewRepresentable {
         private func apply(annotation: FlightAnnotation, to view: MKAnnotationView, selected: Bool) {
             let key = annotation.flight.spriteKey
             view.image = PlaneSprites.shared.icon(forKey: key, selected: selected)
-            view.transform = CGAffineTransform(rotationAngle: CGFloat(annotation.flight.heading) * .pi / 180)
+            view.transform = rotation(for: annotation.flight.heading)
 
             annotation.renderedSpriteKey = key
             annotation.renderedHeading = annotation.flight.heading
@@ -475,7 +576,7 @@ struct TrackerMapView: UIViewRepresentable {
 
         private func apply(replay annotation: ReplayAnnotation, to view: MKAnnotationView) {
             view.image = PlaneSprites.shared.icon(forKey: annotation.spriteKey, selected: true)
-            view.transform = CGAffineTransform(rotationAngle: CGFloat(annotation.heading) * .pi / 180)
+            view.transform = rotation(for: annotation.heading)
         }
 
         // MARK: Camera
@@ -692,6 +793,18 @@ struct TrackerMapView: UIViewRepresentable {
         }
 
         private static let liveCullInterval: TimeInterval = 0.25
+
+        /// Fires continuously through a pan, pinch or twist — which is exactly
+        /// when a spun globe needs its aircraft straightened again. Gated on the
+        /// bearing having moved by more than a degree, so an ordinary pan on a
+        /// north-up map does no work at all.
+        func mapViewDidChangeVisibleRegion(_ mapView: MKMapView) {
+            guard parent.style.isFreeCamera else { return }
+
+            let heading = mapView.camera.heading
+            guard abs(heading - appliedCameraHeading) > 1 else { return }
+            realign(on: mapView, heading: heading)
+        }
 
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
             // Re-cull for the new viewport using the traffic we already have.

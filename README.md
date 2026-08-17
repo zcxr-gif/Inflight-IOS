@@ -16,6 +16,7 @@ The previous Capacitor/web build is preserved untouched in [`old/`](old/).
 - Filters: phase, altitude band, aircraft kind (airliners, regional, light & private, military, helicopters), and filed-destination-only. All of them views onto traffic already received, so nothing is re-fetched.
 - Server switcher: Expert / Training / Casual.
 - Hints: one dim line at the foot of a screen, about that screen. Each retires after a few sessions or when dismissed; the whole thing can be switched off, or restored, under Settings.
+- Map styles, from the control in the map's bottom corner or Settings › Appearance: Muted (the default), Detailed, Satellite, and **Globe** — MapKit's own 3D planet, free to spin and tilt, with the server's traffic on it. The globe is the only style that unlocks rotation, and sprite headings are corrected against the camera so a spun planet doesn't turn every aircraft on it.
 - Light and dark, under Settings › Appearance: Auto follows iOS, or pin it either way. Every surface — the panels, the floating chrome, the info window, and MapKit's own cartography — turns together.
 - An optional account, on the same Supabase project the web tracker uses, so an account made on inflight.info signs in here. Sign in, sign up, reset a password, delete the account.
 - Inflight Pro: a one-off App Store purchase that unlocks flight replay and lifts the watchlist cap. A web subscription (or the grandfathered `legacy_pro` flag) unlocks the same things, for anyone who already has one.

@@ -67,6 +67,17 @@ struct SettingsPanel: View {
 
                 PanelDivider()
 
+                PanelPickerRow(
+                    title: "Map",
+                    symbol: appearance.mapStyle.symbol,
+                    options: MapStyleMode.allCases,
+                    label: { $0.label },
+                    detail: appearance.mapStyle.detail,
+                    selection: $appearance.mapStyle
+                )
+
+                PanelDivider()
+
                 PanelToggleRow(
                     title: "Glass flight info",
                     symbol: "square.on.square.dashed",

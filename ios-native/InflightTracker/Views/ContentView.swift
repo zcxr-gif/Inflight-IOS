@@ -116,20 +116,30 @@ struct ContentView: View {
                 // the live aircraft at the same time would be two things
                 // fighting over one map.
                 isFollowing: isFollowing && !replay.isActive,
-                colorScheme: theme.colorScheme
+                colorScheme: theme.colorScheme,
+                style: appearance.mapStyle
             )
             .ignoresSafeArea()
 
-            // Map chrome, top down: search always, then the weather chip while
-            // an aircraft is open — it reports on where that aircraft is, so
-            // there is nothing for it to say without one.
+            // Map chrome, top down: the search field until an aircraft is
+            // open, then the weather chip in its place — it reports on where
+            // that aircraft is, so there is nothing for it to say without one.
+            //
+            // The search field gives way for the same reason the toolbar does.
+            // Once you have found the aircraft, the field has done its job, and
+            // leaving it there costs the top of the map — which is precisely
+            // where a window open at its peak leaves room to actually watch the
+            // thing you just tapped.
             VStack(alignment: .leading, spacing: 10) {
-                MapSearchField(
-                    query: $query,
-                    results: results,
-                    theme: theme,
-                    onSelect: open
-                )
+                if selection == nil {
+                    MapSearchField(
+                        query: $query,
+                        results: results,
+                        theme: theme,
+                        onSelect: open
+                    )
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
 
                 if selection != nil, weatherPreferences.isChipVisible {
                     WeatherChip(model: weather, theme: theme, isExpanded: $isWeatherExpanded)
@@ -140,6 +150,7 @@ struct ContentView: View {
             .padding(.top, 8)
 
             mapControls
+            mapStyleControl
             mapToolbar
             replayBar
         }
@@ -157,6 +168,12 @@ struct ContentView: View {
             isFollowing = false
 
             detent = peakDetent
+
+            // The field is on its way out, and it should come back empty rather
+            // than holding the query that found this aircraft. Cleared here
+            // rather than in the search field itself, which has no idea why it
+            // is being dismissed.
+            if id != nil { query = "" }
 
             if id == nil {
                 if sheet == .flight { sheet = nil }
@@ -476,6 +493,46 @@ struct ContentView: View {
             // rides up on top of it while a query is being typed.
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .transition(.opacity.combined(with: .move(edge: .bottom)))
+        }
+    }
+
+    /// How the map is drawn, in the corner that holds the map's controls.
+    ///
+    /// The same corner as the follow/centre/route hub, and shown on exactly the
+    /// opposite condition — so that corner always has the map's own controls in
+    /// it, and which ones depends on whether you are watching an aircraft or
+    /// looking around. With a window open the hub is the more useful of the two
+    /// and this gets out of its way; the style is still under Settings, where it
+    /// is stored.
+    ///
+    /// A menu rather than a cycle button: four styles is one too many to page
+    /// through blind, and the globe is the one people are looking for.
+    @ViewBuilder
+    private var mapStyleControl: some View {
+        if selection == nil, !replay.isActive {
+            Menu {
+                Picker("Map", selection: $appearance.mapStyle) {
+                    ForEach(MapStyleMode.allCases) { style in
+                        Label(style.label, systemImage: style.symbol).tag(style)
+                    }
+                }
+            } label: {
+                Image(systemName: appearance.mapStyle.symbol)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(theme.textPrimary)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("Map style, \(appearance.mapStyle.label)")
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .environment(\.colorScheme, theme.colorScheme)
+            .padding(.trailing, 16)
+            // Clears the toolbar, and the hint strip that can sit above it.
+            .padding(.bottom, MapToolbar.reservedHeight + 8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+            .ignoresSafeArea(.keyboard, edges: .bottom)
+            .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))
         }
     }
 

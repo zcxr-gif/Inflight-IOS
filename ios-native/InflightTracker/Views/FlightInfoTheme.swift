@@ -44,6 +44,7 @@ final class FlightInfoAppearance: ObservableObject {
     private static let glassKey = "flightInfoGlassEnabled"
     private static let peakStyleKey = "flightInfoPeakStyle"
     private static let modeKey = "appAppearanceMode"
+    private static let mapStyleKey = "mapStyleMode"
 
     @Published var isGlassEnabled: Bool {
         didSet { UserDefaults.standard.set(isGlassEnabled, forKey: Self.glassKey) }
@@ -55,6 +56,13 @@ final class FlightInfoAppearance: ObservableObject {
 
     @Published var mode: AppAppearanceMode {
         didSet { UserDefaults.standard.set(mode.rawValue, forKey: Self.modeKey) }
+    }
+
+    /// How the map itself is drawn. Lives here rather than under the filters:
+    /// the filters are about *which traffic* is on the map, and this is about
+    /// what the map looks like — the same question as light and dark.
+    @Published var mapStyle: MapStyleMode {
+        didSet { UserDefaults.standard.set(mapStyle.rawValue, forKey: Self.mapStyleKey) }
     }
 
     /// What iOS itself is set to, reported in by the root view.
@@ -96,6 +104,9 @@ final class FlightInfoAppearance: ObservableObject {
         // installs follow iOS.
         mode = AppAppearanceMode(rawValue: defaults.string(forKey: Self.modeKey) ?? "")
             ?? (defaults.object(forKey: Self.glassKey) == nil ? .system : .dark)
+        // Muted is the map the app has always drawn, so nobody's map changes
+        // under them on update — the globe is something you go and switch on.
+        mapStyle = MapStyleMode(rawValue: defaults.string(forKey: Self.mapStyleKey) ?? "") ?? .muted
     }
 }
 
