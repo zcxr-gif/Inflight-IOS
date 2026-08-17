@@ -209,24 +209,45 @@ struct AirportTraffic: Identifiable {
             }
         }
 
-        let ranked = Set(arrivals.keys).union(departures.keys)
-            .map { icao in (icao, (arrivals[icao] ?? 0) + (departures[icao] ?? 0)) }
-            .sorted { first, second in
-                first.1 == second.1 ? first.0 < second.0 : first.1 > second.1
-            }
+        // Spelled out rather than chained. `Set(...).union(...).map { (a, b) }
+        // .sorted { ternary }` is four inference problems in one expression —
+        // a generic set operation feeding an unlabelled tuple into a
+        // comparator — and Swift's type checker gives up on it outright:
+        // "unable to type-check this expression in reasonable time". Loops
+        // carry an explicit type at every step and cost the compiler nothing.
+        var totals: [String: Int] = [:]
+        for (icao, count) in arrivals {
+            totals[icao, default: 0] += count
+        }
+        for (icao, count) in departures {
+            totals[icao, default: 0] += count
+        }
+
+        var ranked: [(icao: String, total: Int)] = []
+        ranked.reserveCapacity(totals.count)
+        for (icao, total) in totals {
+            ranked.append((icao: icao, total: total))
+        }
+
+        // Busiest first, then alphabetically, so equally busy fields come out
+        // in a stable order instead of the dictionary's.
+        ranked.sort { first, second in
+            if first.total != second.total { return first.total > second.total }
+            return first.icao < second.icao
+        }
 
         var board: [AirportTraffic] = []
         board.reserveCapacity(limit)
 
-        for (icao, _) in ranked {
+        for entry in ranked {
             guard board.count < limit else { break }
-            guard let airport = AirportStore.shared.airport(icao) else { continue }
+            guard let airport = AirportStore.shared.airport(entry.icao) else { continue }
 
             board.append(
                 AirportTraffic(
                     airport: airport,
-                    inbound: arrivals[icao] ?? 0,
-                    outbound: departures[icao] ?? 0
+                    inbound: arrivals[entry.icao] ?? 0,
+                    outbound: departures[entry.icao] ?? 0
                 )
             )
         }

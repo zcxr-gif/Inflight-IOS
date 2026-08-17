@@ -245,7 +245,11 @@ final class HintsStore: ObservableObject {
     /// How many hints have been read out or dismissed, for the settings row
     /// that offers them back.
     var retiredCount: Int {
-        Hint.all.filter { (shown[$0.id] ?? 0) >= Self.appearances }.count
+        var count = 0
+        for hint in Hint.all where (shown[hint.id] ?? 0) >= Self.appearances {
+            count += 1
+        }
+        return count
     }
 
     /// What this place is saying this launch, or nil once it has said all of it.
@@ -270,9 +274,24 @@ final class HintsStore: ObservableObject {
     /// launches by itself rather than needing a cursor stored anywhere. Ties go
     /// to whichever comes first in `Hint.all`.
     private func next(for placement: HintPlacement) -> Hint? {
-        Hint.all
-            .filter { $0.placement == placement && (shown[$0.id] ?? 0) < Self.appearances }
-            .min { (shown[$0.id] ?? 0) < (shown[$1.id] ?? 0) }
+        // A loop rather than filter-then-min. Chaining two closures whose
+        // bodies are optional-coalesced dictionary lookups is the shape that
+        // defeated the type checker in `AirportTraffic.busiest`, and this is
+        // not worth finding that out from a ten-minute build.
+        var best: Hint?
+        var bestCount = Self.appearances
+
+        for hint in Hint.all where hint.placement == placement {
+            let count = shown[hint.id] ?? 0
+            // Strictly less, so ties go to the earlier entry in `Hint.all` and
+            // the order a place says things in stays the written one.
+            if count < bestCount {
+                best = hint
+                bestCount = count
+            }
+        }
+
+        return best
     }
 
     private func markShown(_ hint: Hint) {
