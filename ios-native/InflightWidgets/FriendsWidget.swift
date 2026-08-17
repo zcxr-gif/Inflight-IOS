@@ -77,19 +77,23 @@ struct FriendsWidgetView: View {
     }
 
     var body: some View {
-        switch family {
-        case .accessoryRectangular:
-            accessory
-                .containerBackground(for: .widget) { Color.clear }
-        default:
-            content
-                .containerBackground(for: .widget) {
-                    PlaneBackdrop(
-                        photoKey: aloft.first?.photoKey ?? entry.friends.first?.photoKey ?? "",
-                        style: family == .systemSmall ? .dense : .framed,
-                        altitudeFt: aloft.first?.altitudeFt ?? 0
-                    )
-                }
+        // Wrapped, because a `switch` is a statement and a modifier cannot be
+        // chained onto one — the `Group` is what there is to hang the link on.
+        Group {
+            switch family {
+            case .accessoryRectangular:
+                accessory
+                    .containerBackground(for: .widget) { Color.clear }
+            default:
+                content
+                    .containerBackground(for: .widget) {
+                        PlaneBackdrop(
+                            photoKey: aloft.first?.photoKey ?? entry.friends.first?.photoKey ?? "",
+                            style: family == .systemSmall ? .dense : .framed,
+                            altitudeFt: aloft.first?.altitudeFt ?? 0
+                        )
+                    }
+            }
         }
         // Anywhere that isn't one of the rows opens the list itself.
         .widgetURL(InflightLink.panel("friends").url)
