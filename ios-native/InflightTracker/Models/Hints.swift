@@ -113,6 +113,11 @@ struct Hint: Identifiable, Equatable {
             placement: .flight,
             text: "An aerial beside an airport code means somebody is working that field right now."
         ),
+        Hint(
+            id: "flight.plan",
+            placement: .flight,
+            text: "Where a route has been filed, the map draws it fix by fix instead of a straight line to the destination — and the window lists it, with the fix being flown to picked out."
+        ),
 
         // MARK: One field
 

@@ -31,6 +31,11 @@ struct FlightDetailView: View {
     /// arrives.
     @State private var track: [TrackPoint] = []
 
+    /// The route this aircraft filed, once the backend has answered. Nil is
+    /// both "not asked yet" and "nothing filed" — the card is simply absent
+    /// either way, which is the right answer for an aircraft with no plan.
+    @State private var plan: FlightPlan?
+
     let flightId: String
 
     /// Reported upward so the sheet's peak detent is exactly as tall as the
@@ -145,6 +150,7 @@ struct FlightDetailView: View {
         .onAppear {
             load(flight)
             loadTrack()
+            loadPlan()
         }
         .onChange(of: flight?.liveryName) { _, _ in load(flight) }
         .onChange(of: photoLoader.photo?.url) { _, url in imageLoader.load(url) }
@@ -198,6 +204,20 @@ struct FlightDetailView: View {
         FlightHistoryService.shared.load(flightId: flightId) { history in
             FlightTrailStore.shared.seed(history, for: flightId)
             track = FlightTrailStore.shared.points(for: flightId)
+        }
+    }
+
+    /// The filed route. Seeded from the cache so an aircraft opened twice draws
+    /// its plan on the first frame, then replaced when the fetch lands.
+    private func loadPlan() {
+        plan = FlightPlanService.shared.cached(flightId: flightId)
+
+        FlightPlanService.shared.plan(flightId: flightId, server: feed.server) { resolved in
+            // Nil after an answer is "nothing filed", and there is nothing to
+            // draw for that — but it must not wipe a plan already on screen if
+            // a later refresh happens to fail.
+            guard let resolved = resolved else { return }
+            plan = resolved
         }
     }
 
@@ -262,6 +282,14 @@ struct FlightDetailView: View {
                     FlightWatchRow(flight: flight, theme: theme)
 
                     situationCard(for: flight)
+
+                    // Under the route strip and above the numbers: it is the
+                    // detail behind the two ICAO codes the strip shows, so it
+                    // belongs with them rather than at the foot of the window.
+                    if let plan = plan {
+                        FlightPlanCard(plan: plan, flight: flight, theme: theme)
+                    }
+
                     telemetry(for: flight)
 
                     if track.count >= 4 {

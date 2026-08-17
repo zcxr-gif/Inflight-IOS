@@ -82,4 +82,23 @@ struct FlightProgress {
 
         return 2 * atan2(sqrt(haversine), sqrt(1 - haversine)) * earthRadiusNM
     }
+
+    /// Initial great-circle bearing, in degrees true, 0..<360.
+    ///
+    /// Used to tell what is ahead of an aircraft from what is behind it — a
+    /// filed route that doubles back passes close to fixes it left an hour ago,
+    /// and distance alone cannot separate the two.
+    static func bearing(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) -> Double {
+        let degreesToRadians = Double.pi / 180
+
+        let lat1 = from.latitude * degreesToRadians
+        let lat2 = to.latitude * degreesToRadians
+        let deltaLon = (to.longitude - from.longitude) * degreesToRadians
+
+        let y = sin(deltaLon) * cos(lat2)
+        let x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(deltaLon)
+
+        let degrees = atan2(y, x) / degreesToRadians
+        return degrees < 0 ? degrees + 360 : degrees
+    }
 }

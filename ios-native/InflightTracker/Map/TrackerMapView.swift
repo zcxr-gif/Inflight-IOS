@@ -32,6 +32,11 @@ struct TrackerMapView: UIViewRepresentable {
     /// assigning a configuration re-renders the whole map.
     var style: MapGroundStyle = .standard
 
+    /// The open aircraft's filed route, when it has one. Drawn ahead of it in
+    /// place of the great circle to its destination, which is a guess at the
+    /// same thing.
+    var plan: FlightPlan?
+
     /// Where the map settled, after a pan or a pinch. Lets the chrome report
     /// on wherever you are looking when no aircraft is open.
     var onRegionSettled: ((CLLocationCoordinate2D) -> Void)?
@@ -269,11 +274,20 @@ struct TrackerMapView: UIViewRepresentable {
             }
 
             let trail = FlightTrailStore.shared.points(for: flight.id)
+
+            // The planned leg shortens as fixes are passed, so which fix is
+            // active is part of what is drawn — without it the line would keep
+            // running back to a waypoint the aircraft left behind.
+            let plan = parent.plan
+            let activeFix = plan?.activeIndex(for: flight)
+
             let key = [
                 flight.id,
                 String(trail.count),
                 flight.departureIcao ?? "",
-                flight.arrivalIcao ?? ""
+                flight.arrivalIcao ?? "",
+                plan.map { String($0.waypoints.count) } ?? "",
+                activeFix.map(String.init) ?? ""
             ].joined(separator: "|")
 
             guard key != renderedRouteKey else { return }
@@ -308,8 +322,26 @@ struct TrackerMapView: UIViewRepresentable {
                 routeOverlays.append(dashed(from: departure.coordinate, to: first.coordinate))
             }
 
-            // Still to come.
-            if let arrival = AirportStore.shared.airport(flight.arrivalIcao) {
+            // Still to come. A filed route is the real answer and is drawn as
+            // one — fix to fix, out on the departure and in on the arrival. The
+            // great circle to the destination is only the fallback for an
+            // aircraft that filed nothing but its two ICAO codes, and it is
+            // drawn thinner precisely because it is an assumption.
+            let ahead = plan?.remaining(for: flight) ?? []
+
+            if ahead.count >= 2 {
+                let line = MKGeodesicPolyline(coordinates: ahead, count: ahead.count)
+                line.title = Self.filedTitle
+                routeOverlays.append(line)
+
+                // The last fix is rarely the field itself, so the run in from
+                // it is closed off the same way the rest of the guesswork is.
+                if let arrival = AirportStore.shared.airport(flight.arrivalIcao),
+                   let last = ahead.last,
+                   FlightProgress.distanceNM(from: last, to: arrival.coordinate) > 1 {
+                    routeOverlays.append(dashed(from: last, to: arrival.coordinate))
+                }
+            } else if let arrival = AirportStore.shared.airport(flight.arrivalIcao) {
                 routeOverlays.append(dashed(from: flight.coordinate, to: arrival.coordinate))
             }
 
@@ -371,6 +403,10 @@ struct TrackerMapView: UIViewRepresentable {
 
         static let flownTitle = "flown"
         static let plannedTitle = "planned"
+
+        /// The route the pilot actually filed, as opposed to the line we drew
+        /// because nothing better was known.
+        static let filedTitle = "filed"
 
         // MARK: Replay
 
@@ -561,6 +597,11 @@ struct TrackerMapView: UIViewRepresentable {
                 include(arrival.coordinate)
             }
 
+            // A filed route can swing a long way off the direct line — a
+            // Pacific track, an airway round terrain — and framing only the two
+            // ends would put half of what is drawn off the screen.
+            for waypoint in parent.plan?.waypoints ?? [] { include(waypoint.coordinate) }
+
             guard !rect.isNull, rect.width.isFinite, rect.height.isFinite else { return }
 
             mapView.setVisibleMapRect(rect, edgePadding: edgeInsets(), animated: true)
@@ -586,6 +627,13 @@ struct TrackerMapView: UIViewRepresentable {
                 renderer.strokeColor = UIColor.white.withAlphaComponent(0.34)
                 renderer.lineWidth = 2
                 renderer.lineDashPattern = [2, 7]
+            } else if line.title == Self.filedTitle {
+                // Filed rather than guessed: brighter and heavier than the
+                // straight line it replaces, and still dashed, because it is
+                // ahead of the aeroplane rather than behind it.
+                renderer.strokeColor = UIColor.white.withAlphaComponent(0.62)
+                renderer.lineWidth = 2.5
+                renderer.lineDashPattern = [7, 5]
             } else {
                 let band = line.title.flatMap { title -> Int? in
                     guard let raw = title.split(separator: ":").last else { return nil }

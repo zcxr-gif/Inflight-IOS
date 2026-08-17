@@ -41,6 +41,11 @@ struct ContentView: View {
     @StateObject private var weather = WeatherModel()
     @State private var isWeatherExpanded = false
 
+    /// The open aircraft's filed route, for the map to draw ahead of it. The
+    /// window fetches its own copy for the card it shows; both come out of the
+    /// same cache, so this is one request between them.
+    @State private var selectedPlan: FlightPlan?
+
     /// Where the map last came to rest. With an aircraft open the weather
     /// bubble follows the aircraft; without one it follows this, so the rail
     /// still reports on wherever you have panned to.
@@ -123,6 +128,7 @@ struct ContentView: View {
                 // fighting over one map.
                 isFollowing: isFollowing && !replay.isActive,
                 style: mapAppearance.style,
+                plan: selectedPlan,
                 onRegionSettled: { center in
                     mapCenter = center
                     // With an aircraft open the weather is about the aircraft,
@@ -166,6 +172,8 @@ struct ContentView: View {
             // it goes too — otherwise closing the flight brings back a search
             // for something you stopped looking for two aircraft ago.
             if id != nil { query = "" }
+
+            loadPlan(for: id)
 
             if id == nil {
                 // Back to a bare map: the rail goes back to reporting on
@@ -472,6 +480,25 @@ struct ContentView: View {
                 spanMeters: spanMeters
             )
         )
+    }
+
+    /// The filed route for whichever aircraft is open, for the map to draw.
+    ///
+    /// Cleared first, so a plan never outlives the aircraft it belongs to — the
+    /// answer for the next one may take a moment, and a route from the last
+    /// aeroplane drawn across the map in the meantime is worse than none.
+    private func loadPlan(for flightId: String?) {
+        selectedPlan = nil
+
+        guard let flightId = flightId else { return }
+
+        selectedPlan = FlightPlanService.shared.cached(flightId: flightId)
+
+        FlightPlanService.shared.plan(flightId: flightId, server: feed.server) { plan in
+            // The answer can land after another aircraft has been opened.
+            guard selection?.id == flightId else { return }
+            selectedPlan = plan
+        }
     }
 
     /// Weather follows the open aircraft: the field it is passing, and both
