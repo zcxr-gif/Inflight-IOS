@@ -768,11 +768,25 @@ struct TrackerMapView: UIViewRepresentable {
             isApplyingSelection = false
         }
 
-        /// Fires continuously through a drag or a pinch, which is the point:
-        /// waiting for the gesture to end meant aircraft arrived in a batch
-        /// once the map settled, and a pan into empty sky stayed empty until
-        /// you let go. Throttled, since this can fire every frame.
+        /// Fires continuously through a drag, a pinch or a twist, which is the
+        /// point: waiting for the gesture to end meant aircraft arrived in a
+        /// batch once the map settled, and a pan into empty sky stayed empty
+        /// until you let go.
+        ///
+        /// Two jobs, on two different clocks, which is why they share one
+        /// callback rather than being throttled together. Straightening the
+        /// sprites has to keep up with the finger or the aircraft visibly lag
+        /// behind a spinning globe, and it is gated on the bearing having
+        /// actually moved — on a north-up map it costs one comparison. Re-culling
+        /// walks every aircraft on the server, so it stays on its own throttle.
         func mapViewDidChangeVisibleRegion(_ mapView: MKMapView) {
+            if parent.style.isFreeCamera {
+                let heading = mapView.camera.heading
+                if abs(heading - appliedCameraHeading) > 1 {
+                    realign(on: mapView, heading: heading)
+                }
+            }
+
             let now = Date()
             guard now.timeIntervalSince(lastLiveCull) >= Self.liveCullInterval else { return }
             lastLiveCull = now
@@ -781,18 +795,6 @@ struct TrackerMapView: UIViewRepresentable {
         }
 
         private static let liveCullInterval: TimeInterval = 0.25
-
-        /// Fires continuously through a pan, pinch or twist — which is exactly
-        /// when a spun globe needs its aircraft straightened again. Gated on the
-        /// bearing having moved by more than a degree, so an ordinary pan on a
-        /// north-up map does no work at all.
-        func mapViewDidChangeVisibleRegion(_ mapView: MKMapView) {
-            guard parent.style.isFreeCamera else { return }
-
-            let heading = mapView.camera.heading
-            guard abs(heading - appliedCameraHeading) > 1 else { return }
-            realign(on: mapView, heading: heading)
-        }
 
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
             // Re-cull for the new viewport using the traffic we already have.
