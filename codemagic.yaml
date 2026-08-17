@@ -8,19 +8,37 @@ workflows:
     environment:
       xcode: latest
 
-      # AUTOMATIC SIGNING CONFIGURATION
-      # Same bundle identifier the Capacitor build shipped under, so the
-      # existing App Store Connect record, certificates and TestFlight train
-      # keep working with no manual setup.
+      # MANUAL SIGNING
       #
-      # The match is a prefix rather than exact, so the widget extension
-      # (com.tracker.Inflight.widgets) is signed from the same fetch. Both App
-      # IDs need App Groups enabled in the developer portal, and the app's
-      # needs Push Notifications — see ios-native/NOTIFICATIONS.md. Signing
-      # fails with a missing-profile error until they are.
+      # Was automatic — `distribution_type: app_store` with a bundle id, which
+      # has Codemagic fetch and create signing files through the App Store
+      # Connect API. It cost a day. Codemagic also keeps its own uploaded
+      # profiles, installs them on every builder, and those copies shadow the
+      # fetch completely: portal edits had no effect, a deleted profile kept
+      # arriving, a new one never did, and every error pointed at the portal,
+      # which was correct all along and simply not being read.
+      #
+      # Named files remove the guesswork. What signs the build is what was
+      # uploaded, and nothing decides anything on our behalf.
+      #
+      # These are Codemagic *reference names*, set when each file is uploaded
+      # under Team settings -> Code signing identities. They are not filenames
+      # and not the profile names in Apple's portal, though keeping all three
+      # spellings identical is the cheapest way to stay sane:
+      #
+      #   inflight_distribution          App Store profile, com.tracker.Inflight
+      #   inflight_widgets_distribution  App Store profile, com.tracker.Inflight.widgets
+      #   inflight_distribution_cert     the Apple Distribution certificate, as
+      #                                  a .p12 carrying its private key
+      #
+      # Both profiles are listed because the extension is a second bundle with
+      # its own App ID; one profile cannot sign both. See NOTIFICATIONS.md.
       ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.tracker.Inflight
+        provisioning_profiles:
+          - inflight_distribution
+          - inflight_widgets_distribution
+        certificates:
+          - inflight_distribution_cert
 
       vars:
         XCODE_PROJECT_DIR: "ios-native"
@@ -133,6 +151,28 @@ workflows:
             fi
           done
 
+          # Both bundles need a privacy manifest, and it has to be copied
+          # rather than compiled. Missing one does not fail the build: the
+          # upload succeeds, TestFlight shows the build, and an ITMS-91053
+          # email arrives afterwards saying it cannot be distributed. That is
+          # an hour of round trip to learn something checkable here.
+          if [ "$(grep -c 'PrivacyInfo.xcprivacy' "$XCODE_PROJECT/project.pbxproj")" -lt 2 ]; then
+            echo "FATAL: a privacy manifest is missing from the project."
+            echo "Expected one for each of the app and the widget extension."
+            exit 1
+          fi
+
+          # The manifests are declarations about code that keeps changing, so
+          # they are worth reading rather than merely counting. Every UserDefaults
+          # suite in the app is the app group's or its own; both reasons must be
+          # claimed.
+          for REASON in CA92.1 1C8F.1 C617.1; do
+            if ! grep -q "$REASON" Support/Privacy/App/PrivacyInfo.xcprivacy; then
+              echo "FATAL: the app's privacy manifest does not claim $REASON."
+              exit 1
+            fi
+          done
+
           echo "==> Project generated and verified"
 
       - name: Resolve Swift Packages
@@ -173,13 +213,67 @@ workflows:
           set -euo pipefail
 
           # The ios_signing block above has already fetched the distribution
-          # certificate and the App Store profile for com.tracker.Inflight.
-          # This applies them to the freshly generated project and writes the
-          # export options plist where build-ipa expects to find it.
+          # certificate and the App Store profiles for every App ID starting
+          # with com.tracker.Inflight — which is how the widget extension's
+          # profile is meant to arrive alongside the app's.
           cd "$XCODE_PROJECT_DIR"
+
+          # There is deliberately no attempt to register the extension's App ID
+          # from here. `fetch-signing-files --create` looked like the answer,
+          # but it fetches certificates as well as profiles and fails with
+          # "Cannot save Signing Certificates without certificate private key"
+          # under managed signing, where the key belongs to Codemagic and is
+          # never exported. Worse, even a working version could not finish the
+          # job: the App Store Connect API cannot attach an app group to an
+          # identifier, so a freshly created App ID would come back without the
+          # one capability the extension needs, and the profile issued against
+          # it would be wrong from birth.
+          #
+          # So the App ID is a portal action, and this step's job is to say so
+          # precisely — xcodebuild's own version of the error names neither the
+          # App ID nor the capability, and only appears once the archive is
+          # nearly done.
+
+          # What Apple itself reports, alongside what was actually installed.
+          #
+          # Under manual signing the installed profiles come from Codemagic's
+          # storage rather than from Apple, so these two lists are genuinely
+          # independent — which is the point. An uploaded profile that Apple has
+          # since invalidated still installs happily and still fails to sign, and
+          # the only way to see that is to read both.
+          echo "==> Identifiers Apple reports for this API key"
+          app-store-connect bundle-ids list || \
+            echo "    (could not list — the App Store Connect key may be scoped elsewhere)"
+
+          echo "==> Profiles Apple reports for this API key"
+          app-store-connect profiles list || \
+            echo "    (could not list)"
+          python3 Scripts/check-provisioning.py \
+            --require "com.tracker.Inflight:com.apple.security.application-groups=group.com.tracker.Inflight" \
+            --require "com.tracker.Inflight:aps-environment" \
+            --require "com.tracker.Inflight.widgets:com.apple.security.application-groups=group.com.tracker.Inflight"
+
+          # Applies the profiles to the freshly generated project and writes the
+          # export options plist where build-ipa expects to find it.
           xcode-project use-profiles \
             --project "$XCODE_PROJECT" \
             --export-options-plist "$HOME/export_options.plist"
+
+          # use-profiles reports success as long as it matched *something*, so
+          # a target it skipped goes unmentioned. Confirm both came away with a
+          # profile — the extension is the one that historically did not.
+          for TARGET in InflightTracker InflightWidgets; do
+            SPECIFIER=$(xcodebuild -project "$XCODE_PROJECT" \
+              -target "$TARGET" \
+              -configuration Release \
+              -showBuildSettings 2>/dev/null \
+              | awk -F' = ' '/ PROVISIONING_PROFILE_SPECIFIER = /{print $2; exit}')
+            if [ -z "${SPECIFIER:-}" ]; then
+              echo "FATAL: no provisioning profile was applied to $TARGET."
+              exit 1
+            fi
+            echo "==> $TARGET signs with: $SPECIFIER"
+          done
 
       - name: Build IPA (Signed)
         script: |

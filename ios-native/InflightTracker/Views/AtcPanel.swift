@@ -20,9 +20,12 @@ struct AtcPanel: View {
 
     private var theme: FlightInfoTheme { appearance.theme }
 
-    /// Tapping a field takes the map to it and closes the panel, which is the
-    /// point of knowing a tower is open in the first place. Declared last, so
-    /// it is the panel's trailing closure.
+    /// Tapping a field opens the field: its traffic, its weather, and these
+    /// same controllers, with the map move on the panel's own first row.
+    /// Knowing a tower is open is mostly a question about what is landing
+    /// there, and that used to mean reading the ICAO off this row and typing it
+    /// into the search field. Declared last, so it is the panel's trailing
+    /// closure.
     let onSelectAirport: (Airport) -> Void
 
     var body: some View {
@@ -48,8 +51,8 @@ struct AtcPanel: View {
                 }
 
                 // Centres work an airspace, and their identifier is an FIR
-                // rather than an ICAO — nowhere to fly the map to, so they are
-                // listed apart from the fields instead of pretending to be one.
+                // rather than an ICAO — no field behind it to open, so they are
+                // listed apart from the airports instead of pretending to be one.
                 if !centers.isEmpty {
                     PanelSection(title: "CENTRE") {
                         ForEach(centers) { station in
@@ -59,6 +62,8 @@ struct AtcPanel: View {
                     }
                 }
             }
+
+            HintStrip(placement: .atc)
         }
         .onReceive(clock) { now = $0 }
     }
@@ -106,14 +111,14 @@ struct AtcPanel: View {
                     Spacer(minLength: 4)
 
                     if station.airport != nil {
-                        Image(systemName: "location.magnifyingglass")
+                        Image(systemName: "chevron.right")
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(theme.textDim)
                     }
                 }
 
                 ForEach(station.facilities) { facility in
-                    facilityLine(facility)
+                    PanelFacilityLine(facility: facility, now: now)
                 }
             }
             .padding(.horizontal, 14)
@@ -122,7 +127,7 @@ struct AtcPanel: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        // Nothing to fly to for a field the dataset doesn't have.
+        // Nothing to open for a field the dataset doesn't have.
         .disabled(station.airport == nil)
     }
 
@@ -134,41 +139,11 @@ struct AtcPanel: View {
                 .flightInfoLine(minimumScale: 0.7)
 
             ForEach(station.facilities) { facility in
-                facilityLine(facility)
+                PanelFacilityLine(facility: facility, now: now)
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func facilityLine(_ facility: AtcFacility) -> some View {
-        HStack(spacing: 9) {
-            Text(facility.kind.code)
-                .font(.system(size: 9, weight: .bold))
-                .tracking(0.6)
-                .foregroundStyle(theme.textPrimary)
-                .frame(width: 38)
-                .padding(.vertical, 4)
-                .background { Capsule().fill(theme.elevatedFill) }
-
-            Text(facility.controller)
-                .font(.system(size: 12.5, weight: .semibold))
-                .foregroundStyle(theme.textSecondary)
-                .flightInfoLine(minimumScale: 0.7)
-
-            Spacer(minLength: 6)
-
-            if let online = facility.onlineLabel(now: now) {
-                HStack(spacing: 4) {
-                    Image(systemName: "clock")
-                        .font(.system(size: 8.5))
-                    Text(online)
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                }
-                .foregroundStyle(theme.textDim)
-                .fixedSize()
-            }
-        }
     }
 }

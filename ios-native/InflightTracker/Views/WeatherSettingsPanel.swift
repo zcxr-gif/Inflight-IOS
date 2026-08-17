@@ -65,6 +65,8 @@ struct WeatherSettingsPanel: View {
                 .opacity(preferences.isChipVisible ? 1 : 0.45)
             }
 
+            HintStrip(placement: .weather)
+
             Text("Reports come from VATSIM's METAR service, the same source the tracker has always used. Each station issues one an hour.")
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(theme.textDim)

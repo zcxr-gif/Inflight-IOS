@@ -74,6 +74,8 @@ struct FriendsPanel: View {
             notificationsSection
 
             if !friends.friends.isEmpty { widgetSection }
+
+            HintStrip(placement: .friends)
         }
     }
 

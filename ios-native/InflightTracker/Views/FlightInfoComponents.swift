@@ -66,6 +66,30 @@ struct PilotStateChip: View {
     }
 }
 
+// MARK: - Controlled marker
+
+/// Somebody is on frequency here.
+///
+/// Shared by the airports board and the route card so that "controlled" looks
+/// like one thing wherever a field is named. Filled with the accent rather than
+/// outlined: in a monochrome window this is the one state worth spending the
+/// accent on, because it is the difference between a field you can be talked
+/// into and one you cannot.
+struct AtcOnlineBadge: View {
+
+    let theme: FlightInfoTheme
+
+    var body: some View {
+        Image(systemName: "antenna.radiowaves.left.and.right")
+            .font(.system(size: 9, weight: .bold))
+            .foregroundStyle(theme.onAccent)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 3)
+            .background { Capsule().fill(theme.accent) }
+            .accessibilityLabel("Controlled")
+    }
+}
+
 // MARK: - Route
 
 /// The route card, shared by both phases: endpoints, then the progress bar
@@ -78,6 +102,21 @@ struct RouteCard: View {
     let theme: FlightInfoTheme
     var icaoSize: CGFloat = 24
     var inset: CGFloat = 14
+
+    /// Opens one end of the route as a field of its own.
+    ///
+    /// Optional because the peak state uses this same card and must not become
+    /// tappable: the whole peak is a drag target, and endpoints that could
+    /// swallow a drag as a tap would make the window hard to open.
+    var onSelectAirport: ((Airport) -> Void)? = nil
+
+    /// Fields with somebody on frequency, so an end of the route can say so.
+    ///
+    /// Passed in rather than read from the feed here: this card is drawn in the
+    /// peak state too, and a component that reached for the feed itself would
+    /// re-render both phases on every ATC packet. The peak leaves it empty on
+    /// purpose — it is the glance, and this is a detail you open the window for.
+    var controlledFields: Set<String> = []
 
     var body: some View {
         VStack(spacing: 11) {
@@ -134,16 +173,48 @@ struct RouteCard: View {
         return Format.duration(ete)
     }
 
+    @ViewBuilder
     private func port(icao: String?, alignment: HorizontalAlignment) -> some View {
-        let code = (icao ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let airport = AirportStore.shared.airport(icao)
+
+        // Tappable only where there is a field behind the code to open. A route
+        // filed to an ICAO the dataset has never heard of still draws — it just
+        // isn't a button.
+        if let airport = airport, let onSelectAirport = onSelectAirport {
+            Button {
+                onSelectAirport(airport)
+            } label: {
+                portLabel(icao: icao, airport: airport, alignment: alignment, isLink: true)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(airport.icao), \(airport.name). Open this airport.")
+        } else {
+            portLabel(icao: icao, airport: airport, alignment: alignment, isLink: false)
+        }
+    }
+
+    private func portLabel(
+        icao: String?,
+        airport: Airport?,
+        alignment: HorizontalAlignment,
+        isLink: Bool
+    ) -> some View {
+        let code = (icao ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let frameAlignment: Alignment = alignment == .leading ? .leading : .trailing
+        let isControlled = airport.map { controlledFields.contains($0.icao) } ?? false
 
         return VStack(alignment: alignment, spacing: 4) {
-            Text(code.isEmpty ? "———" : code)
-                .font(.system(size: icaoSize, weight: .heavy, design: .rounded))
-                .foregroundStyle(theme.textPrimary)
-                .flightInfoLine(minimumScale: 0.6)
+            // Against the code rather than down with the airport's name: "is my
+            // destination controlled" is a question about the field, and the
+            // name line is already carrying a flag and a chevron.
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(code.isEmpty ? "———" : code)
+                    .font(.system(size: icaoSize, weight: .heavy, design: .rounded))
+                    .foregroundStyle(theme.textPrimary)
+                    .flightInfoLine(minimumScale: 0.6)
+
+                if isControlled { AtcOnlineBadge(theme: theme) }
+            }
 
             HStack(spacing: 4) {
                 if let flag = airport?.flag, !flag.isEmpty {
@@ -154,11 +225,22 @@ struct RouteCard: View {
                     .tracking(0.4)
                     .foregroundStyle(theme.textDim)
                     .flightInfoLine(minimumScale: 0.7)
+
+                // The only mark that either end goes anywhere. Sits after the
+                // name on both sides rather than mirroring, so the two
+                // endpoints read as the same kind of thing rather than as a
+                // pair pointing at each other.
+                if isLink {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(theme.textDim)
+                }
             }
         }
         // Each endpoint takes half the row, so a long airport name can only
         // shrink, never widen the card.
         .frame(maxWidth: .infinity, alignment: frameAlignment)
+        .contentShape(Rectangle())
     }
 }
 
@@ -216,7 +298,29 @@ struct PlaceCard: View {
     let theme: FlightInfoTheme
     var icaoSize: CGFloat = 22
 
+    /// Opens the field this card names. Optional for the same reason the route
+    /// card's is — the peak state draws this too, and everything in the peak
+    /// belongs to the drag.
+    var onSelectAirport: ((Airport) -> Void)? = nil
+
+    /// Fields with somebody on frequency — see `RouteCard.controlledFields`.
+    var controlledFields: Set<String> = []
+
     var body: some View {
+        if let airport = airport, let onSelectAirport = onSelectAirport {
+            Button {
+                onSelectAirport(airport)
+            } label: {
+                card(isLink: true)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(kicker) \(airport.icao), \(airport.name). Open this airport.")
+        } else {
+            card(isLink: false)
+        }
+    }
+
+    private func card(isLink: Bool) -> some View {
         HStack(spacing: 12) {
             Image(systemName: symbol)
                 .font(.system(size: icaoSize * 0.52, weight: .semibold))
@@ -231,10 +335,16 @@ struct PlaceCard: View {
                     .foregroundStyle(theme.textDim)
                     .flightInfoLine(minimumScale: 0.8)
 
-                Text(airport?.icao ?? "———")
-                    .font(.system(size: icaoSize, weight: .heavy, design: .rounded))
-                    .foregroundStyle(theme.textPrimary)
-                    .flightInfoLine(minimumScale: 0.6)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(airport?.icao ?? "———")
+                        .font(.system(size: icaoSize, weight: .heavy, design: .rounded))
+                        .foregroundStyle(theme.textPrimary)
+                        .flightInfoLine(minimumScale: 0.6)
+
+                    if let airport = airport, controlledFields.contains(airport.icao) {
+                        AtcOnlineBadge(theme: theme)
+                    }
+                }
 
                 HStack(spacing: 4) {
                     if let flag = airport?.flag, !flag.isEmpty {
@@ -248,7 +358,14 @@ struct PlaceCard: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            if isLink {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(theme.textDim)
+            }
         }
+        .contentShape(Rectangle())
     }
 }
 

@@ -267,6 +267,101 @@ extension PanelCheckRow where Trailing == EmptyView {
     }
 }
 
+/// One controller on frequency: the position, who is working it, and how long
+/// they have been on.
+///
+/// Shared rather than private to the ATC panel, because a field's own panel
+/// lists the same thing about the same people — two copies of this drift apart
+/// the first time either one is touched.
+struct PanelFacilityLine: View {
+
+    let facility: AtcFacility
+
+    /// Passed in rather than read from a clock of this row's own. The panels
+    /// that show these already tick once a minute to keep "online for" counting
+    /// up, and a busy field is a dozen rows that would otherwise each be
+    /// running a timer to display the same minute.
+    var now: Date = Date()
+
+    @ObservedObject private var appearance = FlightInfoAppearance.shared
+
+    private var theme: FlightInfoTheme { appearance.theme }
+
+    var body: some View {
+        HStack(spacing: 9) {
+            Text(facility.kind.code)
+                .font(.system(size: 9, weight: .bold))
+                .tracking(0.6)
+                .foregroundStyle(theme.textPrimary)
+                .frame(width: 38)
+                .padding(.vertical, 4)
+                .background { Capsule().fill(theme.elevatedFill) }
+
+            Text(facility.controller)
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(theme.textSecondary)
+                .flightInfoLine(minimumScale: 0.7)
+
+            Spacer(minLength: 6)
+
+            if let online = facility.onlineLabel(now: now) {
+                HStack(spacing: 4) {
+                    Image(systemName: "clock")
+                        .font(.system(size: 8.5))
+                    Text(online)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                }
+                .foregroundStyle(theme.textDim)
+                .fixedSize()
+            }
+        }
+    }
+}
+
+/// A row whose whole point is the tap: a destination rather than a setting.
+/// Icon, title, a line of explanation, and a chevron.
+struct PanelActionRow: View {
+
+    let title: String
+    let symbol: String
+    var detail: String? = nil
+    let action: () -> Void
+
+    @ObservedObject private var appearance = FlightInfoAppearance.shared
+
+    private var theme: FlightInfoTheme { appearance.theme }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    PanelRowLabel(title: title, symbol: symbol)
+
+                    if let detail = detail {
+                        Text(detail)
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundStyle(theme.textDim)
+                            // Clears the icon column, so it reads as a line
+                            // under the title rather than under the glyph.
+                            .padding(.leading, 30)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                Spacer(minLength: 8)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(theme.textDim)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 /// What a panel shows when it has nothing to show — an empty ATC list, a
 /// search with no hits. A sentence rather than a blank card, so the panel
 /// still says what it is for.

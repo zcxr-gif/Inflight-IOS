@@ -20,8 +20,123 @@ leaves every tile on its empty state with nothing logged anywhere.
 
 Codemagic's signing block matches bundle identifiers by prefix, so the
 extension's profile comes down with the app's — but only once the App ID
-exists with the capability enabled. Until then the build fails at
-`use-profiles` with a missing-profile error.
+exists with the capability enabled.
+
+### The one-time setup, in order
+
+Nothing below can be done from CI. `--create` can register an App ID, but the
+App Store Connect API cannot attach an app group to one, so the group has to be
+ticked by hand in **Certificates, Identifiers & Profiles**.
+
+1. **Identifiers → App Groups.** Create `group.com.tracker.Inflight` if it does
+   not exist yet. Everything else refers back to it.
+2. **Identifiers → App IDs → `com.tracker.Inflight`.** Enable **App Groups**
+   and **Push Notifications**. Enabling App Groups is not enough on its own —
+   click *Edit* next to it and tick `group.com.tracker.Inflight`. An identifier
+   with the capability on and no group selected still signs nothing.
+3. **Identifiers → App IDs → `com.tracker.Inflight.widgets`.** Register it as an
+   explicit (non-wildcard) App ID if the build has not already created it, then
+   enable **App Groups** and tick the same group. It does *not* need Push.
+4. **Profiles.** Delete any App Store profile already issued for either App ID.
+   A profile is a snapshot of the capabilities at the moment it was generated,
+   so one issued before step 2 or 3 is wrong: changing an App ID's capabilities
+   marks its existing profiles **Invalid**, and an invalid profile has to be
+   regenerated before it can sign anything again. Deleting is the blunter half
+   of the same fix and leaves nothing for the build to pick up by mistake — the
+   next build fetches a fresh one.
+
+   `com.tracker.Inflight` has been signing releases for a long time, so it
+   certainly has a profile that predates all of this and needs replacing.
+   `com.tracker.Inflight.widgets` most likely has none at all, which is the
+   whole reason the archive failed — nothing to delete there.
+
+**Do all of it before the next build.** Left until after, the pipeline's
+`--create` registers `com.tracker.Inflight.widgets` for you *without* App
+Groups — the API cannot add it — and issues a profile against that. Enabling
+the capability afterwards then invalidates the profile that was just made, and
+step 4 has to be done a second time.
+
+### When the portal and the build disagree
+
+If a change in the portal has no effect on the build at all — a profile
+deleted there still turns up on the builder, a new one never does — then the
+profiles being signed with are not coming from Apple. Codemagic stores uploaded
+provisioning profiles under **Team settings → Code signing identities**, installs
+them on every build machine, and those copies shadow the `ios_signing` fetch
+entirely. Ones left over from the Capacitor pipeline will happily sign this one
+for months.
+
+Deleting them from Codemagic hands the portal back its authority. The signature
+of having done so is the error changing to `No matching profiles found for
+bundle identifier ...` — that is the API fetch running for the first time and
+reporting honestly, rather than a stored file quietly standing in.
+
+The failure this prevents is:
+
+```
+"InflightWidgets" requires a provisioning profile with the App Groups feature.
+Select a provisioning profile in the Signing & Capabilities editor.
+```
+
+which xcodebuild raises at archive time when the extension target ended up with
+no profile at all — not, despite the wording, when a profile was chosen badly.
+`Scripts/check-provisioning.py` runs in the signing step and fails earlier with
+the specific App ID and capability at fault; it can be pointed at a profiles
+directory by hand to diagnose the same thing off the builder:
+
+```
+python3 ios-native/Scripts/check-provisioning.py \
+  --require "com.tracker.Inflight.widgets:com.apple.security.application-groups=group.com.tracker.Inflight"
+```
+
+## Signing files, from Windows
+
+The build signs with three files uploaded to Codemagic by hand, referenced by
+name from `codemagic.yaml`. Two are downloaded from the portal; the third has to
+be assembled, because Apple hands out a certificate and keeps the private key
+question to itself.
+
+A `.p12` is the certificate *and* its private key in one archive. Exporting one
+from Keychain needs the Mac that generated the original request. Without that
+Mac the key does not exist anywhere, and the only way forward is a new
+certificate — which is a CSR, and a CSR is openssl, which runs anywhere.
+
+```bash
+# 1. A private key, and a request built from it. This key never leaves the
+#    machine and is half of the .p12 at the end.
+openssl genrsa -out inflight.key 2048
+openssl req -new -key inflight.key -out inflight.csr \
+  -subj "/emailAddress=you@example.com/CN=Inflight Distribution/C=US"
+
+# 2. Upload inflight.csr at Certificates -> + -> Apple Distribution, download
+#    the .cer, then join the two halves.
+openssl x509 -in distribution.cer -inform DER -out distribution.pem -outform PEM
+openssl pkcs12 -export -inkey inflight.key -in distribution.pem \
+  -out inflight_distribution.p12
+```
+
+In Git Bash, prefix the `req` line with `MSYS_NO_PATHCONV=1`. MSYS rewrites any
+argument starting with `/` into a Windows path, so `-subj` silently arrives
+mangled and the certificate comes out with the wrong subject.
+
+Apple allows two Apple Distribution certificates per account, so a new one
+usually means revoking an old one first. Revoking does not affect builds already
+on the App Store, but it **does** invalidate every profile issued against that
+certificate — so regenerate both profiles afterwards, selecting the new
+certificate, and download them again.
+
+Uploaded under **Team settings -> Code signing identities**, with reference
+names matching what `codemagic.yaml` asks for:
+
+| File | Reference name |
+| --- | --- |
+| `inflight_distribution.p12` (with its password) | `inflight_distribution_cert` |
+| App Store profile for `com.tracker.Inflight` | `inflight_distribution` |
+| App Store profile for `com.tracker.Inflight.widgets` | `inflight_widgets_distribution` |
+
+Leave nothing else in that list. Profiles stored there are installed on every
+builder whether or not anything asks for them, which is how a set left over from
+the Capacitor pipeline came to sign this one for months — see above.
 
 ## APNs key
 

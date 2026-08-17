@@ -17,16 +17,18 @@ struct FiltersPanel: View {
     /// survives the filter, and how much sits in each phase. Walked once here
     /// rather than once per row, since this is re-read on every feed tick the
     /// panel is open for.
-    private var tally: (shown: Int, byPhase: [FlightPhase: Int]) {
+    private var tally: (shown: Int, byPhase: [FlightPhase: Int], byCategory: [AircraftCategory: Int]) {
         var shown = 0
         var byPhase: [FlightPhase: Int] = [:]
+        var byCategory: [AircraftCategory: Int] = [:]
 
         for flight in feed.flights {
             if filters.matches(flight) { shown += 1 }
             byPhase[FlightPhase.from(flight), default: 0] += 1
+            byCategory[AircraftCategory.from(spriteKey: flight.spriteKey), default: 0] += 1
         }
 
-        return (shown, byPhase)
+        return (shown, byPhase, byCategory)
     }
 
     var body: some View {
@@ -48,6 +50,21 @@ struct FiltersPanel: View {
                         action: { filters.toggle(phase) }
                     ) {
                         count(of: tally.byPhase[phase] ?? 0)
+                    }
+                }
+            }
+
+            PanelSection(title: "AIRCRAFT") {
+                ForEach(AircraftCategory.allCases) { category in
+                    if category != AircraftCategory.allCases.first { PanelDivider() }
+
+                    PanelCheckRow(
+                        title: category.label,
+                        symbol: category.symbol,
+                        isOn: filters.categories.contains(category),
+                        action: { filters.toggle(category: category) }
+                    ) {
+                        count(of: tally.byCategory[category] ?? 0)
                     }
                 }
             }
@@ -85,6 +102,8 @@ struct FiltersPanel: View {
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(theme.textDim)
                 .padding(.horizontal, 2)
+
+            HintStrip(placement: .filters)
         }
     }
 

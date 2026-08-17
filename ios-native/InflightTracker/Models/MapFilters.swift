@@ -13,6 +13,7 @@ final class MapFilters: ObservableObject {
 
     private static let phasesKey = "mapFilterPhases"
     private static let bandsKey = "mapFilterAltitudeBands"
+    private static let categoriesKey = "mapFilterCategories"
     private static let filedOnlyKey = "mapFilterFiledRouteOnly"
 
     /// Phases still being drawn. Empty would mean an empty map, so the panel
@@ -25,6 +26,13 @@ final class MapFilters: ObservableObject {
     /// same bands that colour a flown path, so the filter and the map agree on
     /// what "low" means.
     @Published var bands: Set<Int> {
+        didSet { persist() }
+    }
+
+    /// Kinds of aircraft still being drawn, by the sprite key each one
+    /// resolved to at parse time. Same rule as the phases: the last one on
+    /// cannot be turned off.
+    @Published var categories: Set<AircraftCategory> {
         didSet { persist() }
     }
 
@@ -51,12 +59,19 @@ final class MapFilters: ObservableObject {
             bands = Set(AltitudeBand.all)
         }
 
+        if let raw = defaults.array(forKey: Self.categoriesKey) as? [String], !raw.isEmpty {
+            categories = Set(raw.compactMap(AircraftCategory.init(rawValue:)))
+        } else {
+            categories = Set(AircraftCategory.allCases)
+        }
+
         filedRouteOnly = defaults.bool(forKey: Self.filedOnlyKey)
 
         // A stored set that no longer maps onto anything — a phase renamed,
         // say — would hide the whole map with no way back except a reset.
         if phases.isEmpty { phases = Set(FlightPhase.allCases) }
         if bands.isEmpty { bands = Set(AltitudeBand.all) }
+        if categories.isEmpty { categories = Set(AircraftCategory.allCases) }
     }
 
     // MARK: - State
@@ -66,15 +81,17 @@ final class MapFilters: ObservableObject {
     var isFiltering: Bool {
         phases.count != FlightPhase.allCases.count
             || bands.count != AltitudeBand.all.count
+            || categories.count != AircraftCategory.allCases.count
             || filedRouteOnly
     }
 
-    /// How many of the three groups are narrowed. Shown on the toolbar rather
-    /// than a count of hidden aircraft, which would tick about on every packet.
+    /// How many of the groups are narrowed. Shown on the toolbar rather than a
+    /// count of hidden aircraft, which would tick about on every packet.
     var activeCount: Int {
         var count = 0
         if phases.count != FlightPhase.allCases.count { count += 1 }
         if bands.count != AltitudeBand.all.count { count += 1 }
+        if categories.count != AircraftCategory.allCases.count { count += 1 }
         if filedRouteOnly { count += 1 }
         return count
     }
@@ -82,6 +99,7 @@ final class MapFilters: ObservableObject {
     func reset() {
         phases = Set(FlightPhase.allCases)
         bands = Set(AltitudeBand.all)
+        categories = Set(AircraftCategory.allCases)
         filedRouteOnly = false
     }
 
@@ -104,11 +122,21 @@ final class MapFilters: ObservableObject {
         }
     }
 
+    func toggle(category: AircraftCategory) {
+        if categories.contains(category) {
+            guard categories.count > 1 else { return }
+            categories.remove(category)
+        } else {
+            categories.insert(category)
+        }
+    }
+
     // MARK: - Application
 
     func matches(_ flight: Flight) -> Bool {
         guard phases.contains(FlightPhase.from(flight)) else { return false }
         guard bands.contains(AltitudeBand.band(forFeet: flight.altitudeFeet)) else { return false }
+        guard categories.contains(AircraftCategory.from(spriteKey: flight.spriteKey)) else { return false }
 
         if filedRouteOnly {
             let arrival = flight.arrivalIcao?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -136,6 +164,7 @@ final class MapFilters: ObservableObject {
         let defaults = UserDefaults.standard
         defaults.set(phases.map(\.rawValue), forKey: Self.phasesKey)
         defaults.set(Array(bands), forKey: Self.bandsKey)
+        defaults.set(categories.map(\.rawValue), forKey: Self.categoriesKey)
         defaults.set(filedRouteOnly, forKey: Self.filedOnlyKey)
     }
 }

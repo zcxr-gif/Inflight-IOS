@@ -23,6 +23,16 @@ struct ContentView: View {
     /// Latest camera request from the chrome around the map.
     @State private var mapCommand: MapCommand?
 
+    /// Whether the map is staying with the open aircraft. Lives here rather
+    /// than in the map so it can be turned off by the things that contradict
+    /// it — framing a whole route, or closing the window entirely.
+    @State private var isFollowing = false
+
+    /// The flight an open field panel was reached from, so it can be gone back
+    /// to. Nil whenever the field was opened from anywhere with nothing behind
+    /// it — the search results, the ATC panel, the board.
+    @State private var airportOrigin: SelectedFlight?
+
     /// What has been typed into the search field at the top of the map.
     @State private var query = ""
 
@@ -39,8 +49,8 @@ struct ContentView: View {
     private var peakDetent: PresentationDetent { .height(peakHeight) }
 
     /// What the sheet is showing. A view can only present one thing at a time,
-    /// so the flight window and the toolbar's four panels share this rather
-    /// than each carrying their own `.sheet`.
+    /// so the flight window, the toolbar's panels and a field all share this
+    /// rather than each carrying their own `.sheet`.
     ///
     /// The flight case's id doesn't change with the aircraft, which is what
     /// lets tapping a second plane swap the window's contents instead of
@@ -50,10 +60,17 @@ struct ContentView: View {
         case flight
         case panel(MapPanelKind)
 
+        /// A field — from the search results, the ATC panel, the board, or an
+        /// open flight's route card. Carries the ICAO rather than the `Airport`
+        /// so the case stays `Equatable` and cheap; the dataset resolves it
+        /// back when the sheet is built.
+        case airport(String)
+
         var id: String {
             switch self {
             case .flight: return "flight"
             case .panel(let kind): return kind.rawValue
+            case .airport(let icao): return "airport|\(icao)"
             }
         }
     }
@@ -94,7 +111,11 @@ struct ContentView: View {
                 selection: $selection,
                 command: mapCommand,
                 bottomInset: selection == nil ? MapToolbar.reservedHeight : peakHeight,
-                replayFrame: replay.frame
+                replayFrame: replay.frame,
+                // A replay is driving the camera down the old track; following
+                // the live aircraft at the same time would be two things
+                // fighting over one map.
+                isFollowing: isFollowing && !replay.isActive
             )
             .ignoresSafeArea()
 
@@ -129,6 +150,10 @@ struct ContentView: View {
             // or closing the window, ends it rather than leaving a ghost
             // flying a path nothing on screen refers to.
             if replay.isActive, id != replay.flightId { replay.stop() }
+
+            // Following is about one aircraft. Another one — or none — is not
+            // something to carry the mode over to.
+            isFollowing = false
 
             detent = peakDetent
 
@@ -172,7 +197,8 @@ struct ContentView: View {
                         FlightDetailView(
                             flightId: selected.id,
                             peakHeight: $peakHeight,
-                            onReplay: { track in startReplay(of: selected.id, track: track) }
+                            onReplay: { track in startReplay(of: selected.id, track: track) },
+                            onSelectAirport: { field in openAirport(field, from: selected) }
                         )
                             // Resets the window's own state per aircraft
                             // without taking the sheet down with it.
@@ -189,6 +215,30 @@ struct ContentView: View {
 
             case .panel(let kind):
                 panel(kind)
+
+            case .airport(let icao):
+                // Resolved here rather than carried in the case: the sheet can
+                // outlive the search result it was opened from, and an ICAO the
+                // dataset doesn't have is nothing to present.
+                if let airport = AirportStore.shared.airport(icao) {
+                    AirportPanel(
+                        airport: airport,
+                        onShowOnMap: { field in
+                            // Same order as the other panels: close first, then
+                            // move, so the field isn't framed underneath the
+                            // sheet it was picked in.
+                            sheet = nil
+                            focus(on: field.coordinate, spanMeters: 90_000)
+                        },
+                        onSelectFlight: { flight in
+                            sheet = nil
+                            selection = SelectedFlight(id: flight.id)
+                            focus(on: flight.coordinate, spanMeters: 240_000)
+                        },
+                        origin: airportReturn
+                    )
+                    .environmentObject(feed)
+                }
             }
         }
         // The detent set changes with the measurement, so the selection has to
@@ -207,21 +257,30 @@ struct ContentView: View {
         switch kind {
         case .friends:
             FriendsPanel { flight in
-                // Same order as the ATC panel: close first, then move, so the
-                // aircraft isn't framed underneath the sheet it was picked in.
+                // Close first, then move: the map's edge padding is sized for
+                // the toolbar rather than for a half-height sheet, so the
+                // aircraft would otherwise be framed underneath the panel it
+                // was picked in.
                 sheet = nil
                 selection = SelectedFlight(id: flight.id)
                 focus(on: flight.coordinate, spanMeters: 240_000)
             }
             .environmentObject(feed)
 
+        // Both of these hand off to the field's own panel rather than closing
+        // and moving the map, which the field's first row does anyway. The
+        // sheet's identity changes, so this dismisses and re-presents — fine
+        // between panels, which carry no detent to lose, and the reason the
+        // flight case deliberately keeps one id for every aircraft.
         case .atc:
             AtcPanel { airport in
-                // Closing first, then moving: the map's edge padding is sized
-                // for the toolbar rather than for a half-height sheet, so the
-                // field would otherwise land under the panel it was picked in.
-                sheet = nil
-                focus(on: airport.coordinate, spanMeters: 60_000)
+                openAirport(airport)
+            }
+            .environmentObject(feed)
+
+        case .airports:
+            AirportsPanel { airport in
+                openAirport(airport)
             }
             .environmentObject(feed)
 
@@ -238,11 +297,54 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Fields
+
+    /// Open a field, remembering the flight it was opened from.
+    ///
+    /// The sheet's identity changes, which dismisses the flight window and —
+    /// through the selection watcher below — lets go of the aircraft. That is
+    /// the behaviour every other panel wants; here it is the thing `origin`
+    /// exists to undo.
+    private func openAirport(_ airport: Airport, from flight: SelectedFlight?) {
+        airportOrigin = flight
+        sheet = .airport(airport.icao)
+    }
+
+    /// Open a field from somewhere with nothing to come back to.
+    private func openAirport(_ airport: Airport) {
+        openAirport(airport, from: nil)
+    }
+
+    /// The back row for the field panel, when there is a flight behind it.
+    ///
+    /// Named from the packet rather than from whatever the callsign was when
+    /// the field was opened, so a flight that has since stopped reporting is
+    /// still offered — going back to it lands on the window's own "this flight
+    /// has ended" state, which is a better answer than the row quietly
+    /// vanishing.
+    private var airportReturn: AirportPanel.Origin? {
+        guard let origin = airportOrigin else { return nil }
+
+        let label = feed.flights.first { $0.id == origin.id }?.displayName ?? "the flight"
+
+        return AirportPanel.Origin(label: label) {
+            // One assignment does it: the selection watcher puts the flight
+            // window back up, resets the detent and re-reads the weather, the
+            // same as it would for any other way of opening an aircraft.
+            selection = origin
+        }
+    }
+
     // MARK: - Search
 
-    /// Acting on a search result: aircraft open their window, fields just move
-    /// the map. Both bring the target into view, since what was picked is
-    /// quite possibly not on screen at all.
+    /// Acting on a search result: each kind opens its own window.
+    ///
+    /// An aircraft is brought into view straight away, since what was picked is
+    /// quite possibly not on screen at all. A field isn't: its panel is what
+    /// was actually asked for — who is controlling, what is inbound, what is on
+    /// the apron — and moving the map under a half-height sheet would frame the
+    /// airport somewhere behind it. The panel's own first row does the move,
+    /// once the sheet is out of the way.
     private func open(_ result: MapSearchResult) {
         switch result {
         case .flight(let flight):
@@ -250,8 +352,18 @@ struct ContentView: View {
             focus(on: flight.coordinate, spanMeters: 240_000)
 
         case .airport(let airport):
+            // Searching is live over an open flight window, so this can be a
+            // swap rather than a fresh presentation. Changing the sheet's
+            // identity dismisses and re-presents, which is exactly what the
+            // flight case avoids — but what it is avoiding is losing the peak
+            // detent, and a panel has no detent state to lose.
+            //
+            // No origin: a field typed into the search field was not arrived at
+            // from anywhere, even if a flight window happened to be open behind
+            // it. Offering to go "back" to an aircraft nobody navigated from
+            // would be inventing a history.
             selection = nil
-            focus(on: airport.coordinate, spanMeters: 90_000)
+            openAirport(airport)
         }
     }
 
@@ -330,13 +442,23 @@ struct ContentView: View {
     @ViewBuilder
     private var mapToolbar: some View {
         if selection == nil {
-            MapToolbar(
-                theme: theme,
-                atcCount: feed.atcCount,
-                activeFilters: filters.activeCount,
-                friendsAloft: friendsAloft
-            ) { kind in
-                sheet = .panel(kind)
+            VStack(spacing: 8) {
+                // Above the bar rather than over the map proper: it is an
+                // aside about the chrome it is sitting on, and anywhere else
+                // it would be something laid over the traffic. The map's
+                // reserved inset is not grown to match — hints retire, and
+                // permanently shrinking where the map can frame things for
+                // something that goes away would be the wrong trade.
+                HintStrip(placement: .map, isFloating: true)
+
+                MapToolbar(
+                    theme: theme,
+                    atcCount: feed.atcCount,
+                    activeFilters: filters.activeCount,
+                    friendsAloft: friendsAloft
+                ) { kind in
+                    sheet = .panel(kind)
+                }
             }
             .padding(.horizontal, 14)
             .padding(.bottom, 6)
@@ -359,6 +481,24 @@ struct ContentView: View {
             // One grouped control rather than free-floating circles: it reads
             // as part of the window's chrome instead of two loose buttons.
             VStack(spacing: 0) {
+                mapButton(
+                    "viewfinder",
+                    isFollowing ? "Stop following this aircraft" : "Follow this aircraft",
+                    isOn: isFollowing
+                ) {
+                    isFollowing.toggle()
+                    // Turning it on takes the map to the aircraft straight
+                    // away. Follow itself only acts once the aircraft has
+                    // drifted out of the middle of the view, which from a map
+                    // pointed somewhere else entirely would leave the mode
+                    // looking like it had done nothing.
+                    if isFollowing { mapCommand = MapCommand(kind: .centerOnFlight) }
+                }
+
+                Rectangle()
+                    .fill(theme.stroke)
+                    .frame(height: 1)
+
                 mapButton("location.fill", "Centre on aircraft") {
                     mapCommand = MapCommand(kind: .centerOnFlight)
                 }
@@ -368,10 +508,20 @@ struct ContentView: View {
                     .frame(height: 1)
 
                 mapButton("arrow.down.left.and.arrow.up.right", "Show whole route") {
+                    // Framing the whole route and staying with the aircraft are
+                    // different intents, and following would pull the camera
+                    // back off the route within a packet or two of getting
+                    // there.
+                    isFollowing = false
                     mapCommand = MapCommand(kind: .fitRoute)
                 }
             }
             .frame(width: 44)
+            // The follow button fills itself when it is on, and it is the top
+            // of the stack. Glass draws behind its content rather than
+            // clipping it, so without this the accent squares off the hub's
+            // rounded corners.
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .environment(\.colorScheme, .dark)
             .padding(.trailing, 16)
@@ -382,20 +532,29 @@ struct ContentView: View {
         }
     }
 
+    /// `isOn` is for the one control in the hub that is a mode rather than a
+    /// move. It reads as on the way every other switched-on thing in the app
+    /// does — filled with the accent, glyph knocked out of it — so the state is
+    /// legible without colour carrying the meaning.
     private func mapButton(
         _ symbol: String,
         _ label: String,
+        isOn: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(theme.textPrimary)
+                .foregroundStyle(isOn ? theme.onAccent : theme.textPrimary)
                 .frame(width: 44, height: 42)
+                .background {
+                    if isOn { Rectangle().fill(theme.accent) }
+                }
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
+        .accessibilityAddTraits(isOn ? .isSelected : [])
     }
 
 }

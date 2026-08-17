@@ -10,8 +10,12 @@ The previous Capacitor/web build is preserved untouched in [`old/`](old/).
 
 - Live map of every aircraft on the selected server (MapKit — no API key, no tiles to pay for).
 - The original sprite-sheet plane icons, picked per aircraft type and rotated to true heading.
-- Tap an aircraft for callsign, pilot, type/livery, route, altitude, ground speed, vertical speed and heading. The sheet keeps updating while it's open.
+- Tap an aircraft for callsign, pilot, type/livery, route, altitude, ground speed, vertical speed and heading. The sheet keeps updating while it's open, and the map can be set to follow the aircraft as it flies.
+- Open a field — from the search results, from the ATC panel, from the airports board, or by tapping either end of an open flight's route — for who is on frequency, its METAR, what is inbound and how long it has to run, what has just left, and what is sitting on the apron. Every aircraft on it taps through to its own window, and a field reached from a flight offers the way back to it. Either end of an open route is marked when somebody is working it.
+- Airports board: where the server actually is, ranked by the routes aircraft have filed, with controlled fields marked.
+- Filters: phase, altitude band, aircraft kind (airliners, regional, light & private, military, helicopters), and filed-destination-only. All of them views onto traffic already received, so nothing is re-fetched.
 - Server switcher: Expert / Training / Casual.
+- Hints: one dim line at the foot of a screen, about that screen. Each retires after a few sessions or when dismissed; the whole thing can be switched off, or restored, under Settings.
 - Connection status and live aircraft count.
 
 ## Layout
@@ -46,6 +50,26 @@ same one the old build used, so signing and the TestFlight app record work as-is
 
 To change project settings — deployment target, capabilities, dependencies, build
 settings — edit `ios-native/project.yml`. It is plain YAML and needs no Mac.
+
+## App Store paperwork
+
+The things App Store Connect rejects an upload over, and where each is answered.
+Most of them fail *after* a green build, by email, which is why the generate step
+checks what it can.
+
+| Requirement | Where it is answered |
+| --- | --- |
+| Privacy manifest (`ITMS-91053`) | `Support/Privacy/App/` and `Support/Privacy/Widgets/`. Declares the UserDefaults and file-timestamp APIs the code actually calls, with reasons `CA92.1`, `1C8F.1`, `C617.1`. Both are verified in CI. |
+| Export compliance | `ITSAppUsesNonExemptEncryption = false` in `Support/Info.plist`. Only standard HTTPS is used, which is exempt. Without this key TestFlight holds every build asking the question by hand. |
+| Build number always increasing | `agvtool` in CI, offset past the Capacitor build's high-water mark of 199. |
+| Extension version matching the app | Both Info.plists read `$(MARKETING_VERSION)` and `$(CURRENT_PROJECT_VERSION)` from the same project-level settings, so they cannot drift. |
+| App icon (`CFBundleIconName`) | Injected at build time from `Assets.xcassets` because `ASSETCATALOG_COMPILER_APPICON_NAME` is set — it is deliberately *not* in `Info.plist`. |
+| Production push | Not set here at all. `aps-environment` is taken from the provisioning profile at signing, overriding whatever the entitlements file says — so the App Store profile must have **Push Notifications** enabled or the entitlement is dropped silently. See [NOTIFICATIONS.md](ios-native/NOTIFICATIONS.md). |
+
+The one entry that is a judgement call rather than a fact about the code is
+`NSPrivacyCollectedDataTypes`, currently empty — an assertion that the app
+collects nothing. It has to agree with the privacy answers on the App Store
+Connect record; the manifest's own comments set out what to weigh.
 
 ## Data feed
 

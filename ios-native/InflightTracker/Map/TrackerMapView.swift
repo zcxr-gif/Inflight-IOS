@@ -22,6 +22,12 @@ struct TrackerMapView: UIViewRepresentable {
     /// has already flown.
     var replayFrame: FlightReplay.Frame?
 
+    /// Whether the map should stay with the open aircraft as it flies.
+    ///
+    /// Distinct from the centre button beside it, which is a single move: this
+    /// is a mode, and it keeps acting on every packet for as long as it is on.
+    var isFollowing = false
+
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeUIView(context: Context) -> MKMapView {
@@ -65,6 +71,9 @@ struct TrackerMapView: UIViewRepresentable {
         context.coordinator.syncSelection(selection, on: mapView)
         context.coordinator.syncRoute(on: mapView)
         context.coordinator.syncReplay(on: mapView)
+        // Before the command, so a camera move asked for on this same tick is
+        // the one that lands rather than being pulled back by the follow.
+        context.coordinator.followSelection(on: mapView)
         context.coordinator.handle(command, on: mapView)
     }
 
@@ -394,13 +403,28 @@ struct TrackerMapView: UIViewRepresentable {
                 mapView.addAnnotation(annotation)
             }
 
-            keepReplayInView(frame.coordinate, on: mapView)
+            keepInView(frame.coordinate, on: mapView)
         }
 
-        /// Pans to follow the replay, but only once it has left the middle of
-        /// the map. Re-centring on every frame would take the map away from
-        /// wherever the user had just dragged it.
-        private func keepReplayInView(_ coordinate: CLLocationCoordinate2D, on mapView: MKMapView) {
+        // MARK: Following
+
+        /// Keeps the open aircraft on screen as the feed moves it, while the
+        /// follow mode is on.
+        ///
+        /// The same rule the replay follows, and for the same reason: an
+        /// aircraft at cruise crosses the middle half of a zoomed-out map in
+        /// minutes, so this is a nudge every few packets rather than a camera
+        /// glued to the aeroplane. A map the user has just dragged stays where
+        /// they put it until the aircraft genuinely leaves it.
+        func followSelection(on mapView: MKMapView) {
+            guard parent.isFollowing, let flight = selectedFlight() else { return }
+            keepInView(flight.coordinate, on: mapView)
+        }
+
+        /// Pans to bring a moving aircraft back, but only once it has left the
+        /// middle of the map. Re-centring on every frame would take the map
+        /// away from wherever the user had just dragged it.
+        private func keepInView(_ coordinate: CLLocationCoordinate2D, on mapView: MKMapView) {
             let point = MKMapPoint(coordinate)
             let visible = mapView.visibleMapRect
 
