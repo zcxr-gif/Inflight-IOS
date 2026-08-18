@@ -84,6 +84,28 @@ final class ConnectSession: ObservableObject {
         didSet { defaults.set(host, forKey: Self.hostKey) }
     }
 
+    /// Whether Infinite Flight is on THIS device rather than another one.
+    ///
+    /// Changes three things, and is worth its own switch for each of them:
+    ///
+    ///   * the address becomes loopback, so there is nothing to discover and
+    ///     nothing to type;
+    ///   * **no local network permission is involved at all.** Apple's
+    ///     local-network privacy covers the network — unicast to a LAN address,
+    ///     multicast, broadcast, Bonjour. 127.0.0.1 is none of those, so a
+    ///     same-device connection never raises the prompt and never needs the
+    ///     multicast entitlement;
+    ///   * the app stops expecting to watch a whole flight, because on one
+    ///     device it cannot. See `catchUp`.
+    @Published var isSameDevice: Bool {
+        didSet {
+            defaults.set(isSameDevice, forKey: Self.sameDeviceKey)
+            guard isEnabled else { return }
+            stop()
+            isEnabled = true
+        }
+    }
+
     /// Whether the app should attach automatically when it can.
     @Published var isEnabled: Bool {
         didSet {
@@ -94,6 +116,11 @@ final class ConnectSession: ObservableObject {
 
     private static let hostKey = "connect.host"
     private static let enabledKey = "connect.enabled"
+    private static let sameDeviceKey = "connect.sameDevice"
+
+    /// Infinite Flight serves Connect on every interface it has, loopback
+    /// included, so an app on the same device reaches it here.
+    static let loopback = "127.0.0.1"
 
     private let defaults: UserDefaults
     private let transport = ConnectTransport()
@@ -133,6 +160,7 @@ final class ConnectSession: ObservableObject {
     private init() {
         defaults = UserDefaults(suiteName: SharedStore.appGroupIdentifier) ?? .standard
         host = defaults.string(forKey: Self.hostKey) ?? ""
+        isSameDevice = defaults.bool(forKey: Self.sameDeviceKey)
         isEnabled = defaults.bool(forKey: Self.enabledKey)
 
         NotificationCenter.default.addObserver(
@@ -154,6 +182,16 @@ final class ConnectSession: ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.isEnabled else { return }
+
+                // Same device: the flight happened while this app was
+                // suspended, so the first thing to do on coming back is ask
+                // the sim what it is still holding. Then resume normally,
+                // which on an iPad in Split View is a full live session and on
+                // a phone is a connection that will not outlive the switch
+                // away.
+                if self.isSameDevice {
+                    await self.catchUp()
+                }
                 self.start()
             }
         }
@@ -182,6 +220,7 @@ final class ConnectSession: ObservableObject {
         unresolvedFields = []
         landingBaseline = nil
         atcLog = []
+        lastCatchUp = nil
     }
 
     /// Backgrounded: drop the socket but keep the intention to reconnect.
@@ -230,6 +269,10 @@ final class ConnectSession: ObservableObject {
     }
 
     private func resolveHost() async throws -> String {
+        // Same device: there is nothing to find and nothing to ask permission
+        // for. Straight to loopback.
+        if isSameDevice { return Self.loopback }
+
         if !host.isEmpty { return host }
 
         status = .searching
@@ -349,6 +392,120 @@ final class ConnectSession: ObservableObject {
         }
         next.sampledAt = Date()
         telemetry = next
+    }
+
+    // MARK: - Catching up on one device
+    //
+    // ## Why a whole flight cannot be watched on one device
+    //
+    // While you fly, Infinite Flight is in front and iOS suspends everything
+    // behind it — this app included. There is no honest way around that: the
+    // background modes that would keep a socket alive for fourteen hours are
+    // `audio` and `location`, and claiming either to poll a flight simulator
+    // would be a lie to the user and to App Review.
+    //
+    // ## Why it does not matter for the thing that matters
+    //
+    // The simulator HOLDS the last landing until the next one. Nobody has to be
+    // watching at the moment of touchdown — the measurement is still sitting
+    // there when you come back. So the flight is recorded from the live feed
+    // exactly as it always is, and this fills the landing in afterwards.
+    //
+    // ## Where it is genuinely live instead
+    //
+    // iPad, in Split View or Stage Manager. Both apps are on screen, neither is
+    // backgrounded, and the ordinary poll loop runs for the whole flight over
+    // loopback. That is the good configuration and it needs no permission at
+    // all. On a phone, this catch-up is the whole feature.
+
+    /// Whether the last catch-up found something, for the panel to report.
+    @Published private(set) var lastCatchUp: CatchUpResult?
+
+    enum CatchUpResult: Equatable {
+        case attached(fpm: Int)
+        case nothingToAttach
+        case simulatorNotReachable
+
+        var label: String {
+            switch self {
+            case let .attached(fpm):    return "Landing recorded: \(fpm) fpm"
+            case .nothingToAttach:      return "No new landing to record"
+            case .simulatorNotReachable: return "Infinite Flight wasn't running"
+            }
+        }
+    }
+
+    /// Opens a short connection, reads the landing the sim is still holding, and
+    /// attaches it to the flight the feed already recorded.
+    ///
+    /// Deliberately a separate path from the poll loop rather than a special
+    /// case inside it. It has to work in the seconds after switching apps —
+    /// possibly the only seconds available before iOS suspends Infinite Flight
+    /// behind us — so it does the least it can: connect, manifest, read two
+    /// groups, hang up. No polling, no landing baseline, no live status.
+    ///
+    /// Duplicates are not its problem. `pilot_logbook_attach_landing` only ever
+    /// fills columns that are still empty, so offering the same landing twice
+    /// is free and offering it to an already-measured flight does nothing.
+    func catchUp() async {
+        guard isEnabled, isSameDevice else { return }
+        guard AccountStore.shared.isSignedIn, ProfileStore.shared.hasProfile else { return }
+
+        // Already live — an iPad in Split View — so the poll loop is watching
+        // properly and there is nothing to catch up on.
+        guard !status.isLive else { return }
+
+        do {
+            try await transport.connect(host: Self.loopback, timeout: 3)
+
+            let raw = try await transport.manifest(timeout: 8)
+            let catalogue = ConnectManifest(raw: raw)
+            guard !catalogue.isEmpty else { throw ConnectTransport.Failure.notConnected }
+
+            // The sim's own flight id, when it still has one. After the pilot
+            // has ended their flight it will be absent, and the server falls
+            // back to the most recent flight with no landing on it.
+            var flightID: String?
+            if let entry = catalogue.resolve(ConnectField.flightID.candidates),
+               let value = try? await read(entry) {
+                flightID = value.text
+            }
+
+            var landing = ConnectLanding()
+            for field in ConnectField.landing {
+                guard let entry = catalogue.resolve(field.candidates) else { continue }
+                guard let value = try? await read(entry) else { continue }
+
+                switch field {
+                case .landingVerticalSpeed:     landing.verticalSpeedFPM = value.number
+                case .landingScore:             landing.score = value.number
+                case .landingGForce:            landing.maxGForce = value.number
+                case .landingCentrelineOffset:  landing.centrelineOffsetMetres = value.number
+                case .landingAimingPointOffset: landing.aimingPointOffsetMetres = value.number
+                case .landingGroundSpeed:       landing.groundSpeedKnots = value.number
+                case .landingAirspeed:          landing.indicatedAirspeedKnots = value.number
+                default: break
+                }
+            }
+
+            await transport.close()
+
+            guard landing.isRecorded, let rate = landing.verticalSpeedFPM else {
+                lastCatchUp = .nothingToAttach
+                return
+            }
+
+            lastLanding = landing
+            let attached = await LogbookRecorder.shared.attach(landing, flightID: flightID)
+            lastCatchUp = attached ? .attached(fpm: Int(rate.rounded())) : .nothingToAttach
+
+        } catch {
+            await transport.close()
+            // Not an error worth showing as one. On a phone the simulator being
+            // gone by the time you switch across is the ordinary case, not a
+            // fault.
+            lastCatchUp = .simulatorNotReachable
+        }
     }
 
     // MARK: - ATC

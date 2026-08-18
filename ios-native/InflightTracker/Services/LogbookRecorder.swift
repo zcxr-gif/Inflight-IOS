@@ -299,6 +299,69 @@ final class LogbookRecorder: ObservableObject {
         return nil
     }
 
+    /// Attaches a measured landing to a flight that is already written down.
+    ///
+    /// The one-device path. On a phone the flight is recorded from the live
+    /// feed while this app is suspended, and the touchdown is read afterwards —
+    /// so the row exists first and the measurement arrives second, which is the
+    /// reverse of the two-device case and needs its own way in.
+    ///
+    /// Safe to call with the same landing repeatedly. The server only ever
+    /// fills landing columns that are still empty, and never touches the
+    /// flight's own numbers, so this can only make a row more complete.
+    @discardableResult
+    func attach(_ landing: ConnectLanding, flightID: String?) async -> Bool {
+        guard let rate = landing.verticalSpeedFPM, rate != 0 else { return false }
+        guard let token = await AccountStore.shared.currentAccessToken() else { return false }
+
+        var arguments: [String: Any] = ["p_vertical_speed_fpm": Int(rate.rounded())]
+        if let flightID, !flightID.isEmpty { arguments["p_flight_id"] = flightID }
+        if let score = landing.score { arguments["p_score"] = Int(score.rounded()) }
+        if let force = landing.maxGForce {
+            arguments["p_g_force"] = (force * 100).rounded() / 100
+        }
+        if let centre = landing.centrelineOffsetMetres {
+            arguments["p_centreline_offset_m"] = Int(centre.rounded())
+        }
+        if let aim = landing.aimingPointOffsetMetres {
+            arguments["p_aiming_point_offset_m"] = Int(aim.rounded())
+        }
+        if let speed = landing.groundSpeedKnots {
+            arguments["p_ground_speed_knots"] = Int(speed.rounded())
+        }
+        if let airspeed = landing.indicatedAirspeedKnots {
+            arguments["p_airspeed_knots"] = Int(airspeed.rounded())
+        }
+
+        do {
+            let rows: [AttachResult] = try await SupabaseData.rpc(
+                "pilot_logbook_attach_landing",
+                arguments: arguments,
+                accessToken: token
+            )
+            return rows.first?.attached ?? false
+        } catch {
+            print("[logbook] Landing not attached: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private struct AttachResult: Decodable {
+        let attached: Bool
+        let flightId: String?
+
+        enum CodingKeys: String, CodingKey {
+            case attached
+            case flightId = "flight_id"
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            attached = (try? c.decode(Bool.self, forKey: .attached)) ?? false
+            flightId = try? c.decode(String.self, forKey: .flightId)
+        }
+    }
+
     /// Closes a track whose aircraft has stopped appearing.
     private func closeIfVanished() {
         guard let track = inProgress else { return }

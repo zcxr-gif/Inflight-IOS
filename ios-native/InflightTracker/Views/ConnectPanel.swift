@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// The link to Infinite Flight itself.
 ///
@@ -37,13 +38,28 @@ struct ConnectPanel: View {
 
                 PanelDivider()
 
+                PanelToggleRow(
+                    title: "It's on this device",
+                    symbol: "iphone",
+                    detail: sameDeviceDetail,
+                    isOn: Binding(
+                        get: { session.isSameDevice },
+                        set: { session.isSameDevice = $0 }
+                    )
+                )
+
+                PanelDivider()
+
                 statusRow
 
-                if session.isEnabled {
+                // Nothing to type when the simulator is right here.
+                if session.isEnabled && !session.isSameDevice {
                     PanelDivider()
                     addressRow
                 }
             }
+
+            if session.isSameDevice { sameDeviceSection }
 
             sharingSection
 
@@ -182,6 +198,72 @@ struct ConnectPanel: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
+    }
+
+    // MARK: - One device
+
+    private var sameDeviceDetail: String {
+        session.isSameDevice
+            ? "Talks to Infinite Flight over this device's own loopback. No Wi-Fi, no address, and no local network permission."
+            : "Turn on if you fly on this same iPhone or iPad rather than a second device."
+    }
+
+    private var sameDeviceSection: some View {
+        PanelSection(title: "ON ONE DEVICE") {
+            VStack(alignment: .leading, spacing: 10) {
+
+                if let result = session.lastCatchUp {
+                    HStack(spacing: 8) {
+                        Image(systemName: catchUpSymbol(result))
+                            .font(.system(size: 12))
+                            .foregroundStyle(catchUpColour(result))
+                        Text(result.label)
+                            .font(.system(size: 12.5, weight: .semibold))
+                            .foregroundStyle(theme.textPrimary)
+                        Spacer(minLength: 0)
+                    }
+                }
+
+                Button {
+                    Task { await session.catchUp() }
+                } label: {
+                    Text("Check for a landing now")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 9)
+                }
+                .buttonStyle(.bordered)
+                .tint(theme.accent)
+
+                bullet(isPad
+                    ? "Open Inflight beside Infinite Flight in Split View and everything works live — the whole flight, as it happens."
+                    : "While you fly, iOS suspends Inflight behind the simulator, so it cannot watch the flight itself.")
+
+                bullet("Your flight is recorded from the map either way. Come back here after landing and the touchdown is read from the simulator and added to it — Infinite Flight keeps the last landing until the next one, so nothing has to be watching at the time.")
+
+                bullet("It's checked automatically each time you open Inflight. The button above is for when you want to be sure.")
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+        }
+    }
+
+    private var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
+
+    private func catchUpSymbol(_ result: ConnectSession.CatchUpResult) -> String {
+        switch result {
+        case .attached:              return "checkmark.circle.fill"
+        case .nothingToAttach:       return "minus.circle"
+        case .simulatorNotReachable: return "moon.zzz"
+        }
+    }
+
+    private func catchUpColour(_ result: ConnectSession.CatchUpResult) -> Color {
+        switch result {
+        case .attached:              return .green
+        case .nothingToAttach:       return theme.textDim
+        case .simulatorNotReachable: return theme.textDim
+        }
     }
 
     // MARK: - Sharing
@@ -399,9 +481,9 @@ struct ConnectPanel: View {
                  + "before the next position arrives.")
             bullet("The flight your logbook records is confirmed by the sim rather "
                  + "than matched by name.")
-            bullet("Works only while Infinite Flight is running on another device on "
-                 + "this Wi-Fi. Flights flown anywhere else are still recorded, just "
-                 + "without the landing.")
+            bullet(session.isSameDevice
+                ? "On one device the live parts need both apps on screen at once, which is an iPad thing. Landings are picked up whatever you fly on."
+                : "Works only while Infinite Flight is running on another device on this Wi-Fi. Flights flown anywhere else are still recorded, just without the landing.")
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)

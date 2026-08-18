@@ -14,12 +14,45 @@ That single fact decides the shape of the feature:
 * It **never replaces the live feed.** The feed is a cloud service describing
   everybody's flights and is what the map is built on. Connect describes one
   aircraft, in far more detail, and only sometimes.
-* It needs **two devices** — the sim on one, Inflight on the other. Same-device
-  does not work: iOS suspends the backgrounded app and the sim is the one that
-  has to stay in front.
 * Every consumer must work **without** it. The logbook records flights inferred
   from the feed exactly as it always has; Connect upgrades those rows rather
   than being required for them.
+
+## One device or two
+
+Both work, differently. An earlier version of this document said same-device was
+impossible; that was wrong, and wrong in a way worth writing down.
+
+| | Address | Permission | What you get |
+|---|---|---|---|
+| **Two devices**, same Wi-Fi | LAN, discovered or typed | Local network prompt; discovery may need the multicast entitlement | Everything, live, for the whole flight |
+| **One iPad**, Split View or Stage Manager | `127.0.0.1` | **None** | Everything, live, for the whole flight |
+| **One iPhone**, or iPad full screen | `127.0.0.1` | **None** | The landing, read when you come back |
+
+Two things make the one-device case work.
+
+**Loopback needs no permission at all.** Apple's local-network privacy covers
+the *network* — unicast to a LAN address, multicast, broadcast, Bonjour.
+`127.0.0.1` is none of those, so a same-device connection never raises the
+prompt and never touches the multicast entitlement question. Same-device is
+therefore the configuration with the *fewest* obstacles, not the most.
+
+**The simulator holds the last landing until the next one.** Nobody has to be
+watching at the moment of touchdown. While you fly, iOS suspends Inflight behind
+Infinite Flight — there is no honest way around that, since the background modes
+that would keep a socket alive for fourteen hours are `audio` and `location` and
+claiming either to poll a flight simulator would be a lie to the user and to App
+Review. But the measurement is still sitting there afterwards. So the flight is
+recorded from the live feed as it always is, and `ConnectSession.catchUp()` fills
+the landing in when you next open the app.
+
+That is why `pilot_logbook_attach_landing` exists. `pilot_logbook` deliberately
+has no UPDATE policy — *a logbook you can rewrite is a logbook nobody reading a
+profile has any reason to believe* — so completing a row afterwards goes through
+a `security definer` function that can only ever fill landing columns that are
+still empty. It cannot change a flight's time, distance, route or altitude, and
+it cannot overwrite a landing already recorded. Offering the same landing twice
+is free.
 
 ## What it buys
 
