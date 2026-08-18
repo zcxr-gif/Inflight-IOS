@@ -59,16 +59,52 @@ final class FriendsStore: ObservableObject {
         friends.contains(normalize(username))
     }
 
-    /// Returns false when the name is unusable or already on the list, so the
-    /// caller can say which.
+    /// What happened when a name was offered to the list.
+    ///
+    /// An enum rather than a `Bool`, because the three ways this can decline
+    /// need three different sentences and the caller cannot work out which one
+    /// applies by re-deriving the checks — the moment it tries, the free limit
+    /// is being enforced in two places that can disagree.
+    enum AddOutcome: Equatable {
+        case added
+
+        /// Already watched. Not an error, and the panel says so gently.
+        case alreadyWatching
+
+        /// Not a display name — a pasted URL, an email, something with spaces.
+        case unusableName
+
+        /// The free list is full. Carries the limit so the copy and the gate
+        /// cannot drift.
+        case needsPro(limit: Int)
+    }
+
+    /// Adds a pilot to the watchlist, if this account may have another.
+    ///
+    /// THE FREE LIMIT IS ENFORCED HERE, not in the panel that calls it. It used
+    /// to be checked in `FriendsPanel.commit` and again in `FlightWatchRow`,
+    /// which worked exactly as long as those stayed the only two ways to watch
+    /// somebody — and this app already has a URL scheme, widgets and a
+    /// notification tap that reach the same store. A gate on the mutation is a
+    /// gate on every caller, including the ones that do not exist yet.
+    ///
+    /// The cap is on *adding*, never on what is already there: an account that
+    /// watched a dozen pilots before the limit existed keeps all twelve and
+    /// only meets the limit when it tries for a thirteenth.
     @discardableResult
-    func add(_ username: String) -> Bool {
+    func add(_ username: String) -> AddOutcome {
         let name = normalize(username)
-        guard !name.isEmpty, name.count <= 64, !friends.contains(name) else { return false }
+        guard !name.isEmpty, name.count <= 64 else { return .unusableName }
+        guard !friends.contains(name) else { return .alreadyWatching }
+
+        guard Entitlements.shared.canWatchMore(current: friends.count) else {
+            return .needsPro(limit: ProFeature.freeWatchlistLimit)
+        }
+
         friends.append(name)
         persist()
         syncToBackend()
-        return true
+        return .added
     }
 
     func remove(_ username: String) {
@@ -79,8 +115,15 @@ final class FriendsStore: ObservableObject {
         syncToBackend()
     }
 
-    func toggle(_ username: String) {
-        if contains(username) { remove(username) } else { add(username) }
+    /// Returns what the add did, so a caller that toggles can still explain a
+    /// refusal. Removing always succeeds.
+    @discardableResult
+    func toggle(_ username: String) -> AddOutcome? {
+        if contains(username) {
+            remove(username)
+            return nil
+        }
+        return add(username)
     }
 
     private func normalize(_ username: String) -> String {

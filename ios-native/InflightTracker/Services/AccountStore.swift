@@ -261,6 +261,11 @@ final class AccountStore: ObservableObject {
         problem = nil
         notice = nil
         Entitlements.shared.accountChanged()
+        // The public profile belongs to the account, not to the phone. Leaving
+        // it loaded would show the last person to sign in on this device to the
+        // next one.
+        ProfileStore.shared.accountChanged()
+        PilotDirectory.shared.accountChanged()
     }
 
     /// Erases the account, then signs out.
@@ -285,6 +290,8 @@ final class AccountStore: ObservableObject {
             self.account = nil
             UserDefaults.standard.removeObject(forKey: Self.emailKey)
             Entitlements.shared.accountChanged()
+            ProfileStore.shared.accountChanged()
+        PilotDirectory.shared.accountChanged()
         }
     }
 
@@ -411,6 +418,12 @@ final class AccountStore: ObservableObject {
         // belong to. This is what makes "bought it on the phone, want it on
         // the website" work for somebody who bought before they signed in.
         await ProStore.shared.refreshEntitlement()
+
+        // The public profile follows the account. Not awaited: somebody who has
+        // never claimed a handle has no profile to wait for, and somebody who
+        // has does not need it before the map appears.
+        ProfileStore.shared.accountChanged()
+        PilotDirectory.shared.accountChanged()
     }
 
     @MainActor
@@ -428,6 +441,20 @@ final class AccountStore: ObservableObject {
 
     /// An access token that is good for the next minute, refreshing first if it
     /// isn't. GoTrue's are short-lived, and the app can sit open for hours.
+    /// A token for another store to spend, or nil when nobody is signed in.
+    ///
+    /// Deliberately the only way out of this class for a credential, and
+    /// deliberately not `@Published`: a view has no business holding one, and
+    /// the stores that do — the profile, the directory, the logbook — ask for
+    /// it per request rather than keeping a copy that can go stale. Nil rather
+    /// than throwing, because "signed out" is an ordinary state for every one
+    /// of those callers: reading a public profile does not need an account.
+    @MainActor
+    func currentAccessToken() async -> String? {
+        guard account != nil else { return nil }
+        return try? await validAccessToken()
+    }
+
     @MainActor
     private func validAccessToken() async throws -> String {
         if let token = accessToken,

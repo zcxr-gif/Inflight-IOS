@@ -1,15 +1,19 @@
 import SwiftUI
 
-/// The strip under the action tiles: the three ways to keep hold of a flight
-/// after you have closed the window.
+/// The strip under the action tiles: the four ways to keep hold of a flight,
+/// or of its pilot, after you have closed the window.
 ///
 /// Separate from `FlightActionRow` rather than a fourth and fifth tile on it,
 /// because these are a different kind of thing. Those three act on the flight
 /// now — how long it has been going, where it has been, sending it to someone.
-/// These three outlive the window: watching the pilot survives the flight
-/// entirely, and the banner and the tile go on running with the app closed.
-/// Squeezing five tiles onto one row would also have shrunk each of them past
-/// the point where the labels read.
+/// These outlive the window: watching the pilot survives the flight entirely,
+/// and the banner and the tile go on running with the app closed. Squeezing
+/// them all onto one row would also have shrunk each of them past the point
+/// where the labels read.
+///
+/// The profile chip is a fourth of the same kind: it leads to the person
+/// rather than the aeroplane, and it is the thing that turns a name on the map
+/// into somebody you can follow.
 struct FlightWatchRow: View {
 
     let flight: Flight
@@ -23,6 +27,11 @@ struct FlightWatchRow: View {
 
     /// Raised when the free watchlist is full — see `toggleWatch`.
     @State private var isShowingPaywall = false
+
+    /// The pilot's Inflight profile, opened from the chip. Looked up by the
+    /// name on the aeroplane, which most pilots have never claimed — the view
+    /// says so rather than this having to check first.
+    @State private var opened: ProfileLink?
 
     private var pilot: String? {
         guard let username = flight.username, !username.isEmpty else { return nil }
@@ -39,14 +48,26 @@ struct FlightWatchRow: View {
             // it — has nobody to watch, so the chip isn't offered at all
             // rather than sitting there disabled.
             if let pilot = pilot {
+                // The chip says "Pro" before it is tapped rather than after.
+                // Tapping something that looks available and being shown a
+                // paywall is the pattern people learn to distrust; a lock they
+                // can see, and can still tap to find out about, is not.
+                let locked = !isWatching
+                    && !entitlements.canWatchMore(current: friends.count)
+
                 chip(
-                    symbol: isWatching ? "person.fill.checkmark" : "person.badge.plus",
-                    title: isWatching ? "Watching" : "Watch",
+                    symbol: isWatching ? "person.fill.checkmark"
+                        : locked ? "lock" : "person.badge.plus",
+                    title: isWatching ? "Watching" : locked ? "Pro" : "Watch",
                     isOn: isWatching
                 ) {
                     toggleWatch(pilot)
                 }
-                .accessibilityLabel(isWatching ? "Stop watching \(pilot)" : "Watch \(pilot)")
+                .accessibilityLabel(
+                    isWatching ? "Stop watching \(pilot)"
+                        : locked ? "Watching \(pilot) needs Inflight Pro"
+                        : "Watch \(pilot)"
+                )
             }
 
             chip(
@@ -64,6 +85,17 @@ struct FlightWatchRow: View {
             .opacity(liveActivity.isSupported ? 1 : 0.45)
             .accessibilityLabel("Live banner for this flight")
 
+            if let pilot = pilot {
+                chip(
+                    symbol: "person.crop.circle",
+                    title: "Profile",
+                    isOn: false
+                ) {
+                    opened = .pilot(pilot)
+                }
+                .accessibilityLabel("Open \(pilot)'s Inflight profile")
+            }
+
             chip(
                 symbol: "square.grid.2x2",
                 title: "Pin",
@@ -74,21 +106,22 @@ struct FlightWatchRow: View {
             .accessibilityLabel("Pin this flight to the home screen widget")
         }
         .sheet(isPresented: $isShowingPaywall) { ProPanel(highlighted: .watchlist) }
+        .sheet(item: $opened) { link in PublicProfileView(link: link) }
     }
 
+    /// Taking somebody *off* the list is never gated — a full list must still
+    /// be a list you can make room in — so only the adding branch can be
+    /// refused, and the store is what refuses it. This reads the answer rather
+    /// than repeating the check.
     private func toggleWatch(_ pilot: String) {
-        if friends.contains(pilot) {
-            friends.remove(pilot)
-        } else {
-            // Taking somebody *off* the list is never gated, which is why the
-            // check sits on this branch alone: a full list must still be a list
-            // you can make room in.
-            guard entitlements.canWatchMore(current: friends.count) else {
-                isShowingPaywall = true
-                return
-            }
+        switch friends.toggle(pilot) {
+        case nil, .alreadyWatching, .unusableName:
+            break
 
-            friends.add(pilot)
+        case .needsPro:
+            isShowingPaywall = true
+
+        case .added:
             // The first pilot somebody watches is the moment the permission
             // prompt has something concrete to be about, so it is asked here
             // rather than at launch.

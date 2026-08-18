@@ -27,6 +27,10 @@ struct FriendsPanel: View {
     @State private var problem: String?
     @FocusState private var isTyping: Bool
 
+    /// A profile opened from a row, and the directory.
+    @State private var opened: ProfileLink?
+    @State private var isSearchingPilots = false
+
     private var theme: FlightInfoTheme { appearance.theme }
 
     /// Watched pilots the feed can currently see, keyed by lowercased name.
@@ -70,11 +74,14 @@ struct FriendsPanel: View {
                             isTracking: aloft[username].map { liveActivity.isTracking(flightId: $0.id) } ?? false,
                             onOpen: { flight in onSelect(flight) },
                             onTrack: { flight in toggleTracking(flight) },
+                            onProfile: { opened = .pilot(username) },
                             onRemove: { friends.remove(username) }
                         )
                     }
                 }
             }
+
+            directorySection
 
             notificationsSection
 
@@ -83,6 +90,32 @@ struct FriendsPanel: View {
             HintStrip(placement: .friends)
         }
         .sheet(isPresented: $isShowingPaywall) { ProPanel(highlighted: .watchlist) }
+        .sheet(item: $opened) { link in
+            PublicProfileView(link: link, onShowFlight: onSelect)
+                .environmentObject(feed)
+        }
+        .sheet(isPresented: $isSearchingPilots) {
+            PilotSearchPanel().environmentObject(feed)
+        }
+    }
+
+    /// The other kind of friend.
+    ///
+    /// The watchlist above is about aeroplanes: names the tracker recognises on
+    /// the map, so it can tell you when they take off. This is about people —
+    /// profiles, followers, the pilots somebody flies with. The two live in one
+    /// panel because "friends" is one word to the person reading it, and the
+    /// difference between them is a sentence, not a screen.
+    private var directorySection: some View {
+        PanelSection(title: "PILOTS ON INFLIGHT") {
+            PanelActionRow(
+                title: "Find a pilot",
+                symbol: "magnifyingglass",
+                detail: "Search by handle, by name, or by the Infinite Flight name on somebody's aeroplane."
+            ) {
+                isSearchingPilots = true
+            }
+        }
     }
 
     private func summary(aloft: Int) -> String {
@@ -169,7 +202,7 @@ struct FriendsPanel: View {
                         .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(theme.textDim)
                 } else {
-                    Text("Their Infinite Flight display name, spelled the way it appears on the map.")
+                    Text(hint)
                         .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(theme.textDim)
                         .fixedSize(horizontal: false, vertical: true)
@@ -184,20 +217,38 @@ struct FriendsPanel: View {
         !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// What the field says when nothing has gone wrong.
+    ///
+    /// A free account is told how much room is left BEFORE it runs out, rather
+    /// than finding out by being refused. The limit is not a secret and being
+    /// coy about it only makes the refusal feel arbitrary when it arrives.
+    private var hint: String {
+        let spelling = "Their Infinite Flight display name, spelled the way it appears on the map."
+        guard !entitlements.isPro else { return spelling }
+
+        let left = max(ProFeature.freeWatchlistLimit - friends.count, 0)
+        switch left {
+        case 0:
+            return "\(spelling) Your free list is full — Inflight Pro lifts the limit."
+        case 1:
+            return "\(spelling) Room for one more on a free account."
+        default:
+            return "\(spelling) Room for \(left) more on a free account."
+        }
+    }
+
+    /// The store decides; this says what it decided.
+    ///
+    /// Every refusal used to be re-derived here — the free limit checked before
+    /// the add, then the two remaining failures told apart afterwards by asking
+    /// `contains` again. The limit now lives on the mutation itself, so this
+    /// has one job: turn an outcome into a sentence.
     private func commit() {
         let name = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
 
-        // Checked before the add rather than reported after it, so nothing is
-        // written and then undone. An existing list that is already over the
-        // cap is left exactly as it is — this only stops it growing.
-        guard entitlements.canWatchMore(current: friends.count) || friends.contains(name) else {
-            problem = "Free keeps \(ProFeature.freeWatchlistLimit) pilots. Inflight Pro lifts the limit."
-            isShowingPaywall = true
-            return
-        }
-
-        if friends.add(name) {
+        switch friends.add(name) {
+        case .added:
             draft = ""
             problem = nil
             isTyping = false
@@ -207,10 +258,16 @@ struct FriendsPanel: View {
             if friends.count == 1, push.authorization == .notDetermined {
                 push.requestAuthorization()
             }
-        } else {
-            problem = friends.contains(name)
-                ? "\(name) is already on your list."
-                : "That doesn't look like a display name."
+
+        case .alreadyWatching:
+            problem = "\(name) is already on your list."
+
+        case .unusableName:
+            problem = "That doesn't look like a display name."
+
+        case .needsPro(let limit):
+            problem = "Free keeps \(limit) pilots. Inflight Pro lifts the limit."
+            isShowingPaywall = true
         }
     }
 
@@ -302,6 +359,11 @@ private struct FriendRow: View {
 
     let onOpen: (Flight) -> Void
     let onTrack: (Flight) -> Void
+
+    /// Opens whoever is flying under this name on Inflight, if anybody is. The
+    /// lookup is unverified and may find nothing — the profile view says which.
+    let onProfile: () -> Void
+
     let onRemove: () -> Void
 
     var body: some View {
@@ -330,6 +392,16 @@ private struct FriendRow: View {
             }
             .buttonStyle(.plain)
             .disabled(flight == nil)
+
+            Button(action: onProfile) {
+                Image(systemName: "person.crop.circle")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(theme.textSecondary)
+                    .frame(width: 30, height: 30)
+                    .background { Circle().fill(theme.surfaceFill) }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Open \(username)'s Inflight profile")
 
             if let flight = flight {
                 Button { onTrack(flight) } label: {

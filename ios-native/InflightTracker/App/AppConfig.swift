@@ -138,6 +138,59 @@ enum AppConfig {
         URL(string: "\(supabaseURLString)/rest/v1/rpc/pro_entitlement")
     }
 
+    // MARK: - Profiles
+
+    /// PostgREST, for the handful of rows the app writes directly.
+    ///
+    /// Reads of somebody else's profile never come through here — they go
+    /// through the `pilot_profile_*` functions below, which apply the
+    /// visibility rules. This is for a pilot's own row, where row-level
+    /// security already says "yours and no other".
+    static func tableURL(_ table: String) -> URL? {
+        URL(string: "\(supabaseURLString)/rest/v1/\(table)")
+    }
+
+    /// A `security definer` function, called by name.
+    ///
+    /// Most of the profile surface is functions rather than tables, and
+    /// deliberately: "which of these rows may this reader see" is a rule, the
+    /// rule depends on blocks and reports and the profile's own settings, and a
+    /// rule that lives in the client is a rule an unmodified client follows.
+    static func rpcURL(_ function: String) -> URL? {
+        URL(string: "\(supabaseURLString)/rest/v1/rpc/\(function)")
+    }
+
+    /// The public address of a profile picture.
+    ///
+    /// The buckets are public to read — a stranger's browser has to be able to
+    /// fetch the picture, and it has no credential to present — and writable
+    /// only by the `profile-image` Edge Function, which holds the service role.
+    /// See `20260818000100_pilot_profiles.sql`.
+    static func profileImageURL(bucket: String, path: String?) -> URL? {
+        guard let path = path, !path.isEmpty,
+              let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+        else { return nil }
+        return URL(string: "\(supabaseURLString)/storage/v1/object/public/\(bucket)/\(encoded)")
+    }
+
+    /// Where an avatar or a banner is uploaded.
+    ///
+    /// Not straight into Storage, even though Storage would take it: these
+    /// buckets are public, and a public bucket a client can write to is a
+    /// public bucket a client can put anything into, at a URL under our own
+    /// domain. Source in `supabase/functions/profile-image/`.
+    static var profileImageUploadURL: URL? {
+        URL(string: "\(supabaseURLString)/functions/v1/profile-image")
+    }
+
+    /// Where a profile is read on the open web, for sharing.
+    ///
+    /// The same page the website serves, so a link pasted into a forum post
+    /// opens something a person without the app can read.
+    static func publicProfileURL(handle: String) -> URL? {
+        URL(string: "https://inflight.info/pilot/\(handle)")
+    }
+
     /// The subscription terms, as App Store Review requires them to be
     /// reachable from the paywall itself.
     ///

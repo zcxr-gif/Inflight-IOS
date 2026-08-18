@@ -72,6 +72,10 @@ Deno.serve(async (request: Request) => {
 
   // Rows that reference auth.users without ON DELETE CASCADE would block the
   // delete, so the account's own data goes first. Each is scoped to this user.
+  // `pilot_profiles`, `pilot_follows`, `pilot_blocks`, `pilot_logbook` and
+  // `profile_reports` all declare ON DELETE CASCADE against auth.users, so they
+  // are not in this list — they go on their own. These are the older tables
+  // that do not.
   for (const table of ["user_watchlist", "user_flights", "user_preferences", "subscriptions"]) {
     const { error: rowError } = await admin.from(table).delete().eq("user_id", userId);
     if (rowError) {
@@ -81,6 +85,34 @@ Deno.serve(async (request: Request) => {
 
   // Keyed on `id` rather than `user_id` — profiles is one row per auth user.
   await admin.from("profiles").delete().eq("id", userId);
+
+  // The public profile's pictures.
+  //
+  // These are the one thing deleting the auth user does NOT take with it.
+  // Every row that references the account cascades, `pilot_profiles` included,
+  // but Storage objects are files: they would sit in a public bucket, at a URL
+  // somebody may well have pasted somewhere, after the account they belong to
+  // had asked to be erased. Listed and removed before the row goes, because the
+  // row is how we know which files are theirs — everything under a folder named
+  // for the user id.
+  for (const bucket of ["pilot-avatars", "pilot-banners"]) {
+    const { data: objects, error: listError } = await admin.storage
+      .from(bucket)
+      .list(userId, { limit: 100 });
+
+    if (listError) {
+      console.error(`delete-account: listing ${bucket} failed`, listError.message);
+      continue;
+    }
+
+    const paths = (objects ?? []).map((object) => `${userId}/${object.name}`);
+    if (paths.length === 0) continue;
+
+    const { error: removeError } = await admin.storage.from(bucket).remove(paths);
+    if (removeError) {
+      console.error(`delete-account: clearing ${bucket} failed`, removeError.message);
+    }
+  }
 
   const { error: deleteError } = await admin.auth.admin.deleteUser(userId);
 
