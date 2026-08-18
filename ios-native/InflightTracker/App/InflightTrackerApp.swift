@@ -40,7 +40,15 @@ private struct RootView: View {
 
     var body: some View {
         ContentView()
-            .onAppear { appearance.adopt(systemScheme: systemScheme) }
+            .onAppear {
+                appearance.adopt(systemScheme: systemScheme)
+
+                // Reattaches to Infinite Flight if the pilot has asked for it.
+                // Does nothing at all otherwise — the local network permission
+                // prompt is raised by the first connection attempt, so an app
+                // that never connects never asks.
+                ConnectSession.shared.start()
+            }
             .onChange(of: systemScheme) { _, scheme in
                 appearance.adopt(systemScheme: scheme)
             }

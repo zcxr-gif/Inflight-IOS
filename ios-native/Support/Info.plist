@@ -24,6 +24,16 @@
 	<true/>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<!-- Infinite Flight Connect: the sim serves a telemetry socket to whatever
+	     is on the same Wi-Fi, so reading your own aircraft means talking to
+	     another device on the local network. iOS asks the user once, using
+	     this sentence, and refuses every local connection until they agree.
+	     Discovery additionally listens for the broadcast Infinite Flight
+	     sends on UDP 15000; if Apple's multicast entitlement turns out to be
+	     required for that, only discovery is affected — entering the device's
+	     address by hand goes through this permission alone. -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Inflight connects to Infinite Flight running on another device on your Wi-Fi to read your aircraft and record your landings.</string>
 	<!-- Live Activities: the "live banner" a watched pilot's takeoff raises. -->
 	<key>NSSupportsLiveActivities</key>
 	<true/>

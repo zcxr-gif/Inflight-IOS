@@ -15,12 +15,16 @@ struct SettingsPanel: View {
     // Observed for the price alone: it arrives from the App Store a moment
     // after launch, and the row that quotes it has to redraw when it does.
     @ObservedObject private var store = ProStore.shared
+    // Observed so the row underneath says what the link is actually doing
+    // rather than only what it is for.
+    @ObservedObject private var connect = ConnectSession.shared
 
     /// Both open over this panel rather than replacing it: they are somewhere
     /// you go and come back from, and losing the settings sheet to get to them
     /// would make coming back a matter of finding it again.
     @State private var isShowingAccount = false
     @State private var isShowingPaywall = false
+    @State private var isShowingConnect = false
 
     private var theme: FlightInfoTheme { appearance.theme }
 
@@ -60,6 +64,19 @@ struct SettingsPanel: View {
                 ForEach(AppConfig.servers, id: \.self) { server in
                     if server != AppConfig.servers.first { PanelDivider() }
                     serverRow(server)
+                }
+            }
+
+            // Its own section because it is a different kind of thing from the
+            // feed: the feed is everybody's flights from the cloud, this is
+            // your own aircraft from the sim on the next device along.
+            PanelSection(title: "THE SIM") {
+                PanelActionRow(
+                    title: "Infinite Flight Connect",
+                    symbol: "antenna.radiowaves.left.and.right",
+                    detail: connectDetail
+                ) {
+                    isShowingConnect = true
                 }
             }
 
@@ -147,6 +164,23 @@ struct SettingsPanel: View {
         }
         .sheet(isPresented: $isShowingAccount) { AccountPanel() }
         .sheet(isPresented: $isShowingPaywall) { ProPanel() }
+        .sheet(isPresented: $isShowingConnect) { ConnectPanel() }
+    }
+
+    /// One line under the Connect row saying where the link stands, so the
+    /// panel is worth opening only when there is something to do in it.
+    private var connectDetail: String {
+        switch connect.status {
+        case .off:
+            return connect.isEnabled
+                ? "Waiting for Infinite Flight."
+                : "Read your landing rate and your own aircraft straight from the sim."
+        case .searching:            return "Looking for Infinite Flight on this network…"
+        case .connecting:           return "Connecting…"
+        case .syncing:              return "Reading what this aircraft publishes…"
+        case let .live(host):       return "Connected to \(host)."
+        case let .failed(reason):   return reason
+        }
     }
 
     private var feedSummary: String {

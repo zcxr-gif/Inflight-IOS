@@ -79,6 +79,16 @@ final class LogbookRecorder: ObservableObject {
         /// rather than the start of one.
         var wasAirborne = false
 
+        /// The touchdown, when the sim was attached and measured it.
+        ///
+        /// Nil for every flight watched only through the public feed, which is
+        /// most of them: the Connect API is local to the pilot's own network,
+        /// so this is present when they were flying at home with a second
+        /// device and absent otherwise. The row is written either way — a
+        /// logbook that only recorded flights flown at home would be a worse
+        /// logbook — and only the landing columns go missing.
+        var landing: ConnectLanding?
+
         static func == (lhs: Track, rhs: Track) -> Bool {
             lhs.flightId == rhs.flightId && lhs.lastSeen == rhs.lastSeen
         }
@@ -111,6 +121,17 @@ final class LogbookRecorder: ObservableObject {
 
     /// The shortest thing worth writing down.
     private static let minimumMinutes = 3
+
+    /// How long a finished flight waits for the sim to report its landing.
+    ///
+    /// There is a race here and it is unavoidable. The feed says "on the
+    /// ground" and the flight is closed; the sim's landing statistics are read
+    /// on a slower loop and may not have caught up. Rather than write the row
+    /// without the one number the pilot actually wants, a flight that was being
+    /// measured pauses briefly to let the touchdown arrive. Nothing is shown
+    /// waiting and nothing else blocks — the row is written from a detached
+    /// task either way.
+    private static let landingGrace: TimeInterval = 15
 
     /// One formatter, because building an `ISO8601DateFormatter` is not free
     /// and this runs at the end of every flight.
@@ -231,6 +252,53 @@ final class LogbookRecorder: ObservableObject {
         inProgress = track
     }
 
+    // MARK: - What the sim measured
+
+    /// A touchdown, straight from Infinite Flight over the Connect API.
+    ///
+    /// Matched to the flight by the live flight id, which both sides know: the
+    /// sim publishes it as `infiniteflight/live/current_flight/id` and the feed
+    /// names the same id on the aeroplane being drawn. That shared id is the
+    /// whole reason the two sources can be joined at all — without it this
+    /// would be a landing rate with no flight to attach it to.
+    ///
+    /// A landing whose id does not match the flight being watched is dropped.
+    /// It belongs to a flight that has already been written, or to one the app
+    /// never saw, and guessing would put somebody else's landing on this row.
+    func note(landing: ConnectLanding, flightID: String?) {
+        guard var track = inProgress else { return }
+
+        if let flightID, flightID != track.flightId { return }
+
+        track.landing = landing
+        inProgress = track
+    }
+
+    /// Waits, briefly, for the sim to report the landing for a flight that has
+    /// just been closed.
+    ///
+    /// Only ever waits when Connect is attached AND is on this same flight —
+    /// so a pilot flying away from home writes their row immediately, exactly
+    /// as before.
+    private func awaitLanding(for track: Track) async -> ConnectLanding? {
+        let session = ConnectSession.shared
+        guard session.status.isLive else { return nil }
+        guard session.telemetry.flightID == track.flightId else { return nil }
+
+        let deadline = Date().addingTimeInterval(Self.landingGrace)
+
+        while Date() < deadline {
+            // `noticedAt` is what makes this the landing for THIS flight rather
+            // than the one the sim was still holding from the last one.
+            if let landing = session.lastLanding, landing.noticedAt > track.startedAt {
+                return landing
+            }
+            try? await Task.sleep(nanoseconds: 500_000_000)
+        }
+
+        return nil
+    }
+
     /// Closes a track whose aircraft has stopped appearing.
     private func closeIfVanished() {
         guard let track = inProgress else { return }
@@ -291,7 +359,21 @@ final class LogbookRecorder: ObservableObject {
         if let origin = track.originIcao { row["origin_icao"] = origin }
         if let destination = track.destinationIcao { row["destination_icao"] = destination }
 
-        Task { await write(row) }
+        Task { [row, track] in
+            var body = row
+
+            // The landing arrives from a different source on a different clock,
+            // so it is collected here rather than assumed to be on the track
+            // already. `source` is set only when a measurement actually landed:
+            // a row marked `connect` with no landing rate would be claiming a
+            // precision it does not have.
+            if let landing = track.landing ?? await awaitLanding(for: track) {
+                body.merge(landing.logbookColumns) { _, measured in measured }
+                body["source"] = "connect"
+            }
+
+            await write(body)
+        }
     }
 
     private func write(_ row: [String: Any]) async {
