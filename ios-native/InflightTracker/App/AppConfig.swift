@@ -62,11 +62,78 @@ enum AppConfig {
     /// key, which bypasses RLS entirely.
     static let supabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxjZ2FvaXF3d3B5cW5kYXVjeXp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwNjkyOTksImV4cCI6MjA4NzY0NTI5OX0.9TO21knXR_P9E80pea7gUOu-gTjb17sCGk7BYgRRe3U"
 
-    /// The App Store product behind Inflight Pro — a non-consumable, US tier
-    /// $1.99. The identifier has to match the one on the App Store Connect
-    /// record exactly; the price lives there rather than here, so every
-    /// storefront gets its own.
-    static let proProductID = "com.tracker.Inflight.pro"
+    /// What Inflight Pro is sold as, in the order the paywall offers it.
+    ///
+    /// Three products against one entitlement: a year, a month, and the
+    /// lifetime unlock the app shipped with. The two subscriptions share a
+    /// subscription group on App Store Connect, so moving between them is an
+    /// upgrade Apple handles rather than two things bought twice.
+    ///
+    /// Identifiers have to match the App Store Connect records exactly. Prices
+    /// deliberately do not live here — the App Store's own localised price is
+    /// the only one the paywall ever shows, because every storefront has a
+    /// different number and a hard-coded "$19.99" is wrong in most of them.
+    enum ProProduct: String, CaseIterable, Identifiable {
+
+        /// A year. The one the paywall preselects.
+        case annual = "com.tracker.Inflight.pro.annual"
+
+        /// A month, for anyone who wants to try it that way.
+        case monthly = "com.tracker.Inflight.pro.monthly"
+
+        /// The original non-consumable: one payment, never expires. Kept
+        /// because it was sold, and because it is still the honest answer for
+        /// someone who does not want a subscription at all.
+        case lifetime = "com.tracker.Inflight.pro"
+
+        var id: String { rawValue }
+
+        var isSubscription: Bool { self != .lifetime }
+    }
+
+    /// Every identifier the app asks the App Store about.
+    static var proProductIDs: [String] { ProProduct.allCases.map(\.rawValue) }
+
+    /// The lifetime unlock, by identifier. Kept under its old name because it
+    /// is the product every earlier build bought.
+    static let proProductID = ProProduct.lifetime.rawValue
+
+    /// Where a verified App Store purchase is linked to the signed-in account.
+    ///
+    /// StoreKit already tells *this app* what the Apple Account owns, and that
+    /// is what unlocks Pro on the device. This is the other half: posting the
+    /// signed transaction to the server means the website unlocks too, and
+    /// means a renewal or a refund that happens while the app is closed still
+    /// reaches the account. Source in `supabase/functions/apple-subscription-sync/`.
+    static var appleSubscriptionSyncURL: URL? {
+        URL(string: "\(supabaseURLString)/functions/v1/apple-subscription-sync")
+    }
+
+    /// The one question the app asks the server about Pro.
+    ///
+    /// A `security definer` function rather than a table read: the answer
+    /// depends on an App Store row, a Stripe row and two flags on `profiles`,
+    /// and resolving that in the client would mean four reads and a copy of
+    /// the rules that could drift from the website's. See
+    /// `supabase/migrations/20260817000100_pro_entitlement_app_store.sql`.
+    static var proEntitlementRPCURL: URL? {
+        URL(string: "\(supabaseURLString)/rest/v1/rpc/pro_entitlement")
+    }
+
+    /// The subscription terms, as App Store Review requires them to be
+    /// reachable from the paywall itself.
+    ///
+    /// Apple's standard EULA is the one every app is covered by unless it
+    /// files its own, and it is a link that cannot rot. Swap it for
+    /// inflight.info's own terms page the day there is one.
+    static let termsURL = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")
+
+    static let privacyURL = URL(string: "https://inflight.info/privacy")
+
+    /// Where iOS lets someone change or cancel a subscription. Apple's own
+    /// deep link, so it lands on the right screen of Settings rather than on
+    /// the App Store's front page.
+    static let manageSubscriptionsURL = URL(string: "https://apps.apple.com/account/subscriptions")
 
     /// Erases the signed-in account, from the app.
     ///

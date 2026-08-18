@@ -66,20 +66,23 @@ enum ProFeature: String, CaseIterable, Identifiable {
 
 /// The one place the app asks "is this account Pro?".
 ///
-/// Two things can grant it and they are deliberately OR-ed rather than
-/// reconciled:
+/// Two halves, deliberately OR-ed rather than reconciled:
 ///
-/// - **StoreKit** — an App Store purchase of `AppConfig.proProductID`, held on
-///   the device and tied to the Apple Account. This is what the paywall sells.
-/// - **The account's `profiles` row** — the web subscription, and the
-///   `legacy_pro` grandfathering flag. Someone who has been paying on
-///   inflight.info for a year should not be charged again for installing the
-///   iOS app.
+/// - **StoreKit** — an App Store purchase held on the device and tied to the
+///   Apple Account. Apple has signed for it, it needs no network, and it is
+///   what the paywall sells. This is the half that must act the instant
+///   somebody taps Buy.
+/// - **The account** — `pro_entitlement()` on the server, which folds together
+///   an App Store purchase linked to this account, the web subscription sold
+///   on inflight.info, and the `legacy_pro` grandfathering flag. Somebody who
+///   has been paying on the website for a year should not be charged again for
+///   installing the iOS app.
 ///
-/// Nothing flows the other way: an App Store purchase is *not* written back to
-/// `profiles`. It could only be written by the client, and a client that can
-/// set its own `is_pro` is a client that can grant itself Pro — so the device
-/// keeps its own receipt and the cloud keeps its own, and either is enough.
+/// The flow between them goes one way and only one: the app posts its
+/// Apple-signed transactions up so the *website* honours a purchase made here,
+/// and the server never writes anything back down that the device would then
+/// treat as proof. A client that can set its own entitlement is a client that
+/// can grant itself Pro.
 final class Entitlements: ObservableObject {
 
     static let shared = Entitlements()
@@ -122,12 +125,19 @@ final class Entitlements: ObservableObject {
     private func recompute() {
         let account = AccountStore.shared.account
 
+        // The device's own receipt first: StoreKit has Apple's signature for
+        // it, it needs no network, and it is what somebody who has just
+        // tapped Buy expects to see act immediately.
         let resolved: Source
         if ProStore.shared.isPurchased {
             resolved = .appStore
-        } else if account?.isPro == true {
+        } else if account?.isAppStorePro == true {
+            // An App Store purchase this account owns but this Apple Account
+            // does not — bought on a different Apple ID, or before a restore.
+            resolved = .appStore
+        } else if account?.proSource == "subscription" || account?.proSource == "grace" {
             resolved = .subscription
-        } else if account?.isLegacyPro == true {
+        } else if account?.isPro == true {
             resolved = .legacy
         } else {
             resolved = .free

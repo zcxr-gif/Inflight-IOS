@@ -79,6 +79,10 @@ enum SupabaseAuth {
         /// (`old/www/flight.js`, `myIfName`), so the two builds share it.
         let pilotName: String?
 
+        /// What to call them. Only ever set by Sign in with Apple, which is
+        /// the one flow that offers a name at all.
+        let fullName: String?
+
         enum CodingKeys: String, CodingKey {
             case id
             case email
@@ -88,9 +92,11 @@ enum SupabaseAuth {
 
         private struct Metadata: Decodable {
             let ifUsername: String?
+            let fullName: String?
 
             enum CodingKeys: String, CodingKey {
                 case ifUsername = "if_username"
+                case fullName = "full_name"
             }
         }
 
@@ -103,11 +109,18 @@ enum SupabaseAuth {
 
             let metadata = try? container.decode(Metadata.self, forKey: .userMetadata)
             pilotName = (metadata?.ifUsername).flatMap { $0.isEmpty ? nil : $0 }
+            fullName = (metadata?.fullName).flatMap { $0.isEmpty ? nil : $0 }
         }
 
-        /// Postgres timestamps come back with a variable number of fractional
-        /// digits, which `.iso8601` alone rejects.
-        private static func date(from text: String) -> Date? {
+        private static func date(from text: String) -> Date? { Timestamp.date(from: text) }
+    }
+
+    /// Postgres timestamps come back with a variable number of fractional
+    /// digits, which `.iso8601` alone rejects. Shared, because every date this
+    /// file decodes arrives in that shape.
+    enum Timestamp {
+
+        static func date(from text: String) -> Date? {
             let withFraction = ISO8601DateFormatter()
             withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
             if let date = withFraction.date(from: text) { return date }
@@ -128,29 +141,44 @@ enum SupabaseAuth {
         case needsConfirmation(email: String)
     }
 
-    /// The row the whole entitlement question comes down to.
+    /// What the server says this account is entitled to.
     ///
-    /// `legacy_pro` is the grandfathering flag the web build added for accounts
-    /// that had Pro under the old rules; it is read here for the same reason —
-    /// someone who has had Pro for a year should not be asked to buy it again
-    /// because they installed the iOS app.
-    struct Profile: Decodable {
+    /// One `pro_entitlement()` call rather than a read of `profiles`, because
+    /// the answer depends on four things — an App Store row, a Stripe row, and
+    /// two flags — and the rules for combining them belong in one place that
+    /// the website reads too. Resolving it in the client would mean four reads
+    /// and a second copy of the rules to keep in step.
+    struct Entitlement: Decodable {
 
         let isPro: Bool
-        let legacyPro: Bool
+
+        /// Which of the possible grants answered. 'app-store',
+        /// 'app-store-lifetime', 'subscription', 'grace', 'legacy', 'profile',
+        /// 'expired', 'free' or 'signed-out'.
+        let source: String
+
+        /// When the paid period runs out, for the plans that have one.
+        let until: Date?
+
+        /// Set when the plan is paid up but will not renew.
+        let cancelAtPeriodEnd: Bool
 
         enum CodingKeys: String, CodingKey {
             case isPro = "is_pro"
-            case legacyPro = "legacy_pro"
+            case source
+            case until
+            case cancelAtPeriodEnd = "cancel_at_period_end"
         }
 
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             isPro = (try? container.decode(Bool.self, forKey: .isPro)) ?? false
-            legacyPro = (try? container.decode(Bool.self, forKey: .legacyPro)) ?? false
+            source = (try? container.decode(String.self, forKey: .source)) ?? "free"
+            until = (try? container.decode(String.self, forKey: .until))
+                .flatMap(Timestamp.date(from:))
+            cancelAtPeriodEnd =
+                (try? container.decode(Bool.self, forKey: .cancelAtPeriodEnd)) ?? false
         }
-
-        var grantsPro: Bool { isPro || legacyPro }
     }
 
     // MARK: - Requests
@@ -161,6 +189,34 @@ enum SupabaseAuth {
             query: [URLQueryItem(name: "grant_type", value: "password")],
             body: ["email": email, "password": password]
         )
+    }
+
+    /// Signs in with the identity token Apple just handed us.
+    ///
+    /// GoTrue's `id_token` grant, which is the native flow: no browser, no
+    /// redirect URL, no web view — the app asks Apple, Apple signs a token,
+    /// and Supabase verifies that signature against Apple's public keys. The
+    /// account it resolves to is keyed on the Apple identity, so the same
+    /// Apple ID lands on the same account every time.
+    ///
+    /// The nonce is the raw one. Apple was given its SHA-256 and put that hash
+    /// in the token; Supabase hashes this and checks the two match, which is
+    /// what stops a token captured somewhere else being replayed here.
+    static func signInWithApple(idToken: String, nonce: String) async throws -> Session {
+        try await post(
+            path: "/auth/v1/token",
+            query: [URLQueryItem(name: "grant_type", value: "id_token")],
+            body: ["provider": "apple", "id_token": idToken, "nonce": nonce]
+        )
+    }
+
+    /// Writes the name Apple gave us onto a brand-new account.
+    ///
+    /// Apple sends a name exactly once — on the very first authorisation, and
+    /// never again — so it is stored the moment it arrives or it is lost. Best
+    /// effort: a display name is not worth failing a sign-in over.
+    static func updateFullName(_ name: String, accessToken: String) async {
+        try? await updateUser(["data": ["full_name": name]], accessToken: accessToken)
     }
 
     static func signUp(email: String, password: String) async throws -> SignUpOutcome {
@@ -201,6 +257,16 @@ enum SupabaseAuth {
     /// whoever the token belongs to — which is exactly why the handle lives
     /// there and the Pro flag does not.
     static func updatePilotName(_ name: String, accessToken: String) async throws {
+        try await updateUser(["data": ["if_username": name]], accessToken: accessToken)
+    }
+
+    /// PUTs onto `/auth/v1/user`, which GoTrue scopes to whoever the token
+    /// belongs to. That scoping is exactly why the handle and the display name
+    /// live in `user_metadata` and the Pro flag does not.
+    private static func updateUser(
+        _ body: [String: Any],
+        accessToken: String
+    ) async throws {
         guard let url = URL(string: AppConfig.supabaseURLString + "/auth/v1/user") else {
             throw Failure(message: "Bad user URL.")
         }
@@ -210,9 +276,7 @@ enum SupabaseAuth {
         request.setValue(AppConfig.supabaseAnonKey, forHTTPHeaderField: "apikey")
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(
-            withJSONObject: ["data": ["if_username": name]]
-        )
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
         request.timeoutInterval = 20
 
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -255,22 +319,18 @@ enum SupabaseAuth {
         }
     }
 
-    /// This account's own profile row. Nil when the account has no row yet —
-    /// which is a free account, not an error.
-    static func profile(userId: String, accessToken: String) async throws -> Profile? {
-        var components = URLComponents(string: AppConfig.supabaseURLString + "/rest/v1/profiles")
-        components?.queryItems = [
-            URLQueryItem(name: "id", value: "eq.\(userId)"),
-            URLQueryItem(name: "select", value: "is_pro,legacy_pro"),
-            URLQueryItem(name: "limit", value: "1")
-        ]
-
-        guard let url = components?.url else { throw Failure(message: "Bad profile URL.") }
+    /// What this account is entitled to, as the server sees it.
+    static func entitlement(accessToken: String) async throws -> Entitlement? {
+        guard let url = AppConfig.proEntitlementRPCURL else {
+            throw Failure(message: "Bad entitlement URL.")
+        }
 
         var request = URLRequest(url: url)
-        request.httpMethod = "GET"
+        request.httpMethod = "POST"
         request.setValue(AppConfig.supabaseAnonKey, forHTTPHeaderField: "apikey")
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("{}".utf8)
         request.timeoutInterval = 20
 
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -279,7 +339,41 @@ enum SupabaseAuth {
             throw Failure.from(data: data, status: status)
         }
 
-        return try decoder.decode([Profile].self, from: data).first
+        // The function returns a table, so PostgREST answers with an array of
+        // one row.
+        return try decoder.decode([Entitlement].self, from: data).first
+    }
+
+    /// Hands the server the signed transactions StoreKit gave us, so the
+    /// purchase belongs to the account and not just to the phone.
+    ///
+    /// The JWS is what makes this safe to accept: the Edge Function verifies
+    /// Apple's signature over each one before it writes anything, so the worst
+    /// a tampered body can achieve is being rejected.
+    static func linkAppStoreTransactions(
+        _ signedTransactions: [String],
+        accessToken: String
+    ) async throws {
+        guard !signedTransactions.isEmpty else { return }
+        guard let url = AppConfig.appleSubscriptionSyncURL else {
+            throw Failure(message: "Purchase syncing isn't configured.")
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(AppConfig.supabaseAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(
+            withJSONObject: ["transactions": signedTransactions]
+        )
+        request.timeoutInterval = 25
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(status) else {
+            throw Failure.from(data: data, status: status)
+        }
     }
 
     // MARK: - Plumbing

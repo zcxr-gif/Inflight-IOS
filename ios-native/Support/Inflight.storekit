@@ -3,18 +3,18 @@
   "nonRenewingSubscriptions" : [],
   "products" : [
     {
-      "displayPrice" : "1.99",
+      "displayPrice" : "39.99",
       "familyShareable" : false,
       "internalID" : "B27E4A11",
       "localizations" : [
         {
-          "description" : "Flight replay and an unlimited watchlist, bought once.",
-          "displayName" : "Inflight Pro",
+          "description" : "Flight replay, the whole watchlist, your own colours and the globe. One payment, for good.",
+          "displayName" : "Inflight Pro — Lifetime",
           "locale" : "en_US"
         }
       ],
       "productID" : "com.tracker.Inflight.pro",
-      "referenceName" : "Inflight Pro",
+      "referenceName" : "Inflight Pro Lifetime",
       "type" : "NonConsumable"
     }
   ],
@@ -27,7 +27,61 @@
     "_storefront" : "USA",
     "_storeKitErrors" : []
   },
-  "subscriptionGroups" : [],
+  "subscriptionGroups" : [
+    {
+      "id" : "inflight.pro",
+      "localizations" : [],
+      "name" : "Inflight Pro",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "19.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "C41A9E30",
+          "introductoryOffer" : {
+            "internalID" : "D9B23C77",
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P1W"
+          },
+          "localizations" : [
+            {
+              "description" : "Flight replay, the whole watchlist, your own colours and the globe.",
+              "displayName" : "Inflight Pro — 12 months",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.tracker.Inflight.pro.annual",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Inflight Pro Annual",
+          "subscriptionGroupID" : "inflight.pro",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "3.49",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "E7C55B02",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Flight replay, the whole watchlist, your own colours and the globe.",
+              "displayName" : "Inflight Pro — 1 month",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.tracker.Inflight.pro.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Inflight Pro Monthly",
+          "subscriptionGroupID" : "inflight.pro",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
   "version" : {
     "major" : 4,
     "minor" : 0

@@ -1,3 +1,4 @@
+import AuthenticationServices
 import Combine
 import Foundation
 
@@ -43,25 +44,66 @@ final class AccountStore: ObservableObject {
         let id: String
         let email: String
 
-        /// What the *cloud* thinks. An App Store purchase is not written back
-        /// here — see `Entitlements` — so this is only ever the web
-        /// subscription or the grandfathered flag.
+        /// What the *cloud* thinks: the answer `pro_entitlement()` gave, which
+        /// folds together an App Store purchase linked to this account, a web
+        /// subscription, and the grandfathered flag.
         var isPro: Bool
-        var isLegacyPro: Bool
+
+        /// Which grant answered, in `pro_entitlement()`'s own words —
+        /// 'app-store', 'app-store-lifetime', 'subscription', 'grace',
+        /// 'legacy', 'profile', 'expired' or 'free'.
+        ///
+        /// Kept as the server's string rather than mapped to a local enum here,
+        /// because the mapping that matters is `Entitlements.Source` and one
+        /// translation is enough. It is what stops the app offering "Restore
+        /// purchases" to somebody whose Pro was never an App Store purchase.
+        var proSource: String?
+
+        /// When the paid period runs out, for the plans that have one.
+        var proUntil: Date?
+
+        /// Set when the plan is paid up but has been told not to renew.
+        var proCancelsAtPeriodEnd: Bool
+
+        /// What Apple gave us on the first Sign in with Apple, if that is how
+        /// this account was made.
+        var displayName: String?
 
         let joined: Date?
 
-        var grantsPro: Bool { isPro || isLegacyPro }
+        var grantsPro: Bool { isPro }
+
+        /// Whether the entitlement is one the App Store could restore. Anything
+        /// else — a website subscription, a grandfathered account — is not a
+        /// purchase on this Apple Account and has nothing to restore.
+        var isAppStorePro: Bool {
+            proSource == "app-store" || proSource == "app-store-lifetime"
+        }
 
         /// What to draw in the avatar when there is no picture to draw. The
         /// profile has no display name yet, so the local part of the email is
         /// the closest thing to one.
         var handle: String {
+            if let name = displayName, !name.isEmpty { return name }
             let local = email.split(separator: "@").first.map(String.init) ?? email
             return local.isEmpty ? email : local
         }
 
+        /// Two letters for the avatar. A real name gives up its initials; a
+        /// handle gives up its first two characters, which is the best anyone
+        /// can do with "hrantony2230".
         var initials: String {
+            let words = handle
+                .split(whereSeparator: { $0 == " " || $0 == "." || $0 == "_" || $0 == "-" })
+                .filter { $0.contains(where: \.isLetter) }
+
+            if words.count >= 2 {
+                return words.prefix(2)
+                    .compactMap { $0.first.map(String.init) }
+                    .joined()
+                    .uppercased()
+            }
+
             let letters = handle.filter { $0.isLetter || $0.isNumber }
             return String(letters.prefix(2)).uppercased()
         }
@@ -72,6 +114,10 @@ final class AccountStore: ObservableObject {
     /// Held rather than published: it is a credential, and no view needs it.
     private var accessToken: String?
     private var accessTokenExpiry: Date?
+
+    /// The raw nonce for the Sign in with Apple request in flight, between the
+    /// button building the request and Apple answering it.
+    private var appleNonce: String?
 
     private init() {}
 
@@ -122,6 +168,61 @@ final class AccountStore: ObservableObject {
                 password: password
             )
             try await self.adopt(session)
+        }
+    }
+
+    /// Sign in with Apple, first half: the nonce.
+    ///
+    /// Apple's button builds its own request, so the nonce has to be handed to
+    /// it as the request is made and kept here until the token comes back —
+    /// Supabase needs the raw value to check against the hash Apple embedded.
+    /// Returns the hash, which is the only half that leaves the device.
+    @MainActor
+    func beginAppleSignIn() -> String {
+        let nonce = AppleSignIn.nonce()
+        appleNonce = nonce
+        problem = nil
+        notice = nil
+        return AppleSignIn.hashed(nonce)
+    }
+
+    /// Sign in with Apple, second half.
+    ///
+    /// Required by App Store Guideline 4.8 the moment an app offers any other
+    /// third-party sign-in, and worth having on its own account: it is the one
+    /// way in that costs nobody a password. Apple's identity token goes
+    /// straight to GoTrue, which verifies it against Apple's own public keys —
+    /// this app never handles a credential it could misuse, because there
+    /// isn't one.
+    @MainActor
+    func completeAppleSignIn(_ result: Result<ASAuthorization, Error>) async {
+        guard !isWorking else { return }
+
+        isWorking = true
+        defer {
+            isWorking = false
+            // One nonce, one sign-in. Whatever happened, it is spent.
+            appleNonce = nil
+        }
+
+        do {
+            let credential = try AppleSignIn.credential(from: result)
+
+            guard let nonce = appleNonce else { throw AppleSignIn.Failure.noNonce }
+
+            let session = try await SupabaseAuth.signInWithApple(
+                idToken: credential.identityToken,
+                nonce: nonce
+            )
+            try await adopt(session, appleName: credential.fullName)
+        } catch AppleSignIn.Failure.cancelled {
+            // They tapped Cancel. Nothing to report.
+        } catch let failure as SupabaseAuth.Failure {
+            problem = failure.message
+        } catch let failure as AppleSignIn.Failure {
+            problem = failure.errorDescription
+        } catch {
+            problem = error.localizedDescription
         }
     }
 
@@ -199,25 +300,47 @@ final class AccountStore: ObservableObject {
         try? await SupabaseAuth.updatePilotName(name, accessToken: token)
     }
 
-    // MARK: - Profile
+    // MARK: - Entitlement
 
-    /// Re-reads `profiles` for the signed-in account.
+    /// Re-asks the server what this account is entitled to.
     ///
     /// Called after a purchase and whenever the account panel opens, because
-    /// the row can change without this device doing anything — a web
-    /// subscription renewing or lapsing is the whole point of reading it at
-    /// all.
+    /// the answer can change without this device doing anything — a
+    /// subscription renewing or lapsing is the whole point of asking at all.
     @MainActor
-    func refreshProfile() async {
-        guard let account = account else { return }
+    func refreshEntitlement() async {
+        guard account != nil else { return }
 
         do {
             let token = try await validAccessToken()
-            let profile = try await SupabaseAuth.profile(userId: account.id, accessToken: token)
-            apply(profile)
+            apply(try await SupabaseAuth.entitlement(accessToken: token))
         } catch {
             // Leaves whatever the last known answer was. An entitlement is not
             // something to revoke because a request timed out.
+        }
+    }
+
+    /// Hands the server the App Store purchases StoreKit has verified, so the
+    /// entitlement belongs to the account rather than to this phone.
+    ///
+    /// Silent, and deliberately so: the device has already unlocked Pro on the
+    /// strength of Apple's own signature by the time this runs. This is what
+    /// makes the same purchase work on inflight.info, and there is nothing for
+    /// anybody to do about it failing.
+    @MainActor
+    func linkAppStorePurchases(_ signedTransactions: [String]) async {
+        guard account != nil, !signedTransactions.isEmpty else { return }
+        guard let token = try? await validAccessToken() else { return }
+
+        do {
+            try await SupabaseAuth.linkAppStoreTransactions(
+                signedTransactions,
+                accessToken: token
+            )
+            await refreshEntitlement()
+        } catch {
+            // Tried again on the next launch, and covered by Apple's own
+            // server notifications in the meantime.
         }
     }
 
@@ -246,7 +369,10 @@ final class AccountStore: ObservableObject {
     }
 
     @MainActor
-    private func adopt(_ session: SupabaseAuth.Session) async throws {
+    private func adopt(
+        _ session: SupabaseAuth.Session,
+        appleName: String? = nil
+    ) async throws {
         accessToken = session.accessToken
         accessTokenExpiry = session.expiry
         SessionKeychain.save(session.refreshToken)
@@ -258,28 +384,42 @@ final class AccountStore: ObservableObject {
             id: session.user.id,
             email: email,
             isPro: false,
-            isLegacyPro: false,
+            proSource: nil,
+            proUntil: nil,
+            proCancelsAtPeriodEnd: false,
+            displayName: appleName ?? session.user.fullName,
             joined: session.user.createdAt
         )
+
+        // Apple hands over a name on the first authorisation and never again,
+        // so it is written onto the account the moment it arrives or it is
+        // gone for good.
+        if let appleName = appleName, session.user.fullName == nil {
+            await SupabaseAuth.updateFullName(appleName, accessToken: session.accessToken)
+        }
 
         // A handle set on another device, or on the website. Only taken when
         // this device has none of its own — see `adoptFromAccount`.
         PilotIdentity.shared.adoptFromAccount(session.user.pilotName)
 
-        // The row is a separate request, and a slow or failed one shouldn't
-        // hold up being signed in — the account lands first, Pro follows.
-        let profile = try? await SupabaseAuth.profile(
-            userId: session.user.id,
-            accessToken: session.accessToken
-        )
-        apply(profile)
+        // The entitlement is a separate request, and a slow or failed one
+        // shouldn't hold up being signed in — the account lands first, Pro
+        // follows.
+        apply(try? await SupabaseAuth.entitlement(accessToken: session.accessToken))
+
+        // Anything this Apple Account already owns now has an account to
+        // belong to. This is what makes "bought it on the phone, want it on
+        // the website" work for somebody who bought before they signed in.
+        await ProStore.shared.refreshEntitlement()
     }
 
     @MainActor
-    private func apply(_ profile: SupabaseAuth.Profile?) {
+    private func apply(_ entitlement: SupabaseAuth.Entitlement?) {
         guard var updated = account else { return }
-        updated.isPro = profile?.isPro ?? false
-        updated.isLegacyPro = profile?.legacyPro ?? false
+        updated.isPro = entitlement?.isPro ?? false
+        updated.proSource = entitlement?.source
+        updated.proUntil = entitlement?.until
+        updated.proCancelsAtPeriodEnd = entitlement?.cancelAtPeriodEnd ?? false
 
         guard updated != account else { return }
         account = updated

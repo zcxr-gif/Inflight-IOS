@@ -4,39 +4,51 @@ import StoreKit
 
 /// Inflight Pro, bought through the App Store.
 ///
-/// A non-consumable rather than a subscription: it is one payment for the
-/// features the app already has, it never lapses, and it needs no renewal
-/// server. The web build sells a recurring plan through Stripe — that flow is
-/// deliberately not reachable from inside the app, because App Store rules do
-/// not allow it, and because `Entitlements` already honours a web subscription
-/// for anyone who has one.
+/// Three products against one entitlement — a year, a month, and the lifetime
+/// unlock the app shipped with — because they are three answers to the same
+/// question and only one of them can be right for any given person. The two
+/// subscriptions sit in one subscription group, so switching between them is
+/// something Apple handles rather than something anybody buys twice.
 ///
-/// StoreKit 2 throughout, so there is no receipt to parse and no server to
-/// validate against: `Transaction.currentEntitlements` is the Apple-signed
-/// answer to "has this Apple Account bought it", and it is the only thing this
-/// class treats as proof.
+/// StoreKit 2 throughout, so there is no receipt to parse:
+/// `Transaction.currentEntitlements` is the Apple-signed answer to "does this
+/// Apple Account have Pro right now", and it is the only thing this class
+/// treats as proof on the device. What it *also* does is post those signed
+/// transactions to Supabase (`AppConfig.appleSubscriptionSyncURL`), so the
+/// entitlement reaches the account rather than staying on the phone — that is
+/// what makes a purchase made here show up on inflight.info, and what lets a
+/// renewal that happens with the app closed still land.
 final class ProStore: ObservableObject {
 
     static let shared = ProStore()
 
-    /// The product as the App Store describes it — localised name and, more to
-    /// the point, a price formatted in the user's own currency. Never
-    /// hard-coded: $1.99 is the US tier, and every other storefront has its own
-    /// number.
-    @Published private(set) var product: Product?
+    /// The catalogue, as the App Store describes it: localised names, and
+    /// prices in the user's own currency. Never hard-coded — $19.99 is the US
+    /// tier and every other storefront has its own number.
+    @Published private(set) var products: [AppConfig.ProProduct: Product] = [:]
 
-    /// Whether this Apple Account owns Pro. The device half of the entitlement.
-    @Published private(set) var isPurchased = false
+    /// Which plan the paywall has selected. A year by default: it is the one
+    /// most people should buy, and preselecting it is the honest version of
+    /// "recommended" — the other two are one tap away.
+    @Published var selected: AppConfig.ProProduct = .annual
 
-    /// Set while the App Store sheet is up.
-    @Published private(set) var isPurchasing = false
+    /// The product identifiers this Apple Account currently owns.
+    @Published private(set) var owned: Set<String> = []
 
-    /// Set while the product is being fetched, so the paywall can show its
-    /// price arriving rather than a blank button.
-    @Published private(set) var isLoadingProduct = false
+    /// Set while the App Store sheet is up, and for which plan.
+    @Published private(set) var purchasing: AppConfig.ProProduct?
+
+    /// Set while the catalogue is being fetched, so the paywall can show its
+    /// prices arriving rather than a row of blanks.
+    @Published private(set) var isLoadingProducts = false
 
     /// Set while a restore is running.
     @Published private(set) var isRestoring = false
+
+    /// Whether this Apple Account has never had an introductory offer in the
+    /// subscription group. Nil until asked. Only used to say so when it is
+    /// true — an offer nobody is eligible for is not worth advertising.
+    @Published private(set) var isEligibleForIntroOffer: Bool?
 
     /// The last thing that went wrong, if it was worth saying. A cancelled
     /// purchase is not — the user knows, they cancelled it.
@@ -47,8 +59,8 @@ final class ProStore: ObservableObject {
     @Published var notice: String?
 
     /// Watches for entitlements that arrive without this app asking: a purchase
-    /// made on another device, a family-sharing grant, an Ask-to-Buy approval
-    /// that lands days later, or a refund being taken back.
+    /// made on another device, a renewal, a family-sharing grant, an
+    /// Ask-to-Buy approval that lands days later, or a refund being taken back.
     private var updates: Task<Void, Never>?
 
     private init() {}
@@ -76,56 +88,133 @@ final class ProStore: ObservableObject {
         Task { @MainActor [weak self] in
             guard let self = self else { return }
             await self.refreshEntitlement()
-            await self.loadProduct()
+            await self.loadProducts()
         }
     }
 
     // MARK: - Catalogue
 
     @MainActor
-    func loadProduct() async {
-        guard product == nil, !isLoadingProduct else { return }
+    func loadProducts() async {
+        guard products.count < AppConfig.ProProduct.allCases.count,
+              !isLoadingProducts else { return }
 
-        isLoadingProduct = true
-        defer { isLoadingProduct = false }
+        isLoadingProducts = true
+        defer { isLoadingProducts = false }
 
         do {
-            product = try await Product.products(for: [AppConfig.proProductID]).first
+            let fetched = try await Product.products(for: AppConfig.proProductIDs)
+
+            var mapped: [AppConfig.ProProduct: Product] = [:]
+            for product in fetched {
+                if let plan = AppConfig.ProProduct(rawValue: product.id) {
+                    mapped[plan] = product
+                }
+            }
+            products = mapped
+
+            await loadIntroEligibility()
         } catch {
-            // Left nil. The paywall says what Pro is either way and offers the
-            // button disabled, which is a better answer than an error about
-            // StoreKit to someone who is only browsing.
-            product = nil
+            // Left as it was. The paywall says what Pro is either way and
+            // offers the buttons disabled, which is a better answer than an
+            // error about StoreKit to someone who is only browsing.
         }
     }
 
-    /// What to put on the button. The App Store's own formatted price when it
-    /// has arrived, and nothing pretending to be one when it hasn't.
-    var displayPrice: String? { product?.displayPrice }
+    @MainActor
+    private func loadIntroEligibility() async {
+        guard let subscription = products[.annual]?.subscription else { return }
+        isEligibleForIntroOffer = await subscription.isEligibleForIntroOffer
+    }
+
+    func product(for plan: AppConfig.ProProduct) -> Product? { products[plan] }
+
+    /// The App Store's own formatted price, or nil while the catalogue is on
+    /// its way. Nothing pretending to be a price is ever shown in its place.
+    func displayPrice(for plan: AppConfig.ProProduct) -> String? {
+        products[plan]?.displayPrice
+    }
+
+    /// The cheapest way in, for the rows elsewhere in the app that mention what
+    /// Pro costs without opening the paywall.
+    var displayPrice: String? {
+        displayPrice(for: .annual) ?? displayPrice(for: .monthly) ?? displayPrice(for: .lifetime)
+    }
+
+    /// What a year works out at per month, in the storefront's own currency.
+    ///
+    /// Formatted from the product's own price and currency rather than by
+    /// dividing a string, so it is right in every storefront and absent in none.
+    func perMonthPrice(for plan: AppConfig.ProProduct) -> String? {
+        guard plan == .annual,
+              let product = products[.annual],
+              let period = product.subscription?.subscriptionPeriod else { return nil }
+
+        let months: Decimal
+        switch period.unit {
+        case .year: months = Decimal(period.value * 12)
+        case .month: months = Decimal(period.value)
+        case .week: months = Decimal(period.value) / 4
+        case .day: months = Decimal(period.value) / 30
+        @unknown default: return nil
+        }
+
+        guard months > 1 else { return nil }
+        return (product.price / months).formatted(product.priceFormatStyle)
+    }
+
+    /// How much cheaper a year is than twelve months, as a whole percentage.
+    ///
+    /// Nil unless both prices are actually known and the year is actually
+    /// cheaper — a saving badge on a plan that saves nothing is a lie, and one
+    /// computed from a price that hasn't arrived is a guess.
+    var annualSavingPercent: Int? {
+        guard let annual = products[.annual], let monthly = products[.monthly],
+              let annualPeriod = annual.subscription?.subscriptionPeriod,
+              annualPeriod.unit == .year, annualPeriod.value == 1 else { return nil }
+
+        let twelveMonths = monthly.price * 12
+        guard twelveMonths > 0, annual.price < twelveMonths else { return nil }
+
+        let saved = (twelveMonths - annual.price) / twelveMonths * 100
+        let percent = (saved as NSDecimalNumber).intValue
+        return percent > 0 ? percent : nil
+    }
 
     // MARK: - Buying
 
     @MainActor
-    func purchase() async {
-        guard !isPurchasing else { return }
+    func purchase(_ plan: AppConfig.ProProduct) async {
+        guard purchasing == nil else { return }
 
         // The paywall can be opened before the catalogue lands — on a cold
         // launch with a slow connection, say — so this retries rather than
         // refusing.
-        if product == nil { await loadProduct() }
+        if products[plan] == nil { await loadProducts() }
 
-        guard let product = product else {
+        guard let product = products[plan] else {
             problem = "The App Store isn't answering right now. Try again in a moment."
             return
         }
 
-        isPurchasing = true
+        purchasing = plan
         problem = nil
         notice = nil
-        defer { isPurchasing = false }
+        defer { purchasing = nil }
+
+        var options: Set<Product.PurchaseOption> = []
+
+        // Stamps the purchase with the account that made it, so a renewal or a
+        // refund notification arriving at the server days later can find its
+        // way back to the right profile without the app being involved. The
+        // Supabase user id is already a UUID, which is exactly what this field
+        // wants.
+        if let accountID = AccountStore.shared.account.flatMap({ UUID(uuidString: $0.id) }) {
+            options.insert(.appAccountToken(accountID))
+        }
 
         do {
-            switch try await product.purchase() {
+            switch try await product.purchase(options: options) {
             case .success(let verification):
                 guard case .verified(let transaction) = verification else {
                     // Unverified means the signature didn't check out. Nothing
@@ -183,21 +272,76 @@ final class ProStore: ObservableObject {
 
     // MARK: - Entitlement
 
+    /// Whether this Apple Account owns Pro in any of its forms.
+    var isPurchased: Bool { !owned.isEmpty }
+
+    /// Which plan the entitlement came from, for the account panel to say so.
+    /// Lifetime wins when somebody holds both, because it is the one that does
+    /// not run out.
+    var ownedPlan: AppConfig.ProProduct? {
+        if owned.contains(AppConfig.ProProduct.lifetime.rawValue) { return .lifetime }
+        if owned.contains(AppConfig.ProProduct.annual.rawValue) { return .annual }
+        if owned.contains(AppConfig.ProProduct.monthly.rawValue) { return .monthly }
+        return nil
+    }
+
     @MainActor
     func refreshEntitlement() async {
-        var owned = false
+        var found: Set<String> = []
+        var signed: [String] = []
 
         for await entitlement in Transaction.currentEntitlements {
             guard case .verified(let transaction) = entitlement,
-                  transaction.productID == AppConfig.proProductID else { continue }
+                  AppConfig.ProProduct(rawValue: transaction.productID) != nil else { continue }
 
             // A refunded or revoked purchase stays in the list with a date on
             // it, and it is not an entitlement any more.
-            if transaction.revocationDate == nil { owned = true }
+            guard transaction.revocationDate == nil else { continue }
+
+            // A subscription that has run out is likewise still listed for a
+            // while. `currentEntitlements` filters most of these out already;
+            // this is the belt to that braces.
+            if let expiry = transaction.expirationDate, expiry <= Date() { continue }
+
+            found.insert(transaction.productID)
+            // The signature comes off the verification result rather than the
+            // decoded transaction: the JWS *is* the signed form, and it is
+            // what the server re-verifies against Apple's roots.
+            signed.append(entitlement.jwsRepresentation)
         }
 
-        guard owned != isPurchased else { return }
-        isPurchased = owned
-        Entitlements.shared.storeChanged()
+        if found != owned {
+            owned = found
+            Entitlements.shared.storeChanged()
+        }
+
+        await linkIfNeeded(signed)
+    }
+
+    /// What has already been handed to the server, and for whom.
+    ///
+    /// Both halves matter. Without the products, every launch re-posts a
+    /// purchase the server already has; without the account, signing in on a
+    /// phone that already owns Pro would never post it at all — the set of
+    /// owned products hasn't changed, but the account it needs to reach has.
+    private var linked: (account: String, products: Set<String>)?
+
+    /// Pushes the signed transactions up, when there is a new thing to say.
+    ///
+    /// Deliberately after the local entitlement has already been applied: the
+    /// device does not wait on the network to unlock something StoreKit has
+    /// signed for. This is only about the *account* — and therefore the
+    /// website — catching up.
+    @MainActor
+    private func linkIfNeeded(_ signedTransactions: [String]) async {
+        guard !owned.isEmpty,
+              let accountID = AccountStore.shared.account?.id else { return }
+
+        if let linked = linked, linked.account == accountID, linked.products == owned {
+            return
+        }
+
+        linked = (accountID, owned)
+        await AccountStore.shared.linkAppStorePurchases(signedTransactions)
     }
 }
