@@ -173,6 +173,19 @@ struct PublicProfileView: View {
         }
     }
 
+    /// The line that goes with a shared profile.
+    ///
+    /// The link alone is an address; this is what makes it an introduction. The
+    /// display name only when there is one worth saying — a profile that has
+    /// never set one would otherwise read "Rey (rey)".
+    private func shareMessage(_ profile: PilotProfile) -> String {
+        let name = profile.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !name.isEmpty, name.lowercased() != profile.handle.lowercased() {
+            return "\(name) (@\(profile.handle)) on Inflight"
+        }
+        return "@\(profile.handle) on Inflight"
+    }
+
     // MARK: - Header
 
     private func header(_ profile: PilotProfile) -> some View {
@@ -186,7 +199,11 @@ struct PublicProfileView: View {
 
                 HStack(spacing: 8) {
                     if let url = AppConfig.publicProfileURL(handle: profile.handle) {
-                        ShareLink(item: url) {
+                        ShareLink(
+                            item: url,
+                            subject: Text("@\(profile.handle) on Inflight"),
+                            message: Text(shareMessage(profile))
+                        ) {
                             headerButton("square.and.arrow.up")
                         }
                         .buttonStyle(.plain)

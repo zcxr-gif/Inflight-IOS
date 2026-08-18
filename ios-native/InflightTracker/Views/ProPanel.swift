@@ -115,9 +115,11 @@ struct ProPanel: View {
 
     private var hero: some View {
         VStack(spacing: 10) {
-            Image(systemName: "airplane.circle.fill")
-                .font(.system(size: 46, weight: .regular))
-                .foregroundStyle(theme.accent)
+            // The logo rather than a system glyph: this is the screen that asks
+            // for money, and the thing being bought has a name and a mark of
+            // its own. An SF Symbol here says "an app", not "this app".
+            InflightWordmark(height: 24)
+                .padding(.bottom, 2)
 
             Text("Inflight Pro")
                 .font(.system(size: 30, weight: .heavy, design: .rounded))

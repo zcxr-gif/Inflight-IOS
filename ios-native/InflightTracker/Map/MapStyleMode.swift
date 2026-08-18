@@ -11,7 +11,7 @@ import MapKit
 /// when imagery is paired with realistic elevation and the camera is pulled far
 /// enough back — the whole planet, lit and rotatable, with the server's traffic
 /// on it. It is a different way to *fly* the map rather than a different palette
-/// for it, which is why it also unlocks rotation and pitch.
+/// for it, which is why it also unlocks rotation.
 enum MapStyleMode: String, CaseIterable, Identifiable {
 
     /// Today's look, and the default: standard cartography with the emphasis
@@ -27,8 +27,7 @@ enum MapStyleMode: String, CaseIterable, Identifiable {
     /// legible thing on screen — the reason it is offered.
     case satellite
 
-    /// The planet. Imagery with labels over realistic elevation, free to
-    /// rotate and tilt.
+    /// The planet. Imagery with labels over realistic elevation, free to spin.
     case globe
 
     var id: String { rawValue }
@@ -51,7 +50,7 @@ enum MapStyleMode: String, CaseIterable, Identifiable {
         case .satellite:
             return "Imagery with no labels, so only the aircraft read."
         case .globe:
-            return "The whole planet, free to spin and tilt. Pull back to see it."
+            return "The whole planet, free to spin. Pull back to see it."
         }
     }
 
@@ -77,13 +76,17 @@ enum MapStyleMode: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Whether the camera is free to rotate and tilt in this style.
+    /// Whether the camera is free to rotate in this style.
     ///
     /// Only the globe. Every other style is north-up on purpose: a sprite's
     /// rotation is its true heading, and a map that can be spun means that
     /// rotation has to be corrected against the camera on every frame. The
     /// globe earns that cost because spinning it *is* the feature; a flat map
     /// gains nothing from being crooked.
+    ///
+    /// Rotation only — pitch is off in every style, the globe included. See
+    /// `TrackerMapView.applyStyle` for why a tilted camera and a sprite drawn
+    /// from directly above cannot both be right.
     var isFreeCamera: Bool { self == .globe }
 
     /// How far back the camera goes when this style is switched on, in metres,

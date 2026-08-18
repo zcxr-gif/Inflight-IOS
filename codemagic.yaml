@@ -252,6 +252,7 @@ workflows:
             --require "com.tracker.Inflight:com.apple.security.application-groups=group.com.tracker.Inflight" \
             --require "com.tracker.Inflight:aps-environment" \
             --require "com.tracker.Inflight:com.apple.developer.applesignin=Default" \
+            --require "com.tracker.Inflight:com.apple.developer.associated-domains=applinks:inflight.info" \
             --require "com.tracker.Inflight.widgets:com.apple.security.application-groups=group.com.tracker.Inflight"
 
           # Applies the profiles to the freshly generated project and writes the

@@ -46,6 +46,14 @@ CAPABILITY_HINTS = {
     "aps-environment": (
         "Push Notifications. Enable it on the identifier."
     ),
+    "com.apple.developer.associated-domains": (
+        "Associated Domains. Enable it on the identifier, then regenerate the "
+        "profile and re-upload it to Codemagic as inflight_distribution — a "
+        "profile issued before the capability was added does not carry it. "
+        "This is what makes a shared inflight.info link open the app instead "
+        "of Safari; the other half is the apple-app-site-association file on "
+        "the site itself, which is not in this repo."
+    ),
     "com.apple.developer.applesignin": (
         "Sign in with Apple. Enable it on the identifier — and note that this "
         "one is invisible until it is missing: the app builds, installs and "
