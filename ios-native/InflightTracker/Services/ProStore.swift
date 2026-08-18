@@ -4,11 +4,12 @@ import StoreKit
 
 /// Inflight Pro, bought through the App Store.
 ///
-/// Three products against one entitlement — a year, a month, and the lifetime
-/// unlock the app shipped with — because they are three answers to the same
-/// question and only one of them can be right for any given person. The two
-/// subscriptions sit in one subscription group, so switching between them is
-/// something Apple handles rather than something anybody buys twice.
+/// Two plans against one entitlement — a year and a month — sitting in one
+/// subscription group, so switching between them is something Apple handles
+/// rather than something anybody buys twice. The lifetime unlock earlier
+/// builds sold is no longer offered, but `AppConfig.ProProduct` still knows
+/// about it and `refreshEntitlement` still honours it: a purchase does not
+/// stop counting because the pricing changed.
 ///
 /// StoreKit 2 throughout, so there is no receipt to parse:
 /// `Transaction.currentEntitlements` is the Apple-signed answer to "does this
@@ -96,7 +97,7 @@ final class ProStore: ObservableObject {
 
     @MainActor
     func loadProducts() async {
-        guard products.count < AppConfig.ProProduct.allCases.count,
+        guard products.count < AppConfig.ProProduct.forSale.count,
               !isLoadingProducts else { return }
 
         isLoadingProducts = true
@@ -138,7 +139,7 @@ final class ProStore: ObservableObject {
     /// The cheapest way in, for the rows elsewhere in the app that mention what
     /// Pro costs without opening the paywall.
     var displayPrice: String? {
-        displayPrice(for: .annual) ?? displayPrice(for: .monthly) ?? displayPrice(for: .lifetime)
+        displayPrice(for: .annual) ?? displayPrice(for: .monthly)
     }
 
     /// What a year works out at per month, in the storefront's own currency.
@@ -276,8 +277,8 @@ final class ProStore: ObservableObject {
     var isPurchased: Bool { !owned.isEmpty }
 
     /// Which plan the entitlement came from, for the account panel to say so.
-    /// Lifetime wins when somebody holds both, because it is the one that does
-    /// not run out.
+    /// Lifetime wins when somebody holds both — it is the one that does not
+    /// run out, and the one whose copy needs saying.
     var ownedPlan: AppConfig.ProProduct? {
         if owned.contains(AppConfig.ProProduct.lifetime.rawValue) { return .lifetime }
         if owned.contains(AppConfig.ProProduct.annual.rawValue) { return .annual }

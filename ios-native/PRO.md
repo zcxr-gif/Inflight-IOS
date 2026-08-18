@@ -8,24 +8,44 @@ paywall with no prices on it or a sign-in button that errors.
 
 ## What is sold
 
-Three products against one entitlement. The two subscriptions share a group, so
-moving between them is an upgrade Apple handles rather than two things bought
-twice.
+Two plans, in one subscription group, so moving between them is an upgrade
+Apple handles rather than two things bought twice.
 
-| Product ID | Type | Suggested US tier |
-| --- | --- | --- |
-| `com.tracker.Inflight.pro.annual` | Auto-renewable, 1 year | $19.99 |
-| `com.tracker.Inflight.pro.monthly` | Auto-renewable, 1 month | $3.49 |
-| `com.tracker.Inflight.pro` | Non-consumable (lifetime) | $39.99 |
+| Product ID | Type | Suggested US tier | Level |
+| --- | --- | --- | --- |
+| `com.tracker.Inflight.pro.annual` | Auto-renewable, 1 year | $19.99 | 1 |
+| `com.tracker.Inflight.pro.monthly` | Auto-renewable, 1 month | $3.49 | 2 |
 
-The identifiers are in `App/AppConfig.swift` (`ProProduct`) and have to match
-App Store Connect exactly. **Prices are deliberately not in the app.** Every
-storefront has its own number and the paywall shows the App Store's own
+The identifiers are in `App/AppConfig.swift` (`ProProduct.forSale`) and have to
+match App Store Connect exactly. **Prices are deliberately not in the app.**
+Every storefront has its own number and the paywall shows the App Store's own
 localised price or nothing at all; the tiers above are only what
 `Support/Inflight.storekit` uses for local testing.
 
-`com.tracker.Inflight.pro` is the product earlier builds sold. It stays,
-unchanged in identifier, so nobody who bought it loses anything.
+Annual is level 1 — the *higher* tier — on purpose. Monthly to annual is then
+an upgrade: it takes effect immediately and Apple prorates a refund for the
+unused part of the month. Annual to monthly is a downgrade and waits for the
+renewal date, which is right, because the year has already been paid for. Put
+both on the same level and the switch becomes a crossgrade that, because the
+durations differ, would not take effect until the next renewal — somebody pays
+for a year and waits up to a month to be on it.
+
+### The retired lifetime unlock
+
+`com.tracker.Inflight.pro`, the non-consumable earlier builds sold, is **no
+longer offered**. On App Store Connect it should be **removed from sale**; it
+is not deleted, and it must not be.
+
+It stays in `ProProduct` — just not in `forSale` — because removing it from
+sale does not revoke it. `Transaction.currentEntitlements` still returns it for
+everyone who bought one, `ProStore` still recognises it, and
+`pro_entitlement()` still answers `app-store-lifetime` for it. Somebody who
+paid once for Pro keeps Pro; the pricing changing is not their problem. The
+account panel has its own line for them, and no "Manage subscription" row,
+because there is nothing to manage.
+
+It stays in `Support/Inflight.storekit` too, so the already-bought-it path can
+still be tested locally even though nothing sells it.
 
 ### App Store Connect
 

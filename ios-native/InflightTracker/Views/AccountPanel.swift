@@ -431,8 +431,8 @@ struct AccountPanel: View {
                 PanelActionRow(
                     title: "Get Inflight Pro",
                     symbol: "sparkles",
-                    detail: store.displayPrice.map { "From \($0) a year, or one payment for life." }
-                        ?? "A year, a month, or one payment for life."
+                    detail: store.displayPrice.map { "From \($0) a year. Cancel any time." }
+                        ?? "A year or a month. Cancel any time."
                 ) {
                     isShowingPaywall = true
                 }
@@ -440,9 +440,10 @@ struct AccountPanel: View {
         }
     }
 
-    /// What to say about an App Store entitlement, which is now three quite
-    /// different things: a plan that renews, a plan that has been told not to,
-    /// and the lifetime unlock that never had to.
+    /// What to say about an App Store entitlement: a plan that renews, a plan
+    /// that has been told not to, and the retired lifetime unlock that never
+    /// had to. The last is no longer sold and is still honoured, so its line
+    /// still has to be here.
     private var appStoreDetail: String {
         if store.ownedPlan == .lifetime {
             return "The lifetime unlock, on your Apple Account. It follows that account to any device you sign in on."

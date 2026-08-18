@@ -197,7 +197,7 @@ struct ProPanel: View {
     /// App Review looks for.
     private var checkout: some View {
         VStack(spacing: 10) {
-            ForEach(AppConfig.ProProduct.allCases) { plan in
+            ForEach(AppConfig.ProProduct.forSale) { plan in
                 planRow(plan)
             }
 
@@ -297,6 +297,8 @@ struct ProPanel: View {
         switch plan {
         case .annual: return "12 months"
         case .monthly: return "1 month"
+        // Not offered any more, so not reachable from the plan list — but
+        // `ownedPlan` still returns it for somebody who bought one.
         case .lifetime: return "Lifetime"
         }
     }
@@ -347,7 +349,6 @@ struct ProPanel: View {
     private var buttonTitle: String {
         if store.purchasing != nil { return "Contacting the App Store…" }
         if store.product(for: store.selected) == nil { return "Loading prices…" }
-        if store.selected == .lifetime { return "Get Inflight Pro" }
         if store.isEligibleForIntroOffer == true { return "Start free trial" }
         return "Continue"
     }
@@ -380,10 +381,13 @@ struct ProPanel: View {
 
     private var renewalTerms: String {
         switch store.selected {
-        case .lifetime:
-            return "One payment on your Apple Account. It comes back on any device you sign that account into — no subscription, nothing to cancel."
         case .annual, .monthly:
             return "Renews automatically until cancelled. Your Apple Account is charged at confirmation and again each period; cancel any time in Settings, at least a day before it renews."
+        case .lifetime:
+            // Not selectable — it is not on the plan list — but the switch has
+            // to be exhaustive and inventing a "can't happen" here would be
+            // worse than saying the true thing.
+            return "One payment on your Apple Account. Nothing to cancel."
         }
     }
 

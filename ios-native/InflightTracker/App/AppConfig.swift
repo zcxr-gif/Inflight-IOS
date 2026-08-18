@@ -62,12 +62,15 @@ enum AppConfig {
     /// key, which bypasses RLS entirely.
     static let supabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxjZ2FvaXF3d3B5cW5kYXVjeXp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwNjkyOTksImV4cCI6MjA4NzY0NTI5OX0.9TO21knXR_P9E80pea7gUOu-gTjb17sCGk7BYgRRe3U"
 
-    /// What Inflight Pro is sold as, in the order the paywall offers it.
+    /// The products Inflight Pro has ever been sold as.
     ///
-    /// Three products against one entitlement: a year, a month, and the
-    /// lifetime unlock the app shipped with. The two subscriptions share a
-    /// subscription group on App Store Connect, so moving between them is an
-    /// upgrade Apple handles rather than two things bought twice.
+    /// Two of them are on sale — a year and a month, sharing a subscription
+    /// group on App Store Connect so moving between them is an upgrade Apple
+    /// handles rather than two things bought twice. The third is the lifetime
+    /// unlock earlier builds sold, which is **no longer offered** and is still
+    /// listed here because it is still honoured: somebody who paid once for
+    /// Pro keeps Pro, and taking that away because the pricing changed would
+    /// be indefensible. See `forSale` for what the paywall actually shows.
     ///
     /// Identifiers have to match the App Store Connect records exactly. Prices
     /// deliberately do not live here — the App Store's own localised price is
@@ -81,18 +84,33 @@ enum AppConfig {
         /// A month, for anyone who wants to try it that way.
         case monthly = "com.tracker.Inflight.pro.monthly"
 
-        /// The original non-consumable: one payment, never expires. Kept
-        /// because it was sold, and because it is still the honest answer for
-        /// someone who does not want a subscription at all.
+        /// The original non-consumable: one payment, never expires.
+        ///
+        /// Retired — off the paywall, and removed from sale on App Store
+        /// Connect — but never forgotten. It stays in this enum so `ProStore`
+        /// still recognises the transaction and still unlocks Pro for everyone
+        /// who bought one.
         case lifetime = "com.tracker.Inflight.pro"
 
         var id: String { rawValue }
 
         var isSubscription: Bool { self != .lifetime }
+
+        /// What the paywall offers, in the order it offers it.
+        ///
+        /// Deliberately not `allCases`: the difference between "a product this
+        /// app knows about" and "a product this app will sell you" is the
+        /// whole point, and conflating them is how a retired product finds its
+        /// way back onto the paywall.
+        static let forSale: [ProProduct] = [.annual, .monthly]
     }
 
-    /// Every identifier the app asks the App Store about.
-    static var proProductIDs: [String] { ProProduct.allCases.map(\.rawValue) }
+    /// Every identifier the app asks the App Store for a price for.
+    ///
+    /// Only what is for sale. The retired lifetime unlock needs no `Product` —
+    /// nothing shows its price or offers to buy it — and asking for one that
+    /// has been removed from sale is a request that can only fail.
+    static var proProductIDs: [String] { ProProduct.forSale.map(\.rawValue) }
 
     /// The lifetime unlock, by identifier. Kept under its old name because it
     /// is the product every earlier build bought.

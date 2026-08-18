@@ -19,7 +19,7 @@ The previous Capacitor/web build is preserved untouched in [`old/`](old/).
 - Map styles, from the control in the map's bottom corner or Settings › Appearance: Muted (the default), Detailed, Satellite, and **Globe** — MapKit's own 3D planet, free to spin and tilt, with the server's traffic on it. The globe is the only style that unlocks rotation, and sprite headings are corrected against the camera so a spun planet doesn't turn every aircraft on it.
 - Light and dark, under Settings › Appearance: Auto follows iOS, or pin it either way. Every surface — the panels, the floating chrome, the info window, and MapKit's own cartography — turns together.
 - An optional account, on the same Supabase project the web tracker uses, so an account made on inflight.info signs in here. **Sign in with Apple**, or an email and password. Sign up, reset a password, delete the account.
-- Inflight Pro, sold in the app and only in the app: a year, a month, or one payment for life. A web subscription (or the grandfathered `legacy_pro` flag) unlocks the same things, for anyone who already has one, and a purchase made here unlocks Pro on inflight.info too. Setup that has to happen outside the repo is in [`ios-native/PRO.md`](ios-native/PRO.md).
+- Inflight Pro, sold in the app and only in the app: a year or a month. (The one-off lifetime unlock earlier builds sold is retired, and still honoured for everyone who bought one.) A web subscription (or the grandfathered `legacy_pro` flag) unlocks the same things, for anyone who already has one, and a purchase made here unlocks Pro on inflight.info too. Setup that has to happen outside the repo is in [`ios-native/PRO.md`](ios-native/PRO.md).
 - Connection status and live aircraft count.
 
 ## Layout
