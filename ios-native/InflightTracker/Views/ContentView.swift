@@ -4,6 +4,7 @@ import SwiftUI
 struct ContentView: View {
 
     @EnvironmentObject private var feed: LiveFeed
+    @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @ObservedObject private var filters = MapFilters.shared
     @ObservedObject private var weatherPreferences = WeatherPreferences.shared
@@ -335,13 +336,49 @@ struct ContentView: View {
             guard detent != .large else { return }
             detent = .height(height)
         }
-        .sheet(isPresented: $isShowingAccount) { AccountPanel() }
+        .sheet(isPresented: $isShowingAccount) {
+            // Handed the feed explicitly rather than left to inherit it: the
+            // account panel opens a profile, and a profile says whether that
+            // pilot is in the air right now.
+            AccountPanel().environmentObject(feed)
+        }
         .sheet(isPresented: $isShowingStylePaywall) { ProPanel(highlighted: .mapStyles) }
         .onOpenURL { url in
             guard let link = InflightLink.parse(url) else { return }
             open(link)
         }
         .onAppear { feed.connect() }
+        // Pro can end while the app is open, and a tracker is an app people
+        // leave open for hours. Coming back to the foreground is the moment to
+        // re-ask: a subscription that lapsed overnight, a refund Apple granted,
+        // a plan bought on an iPad. Without this the entitlement was worked out
+        // at launch and then believed until the next launch.
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .active:
+                Task { await Entitlements.shared.refreshFromServer() }
+            case .background:
+                // A flight that ended while the app was in somebody's pocket is
+                // still a flight. Written on the way out rather than lost.
+                LogbookRecorder.shared.flush()
+            default:
+                break
+            }
+        }
+        // ...and if it did end, a replay started while it was live stops. The
+        // gate on `FlightReplay.start` covers beginning one; this covers the
+        // one already running.
+        .onChange(of: entitlements.isPro) { _, _ in
+            replay.stopIfUnentitled()
+        }
+        // The logbook is written from the same packets the map is drawn from.
+        // Keyed on `lastUpdate` rather than on the array so it runs once per
+        // packet: `flights` is rebuilt every time and comparing thousands of
+        // aircraft to decide whether to look at one of them is the wrong way
+        // round.
+        .onChange(of: feed.lastUpdate) { _, _ in
+            LogbookRecorder.shared.note(flights: feed.flights, server: feed.server)
+        }
         .task {
             // Both are launch work rather than panel work: the App Store
             // entitlement decides whether a Pro tile is locked on the first
@@ -530,7 +567,12 @@ struct ContentView: View {
         guard track.count >= FlightReplay.minimumPoints else { return }
 
         let title = feed.flights.first { $0.id == flightId }?.displayName ?? "Flight"
-        replay.start(flightId: flightId, title: title, points: track)
+
+        // The store is what refuses a replay this account may not have, so the
+        // answer is read rather than the check repeated. Without this the
+        // window would still collapse and the camera still move, which looks
+        // like a replay that started and then did nothing.
+        guard replay.start(flightId: flightId, title: title, points: track) else { return }
 
         detent = peakDetent
 

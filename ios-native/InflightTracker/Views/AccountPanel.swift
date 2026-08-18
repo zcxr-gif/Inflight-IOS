@@ -12,6 +12,7 @@ struct AccountPanel: View {
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @ObservedObject private var accounts = AccountStore.shared
     @ObservedObject private var entitlements = Entitlements.shared
+    @ObservedObject private var profiles = ProfileStore.shared
     @ObservedObject private var store = ProStore.shared
     @ObservedObject private var identity = PilotIdentity.shared
     @ObservedObject private var highlight = PilotHighlightPreferences.shared
@@ -39,6 +40,10 @@ struct AccountPanel: View {
     @State private var isShowingPaywall = false
     @State private var isConfirmingDeletion = false
 
+    /// The profile editor, and a preview of the profile as strangers see it.
+    @State private var isShowingProfileEditor = false
+    @State private var viewing: ProfileLink?
+
     /// The IFC handle being edited. Committed on submit rather than per
     /// keystroke, so a half-typed name never briefly matches somebody.
     @State private var handleDraft = ""
@@ -52,6 +57,8 @@ struct AccountPanel: View {
 
     var body: some View {
         MapPanel(title: "Account", subtitle: subtitle) {
+            profileSection
+
             pilotSection
 
             colorSection
@@ -76,6 +83,7 @@ struct AccountPanel: View {
         .task {
             await accounts.restore()
             await accounts.refreshEntitlement()
+            await profiles.load()
             if email.isEmpty { email = accounts.rememberedEmail }
             if handleDraft.isEmpty { handleDraft = identity.username }
         }
@@ -85,6 +93,8 @@ struct AccountPanel: View {
             if handleDraft.isEmpty { handleDraft = name }
         }
         .sheet(isPresented: $isShowingPaywall) { ProPanel() }
+        .sheet(isPresented: $isShowingProfileEditor) { ProfileEditorView() }
+        .sheet(item: $viewing) { link in PublicProfileView(link: link) }
         .confirmationDialog(
             "Delete your account?",
             isPresented: $isConfirmingDeletion,
@@ -104,6 +114,81 @@ struct AccountPanel: View {
             return entitlements.isPro ? "\(account.email) · Pro" : account.email
         }
         return "Your watchlist and your Pro, on every device"
+    }
+
+    // MARK: - Your public profile
+
+    /// The one thing on this panel that other people can see.
+    ///
+    /// Sits above the Infinite Flight handle because it is the thing somebody
+    /// opens the account panel for now — the handle below is machinery, and a
+    /// profile is a thing you have.
+    @ViewBuilder
+    private var profileSection: some View {
+        PanelSection(title: "YOUR PROFILE") {
+            if !accounts.isSignedIn {
+                Text("Sign in below and you can claim a handle — a page with your picture, the aeroplane you fly and the pilots you fly with, that anybody can open.")
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(theme.textDim)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+            } else if let profile = profiles.profile {
+                Button { isShowingProfileEditor = true } label: {
+                    HStack(spacing: 12) {
+                        PilotAvatar(
+                            url: profile.avatarURL,
+                            initials: profile.handle.prefix(2).uppercased(),
+                            side: 42,
+                            isPro: entitlements.isPro
+                        )
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(profile.displayName.isEmpty ? profile.handle : profile.displayName)
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundStyle(theme.textPrimary)
+                                .flightInfoLine(minimumScale: 0.8)
+
+                            Text(profile.isHidden
+                                 ? "Not currently public"
+                                 : profile.isPublic ? "@\(profile.handle)"
+                                                    : "@\(profile.handle) · hidden")
+                                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                .foregroundStyle(theme.textDim)
+                                .flightInfoLine(minimumScale: 0.7)
+                        }
+
+                        Spacer(minLength: 8)
+
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(theme.textDim)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 11)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                PanelDivider()
+
+                PanelActionRow(
+                    title: "See it as others do",
+                    symbol: "eye",
+                    detail: "inflight.info/pilot/\(profile.handle)"
+                ) {
+                    viewing = .handle(profile.handle)
+                }
+            } else {
+                PanelActionRow(
+                    title: "Claim a handle",
+                    symbol: "person.crop.circle.badge.plus",
+                    detail: "A page with your picture, the aeroplane you fly, and the pilots you fly with. Anybody can open it — no app needed."
+                ) {
+                    isShowingProfileEditor = true
+                }
+            }
+        }
     }
 
     // MARK: - Who you are on the server

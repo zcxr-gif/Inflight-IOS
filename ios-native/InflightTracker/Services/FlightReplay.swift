@@ -98,8 +98,20 @@ final class FlightReplay: ObservableObject {
 
     // MARK: - Control
 
-    func start(flightId: String, title: String, points: [TrackPoint]) {
-        guard points.count >= Self.minimumPoints else { return }
+    /// Begins playback, if this account may play anything back.
+    ///
+    /// The entitlement is checked here rather than only on the tile that opens
+    /// it. The tile is the way in that exists today; the gate belongs on the
+    /// thing that actually starts a replay, so a second way in — a deep link, a
+    /// widget, a shortcut — cannot arrive without one.
+    ///
+    /// Returns whether it started, so a caller that has no paywall of its own
+    /// can tell the difference between "nothing to play" and "not yours to
+    /// play".
+    @discardableResult
+    func start(flightId: String, title: String, points: [TrackPoint]) -> Bool {
+        guard Entitlements.shared.has(.replay) else { return false }
+        guard points.count >= Self.minimumPoints else { return false }
 
         self.points = points
         self.flightId = flightId
@@ -108,6 +120,17 @@ final class FlightReplay: ObservableObject {
         self.frame = Self.frame(at: 0, in: points)
 
         play()
+        return true
+    }
+
+    /// Stops a replay that is no longer allowed to be running.
+    ///
+    /// Pro can lapse while the app is open, and a replay started an hour ago
+    /// would otherwise keep playing on an account that can no longer start one.
+    /// Called when the entitlement is recomputed.
+    func stopIfUnentitled() {
+        guard isActive, !Entitlements.shared.has(.replay) else { return }
+        stop()
     }
 
     func stop() {
