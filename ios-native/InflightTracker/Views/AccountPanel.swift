@@ -1,3 +1,4 @@
+import AuthenticationServices
 import SwiftUI
 
 /// The profile panel: sign in, or look at the account you are signed into.
@@ -74,7 +75,7 @@ struct AccountPanel: View {
         }
         .task {
             await accounts.restore()
-            await accounts.refreshProfile()
+            await accounts.refreshEntitlement()
             if email.isEmpty { email = accounts.rememberedEmail }
             if handleDraft.isEmpty { handleDraft = identity.username }
         }
@@ -376,11 +377,12 @@ struct AccountPanel: View {
         }
     }
 
-    /// What Pro is, from an account's point of view. Three quite different
-    /// things to say — you have it from the App Store, you have it from the
-    /// website, or you don't have it — and conflating them is how someone ends
-    /// up tapping Restore for a subscription that was never an App Store
-    /// purchase.
+    /// What Pro is, from an account's point of view. Four quite different
+    /// things to say — a plan on the App Store, a subscription on the website,
+    /// a grandfathered account, or none of them — and conflating them is how
+    /// someone ends up tapping Restore for a subscription that was never an
+    /// App Store purchase, or looking for a Cancel button on a plan that does
+    /// not renew.
     @ViewBuilder
     private var proSection: some View {
         PanelSection(title: "INFLIGHT PRO") {
@@ -389,8 +391,27 @@ struct AccountPanel: View {
                 statusRow(
                     symbol: "checkmark.seal.fill",
                     title: "Pro is active",
-                    detail: "Bought on the App Store. It follows your Apple Account to any device you sign in on."
+                    detail: appStoreDetail
                 )
+
+                if store.ownedPlan?.isSubscription == true,
+                   let manage = AppConfig.manageSubscriptionsURL {
+                    PanelDivider()
+
+                    Link(destination: manage) {
+                        HStack(spacing: 10) {
+                            PanelRowLabel(title: "Manage subscription", symbol: "creditcard")
+                            Spacer(minLength: 8)
+                            Image(systemName: "arrow.up.right")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(theme.textDim)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
 
             case .subscription:
                 statusRow(
@@ -410,13 +431,32 @@ struct AccountPanel: View {
                 PanelActionRow(
                     title: "Get Inflight Pro",
                     symbol: "sparkles",
-                    detail: store.displayPrice.map { "\($0), bought once." }
-                        ?? "One payment, no subscription."
+                    detail: store.displayPrice.map { "From \($0) a year. Cancel any time." }
+                        ?? "A year or a month. Cancel any time."
                 ) {
                     isShowingPaywall = true
                 }
             }
         }
+    }
+
+    /// What to say about an App Store entitlement: a plan that renews, a plan
+    /// that has been told not to, and the retired lifetime unlock that never
+    /// had to. The last is no longer sold and is still honoured, so its line
+    /// still has to be here.
+    private var appStoreDetail: String {
+        if store.ownedPlan == .lifetime {
+            return "The lifetime unlock, on your Apple Account. It follows that account to any device you sign in on."
+        }
+
+        guard let until = accounts.account?.proUntil else {
+            return "Bought on the App Store. It follows your Apple Account to any device you sign in on."
+        }
+
+        let date = until.formatted(.dateTime.day().month(.abbreviated).year())
+        return accounts.account?.proCancelsAtPeriodEnd == true
+            ? "Runs until \(date), and will not renew after that."
+            : "Renews \(date). Cancel any time in Settings."
     }
 
     // MARK: - Signed out
@@ -433,7 +473,37 @@ struct AccountPanel: View {
                 .padding(.vertical, 12)
         }
 
-        PanelSection(title: intent == .signIn ? "SIGN IN" : "CREATE AN ACCOUNT") {
+        PanelSection(title: "QUICKEST WAY IN") {
+            VStack(alignment: .leading, spacing: 9) {
+                // Apple's own button, at Apple's own size and wording. It is
+                // a control people recognise, and an imitation of it would be
+                // both against the guidelines and worse: this one says
+                // "Continue with Apple" in the reader's language without
+                // anything here knowing what language that is.
+                SignInWithAppleButton(.continue) { request in
+                    request.requestedScopes = [.fullName, .email]
+                    // The hash. The raw nonce stays on the device until the
+                    // token comes back — see `AppleSignIn`.
+                    request.nonce = accounts.beginAppleSignIn()
+                } onCompletion: { result in
+                    Task { await accounts.completeAppleSignIn(result) }
+                }
+                .signInWithAppleButtonStyle(theme.isLight ? .black : .white)
+                .frame(height: 46)
+                .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous))
+                .disabled(accounts.isWorking)
+                .opacity(accounts.isWorking ? 0.55 : 1)
+
+                Text("No password to make up, and no email address to hand over if you would rather not — Apple can hide it.")
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(theme.textDim)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+        }
+
+        PanelSection(title: intent == .signIn ? "SIGN IN WITH EMAIL" : "CREATE AN ACCOUNT") {
             VStack(alignment: .leading, spacing: 12) {
                 Picker("", selection: $intent) {
                     ForEach(Intent.allCases) { option in

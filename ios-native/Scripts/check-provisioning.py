@@ -46,6 +46,14 @@ CAPABILITY_HINTS = {
     "aps-environment": (
         "Push Notifications. Enable it on the identifier."
     ),
+    "com.apple.developer.applesignin": (
+        "Sign in with Apple. Enable it on the identifier — and note that this "
+        "one is invisible until it is missing: the app builds, installs and "
+        "runs, and the button then fails with error 1000 and nothing else to "
+        "go on. Profiles issued before the capability was added still install "
+        "and still sign, so the profile has to be regenerated afterwards and "
+        "re-uploaded to Codemagic as inflight_distribution."
+    ),
 }
 
 
@@ -244,8 +252,10 @@ def main() -> int:
         for failure in failures:
             print(f"  {failure}")
         print(
-            "\n  See ios-native/NOTIFICATIONS.md for the full portal checklist. "
-            "None of this can be set from the repository."
+            "\n  Portal checklists: ios-native/NOTIFICATIONS.md for push, app "
+            "groups and the widget extension; ios-native/PRO.md for Sign in "
+            "with Apple and the App Store products. None of it can be set "
+            "from the repository."
         )
         return 1
 

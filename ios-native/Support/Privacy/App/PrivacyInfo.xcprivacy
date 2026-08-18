@@ -24,19 +24,91 @@
 	<array/>
 
 	<!--
-	    Empty is an assertion, not a blank: it says this app collects nothing.
+	    What the app actually collects, now that it has accounts and sells a
+	    subscription. This is a list of facts about the code, and it has to
+	    agree with the privacy answers on the App Store Connect record — a
+	    manifest that disagrees with the questionnaire is the other way an
+	    upload comes back.
 
-	    That has to agree with the privacy answers on the App Store Connect
-	    record, and the one thing worth thinking about before it does is the
-	    APNs device token. The backend stores it, keyed to the watchlist, for
-	    as long as the device is registered — the app has no accounts, so the
-	    token *is* the identity. It is used only to deliver the notifications
-	    the user asked for, which is what makes it App Functionality rather
-	    than tracking, but whether it counts as collected data is a call for
-	    whoever owns the App Store listing.
+	    Everything here is App Functionality and everything here is linked to
+	    the account, because that is the whole point of having one: the profile
+	    is what carries Pro and the watchlist from one device to the next.
+	    Nothing is used for tracking, and there is no advertising or analytics
+	    SDK in the build to use it with.
+
+	    The APNs device token is deliberately not listed. The backend stores it
+	    keyed to the watchlist for as long as the device is registered, and
+	    uses it only to deliver notifications the user asked for; whether that
+	    counts as collected Device ID is a call for whoever owns the App Store
+	    listing, and it is unchanged by anything here.
 	-->
 	<key>NSPrivacyCollectedDataTypes</key>
-	<array/>
+	<array>
+		<dict>
+			<!-- The address an account is made with. Sign in with Apple may
+			     substitute a private relay address, which the app neither
+			     detects nor treats differently. -->
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeEmailAddress</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<dict>
+			<!-- Only ever from Sign in with Apple, which offers one on the
+			     first authorisation. It is stored so the account has something
+			     to be called other than an email address. -->
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeName</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<dict>
+			<!-- Which Inflight Pro plan is held and when it runs out, linked
+			     to the account so the entitlement works on the website as well
+			     as on the phone. Apple's own transaction identifiers; no
+			     payment details, which the app never sees. -->
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypePurchaseHistory</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<dict>
+			<!-- The account id itself, and the Infinite Flight handle stored
+			     against it so the tracker can pick your aircraft out of the
+			     traffic. -->
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeUserID</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+	</array>
 
 	<key>NSPrivacyAccessedAPITypes</key>
 	<array>

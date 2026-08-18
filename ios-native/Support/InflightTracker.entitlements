@@ -13,5 +13,12 @@
 	     build where the feature silently does nothing. -->
 	<key>aps-environment</key>
 	<string>development</string>
+	<!-- Sign in with Apple. Required by Guideline 4.8 for any app that offers
+	     another third-party sign-in, and the capability has to be on the App ID
+	     as well as here or the request fails at runtime with 1000. -->
+	<key>com.apple.developer.applesignin</key>
+	<array>
+		<string>Default</string>
+	</array>
 </dict>
 </plist>
