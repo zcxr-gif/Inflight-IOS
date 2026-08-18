@@ -128,12 +128,19 @@ final class LiveStatusPublisher: ObservableObject {
             "updated_at": ISO8601DateFormatter().string(from: Date())
         ]
 
-        func put(_ column: String, _ value: Double?, as transform: (Double) -> Any) {
+        // Two helpers rather than one generic one. `Any`-returning closures put
+        // the type checker to work for no benefit, and a heterogeneous ternary
+        // in the middle of a dictionary literal is how a build fails on a
+        // machine you do not have.
+        func putWhole(_ column: String, _ value: Double?) {
             guard let value, value.isFinite else { return }
-            row[column] = transform(value)
+            row[column] = Int(value.rounded())
         }
 
-        let rounded: (Double) -> Any = { Int($0.rounded()) }
+        func putExact(_ column: String, _ value: Double?) {
+            guard let value, value.isFinite else { return }
+            row[column] = value
+        }
 
         if let flight = telemetry.flightID { row["flight_id"] = flight }
         if let server = telemetry.serverName { row["server_name"] = server }
@@ -145,15 +152,15 @@ final class LiveStatusPublisher: ObservableObject {
             row["destination_icao"] = destination
         }
 
-        put("latitude", telemetry.latitude) { $0 }
-        put("longitude", telemetry.longitude) { $0 }
-        put("altitude_msl", telemetry.altitudeMSL, as: rounded)
-        put("altitude_agl", telemetry.altitudeAGL, as: rounded)
-        put("ground_speed_knots", telemetry.groundSpeed, as: rounded)
-        put("indicated_airspeed_knots", telemetry.indicatedAirspeed, as: rounded)
-        put("vertical_speed_fpm", telemetry.verticalSpeed, as: rounded)
-        put("wind_velocity_knots", telemetry.windVelocity, as: rounded)
-        put("temperature_c", telemetry.temperature, as: rounded)
+        putExact("latitude", telemetry.latitude)
+        putExact("longitude", telemetry.longitude)
+        putWhole("altitude_msl", telemetry.altitudeMSL)
+        putWhole("altitude_agl", telemetry.altitudeAGL)
+        putWhole("ground_speed_knots", telemetry.groundSpeed)
+        putWhole("indicated_airspeed_knots", telemetry.indicatedAirspeed)
+        putWhole("vertical_speed_fpm", telemetry.verticalSpeed)
+        putWhole("wind_velocity_knots", telemetry.windVelocity)
+        putWhole("temperature_c", telemetry.temperature)
 
         // Headings and wind directions wrap, and the column's check constraint
         // does not. A sim reporting 359.7 rounds to 360, which is legal here and
@@ -190,7 +197,11 @@ final class LiveStatusPublisher: ObservableObject {
         // and the server's keeps it valid whatever version of the app is
         // running.
         let log = ConnectSession.shared.atcLog.prefix(12).map(\.wireRepresentation)
-        row["atc_messages"] = log.isEmpty ? NSNull() : log
+        if log.isEmpty {
+            row["atc_messages"] = NSNull()
+        } else {
+            row["atc_messages"] = log
+        }
 
         do {
             _ = try await SupabaseData.upsert(

@@ -335,7 +335,7 @@ final class AccountStore: ObservableObject {
 
         let acceptedAt = TermsStore.shared.acceptedAt ?? Date()
 
-        try? await SupabaseData.perform(
+        _ = try? await SupabaseData.perform(
             "record_terms_acceptance",
             arguments: [
                 "p_version": TermsStore.shared.acceptedVersion,

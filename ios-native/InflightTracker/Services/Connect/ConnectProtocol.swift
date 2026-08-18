@@ -248,9 +248,19 @@ struct ConnectFrameReader {
 
 private extension Data {
 
+    /// Appends an integer least-significant byte first.
+    ///
+    /// Written as a shift loop rather than through `withUnsafeBytes`, which is
+    /// the obvious way and the one that made the Swift 6.2 type checker fall
+    /// over on this file — "failed to produce diagnostic for expression",
+    /// which is a compiler bug rather than a mistake here, but is just as
+    /// fatal to the build. This version has no generic pointer conversion for
+    /// it to choke on, is endianness-independent by construction rather than
+    /// by trusting the host, and costs nothing at these widths.
     mutating func appendLittleEndian<T: FixedWidthInteger>(_ value: T) {
-        var little = value.littleEndian
-        Swift.withUnsafeBytes(of: &little) { append(contentsOf: $0) }
+        for byte in 0..<MemoryLayout<T>.size {
+            append(UInt8(truncatingIfNeeded: value >> (8 * byte)))
+        }
     }
 
     /// Reads a fixed-width integer at a byte offset from the start of this
@@ -264,12 +274,14 @@ private extension Data {
         guard count >= offset + width else { return nil }
 
         let start = index(startIndex, offsetBy: offset)
-        let end = index(start, offsetBy: width)
 
+        // Most significant byte first — which in a little-endian buffer is the
+        // LAST one — shifting each into place. See `appendLittleEndian` for why
+        // this is a loop and not a pointer cast.
         var value: T = 0
-        withUnsafeMutableBytes(of: &value) { destination in
-            self[start..<end].copyBytes(to: destination)
+        for byte in stride(from: width - 1, through: 0, by: -1) {
+            value = (value &<< 8) | T(truncatingIfNeeded: self[start + byte])
         }
-        return T(littleEndian: value)
+        return value
     }
 }

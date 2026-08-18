@@ -367,8 +367,16 @@ final class LogbookRecorder: ObservableObject {
             // already. `source` is set only when a measurement actually landed:
             // a row marked `connect` with no landing rate would be claiming a
             // precision it does not have.
-            if let landing = track.landing ?? await awaitLanding(for: track) {
-                body.merge(landing.logbookColumns) { _, measured in measured }
+            // Written out rather than as `track.landing ?? await …` — the
+            // right-hand side of `??` is an autoclosure, and an autoclosure
+            // cannot be async.
+            var measured = track.landing
+            if measured == nil {
+                measured = await awaitLanding(for: track)
+            }
+
+            if let landing = measured {
+                body.merge(landing.logbookColumns) { _, value in value }
                 body["source"] = "connect"
             }
 

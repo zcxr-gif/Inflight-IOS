@@ -529,6 +529,12 @@ final class ConnectSession: ObservableObject {
             // rolling snapshot: a landing is an event with its own lifetime,
             // not a reading that happens to be current.
             break
+
+        case .atcStreamEnable, .atcMessage:
+            // Neither is ever polled. The first is written once to turn the
+            // stream on; the second arrives unasked and is routed to `noteATC`
+            // by the transport's unsolicited sink.
+            break
         }
     }
 
@@ -617,7 +623,7 @@ final class ConnectSession: ObservableObject {
     /// link-local `169.254.x.x` and the loopback are addresses this phone
     /// cannot reach, and picking one of those would fail with a timeout rather
     /// than an explanation.
-    static func address(fromBroadcast data: Data) -> String? {
+    nonisolated static func address(fromBroadcast data: Data) -> String? {
         guard let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let addresses = payload["Addresses"] as? [String] else { return nil }
 
