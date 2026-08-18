@@ -35,6 +35,7 @@ struct FriendsPanel: View {
     /// their own simulators. Empty for everybody who is not flying, is not
     /// sharing, or has not let this account see it.
     @State private var flyingNow: [PilotLiveSummary] = []
+    @State private var isShowingLandingBoard = false
 
     private var theme: FlightInfoTheme { appearance.theme }
 
@@ -98,6 +99,7 @@ struct FriendsPanel: View {
         }
         .task { await refreshFlyingNow() }
         .sheet(isPresented: $isShowingPaywall) { ProPanel(highlighted: .watchlist) }
+        .sheet(isPresented: $isShowingLandingBoard) { LandingBoardView() }
         .sheet(item: $opened) { link in
             PublicProfileView(link: link, onShowFlight: onSelect)
                 .environmentObject(feed)
@@ -122,6 +124,16 @@ struct FriendsPanel: View {
                 detail: "Search by handle, by name, or by the Infinite Flight name on somebody's aeroplane."
             ) {
                 isSearchingPilots = true
+            }
+
+            PanelDivider()
+
+            PanelActionRow(
+                title: "Landing board",
+                symbol: "chart.bar.fill",
+                detail: "Who you follow has put one down best, as the simulator measured it."
+            ) {
+                isShowingLandingBoard = true
             }
         }
     }

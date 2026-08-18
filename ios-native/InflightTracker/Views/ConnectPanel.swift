@@ -55,6 +55,8 @@ struct ConnectPanel: View {
                 landingSection(landing)
             }
 
+            atcSection
+
             PanelSection(title: "WHAT THIS ADDS") {
                 explanation
             }
@@ -339,6 +341,52 @@ struct ConnectPanel: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 11)
+        }
+    }
+
+    // MARK: - ATC
+
+    @ViewBuilder
+    private var atcSection: some View {
+        if !session.atcLog.isEmpty {
+            PanelSection(title: "ON FREQUENCY") {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(session.atcLog) { line in
+                        VStack(alignment: .leading, spacing: 2) {
+                            if let from = line.from {
+                                Text(from.uppercased())
+                                    .font(.system(size: 9, weight: .bold))
+                                    .tracking(0.8)
+                                    .foregroundStyle(theme.accent)
+                            }
+                            Text(line.text)
+                                .font(.system(size: 12.5, weight: .medium))
+                                .foregroundStyle(theme.textPrimary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    Text("The last few things said on your frequency. Kept while you fly "
+                       + "and thrown away afterwards — nothing here is recorded.")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(theme.textDim)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 11)
+            }
+        } else if session.status.isLive,
+                  session.unresolvedFields.contains(.atcMessage) {
+            PanelSection(title: "ON FREQUENCY") {
+                Text("This build of Infinite Flight doesn't publish ATC messages over "
+                   + "Connect, so there is nothing to show. Everything else still works.")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(theme.textDim)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 11)
+            }
         }
     }
 

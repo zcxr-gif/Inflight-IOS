@@ -149,6 +149,68 @@ The write cadence is 45 seconds in the cruise and 15 in the phases where somebod
 watching actually cares — approach, takeoff, taxi. A row every few seconds for
 fourteen hours to say "still cruising" is a lot of nothing.
 
+## ATC on frequency
+
+Infinite Flight can stream the ATC messages this aircraft sends and receives —
+the sim's own log, not a global feed, and already public in the game because
+everybody on the frequency heard it.
+
+**These paths are not in any manifest dump we have.** They are named from the
+developer reference (`api/stream/enable_atc_messages`,
+`upstream/atc/message_received`) rather than observed, so each carries several
+candidate spellings and the feature simply does not appear if none resolves. The
+probe prints everything in the live manifest matching `atc|stream|upstream|
+message`, which is what settles it.
+
+It is genuinely **pushed**, not polled: once enabled, the sim sends a frame
+every time something is said, without being asked. That broke an assumption —
+`ConnectTransport` originally handed every arriving frame to the next waiter in
+the queue, which would have given an ATC transcript to a read expecting an
+altitude and then been permanently one answer behind. Waiters now record the
+state id they asked about, and a frame that does not match goes to an
+unsolicited sink instead. That fix is worth having regardless of whether ATC
+turns out to be available.
+
+## Storage: what grows and what cannot
+
+The concern is real and worth being precise about, because the answer differs
+per table.
+
+**`pilot_live_status` cannot grow.** It is keyed on the account and written by
+upsert, so it is bounded by the number of people who have ever flown with
+Connect attached — not by how long or how often they fly. There is no row-count
+problem to solve.
+
+There were two real problems, and neither was row count:
+
+* **Dead tuples.** Postgres does not overwrite a row; it writes a new version
+  and leaves the old one for vacuum. A pilot on a fourteen-hour flight updating
+  every 45 seconds makes ~1,100 dead versions of one row. The fix is HOT
+  updates, which need free space on the page *and* no indexed column changing —
+  and `pilot_live_status_fresh_idx` indexed `updated_at`, which changes on every
+  single write. That index is dropped, `fillfactor` is 70, and autovacuum is
+  tuned for a small hot table.
+* **Stale rows.** Nothing read them, but a table of live positions that only
+  accumulates is a table of *historical* positions. `housekeeping()` runs every
+  ten minutes under pg_cron and removes anything past five times the TTL.
+
+**The ATC transcript is stored in the live row and nowhere else.** The obvious
+design is a messages table, and it is the one part of this feature that could
+genuinely bloat a database — a row per message, per pilot, per flight is
+hundreds of thousands of rows a month to serve a panel showing the last five.
+Keeping them in a capped `jsonb` array inside the ephemeral row means the
+transcript has exactly the lifetime of the flight, is deleted by the same sweep,
+and adds no table, no index and no growth. Capped at 12 entries and 4 KB by
+check constraint — enforced server-side, because "the app only ever sends
+twelve" is a sentence about the version running today.
+
+**The landing board stores nothing.** It is a query over the logbook every time
+it is asked for. A stored leaderboard is a table to maintain, a backfill when
+the rule changes, and a number that can be wrong.
+
+**`pilot_logbook` grows, and should.** One row per completed flight, ~200 bytes,
+already gated on three minutes airborne. That is the product, not trash.
+
 ## Known risks
 
 **The iOS local-network entitlement.** Local network access needs

@@ -564,6 +564,32 @@ struct PublicProfileView: View {
                     detailLine("Aircraft", aircraft, symbol: "airplane")
                 }
 
+                if !live.atcMessages.isEmpty {
+                    PanelDivider()
+
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text("ON FREQUENCY")
+                            .font(.system(size: 9, weight: .bold))
+                            .tracking(1)
+                            .foregroundStyle(theme.textDim)
+
+                        ForEach(live.atcMessages.prefix(5)) { line in
+                            HStack(alignment: .top, spacing: 6) {
+                                if let from = line.from {
+                                    Text(from)
+                                        .font(.system(size: 10.5, weight: .bold))
+                                        .foregroundStyle(theme.accent)
+                                        .lineLimit(1)
+                                }
+                                Text(line.text)
+                                    .font(.system(size: 11.5, weight: .medium))
+                                    .foregroundStyle(theme.textSecondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                }
+
                 Text("Reported by their simulator, not worked out from the map.")
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(theme.textDim)

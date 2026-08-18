@@ -89,6 +89,14 @@ const WANTED = {
     "simulator/statistics/last_landing/location/longitude",
     "simulator/statistics/last_landing/flight_time",
   ],
+  "ATC (not in any manifest dump we have -- this is the test)": [
+    "api/stream/enable_atc_messages",
+    "stream/enable_atc_messages",
+    "infiniteflight/stream/enable_atc_messages",
+    "upstream/atc/message_received",
+    "api/upstream/atc/message_received",
+    "atc/message_received",
+  ],
   "Time": [
     "simulator/flight_time",
     "simulator/time_utc",
@@ -366,6 +374,21 @@ async function main() {
       const result = await probe.read(path);
       if (result.missing) missing += 1;
       console.log(`  ${path.padEnd(58)} ${format(result)}`);
+    }
+    console.log();
+  }
+
+  // Whatever this build actually calls the ATC states. The paths above are
+  // taken from the developer reference rather than observed, so the useful
+  // output is not "missing" but "here is everything with atc in the name".
+  const atcish = [...probe.byPath.keys()].filter((p) => /atc|stream|upstream|message/i.test(p));
+  console.log("\x1b[1mAnything matching atc/stream/upstream/message\x1b[0m");
+  if (atcish.length === 0) {
+    console.log("  (nothing -- this build does not appear to expose ATC over Connect)\n");
+  } else {
+    for (const path of atcish.sort()) {
+      const entry = probe.byPath.get(path);
+      console.log(`  ${String(entry.id).padStart(8)}  ${TYPE_NAME[entry.type].padEnd(8)}  ${path}`);
     }
     console.log();
   }

@@ -188,6 +188,24 @@ enum ConnectField: String, CaseIterable {
     case nextWaypoint
     case flightTime
 
+    // MARK: ATC
+    //
+    // Not in the state manifest this was built against, and named from the
+    // Infinite Flight developer reference rather than observed — so both carry
+    // several spellings and the feature simply does not appear if none of them
+    // resolves. `tools/connect-probe` is what settles it.
+    //
+    // This is the sim's own log: what THIS aircraft sent and heard on
+    // frequency. Not a global ATC feed, and not something the server could ever
+    // fetch.
+
+    /// Written, not read: turning the stream on.
+    case atcStreamEnable
+
+    /// The messages themselves, which arrive as frames nobody asked for — see
+    /// the note on `ConnectTransport.Waiter`.
+    case atcMessage
+
     // MARK: Landing statistics
     //
     // What the public feed can never produce. A touchdown lasts a fraction of
@@ -279,6 +297,15 @@ enum ConnectField: String, CaseIterable {
         case .temperature:   return ["environment/temperature"]
         case .turbulence:    return ["environment/turbulence_factor"]
 
+        case .atcStreamEnable:
+            return ["api/stream/enable_atc_messages",
+                    "stream/enable_atc_messages",
+                    "infiniteflight/stream/enable_atc_messages"]
+        case .atcMessage:
+            return ["upstream/atc/message_received",
+                    "api/upstream/atc/message_received",
+                    "atc/message_received"]
+
         case .nearestAirport: return ["infiniteflight/nearest_airport"]
         case .nextWaypoint:
             return ["aircraft/0/systems/nav_sources/gps/next_waypoint_name"]
@@ -352,6 +379,8 @@ enum ConnectField: String, CaseIterable {
         case .windGust:          return "Gusting"
         case .temperature:       return "Temperature"
         case .turbulence:        return "Turbulence"
+        case .atcStreamEnable:   return "ATC message stream"
+        case .atcMessage:        return "ATC messages"
         case .nearestAirport:    return "Nearest airport"
         case .nextWaypoint:      return "Next waypoint"
         case .flightTime:        return "Flight time"

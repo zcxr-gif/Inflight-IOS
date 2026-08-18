@@ -180,6 +180,69 @@ struct ConnectTelemetry: Equatable {
     }
 }
 
+/// One thing said on frequency.
+///
+/// The sim's own ATC log for this aircraft — what its pilot sent and what the
+/// controller said back. Already public in the game: everybody on the frequency
+/// heard it. Never written anywhere permanent; see the note on
+/// `pilot_live_status.atc_messages`.
+struct ConnectATCMessage: Equatable, Identifiable {
+
+    /// When the app saw it. The sim does not stamp these, so this is within one
+    /// poll of the truth and is used for ordering rather than for the record.
+    let at: Date
+
+    /// Who said it, when the message carries it. Infinite Flight formats these
+    /// as free text and the shape is not contractual, so this is whatever came
+    /// before the first colon and nil when there wasn't one.
+    let from: String?
+
+    let text: String
+
+    var id: String { "\(at.timeIntervalSince1970)|\(text)" }
+
+    /// Splits "EGLL Tower: cleared for takeoff" into its two halves.
+    ///
+    /// Deliberately forgiving. A message with no colon is all text and no
+    /// sender, which is right — inventing a speaker would be worse than not
+    /// having one.
+    init(raw: String, at: Date = Date()) {
+        self.at = at
+
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let separator = trimmed.firstIndex(of: ":") {
+            let speaker = String(trimmed[trimmed.startIndex..<separator])
+                .trimmingCharacters(in: .whitespaces)
+            let body = String(trimmed[trimmed.index(after: separator)...])
+                .trimmingCharacters(in: .whitespaces)
+
+            // A colon inside a sentence is not a speaker. A speaker is short.
+            if !speaker.isEmpty, speaker.count <= 40, !body.isEmpty {
+                self.from = speaker
+                self.text = body
+                return
+            }
+        }
+
+        self.from = nil
+        self.text = trimmed
+    }
+
+    /// What goes in the live row: small, flat, and capped by the column's own
+    /// check constraint rather than by trusting this to stay small.
+    var wireRepresentation: [String: Any] {
+        var row: [String: Any] = [
+            "at": ISO8601DateFormatter().string(from: at),
+            // Truncated here as well as constrained there. A controller pasting
+            // a paragraph should cost one truncated message, not a rejected
+            // write that loses the whole transcript.
+            "text": String(text.prefix(180))
+        ]
+        if let from { row["from"] = String(from.prefix(40)) }
+        return row
+    }
+}
+
 /// One touchdown, as Infinite Flight scored it.
 ///
 /// The sim measures this itself and keeps the result until the next landing.

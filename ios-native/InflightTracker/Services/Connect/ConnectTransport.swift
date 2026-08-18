@@ -46,8 +46,31 @@ actor ConnectTransport {
     private var connection: NWConnection?
     private var reader = ConnectFrameReader()
 
-    /// One waiter per outstanding request, answered in the order asked.
-    private var pending: [CheckedContinuation<Data, Error>] = []
+    /// One waiter per outstanding request, answered in the order asked, each
+    /// remembering which state it asked about.
+    ///
+    /// The id is not decoration. Infinite Flight can send frames NOBODY asked
+    /// for — the ATC message stream pushes one every time the controller says
+    /// something — and a reader that hands every arriving frame to the next
+    /// waiter in the queue would give an ATC transcript to something expecting
+    /// an altitude, and then be permanently one answer behind. Matching on the
+    /// id means an unsolicited frame is recognised as unsolicited.
+    private struct Waiter {
+        let id: Int32
+        let continuation: CheckedContinuation<Data, Error>
+    }
+
+    private var pending: [Waiter] = []
+
+    /// Where frames nobody asked for go.
+    ///
+    /// Set by the session. Without it they are dropped, which is the correct
+    /// behaviour for a stream nothing is listening to.
+    private var unsolicited: (@Sendable (Int32, Data) -> Void)?
+
+    func onUnsolicited(_ handler: @escaping @Sendable (Int32, Data) -> Void) {
+        unsolicited = handler
+    }
 
     private let queue = DispatchQueue(label: "com.tracker.Inflight.connect")
 
@@ -113,8 +136,8 @@ actor ConnectTransport {
 
         let waiting = pending
         pending.removeAll()
-        for continuation in waiting {
-            continuation.resume(throwing: Failure.cancelled)
+        for waiter in waiting {
+            waiter.continuation.resume(throwing: Failure.cancelled)
         }
     }
 
@@ -141,7 +164,7 @@ actor ConnectTransport {
 
         return try await withThrowingTaskGroup(of: Data.self) { group in
             group.addTask {
-                try await self.send(ConnectProtocol.read(id), on: connection)
+                try await self.send(id, ConnectProtocol.read(id), on: connection)
             }
             group.addTask {
                 try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
@@ -164,15 +187,37 @@ actor ConnectTransport {
         }
     }
 
-    private func send(_ data: Data, on connection: NWConnection) async throws -> Data {
+    private func send(_ id: Int32, _ data: Data, on connection: NWConnection) async throws -> Data {
         try await withCheckedThrowingContinuation { continuation in
-            pending.append(continuation)
+            pending.append(Waiter(id: id, continuation: continuation))
 
             connection.send(content: data, completion: .contentProcessed { [weak self] error in
                 guard let error else { return }
                 Task { await self?.failAll(Failure.socket(error.localizedDescription)) }
             })
         }
+    }
+
+    /// Sets a state, and waits for the acknowledgement.
+    ///
+    /// Which states accept a write is published nowhere — the manifest gives
+    /// type and never direction — so this is best-effort by nature and the
+    /// caller is expected to read the value back rather than assume.
+    @discardableResult
+    func write(
+        _ id: Int32,
+        _ value: ConnectProtocol.Value,
+        as type: ConnectProtocol.ValueType,
+        timeout: TimeInterval = 5
+    ) async throws -> Bool {
+        guard let connection else { throw Failure.notConnected }
+        guard let frame = ConnectProtocol.write(id, value, as: type) else { return false }
+
+        // A write is not acknowledged with a frame of its own, so there is
+        // nothing to wait for: it is sent, and whether it took effect is a
+        // question only a subsequent read can answer.
+        connection.send(content: frame, completion: .contentProcessed { _ in })
+        return true
     }
 
     /// Fetches the manifest and returns it as the raw catalogue string.
@@ -229,16 +274,22 @@ actor ConnectTransport {
         }
 
         for frame in frames {
-            guard !pending.isEmpty else { continue }
-            let continuation = pending.removeFirst()
-            continuation.resume(returning: frame.payload)
+            // Only the waiter that asked about THIS state is answered. Anything
+            // else is a push — the ATC stream, or a state the sim volunteered —
+            // and goes to the sink rather than stealing somebody's answer.
+            if let next = pending.first, next.id == frame.id {
+                pending.removeFirst()
+                next.continuation.resume(returning: frame.payload)
+            } else {
+                unsolicited?(frame.id, frame.payload)
+            }
         }
     }
 
     private func failAll(_ error: Error) {
         let waiting = pending
         pending.removeAll()
-        for continuation in waiting { continuation.resume(throwing: error) }
+        for waiter in waiting { waiter.continuation.resume(throwing: error) }
 
         connection?.stateUpdateHandler = nil
         connection?.cancel()

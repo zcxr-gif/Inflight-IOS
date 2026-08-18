@@ -181,6 +181,17 @@ final class LiveStatusPublisher: ObservableObject {
         }
         if let waypoint = telemetry.nextWaypoint { row["next_waypoint"] = waypoint }
 
+        // The ATC exchange, newest first and hard-capped.
+        //
+        // Twelve because that is what the column's check constraint accepts;
+        // sending thirteen would have the server reject the whole write, which
+        // would cost the position update as well as the transcript. The cap is
+        // enforced in both places on purpose — this one keeps the write valid,
+        // and the server's keeps it valid whatever version of the app is
+        // running.
+        let log = ConnectSession.shared.atcLog.prefix(12).map(\.wireRepresentation)
+        row["atc_messages"] = log.isEmpty ? NSNull() : log
+
         do {
             _ = try await SupabaseData.upsert(
                 table: "pilot_live_status",

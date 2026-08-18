@@ -61,6 +61,15 @@ final class ConnectSession: ObservableObject {
     @Published private(set) var telemetry = ConnectTelemetry()
     @Published private(set) var lastLanding: ConnectLanding?
 
+    /// What has been said on frequency, newest first.
+    ///
+    /// Capped hard. This is a live view of a conversation, not an archive: the
+    /// panel shows a handful, the live row carries a handful, and nothing keeps
+    /// the rest — which is the whole reason this feature costs no storage.
+    @Published private(set) var atcLog: [ConnectATCMessage] = []
+
+    private static let atcLogLimit = 12
+
     /// A one-line summary of what the connected aircraft publishes, shown in
     /// the settings screen so a pilot can see the link is real.
     @Published private(set) var manifestSummary: String?
@@ -172,6 +181,7 @@ final class ConnectSession: ObservableObject {
         manifestSummary = nil
         unresolvedFields = []
         landingBaseline = nil
+        atcLog = []
     }
 
     /// Backgrounded: drop the socket but keep the intention to reconnect.
@@ -269,6 +279,8 @@ final class ConnectSession: ObservableObject {
         landingBaseline = nil
         try await readLanding(adoptingBaseline: true)
 
+        await attachATC()
+
         status = .live(address)
     }
 
@@ -337,6 +349,51 @@ final class ConnectSession: ObservableObject {
         }
         next.sampledAt = Date()
         telemetry = next
+    }
+
+    // MARK: - ATC
+    //
+    // The one part of this that is genuinely pushed rather than polled: once
+    // the stream is on, Infinite Flight sends a frame every time something is
+    // said on frequency, without being asked. `ConnectTransport` routes frames
+    // nobody asked for here rather than handing them to whichever read happened
+    // to be outstanding — which is what stops an ATC transcript arriving where
+    // an altitude was expected.
+
+    private func attachATC() async {
+        atcLog = []
+
+        guard let message = resolved[.atcMessage] else { return }
+
+        await transport.onUnsolicited { [weak self] id, payload in
+            guard id == message.id else { return }
+            guard case let .string(text)? = ConnectProtocol.decode(.string, from: payload) else {
+                return
+            }
+            Task { @MainActor in self?.noteATC(text) }
+        }
+
+        // Turning the stream on. Best-effort by nature — whether a state accepts
+        // a write is published nowhere — so a failure here means the log stays
+        // empty rather than anything breaking.
+        if let toggle = resolved[.atcStreamEnable] {
+            _ = try? await transport.write(toggle.id, .boolean(true), as: toggle.type)
+        }
+    }
+
+    private func noteATC(_ raw: String) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        // The sim repeats the current message on some paths, so an identical
+        // line arriving straight after the last one is the same line rather
+        // than a controller saying it twice.
+        if atcLog.first?.text == ConnectATCMessage(raw: trimmed).text { return }
+
+        atcLog.insert(ConnectATCMessage(raw: trimmed), at: 0)
+        if atcLog.count > Self.atcLogLimit {
+            atcLog.removeLast(atcLog.count - Self.atcLogLimit)
+        }
     }
 
     // MARK: - Landings

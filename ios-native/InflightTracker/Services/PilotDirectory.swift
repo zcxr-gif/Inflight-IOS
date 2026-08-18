@@ -201,6 +201,21 @@ final class PilotDirectory: ObservableObject {
         )) ?? []
     }
 
+    /// The landing board for the people this account follows.
+    ///
+    /// Computed on the server from the logbook every time it is asked for. That
+    /// is deliberate and costs nothing worth saving: the alternative is a stored
+    /// leaderboard, which is a table to maintain, a backfill when the rule
+    /// changes, and a number that can be wrong.
+    func landingBoard(windowDays: Int = 30, limit: Int = 25) async -> [PilotLandingBoardEntry] {
+        guard let token = await AccountStore.shared.currentAccessToken() else { return [] }
+        return (try? await SupabaseData.rpc(
+            "pilot_landing_board",
+            arguments: ["p_window_days": windowDays, "p_limit": limit],
+            accessToken: token
+        )) ?? []
+    }
+
     func badges(of handle: String) async -> [PilotBadge] {
         let token = await AccountStore.shared.currentAccessToken()
         return (try? await SupabaseData.rpc(

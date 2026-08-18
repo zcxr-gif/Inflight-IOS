@@ -52,8 +52,31 @@ struct PilotLiveStatus: Decodable, Equatable {
     let originIcao: String?
     let destinationIcao: String?
 
+    /// What has been said on frequency, newest first, as this pilot's own
+    /// simulator logged it. Already public in the game — everybody on the
+    /// frequency heard it — and never stored anywhere permanent.
+    let atcMessages: [ATCLine]
+
     let startedAt: Date?
     let updatedAt: Date?
+
+    struct ATCLine: Decodable, Equatable, Identifiable {
+        let at: Date?
+        let from: String?
+        let text: String
+
+        var id: String { "\(at?.timeIntervalSince1970 ?? 0)|\(text)" }
+
+        enum CodingKeys: String, CodingKey { case at, from, text }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            at = (try? c.decode(String.self, forKey: .at))
+                .flatMap(SupabaseAuth.Timestamp.date(from:))
+            from = try? c.decode(String.self, forKey: .from)
+            text = (try? c.decode(String.self, forKey: .text)) ?? ""
+        }
+    }
 
     enum CodingKeys: String, CodingKey {
         case handle, phase, callsign, aircraft, livery, latitude, longitude, heading
@@ -79,6 +102,7 @@ struct PilotLiveStatus: Decodable, Equatable {
         case nextWaypoint = "next_waypoint"
         case originIcao = "origin_icao"
         case destinationIcao = "destination_icao"
+        case atcMessages = "atc_messages"
         case startedAt = "started_at"
         case updatedAt = "updated_at"
     }
@@ -126,6 +150,8 @@ struct PilotLiveStatus: Decodable, Equatable {
         originIcao = try? c.decode(String.self, forKey: .originIcao)
         destinationIcao = try? c.decode(String.self, forKey: .destinationIcao)
 
+        atcMessages = ((try? c.decode([ATCLine].self, forKey: .atcMessages)) ?? [])
+            .filter { !$0.text.isEmpty }
         startedAt = (try? c.decode(String.self, forKey: .startedAt))
             .flatMap(SupabaseAuth.Timestamp.date(from:))
         updatedAt = (try? c.decode(String.self, forKey: .updatedAt))
@@ -293,5 +319,70 @@ struct PilotLiveSummary: Decodable, Equatable, Identifiable {
         }
 
         return parts.isEmpty ? (aircraft ?? "Flying") : parts.joined(separator: " · ")
+    }
+}
+
+/// A place on the landing board.
+///
+/// Derived on the server from the logbook rather than stored, like every badge:
+/// a leaderboard that has to be maintained is a leaderboard that goes wrong,
+/// and this one cannot disagree with the flights it is computed from.
+///
+/// Scoped to people you follow rather than global, which is a product decision.
+/// A global board is won once by whoever flies most and is then a wall somebody
+/// else is standing at; a board of the twenty people you actually fly with is
+/// one you can be on.
+struct PilotLandingBoardEntry: Decodable, Equatable, Identifiable {
+
+    let handle: String
+    let displayName: String
+    let avatarPath: String?
+    let isPro: Bool
+
+    /// The softest touchdown in the window — closest to zero, not smallest.
+    let bestFPM: Int
+    let averageFPM: Int
+    let landings: Int
+    let greasers: Int
+    let bestAt: Date?
+    let isSelf: Bool
+
+    var id: String { handle }
+
+    enum CodingKeys: String, CodingKey {
+        case handle, landings, greasers
+        case displayName = "display_name"
+        case avatarPath = "avatar_path"
+        case isPro = "is_pro"
+        case bestFPM = "best_fpm"
+        case averageFPM = "average_fpm"
+        case bestAt = "best_at"
+        case isSelf = "is_self"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        handle = (try? c.decode(String.self, forKey: .handle)) ?? ""
+        displayName = (try? c.decode(String.self, forKey: .displayName)) ?? handle
+        avatarPath = try? c.decode(String.self, forKey: .avatarPath)
+        isPro = (try? c.decode(Bool.self, forKey: .isPro)) ?? false
+        bestFPM = (try? c.decode(Int.self, forKey: .bestFPM)) ?? 0
+        averageFPM = (try? c.decode(Int.self, forKey: .averageFPM)) ?? 0
+        landings = (try? c.decode(Int.self, forKey: .landings)) ?? 0
+        greasers = (try? c.decode(Int.self, forKey: .greasers)) ?? 0
+        bestAt = (try? c.decode(String.self, forKey: .bestAt))
+            .flatMap(SupabaseAuth.Timestamp.date(from:))
+        isSelf = (try? c.decode(Bool.self, forKey: .isSelf)) ?? false
+    }
+
+    /// The thresholds the Infinite Flight community uses, not ones we invented.
+    var verdict: String {
+        switch abs(bestFPM) {
+        case ..<60:  return "Greased"
+        case ..<150: return "Smooth"
+        case ..<300: return "Firm"
+        case ..<600: return "Hard"
+        default:     return "Very hard"
+        }
     }
 }
