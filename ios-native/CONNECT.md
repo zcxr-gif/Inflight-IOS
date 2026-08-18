@@ -115,6 +115,40 @@ baseline, the first thing this feature would do on every single connection is
 record a landing that did not happen. `ConnectSession.landingBaseline` adopts
 whatever is already there, silently, and only a *change* from it counts.
 
+## Sharing it with other pilots
+
+`pilot_live_status` is one row per pilot currently flying with Connect attached,
+written by the app and never by the server — because the server cannot see any
+of this. It carries position, phase, configuration, lights and the sim's own
+weather at the aircraft.
+
+Three things have to be true before a byte of it leaves the device: an account,
+a claimed handle, and the sharing switch. Turning the switch off **deletes** the
+row rather than hiding it, so there is nothing left to leak later.
+
+Who may then read it is a fourth, separate decision — `pilot_profiles.
+live_visibility` — and it defaults to **followers**, out of step with
+`friends_visibility` and `logbook_visibility`, which default to public. That is
+deliberate: the friends list says who you know and the logbook says where you
+have been, and this says where you *are*. Real-time position attached to a named
+person is a different category, and the default should not have to be found.
+
+Rows go stale after `live_status_ttl()` (four minutes). The read functions ignore
+anything older, so a phone that goes in a pocket over the Atlantic stops being
+"flying now" rather than being shown at a position it left an hour ago.
+
+Two read paths, both `security definer`, both re-deriving visibility rather than
+leaning on RLS:
+
+* `pilot_live_status_for(handle)` — one pilot, everything, for their profile.
+* `pilot_live_following(limit)` — everybody you follow who is in the air, in the
+  narrower `PilotLiveSummary` shape, for the friends panel. A follow alone is not
+  enough: `live_visibility = 'private'` means private even to a follower.
+
+The write cadence is 45 seconds in the cruise and 15 in the phases where somebody
+watching actually cares — approach, takeoff, taxi. A row every few seconds for
+fourteen hours to say "still cruising" is a lot of nothing.
+
 ## Known risks
 
 **The iOS local-network entitlement.** Local network access needs

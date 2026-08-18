@@ -28,8 +28,7 @@ struct ConnectTelemetry: Equatable {
     /// genuinely stationary aircraft from one whose pilot is in the settings
     /// screen.
     var appState: String?
-
-    var engineCount: Int?
+    var appVersion: String?
 
     // MARK: Position
 
@@ -42,6 +41,57 @@ struct ConnectTelemetry: Equatable {
     var indicatedAirspeed: Double?
     var trueAirspeed: Double?
     var verticalSpeed: Double?
+    var pitch: Double?
+    var bank: Double?
+
+    // MARK: Configuration
+    //
+    // Individually small, collectively the difference between "an aircraft at
+    // 3,000 feet" and "an aircraft configured to land" — which is what a person
+    // watching actually wants to know.
+
+    /// Infinite Flight publishes gear and flaps as enums whose numbering is not
+    /// documented and differs by aircraft, so they are carried as the raw value
+    /// and interpreted only where it is safe to: a flap setting of 0 is clean
+    /// on every aircraft, and anything else is "some flap".
+    var gearState: Int?
+    var flapsState: Int?
+    var spoilersState: Int?
+    var parkingBrake: Bool?
+    var reverseThrust: Bool?
+    var transponderCode: Int?
+
+    var beaconLights: Bool?
+    var landingLights: Bool?
+    var navLights: Bool?
+    var strobeLights: Bool?
+
+    var fuelRemainingKg: Double?
+    var engineCount: Int?
+    var engineN1: Double?
+    var engineThrust: Double?
+
+    var isStalling: Bool?
+    var isOverspeeding: Bool?
+
+    // MARK: Outside
+    //
+    // The sim's own weather at the aircraft, which is a different and better
+    // thing than the METAR at the field below: it is what is actually hitting
+    // the aeroplane.
+
+    var windDirection: Double?
+    var windVelocity: Double?
+    var windGust: Double?
+    var temperature: Double?
+
+    // MARK: Navigation
+
+    var nearestAirport: String?
+    var nextWaypoint: String?
+
+    /// Seconds since the flight began, as the sim counts it.
+    var flightTimeSeconds: Double?
 
     /// When this snapshot was completed. A snapshot is only ever published
     /// once every field in the pass has been answered, so this is the age of
@@ -58,6 +108,72 @@ struct ConnectTelemetry: Equatable {
 
     /// Whether the sim has enough of a fix for this snapshot to be worth using.
     var hasPosition: Bool { coordinate != nil }
+
+    /// What the aeroplane is doing, worked out from the sim rather than guessed
+    /// from altitude alone.
+    ///
+    /// The feed can only ever say "low and slow", which is true of an aircraft
+    /// on approach, an aircraft that has just taken off, and one taxiing to the
+    /// gate. Gear, flaps and vertical speed tell the three apart.
+    enum Phase: String {
+        case parked, taxiing, takeoff, climb, cruise, descent, approach, landed
+
+        var label: String {
+            switch self {
+            case .parked:   return "At the gate"
+            case .taxiing:  return "Taxiing"
+            case .takeoff:  return "Taking off"
+            case .climb:    return "Climbing"
+            case .cruise:   return "Cruising"
+            case .descent:  return "Descending"
+            case .approach: return "On approach"
+            case .landed:   return "Landed"
+            }
+        }
+    }
+
+    var phase: Phase? {
+        guard let height = altitudeAGL ?? altitudeMSL else { return nil }
+        let speed = groundSpeed ?? 0
+        let rate = verticalSpeed ?? 0
+
+        if height < 50 {
+            if parkingBrake == true || speed < 1 { return .parked }
+            if speed < 40 { return .taxiing }
+            return rate > 100 ? .takeoff : .landed
+        }
+
+        // Gear down well above the ground and coming down is an approach
+        // whatever the altitude says — which is the whole reason this reads the
+        // configuration rather than the height.
+        let gearDown = (gearState ?? 0) != 0
+        if rate < -200 {
+            return (gearDown && height < 10_000) ? .approach : .descent
+        }
+        if rate > 300 { return height < 10_000 ? .takeoff : .climb }
+        return .cruise
+    }
+
+    /// A one-line configuration summary, for the profile card.
+    var configurationSummary: String? {
+        var parts: [String] = []
+        if (gearState ?? 0) != 0 { parts.append("gear down") }
+        if (flapsState ?? 0) != 0 { parts.append("flaps set") }
+        if (spoilersState ?? 0) != 0 { parts.append("spoilers") }
+        if reverseThrust == true { parts.append("reverse") }
+        if strobeLights == true { parts.append("strobes on") }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+
+    /// Wind as a pilot reads it: direction, speed, and the gust if there is one.
+    var windSummary: String? {
+        guard let direction = windDirection, let speed = windVelocity else { return nil }
+        let base = String(format: "%03.0f° / %.0f kt", direction, speed)
+        if let gust = windGust, gust > speed + 1 {
+            return base + String(format: " G%.0f", gust)
+        }
+        return base
+    }
 
     static func == (lhs: ConnectTelemetry, rhs: ConnectTelemetry) -> Bool {
         lhs.sampledAt == rhs.sampledAt && lhs.flightID == rhs.flightID

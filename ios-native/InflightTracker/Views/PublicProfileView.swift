@@ -47,6 +47,11 @@ struct PublicProfileView: View {
     @State private var logbook: [LogbookEntry] = []
     @State private var summary: LogbookSummary?
 
+    /// What this pilot's own simulator is reporting, if they are flying, are
+    /// broadcasting, and have let this viewer see it. All three are their
+    /// decision; an absent status never says which one is false.
+    @State private var live: PilotLiveStatus?
+
     @State private var isLoading = true
     @State private var isWorking = false
     @State private var problem: String?
@@ -99,6 +104,7 @@ struct PublicProfileView: View {
                     actions(profile)
                     if let bio = profile.bio, !bio.isEmpty { bioCard(bio) }
                     liveCard
+                    simCard
                     favouriteCard(profile)
                     statsCard(profile)
                     friendsCard(profile)
@@ -473,11 +479,117 @@ struct PublicProfileView: View {
                     PilotStat(value: "\(summary.hours)", label: "HOURS")
                     PilotStat(value: "\(summary.airports)", label: "FIELDS")
                 }
+
+                // Only for a pilot who has actually flown with the simulator
+                // attached. An empty landing row on everybody else's profile
+                // would be advertising at people on a page that is not the
+                // place for it.
+                if summary.hasMeasuredLandings {
+                    PanelDivider()
+                    HStack(spacing: 0) {
+                        if let best = summary.bestLandingFPM {
+                            PilotStat(value: "\(best)", label: "BEST FPM")
+                        }
+                        if let average = summary.averageLandingFPM {
+                            PilotStat(value: "\(average)", label: "AVG FPM")
+                        }
+                        PilotStat(value: "\(summary.greasers)", label: "GREASERS")
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity)
         .flightInfoSurface(theme, radius: theme.radiusMedium)
         .padding(.horizontal, 16)
+    }
+
+    /// What the pilot's own simulator says, which is a different and better
+    /// thing than what the map says.
+    ///
+    /// The map can report a position and a groundspeed. This can report that the
+    /// gear is down, the landing lights are on and there is a twenty knot
+    /// crosswind — because it is coming from inside the aeroplane rather than
+    /// from an observer outside it.
+    @ViewBuilder
+    private var simCard: some View {
+        if let live = live, live.isFresh {
+            VStack(alignment: .leading, spacing: 11) {
+
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(Color.green)
+                        .frame(width: 7, height: 7)
+
+                    Text(live.phaseLabel ?? "Flying now")
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundStyle(theme.textPrimary)
+
+                    Spacer(minLength: 8)
+
+                    if let elapsed = live.elapsedLabel {
+                        Text(elapsed)
+                            .font(.system(size: 11.5, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(theme.textDim)
+                    }
+                }
+
+                if let route = live.routeLabel {
+                    Text(route)
+                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                        .foregroundStyle(theme.textPrimary)
+                }
+
+                HStack(spacing: 0) {
+                    if let altitude = live.altitudeMSL {
+                        PilotStat(value: "\(altitude.formatted())", label: "FEET")
+                    }
+                    if let speed = live.groundSpeedKnots {
+                        PilotStat(value: "\(speed)", label: "KNOTS")
+                    }
+                    if let rate = live.verticalSpeedFPM, abs(rate) > 50 {
+                        PilotStat(value: "\(rate)", label: "FPM")
+                    }
+                }
+
+                if let configuration = live.configurationLabel {
+                    detailLine("Configured", configuration, symbol: "slider.horizontal.3")
+                }
+                if let wind = live.windLabel {
+                    detailLine("Wind", wind, symbol: "wind")
+                }
+                if let waypoint = live.nextWaypoint {
+                    detailLine("Next", waypoint, symbol: "point.topleft.down.to.point.bottomright.curvepath")
+                }
+                if let aircraft = live.aircraft {
+                    detailLine("Aircraft", aircraft, symbol: "airplane")
+                }
+
+                Text("Reported by their simulator, not worked out from the map.")
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(theme.textDim)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .flightInfoSurface(theme, radius: theme.radiusMedium)
+            .padding(.horizontal, 16)
+        }
+    }
+
+    private func detailLine(_ name: String, _ value: String, symbol: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: symbol)
+                .font(.system(size: 11))
+                .foregroundStyle(theme.textDim)
+                .frame(width: 16)
+            Text(name)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(theme.textSecondary)
+            Spacer(minLength: 10)
+            Text(value)
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(theme.textPrimary)
+                .multilineTextAlignment(.trailing)
+        }
     }
 
     @ViewBuilder
@@ -657,11 +769,13 @@ struct PublicProfileView: View {
         async let badgesTask = PilotDirectory.shared.badges(of: handle)
         async let logbookTask = PilotDirectory.shared.logbook(of: handle, limit: 12)
         async let summaryTask = PilotDirectory.shared.logbookSummary(of: handle)
+        async let liveTask = PilotDirectory.shared.liveStatus(of: handle)
 
         friendList = await friendsTask
         badges = await badgesTask
         logbook = await logbookTask
         summary = await summaryTask
+        live = await liveTask
     }
 
     @MainActor

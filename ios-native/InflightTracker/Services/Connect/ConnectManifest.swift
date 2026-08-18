@@ -115,6 +115,7 @@ enum ConnectField: String, CaseIterable {
     case serverName
     case username
     case appState
+    case appVersion
 
     // MARK: Position and attitude
 
@@ -129,15 +130,63 @@ enum ConnectField: String, CaseIterable {
     case verticalSpeed
     case pitch
     case bank
+    case turnRate
 
     // MARK: Configuration
+    //
+    // What the aeroplane is set up to do. Individually small, collectively the
+    // difference between "an aircraft at 3,000 feet" and "an aircraft
+    // configured for landing" — which is the thing a person watching actually
+    // wants to know.
 
     case gearState
     case flapsState
+    case flapsAngle
     case spoilersState
     case parkingBrake
+    case reverseThrust
+    case transponderCode
+    case seatbeltSign
+
+    // MARK: Lights
+    //
+    // Cheap to read and unusually informative: strobes on means lined up, and
+    // landing lights below ten thousand feet means somebody flying properly.
+
+    case beaconLights
+    case landingLights
+    case navLights
+    case strobeLights
+
+    // MARK: Fuel and engines
+
     case fuelRemaining
     case engineCount
+    case engineN1
+    case engineThrust
+
+    // MARK: What the aeroplane is complaining about
+
+    case warningStalling
+    case warningOverspeed
+
+    // MARK: Outside
+    //
+    // The sim's own weather at the aircraft, which is a different and better
+    // thing than the METAR at the field below: it is what is actually hitting
+    // the aeroplane.
+
+    case windDirection
+    case windVelocity
+    case windGust
+    case temperature
+    case turbulence
+
+    // MARK: Navigation
+
+    case nearestAirport
+    case nextWaypoint
+    case flightTime
 
     // MARK: Landing statistics
     //
@@ -163,6 +212,7 @@ enum ConnectField: String, CaseIterable {
         case .serverName: return ["infiniteflight/live/current_server/name"]
         case .username:   return ["infiniteflight/current_user"]
         case .appState:   return ["infiniteflight/app_state"]
+        case .appVersion: return ["infiniteflight/app_version"]
 
         // The position group is the one the sample manifest did not cover, so
         // each carries every spelling seen in the wild.
@@ -194,13 +244,45 @@ enum ConnectField: String, CaseIterable {
             return ["aircraft/0/pitch"]
         case .bank:
             return ["aircraft/0/bank"]
+        case .turnRate:
+            return ["aircraft/0/turn_rate"]
 
-        case .gearState:     return ["aircraft/0/systems/landing_gear/state"]
-        case .flapsState:    return ["aircraft/0/systems/flaps/state"]
-        case .spoilersState: return ["aircraft/0/systems/spoilers/state"]
-        case .parkingBrake:  return ["aircraft/0/systems/parking_brake/state"]
+        case .gearState:       return ["aircraft/0/systems/landing_gear/state"]
+        case .flapsState:      return ["aircraft/0/systems/flaps/state"]
+        case .flapsAngle:      return ["aircraft/0/systems/flaps/left_flap_angle"]
+        case .spoilersState:   return ["aircraft/0/systems/spoilers/state"]
+        case .parkingBrake:    return ["aircraft/0/systems/parking_brake/state"]
+        case .reverseThrust:   return ["aircraft/0/systems/reverse/state"]
+        case .transponderCode: return ["aircraft/0/systems/transponder/1/code"]
+        case .seatbeltSign:    return ["aircraft/0/systems/signs/seatbelt"]
+
+        case .beaconLights:
+            return ["aircraft/0/systems/light_controller/beacon_lights_controller/state"]
+        case .landingLights:
+            return ["aircraft/0/systems/light_controller/landing_lights_controller/state"]
+        case .navLights:
+            return ["aircraft/0/systems/light_controller/nav_lights_controller/state"]
+        case .strobeLights:
+            return ["aircraft/0/systems/light_controller/strobe_lights_controller/state"]
+
         case .fuelRemaining: return ["aircraft/0/systems/fuel/fuel_remaining"]
         case .engineCount:   return ["aircraft/0/systems/engines/engine_count"]
+        case .engineN1:      return ["aircraft/0/systems/engines/1/n1"]
+        case .engineThrust:  return ["aircraft/0/systems/engines/1/thrust_percentage"]
+
+        case .warningStalling:  return ["aircraft/0/warning_stalling"]
+        case .warningOverspeed: return ["aircraft/0/warning_overspeed"]
+
+        case .windDirection: return ["environment/wind_direction_true"]
+        case .windVelocity:  return ["environment/wind_velocity"]
+        case .windGust:      return ["environment/wind_gust_velocity"]
+        case .temperature:   return ["environment/temperature"]
+        case .turbulence:    return ["environment/turbulence_factor"]
+
+        case .nearestAirport: return ["infiniteflight/nearest_airport"]
+        case .nextWaypoint:
+            return ["aircraft/0/systems/nav_sources/gps/next_waypoint_name"]
+        case .flightTime:     return ["simulator/flight_time"]
 
         case .landingVerticalSpeed:
             return ["simulator/statistics/last_landing/vertical_speed"]
@@ -225,23 +307,100 @@ enum ConnectField: String, CaseIterable {
         }
     }
 
-    /// The fields read on every pass of the poll loop.
-    ///
-    /// Deliberately short. Each one is a round trip, they are issued strictly
-    /// one at a time, and a poll that asks for sixty states takes sixty times
-    /// as long to come round again — so this is only what changes second by
-    /// second and is actually drawn or recorded.
+    /// A readable name, for the panel and for the list of what an aircraft did
+    /// not publish.
+    var label: String {
+        switch self {
+        case .flightID:          return "Flight"
+        case .serverID:          return "Server id"
+        case .serverName:        return "Server"
+        case .username:          return "Pilot"
+        case .appState:          return "App state"
+        case .appVersion:        return "App version"
+        case .latitude:          return "Latitude"
+        case .longitude:         return "Longitude"
+        case .altitudeMSL:       return "Altitude"
+        case .altitudeAGL:       return "Height above ground"
+        case .headingMagnetic:   return "Heading"
+        case .groundSpeed:       return "Ground speed"
+        case .indicatedAirspeed: return "Indicated airspeed"
+        case .trueAirspeed:      return "True airspeed"
+        case .verticalSpeed:     return "Vertical speed"
+        case .pitch:             return "Pitch"
+        case .bank:              return "Bank"
+        case .turnRate:          return "Turn rate"
+        case .gearState:         return "Gear"
+        case .flapsState:        return "Flaps"
+        case .flapsAngle:        return "Flap angle"
+        case .spoilersState:     return "Spoilers"
+        case .parkingBrake:      return "Parking brake"
+        case .reverseThrust:     return "Reverse"
+        case .transponderCode:   return "Squawk"
+        case .seatbeltSign:      return "Seatbelt sign"
+        case .beaconLights:      return "Beacon"
+        case .landingLights:     return "Landing lights"
+        case .navLights:         return "Nav lights"
+        case .strobeLights:      return "Strobes"
+        case .fuelRemaining:     return "Fuel"
+        case .engineCount:       return "Engines"
+        case .engineN1:          return "N1"
+        case .engineThrust:      return "Thrust"
+        case .warningStalling:   return "Stall warning"
+        case .warningOverspeed:  return "Overspeed warning"
+        case .windDirection:     return "Wind direction"
+        case .windVelocity:      return "Wind speed"
+        case .windGust:          return "Gusting"
+        case .temperature:       return "Temperature"
+        case .turbulence:        return "Turbulence"
+        case .nearestAirport:    return "Nearest airport"
+        case .nextWaypoint:      return "Next waypoint"
+        case .flightTime:        return "Flight time"
+        case .landingVerticalSpeed:     return "Landing rate"
+        case .landingScore:             return "Landing score"
+        case .landingGForce:            return "Landing g"
+        case .landingCentrelineOffset:  return "Off centreline"
+        case .landingAimingPointOffset: return "From aiming point"
+        case .landingGroundSpeed:       return "Touchdown ground speed"
+        case .landingAirspeed:          return "Touchdown airspeed"
+        case .landingLatitude:          return "Landing latitude"
+        case .landingLongitude:         return "Landing longitude"
+        case .landingFlightTime:        return "Measured block time"
+        }
+    }
+
+    // MARK: - Polling groups
+    //
+    // Each read is a round trip and they are issued strictly one at a time, so
+    // a group that asks for forty states takes forty times as long to come
+    // round again. What changes every second is read every pass; what changes
+    // every few minutes is read every few seconds; what changes once a flight
+    // is read once.
+
+    /// Read every pass — the numbers that move continuously.
     static let live: [ConnectField] = [
         .latitude, .longitude, .altitudeMSL, .altitudeAGL,
         .groundSpeed, .indicatedAirspeed, .verticalSpeed, .headingMagnetic
     ]
 
-    /// Read once when the connection opens, and again when the flight changes.
-    static let session: [ConnectField] = [
-        .flightID, .serverID, .serverName, .username, .appState, .engineCount
+    /// Read every few passes — configuration and the world outside, which
+    /// change on the scale of a phase of flight rather than a second.
+    static let periodic: [ConnectField] = [
+        .pitch, .bank, .trueAirspeed,
+        .gearState, .flapsState, .spoilersState, .parkingBrake, .reverseThrust,
+        .beaconLights, .landingLights, .navLights, .strobeLights,
+        .fuelRemaining, .engineN1, .engineThrust,
+        .warningStalling, .warningOverspeed,
+        .windDirection, .windVelocity, .windGust, .temperature,
+        .nearestAirport, .nextWaypoint, .flightTime, .transponderCode
     ]
 
-    /// Read on a slower loop — these only change at a touchdown.
+    /// Read once when the connection opens, and again when the flight changes.
+    static let session: [ConnectField] = [
+        .flightID, .serverID, .serverName, .username,
+        .appState, .appVersion, .engineCount
+    ]
+
+    /// Read on the landing loop — these only change at a touchdown.
     static let landing: [ConnectField] = [
         .landingVerticalSpeed, .landingScore, .landingGForce,
         .landingCentrelineOffset, .landingAimingPointOffset,

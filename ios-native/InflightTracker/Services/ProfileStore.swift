@@ -72,6 +72,15 @@ final class ProfileStore: ObservableObject {
         var friendsVisibility: Visibility = .public
         var logbookVisibility: Visibility = .public
 
+        /// Who may see the live status while flying.
+        ///
+        /// Followers by default, where the other two are public. Deliberately
+        /// out of step with them: the friends list and the logbook say who you
+        /// know and where you have been, and this says where you are — which is
+        /// a different thing to hand to strangers, and the sort of default
+        /// nobody should have to go and find.
+        var liveVisibility: Visibility = .followers
+
         var avatarPath: String?
         var bannerPath: String?
 
@@ -238,7 +247,8 @@ final class ProfileStore: ObservableObject {
             "banner_preset": edited.bannerPreset.rawValue,
             "is_public": edited.isPublic,
             "friends_visibility": edited.friendsVisibility.rawValue,
-            "logbook_visibility": edited.logbookVisibility.rawValue
+            "logbook_visibility": edited.logbookVisibility.rawValue,
+            "live_visibility": edited.liveVisibility.rawValue
         ]
 
         // NSNull rather than omission: leaving a key out of an upsert leaves
@@ -480,6 +490,7 @@ final class ProfileStore: ObservableObject {
             let is_public: Bool?
             let friends_visibility: String?
             let logbook_visibility: String?
+            let live_visibility: String?
             let moderation_state: String?
             let moderation_note: String?
         }
@@ -501,6 +512,7 @@ final class ProfileStore: ObservableObject {
             isPublic: row.is_public ?? true,
             friendsVisibility: Visibility(rawValue: row.friends_visibility ?? "public") ?? .public,
             logbookVisibility: Visibility(rawValue: row.logbook_visibility ?? "public") ?? .public,
+            liveVisibility: Visibility(rawValue: row.live_visibility ?? "followers") ?? .followers,
             avatarPath: row.avatar_path,
             bannerPath: row.banner_path,
             moderationState: row.moderation_state ?? "ok",

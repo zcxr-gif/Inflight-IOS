@@ -225,6 +225,21 @@ struct LogbookEntry: Decodable, Equatable, Identifiable {
     let maxAltitudeFeet: Int?
     let topGroundSpeedKnots: Int?
 
+    /// Where the row's numbers came from: `feed` when the flight was inferred
+    /// from the public live feed, `connect` when the simulator measured it.
+    ///
+    /// Worth showing rather than hiding. They are different kinds of claim, and
+    /// a landing rate exists only on the second — so a logbook that mixed them
+    /// silently would be inviting somebody to compare two numbers that are not
+    /// comparable.
+    let source: String?
+
+    let landingVerticalSpeedFPM: Int?
+    let landingScore: Int?
+    let landingGForce: Double?
+    let landingCentrelineOffsetM: Int?
+    let landingAimingPointOffsetM: Int?
+
     /// True when the list stopped because the account is free rather than
     /// because it ran out of flights. Comes back on every row so the client
     /// never has to guess; the panel says which, because a logbook that appears
@@ -243,6 +258,12 @@ struct LogbookEntry: Decodable, Equatable, Identifiable {
         case distanceNm = "distance_nm"
         case maxAltitudeFeet = "max_altitude_feet"
         case topGroundSpeedKnots = "top_ground_speed_knots"
+        case source
+        case landingVerticalSpeedFPM = "landing_vertical_speed_fpm"
+        case landingScore = "landing_score"
+        case landingGForce = "landing_g_force"
+        case landingCentrelineOffsetM = "landing_centreline_offset_m"
+        case landingAimingPointOffsetM = "landing_aiming_point_offset_m"
         case truncated
     }
 
@@ -264,7 +285,39 @@ struct LogbookEntry: Decodable, Equatable, Identifiable {
         distanceNm = try? c.decode(Int.self, forKey: .distanceNm)
         maxAltitudeFeet = try? c.decode(Int.self, forKey: .maxAltitudeFeet)
         topGroundSpeedKnots = try? c.decode(Int.self, forKey: .topGroundSpeedKnots)
+        source = try? c.decode(String.self, forKey: .source)
+        landingVerticalSpeedFPM = try? c.decode(Int.self, forKey: .landingVerticalSpeedFPM)
+        landingScore = try? c.decode(Int.self, forKey: .landingScore)
+        // PostgREST renders `numeric` as a JSON string rather than a number, so
+        // this is the one field that has to try both.
+        landingGForce = (try? c.decode(Double.self, forKey: .landingGForce))
+            ?? (try? c.decode(String.self, forKey: .landingGForce)).flatMap(Double.init)
+        landingCentrelineOffsetM = try? c.decode(Int.self, forKey: .landingCentrelineOffsetM)
+        landingAimingPointOffsetM = try? c.decode(Int.self, forKey: .landingAimingPointOffsetM)
         truncated = (try? c.decode(Bool.self, forKey: .truncated)) ?? false
+    }
+
+    /// Whether the simulator measured this flight rather than it being worked
+    /// out from the map.
+    var wasMeasured: Bool { source == "connect" }
+
+    /// The landing as a pilot reads it. Nil when there was no measurement,
+    /// which is most flights.
+    var landingLabel: String? {
+        guard let rate = landingVerticalSpeedFPM, rate != 0 else { return nil }
+        return "\(rate) fpm"
+    }
+
+    /// The thresholds the Infinite Flight community uses, not ones we invented.
+    var landingVerdict: String? {
+        guard let rate = landingVerticalSpeedFPM, rate != 0 else { return nil }
+        switch abs(rate) {
+        case ..<60:  return "Greased"
+        case ..<150: return "Smooth"
+        case ..<300: return "Firm"
+        case ..<600: return "Hard"
+        default:     return "Very hard"
+        }
     }
 
     var route: String {
@@ -297,8 +350,19 @@ struct LogbookSummary: Decodable, Equatable {
     let topAircraft: String?
     let topRoute: String?
 
+    /// Everything below is measured by the simulator rather than inferred from
+    /// the map, and is zero for a pilot who has never flown with Connect
+    /// attached. `landingsMeasured` is what tells the two apart — a best
+    /// landing of 0 fpm and no landings at all would otherwise look identical.
+    let landingsMeasured: Int
+    let bestLandingFPM: Int?
+    let averageLandingFPM: Int?
+    let recentLandingFPM: Int?
+    let greasers: Int
+    let bestLandingScore: Int?
+
     enum CodingKeys: String, CodingKey {
-        case flights, minutes, airports, regions
+        case flights, minutes, airports, regions, greasers
         case distanceNm = "distance_nm"
         case aircraftTypes = "aircraft_types"
         case longestMinutes = "longest_minutes"
@@ -308,6 +372,11 @@ struct LogbookSummary: Decodable, Equatable {
         case lastFlightAt = "last_flight_at"
         case topAircraft = "top_aircraft"
         case topRoute = "top_route"
+        case landingsMeasured = "landings_measured"
+        case bestLandingFPM = "best_landing_fpm"
+        case averageLandingFPM = "average_landing_fpm"
+        case recentLandingFPM = "recent_landing_fpm"
+        case bestLandingScore = "best_landing_score"
     }
 
     init(from decoder: Decoder) throws {
@@ -327,11 +396,23 @@ struct LogbookSummary: Decodable, Equatable {
             .flatMap(SupabaseAuth.Timestamp.date(from:))
         topAircraft = try? c.decode(String.self, forKey: .topAircraft)
         topRoute = try? c.decode(String.self, forKey: .topRoute)
+        landingsMeasured = (try? c.decode(Int.self, forKey: .landingsMeasured)) ?? 0
+        bestLandingFPM = try? c.decode(Int.self, forKey: .bestLandingFPM)
+        averageLandingFPM = try? c.decode(Int.self, forKey: .averageLandingFPM)
+        recentLandingFPM = try? c.decode(Int.self, forKey: .recentLandingFPM)
+        greasers = (try? c.decode(Int.self, forKey: .greasers)) ?? 0
+        bestLandingScore = try? c.decode(Int.self, forKey: .bestLandingScore)
     }
 
     var hours: Int { minutes / 60 }
 
     var isEmpty: Bool { flights == 0 }
+
+    /// Whether this pilot has ever flown with the simulator attached. The
+    /// landing card is drawn only when they have — an empty one would be
+    /// telling everybody who has not that they are missing something, on a
+    /// profile that is not the place to sell them anything.
+    var hasMeasuredLandings: Bool { landingsMeasured > 0 }
 }
 
 /// One thing a pilot has done, or is on the way to doing.

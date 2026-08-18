@@ -110,6 +110,11 @@ final class ConnectSession: ObservableObject {
     /// position updates that do.
     private static let landingEveryNPasses = 5
 
+    /// How often configuration and weather are read. Gear, flaps and wind
+    /// change on the scale of a phase of flight; reading twenty-five states
+    /// every pass would quarter the rate of the eight that actually move.
+    private static let periodicEveryNPasses = 8
+
     /// Backoff between reconnection attempts, in seconds. A sim that is closed
     /// stays closed, and a client that retries every second on a phone in
     /// somebody's pocket is a battery complaint.
@@ -282,6 +287,10 @@ final class ConnectSession: ObservableObject {
             next.sampledAt = Date()
             telemetry = next
 
+            if pass % Self.periodicEveryNPasses == 0 {
+                try await readPeriodic()
+            }
+
             if pass % Self.landingEveryNPasses == 0 {
                 try await readLanding()
             }
@@ -306,6 +315,17 @@ final class ConnectSession: ObservableObject {
     private func read(_ entry: ConnectManifest.Entry) async throws -> ConnectProtocol.Value? {
         let payload = try await transport.read(entry.id)
         return ConnectProtocol.decode(entry.type, from: payload)
+    }
+
+    private func readPeriodic() async throws {
+        var next = telemetry
+        for field in ConnectField.periodic {
+            guard let entry = resolved[field] else { continue }
+            let value = try await read(entry)
+            apply(field, value, to: &next)
+        }
+        next.sampledAt = Date()
+        telemetry = next
     }
 
     private func readSession() async throws {
@@ -397,6 +417,7 @@ final class ConnectSession: ObservableObject {
         case .serverName:        snapshot.serverName = value.text
         case .username:          snapshot.username = value.text
         case .appState:          snapshot.appState = value.text
+        case .appVersion:        snapshot.appVersion = value.text
         case .engineCount:       snapshot.engineCount = value.number.map { Int($0) }
 
         case .latitude:          snapshot.latitude = value.number
@@ -408,8 +429,48 @@ final class ConnectSession: ObservableObject {
         case .indicatedAirspeed: snapshot.indicatedAirspeed = value.number
         case .trueAirspeed:      snapshot.trueAirspeed = value.number
         case .verticalSpeed:     snapshot.verticalSpeed = value.number
+        case .pitch:             snapshot.pitch = value.number
+        case .bank:              snapshot.bank = value.number
+        case .turnRate:          break
 
-        default:
+        case .gearState:         snapshot.gearState = value.number.map { Int($0) }
+        case .flapsState:        snapshot.flapsState = value.number.map { Int($0) }
+        case .flapsAngle:        break
+        case .spoilersState:     snapshot.spoilersState = value.number.map { Int($0) }
+        case .parkingBrake:      snapshot.parkingBrake = value.flag
+        case .reverseThrust:     snapshot.reverseThrust = value.flag
+        case .transponderCode:   snapshot.transponderCode = value.number.map { Int($0) }
+        case .seatbeltSign:      break
+
+        case .beaconLights:      snapshot.beaconLights = value.flag
+        case .landingLights:     snapshot.landingLights = value.flag
+        case .navLights:         snapshot.navLights = value.flag
+        case .strobeLights:      snapshot.strobeLights = value.flag
+
+        case .fuelRemaining:     snapshot.fuelRemainingKg = value.number
+        case .engineN1:          snapshot.engineN1 = value.number
+        case .engineThrust:      snapshot.engineThrust = value.number
+
+        case .warningStalling:   snapshot.isStalling = value.flag
+        case .warningOverspeed:  snapshot.isOverspeeding = value.flag
+
+        case .windDirection:     snapshot.windDirection = value.number
+        case .windVelocity:      snapshot.windVelocity = value.number
+        case .windGust:          snapshot.windGust = value.number
+        case .temperature:       snapshot.temperature = value.number
+        case .turbulence:        break
+
+        case .nearestAirport:    snapshot.nearestAirport = value.text
+        case .nextWaypoint:      snapshot.nextWaypoint = value.text
+        case .flightTime:        snapshot.flightTimeSeconds = value.number
+
+        case .landingVerticalSpeed, .landingScore, .landingGForce,
+             .landingCentrelineOffset, .landingAimingPointOffset,
+             .landingGroundSpeed, .landingAirspeed,
+             .landingLatitude, .landingLongitude, .landingFlightTime:
+            // Collected into `ConnectLanding` by `readLanding`, never onto the
+            // rolling snapshot: a landing is an event with its own lifetime,
+            // not a reading that happens to be current.
             break
         }
     }

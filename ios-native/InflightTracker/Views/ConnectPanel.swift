@@ -10,6 +10,8 @@ import SwiftUI
 struct ConnectPanel: View {
 
     @ObservedObject private var session = ConnectSession.shared
+    @ObservedObject private var publisher = LiveStatusPublisher.shared
+    @ObservedObject private var profiles = ProfileStore.shared
     @ObservedObject private var appearance = FlightInfoAppearance.shared
 
     @State private var typedHost: String = ""
@@ -42,6 +44,8 @@ struct ConnectPanel: View {
                     addressRow
                 }
             }
+
+            sharingSection
 
             if session.status.isLive {
                 liveSection
@@ -177,6 +181,70 @@ struct ConnectPanel: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
     }
+
+    // MARK: - Sharing
+
+    private var sharingSection: some View {
+        PanelSection(title: "SHOW OTHER PILOTS") {
+            PanelToggleRow(
+                title: "Share what the sim reports",
+                symbol: "dot.radiowaves.up.forward",
+                detail: sharingDetail,
+                isOn: Binding(
+                    get: { publisher.isSharing },
+                    set: { publisher.isSharing = $0 }
+                )
+            )
+
+            if publisher.isSharing {
+                PanelDivider()
+
+                VStack(alignment: .leading, spacing: 8) {
+                    if !profiles.hasProfile {
+                        Text("Claim a handle first — a live status belongs to a profile, "
+                           + "and there is nowhere to show one without it.")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    if let published = publisher.lastPublished {
+                        reading("Last sent", Self.relative.localizedString(for: published, relativeTo: Date()))
+                    } else if session.status.isLive {
+                        reading("Last sent", "not yet")
+                    }
+
+                    if let problem = publisher.problem {
+                        Text(problem)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Text("Who can see it is set on your profile, under Live status. "
+                       + "It defaults to people who follow you — where you are now is a "
+                       + "different thing from where you have been.")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(theme.textDim)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 11)
+            }
+        }
+    }
+
+    private var sharingDetail: String {
+        publisher.isSharing
+            ? "Your position, phase of flight and configuration go on your profile while you fly. Turning this off deletes it."
+            : "Put what the sim is reporting on your profile, so people who follow you can see you flying."
+    }
+
+    private static let relative: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        return formatter
+    }()
 
     // MARK: - Live telemetry
 

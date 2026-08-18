@@ -420,6 +420,19 @@ struct ProfileEditorView: View {
                     : "Every flight is recorded whatever your plan. A free profile shows its last \(ProFeature.freeLogbookEntries); Inflight Pro shows the lot.",
                 selection: $draft.logbookVisibility
             )
+
+            PanelDivider()
+
+            PanelPickerRow(
+                title: "Live status",
+                symbol: "dot.radiowaves.up.forward",
+                options: ProfileStore.Visibility.allCases,
+                label: { $0.label },
+                detail: "Where you are while you are actually flying, from Infinite Flight "
+                      + "Connect. Only ever shown while you are in the air, and only if you "
+                      + "have switched sharing on under Settings → The sim.",
+                selection: $draft.liveVisibility
+            )
         }
     }
 
