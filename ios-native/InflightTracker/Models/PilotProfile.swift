@@ -123,6 +123,28 @@ struct PilotProfile: Decodable, Equatable, Identifiable {
 
     var avatarURL: URL? { AppConfig.profileImageURL(bucket: "pilot-avatars", path: avatarPath) }
 
+    /// The colour this pilot chose for their profile, if they are Pro and chose
+    /// one.
+    ///
+    /// The server already refuses to serve `accent` for an account whose
+    /// subscription has ended — it blanks it rather than the app having to
+    /// remember — so this being non-nil is itself the entitlement check, and
+    /// there is deliberately no `isPro` test here to drift out of step with it.
+    ///
+    /// Parsed rather than trusted: the column's check constraint is
+    /// `^#[0-9a-f]{6}$`, and a value that somehow is not gets no colour rather
+    /// than a crash or a black profile.
+    var accentColor: Color? {
+        guard let accent else { return nil }
+        let hex = accent.hasPrefix("#") ? String(accent.dropFirst()) : accent
+        guard hex.count == 6, let value = UInt32(hex, radix: 16) else { return nil }
+        return Color(
+            red: Double((value >> 16) & 0xFF) / 255,
+            green: Double((value >> 8) & 0xFF) / 255,
+            blue: Double(value & 0xFF) / 255
+        )
+    }
+
     var bannerURL: URL? { AppConfig.profileImageURL(bucket: "pilot-banners", path: bannerPath) }
 
     /// Two letters for the empty avatar. A profile always has a display name,
@@ -200,6 +222,28 @@ struct PilotSummary: Decodable, Equatable, Identifiable, Hashable {
     }
 
     var avatarURL: URL? { AppConfig.profileImageURL(bucket: "pilot-avatars", path: avatarPath) }
+
+    /// The colour this pilot chose for their profile, if they are Pro and chose
+    /// one.
+    ///
+    /// The server already refuses to serve `accent` for an account whose
+    /// subscription has ended — it blanks it rather than the app having to
+    /// remember — so this being non-nil is itself the entitlement check, and
+    /// there is deliberately no `isPro` test here to drift out of step with it.
+    ///
+    /// Parsed rather than trusted: the column's check constraint is
+    /// `^#[0-9a-f]{6}$`, and a value that somehow is not gets no colour rather
+    /// than a crash or a black profile.
+    var accentColor: Color? {
+        guard let accent else { return nil }
+        let hex = accent.hasPrefix("#") ? String(accent.dropFirst()) : accent
+        guard hex.count == 6, let value = UInt32(hex, radix: 16) else { return nil }
+        return Color(
+            red: Double((value >> 16) & 0xFF) / 255,
+            green: Double((value >> 8) & 0xFF) / 255,
+            blue: Double(value & 0xFF) / 255
+        )
+    }
 
     var initials: String {
         let letters = displayName.filter { $0.isLetter || $0.isNumber }

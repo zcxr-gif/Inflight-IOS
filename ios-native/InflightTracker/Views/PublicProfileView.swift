@@ -101,12 +101,15 @@ struct PublicProfileView: View {
                 if let profile = profile {
                     header(profile)
                     if let problem = problem { problemLine(problem) }
+                    relationship(profile)
                     actions(profile)
                     if let bio = profile.bio, !bio.isEmpty { bioCard(bio) }
                     liveCard
                     simCard
                     favouriteCard(profile)
                     statsCard(profile)
+                    recordsCard
+                    landingsCard
                     friendsCard(profile)
                     badgesCard
                     logbookCard
@@ -205,7 +208,8 @@ struct PublicProfileView: View {
                     url: profile.avatarURL,
                     initials: profile.initials,
                     side: 88,
-                    isPro: profile.isPro
+                    isPro: profile.isPro,
+                    tint: profile.accentColor
                 )
                 // Lifted onto the banner, which is what makes the header read
                 // as one thing rather than as a picture with a card under it.
@@ -275,6 +279,32 @@ struct PublicProfileView: View {
 
     // MARK: - Follow
 
+    /// Whether this pilot follows *you*, which the card has always known and the
+    /// profile has never said.
+    ///
+    /// It is the difference between a stranger and somebody who chose you back,
+    /// and it changes what the follow button means — so it sits next to it
+    /// rather than being buried in a count.
+    @ViewBuilder
+    private func relationship(_ profile: PilotProfile) -> some View {
+        if !profile.isSelf, profile.isFriend || profile.followsViewer {
+            HStack(spacing: 5) {
+                Image(systemName: profile.isFriend ? "person.2.fill" : "arrow.turn.down.left")
+                    .font(.system(size: 9, weight: .bold))
+                Text(profile.isFriend ? "Friends" : "Follows you")
+                    .font(.system(size: 10.5, weight: .bold))
+            }
+            .foregroundStyle(profile.accentColor ?? theme.accent)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(
+                Capsule().fill((profile.accentColor ?? theme.accent).opacity(0.15))
+            )
+            .padding(.horizontal, 16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
     private func actions(_ profile: PilotProfile) -> some View {
         HStack(spacing: 8) {
             if profile.isSelf {
@@ -297,7 +327,7 @@ struct PublicProfileView: View {
                     .padding(.vertical, 11)
                     .background {
                         RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous)
-                            .fill(profile.viewerFollows ? theme.surfaceFill : theme.accent)
+                            .fill(profile.viewerFollows ? theme.surfaceFill : (profile.accentColor ?? theme.accent))
                     }
                 }
                 .buttonStyle(.plain)
@@ -477,24 +507,14 @@ struct PublicProfileView: View {
                 HStack(spacing: 0) {
                     PilotStat(value: "\(summary.flights)", label: "FLIGHTS")
                     PilotStat(value: "\(summary.hours)", label: "HOURS")
-                    PilotStat(value: "\(summary.airports)", label: "FIELDS")
+                    PilotStat(value: Format.number(Double(summary.distanceNm)), label: "MILES")
                 }
 
-                // Only for a pilot who has actually flown with the simulator
-                // attached. An empty landing row on everybody else's profile
-                // would be advertising at people on a page that is not the
-                // place for it.
-                if summary.hasMeasuredLandings {
-                    PanelDivider()
-                    HStack(spacing: 0) {
-                        if let best = summary.bestLandingFPM {
-                            PilotStat(value: "\(best)", label: "BEST FPM")
-                        }
-                        if let average = summary.averageLandingFPM {
-                            PilotStat(value: "\(average)", label: "AVG FPM")
-                        }
-                        PilotStat(value: "\(summary.greasers)", label: "GREASERS")
-                    }
+                PanelDivider()
+                HStack(spacing: 0) {
+                    PilotStat(value: "\(summary.airports)", label: "FIELDS")
+                    PilotStat(value: "\(summary.aircraftTypes)", label: "AIRCRAFT")
+                    PilotStat(value: "\(summary.regions)", label: "REGIONS")
                 }
             }
         }
@@ -617,6 +637,115 @@ struct PublicProfileView: View {
                 .multilineTextAlignment(.trailing)
         }
     }
+
+    /// The bests, which are the part of a logbook people actually read.
+    ///
+    /// Everything here was already being computed by `pilot_logbook_summary`
+    /// and thrown away by the client — the longest flight, the furthest, the
+    /// highest, the aircraft and route flown most, and the span the logbook
+    /// covers. A profile that shows three numbers out of thirteen is a profile
+    /// keeping most of itself to itself.
+    @ViewBuilder
+    private var recordsCard: some View {
+        if let summary = summary, !summary.isEmpty {
+            PanelSection(title: "RECORDS") {
+                VStack(alignment: .leading, spacing: 9) {
+                    if summary.longestMinutes > 0 {
+                        detailLine("Longest flight",
+                                   Self.blockTime(summary.longestMinutes),
+                                   symbol: "clock")
+                    }
+                    if summary.longestDistanceNm > 0 {
+                        detailLine("Furthest flight",
+                                   "\(Format.number(Double(summary.longestDistanceNm))) nm",
+                                   symbol: "arrow.left.and.right")
+                    }
+                    if summary.highestFeet > 0 {
+                        detailLine("Highest",
+                                   "\(Format.number(Double(summary.highestFeet))) ft",
+                                   symbol: "arrow.up.to.line")
+                    }
+                    if let aircraft = summary.topAircraft, !aircraft.isEmpty {
+                        detailLine("Flown most", aircraft, symbol: "airplane")
+                    }
+                    if let route = summary.topRoute, !route.isEmpty {
+                        detailLine("Favourite run", route, symbol: "point.topleft.down.to.point.bottomright.curvepath")
+                    }
+                    if let first = summary.firstFlightAt {
+                        detailLine("Logbook opened", Self.day.string(from: first), symbol: "calendar")
+                    }
+                    if let last = summary.lastFlightAt {
+                        detailLine("Last flight", Self.day.string(from: last), symbol: "clock.arrow.circlepath")
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+            }
+            .padding(.horizontal, 16)
+        }
+    }
+
+    /// The touchdowns, when there are measured ones.
+    ///
+    /// Its own card rather than another row on the stats block, because it is
+    /// the only group here that is *measured* rather than worked out from the
+    /// map — and a card can say so, where a row of three numbers cannot.
+    @ViewBuilder
+    private var landingsCard: some View {
+        if let summary = summary, summary.hasMeasuredLandings {
+            PanelSection(title: "LANDINGS") {
+                VStack(spacing: 0) {
+                    HStack(spacing: 0) {
+                        if let best = summary.bestLandingFPM {
+                            PilotStat(value: "\(best)", label: "BEST FPM")
+                        }
+                        if let average = summary.averageLandingFPM {
+                            PilotStat(value: "\(average)", label: "AVG FPM")
+                        }
+                        if let recent = summary.recentLandingFPM {
+                            PilotStat(value: "\(recent)", label: "LAST")
+                        }
+                    }
+
+                    PanelDivider()
+
+                    HStack(spacing: 0) {
+                        PilotStat(value: "\(summary.landingsMeasured)", label: "MEASURED")
+                        PilotStat(value: "\(summary.greasers)", label: "GREASED")
+                        if let score = summary.bestLandingScore {
+                            PilotStat(value: "\(score)", label: "BEST SCORE")
+                        }
+                    }
+
+                    PanelDivider()
+
+                    Text("Measured by Infinite Flight over Connect, not worked out from the map.")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(theme.textDim)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                }
+            }
+            .padding(.horizontal, 16)
+        }
+    }
+
+    /// "6h 20m", or "45m" under the hour — the same shape `LogbookEntry` uses,
+    /// so a record and the flight it came from read alike.
+    private static func blockTime(_ minutes: Int) -> String {
+        let hours = minutes / 60
+        let rest = minutes % 60
+        return hours > 0 ? "\(hours)h \(rest)m" : "\(rest)m"
+    }
+
+    private static let day: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter
+    }()
 
     @ViewBuilder
     private func friendsCard(_ profile: PilotProfile) -> some View {
