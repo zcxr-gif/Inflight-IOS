@@ -173,6 +173,49 @@ final class PilotDirectory: ObservableObject {
         return rows?.first
     }
 
+    /// What one pilot's simulator is reporting right now.
+    ///
+    /// Empty for every reason at once, and deliberately so: not flying, not
+    /// broadcasting, not visible to you, or stale. Distinguishing them would
+    /// turn this into a way to find out who has hidden what from whom.
+    func liveStatus(of handle: String) async -> PilotLiveStatus? {
+        let token = await AccountStore.shared.currentAccessToken()
+        let rows: [PilotLiveStatus]? = try? await SupabaseData.rpc(
+            "pilot_live_status_for",
+            arguments: ["p_handle": handle],
+            accessToken: token
+        )
+        return rows?.first
+    }
+
+    /// Everybody you follow who is in the air.
+    ///
+    /// The reason the whole live-status feature is worth having: a friends list
+    /// that says who is flying, where, and what they are doing.
+    func liveFollowing(limit: Int = 50) async -> [PilotLiveSummary] {
+        guard let token = await AccountStore.shared.currentAccessToken() else { return [] }
+        return (try? await SupabaseData.rpc(
+            "pilot_live_following",
+            arguments: ["p_limit": limit],
+            accessToken: token
+        )) ?? []
+    }
+
+    /// The landing board for the people this account follows.
+    ///
+    /// Computed on the server from the logbook every time it is asked for. That
+    /// is deliberate and costs nothing worth saving: the alternative is a stored
+    /// leaderboard, which is a table to maintain, a backfill when the rule
+    /// changes, and a number that can be wrong.
+    func landingBoard(windowDays: Int = 30, limit: Int = 25) async -> [PilotLandingBoardEntry] {
+        guard let token = await AccountStore.shared.currentAccessToken() else { return [] }
+        return (try? await SupabaseData.rpc(
+            "pilot_landing_board",
+            arguments: ["p_window_days": windowDays, "p_limit": limit],
+            accessToken: token
+        )) ?? []
+    }
+
     func badges(of handle: String) async -> [PilotBadge] {
         let token = await AccountStore.shared.currentAccessToken()
         return (try? await SupabaseData.rpc(

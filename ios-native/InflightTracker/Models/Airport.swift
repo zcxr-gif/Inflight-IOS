@@ -201,6 +201,33 @@ final class AirportStore {
             .map { $0.0 }
     }
 
+    /// Every airport's position, thinned to a cap and sorted for a stable
+    /// drawing order.
+    ///
+    /// For the globe on the welcome screen, which draws the world as the
+    /// dataset rather than as imagery: no tiles, no network, nothing to fail on
+    /// a first launch before anything has been agreed to. Thinned because
+    /// eighteen thousand points is more than a sphere at that size can show and
+    /// far more than sixty frames a second wants to transform.
+    func sample(limit: Int = 3000) -> [CLLocationCoordinate2D] {
+        loadIfNeeded()
+
+        lock.lock()
+        let all = Array(airports.values)
+        lock.unlock()
+
+        guard all.count > limit else {
+            return all.map(\.coordinate)
+        }
+
+        // Every nth, by a sorted key, so the thinning is deterministic and
+        // spread over the whole dataset rather than clustered wherever the
+        // dictionary happened to put things.
+        let ordered = all.sorted { $0.icao < $1.icao }
+        let stride = max(ordered.count / limit, 1)
+        return Swift.stride(from: 0, to: ordered.count, by: stride).map { ordered[$0].coordinate }
+    }
+
     func airport(_ icao: String?) -> Airport? {
         guard let icao = icao?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased(),
               !icao.isEmpty else { return nil }

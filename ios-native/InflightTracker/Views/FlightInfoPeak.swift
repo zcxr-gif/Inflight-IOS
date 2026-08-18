@@ -99,14 +99,9 @@ struct FlightInfoPeak: View {
                 }
 
                 HStack(spacing: 5) {
-                    Image(systemName: "person.fill")
-                        .font(.system(size: 9))
-                        .foregroundStyle(theme.textDim)
-
-                    Text(flight.username ?? "Pilot")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(theme.textSecondary)
-                        .flightInfoLine()
+                    // Not tappable here: the bar's own tap expands the window,
+                    // and two things on one tap is one too many.
+                    FlightPilotBadge(username: flight.username, side: 18, isTappable: false)
 
                     // Only when it says something. The bar is a photo wide and
                     // a name long; ACTIVE is the ordinary case and doesn't earn

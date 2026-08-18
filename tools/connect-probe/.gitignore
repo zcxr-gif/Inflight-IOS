@@ -1,0 +1,5 @@
+# Written by probe.mjs at runtime: the manifest of whatever aircraft you were
+# sitting in. Useful while working, not worth committing — it differs per
+# aircraft and per Infinite Flight release, which is the whole reason the app
+# resolves paths at runtime rather than trusting a checked-in copy.
+manifest.txt

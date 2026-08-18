@@ -35,6 +35,15 @@ struct AccountPanel: View {
     }
 
     @State private var intent: Intent = .signIn
+
+    /// Ticked before an account can be made.
+    ///
+    /// Seeded from `TermsStore` because the gate at first launch has almost
+    /// always already asked: making somebody agree twice to the same version of
+    /// the same document is not consent, it is friction. It stays a real,
+    /// unticked box for the case that matters — an account being made on a
+    /// device where the terms have somehow not been agreed to.
+    @State private var acceptedTerms = TermsStore.shared.isAccepted
     @State private var email = ""
     @State private var password = ""
     @State private var isShowingPaywall = false
@@ -625,6 +634,10 @@ struct AccountPanel: View {
                     message(notice, symbol: "envelope.badge", isProblem: false)
                 }
 
+                if intent == .signUp {
+                    termsConsent
+                }
+
                 Button {
                     submit()
                 } label: {
@@ -683,6 +696,54 @@ struct AccountPanel: View {
         !accounts.isWorking
             && email.contains("@")
             && password.count >= 6
+            // Signing in is not agreeing to anything new; making an account is.
+            && (intent == .signIn || acceptedTerms)
+    }
+
+    /// The tick, and the two links it is about.
+    ///
+    /// A real control rather than a line of small print under the button:
+    /// "by continuing you agree" is how you get somebody who did not know they
+    /// had agreed, and this is the one moment in the app where a person is
+    /// entering into something.
+    private var termsConsent: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                acceptedTerms.toggle()
+            } label: {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: acceptedTerms ? "checkmark.square.fill" : "square")
+                        .font(.system(size: 17))
+                        .foregroundStyle(acceptedTerms ? theme.accent : theme.textDim)
+
+                    Text("I agree to the Terms of Service and the Privacy Policy.")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(theme.textSecondary)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(acceptedTerms ? [.isSelected] : [])
+
+            HStack(spacing: 14) {
+                termsLink("Terms of Service", AppConfig.termsURL)
+                termsLink("Privacy Policy", AppConfig.privacyURL)
+            }
+            .padding(.leading, 27)
+        }
+    }
+
+    private func termsLink(_ title: String, _ url: URL?) -> some View {
+        Link(destination: url ?? URL(string: "https://inflight.info")!) {
+            Text(title)
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(theme.accent)
+                .underline()
+        }
     }
 
     private func submit() {
@@ -693,7 +754,13 @@ struct AccountPanel: View {
         Task {
             switch intent {
             case .signIn: await accounts.signIn(email: address, password: secret)
-            case .signUp: await accounts.signUp(email: address, password: secret)
+            case .signUp:
+                // Ticking the box here is an acceptance in its own right — it
+                // may be the first one on this device — so it is recorded
+                // before the account is made rather than after, and reaches the
+                // account through `adopt`.
+                if !TermsStore.shared.isAccepted { TermsStore.shared.accept() }
+                await accounts.signUp(email: address, password: secret)
             }
             // Never left sitting in a text field once it has been used.
             password = ""

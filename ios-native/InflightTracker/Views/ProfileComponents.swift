@@ -48,10 +48,16 @@ struct PilotAvatar: View {
     var side: CGFloat = 44
     var isPro: Bool = false
 
+    /// The pilot's own colour, when they are Pro and have picked one. Falls
+    /// back to the app's accent, so this is safe to pass nil for everybody
+    /// else.
+    var tint: Color? = nil
+
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @StateObject private var loader = RemoteImageLoader()
 
     private var theme: FlightInfoTheme { appearance.theme }
+    private var accent: Color { tint ?? theme.accent }
 
     var body: some View {
         Group {
@@ -67,14 +73,14 @@ struct PilotAvatar: View {
                     .font(.system(size: side * 0.38, weight: .bold, design: .rounded))
                     .foregroundStyle(theme.onAccent)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background { theme.accent }
+                    .background { accent }
             }
         }
         .frame(width: side, height: side)
         .clipShape(Circle())
         .overlay {
             Circle().strokeBorder(
-                isPro ? theme.accent : theme.stroke,
+                isPro ? accent : theme.stroke,
                 lineWidth: isPro ? max(side * 0.045, 1.5) : 1
             )
         }
@@ -407,5 +413,110 @@ struct LogbookRow: View {
         }
         if let callsign = entry.callsign, !callsign.isEmpty { parts.append(callsign) }
         return parts.isEmpty ? "Flight" : parts.joined(separator: " · ")
+    }
+}
+
+// MARK: - The pilot, on a flight
+
+/// The face behind a name on the map.
+///
+/// Every aeroplane in the feed carries its pilot's Infinite Flight handle, and
+/// until now that was where it stopped: a string. This resolves the handle to a
+/// profile and draws the picture, which is the whole point of profiles existing
+/// — a name on the map leading to a person.
+///
+/// ## Why it resolves itself
+///
+/// Most pilots on the server have never claimed a handle here, so most lookups
+/// find nothing. `PilotDirectory` caches the misses as well as the hits, which
+/// is the half that matters: without it, tapping the same aeroplane twice would
+/// ask the server twice to be told "no" twice. Because the miss is cheap and
+/// cached, this can be dropped into any row that shows a pilot's name without
+/// the caller having to think about it.
+///
+/// ## What it shows when there is nothing to show
+///
+/// The same small person glyph the flight window used before. A pilot with no
+/// profile should look ordinary, not broken — and certainly not like an
+/// advert for signing up, on a window they opened to look at an aeroplane.
+struct FlightPilotBadge: View {
+
+    /// The Infinite Flight handle written on the aeroplane.
+    let username: String?
+
+    var side: CGFloat = 20
+    var nameSize: CGFloat = 11
+
+    /// Whether tapping opens the profile. Off in the peak bar, whose own tap
+    /// expands the window — two things on one tap is one too many.
+    var isTappable: Bool = true
+
+    @ObservedObject private var appearance = FlightInfoAppearance.shared
+    @State private var profile: PilotProfile?
+    @State private var opened: ProfileLink?
+
+    private var theme: FlightInfoTheme { appearance.theme }
+
+    var body: some View {
+        content
+            .task(id: username) { await resolve() }
+            .sheet(item: $opened) { link in PublicProfileView(link: link) }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if isTappable, profile != nil {
+            Button {
+                guard let handle = profile?.handle else { return }
+                opened = .handle(handle)
+            } label: { row }
+            .buttonStyle(.plain)
+        } else {
+            row
+        }
+    }
+
+    private var row: some View {
+        HStack(spacing: 6) {
+            if let profile {
+                PilotAvatar(
+                    url: profile.avatarURL,
+                    initials: profile.initials,
+                    side: side,
+                    isPro: profile.isPro
+                )
+            } else {
+                Image(systemName: "person.fill")
+                    .font(.system(size: 9))
+                    .foregroundStyle(theme.textDim)
+            }
+
+            Text(displayed)
+                .font(.system(size: nameSize, weight: .semibold))
+                .foregroundStyle(theme.textSecondary)
+                .flightInfoLine()
+
+            // A claimed profile is worth marking, because the name on the map
+            // is otherwise identical whether somebody is here or not. Small,
+            // and never in place of the name.
+            if profile != nil {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(theme.textDim)
+            }
+        }
+    }
+
+    /// The profile's own display name once there is one, because that is what
+    /// the pilot chose to be called. The map's handle until then.
+    private var displayed: String {
+        if let profile, !profile.displayName.isEmpty { return profile.displayName }
+        return username ?? "Pilot"
+    }
+
+    private func resolve() async {
+        profile = nil
+        guard let username, !username.isEmpty else { return }
+        profile = await PilotDirectory.shared.card(ifUsername: username)
     }
 }

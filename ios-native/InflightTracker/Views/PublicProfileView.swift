@@ -47,6 +47,11 @@ struct PublicProfileView: View {
     @State private var logbook: [LogbookEntry] = []
     @State private var summary: LogbookSummary?
 
+    /// What this pilot's own simulator is reporting, if they are flying, are
+    /// broadcasting, and have let this viewer see it. All three are their
+    /// decision; an absent status never says which one is false.
+    @State private var live: PilotLiveStatus?
+
     @State private var isLoading = true
     @State private var isWorking = false
     @State private var problem: String?
@@ -96,11 +101,15 @@ struct PublicProfileView: View {
                 if let profile = profile {
                     header(profile)
                     if let problem = problem { problemLine(problem) }
+                    relationship(profile)
                     actions(profile)
                     if let bio = profile.bio, !bio.isEmpty { bioCard(bio) }
                     liveCard
+                    simCard
                     favouriteCard(profile)
                     statsCard(profile)
+                    recordsCard
+                    landingsCard
                     friendsCard(profile)
                     badgesCard
                     logbookCard
@@ -199,7 +208,8 @@ struct PublicProfileView: View {
                     url: profile.avatarURL,
                     initials: profile.initials,
                     side: 88,
-                    isPro: profile.isPro
+                    isPro: profile.isPro,
+                    tint: profile.accentColor
                 )
                 // Lifted onto the banner, which is what makes the header read
                 // as one thing rather than as a picture with a card under it.
@@ -269,6 +279,32 @@ struct PublicProfileView: View {
 
     // MARK: - Follow
 
+    /// Whether this pilot follows *you*, which the card has always known and the
+    /// profile has never said.
+    ///
+    /// It is the difference between a stranger and somebody who chose you back,
+    /// and it changes what the follow button means — so it sits next to it
+    /// rather than being buried in a count.
+    @ViewBuilder
+    private func relationship(_ profile: PilotProfile) -> some View {
+        if !profile.isSelf, profile.isFriend || profile.followsViewer {
+            HStack(spacing: 5) {
+                Image(systemName: profile.isFriend ? "person.2.fill" : "arrow.turn.down.left")
+                    .font(.system(size: 9, weight: .bold))
+                Text(profile.isFriend ? "Friends" : "Follows you")
+                    .font(.system(size: 10.5, weight: .bold))
+            }
+            .foregroundStyle(profile.accentColor ?? theme.accent)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(
+                Capsule().fill((profile.accentColor ?? theme.accent).opacity(0.15))
+            )
+            .padding(.horizontal, 16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
     private func actions(_ profile: PilotProfile) -> some View {
         HStack(spacing: 8) {
             if profile.isSelf {
@@ -291,7 +327,7 @@ struct PublicProfileView: View {
                     .padding(.vertical, 11)
                     .background {
                         RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous)
-                            .fill(profile.viewerFollows ? theme.surfaceFill : theme.accent)
+                            .fill(profile.viewerFollows ? theme.surfaceFill : (profile.accentColor ?? theme.accent))
                     }
                 }
                 .buttonStyle(.plain)
@@ -471,7 +507,14 @@ struct PublicProfileView: View {
                 HStack(spacing: 0) {
                     PilotStat(value: "\(summary.flights)", label: "FLIGHTS")
                     PilotStat(value: "\(summary.hours)", label: "HOURS")
+                    PilotStat(value: Format.number(Double(summary.distanceNm)), label: "MILES")
+                }
+
+                PanelDivider()
+                HStack(spacing: 0) {
                     PilotStat(value: "\(summary.airports)", label: "FIELDS")
+                    PilotStat(value: "\(summary.aircraftTypes)", label: "AIRCRAFT")
+                    PilotStat(value: "\(summary.regions)", label: "REGIONS")
                 }
             }
         }
@@ -479,6 +522,230 @@ struct PublicProfileView: View {
         .flightInfoSurface(theme, radius: theme.radiusMedium)
         .padding(.horizontal, 16)
     }
+
+    /// What the pilot's own simulator says, which is a different and better
+    /// thing than what the map says.
+    ///
+    /// The map can report a position and a groundspeed. This can report that the
+    /// gear is down, the landing lights are on and there is a twenty knot
+    /// crosswind — because it is coming from inside the aeroplane rather than
+    /// from an observer outside it.
+    @ViewBuilder
+    private var simCard: some View {
+        if let live = live, live.isFresh {
+            VStack(alignment: .leading, spacing: 11) {
+
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(Color.green)
+                        .frame(width: 7, height: 7)
+
+                    Text(live.phaseLabel ?? "Flying now")
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundStyle(theme.textPrimary)
+
+                    Spacer(minLength: 8)
+
+                    if let elapsed = live.elapsedLabel {
+                        Text(elapsed)
+                            .font(.system(size: 11.5, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(theme.textDim)
+                    }
+                }
+
+                if let route = live.routeLabel {
+                    Text(route)
+                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                        .foregroundStyle(theme.textPrimary)
+                }
+
+                HStack(spacing: 0) {
+                    if let altitude = live.altitudeMSL {
+                        PilotStat(value: "\(altitude.formatted())", label: "FEET")
+                    }
+                    if let speed = live.groundSpeedKnots {
+                        PilotStat(value: "\(speed)", label: "KNOTS")
+                    }
+                    if let rate = live.verticalSpeedFPM, abs(rate) > 50 {
+                        PilotStat(value: "\(rate)", label: "FPM")
+                    }
+                }
+
+                if let configuration = live.configurationLabel {
+                    detailLine("Configured", configuration, symbol: "slider.horizontal.3")
+                }
+                if let wind = live.windLabel {
+                    detailLine("Wind", wind, symbol: "wind")
+                }
+                if let waypoint = live.nextWaypoint {
+                    detailLine("Next", waypoint, symbol: "point.topleft.down.to.point.bottomright.curvepath")
+                }
+                if let aircraft = live.aircraft {
+                    detailLine("Aircraft", aircraft, symbol: "airplane")
+                }
+
+                if !live.atcMessages.isEmpty {
+                    PanelDivider()
+
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text("ON FREQUENCY")
+                            .font(.system(size: 9, weight: .bold))
+                            .tracking(1)
+                            .foregroundStyle(theme.textDim)
+
+                        ForEach(live.atcMessages.prefix(5)) { line in
+                            HStack(alignment: .top, spacing: 6) {
+                                if let from = line.from {
+                                    Text(from)
+                                        .font(.system(size: 10.5, weight: .bold))
+                                        .foregroundStyle(theme.accent)
+                                        .lineLimit(1)
+                                }
+                                Text(line.text)
+                                    .font(.system(size: 11.5, weight: .medium))
+                                    .foregroundStyle(theme.textSecondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                }
+
+                Text("Reported by their simulator, not worked out from the map.")
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(theme.textDim)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .flightInfoSurface(theme, radius: theme.radiusMedium)
+            .padding(.horizontal, 16)
+        }
+    }
+
+    private func detailLine(_ name: String, _ value: String, symbol: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: symbol)
+                .font(.system(size: 11))
+                .foregroundStyle(theme.textDim)
+                .frame(width: 16)
+            Text(name)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(theme.textSecondary)
+            Spacer(minLength: 10)
+            Text(value)
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(theme.textPrimary)
+                .multilineTextAlignment(.trailing)
+        }
+    }
+
+    /// The bests, which are the part of a logbook people actually read.
+    ///
+    /// Everything here was already being computed by `pilot_logbook_summary`
+    /// and thrown away by the client — the longest flight, the furthest, the
+    /// highest, the aircraft and route flown most, and the span the logbook
+    /// covers. A profile that shows three numbers out of thirteen is a profile
+    /// keeping most of itself to itself.
+    @ViewBuilder
+    private var recordsCard: some View {
+        if let summary = summary, !summary.isEmpty {
+            PanelSection(title: "RECORDS") {
+                VStack(alignment: .leading, spacing: 9) {
+                    if summary.longestMinutes > 0 {
+                        detailLine("Longest flight",
+                                   Self.blockTime(summary.longestMinutes),
+                                   symbol: "clock")
+                    }
+                    if summary.longestDistanceNm > 0 {
+                        detailLine("Furthest flight",
+                                   "\(Format.number(Double(summary.longestDistanceNm))) nm",
+                                   symbol: "arrow.left.and.right")
+                    }
+                    if summary.highestFeet > 0 {
+                        detailLine("Highest",
+                                   "\(Format.number(Double(summary.highestFeet))) ft",
+                                   symbol: "arrow.up.to.line")
+                    }
+                    if let aircraft = summary.topAircraft, !aircraft.isEmpty {
+                        detailLine("Flown most", aircraft, symbol: "airplane")
+                    }
+                    if let route = summary.topRoute, !route.isEmpty {
+                        detailLine("Favourite run", route, symbol: "point.topleft.down.to.point.bottomright.curvepath")
+                    }
+                    if let first = summary.firstFlightAt {
+                        detailLine("Logbook opened", Self.day.string(from: first), symbol: "calendar")
+                    }
+                    if let last = summary.lastFlightAt {
+                        detailLine("Last flight", Self.day.string(from: last), symbol: "clock.arrow.circlepath")
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+            }
+            .padding(.horizontal, 16)
+        }
+    }
+
+    /// The touchdowns, when there are measured ones.
+    ///
+    /// Its own card rather than another row on the stats block, because it is
+    /// the only group here that is *measured* rather than worked out from the
+    /// map — and a card can say so, where a row of three numbers cannot.
+    @ViewBuilder
+    private var landingsCard: some View {
+        if let summary = summary, summary.hasMeasuredLandings {
+            PanelSection(title: "LANDINGS") {
+                VStack(spacing: 0) {
+                    HStack(spacing: 0) {
+                        if let best = summary.bestLandingFPM {
+                            PilotStat(value: "\(best)", label: "BEST FPM")
+                        }
+                        if let average = summary.averageLandingFPM {
+                            PilotStat(value: "\(average)", label: "AVG FPM")
+                        }
+                        if let recent = summary.recentLandingFPM {
+                            PilotStat(value: "\(recent)", label: "LAST")
+                        }
+                    }
+
+                    PanelDivider()
+
+                    HStack(spacing: 0) {
+                        PilotStat(value: "\(summary.landingsMeasured)", label: "MEASURED")
+                        PilotStat(value: "\(summary.greasers)", label: "GREASED")
+                        if let score = summary.bestLandingScore {
+                            PilotStat(value: "\(score)", label: "BEST SCORE")
+                        }
+                    }
+
+                    PanelDivider()
+
+                    Text("Measured by Infinite Flight over Connect, not worked out from the map.")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(theme.textDim)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                }
+            }
+            .padding(.horizontal, 16)
+        }
+    }
+
+    /// "6h 20m", or "45m" under the hour — the same shape `LogbookEntry` uses,
+    /// so a record and the flight it came from read alike.
+    private static func blockTime(_ minutes: Int) -> String {
+        let hours = minutes / 60
+        let rest = minutes % 60
+        return hours > 0 ? "\(hours)h \(rest)m" : "\(rest)m"
+    }
+
+    private static let day: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter
+    }()
 
     @ViewBuilder
     private func friendsCard(_ profile: PilotProfile) -> some View {
@@ -657,11 +924,13 @@ struct PublicProfileView: View {
         async let badgesTask = PilotDirectory.shared.badges(of: handle)
         async let logbookTask = PilotDirectory.shared.logbook(of: handle, limit: 12)
         async let summaryTask = PilotDirectory.shared.logbookSummary(of: handle)
+        async let liveTask = PilotDirectory.shared.liveStatus(of: handle)
 
         friendList = await friendsTask
         badges = await badgesTask
         logbook = await logbookTask
         summary = await summaryTask
+        live = await liveTask
     }
 
     @MainActor

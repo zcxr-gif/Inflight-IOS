@@ -266,6 +266,11 @@ final class AccountStore: ObservableObject {
         // next one.
         ProfileStore.shared.accountChanged()
         PilotDirectory.shared.accountChanged()
+
+        // Carries an agreement made before there was an account onto the
+        // account. Not awaited, for the same reason as the profile: it is
+        // bookkeeping, and nothing on screen waits for it.
+        Task { await self.recordTermsAcceptance() }
     }
 
     /// Erases the account, then signs out.
@@ -305,6 +310,39 @@ final class AccountStore: ObservableObject {
         guard account != nil else { return }
         guard let token = try? await validAccessToken() else { return }
         try? await SupabaseAuth.updatePilotName(name, accessToken: token)
+    }
+
+    // MARK: - Terms
+
+    /// Records on the account which version of the terms was agreed to, and
+    /// when.
+    ///
+    /// Called when the gate is accepted and again whenever a session is
+    /// adopted, because the two happen in either order: somebody can agree
+    /// before they ever make an account, and the agreement has to reach the
+    /// account they eventually make. The write is idempotent — it sets the same
+    /// version to the same value — so calling it on every sign-in costs one
+    /// request and keeps the record true across a reinstall.
+    ///
+    /// Silent on failure. Agreement is already recorded on the device and the
+    /// next sign-in will try again; interrupting somebody to tell them a
+    /// bookkeeping write did not land would be the wrong trade.
+    @MainActor
+    func recordTermsAcceptance() async {
+        guard account != nil else { return }
+        guard TermsStore.shared.isAccepted else { return }
+        guard let token = try? await validAccessToken() else { return }
+
+        let acceptedAt = TermsStore.shared.acceptedAt ?? Date()
+
+        _ = try? await SupabaseData.perform(
+            "record_terms_acceptance",
+            arguments: [
+                "p_version": TermsStore.shared.acceptedVersion,
+                "p_accepted_at": ISO8601DateFormatter().string(from: acceptedAt)
+            ],
+            accessToken: token
+        )
     }
 
     // MARK: - Entitlement

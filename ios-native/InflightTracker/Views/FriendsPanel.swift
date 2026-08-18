@@ -31,6 +31,12 @@ struct FriendsPanel: View {
     @State private var opened: ProfileLink?
     @State private var isSearchingPilots = false
 
+    /// Pilots this account follows who are in the air right now, straight from
+    /// their own simulators. Empty for everybody who is not flying, is not
+    /// sharing, or has not let this account see it.
+    @State private var flyingNow: [PilotLiveSummary] = []
+    @State private var isShowingLandingBoard = false
+
     private var theme: FlightInfoTheme { appearance.theme }
 
     /// Watched pilots the feed can currently see, keyed by lowercased name.
@@ -81,6 +87,8 @@ struct FriendsPanel: View {
                 }
             }
 
+            flyingNowSection
+
             directorySection
 
             notificationsSection
@@ -89,7 +97,9 @@ struct FriendsPanel: View {
 
             HintStrip(placement: .friends)
         }
+        .task { await refreshFlyingNow() }
         .sheet(isPresented: $isShowingPaywall) { ProPanel(highlighted: .watchlist) }
+        .sheet(isPresented: $isShowingLandingBoard) { LandingBoardView() }
         .sheet(item: $opened) { link in
             PublicProfileView(link: link, onShowFlight: onSelect)
                 .environmentObject(feed)
@@ -115,7 +125,81 @@ struct FriendsPanel: View {
             ) {
                 isSearchingPilots = true
             }
+
+            PanelDivider()
+
+            PanelActionRow(
+                title: "Landing board",
+                symbol: "chart.bar.fill",
+                detail: "Who you follow has put one down best, as the simulator measured it."
+            ) {
+                isShowingLandingBoard = true
+            }
         }
+    }
+
+    /// Everybody you follow who is flying, as their own simulator reports them.
+    ///
+    /// Nothing here can be derived from the map. The map knows an aeroplane is
+    /// at 34,000 feet; this knows the pilot is descending with the gear down,
+    /// because it came from inside the aircraft. Drawn only when somebody is
+    /// actually flying — an empty "nobody is flying" card every time you open
+    /// the panel is a worse thing than no card.
+    @ViewBuilder
+    private var flyingNowSection: some View {
+        if !flyingNow.isEmpty {
+            PanelSection(title: "FOLLOWING · IN THE AIR") {
+                ForEach(Array(flyingNow.enumerated()), id: \.element.id) { index, pilot in
+                    if index > 0 { PanelDivider() }
+
+                    Button {
+                        opened = .handle(pilot.handle)
+                    } label: {
+                        HStack(spacing: 10) {
+                            Circle()
+                                .fill(Color.green)
+                                .frame(width: 6, height: 6)
+
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack(spacing: 5) {
+                                    Text(pilot.displayName)
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundStyle(theme.textPrimary)
+                                    if pilot.isPro {
+                                        Image(systemName: "checkmark.seal.fill")
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(theme.accent)
+                                    }
+                                }
+
+                                Text(pilot.detail)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(theme.textSecondary)
+                                    .lineLimit(1)
+                            }
+
+                            Spacer(minLength: 8)
+
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(theme.textDim)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 11)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private func refreshFlyingNow() async {
+        guard AccountStore.shared.isSignedIn else {
+            flyingNow = []
+            return
+        }
+        flyingNow = await PilotDirectory.shared.liveFollowing()
     }
 
     private func summary(aloft: Int) -> String {

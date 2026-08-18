@@ -453,14 +453,10 @@ struct FlightIdentityBlock: View {
                 }
 
                 HStack(spacing: 6) {
-                    Image(systemName: "person.fill")
-                        .font(.system(size: 9))
-                        .foregroundStyle(theme.textDim)
-
-                    Text(flight.username ?? "Pilot")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(theme.textSecondary)
-                        .flightInfoLine()
+                    // The pilot's own picture when they have claimed a profile
+                    // here, and the plain glyph when they have not. Tappable in
+                    // this window, which is the one with room to leave for.
+                    FlightPilotBadge(username: flight.username, side: 22)
 
                     PilotStateChip(state: flight.pilotState, theme: theme, elevated: true)
                 }
