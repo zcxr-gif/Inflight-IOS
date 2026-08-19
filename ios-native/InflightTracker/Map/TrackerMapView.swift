@@ -538,6 +538,12 @@ struct TrackerMapView: UIViewRepresentable {
         /// One polyline per run of samples sharing an altitude band. A real
         /// flight climbs and descends through them once each, so this is a
         /// handful of overlays rather than one per point.
+        ///
+        /// Each run is curved through its own samples on the way out. Runs are
+        /// smoothed separately rather than the whole path at once, because a
+        /// run is what becomes one polyline of one colour — and since the
+        /// spline passes through its endpoints, the shared point between two
+        /// bands stays exactly where it was and the colours still meet.
         private static func altitudeSegments(of points: [TrackPoint]) -> [MKPolyline] {
             guard points.count >= 2 else { return [] }
 
@@ -551,7 +557,8 @@ struct TrackerMapView: UIViewRepresentable {
 
                 if next != band {
                     if run.count >= 2 {
-                        let line = MKGeodesicPolyline(coordinates: run, count: run.count)
+                        let curve = PathSmoothing.smoothed(run)
+                        let line = MKGeodesicPolyline(coordinates: curve, count: curve.count)
                         line.title = "\(Self.flownTitle):\(band)"
                         lines.append(line)
                     }
@@ -562,7 +569,8 @@ struct TrackerMapView: UIViewRepresentable {
             }
 
             if run.count >= 2 {
-                let line = MKGeodesicPolyline(coordinates: run, count: run.count)
+                let curve = PathSmoothing.smoothed(run)
+                let line = MKGeodesicPolyline(coordinates: curve, count: curve.count)
                 line.title = "\(Self.flownTitle):\(band)"
                 lines.append(line)
             }

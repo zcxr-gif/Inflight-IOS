@@ -12,7 +12,16 @@ final class MapFilters: ObservableObject {
     static let shared = MapFilters()
 
     private static let phasesKey = "mapFilterPhases"
-    private static let bandsKey = "mapFilterAltitudeBands"
+    /// Versioned, and it has to be.
+    ///
+    /// Bands are stored by index, and the altitude ramp went from four bands to
+    /// seven when it gained real colours. A stored `[0, 1, 2, 3]` from before
+    /// that — which is what "all of them" looked like — would survive the
+    /// update and now mean "nothing above 25,000 ft", quietly emptying the
+    /// cruise off everybody's map with a filter they never set. Changing the
+    /// key discards those selections instead, so every install starts the new
+    /// ramp with all seven on.
+    private static let bandsKey = "mapFilterAltitudeBandsV2"
     private static let categoriesKey = "mapFilterCategories"
     private static let filedOnlyKey = "mapFilterFiledRouteOnly"
     private static let airportsKey = "mapShowsAirports"
@@ -69,7 +78,9 @@ final class MapFilters: ObservableObject {
         }
 
         if let raw = defaults.array(forKey: Self.bandsKey) as? [Int], !raw.isEmpty {
-            bands = Set(raw)
+            // Intersected with what exists today: a band index that no longer
+            // maps onto anything is a filter nothing can satisfy.
+            bands = Set(raw).intersection(AltitudeBand.all)
         } else {
             bands = Set(AltitudeBand.all)
         }

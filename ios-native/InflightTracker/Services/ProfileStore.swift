@@ -97,6 +97,30 @@ final class ProfileStore: ObservableObject {
             AppConfig.profileImageURL(bucket: "pilot-banners", path: bannerPath)
         }
 
+        /// Two letters for the avatar to fall back on before a picture is
+        /// uploaded, or while one is still loading.
+        ///
+        /// Same rule as `PilotProfile.initials`, with one addition: a profile
+        /// mid-edit can have an empty display name where a fetched one cannot,
+        /// so the handle stands in rather than leaving the circle blank.
+        var initials: String {
+            let source = displayName.trimmingCharacters(in: .whitespaces).isEmpty
+                ? handle
+                : displayName
+
+            let words = source
+                .split(whereSeparator: { $0 == " " || $0 == "." || $0 == "_" || $0 == "-" })
+                .filter { $0.contains(where: \.isLetter) }
+
+            if words.count >= 2 {
+                return words.prefix(2).compactMap { $0.first.map(String.init) }
+                    .joined().uppercased()
+            }
+
+            let letters = source.filter { $0.isLetter || $0.isNumber }
+            return String(letters.prefix(2)).uppercased()
+        }
+
         var isHidden: Bool { moderationState != "ok" }
     }
 
