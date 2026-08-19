@@ -356,6 +356,28 @@ struct ConnectPanel: View {
                 if let rate = session.telemetry.verticalSpeed {
                     reading("Vertical speed", "\(Int(rate.rounded())) fpm")
                 }
+                if let fuel = session.telemetry.fuelRemainingKg, fuel > 0 {
+                    reading("Fuel", fuel >= 1000
+                            ? String(format: "%.1f t", fuel / 1000)
+                            : "\(Int(fuel.rounded())) kg")
+                }
+                if let n1 = session.telemetry.engineN1, n1 > 0 {
+                    reading("N1", "\(Int(n1.rounded()))%")
+                }
+                if let wind = session.telemetry.windSummary {
+                    reading("Wind", wind)
+                }
+                if let squawk = session.telemetry.transponderCode {
+                    reading("Squawk", String(format: "%04d", squawk))
+                }
+                // Only when true. A panel that says "Stalling: no" is a panel
+                // nobody reads the day it says yes.
+                if session.telemetry.isStalling == true {
+                    reading("Warning", "Stalling")
+                }
+                if session.telemetry.isOverspeeding == true {
+                    reading("Warning", "Overspeed")
+                }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 11)

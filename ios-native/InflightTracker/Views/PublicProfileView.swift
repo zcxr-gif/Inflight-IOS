@@ -546,7 +546,7 @@ struct PublicProfileView: View {
 
                     Spacer(minLength: 8)
 
-                    if let elapsed = live.elapsedLabel {
+                    if let elapsed = live.flightTimeLabel {
                         Text(elapsed)
                             .font(.system(size: 11.5, weight: .semibold, design: .monospaced))
                             .foregroundStyle(theme.textDim)
@@ -569,13 +569,47 @@ struct PublicProfileView: View {
                     if let rate = live.verticalSpeedFPM, abs(rate) > 50 {
                         PilotStat(value: "\(rate)", label: "FPM")
                     }
+                    // Fuel sits in the stat row rather than in a detail line
+                    // because it is the thing people came to look at.
+                    if let fuel = live.fuelLabel {
+                        PilotStat(value: fuel, label: "FUEL")
+                    }
                 }
 
+                // What is being warned about, before what is switched on. An
+                // aeroplane that is stalling is the only fact on this card that
+                // matters while it is true.
+                if live.isStalling == true {
+                    detailLine("Warning", "Stalling", symbol: "exclamationmark.triangle.fill")
+                }
+                if live.isOverspeeding == true {
+                    detailLine("Warning", "Overspeed", symbol: "exclamationmark.triangle.fill")
+                }
+
+                if let burn = live.fuelBurnLabel {
+                    // The endurance is the burn made useful, so it goes on the
+                    // same line rather than competing with it for space.
+                    if let endurance = live.enduranceLabel {
+                        detailLine("Burning", "\(burn) · \(endurance) left", symbol: "fuelpump")
+                    } else {
+                        detailLine("Burning", burn, symbol: "fuelpump")
+                    }
+                }
                 if let configuration = live.configurationLabel {
                     detailLine("Configured", configuration, symbol: "slider.horizontal.3")
                 }
+                if let n1 = live.engineN1, n1 > 0 {
+                    let engines = live.engineCount.map { "\($0) × " } ?? ""
+                    detailLine("Engines", "\(engines)N1 \(n1)%", symbol: "gauge.with.dots.needle.50percent")
+                }
                 if let wind = live.windLabel {
                     detailLine("Wind", wind, symbol: "wind")
+                }
+                if let temperature = live.temperatureC {
+                    detailLine("Outside", "\(temperature)°C", symbol: "thermometer.medium")
+                }
+                if let squawk = live.transponderCode {
+                    detailLine("Squawk", String(format: "%04d", squawk), symbol: "dot.radiowaves.left.and.right")
                 }
                 if let waypoint = live.nextWaypoint {
                     detailLine("Next", waypoint, symbol: "point.topleft.down.to.point.bottomright.curvepath")
@@ -618,7 +652,75 @@ struct PublicProfileView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .flightInfoSurface(theme, radius: theme.radiusMedium)
             .padding(.horizontal, 16)
+
+        } else if let live = live, live.hasLastKnown {
+            lastKnownCard(live)
         }
+    }
+
+    /// The same aeroplane, after the simulator stopped reporting.
+    ///
+    /// Deliberately not a dimmed copy of the live card. The position is gone —
+    /// the server drops it within four minutes of a pilot going quiet, whether
+    /// or not their app got the chance to say so — and what is left is the
+    /// flight: what they were flying, where to, and what fuel they had. That is
+    /// the thing somebody actually wants when they look and find their friend
+    /// has dropped off, and it is a fact about an aeroplane rather than a
+    /// location.
+    @ViewBuilder
+    private func lastKnownCard(_ live: PilotLiveStatus) -> some View {
+        VStack(alignment: .leading, spacing: 11) {
+
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(theme.textDim)
+                    .frame(width: 7, height: 7)
+
+                Text("Last known")
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .foregroundStyle(theme.textPrimary)
+
+                Spacer(minLength: 8)
+
+                if let seen = live.lastSeenLabel {
+                    Text(seen)
+                        .font(.system(size: 11.5, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(theme.textDim)
+                }
+            }
+
+            if let route = live.routeLabel {
+                Text(route)
+                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+                    .foregroundStyle(theme.textPrimary)
+            }
+
+            if let fuel = live.fuelLabel {
+                if let burn = live.fuelBurnLabel {
+                    detailLine("Fuel", "\(fuel) · burning \(burn)", symbol: "fuelpump")
+                } else {
+                    detailLine("Fuel", fuel, symbol: "fuelpump")
+                }
+            }
+            if let phase = live.phaseLabel {
+                detailLine("Doing", phase, symbol: "airplane.circle")
+            }
+            if let aircraft = live.aircraft {
+                detailLine("Aircraft", aircraft, symbol: "airplane")
+            }
+            if let elapsed = live.flightTimeLabel {
+                detailLine("Airborne", elapsed, symbol: "clock")
+            }
+
+            Text("Their simulator stopped reporting. The position is not kept; this is the last reading of the flight.")
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(theme.textDim)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .flightInfoSurface(theme, radius: theme.radiusMedium)
+        .padding(.horizontal, 16)
     }
 
     private func detailLine(_ name: String, _ value: String, symbol: String) -> some View {

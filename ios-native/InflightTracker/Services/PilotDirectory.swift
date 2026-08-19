@@ -201,6 +201,23 @@ final class PilotDirectory: ObservableObject {
         )) ?? []
     }
 
+    /// Everybody who chose to broadcast to everybody.
+    ///
+    /// The other half of `liveFollowing`. `live_visibility` has had a `public`
+    /// setting since the table was created and nothing could read it: a pilot
+    /// could opt in to being seen by the world and the world had no query to
+    /// ask. Only rows whose owner set it appear here — the default is still
+    /// followers-only — and no sign-in is needed to read it, which is what
+    /// makes it a broadcast rather than a friends list.
+    func livePublic(limit: Int = 50) async -> [PilotLiveSummary] {
+        let token = await AccountStore.shared.currentAccessToken()
+        return (try? await SupabaseData.rpc(
+            "pilot_live_public",
+            arguments: ["p_limit": limit],
+            accessToken: token
+        )) ?? []
+    }
+
     /// The landing board for the people this account follows.
     ///
     /// Computed on the server from the logbook every time it is asked for. That
