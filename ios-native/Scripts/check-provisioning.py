@@ -47,7 +47,13 @@ CAPABILITY_HINTS = {
         "Push Notifications. Enable it on the identifier."
     ),
     "com.apple.developer.associated-domains": (
-        "Associated Domains. Enable it on the identifier, then regenerate the "
+        "Associated Domains. A bare checkbox on the identifier — there is "
+        "nowhere to type a domain, and nothing is missing if you looked for "
+        "one. The domains are declared in the entitlements file at build time "
+        "and the profile records only that the capability is on, which is why "
+        "this requirement asserts presence and never a value: a real profile "
+        "carries the wildcard `*` here, not `applinks:inflight.info`. "
+        "Enable it on the identifier, then regenerate the "
         "profile and re-upload it to Codemagic as inflight_distribution — a "
         "profile issued before the capability was added does not carry it. "
         "This is what makes a shared inflight.info link open the app instead "
