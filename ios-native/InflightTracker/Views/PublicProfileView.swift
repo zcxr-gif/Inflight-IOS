@@ -1066,7 +1066,16 @@ private struct FavouriteAircraftCard: View {
                         // wider than its 150pt height allowed for reported its
                         // own width, and the square corners of that oversized
                         // frame hung out past the card's rounded ones.
-                        .frame(maxWidth: .infinity, height: 150)
+                        //
+                        // Two frames rather than one, because there is no
+                        // `frame(maxWidth:height:)` to write: SwiftUI has a
+                        // fixed `frame(width:height:)` and a flexible
+                        // `frame(min/ideal/max…)`, and a call cannot draw from
+                        // both. So the width is taken from the proposal first,
+                        // and the height pinned after. Same chain as
+                        // `PilotBanner`.
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 150)
                         .clipped()
                         // The text sits on the photograph, so the photograph
                         // has to stop competing with it at the bottom.
