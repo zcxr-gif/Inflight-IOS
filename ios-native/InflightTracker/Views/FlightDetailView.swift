@@ -37,8 +37,6 @@ struct FlightDetailView: View {
     /// peak state's content, instead of leaving a band of empty sheet below it.
     @Binding var peakHeight: CGFloat
 
-    @Environment(\.dismiss) private var dismiss
-
     /// Asked for from the window, carried out by the map: the replay needs the
     /// sheet out of the way and the map free, neither of which is this view's
     /// to arrange.
@@ -247,27 +245,6 @@ struct FlightDetailView: View {
                     width: width
                 )
                 .id(Self.topAnchor)
-                // A way out that is one tap from anywhere.
-                //
-                // This sheet has a peek detent below its full height, which is
-                // the right design and makes it the one window that cannot be
-                // swiped shut in a single gesture: a downward drag from the top
-                // lands on the peek, and only a second drag closes it. Rather
-                // than give up the peek, give the window a button — which is
-                // also what the profile and the panels have.
-                .overlay(alignment: .topTrailing) {
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 30, height: 30)
-                            .background { Circle().fill(.black.opacity(0.38)) }
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.top, 12)
-                    .padding(.trailing, 14)
-                    .accessibilityLabel("Close")
-                }
 
                 VStack(spacing: 12) {
                     FlightIdentityBlock(

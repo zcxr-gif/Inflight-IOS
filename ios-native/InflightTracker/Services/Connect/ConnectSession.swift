@@ -179,6 +179,22 @@ final class ConnectSession: ObservableObject {
     private static let retryDelays: [UInt64] = [2, 5, 10, 30, 60]
     private var retryIndex = 0
 
+    /// Whether the pilot has been left waiting since they turned this on, and
+    /// so is owed the notification when it finally attaches.
+    ///
+    /// Separate from `retryIndex`, which cannot answer this and was the reason
+    /// the notification never arrived. `retryIndex` is reset by `start()`, and
+    /// `start()` runs every time the app comes back to the foreground — which
+    /// is precisely the moment the connection succeeds, because the pilot has
+    /// just been in Infinite Flight switching Connect on. So the one path that
+    /// always ends in a successful attach was also the one path guaranteed to
+    /// have forgotten that anybody was waiting.
+    ///
+    /// This is set when a connection fails and cleared only when the notice has
+    /// been sent or the switch has been turned off, so it survives the app
+    /// being suspended and resumed as many times as it takes.
+    private var isOwedConnectionNotice = false
+
     private init() {
         defaults = UserDefaults(suiteName: SharedStore.appGroupIdentifier) ?? .standard
         host = defaults.string(forKey: Self.hostKey) ?? ""
@@ -243,6 +259,10 @@ final class ConnectSession: ObservableObject {
         landingBaseline = nil
         atcLog = []
         lastCatchUp = nil
+        // Turning it off is not waiting for it. Only `stop()` clears this —
+        // `suspend()` deliberately does not, because being suspended IS the
+        // wait.
+        isOwedConnectionNotice = false
     }
 
     /// Backgrounded: drop the socket but keep the intention to reconnect.
@@ -268,20 +288,17 @@ final class ConnectSession: ObservableObject {
         while !Task.isCancelled {
             do {
                 let address = try await resolveHost()
-                let hadBeenWaiting = retryIndex > 0
 
                 try await attach(to: address)
                 retryIndex = 0
 
-                // Tell them, but only if they were kept waiting.
-                //
-                // The whole point of retrying quietly is that the pilot can
-                // start Infinite Flight whenever they like and put the phone
-                // down; the notification is what closes that loop, and it has
-                // to reach them with this app in the background, which is
-                // exactly where they will be. A connection that worked first
-                // time needs no announcement — they were watching.
-                if hadBeenWaiting { announceConnected(to: address) }
+                // Tell them, but only if they were kept waiting. A connection
+                // that worked first time needs no announcement — they were
+                // watching it happen.
+                if isOwedConnectionNotice {
+                    isOwedConnectionNotice = false
+                    announceConnected(to: address)
+                }
 
                 try await poll()
             } catch is CancellationError {
@@ -290,6 +307,18 @@ final class ConnectSession: ObservableObject {
                 guard !Task.isCancelled else { return }
                 status = .waiting(error.localizedDescription)
                 await transport.close()
+
+                // From here on there is something to announce, and a reason to
+                // be able to announce it. Asking now rather than when the
+                // switch was flipped means the prompt only ever appears to
+                // somebody who is actually being made to wait, with the
+                // question in front of them.
+                if !isOwedConnectionNotice {
+                    isOwedConnectionNotice = true
+                    if PushService.shared.authorization == .notDetermined {
+                        PushService.shared.requestAuthorization()
+                    }
+                }
 
                 let delay = Self.retryDelays[min(retryIndex, Self.retryDelays.count - 1)]
                 retryIndex += 1
