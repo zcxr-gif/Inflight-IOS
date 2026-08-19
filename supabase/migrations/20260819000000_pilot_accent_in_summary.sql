@@ -157,6 +157,7 @@ begin
 end $function$;
 
 grant execute on function public.pilot_profile_connections(text, text, integer, integer)
+  to anon, authenticated;
 
 create or replace function public.pilot_directory_search(
   p_query text,
