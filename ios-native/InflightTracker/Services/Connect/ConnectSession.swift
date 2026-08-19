@@ -120,7 +120,11 @@ final class ConnectSession: ObservableObject {
 
     /// Infinite Flight serves Connect on every interface it has, loopback
     /// included, so an app on the same device reaches it here.
-    static let loopback = "127.0.0.1"
+    ///
+    /// `nonisolated` so the transport can name it when explaining a failure:
+    /// this class is `@MainActor`, which isolates its statics too, and the
+    /// error translator runs on Network.framework's queue.
+    nonisolated static let loopback = "127.0.0.1"
 
     private let defaults: UserDefaults
     private let transport = ConnectTransport()
