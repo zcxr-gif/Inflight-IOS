@@ -63,7 +63,14 @@ struct MapPanel<Content: View>: View {
         .flightInfoLegible(theme)
         .background { theme.windowFill.ignoresSafeArea() }
         .environment(\.colorScheme, theme.colorScheme)
-        .presentationDetents([.medium, .large])
+        // One detent, not two, and the reason is dismissal rather than looks.
+        // With a medium stop below it, a downward swipe from the top of the
+        // sheet lands on medium instead of closing — so shutting a panel took
+        // two full swipes, and a swipe that did not reach halfway down the
+        // screen sprang back to where it started. A panel is a thing you open,
+        // read and close; there is no reading to be done at half height that
+        // is worth making every close a two-stage gesture.
+        .presentationDetents([.large])
         .presentationDragIndicator(.visible)
     }
 

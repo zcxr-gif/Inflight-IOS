@@ -20,6 +20,14 @@ struct PilotLiveStatus: Decodable, Equatable {
     let avatarPath: String?
     let isPro: Bool
 
+    /// Whether a simulator is attached and reporting right now.
+    ///
+    /// False does not mean "no status". It means the position has expired or
+    /// been stood down and what is left is the last reading of the flight —
+    /// which is the whole point of the row surviving: somebody looking an hour
+    /// later still gets the aircraft, the route and the fuel.
+    let isLive: Bool
+
     let flightID: String?
     let serverName: String?
     let callsign: String?
@@ -33,7 +41,10 @@ struct PilotLiveStatus: Decodable, Equatable {
     let heading: Int?
     let groundSpeedKnots: Int?
     let indicatedAirspeedKnots: Int?
+    let trueAirspeedKnots: Int?
     let verticalSpeedFPM: Int?
+    let pitch: Int?
+    let bank: Int?
 
     let phase: String?
 
@@ -42,9 +53,32 @@ struct PilotLiveStatus: Decodable, Equatable {
     let spoilersState: Int?
     let landingLights: Bool?
     let strobeLights: Bool?
+    let beaconLights: Bool?
+    let navLights: Bool?
+    let parkingBrake: Bool?
+    let reverseThrust: Bool?
+    let transponderCode: Int?
+
+    /// Kilograms on board, as the aircraft's own sim reports it. Outlives the
+    /// position: this is the number people ask about after somebody drops off.
+    let fuelRemainingKg: Int?
+
+    /// Kilograms an hour, smoothed, worked out on the server from consecutive
+    /// readings rather than sent by the app — which only sees its own samples
+    /// in bursts, because it is suspended behind Infinite Flight for most of a
+    /// flight. Nil until there are two usable samples, and reset by a refuel.
+    let fuelBurnKgh: Int?
+
+    let engineCount: Int?
+    let engineN1: Int?
+    let engineThrust: Int?
+
+    let isStalling: Bool?
+    let isOverspeeding: Bool?
 
     let windDirection: Int?
     let windVelocityKnots: Int?
+    let windGustKnots: Int?
     let temperatureC: Int?
 
     let nearestAirport: String?
@@ -52,12 +86,22 @@ struct PilotLiveStatus: Decodable, Equatable {
     let originIcao: String?
     let destinationIcao: String?
 
+    /// Elapsed time as the sim counts it, which starts when the flight did
+    /// rather than when the app happened to connect.
+    let flightTimeSeconds: Int?
+
+    let appVersion: String?
+
     /// What has been said on frequency, newest first, as this pilot's own
     /// simulator logged it. Already public in the game — everybody on the
     /// frequency heard it — and never stored anywhere permanent.
     let atcMessages: [ATCLine]
 
     let startedAt: Date?
+
+    /// When a sample carrying a position last arrived. The freshness clock, and
+    /// the "last seen" a card shows once `isLive` has gone false.
+    let lastLiveAt: Date?
     let updatedAt: Date?
 
     struct ATCLine: Decodable, Equatable, Identifiable {
@@ -80,30 +124,49 @@ struct PilotLiveStatus: Decodable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case handle, phase, callsign, aircraft, livery, latitude, longitude, heading
+        case pitch, bank
         case displayName = "display_name"
         case avatarPath = "avatar_path"
         case isPro = "is_pro"
+        case isLive = "is_live"
         case flightID = "flight_id"
         case serverName = "server_name"
         case altitudeMSL = "altitude_msl"
         case altitudeAGL = "altitude_agl"
         case groundSpeedKnots = "ground_speed_knots"
         case indicatedAirspeedKnots = "indicated_airspeed_knots"
+        case trueAirspeedKnots = "true_airspeed_knots"
         case verticalSpeedFPM = "vertical_speed_fpm"
         case gearState = "gear_state"
         case flapsState = "flaps_state"
         case spoilersState = "spoilers_state"
         case landingLights = "landing_lights"
         case strobeLights = "strobe_lights"
+        case beaconLights = "beacon_lights"
+        case navLights = "nav_lights"
+        case parkingBrake = "parking_brake"
+        case reverseThrust = "reverse_thrust"
+        case transponderCode = "transponder_code"
+        case fuelRemainingKg = "fuel_remaining_kg"
+        case fuelBurnKgh = "fuel_burn_kgh"
+        case engineCount = "engine_count"
+        case engineN1 = "engine_n1"
+        case engineThrust = "engine_thrust"
+        case isStalling = "is_stalling"
+        case isOverspeeding = "is_overspeeding"
         case windDirection = "wind_direction"
         case windVelocityKnots = "wind_velocity_knots"
+        case windGustKnots = "wind_gust_knots"
         case temperatureC = "temperature_c"
         case nearestAirport = "nearest_airport"
         case nextWaypoint = "next_waypoint"
         case originIcao = "origin_icao"
         case destinationIcao = "destination_icao"
+        case flightTimeSeconds = "flight_time_seconds"
+        case appVersion = "app_version"
         case atcMessages = "atc_messages"
         case startedAt = "started_at"
+        case lastLiveAt = "last_live_at"
         case updatedAt = "updated_at"
     }
 
@@ -117,6 +180,7 @@ struct PilotLiveStatus: Decodable, Equatable {
         displayName = (try? c.decode(String.self, forKey: .displayName)) ?? handle
         avatarPath = try? c.decode(String.self, forKey: .avatarPath)
         isPro = (try? c.decode(Bool.self, forKey: .isPro)) ?? false
+        isLive = (try? c.decode(Bool.self, forKey: .isLive)) ?? false
 
         flightID = try? c.decode(String.self, forKey: .flightID)
         serverName = try? c.decode(String.self, forKey: .serverName)
@@ -131,7 +195,10 @@ struct PilotLiveStatus: Decodable, Equatable {
         heading = try? c.decode(Int.self, forKey: .heading)
         groundSpeedKnots = try? c.decode(Int.self, forKey: .groundSpeedKnots)
         indicatedAirspeedKnots = try? c.decode(Int.self, forKey: .indicatedAirspeedKnots)
+        trueAirspeedKnots = try? c.decode(Int.self, forKey: .trueAirspeedKnots)
         verticalSpeedFPM = try? c.decode(Int.self, forKey: .verticalSpeedFPM)
+        pitch = try? c.decode(Int.self, forKey: .pitch)
+        bank = try? c.decode(Int.self, forKey: .bank)
 
         phase = try? c.decode(String.self, forKey: .phase)
 
@@ -140,19 +207,38 @@ struct PilotLiveStatus: Decodable, Equatable {
         spoilersState = try? c.decode(Int.self, forKey: .spoilersState)
         landingLights = try? c.decode(Bool.self, forKey: .landingLights)
         strobeLights = try? c.decode(Bool.self, forKey: .strobeLights)
+        beaconLights = try? c.decode(Bool.self, forKey: .beaconLights)
+        navLights = try? c.decode(Bool.self, forKey: .navLights)
+        parkingBrake = try? c.decode(Bool.self, forKey: .parkingBrake)
+        reverseThrust = try? c.decode(Bool.self, forKey: .reverseThrust)
+        transponderCode = try? c.decode(Int.self, forKey: .transponderCode)
+
+        fuelRemainingKg = try? c.decode(Int.self, forKey: .fuelRemainingKg)
+        fuelBurnKgh = try? c.decode(Int.self, forKey: .fuelBurnKgh)
+        engineCount = try? c.decode(Int.self, forKey: .engineCount)
+        engineN1 = try? c.decode(Int.self, forKey: .engineN1)
+        engineThrust = try? c.decode(Int.self, forKey: .engineThrust)
+
+        isStalling = try? c.decode(Bool.self, forKey: .isStalling)
+        isOverspeeding = try? c.decode(Bool.self, forKey: .isOverspeeding)
 
         windDirection = try? c.decode(Int.self, forKey: .windDirection)
         windVelocityKnots = try? c.decode(Int.self, forKey: .windVelocityKnots)
+        windGustKnots = try? c.decode(Int.self, forKey: .windGustKnots)
         temperatureC = try? c.decode(Int.self, forKey: .temperatureC)
 
         nearestAirport = try? c.decode(String.self, forKey: .nearestAirport)
         nextWaypoint = try? c.decode(String.self, forKey: .nextWaypoint)
         originIcao = try? c.decode(String.self, forKey: .originIcao)
         destinationIcao = try? c.decode(String.self, forKey: .destinationIcao)
+        flightTimeSeconds = try? c.decode(Int.self, forKey: .flightTimeSeconds)
+        appVersion = try? c.decode(String.self, forKey: .appVersion)
 
         atcMessages = ((try? c.decode([ATCLine].self, forKey: .atcMessages)) ?? [])
             .filter { !$0.text.isEmpty }
         startedAt = (try? c.decode(String.self, forKey: .startedAt))
+            .flatMap(SupabaseAuth.Timestamp.date(from:))
+        lastLiveAt = (try? c.decode(String.self, forKey: .lastLiveAt))
             .flatMap(SupabaseAuth.Timestamp.date(from:))
         updatedAt = (try? c.decode(String.self, forKey: .updatedAt))
             .flatMap(SupabaseAuth.Timestamp.date(from:))
@@ -218,12 +304,85 @@ struct PilotLiveStatus: Decodable, Equatable {
 
     /// Whether this is recent enough to draw as live.
     ///
-    /// The server already refuses to return anything stale, but a card can sit
-    /// on screen for a while after it was fetched and should stop claiming to
-    /// be live when it has.
+    /// Two tests, not one. The server decides `isLive` — it is the only thing
+    /// that knows the TTL and it has the clock — and this adds the check the
+    /// server cannot make: a card can sit on screen for a long time after it
+    /// was fetched, and should stop claiming to be live when it has.
+    ///
+    /// Reads `lastLiveAt` rather than `updatedAt`, which now moves when a row
+    /// is stood down and would make a pilot who has just closed the sim look
+    /// like one who is still flying.
     var isFresh: Bool {
-        guard let updatedAt else { return false }
-        return Date().timeIntervalSince(updatedAt) < 300
+        guard isLive, let lastLiveAt else { return false }
+        return Date().timeIntervalSince(lastLiveAt) < 300
+    }
+
+    // MARK: - Fuel
+    //
+    // The one number the public feed has never had and the sim always has.
+
+    /// Fuel as a pilot says it: tonnes above one, kilos below.
+    var fuelLabel: String? {
+        guard let fuelRemainingKg, fuelRemainingKg > 0 else { return nil }
+        if fuelRemainingKg >= 1000 {
+            return String(format: "%.1f t", Double(fuelRemainingKg) / 1000)
+        }
+        return "\(fuelRemainingKg) kg"
+    }
+
+    /// What it is being burned at.
+    var fuelBurnLabel: String? {
+        guard let fuelBurnKgh, fuelBurnKgh > 0 else { return nil }
+        if fuelBurnKgh >= 1000 {
+            return String(format: "%.1f t/h", Double(fuelBurnKgh) / 1000)
+        }
+        return "\(fuelBurnKgh) kg/h"
+    }
+
+    /// How long the fuel lasts at the rate it is going.
+    ///
+    /// Not an endurance in the certified sense and not offered as one — it is
+    /// the current smoothed burn extrapolated flat, which is pessimistic in the
+    /// climb and optimistic on descent. Withheld below a few minutes' worth
+    /// rather than counting somebody down to zero: an aircraft parked with the
+    /// engines running burns very little and would otherwise read as days.
+    var enduranceLabel: String? {
+        guard let fuelRemainingKg, let fuelBurnKgh, fuelBurnKgh > 0 else { return nil }
+        let minutes = Int((Double(fuelRemainingKg) / Double(fuelBurnKgh)) * 60)
+        guard minutes >= 5, minutes <= 60 * 24 else { return nil }
+        let hours = minutes / 60
+        return hours > 0 ? "\(hours)h \(minutes % 60)m" : "\(minutes)m"
+    }
+
+    /// Elapsed time, preferring the sim's own clock over ours.
+    ///
+    /// `flight_time_seconds` starts when the flight did; `started_at` starts
+    /// when the app connected, which on a flight somebody attached to halfway
+    /// through is an hour of difference.
+    var flightTimeLabel: String? {
+        guard let seconds = flightTimeSeconds, seconds > 60 else { return elapsedLabel }
+        let hours = seconds / 3600
+        let minutes = (seconds % 3600) / 60
+        return hours > 0 ? "\(hours)h \(minutes)m" : "\(minutes)m"
+    }
+
+    /// How long ago the sim last reported, for a card that is no longer live.
+    var lastSeenLabel: String? {
+        guard !isLive, let lastLiveAt else { return nil }
+        let seconds = Int(Date().timeIntervalSince(lastLiveAt))
+        guard seconds > 0 else { return nil }
+        if seconds < 90 { return "a moment ago" }
+        if seconds < 3600 { return "\(seconds / 60) min ago" }
+        let hours = seconds / 3600
+        return hours == 1 ? "an hour ago" : "\(hours) hours ago"
+    }
+
+    /// Whether there is anything worth drawing at all once the position has
+    /// gone. A row with no aircraft, no route and no fuel is a row that expired
+    /// before it ever carried anything.
+    var hasLastKnown: Bool {
+        fuelRemainingKg != nil || aircraft != nil
+            || originIcao != nil || destinationIcao != nil
     }
 }
 
@@ -245,6 +404,8 @@ struct PilotLiveSummary: Decodable, Equatable, Identifiable {
     let longitude: Double?
     let altitudeMSL: Int?
     let groundSpeedKnots: Int?
+    let fuelRemainingKg: Int?
+    let fuelBurnKgh: Int?
     let originIcao: String?
     let destinationIcao: String?
     let nearestAirport: String?
@@ -259,6 +420,8 @@ struct PilotLiveSummary: Decodable, Equatable, Identifiable {
         case isPro = "is_pro"
         case altitudeMSL = "altitude_msl"
         case groundSpeedKnots = "ground_speed_knots"
+        case fuelRemainingKg = "fuel_remaining_kg"
+        case fuelBurnKgh = "fuel_burn_kgh"
         case originIcao = "origin_icao"
         case destinationIcao = "destination_icao"
         case nearestAirport = "nearest_airport"
@@ -278,6 +441,8 @@ struct PilotLiveSummary: Decodable, Equatable, Identifiable {
         longitude = try? c.decode(Double.self, forKey: .longitude)
         altitudeMSL = try? c.decode(Int.self, forKey: .altitudeMSL)
         groundSpeedKnots = try? c.decode(Int.self, forKey: .groundSpeedKnots)
+        fuelRemainingKg = try? c.decode(Int.self, forKey: .fuelRemainingKg)
+        fuelBurnKgh = try? c.decode(Int.self, forKey: .fuelBurnKgh)
         originIcao = try? c.decode(String.self, forKey: .originIcao)
         destinationIcao = try? c.decode(String.self, forKey: .destinationIcao)
         nearestAirport = try? c.decode(String.self, forKey: .nearestAirport)
@@ -289,6 +454,15 @@ struct PilotLiveSummary: Decodable, Equatable, Identifiable {
         guard let latitude, let longitude else { return nil }
         let candidate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
         return CLLocationCoordinate2DIsValid(candidate) ? candidate : nil
+    }
+
+    /// Tonnes above one, kilos below — the same reading as on the full card.
+    var fuelLabel: String? {
+        guard let fuelRemainingKg, fuelRemainingKg > 0 else { return nil }
+        if fuelRemainingKg >= 1000 {
+            return String(format: "%.1f t", Double(fuelRemainingKg) / 1000)
+        }
+        return "\(fuelRemainingKg) kg"
     }
 
     /// One line under the name: what they are doing and where.
@@ -317,6 +491,8 @@ struct PilotLiveSummary: Decodable, Equatable, Identifiable {
         default:
             if let field = nearestAirport { parts.append("near \(field)") }
         }
+
+        if let fuel = fuelLabel { parts.append(fuel) }
 
         return parts.isEmpty ? (aircraft ?? "Flying") : parts.joined(separator: " · ")
     }

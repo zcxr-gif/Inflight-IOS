@@ -42,7 +42,18 @@ final class ConnectSession: ObservableObject {
         case connecting(String)
         case syncing(String)
         case live(String)
-        case failed(String)
+
+        /// Not connected, still trying, and here is why the last attempt did
+        /// not work.
+        ///
+        /// Replaces what used to be `failed`, which was a lie about what the
+        /// session was doing: the loop has always retried forever on a backoff,
+        /// so a pilot who started Infinite Flight a minute later was already
+        /// going to be connected automatically — while the panel sat there
+        /// saying "Couldn't connect" in orange as though it had given up.
+        /// Saying "waiting" is both truer and the thing that makes starting the
+        /// sim second the obvious move.
+        case waiting(String)
 
         var isBusy: Bool {
             switch self {
@@ -53,6 +64,13 @@ final class ConnectSession: ObservableObject {
 
         var isLive: Bool {
             if case .live = self { return true }
+            return false
+        }
+
+        /// Trying, and not there yet — the spinner-or-not question, and the one
+        /// the settings row uses to decide whether to sound patient.
+        var isWaiting: Bool {
+            if case .waiting = self { return true }
             return false
         }
     }
@@ -120,7 +138,11 @@ final class ConnectSession: ObservableObject {
 
     /// Infinite Flight serves Connect on every interface it has, loopback
     /// included, so an app on the same device reaches it here.
-    static let loopback = "127.0.0.1"
+    ///
+    /// `nonisolated` so the transport can name it when explaining a failure:
+    /// this class is `@MainActor`, which isolates its statics too, and the
+    /// error translator runs on Network.framework's queue.
+    nonisolated static let loopback = "127.0.0.1"
 
     private let defaults: UserDefaults
     private let transport = ConnectTransport()
@@ -156,6 +178,22 @@ final class ConnectSession: ObservableObject {
     /// somebody's pocket is a battery complaint.
     private static let retryDelays: [UInt64] = [2, 5, 10, 30, 60]
     private var retryIndex = 0
+
+    /// Whether the pilot has been left waiting since they turned this on, and
+    /// so is owed the notification when it finally attaches.
+    ///
+    /// Separate from `retryIndex`, which cannot answer this and was the reason
+    /// the notification never arrived. `retryIndex` is reset by `start()`, and
+    /// `start()` runs every time the app comes back to the foreground — which
+    /// is precisely the moment the connection succeeds, because the pilot has
+    /// just been in Infinite Flight switching Connect on. So the one path that
+    /// always ends in a successful attach was also the one path guaranteed to
+    /// have forgotten that anybody was waiting.
+    ///
+    /// This is set when a connection fails and cleared only when the notice has
+    /// been sent or the switch has been turned off, so it survives the app
+    /// being suspended and resumed as many times as it takes.
+    private var isOwedConnectionNotice = false
 
     private init() {
         defaults = UserDefaults(suiteName: SharedStore.appGroupIdentifier) ?? .standard
@@ -221,6 +259,10 @@ final class ConnectSession: ObservableObject {
         landingBaseline = nil
         atcLog = []
         lastCatchUp = nil
+        // Turning it off is not waiting for it. Only `stop()` clears this —
+        // `suspend()` deliberately does not, because being suspended IS the
+        // wait.
+        isOwedConnectionNotice = false
     }
 
     /// Backgrounded: drop the socket but keep the intention to reconnect.
@@ -246,15 +288,37 @@ final class ConnectSession: ObservableObject {
         while !Task.isCancelled {
             do {
                 let address = try await resolveHost()
+
                 try await attach(to: address)
                 retryIndex = 0
+
+                // Tell them, but only if they were kept waiting. A connection
+                // that worked first time needs no announcement — they were
+                // watching it happen.
+                if isOwedConnectionNotice {
+                    isOwedConnectionNotice = false
+                    announceConnected(to: address)
+                }
+
                 try await poll()
             } catch is CancellationError {
                 return
             } catch {
                 guard !Task.isCancelled else { return }
-                status = .failed(error.localizedDescription)
+                status = .waiting(error.localizedDescription)
                 await transport.close()
+
+                // From here on there is something to announce, and a reason to
+                // be able to announce it. Asking now rather than when the
+                // switch was flipped means the prompt only ever appears to
+                // somebody who is actually being made to wait, with the
+                // question in front of them.
+                if !isOwedConnectionNotice {
+                    isOwedConnectionNotice = true
+                    if PushService.shared.authorization == .notDetermined {
+                        PushService.shared.requestAuthorization()
+                    }
+                }
 
                 let delay = Self.retryDelays[min(retryIndex, Self.retryDelays.count - 1)]
                 retryIndex += 1
@@ -266,6 +330,18 @@ final class ConnectSession: ObservableObject {
                 }
             }
         }
+    }
+
+    /// One line, once, when a link the pilot has been waiting for comes up.
+    private func announceConnected(to address: String) {
+        let place = address == Self.loopback ? "on this device" : "at \(address)"
+        PushService.shared.post(
+            title: "Connected to Infinite Flight",
+            body: "Reading your aircraft from the sim \(place).",
+            // One identifier for this event, so reconnecting through a flaky
+            // Wi-Fi replaces the notice instead of stacking a column of them.
+            identifier: "connect.attached"
+        )
     }
 
     private func resolveHost() async throws -> String {
@@ -780,9 +856,18 @@ final class ConnectSession: ObservableObject {
     /// link-local `169.254.x.x` and the loopback are addresses this phone
     /// cannot reach, and picking one of those would fail with a timeout rather
     /// than an explanation.
+    ///
+    /// The key is matched without regard to case, because its spelling is not
+    /// stable: the Connect v2 documentation shows `addresses`, older payload
+    /// dumps show `Addresses`, and a literal subscript for either one silently
+    /// finds nothing against the other — which looks exactly like Infinite
+    /// Flight not being on the network, and sends the pilot to type an address
+    /// by hand for no reason.
     nonisolated static func address(fromBroadcast data: Data) -> String? {
         guard let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let addresses = payload["Addresses"] as? [String] else { return nil }
+              let addresses = payload.first(where: {
+                  $0.key.caseInsensitiveCompare("addresses") == .orderedSame
+              })?.value as? [String] else { return nil }
 
         return addresses.first { candidate in
             let parts = candidate.split(separator: ".")

@@ -23,10 +23,39 @@ final class FlightTrailStore {
         /// Set once the backend's history has been merged in, so live samples
         /// never get thinned away back to a fragment.
         var isSeeded: Bool
+
+        /// When this aircraft was first seen, whatever it has done since.
+        ///
+        /// Separate from the points, because the points are thinned by
+        /// DISTANCE: an aircraft parked at a gate moves less than the spacing
+        /// and so keeps exactly one sample however long it sits there, and a
+        /// trail that fills up is halved, which throws away the oldest sample
+        /// there is. Neither is a bug in the thinning — it exists to bound
+        /// memory — but both make "the earliest point I still hold" a bad
+        /// answer to "how long has this been going". This is the good answer,
+        /// and it costs eight bytes per aircraft.
+        let firstSeen: Date
     }
 
     private let lock = NSLock()
     private var trails: [String: Trail] = [:]
+
+    /// When each aircraft was first seen, kept apart from its trail so it
+    /// survives the trail being dropped.
+    ///
+    /// Trails are discarded for anything missing from a packet, which is right
+    /// — they are the expensive part and an aircraft that has left the server
+    /// is not coming back with the same id. But the feed does blink: one packet
+    /// short of a full list, or a reconnect, and a flight that has been in the
+    /// air for nine hours comes back looking newly born, resetting the elapsed
+    /// clock to zero. This is one date per aircraft, so remembering it across a
+    /// blink costs nothing worth measuring.
+    private var starts: [String: Date] = [:]
+
+    /// Above this many remembered starts, the oldest half go. Nothing reads a
+    /// start for an aircraft that has not been in a packet for hours, and a
+    /// dictionary that only grows is a leak however small its entries are.
+    private let maximumStarts = 800
 
     private let initialSpacingNM: Double = 2
     private let maximumPoints = 260
@@ -50,8 +79,18 @@ final class FlightTrailStore {
                 date: Date()
             )
 
+            // Remembered from before this aircraft last blinked out, when
+            // there is one. Otherwise now, and now is when we first saw it.
+            let began = starts[flight.id] ?? sample.date ?? Date()
+            starts[flight.id] = began
+
             guard var trail = trails[flight.id] else {
-                trails[flight.id] = Trail(points: [sample], spacingNM: initialSpacingNM, isSeeded: false)
+                trails[flight.id] = Trail(
+                    points: [sample],
+                    spacingNM: initialSpacingNM,
+                    isSeeded: false,
+                    firstSeen: began
+                )
                 continue
             }
 
@@ -76,6 +115,13 @@ final class FlightTrailStore {
         if trails.count > live.count {
             trails = trails.filter { live.contains($0.key) }
         }
+
+        // The starts outlive the trails deliberately, so they are bounded here
+        // rather than by the same rule.
+        if starts.count > maximumStarts {
+            let keep = starts.sorted { $0.value > $1.value }.prefix(maximumStarts / 2)
+            starts = Dictionary(uniqueKeysWithValues: keep.map { ($0.key, $0.value) })
+        }
     }
 
     /// Replaces a locally-observed fragment with the backend's full history.
@@ -98,7 +144,22 @@ final class FlightTrailStore {
         }
 
         let spacing = max(initialSpacingNM, Double(merged.count) / Double(maximumPoints) * initialSpacingNM)
-        trails[flightId] = Trail(points: merged, spacingNM: spacing, isSeeded: true)
+
+        // The history reaches back further than we do, so its first dated
+        // sample is a better "first seen" than ours — that is the flight's own
+        // departure rather than the moment the app happened to open.
+        let earliest = history.compactMap(\.date).min()
+        let known = trails[flightId]?.firstSeen
+
+        let began = [earliest, known, starts[flightId]].compactMap { $0 }.min() ?? Date()
+        starts[flightId] = began
+
+        trails[flightId] = Trail(
+            points: merged,
+            spacingNM: spacing,
+            isSeeded: true,
+            firstSeen: began
+        )
     }
 
     func hasHistory(for flightId: String) -> Bool {
@@ -111,5 +172,16 @@ final class FlightTrailStore {
         lock.lock()
         defer { lock.unlock() }
         return trails[flightId]?.points ?? []
+    }
+
+    /// The earliest moment this aircraft is known to have been flying.
+    ///
+    /// The backend's history when it reaches back to departure, and otherwise
+    /// when the app first saw it. Nil only for a flight that has never come
+    /// through the feed at all.
+    func firstSeen(for flightId: String) -> Date? {
+        lock.lock()
+        defer { lock.unlock() }
+        return trails[flightId]?.firstSeen ?? starts[flightId]
     }
 }

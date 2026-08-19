@@ -170,6 +170,25 @@ class FrameReader {
 
 // MARK: - Discovery
 
+/// Reads a field out of the broadcast payload without caring how it is spelled.
+///
+/// The casing is not stable. The Connect v2 documentation shows the payload as
+/// `{"state":…,"addresses":[…],"deviceName":…}`, while older dumps -- and what
+/// this tool was first written against -- use `Addresses`, `DeviceName`. Both
+/// are real, so neither spelling is hard-coded: a case-insensitive lookup finds
+/// the field either way, and discovery keeps working across an Infinite Flight
+/// update that flips it back.
+function broadcastField(payload, ...names) {
+  const keys = Object.keys(payload);
+  for (const name of names) {
+    const key = keys.find((k) => k.toLowerCase() === name.toLowerCase());
+    if (key !== undefined && payload[key] !== null && payload[key] !== undefined) {
+      return payload[key];
+    }
+  }
+  return undefined;
+}
+
 function discover(timeoutMs = 8000) {
   return new Promise((resolve, reject) => {
     const socket = dgram.createSocket({ type: "udp4", reuseAddr: true });
@@ -190,14 +209,18 @@ function discover(timeoutMs = 8000) {
         return; // Something else is talking on this port.
       }
 
-      const addresses = payload.Addresses ?? [];
+      const addresses = broadcastField(payload, "addresses") ?? [];
       const ipv4 = addresses.find((a) => /^\d+\.\d+\.\d+\.\d+$/.test(a));
       if (!ipv4) return;
 
       clearTimeout(timer);
       socket.close();
-      console.log(`Found ${payload.DeviceName ?? payload.DeviceID ?? "a device"} at ${ipv4}`);
-      console.log(`  state ${payload.State ?? "?"}, app ${payload.AppVersion ?? "?"}`);
+      const name = broadcastField(payload, "deviceName", "deviceId", "deviceID") ?? "a device";
+      console.log(`Found ${name} at ${ipv4}`);
+      console.log(
+        `  state ${broadcastField(payload, "state") ?? "?"}, ` +
+        `app ${broadcastField(payload, "version", "appVersion") ?? "?"}`
+      );
       console.log(`  broadcast payload: ${JSON.stringify(payload)}\n`);
       resolve(ipv4);
     });

@@ -40,11 +40,17 @@ struct FlightActionRow: View {
     private var canReplay: Bool { track.count >= FlightReplay.minimumPoints }
 
     var body: some View {
+        // `.fixedSize(vertical:)` so the row takes its ideal height — the
+        // tallest tile — and every tile then fills it. Without it the three
+        // sized themselves independently and a tile with no caption came out
+        // shorter than its neighbours, which is visible as three boxes of two
+        // different heights sitting in a row.
         HStack(spacing: 10) {
             timeTile
             replayTile
             shareTile
         }
+        .fixedSize(horizontal: false, vertical: true)
         .onReceive(clock) { now = $0 }
         .sheet(isPresented: $isShowingPaywall) { ProPanel(highlighted: .replay) }
     }
@@ -117,15 +123,21 @@ struct FlightActionRow: View {
                 .foregroundStyle(filled ? theme.onAccent : theme.textPrimary)
                 .flightInfoLine(minimumScale: 0.7)
 
-            if let caption = caption {
-                Text(caption)
-                    .font(.system(size: 8, weight: .bold))
-                    .tracking(0.6)
-                    .foregroundStyle(filled ? theme.onAccent.opacity(0.6) : theme.textDim)
-            }
+            // Rendered even when empty. Reserving the line keeps the symbol
+            // and the title on the same baseline across all three tiles;
+            // dropping it moved Share's contents up relative to its
+            // neighbours' by exactly the height of a caption.
+            Text(caption ?? " ")
+                .font(.system(size: 8, weight: .bold))
+                .tracking(0.6)
+                .foregroundStyle(filled ? theme.onAccent.opacity(0.6) : theme.textDim)
+                .opacity(caption == nil ? 0 : 1)
+                .accessibilityHidden(caption == nil)
         }
         .padding(.vertical, 11)
-        .frame(maxWidth: .infinity)
+        // Height as well as width: the row is as tall as its tallest tile and
+        // each one grows into that, so all three backgrounds are one size.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
             let shape = RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous)
 
@@ -145,11 +157,27 @@ struct FlightActionRow: View {
     /// the backend's history reaches back to departure, and the moment we
     /// started watching when it doesn't — so it is never presented as anything
     /// more precise than "elapsed".
+    ///
+    /// Reading the track alone was not enough, and the failure was quiet: the
+    /// trail is thinned by DISTANCE, so an aircraft that has not moved two
+    /// miles holds exactly one sample and one that has filled its buffer has
+    /// had its oldest sample halved away. Neither case has an early point to
+    /// find, and both showed "—:—" on a parked or long-haul flight — the two
+    /// cases where somebody most wants a clock. `firstSeen` is kept for exactly
+    /// this and survives both.
+    private var start: Date? {
+        track.compactMap(\.date).min()
+            ?? FlightTrailStore.shared.firstSeen(for: flight.id)
+    }
+
     private var elapsedLabel: String {
-        guard let first = track.compactMap(\.date).first else { return "—:—" }
-        let interval = now.timeIntervalSince(first)
-        guard interval > 60 else { return "00:00" }
-        return Format.duration(interval)
+        guard let start else { return "—:—" }
+        let interval = now.timeIntervalSince(start)
+        // Under a minute rounds to 00:00 through `Format.duration` anyway; the
+        // guard is here to refuse a negative one, which a clock that disagrees
+        // with the server's can produce.
+        guard interval >= 0 else { return "—:—" }
+        return interval < 60 ? "00:00" : Format.duration(interval)
     }
 
     private var remainingLabel: String {

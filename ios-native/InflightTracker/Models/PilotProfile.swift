@@ -223,27 +223,15 @@ struct PilotSummary: Decodable, Equatable, Identifiable, Hashable {
 
     var avatarURL: URL? { AppConfig.profileImageURL(bucket: "pilot-avatars", path: avatarPath) }
 
-    /// The colour this pilot chose for their profile, if they are Pro and chose
-    /// one.
-    ///
-    /// The server already refuses to serve `accent` for an account whose
-    /// subscription has ended — it blanks it rather than the app having to
-    /// remember — so this being non-nil is itself the entitlement check, and
-    /// there is deliberately no `isPro` test here to drift out of step with it.
-    ///
-    /// Parsed rather than trusted: the column's check constraint is
-    /// `^#[0-9a-f]{6}$`, and a value that somehow is not gets no colour rather
-    /// than a crash or a black profile.
-    var accentColor: Color? {
-        guard let accent else { return nil }
-        let hex = accent.hasPrefix("#") ? String(accent.dropFirst()) : accent
-        guard hex.count == 6, let value = UInt32(hex, radix: 16) else { return nil }
-        return Color(
-            red: Double((value >> 16) & 0xFF) / 255,
-            green: Double((value >> 8) & 0xFF) / 255,
-            blue: Double(value & 0xFF) / 255
-        )
-    }
+    // No `accentColor` here, deliberately. `PilotProfile` has one and this is
+    // not that: `public.pilot_summary` — the composite type every function
+    // returning this shape is declared against — carries handle, name, avatar,
+    // IF username, aircraft, home airport and the Pro flag, and no accent. A
+    // copy of the profile's accessor was pasted in and read a stored property
+    // this struct has never had, which is a compile error rather than a
+    // fallback to nil. Adding the column to satisfy it would be worse: the
+    // server would still never send it, so it would be a permanently nil
+    // property with an entitlement comment on it.
 
     var initials: String {
         let letters = displayName.filter { $0.isLetter || $0.isNumber }

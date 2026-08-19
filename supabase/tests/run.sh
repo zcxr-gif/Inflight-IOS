@@ -34,12 +34,40 @@ run() { psql -h /tmp -p "$port" -U postgres -v ON_ERROR_STOP=1 -q "$@"; }
 # for the migrations to have something to attach to.
 run -f "$here/stub-project.sql"
 
-for f in "$migrations"/*.sql; do
+# One line in the migrations cannot run against a plain Postgres: `create
+# extension pg_cron`, whose control file only the hosted project has. The
+# `cron.schedule` calls around it are stubbed in stub-project.sql and do run, so
+# the scheduling still has to be right — it is only the extension that is
+# skipped. Done on a copy so the migrations themselves are never edited.
+staged="$data/migrations"
+mkdir -p "$staged"
+cp "$migrations"/*.sql "$staged"/
+sed -i.bak 's|^create extension if not exists pg_cron.*$|-- pg_cron: skipped by supabase/tests/run.sh|' "$staged"/*.sql
+rm -f "$staged"/*.bak
+
+for f in "$staged"/*.sql; do
     printf 'applying %s\n' "$(basename "$f")"
-    run -f "$f" 2>&1 | grep -v '^NOTICE' || true
+    # Not `|| true`. A migration that aborts halfway leaves every function after
+    # the failure unapplied and the tests then check a schema nobody will ever
+    # deploy — which is exactly how the pg_cron failure above went unnoticed.
+    if ! out=$(run -f "$f" 2>&1); then
+        echo "$out" | grep -v '^NOTICE' >&2
+        echo "FAILED applying $(basename "$f")" >&2
+        exit 1
+    fi
 done
 
-echo
-echo '--- behaviour'
-psql -h /tmp -p "$port" -U postgres -f "$here/profiles.sql" 2>&1 \
-    | grep -v '^SET$\|^RESET$'
+# Every behaviour file in this directory, not just the first one somebody
+# thought of. Each decides for itself whether a failing statement is fatal:
+# profiles.sql turns ON_ERROR_STOP off because half of what it checks is a
+# denial, and live_status.sql leaves it on because every check there is an
+# assertion that should stop the run.
+status=0
+for f in "$here"/*.sql; do
+    [ "$(basename "$f")" = 'stub-project.sql' ] && continue
+    echo
+    echo "--- $(basename "$f" .sql)"
+    run -f "$f" || status=1
+done
+
+exit $status

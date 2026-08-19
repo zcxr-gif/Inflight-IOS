@@ -213,10 +213,16 @@ struct ProfileEditorView: View {
                     )
 
                     VStack(alignment: .leading, spacing: 6) {
+                        // Read out here rather than inside the label closure,
+                        // which SwiftUI marks `@Sendable`: capturing the Bool
+                        // is fine, reaching into main-actor state from in there
+                        // is an error under the Swift 6 language mode.
+                        let uploadingAvatar = store.uploading == .avatar
+
                         PhotosPicker(selection: $avatarPick, matching: .images) {
                             pickerLabel(
                                 draft.avatarPath == nil ? "Add a picture" : "Change picture",
-                                busy: store.uploading == .avatar
+                                busy: uploadingAvatar
                             )
                         }
                         .buttonStyle(.plain)
@@ -255,10 +261,12 @@ struct ProfileEditorView: View {
 
             if entitlements.has(.profileBanner) {
                 HStack(spacing: 10) {
+                    let uploadingBanner = store.uploading == .banner
+
                     PhotosPicker(selection: $bannerPick, matching: .images) {
                         pickerLabel(
                             draft.bannerPath == nil ? "Use a photo" : "Change photo",
-                            busy: store.uploading == .banner
+                            busy: uploadingBanner
                         )
                     }
                     .buttonStyle(.plain)

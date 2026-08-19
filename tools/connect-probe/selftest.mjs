@@ -158,4 +158,63 @@ check("splits id,type,path and tolerates a path containing a comma", () => {
   assert.deepStrictEqual(byPath.get("commands/FlightPlan.AddWaypoints"), { id: 1048622, type: -1 });
 });
 
+console.log("\nBroadcast payload:");
+
+// Mirrors `broadcastField` in probe.mjs. The casing of these keys is not
+// stable across Infinite Flight versions -- the v2 documentation shows
+// `addresses`, older dumps show `Addresses` -- so discovery must not depend on
+// which one arrives.
+function broadcastField(payload, ...names) {
+  const keys = Object.keys(payload);
+  for (const name of names) {
+    const key = keys.find((k) => k.toLowerCase() === name.toLowerCase());
+    if (key !== undefined && payload[key] !== null && payload[key] !== undefined) {
+      return payload[key];
+    }
+  }
+  return undefined;
+}
+
+function addressFrom(payload) {
+  const addresses = broadcastField(payload, "addresses") ?? [];
+  return addresses.find((a) => /^\d+\.\d+\.\d+\.\d+$/.test(a)) ?? null;
+}
+
+// The payload exactly as the Connect v2 documentation prints it.
+const documented = {
+  state: "Playing",
+  port: 10111,
+  deviceId: "iPad7",
+  aircraft: "Cessna 172",
+  version: "19.4.7354.25209",
+  deviceName: "Thomas\u2019s iPad",
+  addresses: ["fe80::1c79:baf4:f9f1:dd59%3", "192.168.1.26"],
+  livery: "Civil Air Patrol",
+};
+
+check("documented lower-case payload yields the IPv4", () => {
+  assert.strictEqual(addressFrom(documented), "192.168.1.26");
+});
+
+check("older capitalised payload yields the same IPv4", () => {
+  assert.strictEqual(
+    addressFrom({ State: "Playing", Addresses: ["fe80::1%3", "192.168.1.26"] }),
+    "192.168.1.26"
+  );
+});
+
+check("IPv6-only device is skipped rather than dialled", () => {
+  assert.strictEqual(addressFrom({ addresses: ["fe80::1c79:baf4:f9f1:dd59%3"] }), null);
+});
+
+check("a payload with no addresses at all is skipped", () => {
+  assert.strictEqual(addressFrom({ state: "Playing" }), null);
+});
+
+check("device name and version read under either casing", () => {
+  assert.strictEqual(broadcastField(documented, "deviceName", "deviceId"), "Thomas\u2019s iPad");
+  assert.strictEqual(broadcastField(documented, "version", "appVersion"), "19.4.7354.25209");
+  assert.strictEqual(broadcastField({ DeviceName: "iPad" }, "deviceName", "deviceId"), "iPad");
+});
+
 console.log(`\n${passed} checks passed.`);

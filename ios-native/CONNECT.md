@@ -89,7 +89,11 @@ many UTF-8 bytes, no terminator. Types are `0` bool, `1` Int32, `2` float,
 and is invoked with a read frame.
 
 The device announces itself as JSON over UDP broadcast on port **15000** while
-Connect is enabled; the payload's `Addresses` array carries the IPs.
+Connect is enabled; the payload's addresses array carries the IPs. Its keys are
+read case-insensitively — the v2 documentation spells them `addresses`,
+`deviceName`, `version`, while older payload dumps use `Addresses`,
+`DeviceName`, and a client that hard-codes either one reports "not found"
+against the other.
 
 ### Two rules that are not obvious and are not optional
 
@@ -119,6 +123,69 @@ number.
 
 Writability is not published at all — the manifest gives type and never
 direction — so any future write is best-effort and worth reading back.
+
+## What gets broadcast, and what survives
+
+`LiveStatusPublisher` writes one row to `pilot_live_status`, upserted on the
+account, every 45 seconds in the cruise and every 15 when something is
+happening. It carries everything the poll loop reads and not a read more —
+position, configuration, lights, the wind at the aircraft, **fuel on board**,
+N1, thrust, squawk, true airspeed, pitch and bank, the stall and overspeed
+warnings, and the sim's own elapsed clock.
+
+Fuel is the one people ask for, and it is also the one that needs help. The app
+cannot compute a burn rate: iOS suspends it behind Infinite Flight for most of
+a flight, so it sees its own samples in bursts with hours missing. The server
+sees the whole sequence, so `fuel_burn_kgh` is derived by a trigger from
+consecutive readings — smoothed, ignoring gaps under a minute and over fifteen,
+and reset outright by a refuel or an aircraft change. `enduranceLabel` is that
+rate extrapolated flat, which is honest about being an estimate and is withheld
+when it would read as days.
+
+### Three ways to stop, and they mean different things
+
+| | What happens | What is left |
+|---|---|---|
+| **Sim detaches** — app closed, phone asleep | `pilot_live_stand_down()` | The flight: aircraft, route, phase, fuel, elapsed. No position. |
+| **Nothing said at all** — battery flat mid-ocean | `housekeeping()` does it on a timer | The same, within four minutes |
+| **Share switch off** | `pilot_live_clear()` | Nothing. The row is deleted. |
+
+The distinction is the whole design. A position is true for four minutes and is
+nulled *in the table* the moment it stops being — by the stand-down, or by
+housekeeping if nobody got the chance — so the database never accumulates a
+track. What outlives it is "they were at 3.2 tonnes an hour ago", which is a
+fact about an aeroplane rather than a location, and it expires by itself after
+a day. Turning broadcasting off is unchanged and still means *forget it*.
+
+Liveness is therefore not a timestamp test. A row is live when it last arrived
+carrying a position **and** that position is fresh; nulling the position is what
+ends a flight, so the position is what the test reads. `updated_at` moves on any
+write including a stand-down, so `last_live_at` is the clock everything else
+uses — and it is stamped by a trigger from the server's own `now()`, never by
+the client, which was previously able to claim any time it liked.
+
+### Who can see it
+
+`live_visibility` on the profile, and it has always had three settings. Two of
+them now have a query:
+
+* `pilot_live_status_for(handle)` — one pilot, applying their visibility.
+* `pilot_live_following(limit)` — everybody you follow who is flying **now**.
+  Live-only on purpose: a "who is in the air" list filled with people who landed
+  yesterday is a different, worse thing.
+* `pilot_live_public(limit)` — everybody who set `public`, readable signed-out.
+  This is what "broadcast to everyone" means, and it is opt-in twice over: the
+  default is still followers, and a pilot has to choose `public` deliberately.
+
+### Testing it
+
+`supabase/tests/run.sh` applies every migration to a throwaway Postgres and runs
+`supabase/tests/live_status.sql`, which asserts the parts that are about time
+and absence and are invisible in a diff: that a burn rate of 6,000 kg/h comes
+out of 500 kg in five minutes, that a refuel does not read as a negative burn,
+that a stood-down row keeps its fuel and loses its position, that a phone that
+went flat is treated the same way without being asked, and that the share switch
+still leaves nothing behind.
 
 ## How it fits together
 

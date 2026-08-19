@@ -27,7 +27,11 @@ final class PilotDirectory: ObservableObject {
     /// How long a fetched card is reused. Long enough to survive a sheet being
     /// dismissed and reopened, short enough that a follow made on another
     /// device shows up without the app being restarted.
-    private static let cacheLifetime: TimeInterval = 90
+    /// `nonisolated` because `Cached` below is a plain nested struct and reads
+    /// it from outside the actor. A `let` of a Sendable type is safe to share;
+    /// without this it inherits the class's main-actor isolation and the read
+    /// is an error under the Swift 6 language mode.
+    private nonisolated static let cacheLifetime: TimeInterval = 90
 
     private struct Cached<Value> {
         let value: Value
@@ -196,6 +200,23 @@ final class PilotDirectory: ObservableObject {
         guard let token = await AccountStore.shared.currentAccessToken() else { return [] }
         return (try? await SupabaseData.rpc(
             "pilot_live_following",
+            arguments: ["p_limit": limit],
+            accessToken: token
+        )) ?? []
+    }
+
+    /// Everybody who chose to broadcast to everybody.
+    ///
+    /// The other half of `liveFollowing`. `live_visibility` has had a `public`
+    /// setting since the table was created and nothing could read it: a pilot
+    /// could opt in to being seen by the world and the world had no query to
+    /// ask. Only rows whose owner set it appear here — the default is still
+    /// followers-only — and no sign-in is needed to read it, which is what
+    /// makes it a broadcast rather than a friends list.
+    func livePublic(limit: Int = 50) async -> [PilotLiveSummary] {
+        let token = await AccountStore.shared.currentAccessToken()
+        return (try? await SupabaseData.rpc(
+            "pilot_live_public",
             arguments: ["p_limit": limit],
             accessToken: token
         )) ?? []

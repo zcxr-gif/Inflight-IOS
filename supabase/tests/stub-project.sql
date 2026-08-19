@@ -60,5 +60,16 @@ create table storage.objects (
 );
 alter table storage.objects enable row level security;
 
+-- pg_cron itself cannot be installed against a plain Postgres -- run.sh skips
+-- the `create extension` line -- but the `cron.schedule` calls beside it are
+-- real SQL in the migrations and have to resolve, or the migration that
+-- schedules housekeeping aborts halfway through and leaves the functions after
+-- it unapplied. Which is what was happening: silently, and swallowed.
+create schema if not exists cron;
+create or replace function cron.schedule(text, text, text) returns bigint
+language sql as $$ select 1::bigint $$;
+create or replace function cron.unschedule(text) returns boolean
+language sql as $$ select true $$;
+
 grant usage on schema public, auth, storage to anon, authenticated, service_role;
 grant select on all tables in schema public to anon, authenticated;

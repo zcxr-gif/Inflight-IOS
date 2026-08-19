@@ -119,6 +119,46 @@ final class PushService: NSObject, ObservableObject {
     }
 }
 
+// MARK: - Local notifications
+
+extension PushService {
+
+    /// Posts a notification from the app itself, with no server involved.
+    ///
+    /// The remote path exists for things only the backend knows — a friend
+    /// taking off while the app is closed. This is for the opposite case:
+    /// something this device worked out on its own and the pilot is waiting to
+    /// hear, like a Connect session finally attaching after the sim was
+    /// started. No token, no round trip, and it works with the app in any
+    /// state.
+    ///
+    /// Silently does nothing when notifications have not been allowed. A
+    /// connection succeeding is not a reason to raise a permission prompt.
+    func post(title: String, body: String, identifier: String) {
+        guard canNotify else { return }
+
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+
+        // A stable identifier per kind of event, so a reconnect replaces the
+        // previous notice rather than stacking a pile of them in Notification
+        // Centre.
+        let request = UNNotificationRequest(
+            identifier: identifier,
+            content: content,
+            trigger: nil          // nil delivers immediately.
+        )
+
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error = error {
+                print("[push] Local notification failed: \(error.localizedDescription)")
+            }
+        }
+    }
+}
+
 // MARK: - Delivery
 
 extension PushService: UNUserNotificationCenterDelegate {

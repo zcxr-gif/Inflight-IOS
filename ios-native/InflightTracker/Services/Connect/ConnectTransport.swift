@@ -108,15 +108,22 @@ actor ConnectTransport {
                 case .ready:
                     if settled.claim() { continuation.resume() }
                 case let .failed(error):
-                    if settled.claim() { continuation.resume(throwing: Failure.socket(error.localizedDescription)) }
+                    if settled.claim() {
+                        continuation.resume(throwing: Failure.socket(explain(error, dialling: host)))
+                    }
                 case .cancelled:
                     if settled.claim() { continuation.resume(throwing: Failure.cancelled) }
                 case let .waiting(error):
-                    // Waiting means the path is not viable — usually the device
-                    // is asleep, off this network, or Connect is switched off.
-                    // Reported rather than waited on, because the honest answer
-                    // arrives faster than the retry does.
-                    if settled.claim() { continuation.resume(throwing: Failure.socket(error.localizedDescription)) }
+                    // Waiting is where a refusal lands. Network.framework does
+                    // not treat ECONNREFUSED as fatal — it holds the connection
+                    // open and retries until something answers — so a sim that
+                    // is not running would sit here forever with the UI showing
+                    // a spinner. Reported instead, because "nothing is
+                    // listening" is an answer the pilot can act on and waiting
+                    // is not.
+                    if settled.claim() {
+                        continuation.resume(throwing: Failure.socket(explain(error, dialling: host)))
+                    }
                 default:
                     break
                 }
@@ -198,7 +205,12 @@ actor ConnectTransport {
         }
     }
 
-    /// Sets a state, and waits for the acknowledgement.
+    /// Sets a state.
+    ///
+    /// Nothing comes back. The API acknowledges neither a write nor a command,
+    /// so there is no frame to wait for and no error to surface — which is why
+    /// this returns as soon as the bytes are handed to the socket, and why the
+    /// `timeout` is accepted only to match `read`.
     ///
     /// Which states accept a write is published nowhere — the manifest gives
     /// type and never direction — so this is best-effort by nature and the
@@ -295,6 +307,75 @@ actor ConnectTransport {
         connection?.cancel()
         connection = nil
         reader.reset()
+    }
+}
+
+/// Turns a Network.framework error into something a pilot can act on.
+///
+/// The default is `error.localizedDescription`, which for a refused connection
+/// reads "The operation couldn't be completed. (Network.NWError error 61 —
+/// Connection refused)". That is shown directly under "Couldn't connect" in the
+/// Connect panel, and it tells somebody trying to switch the feature on
+/// precisely nothing about what to do next — even though the error code is one
+/// of the most specific diagnostics available here.
+///
+/// The distinction that matters most is **refused versus timed out**, because
+/// they mean opposite things. Refused is a machine answering and saying "not
+/// here": the address is right and reachable, and nothing is listening on
+/// 10112 — Infinite Flight is closed, or Connect is switched off inside it.
+/// Timed out is silence: wrong address, wrong network, or a sleeping device.
+private func explain(_ error: NWError, dialling host: String) -> String {
+    let loopback = host == ConnectSession.loopback
+    let device = loopback ? "this device" : host
+
+    guard case let .posix(code) = error else {
+        if case let .dns(status) = error {
+            return "Couldn't look up \(host) (DNS error \(status)). An IP address like "
+                 + "192.168.1.42 is more reliable here than a name."
+        }
+        return error.localizedDescription
+    }
+
+    switch code {
+    case .ECONNREFUSED:
+        if loopback {
+            return "Infinite Flight isn't answering on this device. Something is there to "
+                 + "refuse the connection, so the address is right and the sim is not "
+                 + "listening on port \(ConnectProtocol.port): open Infinite Flight, then "
+                 + "check Settings → General → "
+                 + "Enable Infinite Flight Connect. If it is already on, turn off "
+                 + "\"It's on this device\" and enter the address of the device running "
+                 + "the sim instead."
+        }
+        return "\(host) answered, but nothing is listening on port \(ConnectProtocol.port). "
+             + "That is the right device and the wrong state: check Infinite Flight is running on "
+             + "it, and that Settings → General → Enable Infinite Flight Connect is on."
+
+    case .ETIMEDOUT, .EHOSTDOWN:
+        return "No answer from \(device). Either the address is wrong, or that device is "
+             + "asleep or off this network."
+
+    case .EHOSTUNREACH, .ENETUNREACH, .ENETDOWN:
+        return "Can't reach \(device) from here. Both devices need to be on the same "
+             + "Wi-Fi network — a phone that has dropped to cellular cannot see one on "
+             + "the Wi-Fi."
+
+    case .EPERM, .EACCES:
+        // Not a network problem at all, and the one case where nothing the
+        // pilot does inside either app will help.
+        return "iOS is blocking this app from reaching devices on your network. Allow it "
+             + "in Settings → Inflight → Local Network, then try again."
+
+    case .ECONNRESET, .EPIPE, .ENOTCONN:
+        return "\(device) closed the connection. Infinite Flight was probably shut down, "
+             + "or Connect was switched off inside it, part-way through."
+
+    case .EADDRNOTAVAIL, .EINVAL:
+        return "\(host) isn't a usable address. It should look like 192.168.1.42 — find "
+             + "it in Infinite Flight under Settings → General → Infinite Flight Connect."
+
+    default:
+        return error.localizedDescription
     }
 }
 
