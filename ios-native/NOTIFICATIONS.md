@@ -174,6 +174,7 @@ receives anything.
 | Feature | Needs |
 | --- | --- |
 | Takeoff / landing / online / offline pushes | APNs key on the backend, notification permission on the device |
+| "Inflight stopped reading your sim" | The above, plus being signed in — it is the one push addressed to an account rather than to a device token, so it needs the `/api/push/devices` registration `PushService.syncAccountRegistration` makes on launch and on sign-in |
 | Live banner raised by a friend's takeoff | The above, plus `NSSupportsLiveActivities` (set) and a push-to-start token, which iOS only issues on a real device — never the simulator |
 | Home-screen widgets | The app group on both targets |
 | Aircraft photos on widgets | Nothing extra. The app caches them into the group as it fetches them for the flight window; a widget with no cached photo draws its own sky instead |
@@ -183,6 +184,15 @@ receives anything.
 Live Activities cannot be started by push on the simulator, and
 `pushToStartTokenUpdates` never yields there. A takeoff banner has to be
 tested on a device.
+
+`/api/admin/diagnostics` also carries a `liveHydration` block, which is where a
+missing sim-drop notice is diagnosed. `watching: 0` means nobody is broadcasting
+through Connect at all; a non-zero `watching` with `matched: 0` means none of
+those pilots has a flight on the feed right now; and `alerts` counts the notices
+actually delivered. A notice that was due and reached nobody is almost always
+the account registration above — the pilot is signed in on the device, but the
+device never posted its token to `/api/push/devices`, so `push_devices` has no
+row to address.
 
 The backend's `/api/admin/diagnostics` includes a `friendEvents` block —
 how many pilots are being watched, how many flights currently hold ground/air
