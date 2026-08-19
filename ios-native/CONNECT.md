@@ -89,7 +89,11 @@ many UTF-8 bytes, no terminator. Types are `0` bool, `1` Int32, `2` float,
 and is invoked with a read frame.
 
 The device announces itself as JSON over UDP broadcast on port **15000** while
-Connect is enabled; the payload's `Addresses` array carries the IPs.
+Connect is enabled; the payload's addresses array carries the IPs. Its keys are
+read case-insensitively — the v2 documentation spells them `addresses`,
+`deviceName`, `version`, while older payload dumps use `Addresses`,
+`DeviceName`, and a client that hard-codes either one reports "not found"
+against the other.
 
 ### Two rules that are not obvious and are not optional
 

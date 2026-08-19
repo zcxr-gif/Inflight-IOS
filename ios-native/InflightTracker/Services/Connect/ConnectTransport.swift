@@ -198,7 +198,12 @@ actor ConnectTransport {
         }
     }
 
-    /// Sets a state, and waits for the acknowledgement.
+    /// Sets a state.
+    ///
+    /// Nothing comes back. The API acknowledges neither a write nor a command,
+    /// so there is no frame to wait for and no error to surface — which is why
+    /// this returns as soon as the bytes are handed to the socket, and why the
+    /// `timeout` is accepted only to match `read`.
     ///
     /// Which states accept a write is published nowhere — the manifest gives
     /// type and never direction — so this is best-effort by nature and the

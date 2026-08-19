@@ -780,9 +780,18 @@ final class ConnectSession: ObservableObject {
     /// link-local `169.254.x.x` and the loopback are addresses this phone
     /// cannot reach, and picking one of those would fail with a timeout rather
     /// than an explanation.
+    ///
+    /// The key is matched without regard to case, because its spelling is not
+    /// stable: the Connect v2 documentation shows `addresses`, older payload
+    /// dumps show `Addresses`, and a literal subscript for either one silently
+    /// finds nothing against the other — which looks exactly like Infinite
+    /// Flight not being on the network, and sends the pilot to type an address
+    /// by hand for no reason.
     nonisolated static func address(fromBroadcast data: Data) -> String? {
         guard let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let addresses = payload["Addresses"] as? [String] else { return nil }
+              let addresses = payload.first(where: {
+                  $0.key.caseInsensitiveCompare("addresses") == .orderedSame
+              })?.value as? [String] else { return nil }
 
         return addresses.first { candidate in
             let parts = candidate.split(separator: ".")
