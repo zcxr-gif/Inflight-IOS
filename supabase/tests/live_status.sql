@@ -200,6 +200,7 @@ do $$
 declare
   alice uuid := '11111111-1111-1111-1111-111111111111';
   bob   uuid := '22222222-2222-2222-2222-222222222222';
+  carol uuid := '33333333-3333-3333-3333-333333333333';
   r record;
   n integer;
 
@@ -293,7 +294,43 @@ begin
   select count(*) into n from public.pilot_connect_alerts_due(array['FEED-1']) t;
   assert n = 0, 'and the same flight is never announced twice';
 
-  -- 7. A pilot who has turned the notice off is never a candidate for it.
+  -- 7. An overflow is delayed, never dropped. Marking a flight told and getting
+  --    the push through APNs are two different systems and only the first is
+  --    transactional, so the claim has to be bounded by what the caller will
+  --    actually deliver on this pass — and the rest have to still be due.
+  perform pg_temp.acting_as(carol::text);
+  insert into public.pilot_live_status
+    (user_id, flight_id, latitude, longitude, altitude_msl, aircraft, callsign)
+  values (carol, 'FEED-2', 40.0, -70.0, 33000, 'B738', 'SWA22');
+
+  -- Clearing the claim before ageing, not after: this runs as the table owner,
+  -- which RLS does not constrain, and any write that carries a position moves
+  -- `sim_live_at` to now. Done the other way round it silently un-drops both
+  -- pilots and the assertion below fails for a reason that has nothing to do
+  -- with the limit.
+  perform pg_temp.acting_as(alice::text);
+  update public.pilot_live_status set connect_alert_flight_id = null;
+
+  perform pg_temp.age_sim_by(interval '10 minutes');
+
+  select count(*) into n
+    from public.pilot_connect_alerts_due(array['FEED-1', 'FEED-2'], 1) t;
+  assert n = 1, format('a limit of one claims one, got %s', n);
+
+  select count(*) into n
+    from public.pilot_connect_alerts_due(array['FEED-1', 'FEED-2'], 1) t;
+  assert n = 1, format('and the one it did not claim is still due, got %s', n);
+
+  select count(*) into n
+    from public.pilot_connect_alerts_due(array['FEED-1', 'FEED-2'], 1) t;
+  assert n = 0, format('and then nobody is, got %s', n);
+
+  -- Carol has served her purpose; the rest of this is about alice alone.
+  perform pg_temp.acting_as(carol::text);
+  perform public.pilot_live_clear();
+  perform pg_temp.acting_as(alice::text);
+
+  -- 8. A pilot who has turned the notice off is never a candidate for it.
   perform pg_temp.acting_as(alice::text);
   update public.pilot_live_status set connect_alert_flight_id = null where user_id = alice;
   update public.pilot_profiles set connect_alerts = false where user_id = alice;
@@ -301,7 +338,7 @@ begin
   assert n = 0, format('an opted-out pilot is never told, got %s', n);
   update public.pilot_profiles set connect_alerts = true where user_id = alice;
 
-  -- 8. And when the sim comes back it takes the position, and its own clock,
+  -- 9. And when the sim comes back it takes the position, and its own clock,
   --    straight back off the server.
   update public.pilot_live_status
      set latitude = 45.0, longitude = -60.0, true_airspeed_knots = 480
@@ -310,8 +347,8 @@ begin
   assert r.position_source = 'connect', 'the sim takes the position back';
   assert r.sim_live_at > now() - interval '1 minute', 'and restarts its own clock';
 
-  -- 9. Nothing accumulated. Hydration refreshes one upserted row and stops the
-  --    moment the feed stops carrying the flight; housekeeping is unchanged.
+  -- 10. Nothing accumulated. Hydration refreshes one upserted row and stops the
+  --     moment the feed stops carrying the flight; housekeeping is unchanged.
   perform pg_temp.age_by(interval '5 minutes');
   perform public.housekeeping();
   select * into r from public.pilot_live_status where user_id = alice;
@@ -319,7 +356,7 @@ begin
   assert r.position_source is null, 'and takes its source with it';
   assert r.fuel_remaining_kg = 61500, 'while the flight itself survives';
 
-  raise notice 'live_status hydration: 24 assertions passed';
+  raise notice 'live_status hydration: 27 assertions passed';
 end $$;
 
 

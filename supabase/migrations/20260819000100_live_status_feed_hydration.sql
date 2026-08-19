@@ -354,7 +354,18 @@ grant execute on function public.pilot_live_hydrate(jsonb) to service_role;
 -- row; nobody who is using it right now can be, because their sim clock is
 -- fresh; and nobody hears about the same flight twice.
 
-create or replace function public.pilot_connect_alerts_due(p_flight_ids text[])
+-- `p_limit` is not a paging convenience. Marking a flight as told and sending
+-- the notice are two different systems, and only the first is transactional —
+-- so the number claimed here has to be a number the caller will actually get
+-- through APNs on this pass. Claiming two hundred and delivering fifty would
+-- leave a hundred and fifty pilots marked as told and never told, which is the
+-- one outcome worse than telling nobody. The overflow is simply still due on
+-- the next pass.
+
+create or replace function public.pilot_connect_alerts_due(
+  p_flight_ids text[],
+  p_limit integer default 100
+)
 returns table (user_id uuid, handle text, flight_id text, callsign text)
 language plpgsql
 security definer
@@ -364,28 +375,38 @@ begin
   if p_flight_ids is null or array_length(p_flight_ids, 1) is null then return; end if;
 
   return query
-  update public.pilot_live_status s
-     set connect_alert_flight_id = s.flight_id
-   where s.flight_id = any (p_flight_ids)
-     and s.sim_live_at is not null
-     -- Twice the position TTL. One TTL is a Wi-Fi stutter or a phone answering
-     -- a call; eight minutes is the app having been put away.
-     and s.sim_live_at < now() - (public.live_status_ttl() * 2)
-     and s.connect_alert_flight_id is distinct from s.flight_id
-     and exists (
-       select 1 from public.pilot_profiles p
-        where p.user_id = s.user_id
-          and p.connect_alerts)
-  returning s.user_id,
-            (select p.handle from public.pilot_profiles p where p.user_id = s.user_id),
-            s.flight_id,
-            s.callsign;
+  with due as (
+    select s.user_id
+      from public.pilot_live_status s
+      join public.pilot_profiles p on p.user_id = s.user_id
+     where s.flight_id = any (p_flight_ids)
+       and s.sim_live_at is not null
+       -- Twice the position TTL. One TTL is a Wi-Fi stutter or a phone
+       -- answering a call; eight minutes is the app having been put away.
+       and s.sim_live_at < now() - (public.live_status_ttl() * 2)
+       and s.connect_alert_flight_id is distinct from s.flight_id
+       and p.connect_alerts
+     -- Longest quiet first, so an overflow delays the pilots who have only
+     -- just dropped rather than the ones who have been waiting.
+     order by s.sim_live_at
+     limit least(greatest(coalesce(p_limit, 100), 1), 500)
+  ),
+  marked as (
+    update public.pilot_live_status s
+       set connect_alert_flight_id = s.flight_id
+      from due d
+     where d.user_id = s.user_id
+    returning s.user_id, s.flight_id, s.callsign
+  )
+  select m.user_id, p.handle, m.flight_id, m.callsign
+    from marked m
+    join public.pilot_profiles p on p.user_id = m.user_id;
 end $function$;
 
-revoke all on function public.pilot_connect_alerts_due(text[]) from public;
-revoke all on function public.pilot_connect_alerts_due(text[]) from anon;
-revoke all on function public.pilot_connect_alerts_due(text[]) from authenticated;
-grant execute on function public.pilot_connect_alerts_due(text[]) to service_role;
+revoke all on function public.pilot_connect_alerts_due(text[], integer) from public;
+revoke all on function public.pilot_connect_alerts_due(text[], integer) from anon;
+revoke all on function public.pilot_connect_alerts_due(text[], integer) from authenticated;
+grant execute on function public.pilot_connect_alerts_due(text[], integer) to service_role;
 
 -- MARK: - Housekeeping, with the source cleared
 
