@@ -114,13 +114,22 @@ struct PilotBanner: View {
                     // A banner is 5:1 and a photograph rarely is, so it is
                     // filled and cropped rather than letterboxed — the top of
                     // the frame, because that is where the sky is.
-                    .frame(height: height)
+                    //
+                    // Both dimensions, and that is the whole point. Constraining
+                    // only the height left the width to `scaledToFill`, which
+                    // sizes to the image's own aspect: a wide photograph became
+                    // a banner wider than the phone, the header stack took that
+                    // width, and the profile's own `containerRelativeFrame`
+                    // centred the overspill — which is what pushed the avatar
+                    // off the left edge of the screen. Same trap, and the same
+                    // fix, as `AircraftPhotoImage`.
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .clipped()
                     .transition(.opacity)
             }
         }
-        .frame(height: height)
         .frame(maxWidth: .infinity)
+        .frame(height: height)
         .clipped()
         .animation(.easeOut(duration: 0.25), value: loader.image != nil)
         .onAppear { loader.load(url) }
@@ -451,6 +460,15 @@ struct FlightPilotBadge: View {
     /// expands the window — two things on one tap is one too many.
     var isTappable: Bool = true
 
+    /// Whether a Pro pilot is marked as one.
+    ///
+    /// Opt-in rather than always. The flight window has a line to itself for
+    /// the pilot and room for the chip; the peak bar is one strip carrying a
+    /// name, a state and a phase, and a fourth thing there costs the name the
+    /// width it needs. Off by default so the cramped case is the one that has
+    /// to say nothing.
+    var showsPro: Bool = false
+
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @State private var profile: PilotProfile?
     @State private var opened: ProfileLink?
@@ -495,6 +513,14 @@ struct FlightPilotBadge: View {
                 .font(.system(size: nameSize, weight: .semibold))
                 .foregroundStyle(theme.textSecondary)
                 .flightInfoLine()
+
+            // The same mark the profile carries, on the aeroplane. Pro is the
+            // one thing about anybody's billing that is ever public, and a
+            // badge only its owner ever sees is not a badge.
+            if showsPro, profile?.isPro == true {
+                ProBadge()
+                    .fixedSize()
+            }
 
             // A claimed profile is worth marking, because the name on the map
             // is otherwise identical whether somebody is here or not. Small,

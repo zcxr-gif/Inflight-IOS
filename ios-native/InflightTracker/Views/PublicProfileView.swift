@@ -519,7 +519,14 @@ struct PublicProfileView: View {
                 }
             }
 
-            if let summary = summary, !summary.isEmpty {
+            // Drawn at zero rather than withheld until there is something to
+            // show. Hidden, a pilot with no flights yet sees a profile that
+            // simply has no stats on it and reasonably concludes they are
+            // broken; at zero, with a line saying what fills them, the same
+            // profile says what it is waiting for. Still gated on the summary
+            // having *arrived* — zeroes while the read is in flight would be a
+            // different lie.
+            if let summary = summary {
                 PanelDivider()
                 HStack(spacing: 0) {
                     PilotStat(value: "\(summary.flights)", label: "FLIGHTS")
@@ -532,6 +539,19 @@ struct PublicProfileView: View {
                     PilotStat(value: "\(summary.airports)", label: "FIELDS")
                     PilotStat(value: "\(summary.aircraftTypes)", label: "AIRCRAFT")
                     PilotStat(value: "\(summary.regions)", label: "REGIONS")
+                }
+
+                if summary.isEmpty {
+                    PanelDivider()
+                    Text(profile.isSelf
+                         ? "Your logbook writes itself. Finish a flight with Inflight open and these start counting."
+                         : "@\(profile.handle) hasn't finished a flight with Inflight watching yet.")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(theme.textDim)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
                 }
             }
         }
@@ -1037,7 +1057,11 @@ private struct FavouriteAircraftCard: View {
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFill()
-                        .frame(height: 150)
+                        // Width bounded as well as height. Left free, a photo
+                        // wider than its 150pt height allowed for reported its
+                        // own width, and the square corners of that oversized
+                        // frame hung out past the card's rounded ones.
+                        .frame(maxWidth: .infinity, height: 150)
                         .clipped()
                         // The text sits on the photograph, so the photograph
                         // has to stop competing with it at the bottom.

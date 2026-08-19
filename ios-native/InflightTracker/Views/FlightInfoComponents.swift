@@ -456,7 +456,7 @@ struct FlightIdentityBlock: View {
                     // The pilot's own picture when they have claimed a profile
                     // here, and the plain glyph when they have not. Tappable in
                     // this window, which is the one with room to leave for.
-                    FlightPilotBadge(username: flight.username, side: 22)
+                    FlightPilotBadge(username: flight.username, side: 22, showsPro: true)
 
                     PilotStateChip(state: flight.pilotState, theme: theme, elevated: true)
                 }
