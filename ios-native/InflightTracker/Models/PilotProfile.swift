@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// A pilot, as everybody else sees them.
 ///
@@ -134,16 +135,7 @@ struct PilotProfile: Decodable, Equatable, Identifiable {
     /// Parsed rather than trusted: the column's check constraint is
     /// `^#[0-9a-f]{6}$`, and a value that somehow is not gets no colour rather
     /// than a crash or a black profile.
-    var accentColor: Color? {
-        guard let accent else { return nil }
-        let hex = accent.hasPrefix("#") ? String(accent.dropFirst()) : accent
-        guard hex.count == 6, let value = UInt32(hex, radix: 16) else { return nil }
-        return Color(
-            red: Double((value >> 16) & 0xFF) / 255,
-            green: Double((value >> 8) & 0xFF) / 255,
-            blue: Double(value & 0xFF) / 255
-        )
-    }
+    var accentColor: Color? { PilotAccent.color(accent) }
 
     var bannerURL: URL? { AppConfig.profileImageURL(bucket: "pilot-banners", path: bannerPath) }
 
@@ -198,10 +190,21 @@ struct PilotSummary: Decodable, Equatable, Identifiable, Hashable {
     let homeAirport: String?
     let isPro: Bool
 
+    /// The colour this pilot chose, when they are Pro and chose one.
+    ///
+    /// Added to `pilot_summary` by `20260819000000_pilot_accent_in_summary.sql`.
+    /// Before that the type had no such column and this property could not have
+    /// been decoded — which is why an earlier build carried an `accentColor`
+    /// here that referred to a field that did not exist and would not compile.
+    /// Optional all the way down, so a client running ahead of the migration
+    /// simply gets nil and the default ring.
+    let accent: String?
+
     var id: String { handle }
 
     enum CodingKeys: String, CodingKey {
         case handle
+        case accent
         case displayName = "display_name"
         case avatarPath = "avatar_path"
         case ifUsername = "if_username"
@@ -219,16 +222,13 @@ struct PilotSummary: Decodable, Equatable, Identifiable, Hashable {
         favouriteAircraft = try? c.decode(String.self, forKey: .favouriteAircraft)
         homeAirport = try? c.decode(String.self, forKey: .homeAirport)
         isPro = (try? c.decode(Bool.self, forKey: .isPro)) ?? false
+        accent = try? c.decode(String.self, forKey: .accent)
     }
+
+    var accentColor: Color? { PilotAccent.color(accent) }
 
     var avatarURL: URL? { AppConfig.profileImageURL(bucket: "pilot-avatars", path: avatarPath) }
 
-    // No `accentColor` here, and it is not an oversight. A summary is the
-    // `pilot_summary` composite type and nothing more — handle, name, avatar,
-    // IF username, favourite aircraft, home field, the Pro flag — and `accent`
-    // is not one of its columns. The colour lives on the full card, where the
-    // server blanks it for an account whose Pro has lapsed. Adding a property
-    // here would mean decoding a column that is never sent.
     var initials: String {
         let letters = displayName.filter { $0.isLetter || $0.isNumber }
         return String(letters.prefix(2)).uppercased()
@@ -480,6 +480,67 @@ struct PilotBadge: Decodable, Equatable, Identifiable {
         case "distance": return "arrow.left.and.right"
         default: return "rosette"
         }
+    }
+}
+
+/// The colour a pilot draws their profile in.
+///
+/// One place for the format, because it is agreed with a database constraint
+/// rather than with ourselves: `pilot_profiles.accent` is checked against
+/// `^#[0-9a-f]{6}$`, so anything this writes has to be a hash, six digits, and
+/// lower case. Reading and writing therefore live together — a parser and an
+/// encoder that disagree about the case of `#AABBCC` is a row the server
+/// rejects with a constraint violation nobody can read.
+///
+/// Pro, and enforced on the server: the write guard refuses an accent from a
+/// free account, and `pilot_profile_card` stops *serving* the stored value when
+/// a subscription lapses rather than clearing it. So somebody who resubscribes
+/// gets their colour back, and no client has to remember it for them.
+enum PilotAccent {
+
+    /// What the picker offers before anybody reaches for the colour wheel.
+    ///
+    /// Ten, spread around the wheel, and every one of them chosen to hold up as
+    /// a thin ring around a photograph on both a light and a dark ground — which
+    /// rules out the very pale and the very dark ends that would disappear into
+    /// one or the other. Somebody who wants a colour that is not here can still
+    /// have it; this is the shelf, not the fence.
+    static let palette: [String] = [
+        "#4f8ef7", // azure
+        "#3fc1c9", // teal
+        "#37c26b", // green
+        "#a3c236", // moss
+        "#f2b632", // amber
+        "#f2762e", // orange
+        "#e8484e", // red
+        "#e5559b", // pink
+        "#a566f0", // violet
+        "#8892a6", // slate
+    ]
+
+    /// Parsed rather than trusted. A value that is somehow not six hex digits
+    /// gets no colour, rather than a crash or a black profile.
+    static func color(_ hex: String?) -> Color? {
+        guard let hex = hex else { return nil }
+        let digits = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
+        guard digits.count == 6, let value = UInt32(digits, radix: 16) else { return nil }
+        return Color(
+            red: Double((value >> 16) & 0xFF) / 255,
+            green: Double((value >> 8) & 0xFF) / 255,
+            blue: Double(value & 0xFF) / 255
+        )
+    }
+
+    /// The other direction, for the colour wheel. Alpha is dropped on purpose:
+    /// the column stores six digits, and a half-transparent ring is not a
+    /// choice the profile offers.
+    static func hex(_ color: Color) -> String? {
+        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+        guard UIColor(color).getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
+            return nil
+        }
+        let byte = { (value: CGFloat) in Int((min(max(value, 0), 1) * 255).rounded()) }
+        return String(format: "#%02x%02x%02x", byte(red), byte(green), byte(blue))
     }
 }
 

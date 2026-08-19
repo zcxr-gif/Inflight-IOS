@@ -194,7 +194,12 @@ struct PublicProfileView: View {
                 PilotBanner(
                     url: profile.bannerURL,
                     preset: BannerPreset.resolved(profile.bannerPreset),
-                    height: 148
+                    height: 148,
+                    // The server has already decided: it blanks the banner and
+                    // the accent for an account whose Pro has lapsed, and
+                    // `isPro` on the card is the same answer. Nothing is
+                    // re-derived here.
+                    isAnimated: profile.isPro
                 )
 
                 HStack(spacing: 8) {
