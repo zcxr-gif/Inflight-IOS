@@ -27,7 +27,11 @@ final class PilotDirectory: ObservableObject {
     /// How long a fetched card is reused. Long enough to survive a sheet being
     /// dismissed and reopened, short enough that a follow made on another
     /// device shows up without the app being restarted.
-    private static let cacheLifetime: TimeInterval = 90
+    /// `nonisolated` because `Cached` below is a plain nested struct and reads
+    /// it from outside the actor. A `let` of a Sendable type is safe to share;
+    /// without this it inherits the class's main-actor isolation and the read
+    /// is an error under the Swift 6 language mode.
+    private nonisolated static let cacheLifetime: TimeInterval = 90
 
     private struct Cached<Value> {
         let value: Value
