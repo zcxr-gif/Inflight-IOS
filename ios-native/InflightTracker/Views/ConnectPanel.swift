@@ -93,7 +93,7 @@ struct ConnectPanel: View {
         case let .connecting(host): return "Connecting to \(host)"
         case let .syncing(host):    return "Reading the manifest from \(host)"
         case let .live(host):       return "Live from \(host)"
-        case .failed:               return "Not connected"
+        case .waiting:              return "Waiting for Infinite Flight"
         }
     }
 
@@ -135,13 +135,19 @@ struct ConnectPanel: View {
         case .connecting:  return "Connecting"
         case .syncing:     return "Reading what this aircraft publishes"
         case .live:        return "Connected"
-        case .failed:      return "Couldn't connect"
+        case .waiting:     return "Waiting for Infinite Flight"
         }
     }
 
     private var statusDetail: String? {
         switch session.status {
-        case let .failed(reason): return reason
+        case let .waiting(reason):
+            // The reason, and then the thing the old "Couldn't connect" never
+            // said: nobody has to come back and press anything. The session
+            // keeps trying on a backoff for as long as the switch is on, so
+            // starting the sim at any point is enough.
+            return reason + "\n\nStill trying. Start Infinite Flight whenever you like — "
+                 + "this connects by itself and tells you when it does."
         case .live:               return session.manifestSummary
         case .searching:
             return "Infinite Flight announces itself on the network while Connect is on. "
@@ -153,7 +159,9 @@ struct ConnectPanel: View {
     private var statusColour: Color {
         switch session.status {
         case .live:                    return .green
-        case .failed:                  return .orange
+        // Amber rather than the red-adjacent orange a failure had: this is a
+        // state that resolves itself.
+        case .waiting:                 return .orange
         case .searching, .connecting, .syncing: return theme.accent
         case .off:                     return theme.textDim
         }

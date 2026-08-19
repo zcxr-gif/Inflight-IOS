@@ -102,12 +102,13 @@ struct PublicProfileView: View {
                     header(profile)
                     if let problem = problem { problemLine(problem) }
                     relationship(profile)
+                    counts(profile)
                     actions(profile)
                     if let bio = profile.bio, !bio.isEmpty { bioCard(bio) }
                     liveCard
                     simCard
                     favouriteCard(profile)
-                    statsCard(profile)
+                    statsCard
                     recordsCard
                     landingsCard
                     friendsCard(profile)
@@ -211,16 +212,26 @@ struct PublicProfileView: View {
                     isPro: profile.isPro,
                     tint: profile.accentColor
                 )
-                // Lifted onto the banner, which is what makes the header read
-                // as one thing rather than as a picture with a card under it.
-                .offset(y: -30)
-                .padding(.bottom, -30)
+                // The backdrop goes on BEFORE the avatar is moved, so it is
+                // centred on the picture and travels with it.
+                //
+                // It used to be applied after both the offset and a negative
+                // bottom padding, which put it about 45pt too high: `.background`
+                // centres itself on the layout rect it is attached to, the
+                // negative padding had already shortened that rect by 30, and
+                // the circle then carried an offset of its own on top. The
+                // result was a dark disc floating above the avatar's head.
                 .background {
                     Circle()
                         .fill(theme.windowFill)
                         .frame(width: 96, height: 96)
-                        .offset(y: -30)
                 }
+                // Lifted onto the banner, which is what makes the header read
+                // as one thing rather than as a picture with a card under it.
+                // The padding cancels the space the lift would otherwise leave
+                // below, so the name sits where it looks like it should.
+                .offset(y: -30)
+                .padding(.bottom, -30)
 
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
@@ -303,6 +314,28 @@ struct PublicProfileView: View {
             .padding(.horizontal, 16)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    /// Friends, followers, following — directly above the follow button.
+    ///
+    /// These were at the bottom of the stats card, four cards down, which is
+    /// the wrong place for them twice over: they are the numbers somebody
+    /// checks before deciding whether to follow, and they are the only stats on
+    /// the profile that are about *people* rather than about flying. Sitting
+    /// them on top of the button puts the decision and its evidence together,
+    /// and leaves the stats card to be what it says it is.
+    private func counts(_ profile: PilotProfile) -> some View {
+        HStack(spacing: 0) {
+            PilotStat(value: "\(profile.friendCount)", label: "FRIENDS")
+            PilotStat(value: "\(profile.followerCount)", label: "FOLLOWERS") {
+                listing = .followers
+            }
+            PilotStat(value: "\(profile.followingCount)", label: "FOLLOWING") {
+                listing = .following
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 16)
     }
 
     private func actions(_ profile: PilotProfile) -> some View {
@@ -490,20 +523,17 @@ struct PublicProfileView: View {
         }
     }
 
-    private func statsCard(_ profile: PilotProfile) -> some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                PilotStat(value: "\(profile.friendCount)", label: "FRIENDS")
-                PilotStat(value: "\(profile.followerCount)", label: "FOLLOWERS") {
-                    listing = .followers
-                }
-                PilotStat(value: "\(profile.followingCount)", label: "FOLLOWING") {
-                    listing = .following
-                }
-            }
-
-            if let summary = summary, !summary.isEmpty {
-                PanelDivider()
+    /// The flying, and only the flying. Friends and followers moved up to sit
+    /// on the follow button; repeating them here would be two answers to the
+    /// same question on one screen.
+    @ViewBuilder
+    private var statsCard: some View {
+        // Nothing at all rather than an empty card. The counts that used to
+        // guarantee this card had something in it now live above the follow
+        // button, so a pilot with no flights logged would otherwise get a bare
+        // rounded rectangle.
+        if let summary = summary, !summary.isEmpty {
+            VStack(spacing: 0) {
                 HStack(spacing: 0) {
                     PilotStat(value: "\(summary.flights)", label: "FLIGHTS")
                     PilotStat(value: "\(summary.hours)", label: "HOURS")
@@ -511,16 +541,17 @@ struct PublicProfileView: View {
                 }
 
                 PanelDivider()
+
                 HStack(spacing: 0) {
                     PilotStat(value: "\(summary.airports)", label: "FIELDS")
                     PilotStat(value: "\(summary.aircraftTypes)", label: "AIRCRAFT")
                     PilotStat(value: "\(summary.regions)", label: "REGIONS")
                 }
             }
+            .frame(maxWidth: .infinity)
+            .flightInfoSurface(theme, radius: theme.radiusMedium)
+            .padding(.horizontal, 16)
         }
-        .frame(maxWidth: .infinity)
-        .flightInfoSurface(theme, radius: theme.radiusMedium)
-        .padding(.horizontal, 16)
     }
 
     /// What the pilot's own simulator says, which is a different and better

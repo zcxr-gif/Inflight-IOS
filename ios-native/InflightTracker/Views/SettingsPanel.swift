@@ -179,7 +179,7 @@ struct SettingsPanel: View {
         case .connecting:           return "Connecting…"
         case .syncing:              return "Reading what this aircraft publishes…"
         case let .live(host):       return "Connected to \(host)."
-        case let .failed(reason):   return reason
+        case let .waiting(reason):  return "Waiting — \(reason)"
         }
     }
 

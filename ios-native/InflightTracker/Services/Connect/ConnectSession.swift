@@ -42,7 +42,18 @@ final class ConnectSession: ObservableObject {
         case connecting(String)
         case syncing(String)
         case live(String)
-        case failed(String)
+
+        /// Not connected, still trying, and here is why the last attempt did
+        /// not work.
+        ///
+        /// Replaces what used to be `failed`, which was a lie about what the
+        /// session was doing: the loop has always retried forever on a backoff,
+        /// so a pilot who started Infinite Flight a minute later was already
+        /// going to be connected automatically — while the panel sat there
+        /// saying "Couldn't connect" in orange as though it had given up.
+        /// Saying "waiting" is both truer and the thing that makes starting the
+        /// sim second the obvious move.
+        case waiting(String)
 
         var isBusy: Bool {
             switch self {
@@ -53,6 +64,13 @@ final class ConnectSession: ObservableObject {
 
         var isLive: Bool {
             if case .live = self { return true }
+            return false
+        }
+
+        /// Trying, and not there yet — the spinner-or-not question, and the one
+        /// the settings row uses to decide whether to sound patient.
+        var isWaiting: Bool {
+            if case .waiting = self { return true }
             return false
         }
     }
@@ -250,14 +268,27 @@ final class ConnectSession: ObservableObject {
         while !Task.isCancelled {
             do {
                 let address = try await resolveHost()
+                let hadBeenWaiting = retryIndex > 0
+
                 try await attach(to: address)
                 retryIndex = 0
+
+                // Tell them, but only if they were kept waiting.
+                //
+                // The whole point of retrying quietly is that the pilot can
+                // start Infinite Flight whenever they like and put the phone
+                // down; the notification is what closes that loop, and it has
+                // to reach them with this app in the background, which is
+                // exactly where they will be. A connection that worked first
+                // time needs no announcement — they were watching.
+                if hadBeenWaiting { announceConnected(to: address) }
+
                 try await poll()
             } catch is CancellationError {
                 return
             } catch {
                 guard !Task.isCancelled else { return }
-                status = .failed(error.localizedDescription)
+                status = .waiting(error.localizedDescription)
                 await transport.close()
 
                 let delay = Self.retryDelays[min(retryIndex, Self.retryDelays.count - 1)]
@@ -270,6 +301,18 @@ final class ConnectSession: ObservableObject {
                 }
             }
         }
+    }
+
+    /// One line, once, when a link the pilot has been waiting for comes up.
+    private func announceConnected(to address: String) {
+        let place = address == Self.loopback ? "on this device" : "at \(address)"
+        PushService.shared.post(
+            title: "Connected to Infinite Flight",
+            body: "Reading your aircraft from the sim \(place).",
+            // One identifier for this event, so reconnecting through a flaky
+            // Wi-Fi replaces the notice instead of stacking a column of them.
+            identifier: "connect.attached"
+        )
     }
 
     private func resolveHost() async throws -> String {
