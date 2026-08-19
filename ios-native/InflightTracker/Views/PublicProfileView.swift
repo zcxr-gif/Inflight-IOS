@@ -173,6 +173,19 @@ struct PublicProfileView: View {
         }
     }
 
+    /// The line that goes with a shared profile.
+    ///
+    /// The link alone is an address; this is what makes it an introduction. The
+    /// display name only when there is one worth saying — a profile that has
+    /// never set one would otherwise read "Rey (rey)".
+    private func shareMessage(_ profile: PilotProfile) -> String {
+        let name = profile.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !name.isEmpty, name.lowercased() != profile.handle.lowercased() {
+            return "\(name) (@\(profile.handle)) on Inflight"
+        }
+        return "@\(profile.handle) on Inflight"
+    }
+
     // MARK: - Header
 
     private func header(_ profile: PilotProfile) -> some View {
@@ -181,12 +194,21 @@ struct PublicProfileView: View {
                 PilotBanner(
                     url: profile.bannerURL,
                     preset: BannerPreset.resolved(profile.bannerPreset),
-                    height: 148
+                    height: 148,
+                    // The server has already decided: it blanks the banner and
+                    // the accent for an account whose Pro has lapsed, and
+                    // `isPro` on the card is the same answer. Nothing is
+                    // re-derived here.
+                    isAnimated: profile.isPro
                 )
 
                 HStack(spacing: 8) {
                     if let url = AppConfig.publicProfileURL(handle: profile.handle) {
-                        ShareLink(item: url) {
+                        ShareLink(
+                            item: url,
+                            subject: Text("@\(profile.handle) on Inflight"),
+                            message: Text(shareMessage(profile))
+                        ) {
                             headerButton("square.and.arrow.up")
                         }
                         .buttonStyle(.plain)
@@ -502,7 +524,14 @@ struct PublicProfileView: View {
                 }
             }
 
-            if let summary = summary, !summary.isEmpty {
+            // Drawn at zero rather than withheld until there is something to
+            // show. Hidden, a pilot with no flights yet sees a profile that
+            // simply has no stats on it and reasonably concludes they are
+            // broken; at zero, with a line saying what fills them, the same
+            // profile says what it is waiting for. Still gated on the summary
+            // having *arrived* — zeroes while the read is in flight would be a
+            // different lie.
+            if let summary = summary {
                 PanelDivider()
                 HStack(spacing: 0) {
                     PilotStat(value: "\(summary.flights)", label: "FLIGHTS")
@@ -515,6 +544,19 @@ struct PublicProfileView: View {
                     PilotStat(value: "\(summary.airports)", label: "FIELDS")
                     PilotStat(value: "\(summary.aircraftTypes)", label: "AIRCRAFT")
                     PilotStat(value: "\(summary.regions)", label: "REGIONS")
+                }
+
+                if summary.isEmpty {
+                    PanelDivider()
+                    Text(profile.isSelf
+                         ? "Your logbook writes itself. Finish a flight with Inflight open and these start counting."
+                         : "@\(profile.handle) hasn't finished a flight with Inflight watching yet.")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(theme.textDim)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
                 }
             }
         }
@@ -1020,6 +1062,19 @@ private struct FavouriteAircraftCard: View {
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFill()
+                        // Width bounded as well as height. Left free, a photo
+                        // wider than its 150pt height allowed for reported its
+                        // own width, and the square corners of that oversized
+                        // frame hung out past the card's rounded ones.
+                        //
+                        // Two frames rather than one, because there is no
+                        // `frame(maxWidth:height:)` to write: SwiftUI has a
+                        // fixed `frame(width:height:)` and a flexible
+                        // `frame(min/ideal/max…)`, and a call cannot draw from
+                        // both. So the width is taken from the proposal first,
+                        // and the height pinned after. Same chain as
+                        // `PilotBanner`.
+                        .frame(maxWidth: .infinity)
                         .frame(height: 150)
                         .clipped()
                         // The text sits on the photograph, so the photograph

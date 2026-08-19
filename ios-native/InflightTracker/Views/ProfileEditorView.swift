@@ -205,11 +205,17 @@ struct ProfileEditorView: View {
         PanelSection(title: "PICTURES") {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 14) {
+                    // Tinted from the draft rather than from the saved row, so
+                    // the ring changes under the picker as it is dragged. This
+                    // is the only preview of the choice there is.
                     PilotAvatar(
                         url: draft.avatarURL,
                         initials: initials,
                         side: 64,
-                        isPro: entitlements.isPro
+                        isPro: entitlements.isPro,
+                        tint: entitlements.has(.profileBanner)
+                            ? PilotAccent.color(draft.accent)
+                            : nil
                     )
 
                     VStack(alignment: .leading, spacing: 6) {
@@ -237,10 +243,116 @@ struct ProfileEditorView: View {
                 PanelDivider()
 
                 bannerControls
+
+                PanelDivider()
+
+                accentControls
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
         }
+    }
+
+    /// The colour a profile is drawn in.
+    ///
+    /// Ten to choose from and a wheel for anybody who wants something else,
+    /// because a fixed palette is a good default and a bad limit. It sits under
+    /// the banner rather than in a section of its own: it is the same purchase
+    /// (`ProFeature.profileBanner` is "a photograph across the top of your
+    /// public profile, **and the colour it is drawn in**") and the same part of
+    /// the same picture.
+    ///
+    /// Shown to everybody and locked for the unsubscribed rather than hidden
+    /// from them — the same choice the map styles make, and for the same
+    /// reason: nobody can want a thing they have never seen. Tapping a swatch
+    /// without Pro opens the paywall instead of silently doing nothing.
+    @ViewBuilder
+    private var accentControls: some View {
+        let unlocked = entitlements.has(.profileBanner)
+
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 8) {
+                Text("YOUR COLOUR")
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(1)
+                    .foregroundStyle(theme.textDim)
+
+                Spacer(minLength: 6)
+
+                if unlocked {
+                    // The wheel. Bound to the draft, so the ring above and the
+                    // swatch row below both follow it as it is dragged.
+                    ColorPicker(
+                        "",
+                        selection: Binding(
+                            get: { PilotAccent.color(draft.accent) ?? theme.accent },
+                            set: { draft.accent = PilotAccent.hex($0) }
+                        ),
+                        supportsOpacity: false
+                    )
+                    .labelsHidden()
+                    .accessibilityLabel("Pick any colour")
+                }
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    accentSwatch(nil)
+                    ForEach(PilotAccent.palette, id: \.self) { accentSwatch($0) }
+                }
+                .padding(.vertical, 2)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+
+            if !unlocked {
+                Button { isShowingPaywall = true } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "lock").font(.system(size: 10, weight: .bold))
+                        Text("Your own colour is part of Inflight Pro")
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                    .foregroundStyle(theme.textSecondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    /// One swatch. `nil` is the "no colour" one, which is a real choice rather
+    /// than a way of cancelling: a profile without an accent is drawn in the
+    /// app's own, which is what everybody had before this existed.
+    private func accentSwatch(_ hex: String?) -> some View {
+        let selected = draft.accent?.lowercased() == hex
+        let unlocked = entitlements.has(.profileBanner)
+
+        return Button {
+            guard unlocked else {
+                isShowingPaywall = true
+                return
+            }
+            draft.accent = hex
+        } label: {
+            ZStack {
+                if let hex = hex {
+                    Circle().fill(PilotAccent.color(hex) ?? theme.accent)
+                } else {
+                    Circle().fill(theme.surfaceFill)
+                    Image(systemName: "circle.slash")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(theme.textDim)
+                }
+            }
+            .frame(width: 30, height: 30)
+            .overlay {
+                Circle().strokeBorder(
+                    selected ? theme.textPrimary : theme.stroke,
+                    lineWidth: selected ? 2.5 : 1
+                )
+            }
+        }
+        .buttonStyle(.plain)
+        .opacity(unlocked ? 1 : 0.6)
+        .accessibilityLabel(hex == nil ? "No colour" : "Colour \(hex ?? "")")
     }
 
     @ViewBuilder
@@ -249,7 +361,8 @@ struct ProfileEditorView: View {
             PilotBanner(
                 url: entitlements.has(.profileBanner) ? draft.bannerURL : nil,
                 preset: draft.bannerPreset,
-                height: 76
+                height: 76,
+                isAnimated: entitlements.has(.profileBanner)
             )
             .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous))
 

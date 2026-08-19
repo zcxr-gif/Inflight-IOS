@@ -98,11 +98,33 @@ struct FlightActionRow: View {
         .opacity(canReplay ? 1 : 0.45)
     }
 
+    /// Sends a link, not a paragraph.
+    ///
+    /// It used to share `summary` alone, which read well and went nowhere: the
+    /// person receiving it got a description of an aeroplane and no way to look
+    /// at it. The link is an inflight.info address, so it unfurls in a chat app
+    /// with the callsign, the route and the aircraft's photo, opens this app
+    /// straight onto the flight for anybody who has it, and opens the website
+    /// for anybody who does not. The summary rides along as the message body,
+    /// which is where it was always doing its work.
+    @ViewBuilder
     private var shareTile: some View {
-        ShareLink(item: summary) {
-            tile(symbol: "square.and.arrow.up", title: "Share", caption: nil, filled: false)
+        if let url = InflightLink.flight(id: flight.id).webURL {
+            ShareLink(
+                item: url,
+                subject: Text(flight.displayName),
+                message: Text(summary)
+            ) {
+                tile(symbol: "square.and.arrow.up", title: "Share", caption: nil, filled: false)
+            }
+            .buttonStyle(.plain)
+        } else {
+            // No shareable id — the text on its own is still worth sending.
+            ShareLink(item: summary) {
+                tile(symbol: "square.and.arrow.up", title: "Share", caption: nil, filled: false)
+            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
     }
 
     private func tile(symbol: String, title: String, caption: String?, filled: Bool) -> some View {

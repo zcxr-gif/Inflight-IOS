@@ -186,18 +186,29 @@ enum AppConfig {
     /// Where a profile is read on the open web, for sharing.
     ///
     /// The same page the website serves, so a link pasted into a forum post
-    /// opens something a person without the app can read.
+    /// opens something a person without the app can read — and, since the app
+    /// claims the domain, opens the app itself for a reader who has it.
+    ///
+    /// Built by `InflightLink` rather than here, because the address a link is
+    /// *written* to and the address it is *read* back from have to be the same
+    /// string, and two copies of it in two files is how they stop being.
     static func publicProfileURL(handle: String) -> URL? {
-        URL(string: "https://inflight.info/pilot/\(handle)")
+        InflightLink.pilot(handle: handle).webURL
     }
 
-    /// The subscription terms, as App Store Review requires them to be
-    /// reachable from the paywall itself.
+    /// Inflight's own Terms of Use.
     ///
-    /// Apple's standard EULA is the one every app is covered by unless it
-    /// files its own, and it is a link that cannot rot. Swap it for
-    /// inflight.info's own terms page the day there is one.
-    static let termsURL = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")
+    /// Ours, not Apple's. Earlier builds pointed this at the standard EULA,
+    /// which is defensible for a paywall and indefensible everywhere else it is
+    /// used: the terms gate asks people to agree to *our* terms before they can
+    /// use the app at all, and sending them to Apple's boilerplate meant the
+    /// thing they agreed to and the thing they were shown were two different
+    /// documents. The page is `terms.html` at the root of the tracker site,
+    /// served extensionless the same way `/privacy` is.
+    ///
+    /// It is also the link App Review requires on the paywall itself, which an
+    /// app is free to satisfy with its own terms rather than the standard EULA.
+    static let termsURL = URL(string: "https://inflight.info/terms")
 
     static let privacyURL = URL(string: "https://inflight.info/privacy")
 

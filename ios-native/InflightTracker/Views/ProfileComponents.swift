@@ -101,11 +101,36 @@ struct PilotBanner: View {
     let preset: BannerPreset
     var height: CGFloat = 132
 
+    /// Whether the banner moves. Pro.
+    ///
+    /// Motion rather than a different picture, because the thing being sold is
+    /// the same banner everybody has, alive. A painted preset gets a band of
+    /// light crossing it and a slow bloom drifting the other way; a photograph
+    /// gets the gentlest push in and out. All of it is slow enough to be
+    /// noticed rather than watched — a banner that demands attention is a
+    /// banner nobody can read a name in front of.
+    var isAnimated: Bool = false
+
     @StateObject private var loader = RemoteImageLoader()
+
+    /// Somebody who has asked the system for less movement gets none, Pro or
+    /// not. This is decoration; it is the first thing that should go.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Two, at different periods and in opposite directions, so they never line
+    /// up into one obvious sweep.
+    @State private var sheen = false
+    @State private var bloom = false
+
+    private var moves: Bool { isAnimated && !reduceMotion }
 
     var body: some View {
         ZStack {
             preset.gradient
+
+            // Only under a painted banner. With a photograph over the top the
+            // sheen is invisible, and invisible animation is still animation.
+            if moves, loader.image == nil { light }
 
             if let image = loader.image {
                 Image(uiImage: image)
@@ -114,17 +139,102 @@ struct PilotBanner: View {
                     // A banner is 5:1 and a photograph rarely is, so it is
                     // filled and cropped rather than letterboxed — the top of
                     // the frame, because that is where the sky is.
-                    .frame(height: height)
+                    //
+                    // Both dimensions, and that is the whole point. Constraining
+                    // only the height left the width to `scaledToFill`, which
+                    // sizes to the image's own aspect: a wide photograph became
+                    // a banner wider than the phone, the header stack took that
+                    // width, and the profile's own `containerRelativeFrame`
+                    // centred the overspill — which is what pushed the avatar
+                    // off the left edge of the screen. Same trap, and the same
+                    // fix, as `AircraftPhotoImage`.
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    // The photograph's own motion: a push in and out, slow
+                    // enough that you cannot catch it starting. It only ever
+                    // scales *up*, so the frame stays covered.
+                    .scaleEffect(moves && bloom ? 1.055 : 1)
                     .clipped()
                     .transition(.opacity)
             }
         }
-        .frame(height: height)
         .frame(maxWidth: .infinity)
+        .frame(height: height)
         .clipped()
         .animation(.easeOut(duration: 0.25), value: loader.image != nil)
-        .onAppear { loader.load(url) }
+        .onAppear {
+            loader.load(url)
+            start()
+        }
         .onChange(of: url) { _, new in loader.load(new) }
+        // Turning Pro on, or Reduce Motion off, starts it without a redraw of
+        // the whole profile — and the guard inside means turning either off
+        // simply leaves the values where they are, which is where they belong.
+        .onChange(of: moves) { _, _ in start() }
+    }
+
+    /// What crosses a painted banner.
+    ///
+    /// Drawn additively over the gradient rather than as its own colour: the
+    /// six presets are six different palettes, and a highlight that knows what
+    /// is underneath it is one that suits all of them. Sized from the geometry
+    /// so it reads the same on a 76pt strip in the editor and a 148pt header.
+    private var light: some View {
+        GeometryReader { geo in
+            let width = max(geo.size.width, 1)
+
+            ZStack {
+                // The band. Tilted, because a highlight travelling square
+                // across a rectangle reads as a wipe rather than as light.
+                LinearGradient(
+                    colors: [.clear, .white.opacity(0.20), .clear],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+                .frame(width: width * 0.42)
+                .rotationEffect(.degrees(14))
+                .blur(radius: 10)
+                .offset(x: sheen ? width * 0.8 : -width * 0.8)
+
+                // The bloom, going the other way and taking longer about it.
+                RadialGradient(
+                    colors: [.white.opacity(0.15), .clear],
+                    center: .center,
+                    startRadius: 0,
+                    endRadius: width * 0.22
+                )
+                .frame(width: width * 0.5, height: width * 0.5)
+                .blur(radius: 16)
+                .offset(x: bloom ? -width * 0.26 : width * 0.26,
+                        y: bloom ? 10 : -10)
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+        }
+        .blendMode(.plusLighter)
+        .allowsHitTesting(false)
+    }
+
+    private func start() {
+        guard moves else { return }
+
+        // Back to the start, unanimated, before the loop is attached. Without
+        // this a second call is a no-op — the flags are already true, setting
+        // them to true again animates nothing — so motion switched off and on
+        // again would never come back.
+        var reset = Transaction()
+        reset.disablesAnimations = true
+        withTransaction(reset) {
+            sheen = false
+            bloom = false
+        }
+
+        // Two periods that do not divide into each other, so the pair takes a
+        // long time to repeat the same arrangement.
+        withAnimation(.easeInOut(duration: 6.5).repeatForever(autoreverses: true)) {
+            sheen = true
+        }
+        withAnimation(.easeInOut(duration: 10.5).repeatForever(autoreverses: true)) {
+            bloom = true
+        }
     }
 }
 
@@ -168,7 +278,8 @@ struct PilotRow: View {
                     url: pilot.avatarURL,
                     initials: pilot.initials,
                     side: 38,
-                    isPro: pilot.isPro
+                    isPro: pilot.isPro,
+                    tint: pilot.accentColor
                 )
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -246,7 +357,8 @@ struct PilotStrip: View {
                                 url: pilot.avatarURL,
                                 initials: pilot.initials,
                                 side: 46,
-                                isPro: pilot.isPro
+                                isPro: pilot.isPro,
+                                tint: pilot.accentColor
                             )
                             Text(pilot.displayName)
                                 .font(.system(size: 9.5, weight: .semibold))
@@ -451,6 +563,15 @@ struct FlightPilotBadge: View {
     /// expands the window — two things on one tap is one too many.
     var isTappable: Bool = true
 
+    /// Whether a Pro pilot is marked as one.
+    ///
+    /// Opt-in rather than always. The flight window has a line to itself for
+    /// the pilot and room for the chip; the peak bar is one strip carrying a
+    /// name, a state and a phase, and a fourth thing there costs the name the
+    /// width it needs. Off by default so the cramped case is the one that has
+    /// to say nothing.
+    var showsPro: Bool = false
+
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @State private var profile: PilotProfile?
     @State private var opened: ProfileLink?
@@ -483,7 +604,8 @@ struct FlightPilotBadge: View {
                     url: profile.avatarURL,
                     initials: profile.initials,
                     side: side,
-                    isPro: profile.isPro
+                    isPro: profile.isPro,
+                    tint: profile.accentColor
                 )
             } else {
                 Image(systemName: "person.fill")
@@ -495,6 +617,14 @@ struct FlightPilotBadge: View {
                 .font(.system(size: nameSize, weight: .semibold))
                 .foregroundStyle(theme.textSecondary)
                 .flightInfoLine()
+
+            // The same mark the profile carries, on the aeroplane. Pro is the
+            // one thing about anybody's billing that is ever public, and a
+            // badge only its owner ever sees is not a badge.
+            if showsPro, profile?.isPro == true {
+                ProBadge()
+                    .fixedSize()
+            }
 
             // A claimed profile is worth marking, because the name on the map
             // is otherwise identical whether somebody is here or not. Small,

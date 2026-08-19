@@ -456,10 +456,18 @@ struct FlightInfoSurfaceModifier: ViewModifier {
     /// less of it.
     func body(content: Content) -> some View {
         if theme.isGlass {
-            content.glassEffect(
-                .regular.tint(elevated ? theme.elevatedTint : theme.surfaceTint),
-                in: shape
-            )
+            content
+                .glassEffect(
+                    .regular.tint(elevated ? theme.elevatedTint : theme.surfaceTint),
+                    in: shape
+                )
+                // The glass is drawn *in* the shape; the content was not held
+                // to it. A card of text never noticed, because text does not
+                // reach its own corners — a photograph at the top of a card
+                // does, and its square corners sat outside the rounded ones.
+                // The plain path below has always clipped; this is the same
+                // line, on the branch that is actually shipped by default.
+                .clipShape(shape)
         } else {
             content
                 .background { shape.fill(elevated ? theme.elevatedFill : theme.surfaceFill) }

@@ -190,3 +190,25 @@ reset role;
 set request.jwt.claim.sub = '33333333-3333-3333-3333-333333333333'; set role authenticated;
 update public.pilot_profiles set handle = 'tailwind2' where user_id = '33333333-3333-3333-3333-333333333333';
 reset role;
+
+\echo '--- 12. the accent, in a summary'
+-- The colour a Pro pilot chose has to reach the lists, not just their own
+-- card: a colour only its owner ever sees is not a colour. Added to
+-- `pilot_summary` by 20260819000000, which is also why every `setof
+-- pilot_summary` function had to be recreated in the same breath — a select
+-- list one column short of its return type fails at run time, and nothing in
+-- a diff says so.
+set request.jwt.claim.sub = ''; set role anon;
+select handle, is_pro, accent from public.pilot_directory_search('speedbird');
+select handle, is_pro, accent from public.pilot_directory_search('freebird');
+
+-- ...and it stops being served the moment Pro lapses, without the stored value
+-- being cleared, so resubscribing gives the colour back.
+reset role;
+update public.app_store_subscriptions
+   set status = 'expired', expires_at = now() - interval '1 day'
+ where original_transaction_id = 'otx-1';
+set request.jwt.claim.sub = ''; set role anon;
+select handle, is_pro, accent as served from public.pilot_directory_search('speedbird');
+reset role;
+select handle, accent as still_stored from public.pilot_profiles where handle = 'speedbird';

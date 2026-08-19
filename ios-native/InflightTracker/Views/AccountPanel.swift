@@ -149,7 +149,8 @@ struct AccountPanel: View {
                             url: profile.avatarURL,
                             initials: profile.handle.prefix(2).uppercased(),
                             side: 42,
-                            isPro: entitlements.isPro
+                            isPro: entitlements.isPro,
+                            tint: PilotAccent.color(profile.accent)
                         )
 
                         VStack(alignment: .leading, spacing: 3) {

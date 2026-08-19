@@ -25,7 +25,7 @@ A name on the map used to be a string. It now leads to a person.
 | | Free | Inflight Pro |
 | --- | --- | --- |
 | Profile, handle, picture | yes | yes |
-| Banner | one of six painted gradients | **a photograph, and a profile colour** |
+| Banner | one of six painted gradients, still | **a photograph, a colour of your own, and motion** |
 | Logbook | recorded in full; last 20 shown | recorded in full; **all of it shown** |
 | Watchlist | 3 pilots | unlimited |
 | Flight replay | — | yes |
@@ -33,6 +33,21 @@ A name on the map used to be a string. It now leads to a person.
 | Pilot colours | — | yes |
 
 Two rules run through all of it.
+
+### The colour, and the motion
+
+A Pro pilot picks an accent — ten swatches or the colour wheel — and it is the
+ring around their picture wherever they appear: their profile, a friends list, a
+search result, the pilot line in the flight window. `pilot_profiles.accent` is
+checked against `^#[0-9a-f]{6}$`, so `PilotAccent` is the one place that reads
+and writes the format; a parser and an encoder that disagreed about the case of
+`#AABBCC` would be a constraint violation nobody could read.
+
+Their banner also moves: a band of light crossing a painted preset with a slow
+bloom drifting the other way, or the gentlest push in and out of a photograph.
+Reduce Motion turns all of it off, Pro or not — it is decoration, and decoration
+is the first thing that should go. The sheen is not drawn at all under a
+photograph, where nobody could see it.
 
 **Nothing is taken away when a subscription ends.** The banner somebody uploaded
 while paying stays in their row, stops being served, and is there again the day
@@ -99,6 +114,7 @@ a failure.
 | `20260818000100_pilot_profiles.sql` | The profile, the moderation vocabulary, reserved handles, blocks, reports, the write guard, and the two storage buckets |
 | `20260818000200_pilot_follows.sql` | Follows, the mutual-friend definition, and every public read function |
 | `20260818000300_pilot_logbook.sql` | The logbook, its visibility, the free window, the summary and the badges |
+| `20260819000000_pilot_accent_in_summary.sql` | `accent` on the `pilot_summary` type, so a pilot's colour reaches the lists and not only their own card. Recreates the four `setof pilot_summary` functions, which is not optional — a select list one column short of its return type fails at run time |
 
 Run them in order. `supabase/tests/run.sh` applies all of them to a throwaway
 PostgreSQL cluster and exercises the rules — worth running before applying to

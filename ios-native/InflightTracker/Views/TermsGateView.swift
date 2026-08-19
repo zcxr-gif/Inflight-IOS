@@ -51,6 +51,14 @@ struct TermsGateView: View {
                 }
             }
         }
+        // Every other surface in the app stamps this on itself, and this screen
+        // needs it for the same reason plus one of its own: the wordmark is an
+        // asset with a light and a dark artwork, and the catalog picks between
+        // them by the resolved scheme. Without this the gate would draw its
+        // background from `theme` and its logo from whatever the phone happens
+        // to be set to — which, for somebody running the app in Light on a
+        // phone in Dark, is a white logo on a white card.
+        .environment(\.colorScheme, theme.colorScheme)
         .task {
             // Off the main actor: on a cold launch this is the first thing to
             // touch the dataset, and parsing eighteen thousand rows in front of
@@ -177,6 +185,11 @@ struct TermsGateView: View {
 
     private var panel: some View {
         VStack(alignment: .leading, spacing: 16) {
+
+            // The mark, before the sentence. This is the screen somebody agrees
+            // to something on, and the first thing it should establish is whose
+            // terms they are.
+            InflightWordmark(height: 24)
 
             VStack(alignment: .leading, spacing: 7) {
                 Text(TermsStore.shared.isUpdate ? "We've updated our terms" : "Welcome to Inflight")

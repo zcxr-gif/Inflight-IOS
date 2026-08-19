@@ -36,8 +36,27 @@ final class AirportAnnotationView: MKAnnotationView {
 
     static let reuseIdentifier = "airport"
 
-    private static let width: CGFloat = 66
-    private static let glyph: CGFloat = 20
+    /// One size, everywhere.
+    ///
+    /// The marker used to draw the sheet's `AIRPORT_LARGE` glyph at a
+    /// controlled field and `AIRPORT_SMALL` at an uncontrolled one, meaning to
+    /// make a staffed tower the bigger mark. It never did: both sprites are
+    /// square (64px and 44px on a 1024×512 sheet) and both were scaled to fit
+    /// the same 20pt box, so the only thing the swap changed was which of two
+    /// identical-looking glyphs got scaled more. What it did do was make every
+    /// airport on the map small.
+    ///
+    /// So: one glyph, one size, at a size you can actually read — and the
+    /// distinction that was wanted carried by `alpha`, which was already doing
+    /// it and is the half that worked.
+    private static let width: CGFloat = 78
+    private static let glyph: CGFloat = 28
+
+    /// The ICAO under it. Fixed too — a label that shrinks to fit is a second
+    /// size, and four characters at this weight fit the width above with room
+    /// to spare.
+    private static let labelHeight: CGFloat = 14
+    private static let labelGap: CGFloat = 2
 
     private let icon = UIImageView()
     private let label = UILabel()
@@ -54,10 +73,11 @@ final class AirportAnnotationView: MKAnnotationView {
         zPriority = .min
         collisionMode = .circle
 
-        frame = CGRect(x: 0, y: 0, width: Self.width, height: Self.glyph + 15)
+        let below = Self.labelGap + Self.labelHeight
+        frame = CGRect(x: 0, y: 0, width: Self.width, height: Self.glyph + below)
         // The glyph marks the field, so the *glyph* sits on the coordinate,
         // not the middle of a box that also contains a label.
-        centerOffset = CGPoint(x: 0, y: -(15 / 2))
+        centerOffset = CGPoint(x: 0, y: -(below / 2))
 
         icon.frame = CGRect(
             x: (Self.width - Self.glyph) / 2,
@@ -68,11 +88,14 @@ final class AirportAnnotationView: MKAnnotationView {
         icon.contentMode = .scaleAspectFit
         addSubview(icon)
 
-        label.frame = CGRect(x: 0, y: Self.glyph + 1, width: Self.width, height: 12)
+        label.frame = CGRect(
+            x: 0,
+            y: Self.glyph + Self.labelGap,
+            width: Self.width,
+            height: Self.labelHeight
+        )
         label.textAlignment = .center
-        label.font = .systemFont(ofSize: 9.5, weight: .bold)
-        label.adjustsFontSizeToFitWidth = true
-        label.minimumScaleFactor = 0.8
+        label.font = .systemFont(ofSize: 11.5, weight: .bold)
         // Legible on imagery, on a light map and on a dark one. The shadow does
         // the work the map's own colour cannot be relied on for.
         label.layer.shadowColor = UIColor.black.cgColor
@@ -90,12 +113,10 @@ final class AirportAnnotationView: MKAnnotationView {
     func apply(_ annotation: AirportAnnotation) {
         let field = annotation.field
 
-        // The sheet carries two airport glyphs, and the distinction it was
-        // drawn for is exactly the one worth making here: a field somebody is
-        // working reads as the larger mark.
-        icon.image = PlaneSprites.shared.rawIcon(
-            forKey: field.isControlled ? "AIRPORT_LARGE" : "AIRPORT_SMALL"
-        )
+        // The same glyph at every field. `AIRPORT_LARGE` is the higher-
+        // resolution of the sheet's two, so it is the one that survives being
+        // drawn at this size.
+        icon.image = PlaneSprites.shared.rawIcon(forKey: "AIRPORT_LARGE")
 
         label.text = field.airport.icao
 

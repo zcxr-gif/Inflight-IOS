@@ -192,7 +192,21 @@ struct TrackerMapView: UIViewRepresentable {
 
             mapView.preferredConfiguration = style.configuration()
             mapView.isRotateEnabled = style.isFreeCamera
-            mapView.isPitchEnabled = style.isFreeCamera
+            // Never, in any style, including the globe.
+            //
+            // MapKit pins an annotation view to ground level and then draws it
+            // as a billboard facing the screen. That is right for a pin, whose
+            // whole shape says "the thing is under me". It is wrong for these
+            // sprites: a plane icon is drawn as if seen from directly above, so
+            // the moment the camera tilts, the ground falls away behind an icon
+            // that stays flat-on to the viewer and every aircraft reads as
+            // hovering over the planet rather than flying across it.
+            //
+            // Nothing about a sprite can fix that from this side — the tilt is
+            // the cause. So the globe keeps the half of the free camera that is
+            // actually the feature, which is spinning it, and gives up the half
+            // that only ever made the traffic look wrong.
+            mapView.isPitchEnabled = false
 
             if style.isFreeCamera {
                 // Only when the style actually changes — which the guard above

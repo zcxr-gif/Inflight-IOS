@@ -5,6 +5,8 @@ struct ContentView: View {
 
     @EnvironmentObject private var feed: LiveFeed
     @Environment(\.scenePhase) private var scenePhase
+    // For the universal link this app is handed but has no screen for.
+    @Environment(\.openURL) private var openURL
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @ObservedObject private var filters = MapFilters.shared
     @ObservedObject private var weatherPreferences = WeatherPreferences.shared
@@ -78,6 +80,11 @@ struct ContentView: View {
 
     /// Raised when a locked map style is picked.
     @State private var isShowingStylePaywall = false
+
+    /// A profile opened by a shared link. Its own sheet rather than a
+    /// `WindowSheet` case: the window sheet carries the flight window's detents
+    /// and a profile is a full-height screen with none of that.
+    @State private var openedProfile: ProfileLink?
 
     /// A widget tap that hasn't been acted on yet.
     ///
@@ -343,9 +350,35 @@ struct ContentView: View {
             AccountPanel().environmentObject(feed)
         }
         .sheet(isPresented: $isShowingStylePaywall) { ProPanel(highlighted: .mapStyles) }
+        .sheet(item: $openedProfile) { link in
+            PublicProfileView(link: link) { flight in
+                openedProfile = nil
+                openFlight(flight.id)
+            }
+            .environmentObject(feed)
+        }
+        // The private scheme: a widget tile, or a `Link` inside the app.
         .onOpenURL { url in
             guard let link = InflightLink.parse(url) else { return }
             open(link)
+        }
+        // A universal link — an inflight.info address somebody was sent, tapped
+        // in Messages, and which iOS handed to this app instead of Safari
+        // because the app is installed and the entitlement claims the domain.
+        // Same journey from here on; `InflightLink` resolves both forms.
+        .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+            guard let url = activity.webpageURL else { return }
+
+            if let link = InflightLink.parse(url) {
+                open(link)
+            } else {
+                // Ours by domain, but not a screen this app has — the site's
+                // crew centre, the terms page, anything added to inflight.info
+                // later. Sending it on to Safari is the only outcome that is
+                // not a dead end; swallowing it would strand somebody who
+                // tapped a link on a map that ignored them.
+                openURL(url)
+            }
         }
         .onAppear { feed.connect() }
         // Pro can end while the app is open, and a tracker is an app people
@@ -495,6 +528,14 @@ struct ContentView: View {
             guard let airport = AirportStore.shared.airport(icao) else { return }
             selection = nil
             openAirport(airport)
+
+        case .pilot(let handle):
+            // Straight to the profile. No feed lookup and no network gate: the
+            // handle is the address, and `PublicProfileView` is what finds out
+            // whether it belongs to anybody.
+            sheet = nil
+            selection = nil
+            openedProfile = .handle(handle)
 
         case .panel(let name):
             guard let kind = MapPanelKind(rawValue: name) else { return }

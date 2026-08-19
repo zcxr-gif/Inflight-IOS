@@ -18,6 +18,10 @@ struct SettingsPanel: View {
     // Observed so the row underneath says what the link is actually doing
     // rather than only what it is for.
     @ObservedObject private var connect = ConnectSession.shared
+    // For the line under the legal rows saying what was agreed to, and when.
+    @ObservedObject private var terms = TermsStore.shared
+
+    @Environment(\.openURL) private var openURL
 
     /// Both open over this panel rather than replacing it: they are somewhere
     /// you go and come back from, and losing the settings sheet to get to them
@@ -152,6 +156,21 @@ struct SettingsPanel: View {
                 }
             }
 
+            // Our terms, reachable from Settings rather than only from the
+            // gate on first launch. Somebody who agreed eighteen months ago and
+            // now wants to read what they agreed to has nowhere else to go, and
+            // "it was on a screen you tapped through once" is not an answer.
+            PanelSection(title: "LEGAL") {
+                legalRow("Terms of Service", symbol: "doc.text", url: AppConfig.termsURL)
+                PanelDivider()
+                legalRow("Privacy Policy", symbol: "hand.raised", url: AppConfig.privacyURL)
+
+                if let accepted = terms.acceptedAt {
+                    PanelDivider()
+                    aboutRow("Agreed", value: Self.agreedOn.string(from: accepted))
+                }
+            }
+
             PanelSection(title: "ABOUT") {
                 aboutRow("Version", value: version)
                 PanelDivider()
@@ -161,6 +180,15 @@ struct SettingsPanel: View {
                 PanelDivider()
                 aboutRow("Traffic", value: "\(feed.flights.count) aircraft")
             }
+
+            // Signs off the panel. The only place in Settings the mark appears,
+            // and the bottom of the last section is where an app says who made
+            // the thing you have been reading the settings of.
+            InflightWordmark(height: 18)
+                .opacity(0.55)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 4)
+                .padding(.bottom, 6)
         }
         .sheet(isPresented: $isShowingAccount) { AccountPanel() }
         .sheet(isPresented: $isShowingPaywall) { ProPanel() }
@@ -290,6 +318,40 @@ struct SettingsPanel: View {
         // Dimmed rather than disabled: it is still tappable, because the tap is
         // how you find out what it costs.
         .opacity(locked ? 0.6 : 1)
+    }
+
+    /// The day the terms in force were agreed to. Static because a formatter is
+    /// expensive to build and this one never changes.
+    private static let agreedOn: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter
+    }()
+
+    /// A row that leaves the app. Marked with the same outward arrow the terms
+    /// gate uses rather than the chevron a panel row carries, because a chevron
+    /// promises another screen of this app and this is Safari.
+    private func legalRow(_ title: String, symbol: String, url: URL?) -> some View {
+        Button {
+            guard let url = url else { return }
+            openURL(url)
+        } label: {
+            HStack(spacing: 10) {
+                PanelRowLabel(title: title, symbol: symbol)
+
+                Spacer(minLength: 8)
+
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(theme.textDim)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(url == nil)
     }
 
     private func aboutRow(_ title: String, value: String) -> some View {

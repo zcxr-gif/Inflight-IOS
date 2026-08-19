@@ -20,5 +20,22 @@
 	<array>
 		<string>Default</string>
 	</array>
+	<!-- Universal links. What makes a shared inflight.info link open the app
+	     rather than Safari: iOS fetches
+	     https://inflight.info/.well-known/apple-app-site-association, checks
+	     this app's ID is in it, and from then on hands the matching URLs
+	     straight here. Both hosts, because people paste both.
+
+	     Two halves, and only one of them is in this repo. Without the file on
+	     the site the links still work — they just open the website, which is
+	     exactly where they went before — so this is safe to ship ahead of it.
+	     Without this entitlement the file achieves nothing. See
+	     InflightLink.parse and ContentView's onContinueUserActivity for what
+	     happens once a link does arrive. -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:inflight.info</string>
+		<string>applinks:www.inflight.info</string>
+	</array>
 </dict>
 </plist>
