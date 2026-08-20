@@ -240,6 +240,15 @@ them now have a query:
 * `pilot_live_public(limit)` — everybody who set `public`, readable signed-out.
   This is what "broadcast to everyone" means, and it is opt-in twice over: the
   default is still followers, and a pilot has to choose `public` deliberately.
+* `pilot_live_flight(flight_id)` — one flight, found by the id the public feed
+  uses. For the web tracker, below.
+
+The fourth one exists because every other reader comes at this table from the
+pilot and the map comes at it from the other end: it has an aeroplane drawn, it
+holds a flight id, and it has no handle to ask about. It is not a second
+visibility policy — it calls the same `pilot_live_readable` the others do, so
+asking by flight id reveals exactly what asking by handle would and a
+followers-only pilot stays followers-only.
 
 ### Testing it
 
@@ -250,6 +259,14 @@ out of 500 kg in five minutes, that a refuel does not read as a negative burn,
 that a stood-down row keeps its fuel and loses its position, that a phone that
 went flat is treated the same way without being asked, and that the share switch
 still leaves nothing behind.
+
+Its third block is the by-flight-id reader, and asserts the thing that reader
+could quietly get wrong: that it is as revealing as asking by handle and no
+more — a stranger holding the id of a followers-only flight gets nothing, a
+follower gets the row, the pilot always gets her own — that an empty or null id
+is not a wildcard over every row whose `flight_id` was never written, and that
+a quiet flight still answers with its fuel and configuration while withholding
+the position it no longer has.
 
 Its second block is hydration, and asserts the parts of *that* which are about
 time and absence too: that a sim which is still talking is never overwritten,
@@ -281,6 +298,35 @@ is attached *to that same flight id*, the row waits up to 15 seconds for the
 touchdown to arrive before being written, and is marked `source = 'connect'`
 only when a measurement actually landed on it.
 
+### When the catch-up runs
+
+On every start of the session, before the poll loop takes the socket — not on
+`willEnterForeground`, which is where it used to live and which does not fire
+for an object that does not exist yet. `ConnectSession.shared` is first touched
+by `ContentView.onAppear`, by which time a cold launch's foreground
+notification has been and gone; and a cold launch is not the edge case here but
+the ordinary one, because iOS jettisons a backgrounded app over a
+fourteen-hour flight to give Infinite Flight the memory. So the single path
+that mattered most — land, come back, open the app — was the one path that
+never caught up, and the pilot saw nothing happen.
+
+### A remembered address is not a permanent one
+
+`resolveHost` tries the remembered address first, because it is usually right,
+costs nothing, and is the only thing that works where discovery is refused.
+After three failed attempts it goes back out and listens for the broadcast
+again, keeping the old address if nothing announces itself.
+
+That is not a tuning decision, it is the difference between recovering and not.
+The address is a DHCP lease: the device running the sim reboots, rejoins the
+Wi-Fi, or is a different device today, and the number moves. Discovery only
+ever ran when `host` was empty, so nothing ever went to look again — the
+session dialled an address nobody was answering on, once a minute, for the
+length of a flight, while the panel sat on "Waiting for Infinite Flight". The
+panel's own way out was to type the new address, which is the thing the pilot
+came there not knowing; it now also offers **Search the network again**, which
+forgets the address and restarts.
+
 ### The stale-landing trap
 
 The sim holds the last landing until the next one. The first read after
@@ -289,6 +335,23 @@ looking — possibly days ago, possibly a flight already in the logbook. Without
 baseline, the first thing this feature would do on every single connection is
 record a landing that did not happen. `ConnectSession.landingBaseline` adopts
 whatever is already there, silently, and only a *change* from it counts.
+
+## On the web tracker
+
+The site draws the same aeroplanes from the same feed, so it can join to this
+the same way the app does — `pilot_live_flight(flight_id)` on the flight it has
+open, with the anon key it already holds, signed in or not. What it adds to the
+flight window is the half the feed cannot produce: fuel and the burn rate, gear
+and flaps, the lights, N1 and thrust, the wind at the aircraft, and the sim's
+own clock.
+
+Two rules, and they are the same two the app's own readouts follow. **The block
+is absent, not empty, when nobody is broadcasting** — a permanent "waiting for
+aircraft data" on a flight that will never have any is worse than no block at
+all, and it is what the site did before this existed. And **nothing is dated
+now unless it is now**: a hydrated flight shows the sim's figures against
+`sim_live_at` ("3.2 t · 14 min ago"), because the position came from the feed
+and the fuel did not.
 
 ## Sharing it with other pilots
 

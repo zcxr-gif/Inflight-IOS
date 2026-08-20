@@ -359,5 +359,92 @@ begin
   raise notice 'live_status hydration: 27 assertions passed';
 end $$;
 
+-- MARK: - Found by the flight id, which is all a map has
+--
+-- The web tracker holds one identifier for the aeroplane it has drawn -- the
+-- live flight id -- and no handle, so `pilot_live_status_for` cannot answer it
+-- and `pilot_live_public` does not return the id to join on. What matters
+-- about the reader that closes that gap is that it is not a second visibility
+-- policy: asking by flight id has to be exactly as revealing as asking by
+-- handle, or it is a way around the setting rather than a way into the data.
+
+do $$
+declare
+  alice uuid := '11111111-1111-1111-1111-111111111111';
+  bob   uuid := '22222222-2222-2222-2222-222222222222';
+  carol uuid := '33333333-3333-3333-3333-333333333333';
+  r record;
+  n integer;
+begin
+  -- A clean table. Everything above this point was about time passing, and the
+  -- rows it leaves behind are aged in ways that would confuse what follows.
+  delete from public.pilot_live_status;
+
+  perform pg_temp.acting_as(alice::text);
+  insert into public.pilot_live_status
+    (user_id, flight_id, latitude, longitude, altitude_msl, aircraft, callsign,
+     fuel_remaining_kg, gear_state, phase)
+  values (alice, 'WEB-1', 51.4775, -0.4614, 37000, 'A350-900', 'BAW117',
+          62000, 0, 'cruise');
+
+  perform pg_temp.acting_as(carol::text);
+  insert into public.pilot_live_status
+    (user_id, flight_id, latitude, longitude, altitude_msl, aircraft, callsign)
+  values (carol, 'WEB-2', 40.6, -73.8, 33000, 'B738', 'SWA22');
+
+  -- 1. Signed out, from a map holding an id and nothing else.
+  perform pg_temp.acting_as('');
+  select * into r from public.pilot_live_flight('WEB-1');
+  assert r.handle = 'alice', 'a public flight is found by the id the feed uses';
+  assert r.is_live, 'and is live while the position is fresh';
+  assert r.latitude = 51.4775, 'at the position the sim reported';
+  assert r.position_source = 'connect', 'saying which of the two put it there';
+  assert r.fuel_remaining_kg = 62000, 'and carrying what only the sim can see';
+
+  -- 2. The setting is the setting. A stranger with the id gets no more than a
+  --    stranger with the handle, which is the whole point of reusing
+  --    `pilot_live_readable` rather than writing a second rule here.
+  select count(*) into n from public.pilot_live_flight('WEB-2') t;
+  assert n = 0, format('followers-only is not public, got %s', n);
+
+  perform pg_temp.acting_as(bob::text);
+  select count(*) into n from public.pilot_live_flight('WEB-2') t;
+  assert n = 0, format('and bob does not follow carol, got %s', n);
+
+  insert into public.pilot_follows (follower_id, following_id) values (bob, carol);
+  select count(*) into n from public.pilot_live_flight('WEB-2') t;
+  assert n = 1, format('a follower sees what the follower list would show, got %s', n);
+
+  -- 3. And a pilot can always see her own flight, whatever she broadcasts to.
+  perform pg_temp.acting_as(carol::text);
+  select * into r from public.pilot_live_flight('WEB-2');
+  assert r.handle = 'carol', 'a pilot can always read her own flight';
+
+  -- 4. Nothing is found for an id nobody is flying, and an empty id is not a
+  --    wildcard for every row whose `flight_id` was never written.
+  perform pg_temp.acting_as('');
+  select count(*) into n from public.pilot_live_flight('WEB-404') t;
+  assert n = 0, format('an unknown id finds nobody, got %s', n);
+  select count(*) into n from public.pilot_live_flight('') t;
+  assert n = 0, format('and an empty id is not a wildcard, got %s', n);
+  select count(*) into n from public.pilot_live_flight(null) t;
+  assert n = 0, format('nor is null, got %s', n);
+
+  -- 5. The freshness split is `pilot_live_status_for`'s, for the same reason:
+  --    a position is true for four minutes, while "she was at 62 tonnes" is a
+  --    fact about an aeroplane and keeps for the day.
+  perform pg_temp.age_by(interval '5 minutes');
+  select * into r from public.pilot_live_flight('WEB-1');
+  assert r.handle = 'alice', 'a quiet flight is still answered for';
+  assert not r.is_live, 'but is not claimed to be live';
+  assert r.latitude is null, 'and a stale position is withheld';
+  assert r.position_source is null, 'with nothing to attribute';
+  assert r.fuel_remaining_kg = 62000, 'while the flight itself survives';
+  assert r.gear_state = 0, 'configuration included';
+  assert r.sim_live_at is not null, 'dated, so a reader can say how old it is';
+
+  raise notice 'live_status by flight id: 19 assertions passed';
+end $$;
+
 
 rollback;

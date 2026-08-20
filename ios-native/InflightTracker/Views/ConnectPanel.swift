@@ -199,10 +199,27 @@ struct ConnectPanel: View {
             }
 
             Text("Find it in Infinite Flight under Settings → General → Infinite Flight Connect. "
-               + "Leave it blank to search the network instead.")
+               + "Or search the network for it.")
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(theme.textDim)
                 .fixedSize(horizontal: false, vertical: true)
+
+            // The session goes back out to look by itself after a few failed
+            // attempts, so this is not the only way out of a stale address --
+            // it is the way out for somebody who already knows the sim moved
+            // and would rather not wait through the backoff.
+            if !session.host.isEmpty {
+                Button {
+                    addressFocused = false
+                    typedHost = ""
+                    session.searchAgain()
+                } label: {
+                    Label("Search the network again", systemImage: "antenna.radiowaves.left.and.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(theme.accent)
+                }
+                .buttonStyle(.plain)
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)

@@ -179,6 +179,12 @@ final class ConnectSession: ObservableObject {
     private static let retryDelays: [UInt64] = [2, 5, 10, 30, 60]
     private var retryIndex = 0
 
+    /// How many attempts a remembered address gets before the session goes
+    /// back out and looks for the sim again. Three, because the first failure
+    /// is usually the sim not being started yet -- a state that fixes itself
+    /// and wants no searching -- while a third is a number that has moved.
+    private static let attemptsBeforeRediscovery = 3
+
     /// Whether the pilot has been left waiting since they turned this on, and
     /// so is owed the notification when it finally attaches.
     ///
@@ -221,15 +227,10 @@ final class ConnectSession: ObservableObject {
             Task { @MainActor in
                 guard let self, self.isEnabled else { return }
 
-                // Same device: the flight happened while this app was
-                // suspended, so the first thing to do on coming back is ask
-                // the sim what it is still holding. Then resume normally,
-                // which on an iPad in Split View is a full live session and on
-                // a phone is a connection that will not outlive the switch
-                // away.
-                if self.isSameDevice {
-                    await self.catchUp()
-                }
+                // The catch-up used to be here, and only here. It now lives at
+                // the top of `run()` instead, so the cold launch gets it too --
+                // see the note there. Coming back to the foreground is just
+                // another start.
                 self.start()
             }
         }
@@ -274,6 +275,19 @@ final class ConnectSession: ObservableObject {
         if isEnabled { status = .off }
     }
 
+    /// Forget the remembered address and go back out to look for the sim.
+    ///
+    /// The address field cannot express this on its own: it is prefilled with
+    /// whatever was last used and its button is disabled when empty, so a
+    /// pilot whose sim has moved to a new address had no way to say so short
+    /// of typing the new one -- which is the thing they came here not knowing.
+    func searchAgain() {
+        host = ""
+        guard isEnabled else { return }
+        stop()
+        start()
+    }
+
     /// Connect to a specific address, remembering it.
     func connect(to address: String) {
         let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -285,6 +299,21 @@ final class ConnectSession: ObservableObject {
     // MARK: - The loop
 
     private func run() async {
+        // Same device: the flight just flown happened while this app was
+        // suspended behind Infinite Flight -- or was not running at all, which
+        // is the ordinary case after a long one, because iOS jettisons a
+        // backgrounded app to give the sim its memory back. Either way the
+        // simulator is still holding the landing, so a session asks for it
+        // before the poll loop takes the socket.
+        //
+        // This hung off `willEnterForeground` alone, which a cold launch does
+        // not deliver to an object that does not exist yet: `shared` is first
+        // touched by `ContentView.onAppear`, by which point the notification
+        // has been and gone. So the one path that matters most -- land, come
+        // back, open the app -- was the one path that never caught up, and the
+        // pilot saw nothing happen.
+        if isSameDevice { await catchUp() }
+
         while !Task.isCancelled {
             do {
                 let address = try await resolveHost()
@@ -349,12 +378,33 @@ final class ConnectSession: ObservableObject {
         // for. Straight to loopback.
         if isSameDevice { return Self.loopback }
 
-        if !host.isEmpty { return host }
+        // A remembered address is tried first. It is usually right, it costs
+        // nothing, and it is the only thing that works at all on a network
+        // where discovery is refused.
+        //
+        // What it is not is permanent. The address is a DHCP lease: the device
+        // running the sim reboots, rejoins the Wi-Fi, or is a different device
+        // this time, and the number moves. Discovery only ever ran when `host`
+        // was empty, so nothing ever went to look again -- the session dialled
+        // an address nobody was answering on, once a minute, for the length of
+        // a flight, while the panel sat on "Waiting for Infinite Flight" with
+        // no way out but typing a new address by hand.
+        if !host.isEmpty && retryIndex < Self.attemptsBeforeRediscovery {
+            return host
+        }
 
         status = .searching
-        let found = try await discover()
-        host = found
-        return found
+        do {
+            let found = try await discover()
+            host = found
+            return found
+        } catch {
+            // Nothing announced itself. A remembered address that has been
+            // failing is still a better guess than no address at all, so it
+            // takes the next attempt rather than the session giving up on it.
+            guard !host.isEmpty else { throw error }
+            return host
+        }
     }
 
     private func attach(to address: String) async throws {
@@ -577,6 +627,10 @@ final class ConnectSession: ObservableObject {
 
         } catch {
             await transport.close()
+            // A cancelled catch-up is the switch being turned off mid-read, and
+            // `stop()` has already cleared this. Reporting it would put the
+            // result back after the state it belongs to has gone.
+            guard !Task.isCancelled else { return }
             // Not an error worth showing as one. On a phone the simulator being
             // gone by the time you switch across is the ordinary case, not a
             // fault.
