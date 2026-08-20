@@ -47,6 +47,24 @@ enum AppConfig {
         URL(string: "\(socketURLString)/api/push/device-live-activity-tokens")
     }
 
+    /// Where this device's APNs token is tied to the signed-in **account**.
+    ///
+    /// The subscription above is the other direction, and both are needed. A
+    /// watchlist push is about somebody you are watching, so it is addressed by
+    /// the token that registered the watch and needs no account at all. A push
+    /// about *your own* flight — the sim link dropping mid-flight, which only
+    /// the server can see, because the app is suspended when it happens — has
+    /// to reach the pilot, and the server knows whose flight it is by the
+    /// account the live status is keyed on. `push_devices` is the only table
+    /// that joins an account to a device.
+    static var pushDevicesURL: URL? {
+        URL(string: "\(socketURLString)/api/push/devices")
+    }
+
+    static func pushDeviceURL(deviceToken: String) -> URL? {
+        URL(string: "\(socketURLString)/api/push/devices/\(deviceToken)")
+    }
+
     /// The Supabase project the web tracker has always used — same accounts,
     /// same passwords, same `profiles` table (`old/www/flight.js`, where
     /// `supabaseUrl` and `supabaseKey` are declared). Signing in here is

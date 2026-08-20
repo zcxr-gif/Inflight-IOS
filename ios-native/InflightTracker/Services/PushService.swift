@@ -109,6 +109,7 @@ final class PushService: NSObject, ObservableObject {
             // banner.
             FriendsStore.shared.syncToBackend()
             LiveActivityController.shared.registerPushToStartToken()
+            self.syncAccountRegistration()
         }
     }
 
@@ -116,6 +117,71 @@ final class PushService: NSObject, ObservableObject {
         // Not fatal and not worth surfacing: this is routinely a simulator, or
         // a device with no network yet. The next launch tries again.
         print("[push] APNs registration failed: \(error.localizedDescription)")
+    }
+
+    // MARK: - The account this device belongs to
+
+    /// Ties this device's APNs token to the signed-in account.
+    ///
+    /// Every notification the app has sent until now is about somebody you are
+    /// *watching*, and needs no account: the backend addresses those by the
+    /// APNs token that registered the watch, which is the whole identity the
+    /// tracker has ever had.
+    ///
+    /// A notice about your **own** flight cannot work that way. The one the
+    /// server can send — that Connect has stopped reading your sim, which by
+    /// definition happens while this app is suspended behind Infinite Flight
+    /// and cannot notice it itself — is addressed to the pilot, and the server
+    /// knows which pilot by the account their live status is keyed on. So the
+    /// account has to be able to find a device, and this is that link.
+    ///
+    /// Idempotent, and silent about everything: it needs both halves, and
+    /// signed out with no token is the ordinary state of a fresh install
+    /// rather than a failure. Re-sent on launch, on a new token and on sign-in,
+    /// which between them repair a registration that failed while offline.
+    func syncAccountRegistration() {
+        guard let token = deviceToken, let url = AppConfig.pushDevicesURL else { return }
+
+        Task {
+            guard let accessToken = await AccountStore.shared.currentAccessToken() else { return }
+
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            request.timeoutInterval = 15
+            request.httpBody = try? JSONSerialization.data(
+                withJSONObject: ["deviceToken": token, "platform": "ios"]
+            )
+
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                if let http = response as? HTTPURLResponse, http.statusCode >= 300 {
+                    print("[push] Account registration rejected: HTTP \(http.statusCode)")
+                }
+            } catch {
+                // Nothing to retry here on purpose: the next launch re-sends it.
+                print("[push] Account registration failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Unties it again, on the way out of an account.
+    ///
+    /// Takes the token it should forget rather than reading it, because sign-out
+    /// is exactly the moment the account it belonged to is being torn down —
+    /// and leaving the row behind would mean the next person to sign in on this
+    /// device receives the previous pilot's flight notices.
+    func clearAccountRegistration(accessToken: String) {
+        guard let token = deviceToken,
+              let url = AppConfig.pushDeviceURL(deviceToken: token) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 15
+
+        URLSession.shared.dataTask(with: request) { _, _, _ in }.resume()
     }
 }
 
@@ -202,6 +268,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         // Re-sends the whole list on every launch, which is what repairs a
         // subscription that failed to save while the phone was offline.
         FriendsStore.shared.syncToBackend()
+        // Repairs a registration that failed while the phone was offline, and
+        // covers the launch where APNs hands back the token it already had and
+        // `handleRegistration` short-circuits.
+        PushService.shared.syncAccountRegistration()
         LiveActivityController.shared.resumeTracking()
         return true
     }

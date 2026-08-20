@@ -650,38 +650,103 @@ struct AltitudeProfileCard: View {
         .flightInfoSurface(theme, radius: theme.radiusMedium)
     }
 
+    /// Where each sample sits along the x-axis, as a fraction of the whole
+    /// track.
+    ///
+    /// Distance, not sample index. The breadcrumbs are thinned by distance but
+    /// the backend's history and the live feed do not sample at the same rate,
+    /// so an index axis stretches whichever part of the flight happened to be
+    /// sampled hardest — usually the bit since the window was opened, which
+    /// makes a fourteen-hour cruise look like a third of the flight. Plotting
+    /// against distance flown makes the shape match the map.
+    private var fractions: [Double] {
+        guard points.count >= 2 else { return points.isEmpty ? [] : [0] }
+
+        var running: [Double] = [0]
+        var total: Double = 0
+        for (from, to) in zip(points, points.dropFirst()) {
+            total += FlightProgress.distanceNM(from: from.coordinate, to: to.coordinate)
+            running.append(total)
+        }
+
+        // A track that has not moved — an aircraft parked with the window open
+        // — has no distance to divide by, so it falls back to even spacing
+        // rather than stacking every sample on the left edge.
+        guard total > 0 else {
+            let last = Double(points.count - 1)
+            return (0..<points.count).map { Double($0) / last }
+        }
+        return running.map { $0 / total }
+    }
+
     private var profile: some View {
         GeometryReader { geometry in
             let size = geometry.size
             let values = altitudes
+            let xs = fractions
             let ceiling = max(values.max() ?? 1, 1)
 
             ZStack {
-                shape(in: size, values: values, ceiling: ceiling, closed: true)
+                // The fill carries the ramp as a vertical gradient, so the
+                // colour under the trace agrees with the height it is drawn at
+                // rather than being a tint of the accent.
+                shape(in: size, values: values, xs: xs, ceiling: ceiling, closed: true)
                     .fill(
                         LinearGradient(
-                            colors: [theme.accent.opacity(0.22), theme.accent.opacity(0.02)],
-                            startPoint: .top,
-                            endPoint: .bottom
+                            stops: gradientStops(ceiling: ceiling, opacity: 0.30),
+                            startPoint: .bottom,
+                            endPoint: .top
                         )
                     )
 
-                shape(in: size, values: values, ceiling: ceiling, closed: false)
-                    .stroke(theme.accent.opacity(0.85), style: StrokeStyle(lineWidth: 1.8, lineJoin: .round))
+                // And the trace itself is stroked with the same ramp, which is
+                // what makes a climb read as a sweep through the colours the
+                // map is drawing the path in.
+                shape(in: size, values: values, xs: xs, ceiling: ceiling, closed: false)
+                    .stroke(
+                        LinearGradient(
+                            stops: gradientStops(ceiling: ceiling, opacity: 1),
+                            startPoint: .bottom,
+                            endPoint: .top
+                        ),
+                        style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
+                    )
             }
         }
     }
 
-    private func shape(in size: CGSize, values: [Double], ceiling: Double, closed: Bool) -> Path {
-        Path { path in
-            guard values.count >= 2, size.width > 0, size.height > 0 else { return }
+    /// Ramp stops placed at the height each colour actually means, scaled to
+    /// this flight's ceiling.
+    ///
+    /// Anchored to feet rather than spread evenly, so a short hop that never
+    /// leaves 8,000 ft draws entirely in the low colours instead of running the
+    /// whole ramp inside its own small range and claiming to have been to the
+    /// flight levels.
+    private func gradientStops(ceiling: Double, opacity: Double) -> [Gradient.Stop] {
+        let heights = stride(from: 0.0, through: 1.0, by: 0.125).map { $0 * ceiling }
+        return heights.map { feet in
+            Gradient.Stop(
+                color: Color(uiColor: AltitudeBand.color(forFeet: feet)).opacity(opacity),
+                location: ceiling > 0 ? CGFloat(feet / ceiling) : 0
+            )
+        }
+    }
 
-            let step = size.width / CGFloat(values.count - 1)
+    private func shape(
+        in size: CGSize,
+        values: [Double],
+        xs: [Double],
+        ceiling: Double,
+        closed: Bool
+    ) -> Path {
+        Path { path in
+            guard values.count >= 2, values.count == xs.count,
+                  size.width > 0, size.height > 0 else { return }
 
             func point(_ index: Int) -> CGPoint {
                 let normalised = CGFloat(values[index] / ceiling)
                 return CGPoint(
-                    x: CGFloat(index) * step,
+                    x: CGFloat(xs[index]) * size.width,
                     // A little headroom so the peak doesn't sit on the edge.
                     y: size.height - normalised * (size.height - 3) - 1
                 )

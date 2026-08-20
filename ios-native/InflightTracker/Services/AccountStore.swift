@@ -251,6 +251,10 @@ final class AccountStore: ObservableObject {
     @MainActor
     func signOut() async {
         if let token = accessToken {
+            // Before the token goes: the device's push registration belongs to
+            // the account, and a row left behind sends this pilot's own flight
+            // notices to whoever signs in on this phone next.
+            PushService.shared.clearAccountRegistration(accessToken: token)
             await SupabaseAuth.signOut(accessToken: token)
         }
 
@@ -462,6 +466,11 @@ final class AccountStore: ObservableObject {
         // has does not need it before the map appears.
         ProfileStore.shared.accountChanged()
         PilotDirectory.shared.accountChanged()
+
+        // And the device now has an account for the server to reach it by, for
+        // the one notification that is about this pilot's own flight rather
+        // than about somebody they are watching.
+        PushService.shared.syncAccountRegistration()
     }
 
     @MainActor

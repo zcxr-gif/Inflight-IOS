@@ -13,7 +13,10 @@ That single fact decides the shape of the feature:
 
 * It **never replaces the live feed.** The feed is a cloud service describing
   everybody's flights and is what the map is built on. Connect describes one
-  aircraft, in far more detail, and only sometimes.
+  aircraft, in far more detail, and only sometimes. The two are joined rather
+  than ranked: when Connect goes quiet mid-flight the server fills the position
+  back in from the feed, and says which of them it came from — see *The position
+  the server can see, and the one it cannot*.
 * Every consumer must work **without** it. The logbook records flights inferred
   from the feed exactly as it always has; Connect upgrades those rows rather
   than being required for them.
@@ -27,7 +30,7 @@ impossible; that was wrong, and wrong in a way worth writing down.
 |---|---|---|---|
 | **Two devices**, same Wi-Fi | LAN, discovered or typed | Local network prompt; discovery may need the multicast entitlement | Everything, live, for the whole flight |
 | **One iPad**, Split View or Stage Manager | `127.0.0.1` | **None** | Everything, live, for the whole flight |
-| **One iPhone**, or iPad full screen | `127.0.0.1` | **None** | The landing, read when you come back |
+| **One iPhone**, or iPad full screen | `127.0.0.1` | **None** | The landing, read when you come back — and the flight stays on other people's maps throughout, from the feed |
 
 Two things make the one-device case work.
 
@@ -146,7 +149,7 @@ when it would read as days.
 
 | | What happens | What is left |
 |---|---|---|
-| **Sim detaches** — app closed, phone asleep | `pilot_live_stand_down()` | The flight: aircraft, route, phase, fuel, elapsed. No position. |
+| **Sim detaches** — app closed, phone asleep | `pilot_live_stand_down()` | The flight: aircraft, route, phase, fuel, elapsed. No position from the sim. |
 | **Nothing said at all** — battery flat mid-ocean | `housekeeping()` does it on a timer | The same, within four minutes |
 | **Share switch off** | `pilot_live_clear()` | Nothing. The row is deleted. |
 
@@ -156,6 +159,67 @@ housekeeping if nobody got the chance — so the database never accumulates a
 track. What outlives it is "they were at 3.2 tonnes an hour ago", which is a
 fact about an aeroplane rather than a location, and it expires by itself after
 a day. Turning broadcasting off is unchanged and still means *forget it*.
+
+### The position the server can see, and the one it cannot
+
+The first two rows of that table used to mean the pilot disappeared off
+everybody else's map about four minutes into the flight — at exactly the point
+it got interesting — because the only thing that could see them had been
+suspended behind Infinite Flight.
+
+It no longer does. `flight_id` is the same id the public feed uses, and the feed
+is a cloud service the backend is already holding in memory for every server on
+every poll. So `live_hydrate.cjs` matches the two, and refreshes the position of
+any broadcasting pilot whose sim has gone quiet from the feed instead.
+
+What it will not do is the point of it:
+
+* **It never creates a row.** Hydration finds rows. The share switch is still
+  the only thing that makes one, and turning it off still deletes.
+* **It never outbids a sim that is talking.** The gate is in the database, not
+  in the backend: `pilot_live_hydrate` only touches rows whose `sim_live_at` is
+  already past the TTL. A pilot on an iPad in Split View is never hydrated at
+  all.
+* **It never invents what the feed cannot see.** Fuel, gear, flaps, lights, N1,
+  the wind at the aircraft and the ATC transcript stay exactly as the sim last
+  reported them. What they gain is a clock — `sim_live_at` — so a reader can say
+  "3.2 t · 14 min ago" rather than implying it is now.
+
+`position_source` says which of the two wrote the position currently on the row,
+and every read function returns it. The privacy question is the same one as
+before and has the same answer: nothing accumulates, because it is the same
+upserted row, and housekeeping still strips the position four minutes after the
+last sample of *either* kind — so a flight the feed has dropped ends on exactly
+the clock it always did.
+
+### And the notice, which only the server can send
+
+A Connect link that drops mid-flight drops precisely when the app is too deeply
+suspended to notice, retry, or announce a retry. `ConnectSession` posts a local
+notice when a connection the pilot was kept waiting for finally comes up, and
+that is worth keeping — but it can only ever fire while they are looking at the
+screen, which is the one moment it tells them nothing.
+
+So the server says it instead. `pilot_connect_alerts_due` returns the pilots
+whose flight is on the feed right now and whose sim has been quiet for twice the
+TTL, and marks each flight as told **in the same statement** — dedupe that
+survives a redeploy, because being told twice on one flight is worse than not
+being told at all. Two conditions make it specific rather than nagging: the
+`flight_id` has to match, which only the app can have written, and `sim_live_at`
+has to be set, which means Connect worked on this flight and has since stopped.
+Somebody who has never used Connect has no row and cannot be reached by it.
+
+It arrives as a `passive` push, because interrupting a hand-flown approach to
+report that the telemetry went quiet would be worse than the problem. Pilots who
+would rather not hear it at all set `pilot_profiles.connect_alerts` to false.
+
+Reaching the pilot at all needed one new piece of plumbing. Every other push in
+the app is about somebody you are *watching* and is addressed by the APNs token
+that registered the watch; this one is about your own flight and is addressed by
+the account your live status is keyed on. `PushService.syncAccountRegistration`
+posts the token to `/api/push/devices` with the account's own bearer token, which
+is the only thing that joins the two — and sign-out deletes it, so the next
+person to sign in on the phone does not inherit the last one's flight notices.
 
 Liveness is therefore not a timestamp test. A row is live when it last arrived
 carrying a position **and** that position is fresh; nulling the position is what
@@ -186,6 +250,17 @@ out of 500 kg in five minutes, that a refuel does not read as a negative burn,
 that a stood-down row keeps its fuel and loses its position, that a phone that
 went flat is treated the same way without being asked, and that the share switch
 still leaves nothing behind.
+
+Its second block is hydration, and asserts the parts of *that* which are about
+time and absence too: that a sim which is still talking is never overwritten,
+that a suspended app's pilot comes back onto her follower's list and the public
+one, that the fuel and the burn rate survive a hydrate rather than being dragged
+to zero by a server reporting the same figure back to itself, that the sim clock
+does not move when the feed writes, that the drop notice fires once and only
+once and never for somebody who opted out, and that the sim takes the position
+straight back when it returns. The clamping that keeps one strange feed reading
+from aborting the whole batch is asserted on the other side, in the backend's
+`live_hydrate.test.cjs`.
 
 ## How it fits together
 
@@ -339,6 +414,18 @@ plainly what switching it on exposes.
 **Backgrounding.** iOS suspends the app and the socket dies with it. The session
 closes deliberately on `didEnterBackground` so the next foreground starts from a
 known state rather than from a half-dead connection whose every read times out.
+
+This is not a bug with a fix waiting to be found, and it is worth writing down
+why, because it is asked about repeatedly. The background modes that hold a TCP
+socket open for fourteen hours are `audio`, `location` and `voip`; none of them
+describes this app, and silent audio or an unused location subscription claimed
+to keep a socket alive is a 2.5.4 rejection. `BGAppRefreshTask` gets about thirty
+seconds, opportunistically, and iOS deprioritises it hardest exactly when a
+flight simulator is holding the GPU and the thermal budget. What can be done
+instead is above: the *server* keeps the flight on the map, and the two
+configurations where the app genuinely stays foregrounded for the whole flight —
+an iPad in Split View, or a second device on the same Wi-Fi — remain the ones
+that get live Connect telemetry end to end.
 
 ## The probe
 

@@ -14,6 +14,10 @@ struct ContentView: View {
     @ObservedObject private var accounts = AccountStore.shared
     @ObservedObject private var identity = PilotIdentity.shared
     @ObservedObject private var highlightPreferences = PilotHighlightPreferences.shared
+    /// The claimed profile, for the avatar in the corner. Observed rather
+    /// than read once: a picture uploaded in the editor should appear up here
+    /// without the map being rebuilt.
+    @ObservedObject private var profiles = ProfileStore.shared
 
     @State private var selection: SelectedFlight?
 
@@ -656,7 +660,16 @@ struct ContentView: View {
     /// Top right, where an account lives in almost every app, and on the one
     /// screen you always come back to — Settings still has the same row, but
     /// nobody should have to go three taps deep to find out whether they are
-    /// signed in. Its initials *are* the state: two letters means signed in, a
+    /// signed in.
+    ///
+    /// It shows the pilot's actual profile picture once they have claimed a
+    /// handle and uploaded one. It used to draw initials whatever was set,
+    /// which meant the one place the avatar is always on screen was the one
+    /// place it was never their avatar. `PilotAvatar` is the same component the
+    /// profile screens use, so the picture here is loaded through the same
+    /// cache and falls back to the same initials-on-accent when there is none.
+    ///
+    /// The state reading survives: a picture or initials means signed in, a
     /// glyph means not, and a dot marks Pro.
     private var profileButton: some View {
         Button {
@@ -664,11 +677,14 @@ struct ContentView: View {
         } label: {
             Group {
                 if let account = accounts.account {
-                    Text(account.initials)
-                        .font(.system(size: 13, weight: .bold, design: .rounded))
-                        .foregroundStyle(theme.onAccent)
-                        .frame(width: 38, height: 38)
-                        .background { Circle().fill(theme.accent) }
+                    PilotAvatar(
+                        url: profiles.profile?.avatarURL,
+                        // The profile's initials when there is one, because
+                        // that is the name other pilots see; the account's
+                        // otherwise.
+                        initials: profiles.profile?.initials ?? account.initials,
+                        side: 38
+                    )
                 } else {
                     Image(systemName: "person.crop.circle")
                         .font(.system(size: 17, weight: .medium))
