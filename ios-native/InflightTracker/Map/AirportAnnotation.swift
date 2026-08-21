@@ -99,10 +99,15 @@ final class AirportAnnotationView: MKAnnotationView {
 
         label.text = field.airport.icao
 
+        // The ICAO carries the field's flight category, in the four colours a
+        // pilot already reads them in. Done with the text rather than another
+        // dot beside it: the marker is a pin, a code and nothing else, and the
+        // code is the part everyone is looking at anyway.
+        label.textColor = WeatherService.shared.cached(field.airport.icao)?.flightCategory.colour ?? .white
+
         // A staffed field is the one you would go looking for, so it is the one
         // that gets full strength; a busy but uncontrolled field is drawn back
         // far enough to read as context.
-        label.textColor = .white
         alpha = field.isControlled ? 1 : 0.72
     }
 }

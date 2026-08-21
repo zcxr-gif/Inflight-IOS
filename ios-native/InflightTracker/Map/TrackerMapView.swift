@@ -151,6 +151,12 @@ struct TrackerMapView: UIViewRepresentable {
 
         private var annotations: [String: FlightAnnotation] = [:]
 
+        /// The flight category each marked field was last drawn in, so a
+        /// report that lands after the marker repaints it. Without this the
+        /// field diff is the only thing that redraws a marker, and a field
+        /// whose traffic has not changed would keep its old colour.
+        private var renderedCategories: [String: String] = [:]
+
         /// When each drawn aircraft was last in a packet, so one the feed skips
         /// for a moment can be held rather than removed and re-added.
         private var lastSeen: [String: Date] = [:]
@@ -329,14 +335,23 @@ struct TrackerMapView: UIViewRepresentable {
 
             var additions: [AirportAnnotation] = []
 
+            // The reports behind the colours, for the fields being marked and
+            // no others.
+            WeatherService.shared.prefetch(Array(wanted.keys))
+
             for (icao, field) in wanted {
+                let category = WeatherService.shared.cached(icao)?.flightCategory.rawValue ?? ""
+
                 if let existing = airportAnnotations[icao] {
-                    guard existing.field != field else { continue }
+                    let repaint = renderedCategories[icao] != category
+                    guard existing.field != field || repaint else { continue }
                     existing.field = field
+                    renderedCategories[icao] = category
                     if let view = mapView.view(for: existing) as? AirportAnnotationView {
                         view.apply(existing)
                     }
                 } else {
+                    renderedCategories[icao] = category
                     let annotation = AirportAnnotation(field: field)
                     airportAnnotations[icao] = annotation
                     additions.append(annotation)
@@ -347,6 +362,7 @@ struct TrackerMapView: UIViewRepresentable {
             for (icao, annotation) in airportAnnotations where wanted[icao] == nil {
                 removals.append(annotation)
                 airportAnnotations.removeValue(forKey: icao)
+                renderedCategories.removeValue(forKey: icao)
             }
 
             if !removals.isEmpty { mapView.removeAnnotations(removals) }

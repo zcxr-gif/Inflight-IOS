@@ -270,6 +270,8 @@ struct AirportPanel: View {
                 VStack(alignment: .leading, spacing: 0) {
                     report(metar)
                     PanelDivider()
+                    category(metar)
+                    PanelDivider()
                     raw(metar)
                 }
             } else {
@@ -312,6 +314,32 @@ struct AirportPanel: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
+    }
+
+    /// What the field is good for, in the colour the map is drawing its ICAO
+    /// in — which is what makes the four colours out there mean something.
+    private func category(_ metar: Metar) -> some View {
+        let category = metar.flightCategory
+
+        return HStack(spacing: 10) {
+            Text(category.rawValue)
+                .font(.system(size: 11, weight: .heavy, design: .rounded))
+                .foregroundStyle(Color(uiColor: category.colour))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background {
+                    Capsule().fill(Color(uiColor: category.colour).opacity(0.16))
+                }
+
+            Text(category.detail)
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(theme.textDim)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
     }
 
     /// The report as it was written. Kept because it is the only thing on the

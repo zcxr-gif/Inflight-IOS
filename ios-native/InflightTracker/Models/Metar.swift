@@ -1,10 +1,41 @@
 import Foundation
+import UIKit
 
 /// A parsed METAR, kept to what the weather pill actually shows.
 ///
 /// The Capacitor build read the same reports (`old/www/weather.js`) but only
 /// pulled out wind, temperature and cloud groups by regex; this goes a little
 /// further so the icon can tell rain from snow from a clear night.
+/// The four categories a field's weather is read in, and the four colours
+/// every chart and every other tracker draws them in. Kept to those colours on
+/// purpose: this is a convention a pilot already knows, and inventing a nicer
+/// palette for it would only mean it had to be learned.
+enum FlightCategory: String {
+    case vfr = "VFR"
+    case mvfr = "MVFR"
+    case ifr = "IFR"
+    case lifr = "LIFR"
+
+    var colour: UIColor {
+        switch self {
+        case .vfr: return UIColor(red: 0.30, green: 0.83, blue: 0.45, alpha: 1)
+        case .mvfr: return UIColor(red: 0.36, green: 0.68, blue: 1.00, alpha: 1)
+        case .ifr: return UIColor(red: 1.00, green: 0.35, blue: 0.32, alpha: 1)
+        case .lifr: return UIColor(red: 0.85, green: 0.44, blue: 0.98, alpha: 1)
+        }
+    }
+
+    /// What it means, for the panel that has room to say so.
+    var detail: String {
+        switch self {
+        case .vfr: return "Ceiling above 3,000 ft and more than 5 miles visibility."
+        case .mvfr: return "Ceiling 1,000–3,000 ft, or 3–5 miles visibility."
+        case .ifr: return "Ceiling 500–1,000 ft, or 1–3 miles visibility."
+        case .lifr: return "Ceiling below 500 ft, or under a mile of visibility."
+        }
+    }
+}
+
 struct Metar: Equatable {
 
     enum Coverage: Int, Comparable {
@@ -32,6 +63,11 @@ struct Metar: Equatable {
     let windGustKnots: Int?
 
     let visibilityMetres: Int?
+
+    /// Lowest broken or overcast layer, in feet. Nil where nothing is broken
+    /// or overcast, which is the same as saying there is no ceiling — a few
+    /// or scattered layer is not one.
+    let ceilingFeet: Int?
     let coverage: Coverage
     let precipitation: Precipitation?
 
@@ -53,6 +89,7 @@ struct Metar: Equatable {
         var gust: Int?
         var visibility: Int?
         var coverage: Coverage = .clear
+        var ceiling: Int?
         var precipitation: Precipitation?
 
         for token in tokens.dropFirst() {
@@ -94,8 +131,20 @@ struct Metar: Equatable {
 
             if token.hasPrefix("FEW") { coverage = max(coverage, .few) }
             else if token.hasPrefix("SCT") { coverage = max(coverage, .scattered) }
-            else if token.hasPrefix("BKN") { coverage = max(coverage, .broken) }
-            else if token.hasPrefix("OVC") || token.hasPrefix("VV") { coverage = max(coverage, .overcast) }
+            else if token.hasPrefix("BKN") {
+                coverage = max(coverage, .broken)
+                ceiling = Metar.lowest(ceiling, in: token, after: 3)
+            }
+            else if token.hasPrefix("OVC") {
+                coverage = max(coverage, .overcast)
+                ceiling = Metar.lowest(ceiling, in: token, after: 3)
+            }
+            else if token.hasPrefix("VV") {
+                // Vertical visibility: the sky is obscured, and the figure is
+                // how far up you can see. It is a ceiling by any reading.
+                coverage = max(coverage, .overcast)
+                ceiling = Metar.lowest(ceiling, in: token, after: 2)
+            }
 
             if precipitation == nil {
                 precipitation = weather(in: token)
@@ -111,9 +160,48 @@ struct Metar: Equatable {
             windSpeedKnots: speed,
             windGustKnots: gust,
             visibilityMetres: visibility,
+            ceilingFeet: ceiling,
             coverage: coverage,
             precipitation: precipitation
         )
+    }
+
+    /// The height out of a layer token — `BKN012` is 1,200 ft — keeping
+    /// whichever of it and what we already had is lower. A ceiling is the
+    /// lowest broken layer, not the last one written down.
+    private static func lowest(_ current: Int?, in token: String, after prefix: Int) -> Int? {
+        let digits = token.dropFirst(prefix).prefix(3)
+        guard digits.count == 3, let hundreds = Int(digits) else { return current }
+        let feet = hundreds * 100
+        guard let current = current else { return feet }
+        return min(current, feet)
+    }
+
+    /// What the field is legally good for, by the American thresholds every
+    /// tracker draws in the same four colours.
+    ///
+    /// Worked out from the ceiling and the visibility, worst of the two
+    /// deciding — which is how a pilot reads it, and the reason a field with a
+    /// clear sky can still be red.
+    var flightCategory: FlightCategory {
+        let statuteMiles = visibilityMetres.map { Double($0) / 1609.34 }
+        let ceiling = ceilingFeet
+
+        // Nothing said about either is not the same as good weather, but a
+        // report with no visibility group and no cloud group is CAVOK-shaped
+        // and reads as VFR everywhere else.
+        if statuteMiles == nil && ceiling == nil { return .vfr }
+
+        if (ceiling.map { $0 < 500 } ?? false) || (statuteMiles.map { $0 < 1 } ?? false) {
+            return .lifr
+        }
+        if (ceiling.map { $0 < 1_000 } ?? false) || (statuteMiles.map { $0 < 3 } ?? false) {
+            return .ifr
+        }
+        if (ceiling.map { $0 <= 3_000 } ?? false) || (statuteMiles.map { $0 <= 5 } ?? false) {
+            return .mvfr
+        }
+        return .vfr
     }
 
     /// `12/07`, `M03/M05` — temperature over dew point, `M` for below zero.
