@@ -430,6 +430,17 @@ struct ConnectPanel: View {
                 )
             )
 
+            if let blocker = sharingBlocker {
+                PanelDivider()
+
+                Text(blocker)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 11)
+            }
+
             if publisher.isSharing {
                 PanelDivider()
 
@@ -466,6 +477,40 @@ struct ConnectPanel: View {
                 .padding(.vertical, 11)
             }
         }
+    }
+
+    /// Why the flight window is empty, in the order the publisher checks.
+    ///
+    /// Every one of these is a condition `LiveStatusPublisher.publishIfAble`
+    /// returns silently on, and a silent return looks identical from the
+    /// outside to a feature that does not work. The switch being off is the
+    /// commonest by a distance — it is a second switch, defaulting off, on a
+    /// screen whose first switch is the one everybody is thinking about — and
+    /// the position being unpublished is the one nobody would ever guess.
+    ///
+    /// Only shown once the sim is actually attached. Before that there is
+    /// nothing to publish and saying so would be nagging.
+    private var sharingBlocker: String? {
+        guard session.status.isLive else { return nil }
+
+        if !publisher.isSharing {
+            return "Nothing about this flight is being sent anywhere, so your flight window "
+                 + "has nothing to show. That is what the switch above does."
+        }
+        if !profiles.hasProfile {
+            return "Sign in and claim a handle. A live status belongs to a profile, and "
+                 + "there is nowhere to put one without it."
+        }
+        if !session.telemetry.hasPosition {
+            return "This aircraft isn't publishing a position over Connect, so there is "
+                 + "nothing to send. See NOT PUBLISHED BY THIS AIRCRAFT below — that list "
+                 + "is what to send me."
+        }
+        if publisher.lastPublished == nil {
+            return "Connected, and nothing sent yet. The first row goes out on the first "
+                 + "full pass; if this stays here, the reason is above or below it."
+        }
+        return nil
     }
 
     private var sharingDetail: String {
@@ -520,6 +565,9 @@ struct ConnectPanel: View {
                 }
                 if let squawk = session.telemetry.transponderCode {
                     reading("Squawk", String(format: "%04d", squawk))
+                }
+                if let atc = session.telemetry.atcFacility {
+                    reading("On frequency", atc)
                 }
                 // Only when true. A panel that says "Stalling: no" is a panel
                 // nobody reads the day it says yes.
@@ -634,15 +682,44 @@ struct ConnectPanel: View {
         } else if session.status.isLive,
                   session.unresolvedFields.contains(.atcMessage) {
             PanelSection(title: "ON FREQUENCY") {
-                Text("This build of Infinite Flight doesn't publish ATC messages over "
-                   + "Connect, so there is nothing to show. Everything else still works.")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(theme.textDim)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 11)
+                VStack(alignment: .leading, spacing: 8) {
+                    if let atc = session.telemetry.atcFacility {
+                        Text("Tuned to \(atc).")
+                            .font(.system(size: 12.5, weight: .semibold))
+                            .foregroundStyle(theme.textPrimary)
+                    }
+
+                    // Two different things, and conflating them is what makes
+                    // this look broken: the comm radio publishes the name of
+                    // the controller, and that is all it publishes. The
+                    // transcript is a separate pushed stream that this build of
+                    // Infinite Flight does not appear to expose at all.
+                    Text(atcNoTranscriptText)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(theme.textDim)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 11)
             }
         }
+    }
+
+    /// Why a panel headed "on frequency" has no words on it.
+    ///
+    /// The comm radio publishes who you are tuned to and nothing else. The
+    /// transcript is a separate pushed stream that this build of Infinite
+    /// Flight does not appear to expose, and saying so is better than an empty
+    /// box that looks like a bug in this app.
+    private var atcNoTranscriptText: String {
+        if session.telemetry.atcFacility == nil {
+            return "Nothing on frequency. Infinite Flight publishes the controller's name "
+                 + "over Connect but not what is said, so there is no transcript to show — "
+                 + "everything else still works."
+        }
+        return "Infinite Flight publishes the controller's name over Connect but not the "
+             + "messages themselves, so this is as far as it goes. Everything else still "
+             + "works."
     }
 
     // MARK: - Copy

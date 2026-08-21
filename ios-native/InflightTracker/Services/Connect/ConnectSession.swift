@@ -1070,6 +1070,9 @@ final class ConnectSession: ObservableObject {
         case .serverID:          snapshot.serverID = value.text
         case .serverName:        snapshot.serverName = value.text
         case .username:          snapshot.username = value.text
+        case .atcFacility:
+            let name = value.text?.trimmingCharacters(in: .whitespacesAndNewlines)
+            snapshot.atcFacility = (name?.isEmpty ?? true) ? nil : name
         case .appState:          snapshot.appState = value.text
         case .appVersion:        snapshot.appVersion = value.text
         case .engineCount:       snapshot.engineCount = value.number.map { Int($0) }

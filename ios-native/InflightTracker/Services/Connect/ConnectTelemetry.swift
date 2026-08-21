@@ -24,6 +24,11 @@ struct ConnectTelemetry: Equatable {
     /// typed into a settings field.
     var username: String?
 
+    /// The name of the ATC facility this aircraft is tuned to, when the comm
+    /// radio publishes one. Empty between frequencies, which is why it is
+    /// stored as nil rather than as a blank line.
+    var atcFacility: String?
+
     /// What the app is doing — playing, paused, in a menu. Used to tell a
     /// genuinely stationary aircraft from one whose pilot is in the settings
     /// screen.

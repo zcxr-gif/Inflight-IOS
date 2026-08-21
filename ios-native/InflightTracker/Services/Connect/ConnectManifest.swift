@@ -70,6 +70,49 @@ struct ConnectManifest {
         for path in candidates {
             if let entry = byPath[path] { return entry }
         }
+        return resolveByLeaf(candidates)
+    }
+
+    /// Last resort: the right leaf in the right namespace.
+    ///
+    /// Every candidate list in `ConnectField` is a list of exact spellings, and
+    /// an exact spelling is a bet that Infinite Flight has not moved a state
+    /// since somebody wrote it down. When that bet loses, the field is simply
+    /// never read — the panel lists it as unpublished and the pilot sees an
+    /// empty flight window with nothing to explain it. That is a bad way to
+    /// fail, because the state is usually *there*, one directory along:
+    /// `aircraft/0/latitude` becoming
+    /// `aircraft/0/systems/nav_sources/gps/location/latitude` is a rename, not
+    /// a removal.
+    ///
+    /// So a miss falls back to the last path component, scoped to the
+    /// namespace the candidate named — and for `aircraft`, to aircraft **0**,
+    /// which is the one being flown. Without that scope a latitude could be
+    /// answered by another aeroplane's.
+    ///
+    /// The shortest match wins, so the canonical `aircraft/0/latitude` is
+    /// preferred over a copy buried in a subsystem, and ties break
+    /// alphabetically so the choice is at least stable between connections.
+    private func resolveByLeaf(_ candidates: [String]) -> Entry? {
+        for candidate in candidates {
+            guard let slash = candidate.lastIndex(of: "/") else { continue }
+            let leaf = String(candidate[candidate.index(after: slash)...])
+
+            // Short leaves match far too much. `on`, `id`, `name` and `state`
+            // appear under dozens of subsystems, and a wrong number is worse
+            // than a missing one.
+            guard leaf.count >= 5 else { continue }
+
+            let root = String(candidate.prefix(while: { $0 != "/" }))
+            let scope = root == "aircraft" ? "aircraft/0/" : root + "/"
+            let suffix = "/" + leaf
+
+            let best = byPath
+                .filter { $0.key.hasPrefix(scope) && $0.key.hasSuffix(suffix) }
+                .min { ($0.key.count, $0.key) < ($1.key.count, $1.key) }
+
+            if let best { return best.value }
+        }
         return nil
     }
 
@@ -206,6 +249,15 @@ enum ConnectField: String, CaseIterable {
     /// the note on `ConnectTransport.Waiter`.
     case atcMessage
 
+    /// Who this aeroplane is tuned to, by name — "Los Angeles Tower".
+    ///
+    /// Not a transcript and not a substitute for one. It is the single state
+    /// the comm radio publishes, it is polled like any other, and it changes
+    /// when the pilot changes frequency. Worth having on its own: it is the
+    /// half of "on frequency" that is actually in the manifest, where the
+    /// message stream may well not be in this build at all.
+    case atcFacility
+
     // MARK: Landing statistics
     //
     // What the public feed can never produce. A touchdown lasts a fraction of
@@ -316,6 +368,13 @@ enum ConnectField: String, CaseIterable {
             return ["upstream/atc/message_received",
                     "api/upstream/atc/message_received",
                     "atc/message_received"]
+        // Observed in a real manifest rather than guessed from the developer
+        // reference, which is why it leads. com_2 is the standby radio and is
+        // read only if com_1 is absent.
+        case .atcFacility:
+            return ["aircraft/0/systems/comm_radios/com_1/atc_name",
+                    "aircraft/0/systems/comm_radios/com_2/atc_name",
+                    "aircraft/0/comm_radios/com_1/atc_name"]
 
         case .nearestAirport: return ["infiniteflight/nearest_airport"]
         case .nextWaypoint:
@@ -392,6 +451,7 @@ enum ConnectField: String, CaseIterable {
         case .turbulence:        return "Turbulence"
         case .atcStreamEnable:   return "ATC message stream"
         case .atcMessage:        return "ATC messages"
+        case .atcFacility:       return "ATC frequency name"
         case .nearestAirport:    return "Nearest airport"
         case .nextWaypoint:      return "Next waypoint"
         case .flightTime:        return "Flight time"
@@ -431,7 +491,8 @@ enum ConnectField: String, CaseIterable {
         .fuelRemaining, .engineN1, .engineThrust,
         .warningStalling, .warningOverspeed,
         .windDirection, .windVelocity, .windGust, .temperature,
-        .nearestAirport, .nextWaypoint, .flightTime, .transponderCode
+        .nearestAirport, .nextWaypoint, .flightTime, .transponderCode,
+        .atcFacility
     ]
 
     /// Read once when the connection opens, and again when the flight changes.
