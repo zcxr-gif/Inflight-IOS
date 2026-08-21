@@ -350,6 +350,35 @@ struct ConnectPanel: View {
         }
     }
 
+    /// The sim says one name and the profile says another.
+    ///
+    /// Worth a whole block because it is the likeliest reason a pilot who has
+    /// set everything up correctly hears nothing about their own flight: the
+    /// server looks for the name on the profile, the map shows the name in the
+    /// sim, and when they differ the join between the two simply does not
+    /// exist. Not fixed silently — a profile is public, and the handle on it is
+    /// the pilot's to choose.
+    private func identityMismatch(_ name: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Your profile says @\(profiles.profile?.ifUsername ?? "") and the sim says "
+               + "\(name). Announcements about your own flight are addressed by the name on "
+               + "your profile, so while these differ they cannot reach you.")
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button {
+                Task { await profiles.replaceIFUsername(with: name) }
+            } label: {
+                Text("Use \(name)")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(theme.accent)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.top, 2)
+    }
+
     // MARK: - Sharing
 
     private var sharingSection: some View {
@@ -422,6 +451,7 @@ struct ConnectPanel: View {
                 if let username = session.telemetry.username {
                     reading("Pilot", username)
                 }
+                if let mismatch = session.simUsernameMismatch { identityMismatch(mismatch) }
                 if let server = session.telemetry.serverName {
                     reading("Server", server)
                 }

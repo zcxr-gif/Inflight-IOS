@@ -104,6 +104,17 @@ handle read out of the running sim rather than typed into a settings field,
 which is a materially stronger claim than anything `pilot_profiles.if_username`
 carries today.
 
+Both of those were read, displayed, and then dropped, which made the stronger
+claim worth nothing. They are now the two ways the server knows whose flight it
+is looking at when it announces a takeoff or a top of descent — the flight id
+through the `pilot_live_status` row, and the handle through
+`ConnectSession.adoptIdentity`, which fills in a blank `if_username` from the
+sim and offers the swap in the panel when the profile says something else. See
+*Your own flight, announced to you* in `NOTIFICATIONS.md`. This is also why the
+username field carries several candidate spellings now and the other two do
+not: a rename that costs a line in a panel is a nuisance, and a rename that
+silently costs the join is a pilot who hears nothing about their own flight.
+
 ## The wire
 
 Version 2, TCP port **10112**. Version 1 (JSON, 10111) is deprecated and not

@@ -88,6 +88,54 @@ $function$;
 comment on function public.pilot_flight_alert_targets(integer) is
   'Feed username -> account, for the backend''s own-flight announcer. Service role only: it is a list of who flies under which handle, which is not a public index to hand out.';
 
+-- MARK: - The other join, which needs no handle at all
+--
+-- The join above is a handle typed into a settings field, and that is a weak
+-- thing to hang a feature on: it can be blank, misspelled, or somebody else's.
+-- There is a stronger one available whenever Connect has attached even briefly,
+-- and it costs nothing to use.
+--
+-- `pilot_live_status.flight_id` is the id the PUBLIC FEED uses, written by the
+-- app out of the running simulator — `infiniteflight/live/current_flight/id`.
+-- A row carrying it is the pilot saying "this aeroplane on your map is me", in
+-- terms the backend can check against the feed directly, with no name matching
+-- anywhere in it. On a phone that is now reachable in the thirty-second
+-- background window as the pilot switches into the sim: one row, and the
+-- announcements work for the rest of the flight without the app running at all.
+--
+-- The two are used together, not ranked. Somebody who has never used Connect is
+-- reached by their handle; somebody whose handle is blank or contested is
+-- reached by the flight they published; somebody with both is found twice and
+-- notified once, because the notice is deduplicated per flight id downstream.
+
+create or replace function public.pilot_flight_alert_live_targets(
+  p_limit integer default 5000
+)
+returns table (user_id uuid, handle text, flight_id text)
+language sql
+security definer
+set search_path to 'public'
+as $function$
+  select s.user_id, p.handle, s.flight_id
+    from public.pilot_live_status s
+    join public.pilot_profiles p on p.user_id = s.user_id
+   where p.flight_alerts
+     and s.flight_id is not null
+     and length(btrim(s.flight_id)) > 0
+   -- Freshest first: an overflow should drop the pilot whose row has been
+   -- sitting there longest, not the one who just took off.
+   order by s.updated_at desc
+   limit least(greatest(coalesce(p_limit, 5000), 1), 50000);
+$function$;
+
+comment on function public.pilot_flight_alert_live_targets(integer) is
+  'Feed flight id -> account, for the backend''s own-flight announcer. The stronger half of the join: the flight id came out of the running simulator rather than out of a text field. Service role only.';
+
+revoke all on function public.pilot_flight_alert_live_targets(integer) from public;
+revoke all on function public.pilot_flight_alert_live_targets(integer) from anon;
+revoke all on function public.pilot_flight_alert_live_targets(integer) from authenticated;
+grant execute on function public.pilot_flight_alert_live_targets(integer) to service_role;
+
 revoke all on function public.pilot_flight_alert_targets(integer) from public;
 revoke all on function public.pilot_flight_alert_targets(integer) from anon;
 revoke all on function public.pilot_flight_alert_targets(integer) from authenticated;

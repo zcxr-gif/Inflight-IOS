@@ -228,7 +228,18 @@ enum ConnectField: String, CaseIterable {
         case .flightID:   return ["infiniteflight/live/current_flight/id"]
         case .serverID:   return ["infiniteflight/live/current_server/id"]
         case .serverName: return ["infiniteflight/live/current_server/name"]
-        case .username:   return ["infiniteflight/current_user"]
+        // More than one spelling, unlike the two above, because this one now
+        // does something rather than being displayed: it fills in the join
+        // between this account and an aeroplane on the map. A rename that costs
+        // a line in a panel is a nuisance; a rename that silently costs the
+        // join is a pilot who is told nothing about their own flight.
+        case .username:   return [
+            "infiniteflight/current_user",
+            "infiniteflight/live/current_user",
+            "infiniteflight/current_user/name",
+            "infiniteflight/live/current_user/username",
+            "infiniteflight/username",
+        ]
         case .appState:   return ["infiniteflight/app_state"]
         case .appVersion: return ["infiniteflight/app_version"]
 

@@ -279,6 +279,7 @@ final class ConnectSession: ObservableObject {
         isOwedConnectionNotice = false
         announcedProblem = nil
         hasAnnouncedThisWindow = false
+        simUsernameMismatch = nil
         endBackgroundWindow(expired: false)
     }
 
@@ -679,7 +680,56 @@ final class ConnectSession: ObservableObject {
         }
         next.sampledAt = Date()
         telemetry = next
+
+        adoptIdentity(from: next)
     }
+
+    /// The pilot's own name, taken from the simulator rather than asked for.
+    ///
+    /// `infiniteflight/current_user` has been read on every connection since
+    /// Connect existed, shown in the panel, and then dropped on the floor —
+    /// while the same name, typed by hand into a settings field, is what joins
+    /// this account to an aeroplane on the map. Everything that needs to know
+    /// which flight is yours needs that join: the map's "this is me", and the
+    /// server's announcements about your own flight, which cannot be addressed
+    /// without it.
+    ///
+    /// Asking somebody to type a name the app is already being told is how the
+    /// join ends up blank or misspelled, so a blank one is filled in from here.
+    /// A DIFFERENT one is not overwritten: a profile is public, and rewriting
+    /// the name on it because a simulator disagreed is a surprise rather than a
+    /// repair. `ConnectPanel` offers that swap instead, with both names in
+    /// front of the pilot.
+    private func adoptIdentity(from snapshot: ConnectTelemetry) {
+        guard let raw = snapshot.username?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else { return }
+
+        // The local one first: it is what the map highlights your own aeroplane
+        // by, it is nobody else's business, and a blank one there is pure loss.
+        if !PilotIdentity.shared.isSet {
+            PilotIdentity.shared.set(raw)
+        }
+
+        guard let profile = ProfileStore.shared.profile else { return }
+        let stored = profile.ifUsername.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if stored.isEmpty {
+            Task { await ProfileStore.shared.adoptSimUsername(raw) }
+            simUsernameMismatch = nil
+        } else if stored.lowercased() != raw.lowercased() {
+            simUsernameMismatch = raw
+        } else {
+            simUsernameMismatch = nil
+        }
+    }
+
+    /// The name the sim reports, when the profile says something else.
+    ///
+    /// Surfaced rather than acted on. It is the likeliest reason a pilot who
+    /// has done everything right hears nothing about their own flight — the
+    /// server is looking for the name on the profile and the map is showing the
+    /// one in the sim — and it is not a thing to fix behind their back.
+    @Published private(set) var simUsernameMismatch: String?
 
     // MARK: - Catching up on one device
     //

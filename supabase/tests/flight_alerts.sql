@@ -81,4 +81,58 @@ begin
   raise notice 'own-flight alert targets: 8 assertions passed';
 end $$;
 
+-- MARK: - The join that needs no handle
+--
+-- The whole reason this second one exists: a pilot whose profile has no
+-- Infinite Flight handle — or the wrong one — is unreachable by name, and is
+-- reachable by the flight id their own app published out of the simulator.
+
+do $$
+declare
+  n integer;
+  r record;
+  erin uuid := 'aaaaaaaa-0000-0000-0000-000000000005';
+  bob  uuid := 'aaaaaaaa-0000-0000-0000-000000000002';
+begin
+  -- Erin has no handle at all and so appears in no by-name lookup.
+  select count(*) into n from public.pilot_flight_alert_targets()
+   where user_id = erin;
+  assert n = 0, 'a profile with no handle is not reachable by name';
+
+  -- She broadcasts one flight from the sim.
+  insert into public.pilot_live_status (user_id, flight_id, latitude, longitude, altitude_msl)
+  values (erin, 'flight-erin-1', 51.4, -0.4, 35000);
+
+  select count(*) into n from public.pilot_flight_alert_live_targets()
+   where flight_id = 'flight-erin-1';
+  assert n = 1, 'a published flight id reaches the pilot with no handle';
+
+  select * into r from public.pilot_flight_alert_live_targets()
+   where flight_id = 'flight-erin-1';
+  assert r.user_id = erin, 'and it reaches the pilot who published it';
+  assert r.handle = 'erin', 'carrying the handle for the log line';
+
+  -- The switch is honoured on this path too, or turning alerts off would only
+  -- silence the half of them that came in by name.
+  insert into public.pilot_live_status (user_id, flight_id, latitude, longitude, altitude_msl)
+  values (bob, 'flight-bob-1', 51.4, -0.4, 35000);
+
+  select count(*) into n from public.pilot_flight_alert_live_targets()
+   where flight_id = 'flight-bob-1';
+  assert n = 0, 'flight_alerts = false silences the flight-id path too';
+
+  -- A row that has stood down keeps its flight and loses its position, and is
+  -- still the pilot's flight: the announcements are about the aeroplane on the
+  -- feed, which is exactly what is still there when the sim stops talking.
+  update public.pilot_live_status
+     set latitude = null, longitude = null
+   where user_id = erin;
+
+  select count(*) into n from public.pilot_flight_alert_live_targets()
+   where flight_id = 'flight-erin-1';
+  assert n = 1, 'a stood-down row still identifies whose flight it is';
+
+  raise notice 'own-flight alert targets by flight id: 6 assertions passed';
+end $$;
+
 rollback;

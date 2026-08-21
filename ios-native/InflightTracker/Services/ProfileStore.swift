@@ -259,6 +259,43 @@ final class ProfileStore: ObservableObject {
     /// Returns whether it saved, so a sheet can dismiss itself on success and
     /// stay open on a refusal.
     @discardableResult
+    /// Fills in the Infinite Flight handle from the running simulator.
+    ///
+    /// Only ever fills a blank. `infiniteflight/current_user` is a stronger
+    /// claim than anything typed into a text field — it is read out of the sim
+    /// that is flying the aeroplane — but a profile is a public thing, and
+    /// silently rewriting the name on somebody's public profile because a
+    /// simulator said something else is not a repair, it is a surprise. When
+    /// they disagree the Connect panel offers the swap instead.
+    ///
+    /// Worth doing at all because the handle is the join between a profile and
+    /// an aeroplane on the map, and asking somebody to type in a name the app
+    /// is already being told is how the join ends up blank or misspelled — and
+    /// a blank join is a pilot who is told nothing about their own flight.
+    @discardableResult
+    func adoptSimUsername(_ raw: String) async -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        guard var current = profile else { return false }
+        guard current.ifUsername.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+
+        current.ifUsername = trimmed
+        return await save(current)
+    }
+
+    /// The same swap, asked for deliberately after being offered it.
+    @discardableResult
+    func replaceIFUsername(with raw: String) async -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, var current = profile else { return false }
+        guard current.ifUsername != trimmed else { return false }
+
+        current.ifUsername = trimmed
+        return await save(current)
+    }
+
     func save(_ edited: Editable) async -> Bool {
         guard let account = AccountStore.shared.account,
               let token = await AccountStore.shared.currentAccessToken() else {
