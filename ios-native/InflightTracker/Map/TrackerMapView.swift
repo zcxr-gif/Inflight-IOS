@@ -42,6 +42,16 @@ struct TrackerMapView: UIViewRepresentable {
     /// off, which is how the whole feature is switched off.
     var airports: [MapAirport] = []
 
+    /// Whether to draw the pavement of the field the map is over — runways,
+    /// taxiways, aprons and terminals, with the runway designators.
+    var showsGroundLayout = true
+
+    /// Observed so a layout that arrives from the network after the map has
+    /// settled is drawn when it lands, rather than waiting for the next pan.
+    /// Not private, because one private stored property would make the
+    /// memberwise initialiser private along with it.
+    @ObservedObject var layouts = AirportLayoutStore.shared
+
     /// Opening a field that was tapped on the map. Separate from `selection`,
     /// which is an aircraft and drives the flight window.
     var onSelectAirport: (String) -> Void = { _ in }
@@ -85,6 +95,11 @@ struct TrackerMapView: UIViewRepresentable {
         )
 
         mapView.register(
+            GroundLabelView.self,
+            forAnnotationViewWithReuseIdentifier: GroundLabelView.reuseIdentifier
+        )
+
+        mapView.register(
             AirportAnnotationView.self,
             forAnnotationViewWithReuseIdentifier: AirportAnnotationView.reuseIdentifier
         )
@@ -118,6 +133,7 @@ struct TrackerMapView: UIViewRepresentable {
         context.coordinator.syncSelection(selection, on: mapView)
         context.coordinator.syncRoute(on: mapView)
         context.coordinator.syncReplay(on: mapView)
+        context.coordinator.syncGround(on: mapView)
         // Before the command, so a camera move asked for on this same tick is
         // the one that lands rather than being pulled back by the follow.
         context.coordinator.followSelection(on: mapView)
@@ -153,6 +169,13 @@ struct TrackerMapView: UIViewRepresentable {
         /// rebuilt when the trail actually grows.
         private var renderedRouteKey: String?
         private var routeOverlays: [MKPolyline] = []
+
+        /// The field whose pavement is currently drawn, and what was drawn for
+        /// it. One field at a time: two are never both close enough to matter,
+        /// and a layout is a few hundred overlays.
+        private var renderedGroundIcao: String?
+        private var groundOverlays: [MKOverlay] = []
+        private var groundLabels: [MKAnnotation] = []
 
         /// The replay's aircraft, while one is playing.
         private var replayAnnotation: ReplayAnnotation?
@@ -637,6 +660,126 @@ struct TrackerMapView: UIViewRepresentable {
             renderedRouteKey = nil
         }
 
+        // MARK: Ground layout
+
+        /// How wide the view has to be, in nautical miles, before a field's
+        /// pavement is worth drawing.
+        ///
+        /// About the width of a large airport plus its approach. Wider than
+        /// that and runways are hairlines that clutter the map; closer in they
+        /// are the map.
+        private static let groundSpanNM: Double = 9
+
+        /// Draws the pavement of whichever field the map is sitting over.
+        ///
+        /// Runways, taxiways, aprons and terminals from OpenStreetMap, with
+        /// the runway designators — which is the part neither Apple's basemap
+        /// nor imagery gives you.
+        func syncGround(on mapView: MKMapView) {
+            guard parent.showsGroundLayout else {
+                clearGround(on: mapView)
+                return
+            }
+
+            let region = mapView.region
+            guard region.span.latitudeDelta.isFinite else { return }
+
+            // Degrees of latitude are nautical miles times sixty, everywhere.
+            let spanNM = region.span.latitudeDelta * 60
+            guard spanNM <= Self.groundSpanNM else {
+                clearGround(on: mapView)
+                return
+            }
+
+            guard let field = AirportStore.shared.nearestAirport(
+                to: region.center,
+                withinNM: Self.groundSpanNM
+            ) else {
+                clearGround(on: mapView)
+                return
+            }
+
+            let store = AirportLayoutStore.shared
+            store.load(field)
+
+            guard let layout = store.layout(for: field.icao), !layout.isEmpty else { return }
+            guard renderedGroundIcao != layout.icao else { return }
+
+            clearGround(on: mapView)
+            renderedGroundIcao = layout.icao
+
+            // Aprons first, runways last, so the pieces stack the way the
+            // concrete does.
+            for kind in AirportLayout.drawingOrder {
+                for piece in layout.pieces where piece.kind == kind {
+                    groundOverlays.append(Self.overlay(for: piece))
+                }
+            }
+
+            for runway in layout.runways {
+                guard let ref = runway.ref, let centre = Self.midpoint(of: runway.coordinates) else { continue }
+                groundLabels.append(GroundLabel(coordinate: centre, text: ref))
+            }
+
+            // Under the traffic and under the flown path: this is the ground
+            // the aircraft are on, not something to read over them.
+            mapView.addOverlays(groundOverlays, level: .aboveRoads)
+            mapView.addAnnotations(groundLabels)
+        }
+
+        private func clearGround(on mapView: MKMapView) {
+            guard renderedGroundIcao != nil else { return }
+            mapView.removeOverlays(groundOverlays)
+            mapView.removeAnnotations(groundLabels)
+            groundOverlays.removeAll(keepingCapacity: true)
+            groundLabels.removeAll(keepingCapacity: true)
+            renderedGroundIcao = nil
+        }
+
+        private static func overlay(for piece: AirportLayout.Piece) -> MKOverlay {
+            let coordinates = piece.coordinates
+            if piece.kind.isArea {
+                let polygon = MKPolygon(coordinates: coordinates, count: coordinates.count)
+                polygon.title = "\(groundTitle):\(piece.kind.rawValue)"
+                return polygon
+            }
+            let line = MKPolyline(coordinates: coordinates, count: coordinates.count)
+            line.title = "\(groundTitle):\(piece.kind.rawValue)"
+            return line
+        }
+
+        /// The point halfway *along* the way rather than the average of its
+        /// nodes: a runway mapped with a cluster of nodes at one end would
+        /// otherwise carry its label off-centre.
+        private static func midpoint(of coordinates: [CLLocationCoordinate2D]) -> CLLocationCoordinate2D? {
+            guard coordinates.count >= 2 else { return coordinates.first }
+
+            var lengths: [Double] = []
+            var total = 0.0
+            for index in 1..<coordinates.count {
+                let step = FlightProgress.distanceNM(from: coordinates[index - 1], to: coordinates[index])
+                total += step
+                lengths.append(total)
+            }
+            guard total > 0 else { return coordinates.first }
+
+            let half = total / 2
+            for (index, run) in lengths.enumerated() where run >= half {
+                let previous = index == 0 ? 0 : lengths[index - 1]
+                let segment = run - previous
+                let fraction = segment > 0 ? (half - previous) / segment : 0
+                let from = coordinates[index]
+                let to = coordinates[index + 1]
+                return CLLocationCoordinate2D(
+                    latitude: from.latitude + (to.latitude - from.latitude) * fraction,
+                    longitude: from.longitude + (to.longitude - from.longitude) * fraction
+                )
+            }
+            return coordinates.last
+        }
+
+        static let groundTitle = "ground"
+
         static let flownTitle = "flown"
         static let plannedTitle = "planned"
 
@@ -841,8 +984,16 @@ struct TrackerMapView: UIViewRepresentable {
         // MARK: MKMapViewDelegate
 
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
+            if let area = overlay as? MKPolygon {
+                return Self.groundRenderer(for: area, title: area.title)
+            }
+
             guard let line = overlay as? MKPolyline else {
                 return MKOverlayRenderer(overlay: overlay)
+            }
+
+            if line.title?.hasPrefix(Self.groundTitle) == true {
+                return Self.groundRenderer(for: line, title: line.title)
             }
 
             let renderer = MKPolylineRenderer(polyline: line)
@@ -877,7 +1028,59 @@ struct TrackerMapView: UIViewRepresentable {
             return renderer
         }
 
+        /// Pavement, drawn like a chart rather than like a photograph.
+        ///
+        /// Widths are in points and so do not grow with the zoom: a runway
+        /// drawn to scale is a hairline from the edge of the field and a slab
+        /// from the threshold, and the point of this layer is to be readable
+        /// at both. Everything is translucent enough to sit over imagery
+        /// without hiding the concrete underneath it.
+        private static func groundRenderer(for overlay: MKOverlay, title: String?) -> MKOverlayRenderer {
+            let kind = title?.split(separator: ":").last.map(String.init)
+
+            if let area = overlay as? MKPolygon {
+                let renderer = MKPolygonRenderer(polygon: area)
+                let isTerminal = kind == AirportLayout.Piece.Kind.terminal.rawValue
+                renderer.fillColor = UIColor { traits in
+                    let alpha = isTerminal ? 0.20 : 0.12
+                    return traits.userInterfaceStyle == .light
+                        ? UIColor(white: 0.25, alpha: alpha)
+                        : UIColor(white: 0.95, alpha: alpha)
+                }
+                renderer.strokeColor = .clear
+                renderer.lineWidth = 0
+                return renderer
+            }
+
+            guard let line = overlay as? MKPolyline else {
+                return MKOverlayRenderer(overlay: overlay)
+            }
+
+            let renderer = MKPolylineRenderer(polyline: line)
+            renderer.lineCap = .butt
+            renderer.lineJoin = .round
+
+            let isRunway = kind == AirportLayout.Piece.Kind.runway.rawValue
+            renderer.lineWidth = isRunway ? 7 : 2.5
+            renderer.strokeColor = UIColor { traits in
+                let alpha = isRunway ? 0.72 : 0.42
+                return traits.userInterfaceStyle == .light
+                    ? UIColor(white: 0.18, alpha: alpha)
+                    : UIColor(white: 0.92, alpha: alpha)
+            }
+            return renderer
+        }
+
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
+            if let label = annotation as? GroundLabel {
+                let view = mapView.dequeueReusableAnnotationView(
+                    withIdentifier: GroundLabelView.reuseIdentifier,
+                    for: label
+                )
+                (view as? GroundLabelView)?.apply(label)
+                return view
+            }
+
             if let field = annotation as? AirportAnnotation {
                 let view = mapView.dequeueReusableAnnotationView(
                     withIdentifier: AirportAnnotationView.reuseIdentifier,
@@ -990,6 +1193,7 @@ struct TrackerMapView: UIViewRepresentable {
             let work = DispatchWorkItem { [weak self, weak mapView] in
                 guard let self = self, let mapView = mapView else { return }
                 self.sync(flights: self.parent.flights, on: mapView)
+                self.syncGround(on: mapView)
             }
 
             pendingCull = work

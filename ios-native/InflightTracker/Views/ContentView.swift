@@ -167,6 +167,7 @@ struct ContentView: View {
                 colorScheme: theme.colorScheme,
                 style: appearance.resolvedMapStyle,
                 airports: mapAirports,
+                showsGroundLayout: filters.showsGroundLayout,
                 onSelectAirport: { icao in
                     guard let field = AirportStore.shared.airport(icao) else { return }
                     // No origin: a field tapped on the map was not arrived at

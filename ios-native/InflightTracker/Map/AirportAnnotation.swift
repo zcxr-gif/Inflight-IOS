@@ -106,3 +106,64 @@ final class AirportAnnotationView: MKAnnotationView {
         alpha = field.isControlled ? 1 : 0.72
     }
 }
+
+/// A runway designator, drawn on the field itself.
+///
+/// The reason the ground layer exists: Apple's basemap draws pavement without
+/// naming it and imagery shows concrete without telling you which runway you
+/// are looking at.
+final class GroundLabel: NSObject, MKAnnotation {
+
+    let coordinate: CLLocationCoordinate2D
+    let text: String
+
+    init(coordinate: CLLocationCoordinate2D, text: String) {
+        self.coordinate = coordinate
+        self.text = text
+        super.init()
+    }
+}
+
+final class GroundLabelView: MKAnnotationView {
+
+    static let reuseIdentifier = "groundLabel"
+
+    private let label = UILabel()
+
+    override init(annotation: MKAnnotation?, reuseIdentifier: String?) {
+        super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
+
+        canShowCallout = false
+        isEnabled = false
+
+        // The pavement is context for the traffic, so it gives way to it — and
+        // to the field markers, which are what a tap is looking for.
+        displayPriority = .defaultLow
+        zPriority = .min
+        collisionMode = .circle
+
+        frame = CGRect(x: 0, y: 0, width: 64, height: 16)
+        label.frame = bounds
+        label.textAlignment = .center
+        label.font = .systemFont(ofSize: 10.5, weight: .heavy)
+        label.adjustsFontSizeToFitWidth = true
+        label.minimumScaleFactor = 0.7
+        // Legible on a light map, a dark one and imagery alike, which is the
+        // same problem the ICAO under a field marker solves the same way.
+        label.layer.shadowColor = UIColor.black.cgColor
+        label.layer.shadowOpacity = 0.9
+        label.layer.shadowRadius = 2
+        label.layer.shadowOffset = .zero
+        label.textColor = .white
+        addSubview(label)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func apply(_ annotation: GroundLabel) {
+        label.text = annotation.text
+    }
+}

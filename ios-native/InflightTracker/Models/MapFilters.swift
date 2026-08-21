@@ -25,6 +25,7 @@ final class MapFilters: ObservableObject {
     private static let categoriesKey = "mapFilterCategories"
     private static let filedOnlyKey = "mapFilterFiledRouteOnly"
     private static let airportsKey = "mapShowsAirports"
+    private static let groundKey = "mapShowsGroundLayout"
 
     /// Phases still being drawn. Empty would mean an empty map, so the panel
     /// never lets the last one be turned off.
@@ -62,12 +63,24 @@ final class MapFilters: ObservableObject {
         didSet { UserDefaults.standard.set(showsAirports, forKey: Self.airportsKey) }
     }
 
+    /// Whether a field's pavement is drawn once the map is close enough to it
+    /// — runways, taxiways, aprons and terminals, with the runway designators.
+    ///
+    /// Uncounted for the same reason as the fields above: it adds to the map
+    /// rather than narrowing it.
+    @Published var showsGroundLayout: Bool {
+        didSet { UserDefaults.standard.set(showsGroundLayout, forKey: Self.groundKey) }
+    }
+
     private init() {
         let defaults = UserDefaults.standard
         // On by default: the fields being worked are the most useful thing on
         // the map after the traffic, and a feature nobody finds is a feature
         // nobody has.
         showsAirports = defaults.object(forKey: Self.airportsKey) as? Bool ?? true
+        // On by default, and it costs nothing until the map is over a field:
+        // a layer nobody discovers is a layer nobody has.
+        showsGroundLayout = defaults.object(forKey: Self.groundKey) as? Bool ?? true
 
         // No stored value means everything is on, which is the map as it was
         // before any of this existed.

@@ -37,12 +37,7 @@ final class GateStore: ObservableObject {
     /// Overpass mirrors are a shared, donated resource. One request per field
     /// per install per month is a polite way to use them; hammering them on
     /// every packet is not, which is why nothing here is on the feed's path.
-    private static let endpoint = URL(string: "https://overpass-api.de/api/interpreter")!
     private static let cacheLifetime: TimeInterval = 30 * 24 * 3600
-
-    /// Wide enough for the fields that sprawl — remote hardstands at Dallas or
-    /// Dubai sit a long way from the terminal core.
-    private static let searchRadiusMetres = 7000
 
     private var inFlight: Set<String> = []
 
@@ -102,40 +97,26 @@ final class GateStore: ObservableObject {
         // mappers draw stands as polygons, and `out center` gives those a
         // representative point to measure against. Aprons need a ref or a name
         // or they would match every nameless patch of concrete on the field.
+        let around = Overpass.around(coordinate)
         let query = """
         [out:json][timeout:25];
         (
-          node["aeroway"="gate"](around:\(searchRadiusMetres),\(coordinate.latitude),\(coordinate.longitude));
-          node["aeroway"="parking_position"](around:\(searchRadiusMetres),\(coordinate.latitude),\(coordinate.longitude));
-          node["aeroway"="stand"](around:\(searchRadiusMetres),\(coordinate.latitude),\(coordinate.longitude));
-          way["aeroway"="parking_position"](around:\(searchRadiusMetres),\(coordinate.latitude),\(coordinate.longitude));
-          way["aeroway"="stand"](around:\(searchRadiusMetres),\(coordinate.latitude),\(coordinate.longitude));
-          way["aeroway"="apron"]["ref"](around:\(searchRadiusMetres),\(coordinate.latitude),\(coordinate.longitude));
-          way["aeroway"="apron"]["name"](around:\(searchRadiusMetres),\(coordinate.latitude),\(coordinate.longitude));
+          node["aeroway"="gate"](\(around));
+          node["aeroway"="parking_position"](\(around));
+          node["aeroway"="stand"](\(around));
+          way["aeroway"="parking_position"](\(around));
+          way["aeroway"="stand"](\(around));
+          way["aeroway"="apron"]["ref"](\(around));
+          way["aeroway"="apron"]["name"](\(around));
         );
         out center tags;
         """
 
-        var request = URLRequest(url: endpoint)
-        request.httpMethod = "POST"
-        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        request.httpBody = "data=\(query.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")"
-            .data(using: .utf8)
-        request.timeoutInterval = 30
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
-            return parse(data)
-        } catch {
-            return nil
-        }
+        guard let elements = await Overpass.elements(query) else { return nil }
+        return parse(elements)
     }
 
-    private static func parse(_ data: Data) -> [Gate]? {
-        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let elements = root["elements"] as? [[String: Any]] else { return nil }
-
+    private static func parse(_ elements: [[String: Any]]) -> [Gate] {
         var byRef: [String: Gate] = [:]
 
         for element in elements {
