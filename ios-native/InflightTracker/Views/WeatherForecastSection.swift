@@ -1,3 +1,4 @@
+import CoreLocation
 import SwiftUI
 import WeatherKit
 
