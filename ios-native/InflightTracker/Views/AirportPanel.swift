@@ -163,6 +163,8 @@ struct AirportPanel: View {
 
             weather
 
+            WeatherForecastSection(key: airport.icao, coordinate: airport.coordinate)
+
             gates(activity)
 
             traffic(activity)

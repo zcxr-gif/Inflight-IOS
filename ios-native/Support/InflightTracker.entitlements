@@ -20,5 +20,11 @@
 	<array>
 		<string>Default</string>
 	</array>
+	<!-- Forecast and severe-weather alerts. Like Sign in with Apple above, the
+	     capability has to be enabled on the App ID as well as declared here, or
+	     every request fails at runtime — which the weather panel treats as "no
+	     forecast available" rather than as an error. -->
+	<key>com.apple.developer.weatherkit</key>
+	<true/>
 </dict>
 </plist>
