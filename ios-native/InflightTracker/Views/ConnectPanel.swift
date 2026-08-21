@@ -128,6 +128,13 @@ struct ConnectPanel: View {
                         .foregroundStyle(theme.textDim)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+
+                if let attempt = attemptLine {
+                    Text(attempt)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(theme.textDim)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             Spacer(minLength: 0)
@@ -166,6 +173,23 @@ struct ConnectPanel: View {
                  + "If nothing is found, enter the device's address below."
         default: return nil
         }
+    }
+
+    /// Proof that something is happening, or proof that nothing is.
+    ///
+    /// The status word alone reads identically whether the session is knocking
+    /// on the sim once a second or has never once run — which is exactly the
+    /// confusion that costs an evening: a pilot with the master switch off sees
+    /// a screen that looks like a connection failing rather than a feature that
+    /// was never started.
+    private var attemptLine: String? {
+        guard session.isEnabled else { return "Not running — turn on Read from the sim" }
+        guard let attempt = session.lastAttempt else { return "No attempt yet" }
+
+        let ago = Self.relative.localizedString(for: attempt.at, relativeTo: Date())
+        return attempt.succeeded
+            ? "Connected \(ago) · \(attempt.address)"
+            : "Last tried \(ago) · \(attempt.address)"
     }
 
     private var statusColour: Color {
@@ -240,7 +264,16 @@ struct ConnectPanel: View {
     // MARK: - One device
 
     private var sameDeviceDetail: String {
-        session.isSameDevice
+        if !session.isEnabled {
+            // The trap this row used to be: it moved, and nothing ran, because
+            // everything is gated on the switch above it. Turning it on now
+            // turns that one on too, and this says so rather than leaving the
+            // pilot to infer it from a screen where nothing happens.
+            return "Reading from the sim is off, so nothing is running. Turning this on turns "
+                 + "it back on — the switch above is the feature, this one only says where the "
+                 + "simulator is."
+        }
+        return session.isSameDevice
             ? "Talks to Infinite Flight over this device's own loopback. No Wi-Fi, no address, and no local network permission."
             : "Turn on if you fly on this same iPhone or iPad rather than a second device."
     }
@@ -276,7 +309,11 @@ struct ConnectPanel: View {
                     ? "Open Inflight beside Infinite Flight in Split View and everything works live — the whole flight, as it happens."
                     : "While you fly, iOS suspends Inflight behind the simulator, so it cannot watch the flight itself.")
 
-                bullet("The link is made as you switch away. Infinite Flight only answers while it is the app in front, so Inflight keeps reading for about half a minute after you open the sim — and sends you a notification saying whether it connected, on top of Infinite Flight where you can see it.")
+                bullet("Both switches above have to be on. \"Read from the sim\" is the feature; \"It's on this device\" only says where the simulator is.")
+
+                bullet("Infinite Flight answers only while it is running, and this app runs only while it is not behind it — so the link is made in the moments either side of a switch. Inflight keeps trying for about half a minute after you leave it, and again the instant you come back.")
+
+                bullet("The order that works: open Infinite Flight, let it finish loading, then switch back here. Coming back is usually the attempt that succeeds, because the sim is still awake behind you — and the notification arrives then.")
 
                 bullet("Your flight is recorded from the map either way. Come back here after landing and the touchdown is read from the simulator and added to it — Infinite Flight keeps the last landing until the next one, so nothing has to be watching at the time.")
 

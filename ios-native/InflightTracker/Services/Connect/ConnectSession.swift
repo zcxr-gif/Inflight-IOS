@@ -92,6 +92,22 @@ final class ConnectSession: ObservableObject {
     /// the settings screen so a pilot can see the link is real.
     @Published private(set) var manifestSummary: String?
 
+    /// When the last connection was attempted, where, and how it went.
+    ///
+    /// The panel had no way of showing that anything was being tried at all —
+    /// only a status word, which reads the same whether the session is knocking
+    /// once a second or has never run. That is the difference between "the sim
+    /// is refusing" and "this feature is switched off and nobody said so", and
+    /// a pilot cannot tell them apart without it.
+    struct Attempt: Equatable {
+        let at: Date
+        let address: String
+        let outcome: String
+        let succeeded: Bool
+    }
+
+    @Published private(set) var lastAttempt: Attempt?
+
     /// Fields named in `ConnectField` that this aircraft does not publish.
     /// Surfaced rather than swallowed — it is the fastest way to find a path
     /// whose spelling has changed.
@@ -118,7 +134,21 @@ final class ConnectSession: ObservableObject {
     @Published var isSameDevice: Bool {
         didSet {
             defaults.set(isSameDevice, forKey: Self.sameDeviceKey)
-            guard isEnabled else { return }
+
+            // Switching this on when reading is off used to do nothing
+            // whatsoever, silently — every path below is gated on `isEnabled`,
+            // so the pilot got a switch that moved and a feature that never
+            // ran. Worse, the two rows read as alternatives: one says "read
+            // from the sim", the other says "it's on this device", and turning
+            // the first off to choose the second is the obvious thing to do
+            // and is exactly wrong.
+            //
+            // There is only one thing "the sim is on this device" can mean, and
+            // it is "read from the sim, which is here". So it says that.
+            guard isEnabled else {
+                if isSameDevice { isEnabled = true }
+                return
+            }
             stop()
             isEnabled = true
         }
@@ -163,6 +193,12 @@ final class ConnectSession: ObservableObject {
     private var pollTask: Task<Void, Never>?
     private var discoveryListener: NWListener?
 
+    /// Whether this run of the loop has already offered the sim's held landing
+    /// to the logbook. Once per run rather than once per attach: a reconnection
+    /// mid-flight is not a landing to catch up on, and re-offering the same one
+    /// on every retry would be work for nothing.
+    private var hasCaughtUpThisRun = false
+
     /// How often the landing group is read, counted in passes of the fast loop.
     /// Landings do not happen every second and each extra read slows the
     /// position updates that do.
@@ -177,6 +213,16 @@ final class ConnectSession: ObservableObject {
     /// stays closed, and a client that retries every second on a phone in
     /// somebody's pocket is a battery complaint.
     private static let retryDelays: [UInt64] = [2, 5, 10, 30, 60]
+
+    /// Backoff inside a background window, where the entire budget is about
+    /// thirty seconds and a sixty-second wait is indistinguishable from not
+    /// trying again.
+    ///
+    /// Infinite Flight can take most of a minute to get from a tap on its icon
+    /// to a state where it answers on 10112, and the pilot who has just left
+    /// this app is usually launching it rather than returning to it already
+    /// running. So the window keeps knocking for as long as it has.
+    private static let windowRetryDelays: [UInt64] = [1, 1, 2, 3, 5]
     private var retryIndex = 0
 
     /// How many attempts a remembered address gets before the session goes
@@ -271,6 +317,7 @@ final class ConnectSession: ObservableObject {
         manifestSummary = nil
         unresolvedFields = []
         landingBaseline = nil
+        hasCaughtUpThisRun = false
         atcLog = []
         lastCatchUp = nil
         // Turning it off is not waiting for it. Only `stop()` clears this —
@@ -452,7 +499,16 @@ final class ConnectSession: ObservableObject {
         // has been and gone. So the one path that matters most -- land, come
         // back, open the app -- was the one path that never caught up, and the
         // pilot saw nothing happen.
-        if isSameDevice { await catchUp() }
+        //
+        // It used to be a whole second connection of its own, opened and closed
+        // before the poll loop was allowed to dial. That cost a connect and an
+        // entire manifest fetch -- seconds -- at the exact moment there are
+        // only seconds: on a phone the simulator is reachable for a short
+        // while after the pilot switches away from it, and whichever of the
+        // two attempts came first was spending that time twice over. It is now
+        // done from the poll loop's own connection, on its first attach, which
+        // is why `attach` takes the landing before adopting it as the baseline.
+        hasCaughtUpThisRun = false
 
         while !Task.isCancelled {
             do {
@@ -460,6 +516,7 @@ final class ConnectSession: ObservableObject {
 
                 try await attach(to: address)
                 retryIndex = 0
+                lastAttempt = Attempt(at: Date(), address: address, outcome: "Connected", succeeded: true)
 
                 // Tell them if they were kept waiting — a connection that
                 // worked first time while they watched needs no announcement —
@@ -480,6 +537,12 @@ final class ConnectSession: ObservableObject {
             } catch {
                 guard !Task.isCancelled else { return }
                 status = .waiting(error.localizedDescription)
+                lastAttempt = Attempt(
+                    at: Date(),
+                    address: isSameDevice ? Self.loopback : host,
+                    outcome: error.localizedDescription,
+                    succeeded: false
+                )
                 await transport.close()
 
                 // From here on there is something to announce, and a reason to
@@ -499,7 +562,8 @@ final class ConnectSession: ObservableObject {
                     }
                 }
 
-                let delay = Self.retryDelays[min(retryIndex, Self.retryDelays.count - 1)]
+                let schedule = backgroundTask != .invalid ? Self.windowRetryDelays : Self.retryDelays
+                let delay = schedule[min(retryIndex, schedule.count - 1)]
                 retryIndex += 1
 
                 do {
@@ -599,9 +663,15 @@ final class ConnectSession: ObservableObject {
         try await readSession()
 
         // Whatever landing the sim is already holding belongs to before this
-        // connection existed. Adopted silently as the mark to beat.
+        // connection existed. Adopted silently as the mark to beat -- but on a
+        // same-device session it is also the landing the pilot has just made
+        // and come back to have recorded, so it is offered to the logbook on
+        // the way past. Offering it twice is free: `pilot_logbook_attach_
+        // landing` only ever fills columns that are still empty.
         landingBaseline = nil
-        try await readLanding(adoptingBaseline: true)
+        let catchingUp = isSameDevice && !hasCaughtUpThisRun
+        hasCaughtUpThisRun = true
+        try await readLanding(adoptingBaseline: true, offeringToLogbook: catchingUp)
 
         await attachATC()
 
@@ -904,7 +974,10 @@ final class ConnectSession: ObservableObject {
 
     // MARK: - Landings
 
-    private func readLanding(adoptingBaseline: Bool = false) async throws {
+    private func readLanding(
+        adoptingBaseline: Bool = false,
+        offeringToLogbook: Bool = false
+    ) async throws {
         var landing = ConnectLanding()
 
         for field in ConnectField.landing {
@@ -931,6 +1004,7 @@ final class ConnectSession: ObservableObject {
             // it has been restarted, this is the honest state and the first
             // real landing will be new by definition.
             if adoptingBaseline { landingBaseline = ConnectLanding() }
+            if offeringToLogbook { lastCatchUp = .nothingToAttach }
             return
         }
 
@@ -941,6 +1015,23 @@ final class ConnectSession: ObservableObject {
         // reporting it. See `landingBaseline`.
         if adoptingBaseline {
             landingBaseline = candidate
+
+            // ...except on the first attach of a same-device session, where
+            // "whatever is already there" is very likely the touchdown the
+            // pilot has just come back to the app to have recorded.
+            if offeringToLogbook, let rate = landing.verticalSpeedFPM {
+                lastLanding = landing
+                let held = landing
+                let flightID = telemetry.flightID
+                // Not awaited: the poll loop owns this connection and the
+                // logbook write is a round trip to Supabase. Making the first
+                // telemetry pass wait on it would spend the seconds this whole
+                // reordering exists to save.
+                Task { [weak self] in
+                    let attached = await LogbookRecorder.shared.attach(held, flightID: flightID)
+                    self?.lastCatchUp = attached ? .attached(fpm: Int(rate.rounded())) : .nothingToAttach
+                }
+            }
             return
         }
 
