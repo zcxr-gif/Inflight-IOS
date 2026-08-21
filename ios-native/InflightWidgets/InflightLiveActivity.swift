@@ -139,7 +139,7 @@ struct LiveActivityLockScreen: View {
                 )
                 Spacer(minLength: 8)
                 TimeBlock(
-                    scheduled: context.attributes.scheduledArrival,
+                    scheduled: context.attributes.plannedArrival,
                     actual: context.state.currentETA,
                     alignment: .trailing
                 )
@@ -257,9 +257,11 @@ enum LiveProgress {
 
         var byTime = 0.0
         let departure = context.state.currentATD ?? context.attributes.scheduledDeparture
-        let span = context.state.currentETA.timeIntervalSince(departure)
-        if span > 0 {
-            byTime = min(max(Date().timeIntervalSince(departure) / span, 0), 1)
+        if let eta = context.state.currentETA ?? context.attributes.plannedArrival {
+            let span = eta.timeIntervalSince(departure)
+            if span > 0 {
+                byTime = min(max(Date().timeIntervalSince(departure) / span, 0), 1)
+            }
         }
 
         return min(max(max(byDistance, byTime), 0), 1)
@@ -279,8 +281,8 @@ enum LiveProgress {
     /// looks like. Anything building a countdown goes through here.
     static func countdown(_ context: ActivityViewContext<InflightActivityAttributes>) -> ClosedRange<Date>? {
         let now = Date()
-        let eta = context.state.currentETA
-        guard eta > now else { return nil }
+        guard let eta = context.state.currentETA ?? context.attributes.plannedArrival,
+              eta > now else { return nil }
         return now...eta
     }
 
@@ -303,16 +305,22 @@ enum LiveProgress {
 /// Printing the same time twice is noise.
 struct TimeBlock: View {
 
-    let scheduled: Date
+    /// The time as it was planned. Nil where nothing was ever planned — an
+    /// arrival for a flight that had not moved when its banner started.
+    let scheduled: Date?
     let actual: Date?
     let alignment: HorizontalAlignment
 
     var body: some View {
-        let driftMinutes = actual.map { Int($0.timeIntervalSince(scheduled) / 60) } ?? 0
-        let estimated = (actual != nil && abs(driftMinutes) >= 1) ? actual : nil
+        // With no plan to compare against, the live estimate is the headline
+        // rather than a correction to something.
+        let headline = scheduled ?? actual
+        let driftMinutes = (scheduled != nil && actual != nil)
+            ? Int(actual!.timeIntervalSince(scheduled!) / 60) : 0
+        let estimated = (scheduled != nil && actual != nil && abs(driftMinutes) >= 1) ? actual : nil
 
         VStack(alignment: alignment, spacing: 2) {
-            Text(WidgetFormat.clock(scheduled))
+            Text(headline.map(WidgetFormat.clock) ?? "—")
                 .font(WidgetType.readout(15))
                 .foregroundStyle(WidgetPalette.text)
 
@@ -367,6 +375,14 @@ struct ETAReadout: View {
                     .font(WidgetType.caption(size * 0.85))
                     .foregroundStyle(WidgetPalette.secondary)
             }
+        } else if context.state.currentETA == nil && context.attributes.plannedArrival == nil {
+            // Nothing to estimate from yet: an aircraft still on its stand has
+            // no ground speed to divide the distance by. Saying so beats
+            // "Arriving", which is what this used to claim about a flight that
+            // had not moved.
+            Text("Not moving")
+                .font(WidgetType.readout(size))
+                .foregroundStyle(WidgetPalette.secondary)
         } else {
             // Past its estimate and not yet reported down. Saying "arriving"
             // is honest; a countdown that has run out and sits at 0:00 reads

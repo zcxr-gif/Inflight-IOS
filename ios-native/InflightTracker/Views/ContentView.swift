@@ -258,6 +258,10 @@ struct ContentView: View {
             // would actually notice.
             WidgetBridge.shared.update(flights: feed.flights, atcStations: feed.atcStations)
 
+            // And the live banners, which otherwise carry whatever estimate
+            // they were started with until the backend next pushes.
+            LiveActivityController.shared.refresh(with: feed.flights)
+
             // A widget tap waiting on the aircraft to appear in a packet.
             if let wanted = pendingFlightId {
                 if feed.flights.contains(where: { $0.id == wanted }) {
