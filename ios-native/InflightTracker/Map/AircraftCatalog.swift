@@ -1,7 +1,6 @@
 import Foundation
 
-/// Maps an Infinite Flight aircraft name onto a key in the shared sprite
-/// sheet (`markers.png` + `sprite-uvs.json`).
+/// Maps an Infinite Flight aircraft name onto one of `PlaneSprites`' keys.
 ///
 /// The first block is a faithful port of `getAircraftCategory()` in
 /// `old/www/flight.js`, so any aircraft the old tracker recognised gets the
@@ -44,7 +43,13 @@ enum AircraftCatalog {
         // ------------------------------------------------------------------
 
         // 1. Military / fighters
-        if contains(raw, ["F-16", "F-18", "F-22", "F-35", "A-10", "EUFI"]) { return "F16" }
+        //
+        // Same names the old function matched, split out where the icon set now
+        // draws the actual type instead of an F-16 for all of them.
+        if raw.contains("F-35") { return "F35" }
+        if raw.contains("F-22") { return "RC-22" }
+        if raw.contains("EUFI") { return "EUFI" }
+        if contains(raw, ["F-16", "F-18", "A-10"]) { return "F16" }
         if contains(raw, ["C-130", "C130", "AC-130"]) { return "C130" }
         if raw.contains("C-17") || raw.contains("C5") { return "C17" }
 
@@ -69,7 +74,13 @@ enum AircraftCatalog {
         if raw.contains("CRJ") || raw.contains("E175") || raw.contains("E190") { return "E190" }
         if raw.contains("DASH 8") || raw.contains("DH8D") || raw.contains("Q400") { return "DASH8" }
         if contains(raw, ["C172", "SR22", "CESSNA", "SINGLEPROP"]) { return "SINGLEPROP" }
-        if contains(raw, ["EUROCOPTER", "H60", "H64", "CHINOOK", "LYNX"]) { return "EUROCOPTER" }
+        // Split for the same reason as the fighters above: a Chinook and an
+        // Apache have their own marks now.
+        if raw.contains("CHINOOK") { return "CHINOOK" }
+        if raw.contains("H64") { return "H64" }
+        if raw.contains("H60") { return "H60" }
+        if raw.contains("LYNX") { return "LYNX" }
+        if raw.contains("EUROCOPTER") { return "EUROCOPTER" }
 
         // ------------------------------------------------------------------
         // Extra coverage. Only reached where the old tracker fell back to the

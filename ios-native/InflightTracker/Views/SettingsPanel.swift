@@ -25,6 +25,7 @@ struct SettingsPanel: View {
     @State private var isShowingAccount = false
     @State private var isShowingPaywall = false
     @State private var isShowingConnect = false
+    @State private var isShowingAcknowledgements = false
 
     private var theme: FlightInfoTheme { appearance.theme }
 
@@ -157,14 +158,25 @@ struct SettingsPanel: View {
                 PanelDivider()
                 // Surfaces a packaging problem that otherwise just looks like an
                 // empty map, which is hard to diagnose from a TestFlight build.
-                aboutRow("Aircraft sprites", value: PlaneSprites.shared.isReady ? "Loaded" : "Missing")
+                aboutRow("Aircraft icons", value: PlaneSprites.shared.isReady ? "Vector" : "Missing")
                 PanelDivider()
                 aboutRow("Traffic", value: "\(feed.flights.count) aircraft")
+                PanelDivider()
+                // The marks on the map are other people's work, under licences
+                // that ask to be carried with the app.
+                PanelActionRow(
+                    title: "Acknowledgements",
+                    symbol: "doc.text",
+                    detail: "Where the aircraft marks come from"
+                ) {
+                    isShowingAcknowledgements = true
+                }
             }
         }
         .sheet(isPresented: $isShowingAccount) { AccountPanel() }
         .sheet(isPresented: $isShowingPaywall) { ProPanel() }
         .sheet(isPresented: $isShowingConnect) { ConnectPanel() }
+        .sheet(isPresented: $isShowingAcknowledgements) { AcknowledgementsPanel() }
     }
 
     /// One line under the Connect row saying where the link stands, so the

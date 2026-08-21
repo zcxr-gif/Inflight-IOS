@@ -27,7 +27,7 @@ final class AirportAnnotation: NSObject, MKAnnotation {
     }
 }
 
-/// The marker: the sprite sheet's own airport glyph with the ICAO under it.
+/// The marker: an airport pin with the ICAO under it.
 ///
 /// A view with subviews rather than a composed `image`, because the alternative
 /// is minting a bitmap per ICAO and holding a few hundred of them for text that
@@ -90,11 +90,11 @@ final class AirportAnnotationView: MKAnnotationView {
     func apply(_ annotation: AirportAnnotation) {
         let field = annotation.field
 
-        // The sheet carries two airport glyphs, and the distinction it was
-        // drawn for is exactly the one worth making here: a field somebody is
-        // working reads as the larger mark.
+        // A field somebody is working reads as the larger, blue mark; one
+        // without a controller is drawn back to the size of context.
         icon.image = PlaneSprites.shared.rawIcon(
-            forKey: field.isControlled ? "AIRPORT_LARGE" : "AIRPORT_SMALL"
+            forKey: field.isControlled ? "AIRPORT_LARGE" : "AIRPORT_SMALL",
+            pointSize: Self.glyph
         )
 
         label.text = field.airport.icao
