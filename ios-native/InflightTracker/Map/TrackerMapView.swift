@@ -483,6 +483,11 @@ struct TrackerMapView: UIViewRepresentable {
             let key = [
                 flight.id,
                 String(trail.count),
+                // The band the aircraft is in, so a climb through a boundary
+                // redraws the path. The trail thins its own samples and stops
+                // growing at all once it is full, so counting points alone
+                // leaves the colours frozen partway up.
+                String(AltitudeBand.band(forFeet: flight.altitudeFeet)),
                 flight.departureIcao ?? "",
                 flight.arrivalIcao ?? ""
             ].joined(separator: "|")
@@ -547,35 +552,79 @@ struct TrackerMapView: UIViewRepresentable {
         private static func altitudeSegments(of points: [TrackPoint]) -> [MKPolyline] {
             guard points.count >= 2 else { return [] }
 
+            let bands = heightBands(of: points)
+
             var lines: [MKPolyline] = []
             var run: [CLLocationCoordinate2D] = [points[0].coordinate]
-            var band = AltitudeBand.band(forFeet: points[0].altitudeFeet)
+            var band = bands[0]
 
-            for point in points.dropFirst() {
-                let next = AltitudeBand.band(forFeet: point.altitudeFeet)
-                run.append(point.coordinate)
-
-                if next != band {
-                    if run.count >= 2 {
-                        let curve = PathSmoothing.smoothed(run)
-                        let line = MKGeodesicPolyline(coordinates: curve, count: curve.count)
-                        line.title = "\(Self.flownTitle):\(band)"
-                        lines.append(line)
-                    }
-                    // The shared point keeps the runs joined.
-                    run = [point.coordinate]
-                    band = next
-                }
-            }
-
-            if run.count >= 2 {
+            func close(_ run: [CLLocationCoordinate2D], _ band: Int?) {
+                guard run.count >= 2 else { return }
                 let curve = PathSmoothing.smoothed(run)
                 let line = MKGeodesicPolyline(coordinates: curve, count: curve.count)
-                line.title = "\(Self.flownTitle):\(band)"
+                // A band that is not a number is one the renderer draws as
+                // unknown, which is what an unreadable title falls back to
+                // anyway.
+                line.title = "\(flownTitle):\(band.map { String($0) } ?? "unknown")"
                 lines.append(line)
             }
 
+            for index in 1..<points.count {
+                run.append(points[index].coordinate)
+                guard bands[index] != band else { continue }
+
+                close(run, band)
+                // The shared point keeps the runs joined.
+                run = [points[index].coordinate]
+                band = bands[index]
+            }
+
+            close(run, band)
             return lines
+        }
+
+        /// How far a path can run at exactly zero feet before the zero is read
+        /// as missing rather than as low.
+        ///
+        /// A flight from a sea-level field reports tens of feet, not a clean
+        /// zero, and an aircraft that never leaves the apron does not travel
+        /// twenty miles. A run that does both is a height the backend did not
+        /// send.
+        private static let unknownHeightRunNM: Double = 20
+
+        /// The band each sample belongs in, or nil where its height is missing
+        /// rather than low.
+        ///
+        /// Judged per run rather than over the whole path: a track seeded from
+        /// the backend without heights, with the live position on the end of
+        /// it, is the ordinary case — and it should draw as an unknown path
+        /// that becomes a coloured one, not as a flight that spent three hours
+        /// on the deck.
+        private static func heightBands(of points: [TrackPoint]) -> [Int?] {
+            var bands: [Int?] = points.map { AltitudeBand.band(forFeet: $0.altitudeFeet) }
+
+            var start = 0
+            while start < points.count {
+                guard points[start].altitudeFeet == 0 else {
+                    start += 1
+                    continue
+                }
+
+                var end = start
+                while end + 1 < points.count, points[end + 1].altitudeFeet == 0 { end += 1 }
+
+                let spanNM = FlightProgress.distanceNM(
+                    from: points[start].coordinate,
+                    to: points[end].coordinate
+                )
+                if spanNM > unknownHeightRunNM {
+                    for index in start...end { bands[index] = nil }
+                }
+
+                start = end + 1
+            }
+
+            return bands
         }
 
         private func clearRoute(on mapView: MKMapView) {
@@ -814,7 +863,14 @@ struct TrackerMapView: UIViewRepresentable {
                     guard let raw = title.split(separator: ":").last else { return nil }
                     return Int(String(raw))
                 }
-                renderer.strokeColor = AltitudeBand.color(for: band ?? 0)
+                // No band on the line means its height was never known. Held
+                // apart from band 0 on purpose: crimson is a claim about the
+                // aeroplane, and this is an admission about the data.
+                renderer.strokeColor = band.map { AltitudeBand.color(for: $0) } ?? UIColor { traits in
+                    traits.userInterfaceStyle == .light
+                        ? UIColor(white: 0.30, alpha: 0.85)
+                        : UIColor(white: 0.92, alpha: 0.85)
+                }
                 renderer.lineWidth = 3.5
             }
 
