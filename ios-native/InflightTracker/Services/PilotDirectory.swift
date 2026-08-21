@@ -237,6 +237,23 @@ final class PilotDirectory: ObservableObject {
         )) ?? []
     }
 
+    /// Landings as they are measured, newest first, across everybody whose
+    /// logbook is public.
+    ///
+    /// Readable signed out, unlike the board above — the board is your own
+    /// circle and is meaningless without an account, and this is the set of
+    /// landings whose owners have said "public". So the token is optional
+    /// rather than required, and a signed-out reader gets the same feed minus
+    /// their own rows.
+    func recentLandings(limit: Int = 25) async -> [PilotRecentLanding] {
+        let token = await AccountStore.shared.currentAccessToken()
+        return (try? await SupabaseData.rpc(
+            "pilot_recent_landings",
+            arguments: ["p_limit": limit],
+            accessToken: token
+        )) ?? []
+    }
+
     func badges(of handle: String) async -> [PilotBadge] {
         let token = await AccountStore.shared.currentAccessToken()
         return (try? await SupabaseData.rpc(

@@ -508,6 +508,71 @@ struct PilotLiveSummary: Decodable, Equatable, Identifiable {
 /// A global board is won once by whoever flies most and is then a wall somebody
 /// else is standing at; a board of the twenty people you actually fly with is
 /// one you can be on.
+/// One landing, as it reaches the world.
+///
+/// Distinct from `PilotLandingBoardEntry`, which is a pilot summarised over a
+/// window. This is a single touchdown with the aeroplane it was made in, and it
+/// carries two clocks: `landedAt`, when the wheels touched, and `recordedAt`,
+/// when the measurement actually reached us. On a phone those are far apart —
+/// iOS has the app suspended behind the simulator and the landing is collected
+/// afterwards — and the feed is ordered by the second one, so a landing shows up
+/// when it is news rather than buried under the hour it took to be read.
+struct PilotRecentLanding: Decodable, Equatable, Identifiable {
+
+    let handle: String
+    let displayName: String
+    let avatarPath: String?
+    let isPro: Bool
+
+    let aircraft: String?
+    let callsign: String?
+    let originIcao: String?
+    let destinationIcao: String?
+
+    let verticalSpeedFPM: Int
+    let score: Int?
+    let gForce: Double?
+
+    let landedAt: Date?
+    let recordedAt: Date?
+    let isSelf: Bool
+
+    /// Stable enough for a list that is re-fetched rather than mutated: one
+    /// pilot cannot land twice at the same instant.
+    var id: String { "\(handle)|\(recordedAt?.timeIntervalSince1970 ?? 0)" }
+
+    /// What the number means, in the words pilots use. The thresholds match
+    /// nothing on the server — this is presentation, and the rate is the fact.
+    var verdict: String {
+        switch abs(verticalSpeedFPM) {
+        case ..<100:  return "Butter"
+        case ..<200:  return "Smooth"
+        case ..<400:  return "Firm"
+        case ..<600:  return "Heavy"
+        default:      return "Hard"
+        }
+    }
+
+    var route: String? {
+        guard let from = originIcao, let to = destinationIcao else { return destinationIcao ?? originIcao }
+        return "\(from) → \(to)"
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case handle, aircraft, callsign, score
+        case displayName = "display_name"
+        case avatarPath = "avatar_path"
+        case isPro = "is_pro"
+        case originIcao = "origin_icao"
+        case destinationIcao = "destination_icao"
+        case verticalSpeedFPM = "vertical_speed_fpm"
+        case gForce = "g_force"
+        case landedAt = "landed_at"
+        case recordedAt = "recorded_at"
+        case isSelf = "is_self"
+    }
+}
+
 struct PilotLandingBoardEntry: Decodable, Equatable, Identifiable {
 
     let handle: String

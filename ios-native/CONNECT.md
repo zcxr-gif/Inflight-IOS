@@ -485,7 +485,25 @@ twelve" is a sentence about the version running today.
 
 **The landing board stores nothing.** It is a query over the logbook every time
 it is asked for. A stored leaderboard is a table to maintain, a backfill when
-the rule changes, and a number that can be wrong.
+the rule changes, and a number that can be wrong. The same is true of
+`pilot_recent_landings`, the public feed of touchdowns as they are measured —
+one query, no table, nothing to keep in step.
+
+That feed needed one column, and the reason is the whole shape of this feature
+on a phone. `landed_at` is when the wheels touched; on a phone the app is
+suspended behind the simulator and the measurement is collected the next time
+both are awake, so a flight landed at 14:02 can be read at 14:40. Ordered by
+`landed_at` the feed would bury exactly the rows it exists to show, so
+`landing_recorded_at` records when we found out, stamped by a trigger rather
+than by either of the two paths a landing can arrive on — a rule enforced in one
+of them is a rule that holds half the time.
+
+It is also stricter about who appears than `pilot_logbook_readable`, which every
+by-handle reader uses. That serves a followers-only logbook to a follower, which
+is right when somebody has gone to a profile and asked. A firehose is discovery
+rather than lookup, and a pilot who set their logbook to followers did not ask
+to be surfaced to everyone who happens to follow them — so the feed wants
+`public`, and shows you your own either way.
 
 **`pilot_logbook` grows, and should.** One row per completed flight, ~200 bytes,
 already gated on three minutes airborne. That is the product, not trash.
