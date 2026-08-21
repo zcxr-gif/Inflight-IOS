@@ -109,94 +109,94 @@ final class PlaneSprites {
 
     /// Sprite key to artwork, with the size that key draws at.
     ///
-    /// Scales are the real aircraft, roughly: a 380 at 1.22 against a Cessna at
-    /// 0.64 is about the ratio of their wingspans, flattened enough that the
-    /// small ones stay legible.
+    /// Scales follow the real aircraft, roughly: a 380 against a Cessna is
+    /// about the ratio of their wingspans, pulled in toward the middle so the
+    /// small ones stay legible at the size these are drawn.
     private static let fleet: [String: (art: String, scale: CGFloat, body: UIColor?)] = [
 
         // Narrowbodies
-        "A318": ("medium2jet", 0.94, nil),
-        "A319": ("medium2jet", 0.97, nil),
+        "A318": ("medium2jet", 0.95, nil),
+        "A319": ("medium2jet", 0.98, nil),
         "A320": ("medium2jet", 1.00, nil),
-        "A321": ("medium2jet", 1.03, nil),
+        "A321": ("medium2jet", 1.02, nil),
         "B737": ("medium2jet", 1.00, nil),
-        "B757": ("medium2jet", 1.05, nil),
-        "E190": ("medium2jet", 0.94, nil),
+        "B757": ("medium2jet", 1.04, nil),
+        "E190": ("medium2jet", 0.95, nil),
 
         // Widebodies
-        "A300": ("heavy2jet", 1.06, nil),
-        "A330": ("heavy2jet", 1.10, nil),
-        "A337": ("heavy2jet", 1.12, nil),
-        "A350": ("heavy2jet", 1.12, nil),
-        "B767": ("heavy2jet", 1.06, nil),
-        "B777": ("heavy2jet", 1.14, nil),
-        "B787": ("heavy2jet", 1.10, nil),
+        "A300": ("heavy2jet", 1.05, nil),
+        "A330": ("heavy2jet", 1.08, nil),
+        "A337": ("heavy2jet", 1.10, nil),
+        "A350": ("heavy2jet", 1.10, nil),
+        "B767": ("heavy2jet", 1.05, nil),
+        "B777": ("heavy2jet", 1.11, nil),
+        "B787": ("heavy2jet", 1.08, nil),
 
         // Four engines
-        "A340": ("a340", 1.14, nil),
-        "A380": ("a380", 1.22, nil),
-        "B747": ("heavy4jet", 1.18, nil),
-        "RJ100": ("medium4jet", 0.94, nil),
-        "KC35R": ("b707", 1.04, nil),
-        "R135": ("b707", 1.06, nil),
-        "E3CF": ("e3", 1.08, nil),
-        "B52": ("b52", 1.12, nil),
-        "C17": ("c17", 1.12, nil),
+        "A340": ("a340", 1.11, nil),
+        "A380": ("a380", 1.18, nil),
+        "B747": ("heavy4jet", 1.14, nil),
+        "RJ100": ("medium4jet", 0.95, nil),
+        "KC35R": ("b707", 1.03, nil),
+        "R135": ("b707", 1.05, nil),
+        "E3CF": ("e3", 1.06, nil),
+        "B52": ("b52", 1.10, nil),
+        "C17": ("c17", 1.10, nil),
 
         // Rear-engined jets
         "MD80": ("rearjet", 1.00, nil),
-        "FOKKER100": ("rearjet", 0.92, nil),
-        "PRIVATEJET": ("bizjet", 0.86, nil),
+        "FOKKER100": ("rearjet", 0.94, nil),
+        "PRIVATEJET": ("bizjet", 0.89, nil),
 
         // Propellers
-        "A400": ("a400", 1.06, nil),
+        "A400": ("a400", 1.05, nil),
         "C130": ("turboprop4", 1.00, nil),
         "LANC": ("lancaster", 0.98, nil),
-        "AT42": ("turboprop2", 0.86, nil),
-        "AT72": ("turboprop2", 0.90, nil),
-        "DASH8": ("turboprop2", 0.92, nil),
-        "Q4": ("turboprop2", 0.92, nil),
-        "TWINPROP": ("light2prop", 0.74, nil),
-        "PC12": ("light1prop", 0.70, nil),
-        "SINGLEPROP": ("light1prop", 0.64, nil),
-        "PA28": ("light1prop", 0.62, nil),
-        "SPIT": ("spitfire", 0.70, nil),
+        "AT42": ("turboprop2", 0.89, nil),
+        "AT72": ("turboprop2", 0.92, nil),
+        "DASH8": ("turboprop2", 0.94, nil),
+        "Q4": ("turboprop2", 0.94, nil),
+        "TWINPROP": ("light2prop", 0.79, nil),
+        "PC12": ("light1prop", 0.76, nil),
+        "SINGLEPROP": ("light1prop", 0.71, nil),
+        "PA28": ("light1prop", 0.70, nil),
+        "SPIT": ("spitfire", 0.76, nil),
 
         // Fast jets
-        "F16": ("f16", 0.76, nil),
-        "F35": ("f35", 0.78, nil),
-        "RC-22": ("f15", 0.82, nil),
-        "EUFI": ("eufi", 0.78, nil),
-        "TOR": ("tornado", 0.80, nil),
-        "HAWK": ("hawk", 0.70, nil),
-        "T38": ("trainer", 0.72, nil),
+        "F16": ("f16", 0.81, nil),
+        "F35": ("f35", 0.82, nil),
+        "RC-22": ("f15", 0.86, nil),
+        "EUFI": ("eufi", 0.82, nil),
+        "TOR": ("tornado", 0.84, nil),
+        "HAWK": ("hawk", 0.76, nil),
+        "T38": ("trainer", 0.78, nil),
 
         // High and slow
-        "U2": ("u2", 0.92, nil),
-        "GLIDER": ("glider", 0.84, nil),
-        "BALLOON": ("balloon", 0.70, nil),
+        "U2": ("u2", 0.94, nil),
+        "GLIDER": ("glider", 0.87, nil),
+        "BALLOON": ("balloon", 0.76, nil),
 
         // Rotary
-        "EUROCOPTER": ("helicopter", 0.74, nil),
-        "H60": ("helicopter", 0.82, nil),
-        "LYNX": ("helicopter", 0.76, nil),
-        "PUMA": ("helicopter", 0.82, nil),
-        "H64": ("apache", 0.80, nil),
-        "EH10": ("eh101", 0.86, nil),
-        "CHINOOK": ("chinook", 0.92, nil),
+        "EUROCOPTER": ("helicopter", 0.79, nil),
+        "H60": ("helicopter", 0.86, nil),
+        "LYNX": ("helicopter", 0.81, nil),
+        "PUMA": ("helicopter", 0.86, nil),
+        "H64": ("apache", 0.84, nil),
+        "EH10": ("eh101", 0.89, nil),
+        "CHINOOK": ("chinook", 0.94, nil),
 
         // Everything else
-        "DRONE": ("drone", 0.78, nil),
-        "RECEIVER": ("tower", 0.78, nil),
-        "VEHICLE": ("vehicle", 0.62, nil),
-        "SANTA": ("star", 0.80, nil),
-        "TRIANGLE": ("generic", 0.85, nil),
+        "DRONE": ("drone", 0.82, nil),
+        "RECEIVER": ("tower", 0.82, nil),
+        "VEHICLE": ("vehicle", 0.70, nil),
+        "SANTA": ("star", 0.84, nil),
+        "TRIANGLE": ("generic", 0.88, nil),
 
         // Fields. Their own colours: the pins are read against the traffic
         // rather than as part of it, and a staffed field is the one worth
         // picking out.
-        "AIRPORT_LARGE": ("airportPin", 1.00, Palette.controlledField),
-        "AIRPORT_SMALL": ("airportPin", 0.82, Palette.field),
+        "AIRPORT_LARGE": ("airportPin", 0.72, Palette.controlledField),
+        "AIRPORT_SMALL": ("airportPin", 0.60, Palette.field),
     ]
 }
 

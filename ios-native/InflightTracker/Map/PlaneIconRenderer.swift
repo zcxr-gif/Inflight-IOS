@@ -16,8 +16,10 @@ enum PlaneIconRenderer {
 
     /// Outline thickness, in points. Wide enough to hold the shape together on
     /// a busy satellite tile, fine enough that a light aircraft is still a
-    /// light aircraft rather than a blob.
-    static let outlineWidth: CGFloat = 1.1
+    /// light aircraft rather than a blob — which is a finer line than it sounds
+    /// at the size these are drawn, since the outline is a fixed width and the
+    /// smallest marks are only a dozen points across.
+    static let outlineWidth: CGFloat = 0.9
 
     /// Drop shadow under the icon, so traffic sits above the map rather than
     /// in it.
