@@ -42,13 +42,31 @@ struct FriendsPanel: View {
     /// Watched pilots the feed can currently see, keyed by lowercased name.
     /// Built once per render rather than searched per row — the packet is
     /// thousands of aircraft and the list is not.
-    private var flying: [String: Flight] {
+    ///
+    /// A list per pilot, not one flight. This used to be `found[username] =
+    /// flight`, which silently kept whichever aircraft the packet happened to
+    /// mention last: the feed covers several servers, a pilot can appear on
+    /// more than one of them, and one of their aeroplanes would simply vanish
+    /// from the list — including, sometimes, the one they were actually flying.
+    ///
+    /// Ordered highest first so the aeroplane in the air leads and one parked
+    /// on a stand does not, with the flight id breaking ties so the order does
+    /// not shuffle between packets.
+    private var flying: [String: [Flight]] {
         let watched = Set(friends.friends)
         guard !watched.isEmpty else { return [:] }
-        var found: [String: Flight] = [:]
+
+        var found: [String: [Flight]] = [:]
         for flight in feed.flights {
             guard let username = flight.username?.lowercased(), watched.contains(username) else { continue }
-            found[username] = flight
+            found[username, default: []].append(flight)
+        }
+
+        for (username, flights) in found where flights.count > 1 {
+            found[username] = flights.sorted {
+                if $0.altitudeFeet != $1.altitudeFeet { return $0.altitudeFeet > $1.altitudeFeet }
+                return $0.id < $1.id
+            }
         }
         return found
     }
@@ -56,7 +74,7 @@ struct FriendsPanel: View {
     var body: some View {
         let aloft = flying
 
-        MapPanel(title: "Friends", subtitle: summary(aloft: aloft.count)) {
+        MapPanel(title: "Friends", subtitle: summary(aloft: aloft.count, flights: aloft.values.reduce(0) { $0 + $1.count })) {
             if !push.canNotify { permissionSection }
 
             addSection
@@ -75,14 +93,28 @@ struct FriendsPanel: View {
                         if index > 0 { PanelDivider() }
                         FriendRow(
                             username: username,
-                            flight: aloft[username],
+                            flight: aloft[username]?.first,
                             theme: theme,
-                            isTracking: aloft[username].map { liveActivity.isTracking(flightId: $0.id) } ?? false,
+                            isTracking: aloft[username]?.first.map { liveActivity.isTracking(flightId: $0.id) } ?? false,
                             onOpen: { flight in onSelect(flight) },
                             onTrack: { flight in toggleTracking(flight) },
                             onProfile: { opened = .pilot(username) },
                             onRemove: { friends.remove(username) }
                         )
+
+                        // Everything else this pilot has in the air. Rare, and
+                        // silently dropped until now — which is worse than rare,
+                        // because the one that got dropped was as likely as not
+                        // the one being flown.
+                        ForEach(aloft[username]?.dropFirst().map { $0 } ?? []) { extra in
+                            AlsoFlyingRow(
+                                flight: extra,
+                                theme: theme,
+                                isTracking: liveActivity.isTracking(flightId: extra.id),
+                                onOpen: { onSelect(extra) },
+                                onTrack: { toggleTracking(extra) }
+                            )
+                        }
                     }
                 }
             }
@@ -202,10 +234,16 @@ struct FriendsPanel: View {
         flyingNow = await PilotDirectory.shared.liveFollowing()
     }
 
-    private func summary(aloft: Int) -> String {
+    /// `aloft` is how many watched pilots the feed can see; `flights` is how
+    /// many aeroplanes they are between them. The two differ when somebody
+    /// appears on more than one server, and reporting the second as the first
+    /// would say there are more people watching than there are.
+    private func summary(aloft: Int, flights: Int) -> String {
         guard !friends.friends.isEmpty else { return "Nobody watched yet" }
         let people = friends.count == 1 ? "1 pilot" : "\(friends.count) pilots"
-        return aloft == 0 ? "\(people) · none flying" : "\(people) · \(aloft) flying now"
+        guard aloft > 0 else { return "\(people) · none flying" }
+        guard flights > aloft else { return "\(people) · \(aloft) flying now" }
+        return "\(people) · \(aloft) flying now, \(flights) aircraft"
     }
 
     // MARK: - Permission
@@ -539,6 +577,74 @@ private struct FriendRow: View {
             return "\(route) · on the ground"
         default:
             return "\(route) · \(Format.number(flight.altitudeFeet)) ft"
+        }
+    }
+}
+
+/// A second aeroplane the same pilot has in the air.
+///
+/// Indented under their row rather than given one of its own, because it is the
+/// same person: a list that shows one name twice reads as two friends. It
+/// carries the callsign, which is the only thing that tells two of somebody's
+/// flights apart at a glance, and the same two actions as the row above.
+private struct AlsoFlyingRow: View {
+
+    let flight: Flight
+    let theme: FlightInfoTheme
+    let isTracking: Bool
+
+    let onOpen: () -> Void
+    let onTrack: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button(action: onOpen) {
+                HStack(spacing: 10) {
+                    Image(systemName: "arrow.turn.down.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(theme.textDim)
+                        .frame(width: 20)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("also \(flight.callsign ?? "flying")")
+                            .font(.system(size: 12.5, weight: .semibold))
+                            .foregroundStyle(theme.textSecondary)
+                            .flightInfoLine(minimumScale: 0.8)
+
+                        Text(detail)
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundStyle(theme.textDim)
+                            .flightInfoLine(minimumScale: 0.8)
+                    }
+
+                    Spacer(minLength: 4)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Button(action: onTrack) {
+                Image(systemName: isTracking ? "livephoto.badge.automatic" : "livephoto")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(isTracking ? theme.onAccent : theme.textSecondary)
+                    .frame(width: 26, height: 26)
+                    .background {
+                        Circle().fill(isTracking ? theme.accent : theme.surfaceFill)
+                    }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(isTracking ? "Stop the live banner" : "Show a live banner for this flight")
+        }
+        .padding(.leading, 28)
+        .padding(.trailing, 14)
+        .padding(.vertical, 7)
+    }
+
+    private var detail: String {
+        let route = "\(flight.departureIcao ?? "————") → \(flight.arrivalIcao ?? "————")"
+        switch FlightPhase.from(flight) {
+        case .ground: return "\(route) · on the ground"
+        default:      return "\(route) · \(Format.number(flight.altitudeFeet)) ft"
         }
     }
 }

@@ -49,6 +49,18 @@ struct ConnectPanel: View {
 
                 PanelDivider()
 
+                PanelToggleRow(
+                    title: "Tell me when it connects",
+                    symbol: "bell",
+                    detail: noticesDetail,
+                    isOn: Binding(
+                        get: { session.announcesConnection },
+                        set: { session.announcesConnection = $0 }
+                    )
+                )
+
+                PanelDivider()
+
                 statusRow
 
                 // Nothing to type when the simulator is right here.
@@ -96,6 +108,17 @@ struct ConnectPanel: View {
         return "Reads your aircraft straight from Infinite Flight over Wi-Fi. Needs the "
              + "sim running on another device on this network, with Connect switched on "
              + "in its settings."
+    }
+
+    /// Why anybody would want the banner, and why anybody would want it gone.
+    private var noticesDetail: String {
+        if session.announcesConnection {
+            return "A banner when the link is made, and one saying why when it isn't. It "
+                 + "arrives on top of Infinite Flight, which on one device is the only place "
+                 + "you could see it."
+        }
+        return "No banners. The panel still says what happened — you just have to come and "
+             + "look."
     }
 
     private var subtitle: String? {

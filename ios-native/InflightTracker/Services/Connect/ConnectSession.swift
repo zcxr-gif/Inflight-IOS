@@ -162,9 +162,22 @@ final class ConnectSession: ObservableObject {
         }
     }
 
+    /// Whether attaching to the sim, and failing to, are worth a banner.
+    ///
+    /// On by default because on one device the banner is the only channel there
+    /// is — the moment the link is made is a moment the pilot is inside
+    /// Infinite Flight and cannot see this panel. But it is a notification
+    /// about plumbing rather than about flying, and somebody who has got it
+    /// working and knows the drill should be able to stop being told. The panel
+    /// keeps saying it either way.
+    @Published var announcesConnection: Bool {
+        didSet { defaults.set(announcesConnection, forKey: Self.noticesKey) }
+    }
+
     private static let hostKey = "connect.host"
     private static let enabledKey = "connect.enabled"
     private static let sameDeviceKey = "connect.sameDevice"
+    private static let noticesKey = "connect.notices"
 
     /// Infinite Flight serves Connect on every interface it has, loopback
     /// included, so an app on the same device reaches it here.
@@ -252,6 +265,9 @@ final class ConnectSession: ObservableObject {
         host = defaults.string(forKey: Self.hostKey) ?? ""
         isSameDevice = defaults.bool(forKey: Self.sameDeviceKey)
         isEnabled = defaults.bool(forKey: Self.enabledKey)
+        // Defaults-backed booleans are false when absent, and this one defaults
+        // on: a fresh install has never opted out.
+        announcesConnection = defaults.object(forKey: Self.noticesKey) as? Bool ?? true
 
         NotificationCenter.default.addObserver(
             forName: UIApplication.didEnterBackgroundNotification,
@@ -438,6 +454,7 @@ final class ConnectSession: ObservableObject {
     /// arrives over the top of Infinite Flight — where the pilot is, and where
     /// the switch that fixes it lives.
     private func announceOutcome() {
+        guard announcesConnection else { return }
         guard !hasAnnouncedThisWindow else { return }
 
         if status.isLive {
@@ -579,8 +596,12 @@ final class ConnectSession: ObservableObject {
     private func announceConnected(to address: String) {
         hasAnnouncedThisWindow = true
         // Whatever was blocking this is no longer blocking it, so the next time
-        // it does block the explanation is new again and worth sending.
+        // it does block the explanation is new again and worth sending. Cleared
+        // even when the banner is muted, so turning notices back on does not
+        // inherit a suppression from a problem that has since been fixed.
         announcedProblem = nil
+
+        guard announcesConnection else { return }
 
         let place = address == Self.loopback ? "on this device" : "at \(address)"
         PushService.shared.post(
