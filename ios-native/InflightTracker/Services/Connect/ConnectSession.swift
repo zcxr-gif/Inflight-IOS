@@ -212,11 +212,7 @@ final class ConnectSession: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            // iOS suspends us shortly after this and the socket dies with the
-            // process's attention. Closing deliberately means the next
-            // foreground starts from a known state rather than from a
-            // half-dead connection whose reads all time out.
-            Task { @MainActor in self?.suspend() }
+            Task { @MainActor in self?.handleBackgrounding() }
         }
 
         NotificationCenter.default.addObserver(
@@ -225,7 +221,14 @@ final class ConnectSession: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                guard let self, self.isEnabled else { return }
+                guard let self else { return }
+
+                // Whatever is left of the background window is finished with:
+                // the sim is behind us again and the pilot is looking at this
+                // screen, which is where the panel does the telling.
+                self.endBackgroundWindow(expired: false)
+
+                guard self.isEnabled else { return }
 
                 // The catch-up used to be here, and only here. It now lives at
                 // the top of `run()` instead, so the cold launch gets it too --
@@ -244,8 +247,18 @@ final class ConnectSession: ObservableObject {
 
         retryIndex = 0
         pollTask = Task { [weak self] in
+            // Whatever a previous attempt left open is closed from here rather
+            // than from wherever it was cancelled. Both used to be spawned as
+            // free-standing tasks, so a stale close could land on top of this
+            // attempt's fresh socket and take it down; done in order it cannot.
+            await self?.closeTransport()
             await self?.run()
         }
+    }
+
+    /// Closes the socket in the caller's own order of operations.
+    private func closeTransport() async {
+        await transport.close()
     }
 
     func stop() {
@@ -264,6 +277,9 @@ final class ConnectSession: ObservableObject {
         // `suspend()` deliberately does not, because being suspended IS the
         // wait.
         isOwedConnectionNotice = false
+        announcedProblem = nil
+        hasAnnouncedThisWindow = false
+        endBackgroundWindow(expired: false)
     }
 
     /// Backgrounded: drop the socket but keep the intention to reconnect.
@@ -273,6 +289,129 @@ final class ConnectSession: ObservableObject {
         cancelDiscovery()
         Task { await transport.close() }
         if isEnabled { status = .off }
+    }
+
+    // MARK: - The one window a phone has
+    //
+    // On a single phone the two apps can never both be in front, and until now
+    // that meant the link could never be made at all: every attempt was made
+    // from our own foreground, which is exactly when iOS has Infinite Flight
+    // suspended and its Connect socket is answering nobody. A pilot switching
+    // back and forth to see whether it had worked was watching the one state
+    // where it cannot work, and the panel sat on "Waiting for Infinite Flight"
+    // for the whole flight while nothing was wrong with either app.
+    //
+    // The moment it *can* work is the moment we are put away, because the app
+    // replacing us is the simulator. iOS grants a finite window to an app that
+    // asks for one on the way out — around thirty seconds, no entitlement, no
+    // background mode, nothing claimed that is not true — and thirty seconds is
+    // enough to attach, read the flight id, take a telemetry sample, publish a
+    // live status the server can then keep alive from the feed, and say so.
+    //
+    // This is not the fourteen-hour socket that `CONNECT.md` explains cannot be
+    // had. It is one window per app switch, which is what makes "open Infinite
+    // Flight, come back" produce something rather than nothing.
+
+    /// The finite window iOS has granted, if any.
+    private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
+
+    /// Whether this window has already had its say, so an attach and a failure
+    /// inside the same thirty seconds do not both raise a banner.
+    private var hasAnnouncedThisWindow = false
+
+    /// The last thing announced as blocking the link. Kept so the identical
+    /// sentence is not delivered again on the next app switch — a pilot who has
+    /// not switched Connect on inside the sim needs telling once, not every
+    /// time they change apps.
+    private var announcedProblem: String?
+
+    private func handleBackgrounding() {
+        // Two devices: nothing here changes anything there. The sim is on the
+        // other one and does not care which app is in front on this one, so
+        // there is nothing to gain by staying awake and a battery cost to it.
+        guard isEnabled, isSameDevice else {
+            suspend()
+            return
+        }
+
+        hasAnnouncedThisWindow = false
+        beginBackgroundWindow()
+
+        // Start again rather than continue. Whatever the session was doing a
+        // moment ago it was doing against a suspended simulator; this attempt
+        // is the first one with the sim actually in front, and it should not
+        // have to wait out a sixty-second backoff earned by attempts that never
+        // had a chance. `stop()` is deliberately not used: it would clear the
+        // record of the pilot having been kept waiting, which is the only thing
+        // that decides whether attaching is worth announcing.
+        pollTask?.cancel()
+        pollTask = nil
+        cancelDiscovery()
+        start()
+    }
+
+    private func beginBackgroundWindow() {
+        guard backgroundTask == .invalid else { return }
+
+        backgroundTask = UIApplication.shared.beginBackgroundTask(
+            withName: "Infinite Flight Connect"
+        ) { [weak self] in
+            // Called on the main thread when iOS wants the time back. It has to
+            // end promptly, so the session is torn down here rather than left
+            // to be killed with the process.
+            Task { @MainActor in self?.endBackgroundWindow(expired: true) }
+        }
+    }
+
+    /// Gives the window back. `expired` distinguishes iOS taking it from the
+    /// pilot returning to the app, which are different endings: only the first
+    /// has anything to report, because only the first happens while they are
+    /// still looking at Infinite Flight.
+    private func endBackgroundWindow(expired: Bool) {
+        let task = backgroundTask
+        backgroundTask = .invalid
+
+        if expired {
+            announceOutcome()
+            suspend()
+        }
+
+        if task != .invalid {
+            UIApplication.shared.endBackgroundTask(task)
+        }
+    }
+
+    /// One banner, at the end of a window, and only when it says something the
+    /// pilot could not already see.
+    ///
+    /// This is the half of the feature that used to be impossible. The notice
+    /// existed before and could only ever fire while the app was open, which is
+    /// the one moment it tells nobody anything. Fired from the window instead it
+    /// arrives over the top of Infinite Flight — where the pilot is, and where
+    /// the switch that fixes it lives.
+    private func announceOutcome() {
+        guard !hasAnnouncedThisWindow else { return }
+
+        if status.isLive {
+            // Attaching already announced itself. Nothing to add.
+            return
+        }
+
+        guard case let .waiting(reason) = status else { return }
+        guard reason != announcedProblem else { return }
+
+        hasAnnouncedThisWindow = true
+        announcedProblem = reason
+
+        PushService.shared.post(
+            title: "Not reading Infinite Flight",
+            body: reason,
+            // Its own identifier, so the failure and the success replace
+            // themselves rather than each other: a pilot who fixes it should
+            // see the connected notice arrive alongside, not silently overwrite
+            // the explanation they were following.
+            identifier: "connect.blocked"
+        )
     }
 
     /// Forget the remembered address and go back out to look for the sim.
@@ -321,10 +460,15 @@ final class ConnectSession: ObservableObject {
                 try await attach(to: address)
                 retryIndex = 0
 
-                // Tell them, but only if they were kept waiting. A connection
-                // that worked first time needs no announcement — they were
-                // watching it happen.
-                if isOwedConnectionNotice {
+                // Tell them if they were kept waiting — a connection that
+                // worked first time while they watched needs no announcement —
+                // and tell them in a background window whether they were kept
+                // waiting or not, because in a window they are inside Infinite
+                // Flight and the panel that would otherwise say so is behind
+                // it. That is the whole point of the window: the answer to
+                // "did it connect?" arriving where the question is asked.
+                let inWindow = backgroundTask != .invalid
+                if isOwedConnectionNotice || (inWindow && !hasAnnouncedThisWindow) {
                     isOwedConnectionNotice = false
                     announceConnected(to: address)
                 }
@@ -344,7 +488,12 @@ final class ConnectSession: ObservableObject {
                 // question in front of them.
                 if !isOwedConnectionNotice {
                     isOwedConnectionNotice = true
-                    if PushService.shared.authorization == .notDetermined {
+                    // Only ever asked with the app in front. A permission
+                    // prompt raised from a background window would be held by
+                    // iOS and shown much later, out of the context that
+                    // justified it.
+                    if PushService.shared.authorization == .notDetermined,
+                       UIApplication.shared.applicationState == .active {
                         PushService.shared.requestAuthorization()
                     }
                 }
@@ -363,6 +512,11 @@ final class ConnectSession: ObservableObject {
 
     /// One line, once, when a link the pilot has been waiting for comes up.
     private func announceConnected(to address: String) {
+        hasAnnouncedThisWindow = true
+        // Whatever was blocking this is no longer blocking it, so the next time
+        // it does block the explanation is new again and worth sending.
+        announcedProblem = nil
+
         let place = address == Self.loopback ? "on this device" : "at \(address)"
         PushService.shared.post(
             title: "Connected to Infinite Flight",
@@ -468,6 +622,13 @@ final class ConnectSession: ObservableObject {
             next.sampledAt = Date()
             telemetry = next
 
+            // The first pass is the first moment there is a position to share,
+            // and on one device it may also be one of the few. Publishing on it
+            // rather than waiting for the 45-second heartbeat is what puts the
+            // flight in front of other people at all when the connection lasts
+            // half a minute.
+            if pass == 0 { LiveStatusPublisher.shared.publishNow() }
+
             if pass % Self.periodicEveryNPasses == 0 {
                 try await readPeriodic()
             }
@@ -551,12 +712,17 @@ final class ConnectSession: ObservableObject {
         case attached(fpm: Int)
         case nothingToAttach
         case simulatorNotReachable
+        /// There is nowhere to put a landing. A logbook belongs to a profile,
+        /// so without one this cannot do anything — and used to say nothing
+        /// either, which made the button look broken rather than inapplicable.
+        case needsAccount
 
         var label: String {
             switch self {
             case let .attached(fpm):    return "Landing recorded: \(fpm) fpm"
             case .nothingToAttach:      return "No new landing to record"
             case .simulatorNotReachable: return "Infinite Flight wasn't running"
+            case .needsAccount:         return "Sign in and claim a handle to record landings"
             }
         }
     }
@@ -575,7 +741,10 @@ final class ConnectSession: ObservableObject {
     /// is free and offering it to an already-measured flight does nothing.
     func catchUp() async {
         guard isEnabled, isSameDevice else { return }
-        guard AccountStore.shared.isSignedIn, ProfileStore.shared.hasProfile else { return }
+        guard AccountStore.shared.isSignedIn, ProfileStore.shared.hasProfile else {
+            lastCatchUp = .needsAccount
+            return
+        }
 
         // Already live — an iPad in Split View — so the poll loop is watching
         // properly and there is nothing to catch up on.

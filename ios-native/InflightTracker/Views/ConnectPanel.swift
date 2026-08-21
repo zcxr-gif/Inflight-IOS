@@ -14,6 +14,7 @@ struct ConnectPanel: View {
     @ObservedObject private var publisher = LiveStatusPublisher.shared
     @ObservedObject private var profiles = ProfileStore.shared
     @ObservedObject private var appearance = FlightInfoAppearance.shared
+    @ObservedObject private var push = PushService.shared
 
     @State private var typedHost: String = ""
     @FocusState private var addressFocused: Bool
@@ -27,9 +28,7 @@ struct ConnectPanel: View {
                 PanelToggleRow(
                     title: "Read from the sim",
                     symbol: "antenna.radiowaves.left.and.right",
-                    detail: "Reads your aircraft straight from Infinite Flight over Wi-Fi. "
-                          + "Needs the sim running on another device on this network, with "
-                          + "Connect switched on in its settings.",
+                    detail: readDetail,
                     isOn: Binding(
                         get: { session.isEnabled },
                         set: { session.isEnabled = $0 }
@@ -84,6 +83,19 @@ struct ConnectPanel: View {
             }
         }
         .onAppear { typedHost = session.host }
+    }
+
+    /// What the switch needs, which is not the same sentence on one device as
+    /// on two — and the two-device sentence read as a flat contradiction of the
+    /// switch below it to anybody flying on this phone.
+    private var readDetail: String {
+        if session.isSameDevice {
+            return "Reads your aircraft straight from Infinite Flight on this device. "
+                 + "Needs Connect switched on in the sim, under Settings → General."
+        }
+        return "Reads your aircraft straight from Infinite Flight over Wi-Fi. Needs the "
+             + "sim running on another device on this network, with Connect switched on "
+             + "in its settings."
     }
 
     private var subtitle: String? {
@@ -264,13 +276,58 @@ struct ConnectPanel: View {
                     ? "Open Inflight beside Infinite Flight in Split View and everything works live — the whole flight, as it happens."
                     : "While you fly, iOS suspends Inflight behind the simulator, so it cannot watch the flight itself.")
 
+                bullet("The link is made as you switch away. Infinite Flight only answers while it is the app in front, so Inflight keeps reading for about half a minute after you open the sim — and sends you a notification saying whether it connected, on top of Infinite Flight where you can see it.")
+
                 bullet("Your flight is recorded from the map either way. Come back here after landing and the touchdown is read from the simulator and added to it — Infinite Flight keeps the last landing until the next one, so nothing has to be watching at the time.")
 
                 bullet("It's checked automatically each time you open Inflight. The button above is for when you want to be sure.")
+
+                if !push.canNotify { notificationsOff }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 11)
         }
+    }
+
+    private var notificationsOffText: String {
+        if push.authorization == .denied {
+            return "Notifications are off, so there is no way to tell you whether this "
+                 + "connected — it happens while you are in Infinite Flight. Turning them "
+                 + "back on lives in iOS Settings."
+        }
+        return "Allow notifications and you'll be told, on top of Infinite Flight, whether "
+             + "Inflight managed to read the sim."
+    }
+
+    /// Shown only while notifications are off, and only on one device.
+    ///
+    /// Everywhere else in the app a notification is a convenience. Here it is
+    /// the only channel there is: the moment the link is made is a moment the
+    /// pilot is inside Infinite Flight, so a panel cannot tell them and a
+    /// banner is the whole of the answer to "did it connect?".
+    private var notificationsOff: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(notificationsOffText)
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button {
+                if push.authorization == .denied {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                } else {
+                    push.requestAuthorization()
+                }
+            } label: {
+                Text(push.authorization == .denied ? "Open Settings" : "Allow notifications")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(theme.accent)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.top, 2)
     }
 
     private var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
@@ -280,6 +337,7 @@ struct ConnectPanel: View {
         case .attached:              return "checkmark.circle.fill"
         case .nothingToAttach:       return "minus.circle"
         case .simulatorNotReachable: return "moon.zzz"
+        case .needsAccount:          return "person.crop.circle.badge.exclamationmark"
         }
     }
 
@@ -288,6 +346,7 @@ struct ConnectPanel: View {
         case .attached:              return .green
         case .nothingToAttach:       return theme.textDim
         case .simulatorNotReachable: return theme.textDim
+        case .needsAccount:          return .orange
         }
     }
 

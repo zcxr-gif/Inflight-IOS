@@ -99,6 +99,20 @@ final class LiveStatusPublisher: ObservableObject {
         }
     }
 
+    /// Writes one row now rather than at the next heartbeat.
+    ///
+    /// The heartbeat is 45 seconds and a phone talking to a simulator on the
+    /// same device is connected for about thirty — the length of the background
+    /// window it gets as the pilot switches into the sim. Left to the timer, a
+    /// link made in that window would routinely close again before a single row
+    /// was written, and the pilot who had just seen the app connect would find
+    /// their own flight showing nothing. A connection coming up is an event
+    /// worth a row of its own.
+    func publishNow() {
+        guard isSharing else { return }
+        Task { await publishIfAble() }
+    }
+
     private func currentInterval() -> TimeInterval {
         switch ConnectSession.shared.telemetry.phase {
         case .approach, .takeoff, .landed, .taxiing: return Self.activeHeartbeat
