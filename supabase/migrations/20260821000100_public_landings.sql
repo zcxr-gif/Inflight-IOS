@@ -31,6 +31,11 @@ comment on column public.pilot_logbook.landing_recorded_at is
 create or replace function public.pilot_logbook_stamp_landing()
 returns trigger
 language plpgsql
+-- Pinned like every other function here. A trigger function with a mutable
+-- search_path resolves its names against whatever the caller's happens to be,
+-- which is a way to have something other than `public.pilot_logbook` written to
+-- by a statement that looks like it writes to `public.pilot_logbook`.
+set search_path to 'public'
 as $function$
 begin
   -- Only the transition into having a landing, and only once. An edit that
