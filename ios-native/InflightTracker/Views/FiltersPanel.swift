@@ -46,6 +46,15 @@ struct FiltersPanel: View {
                     detail: "Marks fields with somebody on frequency, and the busiest of the rest. Tap one to open it.",
                     isOn: $filters.showsAirports
                 )
+
+                PanelDivider()
+
+                PanelToggleRow(
+                    title: "Ground layout",
+                    symbol: "point.topleft.down.curvedto.point.bottomright.up",
+                    detail: "Draws runways, taxiways and terminals with their names once the map is over a field. From OpenStreetMap, so it is as good as the field's mapping.",
+                    isOn: $filters.showsGroundLayout
+                )
             }
 
             PanelSection(title: "PHASE") {

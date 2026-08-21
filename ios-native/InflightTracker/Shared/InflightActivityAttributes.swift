@@ -24,7 +24,12 @@ public struct InflightActivityAttributes: ActivityAttributes {
         /// Great-circle distance still to run. Refreshed on each push.
         public var distanceToDestinationNm: Double
 
-        public var currentETA: Date
+        /// Live estimate of arrival, or nil when there is nothing to estimate
+        /// from — an aircraft still at its gate has no ground speed to divide
+        /// a distance by. It used to be a plain `Date` defaulted to *now*,
+        /// which is why a banner started before pushback read "Arriving" from
+        /// the moment it appeared.
+        public var currentETA: Date?
 
         /// Actual time of departure, when the backend knows it. The live API
         /// doesn't expose one, so this is usually absent.
@@ -42,7 +47,7 @@ public struct InflightActivityAttributes: ActivityAttributes {
         public var groundSpeedKt: Int
 
         public init(distanceToDestinationNm: Double,
-                    currentETA: Date,
+                    currentETA: Date?,
                     currentATD: Date? = nil,
                     isLanded: Bool = false,
                     lastUpdated: Date = Date(),
@@ -65,7 +70,7 @@ public struct InflightActivityAttributes: ActivityAttributes {
         public init(from decoder: Decoder) throws {
             let box = try decoder.container(keyedBy: CodingKeys.self)
             distanceToDestinationNm = try box.decodeIfPresent(Double.self, forKey: .distanceToDestinationNm) ?? 0
-            currentETA = try box.decodeIfPresent(Date.self, forKey: .currentETA) ?? Date()
+            currentETA = try box.decodeIfPresent(Date.self, forKey: .currentETA)
             currentATD = try box.decodeIfPresent(Date.self, forKey: .currentATD)
             isLanded = try box.decodeIfPresent(Bool.self, forKey: .isLanded) ?? false
             // An older backend sends no timestamp; treating that as "now" makes
@@ -158,6 +163,18 @@ public struct InflightActivityAttributes: ActivityAttributes {
         totalDistanceNm = try box.decodeIfPresent(Double.self, forKey: .totalDistanceNm) ?? 0
         pilotUsername = try box.decodeIfPresent(String.self, forKey: .pilotUsername) ?? ""
         flightId = try box.decodeIfPresent(String.self, forKey: .flightId) ?? ""
+    }
+
+    /// The arrival time known when the banner started, or nil when there was
+    /// none to be had.
+    ///
+    /// The attributes of a running activity cannot be changed, so an estimate
+    /// that did not exist at the start can never be filled in here — it lives
+    /// in `ContentState.currentETA` instead. Written as arrival == departure
+    /// rather than as an optional because the shape is the backend's, and this
+    /// file does not get to add fields to it.
+    public var plannedArrival: Date? {
+        scheduledArrival > scheduledDeparture ? scheduledArrival : nil
     }
 
     /// Which cached photo this flight's banner is drawn on.

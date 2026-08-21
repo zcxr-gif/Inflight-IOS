@@ -244,11 +244,15 @@ enum AppConfig {
     /// Key used to remember the last picked server between launches.
     static let serverDefaultsKey = "preferredServer"
 
-    /// On-screen size of a plane sprite, in points. The web tracker draws its
-    /// icons at a uniform ~19px (every sprite is normalised to 128 logical px
-    /// and then drawn at `icon-size: 0.15`), so a single size for all types
-    /// matches the old look.
-    static let iconPointSize: CGFloat = 26
+    /// On-screen size of the longest side of an aircraft mark, in points,
+    /// before its type's own scale.
+    ///
+    /// 26 while the icons came off the sprite sheet, but that was the size of
+    /// the *crop*: the drawing floated inside a square box and only ever filled
+    /// around 70% of it, so the aeroplane anyone actually saw was about 18
+    /// points across. The marks are fitted to their own ink now, with no box
+    /// around them, so matching the old look means saying 18 rather than 26.
+    static let iconPointSize: CGFloat = 18
 
     /// Transparent padding around each sprite. The plane itself stays small,
     /// but the annotation view is big enough to be tapped comfortably.

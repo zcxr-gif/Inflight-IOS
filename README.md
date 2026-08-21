@@ -32,9 +32,9 @@ ios-native/
     App/                          Entry point + configuration constants
     Models/Flight.swift           Feed payload decoding
     Services/LiveFeed.swift       Socket.IO client
-    Map/                          Sprite slicing, annotations, MKMapView wrapper
+    Map/                          Icon drawing, annotations, MKMapView wrapper
     Views/                        SwiftUI screens
-    Resources/                    markers.png, sprite-uvs.json, app icon
+    Resources/                    airports.txt, app icon
   Support/Inflight.storekit       StoreKit config, for testing Pro in the simulator
 supabase/functions/               Edge Functions (account deletion, App Store purchases)
 supabase/migrations/              Schema, as SQL that has been applied
@@ -142,14 +142,22 @@ than failing the whole packet.
 
 ## Plane icons
 
-`markers.png` and `sprite-uvs.json` are copied from the old tracker. The UV table
-stores `[x, y, width, height]` as ratios of the sheet, and `PlaneSprites` crops
-each icon out at runtime — the same source pixels the web build drew.
+The marks are vector, not a sprite sheet. `PlaneArtwork.swift` is generated and
+holds them as flat path data; `PlanePath` turns that into a `CGPath` and
+`PlaneIconRenderer` fits it to the canvas and gives it its halo, so each icon is
+drawn at the size, colour and screen scale it is actually wanted at. Selection
+and the watch-list tint are colours applied at render time rather than separate
+artwork. `tools/plane-artwork/README.md` covers where the shapes come from,
+under which licences, and how to regenerate them.
 
-`AircraftCatalog.spriteKey(for:)` is a faithful port of `getAircraftCategory()`
-from `old/www/flight.js`, so anything the old tracker recognised gets an identical
-icon. Extra type matches only run where the old function fell through to its
-generic `B737` fallback.
+`PlaneSprites.fleet` says which artwork a sprite key draws and how big; that is
+where a type gets a distinct mark or a different size.
+
+`AircraftCatalog.spriteKey(for:)` is a port of `getAircraftCategory()` from
+`old/www/flight.js`, so anything the old tracker recognised is still recognised.
+It matches the same names, but hands a few of them their own icon now that the
+set has one — a Chinook, an Apache, a Typhoon, an F-35. Extra type matches only
+run where the old function fell through to its generic `B737` fallback.
 
 ## Restoring the old build
 

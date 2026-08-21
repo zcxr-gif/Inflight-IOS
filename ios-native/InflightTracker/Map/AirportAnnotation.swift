@@ -27,7 +27,7 @@ final class AirportAnnotation: NSObject, MKAnnotation {
     }
 }
 
-/// The marker: the sprite sheet's own airport glyph with the ICAO under it.
+/// The marker: an airport pin with the ICAO under it.
 ///
 /// A view with subviews rather than a composed `image`, because the alternative
 /// is minting a bitmap per ICAO and holding a few hundred of them for text that
@@ -90,19 +90,85 @@ final class AirportAnnotationView: MKAnnotationView {
     func apply(_ annotation: AirportAnnotation) {
         let field = annotation.field
 
-        // The sheet carries two airport glyphs, and the distinction it was
-        // drawn for is exactly the one worth making here: a field somebody is
-        // working reads as the larger mark.
+        // A field somebody is working reads as the larger, blue mark; one
+        // without a controller is drawn back to the size of context.
         icon.image = PlaneSprites.shared.rawIcon(
-            forKey: field.isControlled ? "AIRPORT_LARGE" : "AIRPORT_SMALL"
+            forKey: field.isControlled ? "AIRPORT_LARGE" : "AIRPORT_SMALL",
+            pointSize: Self.glyph
         )
 
         label.text = field.airport.icao
 
+        // The ICAO carries the field's flight category, in the four colours a
+        // pilot already reads them in. Done with the text rather than another
+        // dot beside it: the marker is a pin, a code and nothing else, and the
+        // code is the part everyone is looking at anyway.
+        label.textColor = WeatherService.shared.cached(field.airport.icao)?.flightCategory.colour ?? .white
+
         // A staffed field is the one you would go looking for, so it is the one
         // that gets full strength; a busy but uncontrolled field is drawn back
         // far enough to read as context.
-        label.textColor = .white
         alpha = field.isControlled ? 1 : 0.72
+    }
+}
+
+/// A runway designator, drawn on the field itself.
+///
+/// The reason the ground layer exists: Apple's basemap draws pavement without
+/// naming it and imagery shows concrete without telling you which runway you
+/// are looking at.
+final class GroundLabel: NSObject, MKAnnotation {
+
+    let coordinate: CLLocationCoordinate2D
+    let text: String
+
+    init(coordinate: CLLocationCoordinate2D, text: String) {
+        self.coordinate = coordinate
+        self.text = text
+        super.init()
+    }
+}
+
+final class GroundLabelView: MKAnnotationView {
+
+    static let reuseIdentifier = "groundLabel"
+
+    private let label = UILabel()
+
+    override init(annotation: MKAnnotation?, reuseIdentifier: String?) {
+        super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
+
+        canShowCallout = false
+        isEnabled = false
+
+        // The pavement is context for the traffic, so it gives way to it — and
+        // to the field markers, which are what a tap is looking for.
+        displayPriority = .defaultLow
+        zPriority = .min
+        collisionMode = .circle
+
+        frame = CGRect(x: 0, y: 0, width: 64, height: 16)
+        label.frame = bounds
+        label.textAlignment = .center
+        label.font = .systemFont(ofSize: 10.5, weight: .heavy)
+        label.adjustsFontSizeToFitWidth = true
+        label.minimumScaleFactor = 0.7
+        // Legible on a light map, a dark one and imagery alike, which is the
+        // same problem the ICAO under a field marker solves the same way.
+        label.layer.shadowColor = UIColor.black.cgColor
+        label.layer.shadowOpacity = 0.9
+        label.layer.shadowRadius = 2
+        label.layer.shadowOffset = .zero
+        label.textColor = .white
+        addSubview(label)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func apply(_ annotation: GroundLabel) {
+        label.text = annotation.text
     }
 }

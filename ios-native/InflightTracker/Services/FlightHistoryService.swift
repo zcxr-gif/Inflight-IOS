@@ -69,8 +69,18 @@ final class FlightHistoryService {
             points.append(
                 TrackPoint(
                     coordinate: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
-                    altitudeFeet: number(entry["altitude"] ?? entry["alt_ft"]) ?? 0,
-                    groundSpeedKnots: number(entry["groundSpeed"] ?? entry["speed"] ?? entry["gs_kt"]) ?? 0,
+                    // `alt` included because the web tracker reads it:
+                    // `generateAltitudeColoredRoute` takes
+                    // `point.altitude || point.alt || 0`, and a breadcrumb
+                    // whose height lands under a key this did not know about
+                    // decoded as zero — which drew the whole flown path in the
+                    // colour of the ground.
+                    altitudeFeet: number(
+                        entry["altitude"] ?? entry["alt"] ?? entry["alt_ft"] ?? entry["altitudeFt"]
+                    ) ?? 0,
+                    groundSpeedKnots: number(
+                        entry["groundSpeed"] ?? entry["speed"] ?? entry["gs_kt"] ?? entry["gs"]
+                    ) ?? 0,
                     date: date(entry["date"] ?? entry["timestamp"])
                 )
             )

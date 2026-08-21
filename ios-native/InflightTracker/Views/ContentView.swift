@@ -167,6 +167,7 @@ struct ContentView: View {
                 colorScheme: theme.colorScheme,
                 style: appearance.resolvedMapStyle,
                 airports: mapAirports,
+                showsGroundLayout: filters.showsGroundLayout,
                 onSelectAirport: { icao in
                     guard let field = AirportStore.shared.airport(icao) else { return }
                     // No origin: a field tapped on the map was not arrived at
@@ -257,6 +258,10 @@ struct ContentView: View {
             // bridge does the throttling, because only it knows what a widget
             // would actually notice.
             WidgetBridge.shared.update(flights: feed.flights, atcStations: feed.atcStations)
+
+            // And the live banners, which otherwise carry whatever estimate
+            // they were started with until the backend next pushes.
+            LiveActivityController.shared.refresh(with: feed.flights)
 
             // A widget tap waiting on the aircraft to appear in a packet.
             if let wanted = pendingFlightId {

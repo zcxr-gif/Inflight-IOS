@@ -45,6 +45,7 @@ struct AirportPanel: View {
     @EnvironmentObject private var feed: LiveFeed
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @ObservedObject private var widgets = WidgetBridge.shared
+    @ObservedObject private var gateStore = GateStore.shared
     @StateObject private var imageLoader = RemoteImageLoader()
 
     /// The field's photograph, once the backend has answered about it. Nil
@@ -162,6 +163,10 @@ struct AirportPanel: View {
 
             weather
 
+            WeatherForecastSection(key: airport.icao, coordinate: airport.coordinate)
+
+            gates(activity)
+
             traffic(activity)
 
             HintStrip(placement: .airport)
@@ -173,6 +178,7 @@ struct AirportPanel: View {
             }
             loadMetar()
             loadImage()
+            gateStore.load(airport)
         }
         .animation(.easeInOut(duration: 0.25), value: imageLoader.image != nil)
         .onReceive(clock) { tick in
@@ -264,6 +270,8 @@ struct AirportPanel: View {
                 VStack(alignment: .leading, spacing: 0) {
                     report(metar)
                     PanelDivider()
+                    category(metar)
+                    PanelDivider()
                     raw(metar)
                 }
             } else {
@@ -306,6 +314,32 @@ struct AirportPanel: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
+    }
+
+    /// What the field is good for, in the colour the map is drawing its ICAO
+    /// in — which is what makes the four colours out there mean something.
+    private func category(_ metar: Metar) -> some View {
+        let category = metar.flightCategory
+
+        return HStack(spacing: 10) {
+            Text(category.rawValue)
+                .font(.system(size: 11, weight: .heavy, design: .rounded))
+                .foregroundStyle(Color(uiColor: category.colour))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background {
+                    Capsule().fill(Color(uiColor: category.colour).opacity(0.16))
+                }
+
+            Text(category.detail)
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(theme.textDim)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
     }
 
     /// The report as it was written. Kept because it is the only thing on the
@@ -359,6 +393,93 @@ struct AirportPanel: View {
             guard let fetched = fetched else { return }
             metar = fetched
         }
+    }
+
+    // MARK: - Gates
+
+    /// Which stands are occupied, and by whom.
+    ///
+    /// The feed says nothing about stands, so this is worked out the only way
+    /// available: OpenStreetMap says where the field's stands are, and an
+    /// aircraft parked on one is at it. Which means the answer is only as good
+    /// as the mapping — a field nobody has mapped shows nothing, and says so
+    /// rather than looking broken.
+    @ViewBuilder
+    private func gates(_ activity: AirportActivity) -> some View {
+        switch gateStore.state(for: airport.icao) {
+        case .idle, .loading:
+            PanelSection(title: "GATES") {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Looking up stands…")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(theme.textSecondary)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+            }
+
+        case .failed:
+            PanelSection(title: "GATES") {
+                PanelEmptyState(
+                    symbol: "mappin.slash",
+                    title: "Stand data unavailable",
+                    detail: "The stand lookup could not be reached. Reopen this field to try again."
+                )
+            }
+
+        case .ready(let mapped):
+            let occupancy = GateOccupancy.match(gates: mapped, onGround: activity.onGround)
+
+            if mapped.isEmpty {
+                PanelSection(title: "GATES") {
+                    PanelEmptyState(
+                        symbol: "mappin.slash",
+                        title: "No stands mapped",
+                        detail: "OpenStreetMap has no gates or parking positions for \(airport.icao)."
+                    )
+                }
+            } else {
+                PanelSection(title: "GATES · \(occupancy.occupied.count) of \(occupancy.total) in use") {
+                    if occupancy.isEmpty {
+                        PanelEmptyState(
+                            symbol: "airplane.circle",
+                            title: "Every stand is clear",
+                            detail: standFootnote(occupancy)
+                        )
+                    } else {
+                        ForEach(occupancy.occupied) { spot in
+                            if spot.id != occupancy.occupied.first?.id { PanelDivider() }
+                            GateRow(
+                                spot: spot,
+                                theme: theme,
+                                action: { onSelectFlight(spot.flight) }
+                            )
+                        }
+
+                        if occupancy.unmatched > 0 {
+                            PanelDivider()
+                            Text(standFootnote(occupancy))
+                                .font(.system(size: 10.5, weight: .medium))
+                                .foregroundStyle(theme.textDim)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 10)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The parked traffic this cannot place. Worth saying out loud: on a field
+    /// whose remote stands nobody has mapped, the gate list is a fraction of
+    /// what is actually parked, and a reader should know that.
+    private func standFootnote(_ occupancy: GateOccupancy) -> String {
+        guard occupancy.unmatched > 0 else {
+            return "\(occupancy.total) stands mapped at \(airport.icao)."
+        }
+        let aircraft = occupancy.unmatched == 1 ? "1 aircraft is" : "\(occupancy.unmatched) aircraft are"
+        return "\(aircraft) parked away from a mapped stand."
     }
 
     // MARK: - Traffic
@@ -500,5 +621,52 @@ private struct MovementRow: View {
         }
 
         return "\(Format.number(flight.altitudeFeet)) ft"
+    }
+}
+
+/// One occupied stand: which one, and what is on it.
+private struct GateRow: View {
+
+    let spot: GateOccupancy.Occupied
+    let theme: FlightInfoTheme
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                // The stand's own name, set as the label a jetway carries.
+                Text(spot.gate.ref)
+                    .font(.system(size: 12.5, weight: .bold, design: .monospaced))
+                    .foregroundStyle(theme.textPrimary)
+                    .frame(minWidth: 42, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(spot.flight.displayName)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(theme.textPrimary)
+                        .flightInfoLine()
+
+                    Text(aircraftLine)
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(theme.textDim)
+                        .flightInfoLine()
+                }
+
+                Spacer(minLength: 8)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(theme.textDim)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var aircraftLine: String {
+        let parts = [spot.flight.aircraftName, spot.flight.liveryName].filter { !$0.isEmpty }
+        return parts.isEmpty ? "Unknown aircraft" : parts.joined(separator: " · ")
     }
 }

@@ -27,6 +27,19 @@ final class WeatherService {
 
     private init() {}
 
+    /// Fetches reports for the fields the map is marking, so each can be drawn
+    /// in its own flight category.
+    ///
+    /// Bounded by what the map marks — every field being worked plus the
+    /// busiest few dozen — and every one of them is cached and de-duplicated
+    /// below, so a steady map does no work at all. Called on the same tick as
+    /// the markers themselves.
+    func prefetch(_ icaos: [String]) {
+        for icao in icaos {
+            metar(for: icao) { _ in }
+        }
+    }
+
     func cached(_ icao: String) -> Metar? {
         lock.lock()
         defer { lock.unlock() }
