@@ -252,13 +252,6 @@ final class ProfileStore: ObservableObject {
 
     // MARK: - Writing
 
-    /// Claims a handle, or saves an edit. The same request either way — there
-    /// is one row per account, and which of the two this is is not something
-    /// the client should have to find out by reading first.
-    ///
-    /// Returns whether it saved, so a sheet can dismiss itself on success and
-    /// stay open on a refusal.
-    @discardableResult
     /// Fills in the Infinite Flight handle from the running simulator.
     ///
     /// Only ever fills a blank. `infiniteflight/current_user` is a stronger
@@ -296,6 +289,13 @@ final class ProfileStore: ObservableObject {
         return await save(current)
     }
 
+    /// Claims a handle, or saves an edit. The same request either way — there
+    /// is one row per account, and which of the two this is is not something
+    /// the client should have to find out by reading first.
+    ///
+    /// Returns whether it saved, so a sheet can dismiss itself on success and
+    /// stay open on a refusal.
+    @discardableResult
     func save(_ edited: Editable) async -> Bool {
         guard let account = AccountStore.shared.account,
               let token = await AccountStore.shared.currentAccessToken() else {
