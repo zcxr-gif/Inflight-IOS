@@ -169,6 +169,60 @@ half is configured.
 signed with the wrong one registers for APNs successfully and then never
 receives anything.
 
+## Your own flight, announced to you
+
+This is the one people ask for by name, usually as "why can an airline's app
+tell me when we start descending and this can't".
+
+The answer is that those apps are not talking to the aeroplane. Nothing in a
+phone's pocket is attached to an airliner: a server watches a feed describing
+every flight, notices a state change on one row of it, and pushes a sentence to
+the phones that asked about that row. The phone contributes an address and
+nothing else — which is why it works with the phone asleep, or, in this app's
+case, with Infinite Flight in the foreground and everything else suspended
+behind it.
+
+Every part of that was already here and pointed the wrong way.
+`friend_events.cjs` diffs consecutive feed snapshots and decides, with
+hysteresis, when an aircraft has left the ground. `push.notifyAccount`
+addresses the person flying rather than the people watching them.
+`pilot_profiles.if_username` joins a feed row to an account. But the detector
+only ever ran for pilots *somebody else* was watching, and its pushes went to
+the watcher — so the one person guaranteed to care about a flight, the pilot in
+it, was the one person nothing was addressed to.
+
+`own_flight_events.cjs` is that same detector, read for the pilot:
+
+| | When | How it arrives |
+| --- | --- | --- |
+| **Airborne** | A confirmed ground → air transition | Active, silent |
+| **Top of descent** | Reached a cruise above 12,000 ft, then several consecutive descending samples | Active, with a sound, at APNs priority 10 — it is the moment there is something to do |
+| **On the ground** | A confirmed air → ground transition | Passive, silent |
+
+Nothing needing height above ground is announced, and that is a limit rather
+than an omission: the feed carries MSL altitude only, so 2,000 ft over
+Amsterdam and 2,000 ft over Denver are the same number and a different
+situation. "On final" would be wrong in mountains, which is worse than absent.
+
+Three things have to be true, and the first two are the ones that go wrong:
+
+* **A handle on the profile.** `if_username` is the only join between an
+  aeroplane on the map and an account. Without it there is nothing to address.
+* **A device registered against the account** — the same
+  `/api/push/devices` row the sim-drop notice needs.
+* **`pilot_profiles.flight_alerts`**, which defaults on and is a toggle in the
+  profile editor.
+
+A handle claimed by two accounts reaches **neither**, unless exactly one of
+them is verified. `if_username` is a claim and nothing checks it, so the
+alternative is telling a stranger the movements of a pilot they merely said
+they were. Asserted in `supabase/tests/flight_alerts.sql`.
+
+Diagnosed from the `ownFlightEvents` block of `/api/admin/diagnostics`:
+`targets: 0` while signed-in pilots are flying means the profile handles are
+missing or contested, not that the detector is broken; `tracking` is how many
+of their flights currently hold state.
+
 ## What each piece needs to work
 
 | Feature | Needs |
@@ -176,6 +230,7 @@ receives anything.
 | Takeoff / landing / online / offline pushes | APNs key on the backend, notification permission on the device |
 | "Inflight stopped reading your sim" | The above, plus being signed in — it is the one push addressed to an account rather than to a device token, so it needs the `/api/push/devices` registration `PushService.syncAccountRegistration` makes on launch and on sign-in |
 | Live banner raised by a friend's takeoff | The above, plus `NSSupportsLiveActivities` (set) and a push-to-start token, which iOS only issues on a real device — never the simulator |
+| Airborne / top of descent / landed, about your own flight | The above, plus an Infinite Flight username on your profile — that is what joins an aeroplane on the map to your account. No Connect and no sim link of any kind |
 | Home-screen widgets | The app group on both targets |
 | Aircraft photos on widgets | Nothing extra. The app caches them into the group as it fetches them for the flight window; a widget with no cached photo draws its own sky instead |
 

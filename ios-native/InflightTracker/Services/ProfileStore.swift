@@ -81,6 +81,16 @@ final class ProfileStore: ObservableObject {
         /// nobody should have to go and find.
         var liveVisibility: Visibility = .followers
 
+        /// Whether the server announces this pilot's own flight to them —
+        /// airborne, top of descent, landed — from the live feed.
+        ///
+        /// Stored on the profile rather than in `UserDefaults` because the
+        /// thing that acts on it is the backend, not this app: the whole point
+        /// of these notices is that they are worked out and sent while the app
+        /// is suspended behind Infinite Flight, or not running at all. A local
+        /// preference could not be consulted at the moment it matters.
+        var flightAlerts: Bool = true
+
         var avatarPath: String?
         var bannerPath: String?
 
@@ -272,7 +282,8 @@ final class ProfileStore: ObservableObject {
             "is_public": edited.isPublic,
             "friends_visibility": edited.friendsVisibility.rawValue,
             "logbook_visibility": edited.logbookVisibility.rawValue,
-            "live_visibility": edited.liveVisibility.rawValue
+            "live_visibility": edited.liveVisibility.rawValue,
+            "flight_alerts": edited.flightAlerts
         ]
 
         // NSNull rather than omission: leaving a key out of an upsert leaves
@@ -515,6 +526,7 @@ final class ProfileStore: ObservableObject {
             let friends_visibility: String?
             let logbook_visibility: String?
             let live_visibility: String?
+            let flight_alerts: Bool?
             let moderation_state: String?
             let moderation_note: String?
         }
@@ -537,6 +549,7 @@ final class ProfileStore: ObservableObject {
             friendsVisibility: Visibility(rawValue: row.friends_visibility ?? "public") ?? .public,
             logbookVisibility: Visibility(rawValue: row.logbook_visibility ?? "public") ?? .public,
             liveVisibility: Visibility(rawValue: row.live_visibility ?? "followers") ?? .followers,
+            flightAlerts: row.flight_alerts ?? true,
             avatarPath: row.avatar_path,
             bannerPath: row.banner_path,
             moderationState: row.moderation_state ?? "ok",

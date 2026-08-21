@@ -61,6 +61,7 @@ struct ProfileEditorView: View {
                 aboutSection
                 favouriteSection
                 privacySection
+                alertsSection
 
                 if let problem = store.problem { message(problem, isProblem: true) }
                 if let notice = store.notice { message(notice, isProblem: false) }
@@ -442,6 +443,37 @@ struct ProfileEditorView: View {
                 selection: $draft.liveVisibility
             )
         }
+    }
+
+    /// Announcements about the pilot's OWN flight.
+    ///
+    /// Its own section rather than a row in "who can see it", because it is not
+    /// a visibility setting: nobody else is involved. It is also the one part of
+    /// the app that works with no simulator link at all — the server watches the
+    /// same feed the map is drawn from, so it can say "you're off the ground"
+    /// while this app is suspended behind Infinite Flight, which is exactly when
+    /// nothing running on the phone can say anything.
+    private var alertsSection: some View {
+        PanelSection(title: "YOUR OWN FLIGHTS") {
+            PanelToggleRow(
+                title: "Tell me about my flight",
+                symbol: "bell.badge",
+                detail: alertsDetail,
+                isOn: $draft.flightAlerts
+            )
+        }
+    }
+
+    private var alertsDetail: String {
+        if draft.ifUsername.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "Airborne, top of descent, and down again — worked out from the live map "
+                 + "and sent to your phone, so it arrives while you are in Infinite Flight. "
+                 + "Needs your Infinite Flight username above: it is the only thing that "
+                 + "joins an aeroplane on the map to you."
+        }
+        return "Airborne, top of descent, and down again — worked out from the live map and "
+             + "sent to your phone, so it arrives while you are in Infinite Flight. No "
+             + "simulator link needed: this is the server watching, not the app."
     }
 
     private var saveButton: some View {
