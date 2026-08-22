@@ -75,22 +75,51 @@ final class MapFilters: ObservableObject {
     /// Whether the fixes on an open flight's filed plan are drawn.
     ///
     /// Uncounted as a filter for the same reason as the two above: it adds to
-    /// the map rather than narrowing it. Off by default, unlike them — it is
-    /// the only one of the three that costs a request per aircraft you tap,
-    /// and a route drawn over a track already on screen is a lot of ink for
-    /// somebody who did not ask for it.
+    /// the map rather than narrowing it. On by default, like them, and that is
+    /// a deliberate change from how this shipped: off, it was a feature nobody
+    /// found, and the first thing people looked for on the map and could not
+    /// see was the route. It costs one request per aircraft whose window is
+    /// opened, cached for ten minutes, and nothing at all for the many pilots
+    /// who file no plan.
+    /// Only the map's layer, and only the map's. The plan store behind it is
+    /// shared now — the flight window's route card and the navigation display
+    /// both read it — so turning the map layer off no longer throws the cache
+    /// away with it.
     @Published var showsFlightPlan: Bool {
-        didSet {
-            UserDefaults.standard.set(showsFlightPlan, forKey: Self.planKey)
-            if !showsFlightPlan { FlightPlanStore.shared.clear() }
-        }
+        didSet { UserDefaults.standard.set(showsFlightPlan, forKey: Self.planKey) }
+    }
+
+    /// Whether the North Atlantic organised tracks are drawn.
+    ///
+    /// Uncounted as a filter, like the layers above it, and off by default —
+    /// it is a dozen coloured lines across one ocean, which is exactly what
+    /// somebody watching the North Atlantic wants and clutter to everybody
+    /// else. One request an hour while it is on, and none at all while it is
+    /// not.
+    @Published var showsNatTracks: Bool {
+        didSet { UserDefaults.standard.set(showsNatTracks, forKey: Self.natKey) }
+    }
+
+    /// Whether the half of the world that is in darkness is washed over.
+    ///
+    /// Uncounted as a filter, like the layers around it. On by default and it
+    /// is the only new layer that is: it costs nothing — the sun's position is
+    /// arithmetic on the device, with nothing to fetch and nothing that can be
+    /// stale but the clock — and knowing whether the aeroplane you are watching
+    /// is flying into the night is most of what makes a tracker feel live.
+    @Published var showsTerminator: Bool {
+        didSet { UserDefaults.standard.set(showsTerminator, forKey: Self.terminatorKey) }
     }
 
     private static let planKey = "map.showsFlightPlan"
+    private static let natKey = "map.showsNatTracks"
+    private static let terminatorKey = "map.showsTerminator"
 
     private init() {
         let defaults = UserDefaults.standard
-        showsFlightPlan = defaults.object(forKey: Self.planKey) as? Bool ?? false
+        showsFlightPlan = defaults.object(forKey: Self.planKey) as? Bool ?? true
+        showsNatTracks = defaults.bool(forKey: Self.natKey)
+        showsTerminator = defaults.object(forKey: Self.terminatorKey) as? Bool ?? true
         // On by default: the fields being worked are the most useful thing on
         // the map after the traffic, and a feature nobody finds is a feature
         // nobody has.

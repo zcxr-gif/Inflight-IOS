@@ -59,10 +59,28 @@ struct FiltersPanel: View {
                 PanelDivider()
 
                 PanelToggleRow(
-                    title: "Filed waypoints",
+                    title: "Filed route",
                     symbol: "point.topleft.down.curvedto.point.filled.bottomright.up",
-                    detail: "Plots the fixes on an open flight's filed plan, named, with the route through them. Procedures are expanded to the fixes they contain. Most pilots file nothing, and nothing is drawn when they haven't.",
+                    detail: "Draws an open flight's filed plan on the map — the line through it, and every fix on it named. Procedures are expanded to the fixes they contain. Most pilots file nothing, and nothing is drawn when they haven't.",
                     isOn: $filters.showsFlightPlan
+                )
+
+                PanelDivider()
+
+                PanelToggleRow(
+                    title: "Day and night",
+                    symbol: "moon.stars",
+                    detail: "Washes the half of the world that is in darkness, with civil twilight as a softer band at its edge. Worked out on the device from the date and the clock — nothing to fetch.",
+                    isOn: $filters.showsTerminator
+                )
+
+                PanelDivider()
+
+                PanelToggleRow(
+                    title: "North Atlantic tracks",
+                    symbol: "arrow.left.and.right",
+                    detail: "The organised track system, republished twice a day and coloured by letter, with the levels each track is valid at. It is what explains a hundred aircraft flying in parallel lines across the ocean.",
+                    isOn: $filters.showsNatTracks
                 )
             }
 

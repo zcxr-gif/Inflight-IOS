@@ -1,7 +1,7 @@
 import CoreLocation
 import Foundation
 
-/// The filed plans the map is currently drawing, one per flight.
+/// The filed plans currently being drawn, one per flight.
 ///
 /// Shaped like `FlightHistoryService`, and for the same reason: the map reads
 /// it synchronously while laying out, so it has to answer immediately with
@@ -13,9 +13,10 @@ import Foundation
 ///
 /// Most pilots file no plan at all. Without remembering that, every packet
 /// would re-ask the backend for an answer that is not going to change, for
-/// every aircraft anybody taps. A miss is therefore stored like a hit, and both
-/// expire on the same clock — a plan can be filed or amended mid-flight, so
-/// neither answer is permanent.
+/// every aircraft anybody taps — and three things ask now, not one: the map's
+/// route layer, the flight window's route card, and the navigation display.
+/// A miss is therefore stored like a hit, and both expire on the same clock —
+/// a plan can be filed or amended mid-flight, so neither answer is permanent.
 final class FlightPlanStore {
 
     static let shared = FlightPlanStore()
@@ -56,15 +57,6 @@ final class FlightPlanStore {
         // A stale plan is a better thing to draw than nothing while the fresh
         // one is on its way: the route has almost certainly not changed.
         return entry?.waypoints ?? []
-    }
-
-    /// Forgets everything. For the settings toggle going off and on again —
-    /// there is no reason to keep plans for a map that has stopped drawing
-    /// them.
-    func clear() {
-        lock.lock()
-        plans.removeAll(keepingCapacity: false)
-        lock.unlock()
     }
 
     private func fetch(_ flightId: String) {

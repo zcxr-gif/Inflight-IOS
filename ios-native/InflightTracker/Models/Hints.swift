@@ -14,6 +14,7 @@ enum HintPlacement: String {
     case friends
     case filters
     case weather
+    case stats
 }
 
 /// One line of guidance about the part of the app it is sitting in.
@@ -61,6 +62,31 @@ struct Hint: Identifiable, Equatable {
             text: "There is no cap on how many aircraft the map draws. Zoom out as far as you like — if the server has two thousand aeroplanes in view, you get two thousand."
         ),
         Hint(
+            id: "map.profile",
+            placement: .map,
+            text: "Your face, top right, is one tap to your profile as other pilots see it — and it stays there while you are watching an aeroplane. Hold it for your account and for Pro."
+        ),
+        Hint(
+            id: "map.weatherLayers",
+            placement: .map,
+            text: "Weather has radar and cloud tiles for the map, and wind barbs at any flight level from 050 to 390. The strip that appears says which frame you are looking at, and can be dragged back through the last two hours."
+        ),
+        Hint(
+            id: "map.natTracks",
+            placement: .map,
+            text: "Filters can draw the North Atlantic tracks, coloured by letter with the levels each is valid at — which is what explains a hundred aircraft flying in parallel across the ocean."
+        ),
+        Hint(
+            id: "map.ruler",
+            placement: .map,
+            text: "The ruler under the map-style button measures a leg: tap two places and it gives you the great-circle distance, the heading to fly it on, and roughly how long it takes. Taps near a field name the field."
+        ),
+        Hint(
+            id: "map.filedRoute",
+            placement: .map,
+            text: "Open a flight and the map draws the plan it filed — the line, and every fix on it named. Filters has the switch if you would rather it didn't."
+        ),
+        Hint(
             id: "map.filters",
             placement: .map,
             text: "Filters change only what is drawn, never what is received, so turning them all back on is instant."
@@ -92,6 +118,21 @@ struct Hint: Identifiable, Equatable {
             id: "flight.pin",
             placement: .flight,
             text: "Pin puts this flight on the home-screen widget, drawn on the aircraft's own photo."
+        ),
+        Hint(
+            id: "flight.instruments",
+            placement: .flight,
+            text: "The instruments card carries a primary flight display and a navigation display. Tap the arrows on it for the full screen, and the switch beside them to change which one you are looking at."
+        ),
+        Hint(
+            id: "flight.attitude",
+            placement: .flight,
+            text: "Pitch and bank on the PFD are read from the simulator when the pilot is broadcasting through Connect, and worked out from the flight path and the rate of turn when they are not. The display says which, every time."
+        ),
+        Hint(
+            id: "flight.filedRoute",
+            placement: .flight,
+            text: "Filed route lists every fix on the plan, with the one being flown to picked out — and the same route is drawn on the map underneath."
         ),
         Hint(
             id: "flight.route",
@@ -174,6 +215,24 @@ struct Hint: Identifiable, Equatable {
             text: "Aircraft kinds come from the same table that picks each plane's icon, so anything the map can draw, this can narrow down to."
         ),
 
+        // MARK: The server, counted
+
+        Hint(
+            id: "stats.source",
+            placement: .stats,
+            text: "Every number here is counted from the same packet the map is drawn from, so it can never disagree with what you are looking at — and none of it is fetched."
+        ),
+        Hint(
+            id: "stats.airports",
+            placement: .stats,
+            text: "Any field in the busiest lists opens straight from here."
+        ),
+        Hint(
+            id: "stats.median",
+            placement: .stats,
+            text: "The cruise figure is a median rather than an average: one aircraft at fifty thousand feet drags a mean and says nothing about where the server actually is."
+        ),
+
         // MARK: Weather
 
         Hint(
@@ -185,6 +244,21 @@ struct Hint: Identifiable, Equatable {
             id: "weather.units",
             placement: .weather,
             text: "Units are a display choice. Reports arrive the same either way, so switching costs nothing and is instant."
+        ),
+        Hint(
+            id: "weather.layers",
+            placement: .weather,
+            text: "Radar and cloud are drawn as tiles under the traffic, and the strip over the map scrubs back through the last two hours of frames."
+        ),
+        Hint(
+            id: "weather.winds",
+            placement: .weather,
+            text: "Wind barbs read the way a chart\'s do: a filled pennant is fifty knots, a full feather ten, a half feather five — and the staff points into the wind."
+        ),
+        Hint(
+            id: "weather.fields",
+            placement: .weather,
+            text: "Field conditions cost nothing. The reports are already on the device for the colours the airport codes are drawn in — this only decides whether the wind and temperature are written under them."
         )
     ]
 }

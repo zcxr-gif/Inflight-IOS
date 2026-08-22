@@ -2,9 +2,14 @@ import SwiftUI
 
 /// Weather settings, from the toolbar's weather button.
 ///
-/// Everything here is about how a report reads, not which reports are fetched —
-/// so the sample at the top is live, and changing a unit rewrites it under your
-/// finger with no round trip.
+/// The units and the chip are about how a report *reads* rather than which
+/// reports are fetched, so the sample at the top is live and changing a unit
+/// rewrites it under your finger with no round trip.
+///
+/// The layers below are the other kind of setting: they put weather on the map
+/// itself, and each one costs network while it is on. They are here rather than
+/// under the filters because this is the button somebody presses when they are
+/// looking for weather.
 struct WeatherSettingsPanel: View {
 
     /// The weather the map is currently showing, so the settings can be judged
@@ -45,7 +50,60 @@ struct WeatherSettingsPanel: View {
                 )
             }
 
+            PanelSection(title: "LAYERS") {
+                PanelPickerRow(
+                    title: "Weather layer",
+                    symbol: "cloud.rain",
+                    options: MapWeatherLayer.allCases,
+                    label: { $0.label },
+                    detail: preferences.mapLayer.detail,
+                    selection: $preferences.mapLayer
+                )
+
+                if preferences.mapLayer != .off {
+                    PanelDivider()
+
+                    PanelToggleRow(
+                        title: "Animate",
+                        symbol: "play.circle",
+                        detail: "Runs through the two hours of frames behind the newest one. The strip over the map says which frame is drawn, and can be dragged.",
+                        isOn: $preferences.animatesRadar
+                    )
+                }
+            }
+
+            PanelSection(title: "WINDS ALOFT") {
+                PanelToggleRow(
+                    title: "Wind barbs",
+                    symbol: "wind",
+                    detail: "A grid of model wind across whatever the map is showing, drawn as chart barbs — a pennant is fifty knots, a full feather ten, a half five.",
+                    isOn: $preferences.showsWinds
+                )
+
+                if preferences.showsWinds {
+                    PanelDivider()
+
+                    PanelPickerRow(
+                        title: "Level",
+                        symbol: "arrow.up.and.down",
+                        options: WindLevel.allCases,
+                        label: { $0.label },
+                        detail: "\(preferences.windLevel.longLabel) — the \(preferences.windLevel.pressureLevel) level, which is about where traffic at \(Format.number(Double(preferences.windLevel.approximateFeet))) ft is flying.",
+                        selection: $preferences.windLevel
+                    )
+                }
+            }
+
             PanelSection(title: "ON THE MAP") {
+                PanelToggleRow(
+                    title: "Field conditions",
+                    symbol: "thermometer.sun",
+                    detail: "Writes each marked field\'s wind and temperature under its code, once the map is close enough to read them. The reports are already on the device, so this costs nothing.",
+                    isOn: $preferences.showsFieldConditions
+                )
+
+                PanelDivider()
+
                 PanelToggleRow(
                     title: "Weather chip",
                     symbol: "cloud.sun.fill",
@@ -67,7 +125,7 @@ struct WeatherSettingsPanel: View {
 
             HintStrip(placement: .weather)
 
-            Text("Reports come from VATSIM's METAR service, the same source the tracker has always used. Each station issues one an hour.")
+            Text("Reports come from VATSIM's METAR service, the same source the tracker has always used, and each station issues one an hour. The radar and cloud tiles are RainViewer's; the winds aloft are Open-Meteo's model data.")
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(theme.textDim)
                 .padding(.horizontal, 2)

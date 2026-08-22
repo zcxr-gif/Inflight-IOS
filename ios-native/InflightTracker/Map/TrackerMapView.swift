@@ -47,11 +47,41 @@ struct TrackerMapView: UIViewRepresentable {
     var showsGroundLayout = true
     var showsFlightPlan = false
 
+    /// The weather tiles to draw under the traffic, if any. Nil is the layer
+    /// switched off, or switched on and still waiting for the frame index.
+    var weatherTiles: MapWeatherTiles?
+
+    /// The ruler: whether it is down, and where its two ends are. A binding
+    /// because the map is where the taps land, so the map is what moves it.
+    @Binding var measurement: MapMeasurement
+
+    /// Whether night is washed over the half of the world that is in it.
+    var showsTerminator = false
+
+    /// Whether the North Atlantic organised tracks are drawn.
+    var showsNatTracks = false
+
+    /// Whether model wind is drawn across the visible map, and at what height.
+    var showsWinds = false
+    var windLevel: WindLevel = .fl340
+
+    /// Whether a marked field carries its wind and temperature once the map is
+    /// close enough for them to be read.
+    var showsFieldConditions = true
+
     /// Observed so a layout that arrives from the network after the map has
     /// settled is drawn when it lands, rather than waiting for the next pan.
     /// Not private, because one private stored property would make the
     /// memberwise initialiser private along with it.
     @ObservedObject var layouts = AirportLayoutStore.shared
+
+    /// Observed for the same reason: a grid of wind fetched for this region
+    /// lands well after the pan that asked for it.
+    @ObservedObject var winds = WindsAloftStore.shared
+
+    /// And again: the track set is fetched when the layer is switched on, and
+    /// lands a moment later.
+    @ObservedObject var natTracks = NatTrackService.shared
 
     /// Opening a field that was tapped on the map. Separate from `selection`,
     /// which is an aircraft and drives the flight window.
@@ -105,6 +135,32 @@ struct TrackerMapView: UIViewRepresentable {
             forAnnotationViewWithReuseIdentifier: AirportAnnotationView.reuseIdentifier
         )
 
+        mapView.register(
+            PlanWaypointView.self,
+            forAnnotationViewWithReuseIdentifier: PlanWaypointView.reuseIdentifier
+        )
+
+        mapView.register(
+            WindBarbView.self,
+            forAnnotationViewWithReuseIdentifier: WindBarbView.reuseIdentifier
+        )
+
+        mapView.register(
+            MeasurePointView.self,
+            forAnnotationViewWithReuseIdentifier: MeasurePointView.reuseIdentifier
+        )
+
+        // Installed once and left there. It does nothing at all unless the
+        // ruler is down, and its delegate turns away any touch that landed on
+        // an annotation — so tapping an aeroplane still opens the aeroplane,
+        // even mid-measurement.
+        let tap = UITapGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.handleMeasureTap(_:))
+        )
+        tap.delegate = context.coordinator
+        mapView.addGestureRecognizer(tap)
+
         return mapView
     }
 
@@ -127,6 +183,13 @@ struct TrackerMapView: UIViewRepresentable {
             }
         }
 
+        // Weather first: the tiles go under everything else the map draws, and
+        // adding them at the bottom of the pass keeps that ordering honest.
+        context.coordinator.syncTerminator(on: mapView)
+        context.coordinator.syncMeasurement(on: mapView)
+        context.coordinator.syncWeatherTiles(on: mapView)
+        context.coordinator.syncWinds(on: mapView)
+        context.coordinator.syncNatTracks(on: mapView)
         context.coordinator.applyStyle(style, on: mapView)
         context.coordinator.applyHighlighting(highlighting, on: mapView)
         context.coordinator.sync(flights: flights, on: mapView)
@@ -143,7 +206,7 @@ struct TrackerMapView: UIViewRepresentable {
 
     // MARK: - Coordinator
 
-    final class Coordinator: NSObject, MKMapViewDelegate {
+    final class Coordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDelegate {
 
         static let reuseIdentifier = "flight"
         static let replayReuseIdentifier = "replay"
@@ -345,19 +408,30 @@ struct TrackerMapView: UIViewRepresentable {
             // no others.
             WeatherService.shared.prefetch(Array(wanted.keys))
 
+            // Wind and temperature under the code, but only once the map is
+            // near enough that a marker has room for a second line. Zoomed
+            // out, every field on a continent carrying two lines is a wall of
+            // text rather than a map.
+            let conditions = parent.showsFieldConditions
+                && region.span.latitudeDelta <= Self.fieldConditionSpanDegrees
+
             for (icao, field) in wanted {
                 let category = WeatherService.shared.cached(icao)?.flightCategory.rawValue ?? ""
+                // The drawn state is more than the category now: the same
+                // report is written differently depending on whether there is
+                // room for it, and on the units it is written in.
+                let drawn = "\(category)|\(conditions)|\(WeatherPreferences.shared.windUnit.rawValue)|\(WeatherPreferences.shared.temperatureUnit.rawValue)"
 
                 if let existing = airportAnnotations[icao] {
-                    let repaint = renderedCategories[icao] != category
+                    let repaint = renderedCategories[icao] != drawn
                     guard existing.field != field || repaint else { continue }
                     existing.field = field
-                    renderedCategories[icao] = category
+                    renderedCategories[icao] = drawn
                     if let view = mapView.view(for: existing) as? AirportAnnotationView {
-                        view.apply(existing)
+                        view.apply(existing, conditions: conditions)
                     }
                 } else {
-                    renderedCategories[icao] = category
+                    renderedCategories[icao] = drawn
                     let annotation = AirportAnnotation(field: field)
                     airportAnnotations[icao] = annotation
                     additions.append(annotation)
@@ -612,7 +686,7 @@ struct TrackerMapView: UIViewRepresentable {
                 planLabels.removeAll(keepingCapacity: true)
             }
             if !plan.isEmpty {
-                planLabels = plan.map { GroundLabel(coordinate: $0.coordinate, text: $0.name) }
+                planLabels = plan.map { PlanWaypointAnnotation(waypoint: $0) }
                 mapView.addAnnotations(planLabels)
             }
         }
@@ -725,6 +799,266 @@ struct TrackerMapView: UIViewRepresentable {
             renderedRouteKey = nil
         }
 
+        // MARK: Weather
+
+        /// The tiles currently on the map, by the frame they are of, so a
+        /// frame that has not changed is not torn down and re-fetched.
+        private var weatherOverlay: RainViewerTileOverlay?
+
+        /// The barbs on the map, and the grid they belong to.
+        private var windAnnotations: [WindBarbAnnotation] = []
+        private var renderedWindKey: String?
+
+        /// Swaps the weather tiles when the frame changes, and takes them away
+        /// when the layer goes off.
+        ///
+        /// One overlay at a time. Cross-fading two frames would look better and
+        /// would mean holding two full tile sets for a layer that is already
+        /// the most expensive thing on the map.
+        func syncWeatherTiles(on mapView: MKMapView) {
+            let wanted = parent.weatherTiles
+
+            if weatherOverlay?.key == wanted?.key { return }
+
+            if let existing = weatherOverlay {
+                mapView.removeOverlay(existing)
+                weatherOverlay = nil
+            }
+
+            guard let wanted = wanted else { return }
+
+            let overlay = RainViewerTileOverlay(tiles: wanted)
+            weatherOverlay = overlay
+            // Below the roads and the labels: this is weather over the ground,
+            // and a place name you cannot read through it is a map that has
+            // stopped being a map.
+            mapView.addOverlay(overlay, level: .aboveRoads)
+        }
+
+        /// Keeps the wind barbs matched to where the map is looking.
+        ///
+        /// The store does the deciding — which lattice this region rounds to,
+        /// whether that grid is already held, whether it is worth asking at
+        /// this zoom at all. This only draws whatever it currently holds.
+        func syncWinds(on mapView: MKMapView) {
+            guard parent.showsWinds else {
+                if !windAnnotations.isEmpty {
+                    mapView.removeAnnotations(windAnnotations)
+                    windAnnotations.removeAll(keepingCapacity: true)
+                }
+                renderedWindKey = nil
+                WindsAloftStore.shared.clear()
+                return
+            }
+
+            let store = WindsAloftStore.shared
+            store.load(region: mapView.region, level: parent.windLevel)
+
+            guard renderedWindKey != store.key else { return }
+            renderedWindKey = store.key
+
+            if !windAnnotations.isEmpty {
+                mapView.removeAnnotations(windAnnotations)
+                windAnnotations.removeAll(keepingCapacity: true)
+            }
+
+            guard !store.barbs.isEmpty else { return }
+            windAnnotations = store.barbs.map { WindBarbAnnotation(barb: $0) }
+            mapView.addAnnotations(windAnnotations)
+        }
+
+        // MARK: The ruler
+
+        private var measureOverlay: MKPolyline?
+        private var measurePins: [MeasurePoint] = []
+        private var renderedMeasureKey: String?
+
+        /// Where the tap landed, as a place on the earth.
+        @objc func handleMeasureTap(_ recogniser: UITapGestureRecognizer) {
+            guard parent.measurement.isOn else { return }
+            guard let mapView = recogniser.view as? MKMapView else { return }
+
+            let point = recogniser.location(in: mapView)
+            let coordinate = mapView.convert(point, toCoordinateFrom: mapView)
+            guard coordinate.latitude.isFinite, coordinate.longitude.isFinite else { return }
+
+            parent.measurement.add(coordinate)
+        }
+
+        /// Lets the map keep its own gestures, and keeps aeroplanes tappable.
+        ///
+        /// Without the second half of this, dropping a measuring point on top
+        /// of an aircraft would also open that aircraft's window — two things
+        /// happening for one tap, neither of them cancellable.
+        func gestureRecognizer(
+            _ recogniser: UIGestureRecognizer,
+            shouldReceive touch: UITouch
+        ) -> Bool {
+            guard parent.measurement.isOn else { return false }
+
+            var view = touch.view
+            while let candidate = view {
+                if candidate is MKAnnotationView { return false }
+                view = candidate.superview
+            }
+            return true
+        }
+
+        func gestureRecognizer(
+            _ recogniser: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+        ) -> Bool {
+            true
+        }
+
+        func syncMeasurement(on mapView: MKMapView) {
+            let measurement = parent.measurement
+            let key = measurement.isOn
+                ? [measurement.start, measurement.end]
+                    .map { $0.map { String(format: "%.5f,%.5f", $0.latitude, $0.longitude) } ?? "-" }
+                    .joined(separator: "|")
+                : "off"
+
+            guard renderedMeasureKey != key else { return }
+            renderedMeasureKey = key
+
+            if let existing = measureOverlay {
+                mapView.removeOverlay(existing)
+                measureOverlay = nil
+            }
+            if !measurePins.isEmpty {
+                mapView.removeAnnotations(measurePins)
+                measurePins.removeAll(keepingCapacity: true)
+            }
+
+            guard measurement.isOn else { return }
+
+            if let start = measurement.start {
+                measurePins.append(MeasurePoint(coordinate: start, letter: "A"))
+            }
+            if let end = measurement.end {
+                measurePins.append(MeasurePoint(coordinate: end, letter: "B"))
+            }
+            if !measurePins.isEmpty { mapView.addAnnotations(measurePins) }
+
+            guard let start = measurement.start, let end = measurement.end else { return }
+
+            // Geodesic, because the number in the readout is a great-circle
+            // distance and a straight line would be measuring something else.
+            let line = MKGeodesicPolyline(coordinates: [start, end], count: 2)
+            line.title = MeasureStyle.title
+            measureOverlay = line
+            mapView.addOverlay(line, level: .aboveLabels)
+        }
+
+        // MARK: Night
+
+        private var terminatorOverlays: [MKPolygon] = []
+
+        /// When the drawn terminator was worked out, so it is rebuilt on its
+        /// own slow clock rather than on every pass.
+        private var terminatorDrawnAt: Date?
+
+        /// How stale the shape may get. The terminator sweeps a quarter of a
+        /// degree a minute, so two minutes is half a degree — narrower than the
+        /// line it is drawn with at any zoom that shows a whole continent.
+        private static let terminatorLifetime: TimeInterval = 120
+
+        func syncTerminator(on mapView: MKMapView) {
+            guard parent.showsTerminator else {
+                clearTerminator(on: mapView)
+                return
+            }
+
+            if let drawn = terminatorDrawnAt,
+               Date().timeIntervalSince(drawn) < Self.terminatorLifetime {
+                return
+            }
+
+            clearTerminator(on: mapView)
+            terminatorDrawnAt = Date()
+            terminatorOverlays = Terminator.polygons()
+            guard !terminatorOverlays.isEmpty else { return }
+
+            // Below everything: this is a wash over the ground, and every other
+            // thing the map draws has to stay readable through it.
+            mapView.addOverlays(terminatorOverlays, level: .aboveRoads)
+        }
+
+        private func clearTerminator(on mapView: MKMapView) {
+            guard terminatorDrawnAt != nil else { return }
+            mapView.removeOverlays(terminatorOverlays)
+            terminatorOverlays.removeAll(keepingCapacity: true)
+            terminatorDrawnAt = nil
+        }
+
+        // MARK: The organised tracks
+
+        private var natOverlays: [MKPolyline] = []
+        private var natLabels: [MKAnnotation] = []
+
+        /// What is drawn, so a set that has not been republished is not torn
+        /// down and rebuilt on every packet.
+        private var renderedNatKey: String?
+
+        /// Draws the North Atlantic track system.
+        ///
+        /// Whole-world rather than culled to the viewport: there are a dozen
+        /// tracks, they are one polyline each, and the alternative — rebuilding
+        /// them on every pan — costs more than simply leaving them on the map.
+        func syncNatTracks(on mapView: MKMapView) {
+            guard parent.showsNatTracks else {
+                clearNatTracks(on: mapView)
+                return
+            }
+
+            let service = NatTrackService.shared
+            service.refresh()
+
+            let tracks = service.tracks
+            let key = tracks.map { "\($0.name)|\($0.coordinates.count)" }.joined(separator: ",")
+            guard renderedNatKey != key else { return }
+
+            clearNatTracks(on: mapView)
+            renderedNatKey = key
+            guard !tracks.isEmpty else { return }
+
+            for track in tracks {
+                // Geodesic, because a track is flown as a great circle and a
+                // straight line between two North Atlantic fixes is visibly
+                // south of where the aeroplanes actually are.
+                let line = MKGeodesicPolyline(
+                    coordinates: track.coordinates,
+                    count: track.coordinates.count
+                )
+                line.title = NatTrackStyle.title(for: track)
+                natOverlays.append(line)
+
+                // Named at both ends, because which end you are looking at
+                // depends entirely on which side of the ocean you are.
+                let text = NatTrackStyle.label(for: track)
+                if let first = track.coordinates.first {
+                    natLabels.append(GroundLabel(coordinate: first, text: text))
+                }
+                if let last = track.coordinates.last, track.coordinates.count > 1 {
+                    natLabels.append(GroundLabel(coordinate: last, text: text))
+                }
+            }
+
+            // Under the traffic, like everything else that is context.
+            mapView.addOverlays(natOverlays, level: .aboveRoads)
+            mapView.addAnnotations(natLabels)
+        }
+
+        private func clearNatTracks(on mapView: MKMapView) {
+            guard renderedNatKey != nil else { return }
+            mapView.removeOverlays(natOverlays)
+            mapView.removeAnnotations(natLabels)
+            natOverlays.removeAll(keepingCapacity: true)
+            natLabels.removeAll(keepingCapacity: true)
+            renderedNatKey = nil
+        }
+
         // MARK: Ground layout
 
         /// How wide the view has to be, in nautical miles, before a field's
@@ -734,6 +1068,11 @@ struct TrackerMapView: UIViewRepresentable {
         /// that and runways are hairlines that clutter the map; closer in they
         /// are the map.
         private static let groundSpanNM: Double = 9
+
+        /// How wide the view may be, in degrees of latitude, before a field's
+        /// conditions stop being drawn under its code. About four hundred
+        /// miles — a country rather than a continent.
+        static let fieldConditionSpanDegrees: Double = 6
 
         /// Draws the pavement of whichever field the map is sitting over.
         ///
@@ -1053,7 +1392,26 @@ struct TrackerMapView: UIViewRepresentable {
         // MARK: MKMapViewDelegate
 
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
+            if let tiles = overlay as? MKTileOverlay {
+                let renderer = MKTileOverlayRenderer(tileOverlay: tiles)
+                // Enough to read the weather, not so much that the coastline
+                // under it disappears. Radar is the denser image of the two, so
+                // it is the one drawn back further.
+                renderer.alpha = parent.weatherTiles?.layer == .satellite ? 0.62 : 0.55
+                return renderer
+            }
+
             if let area = overlay as? MKPolygon {
+                if area.title == Terminator.nightTitle || area.title == Terminator.twilightTitle {
+                    let renderer = MKPolygonRenderer(polygon: area)
+                    renderer.fillColor = Terminator.fill(for: area.title)
+                    // No outline at all. The whole point of two bands is a soft
+                    // edge, and a stroke would put the hard line back.
+                    renderer.strokeColor = .clear
+                    renderer.lineWidth = 0
+                    return renderer
+                }
+
                 return Self.groundRenderer(for: area, title: area.title)
             }
 
@@ -1065,6 +1423,24 @@ struct TrackerMapView: UIViewRepresentable {
                 return Self.groundRenderer(for: line, title: line.title)
             }
 
+            if line.title == MeasureStyle.title {
+                let renderer = MKPolylineRenderer(polyline: line)
+                renderer.strokeColor = MeasureStyle.line
+                renderer.lineWidth = 2.4
+                renderer.lineCap = .round
+                renderer.lineDashPattern = [6, 5]
+                return renderer
+            }
+
+            if let track = NatTrackStyle.name(fromTitle: line.title) {
+                let renderer = MKPolylineRenderer(polyline: line)
+                renderer.lineCap = .round
+                renderer.lineJoin = .round
+                renderer.strokeColor = NatTrackStyle.colour(for: track).withAlphaComponent(0.75)
+                renderer.lineWidth = 2.6
+                return renderer
+            }
+
             let renderer = MKPolylineRenderer(polyline: line)
             renderer.lineCap = .round
             renderer.lineJoin = .round
@@ -1072,13 +1448,11 @@ struct TrackerMapView: UIViewRepresentable {
             if line.title == Self.planTitle {
                 // The route as filed: solid but faint, and thin. It is a
                 // statement of intent sitting underneath a track that actually
-                // happened, and it should read as the quieter of the two.
-                renderer.strokeColor = UIColor { traits in
-                    traits.userInterfaceStyle == .light
-                        ? UIColor(red: 0.15, green: 0.40, blue: 0.75, alpha: 0.55)
-                        : UIColor(red: 0.55, green: 0.75, blue: 1.00, alpha: 0.55)
-                }
-                renderer.lineWidth = 1.6
+                // happened, and it should read as the quieter of the two. The
+                // colour is shared with the fixes drawn along it, so the line
+                // and the diamonds on it are visibly one route.
+                renderer.strokeColor = PlanStyle.line
+                renderer.lineWidth = 1.8
                 return renderer
             }
 
@@ -1154,6 +1528,33 @@ struct TrackerMapView: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
+            if let point = annotation as? MeasurePoint {
+                let view = mapView.dequeueReusableAnnotationView(
+                    withIdentifier: MeasurePointView.reuseIdentifier,
+                    for: annotation
+                )
+                (view as? MeasurePointView)?.apply(point)
+                return view
+            }
+
+            if let barb = annotation as? WindBarbAnnotation {
+                let view = mapView.dequeueReusableAnnotationView(
+                    withIdentifier: WindBarbView.reuseIdentifier,
+                    for: annotation
+                )
+                (view as? WindBarbView)?.apply(barb)
+                return view
+            }
+
+            if let waypoint = annotation as? PlanWaypointAnnotation {
+                let view = mapView.dequeueReusableAnnotationView(
+                    withIdentifier: PlanWaypointView.reuseIdentifier,
+                    for: annotation
+                )
+                (view as? PlanWaypointView)?.apply(waypoint)
+                return view
+            }
+
             if let label = annotation as? GroundLabel {
                 let view = mapView.dequeueReusableAnnotationView(
                     withIdentifier: GroundLabelView.reuseIdentifier,
@@ -1168,7 +1569,12 @@ struct TrackerMapView: UIViewRepresentable {
                     withIdentifier: AirportAnnotationView.reuseIdentifier,
                     for: field
                 )
-                (view as? AirportAnnotationView)?.apply(field)
+                // Same test the diff above uses, because a marker added
+                // mid-pan has to arrive drawn the way its neighbours already
+                // are.
+                let conditions = parent.showsFieldConditions
+                    && mapView.region.span.latitudeDelta <= Self.fieldConditionSpanDegrees
+                (view as? AirportAnnotationView)?.apply(field, conditions: conditions)
                 return view
             }
 
@@ -1276,6 +1682,9 @@ struct TrackerMapView: UIViewRepresentable {
                 guard let self = self, let mapView = mapView else { return }
                 self.sync(flights: self.parent.flights, on: mapView)
                 self.syncGround(on: mapView)
+                // The wind grid is a function of the region, so it is resolved
+                // on the same settle the ground layer is — never mid-pan.
+                self.syncWinds(on: mapView)
             }
 
             pendingCull = work

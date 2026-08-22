@@ -32,6 +32,12 @@ enum AppConfig {
         return URL(string: "\(socketURLString)/api/flights/\(encoded)/plan")
     }
 
+    /// The North Atlantic organised track system, republished twice a day.
+    /// The same endpoint the web tracker read — see `old/www/natTracksLayer.js`.
+    static var natTracksURL: URL? {
+        URL(string: "\(socketURLString)/api/live/tracks")
+    }
+
     /// What the backend will actually do for us — push, watchlist storage,
     /// which event kinds it knows about. Probed on launch rather than assumed,
     /// so a client shipped ahead of a backend rollout shows the friends list

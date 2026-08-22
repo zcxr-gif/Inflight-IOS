@@ -249,22 +249,12 @@ final class FlightReplay: ObservableObject {
         )
     }
 
-    /// Initial great-circle bearing, in degrees from north.
+    /// Initial great-circle bearing, in degrees from north. The one in
+    /// `FlightProgress`, which the navigation display uses too.
     private static func bearing(
         from start: CLLocationCoordinate2D,
         to end: CLLocationCoordinate2D
     ) -> Double {
-        let fromLatitude = start.latitude * .pi / 180
-        let toLatitude = end.latitude * .pi / 180
-        let deltaLongitude = (end.longitude - start.longitude) * .pi / 180
-
-        let y = sin(deltaLongitude) * cos(toLatitude)
-        let x = cos(fromLatitude) * sin(toLatitude)
-            - sin(fromLatitude) * cos(toLatitude) * cos(deltaLongitude)
-
-        guard x != 0 || y != 0 else { return 0 }
-
-        let degrees = atan2(y, x) * 180 / .pi
-        return degrees < 0 ? degrees + 360 : degrees
+        FlightProgress.bearingDegrees(from: start, to: end)
     }
 }

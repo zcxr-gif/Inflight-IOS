@@ -51,11 +51,16 @@ enum WindUnit: String, CaseIterable, Identifiable {
     }
 }
 
-/// Weather display settings, from the toolbar's weather panel.
+/// Weather settings, from the toolbar's weather panel.
 ///
-/// Everything here is presentation: which units a report is written in, and how
-/// much of it the chip on the map shows. Nothing changes what is fetched, so
-/// flipping any of it is instant and costs no network.
+/// Most of it is presentation — which units a report is written in, and how
+/// much of it the chip on the map shows — and all of that is free to flip,
+/// because nothing about it changes what is fetched.
+///
+/// The map layers at the bottom are the exception, and they are here rather
+/// than under the filters because this is where somebody looks for weather.
+/// Those do cost network: tiles while a layer is on, and a grid of model wind
+/// while the barbs are. Both are off by default for that reason.
 final class WeatherPreferences: ObservableObject {
 
     static let shared = WeatherPreferences()
@@ -64,6 +69,11 @@ final class WeatherPreferences: ObservableObject {
     private static let windKey = "weatherWindUnit"
     private static let chipKey = "weatherChipVisible"
     private static let routeEndsKey = "weatherShowsRouteEnds"
+    private static let layerKey = "weather.mapLayer"
+    private static let animateKey = "weather.animatesRadar"
+    private static let windsKey = "weather.showsWinds"
+    private static let windLevelKey = "weather.windLevel"
+    private static let fieldsKey = "weather.showsFieldConditions"
 
     @Published var temperatureUnit: TemperatureUnit {
         didSet { UserDefaults.standard.set(temperatureUnit.rawValue, forKey: Self.temperatureKey) }
@@ -84,8 +94,55 @@ final class WeatherPreferences: ObservableObject {
         didSet { UserDefaults.standard.set(showsRouteEnds, forKey: Self.routeEndsKey) }
     }
 
+    /// Which weather tiles are drawn under the traffic, if any.
+    @Published var mapLayer: MapWeatherLayer {
+        didSet { UserDefaults.standard.set(mapLayer.rawValue, forKey: Self.layerKey) }
+    }
+
+    /// Whether the radar runs through its two hours of frames instead of
+    /// sitting on the newest one.
+    ///
+    /// The frames are already fetched either way — the index lists all of them
+    /// — so this costs tiles rather than requests, and only for the frames it
+    /// actually reaches.
+    @Published var animatesRadar: Bool {
+        didSet { UserDefaults.standard.set(animatesRadar, forKey: Self.animateKey) }
+    }
+
+    /// Whether wind barbs are drawn across the visible map.
+    @Published var showsWinds: Bool {
+        didSet { UserDefaults.standard.set(showsWinds, forKey: Self.windsKey) }
+    }
+
+    /// The height those barbs are for.
+    @Published var windLevel: WindLevel {
+        didSet { UserDefaults.standard.set(windLevel.rawValue, forKey: Self.windLevelKey) }
+    }
+
+    /// Whether a marked field carries its wind and temperature on the map
+    /// once the map is close enough to read them.
+    ///
+    /// Free: the reports are already fetched for the flight categories the
+    /// ICAOs are coloured in, so this only decides whether they are drawn.
+    @Published var showsFieldConditions: Bool {
+        didSet { UserDefaults.standard.set(showsFieldConditions, forKey: Self.fieldsKey) }
+    }
+
     private init() {
         let defaults = UserDefaults.standard
+
+        // Both layers default off: each is a request the app would otherwise
+        // never make, and a map that starts covered in someone else's weather
+        // is not the map anybody asked for.
+        mapLayer = MapWeatherLayer(rawValue: defaults.string(forKey: Self.layerKey) ?? "") ?? .off
+        showsWinds = defaults.bool(forKey: Self.windsKey)
+        windLevel = WindLevel(rawValue: defaults.string(forKey: Self.windLevelKey) ?? "") ?? .fl340
+        // On, but only meaningful while a layer is: it animates what is
+        // already there.
+        animatesRadar = defaults.object(forKey: Self.animateKey) as? Bool ?? true
+        // On by default, because it costs nothing and it is the one piece of
+        // weather that is already on the device.
+        showsFieldConditions = defaults.object(forKey: Self.fieldsKey) as? Bool ?? true
 
         temperatureUnit = TemperatureUnit(rawValue: defaults.string(forKey: Self.temperatureKey) ?? "")
             ?? .celsius

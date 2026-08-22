@@ -1,17 +1,18 @@
 import SwiftUI
 
-/// The six places the toolbar goes.
+/// The seven places the toolbar goes.
 ///
 /// Ordered as they are read: who you came to see, then what is happening on
 /// the server, then what the map is showing, then how it reads, then the app
 /// itself. Friends leads because it is the only one that is about a person.
-/// ATC and airports are a pair — who is working, and where everyone is — so
-/// they sit together in the middle.
+/// ATC, airports and stats are a run — who is working, where everyone is, and
+/// what all of it adds up to — so they sit together in the middle.
 enum MapPanelKind: String, Identifiable, CaseIterable {
 
     case friends
     case atc
     case airports
+    case stats
     case filters
     case weather
     case settings
@@ -23,6 +24,7 @@ enum MapPanelKind: String, Identifiable, CaseIterable {
         case .friends: return "Friends"
         case .atc: return "ATC"
         case .airports: return "Airports"
+        case .stats: return "Stats"
         case .filters: return "Filters"
         case .weather: return "Weather"
         case .settings: return "Settings"
@@ -36,6 +38,7 @@ enum MapPanelKind: String, Identifiable, CaseIterable {
         // The same glyph the search results mark an airport with, so the two
         // ways into a field look like the same thing.
         case .airports: return "mappin.and.ellipse"
+        case .stats: return "chart.bar.fill"
         case .filters: return "line.3.horizontal.decrease"
         case .weather: return "cloud.sun.fill"
         case .settings: return "gearshape.fill"
@@ -105,10 +108,14 @@ struct MapToolbar: View {
                         .offset(x: 9, y: -7)
                 }
 
+            // Seven of these have to fit across the narrowest phone the app
+            // runs on, so the label is a shade smaller than it was at six and
+            // is allowed to shrink further before it truncates. A toolbar item
+            // whose name is cut in half is an item nobody presses.
             Text(kind.label)
-                .font(.system(size: 9.5, weight: .semibold))
+                .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(theme.textSecondary)
-                .flightInfoLine(minimumScale: 0.8)
+                .flightInfoLine(minimumScale: 0.65)
         }
         .padding(.vertical, 9)
         .frame(maxWidth: .infinity)
