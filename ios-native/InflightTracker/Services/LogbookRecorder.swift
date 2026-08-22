@@ -381,6 +381,7 @@ final class LogbookRecorder: ObservableObject {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             attached = (try? c.decode(Bool.self, forKey: .attached)) ?? false
             flightId = try? c.decode(String.self, forKey: .flightId)
+            reason = try? c.decode(String.self, forKey: .reason)
         }
     }
 
