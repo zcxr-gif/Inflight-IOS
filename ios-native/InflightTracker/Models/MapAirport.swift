@@ -110,6 +110,10 @@ struct MapAirport: Identifiable, Equatable {
             )
         }
 
-        return result
+        // Sorted so the same set of fields is the same list every time. It is
+        // built by walking a `Set`, whose order is not stable between runs or
+        // even between two calls, and the map compares one ranking against the
+        // last to decide whether its markers need re-diffing at all.
+        return result.sorted { $0.airport.icao < $1.airport.icao }
     }
 }

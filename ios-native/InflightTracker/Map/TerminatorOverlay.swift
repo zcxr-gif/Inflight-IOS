@@ -38,11 +38,13 @@ enum Terminator {
     /// gradient rather than a set of edges.
     static let bandCount = 8
 
-    /// Titles the renderer reads back off the polygon, since `MKPolygon`
-    /// carries a string and nothing else.
-    static let title = "terminator.band"
+    /// Titles the renderer reads the band's own darkness back off, since
+    /// `MKPolygon` carries a string and nothing else.
+    private static let titlePrefix = "terminator.band."
 
-    static func isBand(_ title: String?) -> Bool { title == Self.title }
+    static func isBand(_ title: String?) -> Bool {
+        title?.hasPrefix(titlePrefix) == true
+    }
 
     /// How finely each edge is walked, in degrees of longitude.
     ///
@@ -51,24 +53,65 @@ enum Terminator {
     /// couple of minutes without noticing.
     private static let step: Double = 2
 
-    /// The bands, lightest first, each one inside the last.
+    /// The bands, lightest first.
+    ///
+    /// Each one is a *ring*: the dark cap at its own elevation with the next
+    /// band's cap punched out of it as an interior polygon. Nested filled caps
+    /// would have been simpler and are what this drew first, but they paint the
+    /// deep night eight times over — eight translucent world-sized fills
+    /// composited on every frame of every pan, which is exactly the sort of
+    /// overdraw that costs a map its frame rate. Cut into rings, every pixel of
+    /// the wash is painted once and the picture is identical, because each
+    /// ring simply carries the alpha that many overlapping fills would have
+    /// accumulated to.
     static func polygons(at date: Date = Date()) -> [MKPolygon] {
         let sun = SolarPosition.sun(at: date)
 
-        return (0..<bandCount).compactMap { index in
+        let rings: [[CLLocationCoordinate2D]] = (0..<bandCount).map { index in
             let fraction = Double(index) / Double(bandCount - 1)
             let elevation = sunsetElevation + (nightElevation - sunsetElevation) * fraction
-            return polygon(below: elevation, sun: sun)
+            return ring(below: elevation, sun: sun)
         }
+
+        var out: [MKPolygon] = []
+        out.reserveCapacity(bandCount)
+
+        for (index, outer) in rings.enumerated() {
+            guard outer.count > 3 else { continue }
+
+            // The innermost band has nothing under it: past astronomical night
+            // the sky is as dark as it gets, so that one is a solid cap.
+            //
+            // The hole is wound the opposite way round to the ring it is cut
+            // from, which is the convention that makes it a hole under either
+            // fill rule rather than only under even-odd.
+            let inner = index + 1 < rings.count ? Array(rings[index + 1].reversed()) : []
+            let holes = inner.count > 3
+                ? [MKPolygon(coordinates: inner, count: inner.count)]
+                : []
+
+            let polygon = MKPolygon(
+                coordinates: outer,
+                count: outer.count,
+                interiorPolygons: holes
+            )
+            polygon.title = "\(titlePrefix)\(index)"
+            out.append(polygon)
+        }
+
+        return out
     }
 
-    /// Everything darker than one elevation, as a closed shape.
+    /// The boundary of everything darker than one elevation, as a closed ring.
     ///
     /// Two edges rather than one: the northern limit of the dark walked east,
     /// and the southern limit walked back. A meridian with no darkness on it at
     /// all pinches the two edges together at the point furthest from the sun,
     /// so the band closes to nothing where it ends instead of leaping to a pole.
-    private static func polygon(below elevation: Double, sun: SolarPosition.Sun) -> MKPolygon? {
+    private static func ring(
+        below elevation: Double,
+        sun: SolarPosition.Sun
+    ) -> [CLLocationCoordinate2D] {
         var northern: [CLLocationCoordinate2D] = []
         var southern: [CLLocationCoordinate2D] = []
 
@@ -82,12 +125,7 @@ enum Terminator {
 
         // Stopping at ±180 rather than wrapping keeps this one shape in one
         // world, which is the only way MapKit will fill it.
-        let ring = northern + southern.reversed()
-        guard ring.count > 3 else { return nil }
-
-        let polygon = MKPolygon(coordinates: ring, count: ring.count)
-        polygon.title = title
-        return polygon
+        return northern + southern.reversed()
     }
 
     /// The stretch of one meridian that is darker than `elevation`.
@@ -182,17 +220,45 @@ enum Terminator {
         return atan2(sin(degrees * radians), cos(degrees * radians)) / radians
     }
 
+    /// How much of one band's wash is in place by the time you reach it.
+    ///
+    /// The rings do not overlap, so each has to carry the darkness the stack of
+    /// caps would have built up: one wash of `step`, composited `index + 1`
+    /// times, is `1 - (1 - step)^(index + 1)`. The result is the same picture
+    /// the nested version drew, painted once instead of eight times.
+    private static func alpha(atIndex index: Int, step: Double) -> Double {
+        1 - pow(1 - step, Double(index + 1))
+    }
+
     /// How each band is painted.
     ///
-    /// Deliberately almost nothing on its own: eight of these stack over the
-    /// darkest part of the world and it is the stack that has to read, not any
-    /// one of them. Even stacked it stays a wash rather than a curtain — an
-    /// overlay heavy enough to be unmistakable is also heavy enough to lose the
-    /// coastline, the traffic and the routes underneath it, and those are what
-    /// the map is for.
-    static let bandFill = UIColor { traits in
-        traits.userInterfaceStyle == .light
-            ? UIColor(red: 0.05, green: 0.07, blue: 0.16, alpha: 0.045)
-            : UIColor(red: 0.00, green: 0.01, blue: 0.05, alpha: 0.055)
+    /// Deliberately gentle: even at its deepest this is a wash rather than a
+    /// curtain, because an overlay heavy enough to be unmistakable is also
+    /// heavy enough to lose the coastline, the traffic and the routes
+    /// underneath it, and those are what the map is for.
+    ///
+    /// Built once, because a dynamic colour is resolved against the map's
+    /// traits every time a renderer asks for it.
+    private static let fills: [UIColor] = (0..<Terminator.bandCount).map { index in
+        UIColor { traits in
+            traits.userInterfaceStyle == .light
+                ? UIColor(
+                    red: 0.05, green: 0.07, blue: 0.16,
+                    alpha: Terminator.alpha(atIndex: index, step: 0.045)
+                )
+                : UIColor(
+                    red: 0.00, green: 0.01, blue: 0.05,
+                    alpha: Terminator.alpha(atIndex: index, step: 0.055)
+                )
+        }
+    }
+
+    /// The wash for a band, read back off the polygon's own title.
+    static func fill(for title: String?) -> UIColor {
+        guard let title = title,
+              let index = Int(title.dropFirst(titlePrefix.count)),
+              fills.indices.contains(index)
+        else { return fills[0] }
+        return fills[index]
     }
 }

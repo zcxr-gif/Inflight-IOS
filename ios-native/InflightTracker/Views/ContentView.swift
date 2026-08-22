@@ -92,13 +92,56 @@ struct ContentView: View {
     private static let busiestAirportsOnMap = 40
 
     /// Fields to mark. Empty when the toggle is off, which is the whole switch.
-    private var mapAirports: [MapAirport] {
-        guard filters.showsAirports else { return [] }
-        return MapAirport.active(
-            in: feed.flights,
-            stations: feed.atcStations,
-            busiestLimit: Self.busiestAirportsOnMap
-        )
+    ///
+    /// Held in state and recounted once per packet rather than worked out in
+    /// `body`, for the same reason `myFlights` is: ranking the fields walks
+    /// every aircraft on the server twice over, upper-casing two ICAOs apiece,
+    /// and the body runs far more often than the feed changes — on every
+    /// keystroke in the search field, every time a chip opens, and twenty times
+    /// a second for the length of a replay.
+    @State private var mapAirports: [MapAirport] = []
+
+    /// Bumped whenever the list above is rebuilt, so the map can tell whether
+    /// its markers need re-diffing without comparing the two lists.
+    @State private var airportsRevision = 0
+
+    /// Watched pilots the feed can currently see, for the toolbar's badge.
+    /// Counted per packet rather than per redraw, and for the same reason: it
+    /// is a walk over the whole server, lower-casing a name per aircraft.
+    @State private var friendsAloft = 0
+
+    private func refreshMapAirports() {
+        let fields = filters.showsAirports
+            ? MapAirport.active(
+                in: feed.flights,
+                stations: feed.atcStations,
+                busiestLimit: Self.busiestAirportsOnMap
+            )
+            : []
+
+        // `MapAirport` compares by what is drawn, so an unchanged ranking
+        // publishes nothing and the map is left alone.
+        guard fields != mapAirports else { return }
+        mapAirports = fields
+        airportsRevision &+= 1
+    }
+
+    private func refreshFriendsAloft() {
+        // The store keeps this set, lowercased, and rebuilds it only when
+        // somebody is added or removed.
+        let watched = friends.watched
+        guard !watched.isEmpty else {
+            if friendsAloft != 0 { friendsAloft = 0 }
+            return
+        }
+
+        var seen = Set<String>()
+        for flight in feed.flights {
+            guard let username = flight.username?.lowercased(), watched.contains(username) else { continue }
+            seen.insert(username)
+        }
+
+        if friendsAloft != seen.count { friendsAloft = seen.count }
     }
 
     /// Opened from the avatar button, and from Settings.
@@ -172,18 +215,19 @@ struct ContentView: View {
         MapSearch.results(for: query, in: feed.flights, limit: 6)
     }
 
-    /// Watched pilots the feed can currently see, for the toolbar's badge.
-    /// Counted over the whole packet rather than `visibleFlights` — a friend
-    /// hidden by an altitude filter is still flying.
-    private var friendsAloft: Int {
-        let watched = Set(friends.friends)
-        guard !watched.isEmpty else { return 0 }
-        var seen = Set<String>()
-        for flight in feed.flights {
-            guard let username = flight.username?.lowercased(), watched.contains(username) else { continue }
-            seen.insert(username)
-        }
-        return seen.count
+    /// A stamp of everything that decides which aircraft the map should be
+    /// drawing: the packet it came from, the filters narrowing it, and the one
+    /// aircraft that is kept whatever they say.
+    ///
+    /// The map skips its whole annotation diff when this has not moved. Without
+    /// it every redraw walked the server — and the body redraws for reasons
+    /// that have nothing to do with the traffic.
+    private var trafficRevision: Int {
+        var hasher = Hasher()
+        hasher.combine(feed.lastUpdate)
+        hasher.combine(filters.signature)
+        hasher.combine(selection?.id)
+        return hasher.finalize()
     }
 
     var body: some View {
@@ -204,7 +248,9 @@ struct ContentView: View {
                 // the cartography, not about the furniture.
                 colorScheme: appearance.resolvedMapScheme,
                 style: appearance.resolvedMapStyle,
+                trafficRevision: trafficRevision,
                 airports: mapAirports,
+                airportsRevision: airportsRevision,
                 showsGroundLayout: filters.showsGroundLayout,
                 showsFlightPlan: filters.showsFlightPlan,
                 weatherTiles: mapWeather.tiles,
@@ -450,6 +496,11 @@ struct ContentView: View {
         .onAppear {
             feed.connect()
             mapWeather.refresh()
+            // Whatever the feed already has, for a view appearing over a
+            // connection that has been running — coming back from a sheet, or
+            // a second appearance of the map.
+            refreshMapAirports()
+            refreshFriendsAloft()
         }
         .animation(.easeInOut(duration: 0.22), value: weatherPreferences.mapLayer)
         .animation(.easeInOut(duration: 0.22), value: measurement)
@@ -476,15 +527,25 @@ struct ContentView: View {
         .onChange(of: entitlements.isPro) { _, _ in
             replay.stopIfUnentitled()
         }
-        // The logbook is written from the same packets the map is drawn from.
-        // Keyed on `lastUpdate` rather than on the array so it runs once per
-        // packet: `flights` is rebuilt every time and comparing thousands of
-        // aircraft to decide whether to look at one of them is the wrong way
-        // round.
+        // Everything derived from a packet, worked out once as it lands rather
+        // than every time something asks for it. All four walk the whole
+        // server, and the body runs far more often than the feed changes.
+        //
+        // Keyed on `lastUpdate` rather than on the array itself: `flights` is
+        // rebuilt every packet, and comparing thousands of aircraft to decide
+        // whether to look at them is the wrong way round.
         .onChange(of: feed.lastUpdate) { _, _ in
             LogbookRecorder.shared.note(flights: feed.flights, server: feed.server)
             refreshMyFlights()
+            refreshMapAirports()
+            refreshFriendsAloft()
         }
+        // The other half of what those three depend on: who is on frequency
+        // ranks the fields, the watchlist decides the badge, and the switch
+        // decides whether there are any markers at all.
+        .onChange(of: feed.stationsUpdate) { _, _ in refreshMapAirports() }
+        .onChange(of: filters.showsAirports) { _, _ in refreshMapAirports() }
+        .onChange(of: friends.friends) { _, _ in refreshFriendsAloft() }
         .task {
             // Both are launch work rather than panel work: the App Store
             // entitlement decides whether a Pro tile is locked on the first

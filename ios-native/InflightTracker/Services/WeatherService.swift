@@ -21,6 +21,20 @@ final class WeatherService {
     private var cache: [String: Entry] = [:]
     private var inFlight = Set<String>()
 
+    /// Bumped every time a report lands.
+    ///
+    /// The map's field markers are coloured by the reports, and this is how the
+    /// map knows a colour has changed without comparing every marker to the
+    /// cache on every redraw: one integer, and it only moves when a report
+    /// actually arrives.
+    private var storedGeneration = 0
+
+    var generation: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedGeneration
+    }
+
     /// Long enough to stop repeat fetches, short enough that a report never
     /// goes properly stale.
     private let lifetime: TimeInterval = 600
@@ -31,11 +45,22 @@ final class WeatherService {
     /// in its own flight category.
     ///
     /// Bounded by what the map marks — every field being worked plus the
-    /// busiest few dozen — and every one of them is cached and de-duplicated
-    /// below, so a steady map does no work at all. Called on the same tick as
-    /// the markers themselves.
+    /// busiest few dozen. Cached fields are dropped here rather than by
+    /// `metar(for:)`, which is the difference between a steady map doing no
+    /// work and a steady map posting a hundred no-op completions to the main
+    /// queue on every single redraw — sixty times a second while a replay is
+    /// running. One lock, and nothing to do when everything is current.
     func prefetch(_ icaos: [String]) {
-        for icao in icaos {
+        let now = Date()
+
+        lock.lock()
+        let wanted = icaos.filter { icao in
+            guard let entry = cache[icao] else { return true }
+            return now.timeIntervalSince(entry.fetched) >= lifetime
+        }
+        lock.unlock()
+
+        for icao in wanted {
             metar(for: icao) { _ in }
         }
     }
@@ -76,6 +101,7 @@ final class WeatherService {
             self.lock.lock()
             self.cache[code] = Entry(metar: metar, fetched: Date())
             self.inFlight.remove(code)
+            self.storedGeneration &+= 1
             self.lock.unlock()
 
             DispatchQueue.main.async { completion(metar) }
