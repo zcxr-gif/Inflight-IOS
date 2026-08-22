@@ -319,7 +319,14 @@ struct FlightDetailView: View {
                     telemetry(for: flight)
 
                     if instruments.isEnabled {
-                        InstrumentsCard(flightId: flight.id, theme: theme)
+                        InstrumentsCard(
+                            flightId: flight.id,
+                            theme: theme,
+                            // The full window stays mounted behind the peek at
+                            // zero opacity, and an instrument redrawing thirty
+                            // times a second behind it is work for nobody.
+                            isRunning: !isCollapsed
+                        )
                             .environmentObject(feed)
                     }
 

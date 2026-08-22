@@ -81,11 +81,12 @@ final class MapFilters: ObservableObject {
     /// see was the route. It costs one request per aircraft whose window is
     /// opened, cached for ten minutes, and nothing at all for the many pilots
     /// who file no plan.
+    /// Only the map's layer, and only the map's. The plan store behind it is
+    /// shared now — the flight window's route card and the navigation display
+    /// both read it — so turning the map layer off no longer throws the cache
+    /// away with it.
     @Published var showsFlightPlan: Bool {
-        didSet {
-            UserDefaults.standard.set(showsFlightPlan, forKey: Self.planKey)
-            if !showsFlightPlan { FlightPlanStore.shared.clear() }
-        }
+        didSet { UserDefaults.standard.set(showsFlightPlan, forKey: Self.planKey) }
     }
 
     private static let planKey = "map.showsFlightPlan"

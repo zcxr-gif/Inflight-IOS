@@ -16,6 +16,11 @@ struct InstrumentsCard: View {
     let flightId: String
     let theme: FlightInfoTheme
 
+    /// Whether the card is actually being looked at. False while the window is
+    /// sitting at its peek, where the card is still in the tree at zero
+    /// opacity.
+    var isRunning = true
+
     @State private var isShowingPanel = false
 
     var body: some View {
@@ -28,7 +33,11 @@ struct InstrumentsCard: View {
                 estimator: source.estimator,
                 animator: source.animator,
                 waypoints: source.waypoints,
-                traffic: source.traffic
+                traffic: source.traffic,
+                // The full-screen panel is drawing the same instrument from its
+                // own source; the card underneath it has nothing to say until
+                // it comes back.
+                isRunning: isRunning && !isShowingPanel
             )
             .environmentObject(feed)
             .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous))

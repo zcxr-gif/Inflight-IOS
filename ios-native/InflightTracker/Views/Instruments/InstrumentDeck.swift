@@ -43,6 +43,15 @@ struct InstrumentDeck: View {
     /// drawing.
     var traffic: [NavigationDisplay.Target] = []
 
+    /// Whether the clock below is allowed to run.
+    ///
+    /// The flight window keeps its full contents in the tree at zero opacity
+    /// while the sheet sits at its peek, and a full-screen cover leaves what it
+    /// covers mounted. Neither is on screen, and a thirty-a-second redraw of
+    /// something nobody can see is battery spent on nothing. Paused, the
+    /// display simply holds its last frame.
+    var isRunning = true
+
     /// How often the displays are redrawn. Thirty a second is smooth for an
     /// instrument and half the work of sixty; nothing on either display moves
     /// fast enough to want more.
@@ -61,7 +70,9 @@ struct InstrumentDeck: View {
                 // changes when the aircraft does.
                 let markers = Self.markers(for: flight)
 
-                TimelineView(.animation(minimumInterval: Self.frameInterval)) { context in
+                TimelineView(
+                    .animation(minimumInterval: Self.frameInterval, paused: !isRunning)
+                ) { context in
                     display(
                         for: shownReading(for: flight, at: context.date),
                         markers: markers

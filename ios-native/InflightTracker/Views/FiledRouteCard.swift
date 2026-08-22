@@ -66,7 +66,7 @@ struct FiledRouteCard: View {
             MiniStat(
                 label: "TO RUN",
                 value: leg.timeToRun(groundSpeedKnots: flight.groundSpeedKnots)
-                    .map(Format.duration) ?? "—",
+                    .map({ Format.duration($0) }) ?? "—",
                 theme: theme,
                 alignment: .trailing
             )

@@ -561,7 +561,7 @@ struct NavigationDisplay: View {
             rightLine += 16
             let ete = leg.timeToRun(groundSpeedKnots: reading.groundSpeedKnots)
             context.drawInstrument(
-                ete.map(Format.duration) ?? "--:--",
+                ete.map({ Format.duration($0) }) ?? "--:--",
                 at: CGPoint(x: right, y: rightLine),
                 size: 11,
                 color: InstrumentPalette.scale,
@@ -577,8 +577,10 @@ struct NavigationDisplay: View {
                 anchor: .trailing
             )
         } else {
+            // The only way there is no leg is that there are no fixes:
+            // `PlanProgress` always finds one in a plan that exists.
             context.drawInstrument(
-                waypoints.isEmpty ? "NO PLAN FILED" : "PLAN ENDED",
+                "NO PLAN FILED",
                 at: CGPoint(x: right, y: rightLine),
                 size: 10,
                 color: InstrumentPalette.scaleDim,
