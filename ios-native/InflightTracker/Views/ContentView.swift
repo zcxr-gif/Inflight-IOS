@@ -196,6 +196,7 @@ struct ContentView: View {
                 showsGroundLayout: filters.showsGroundLayout,
                 showsFlightPlan: filters.showsFlightPlan,
                 weatherTiles: mapWeather.tiles,
+                showsTerminator: filters.showsTerminator,
                 showsNatTracks: filters.showsNatTracks,
                 showsWinds: weatherPreferences.showsWinds,
                 windLevel: weatherPreferences.windLevel,
@@ -497,6 +498,16 @@ struct ContentView: View {
 
         case .airports:
             AirportsPanel { airport in
+                openAirport(airport)
+            }
+            .environmentObject(feed)
+
+        case .stats:
+            PulsePanel { airport in
+                // Same order as everywhere else that hands off to a field:
+                // close first, then move, so the field is not framed under the
+                // panel it was picked in.
+                sheet = nil
                 openAirport(airport)
             }
             .environmentObject(feed)

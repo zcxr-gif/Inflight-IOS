@@ -51,6 +51,9 @@ struct TrackerMapView: UIViewRepresentable {
     /// switched off, or switched on and still waiting for the frame index.
     var weatherTiles: MapWeatherTiles?
 
+    /// Whether night is washed over the half of the world that is in it.
+    var showsTerminator = false
+
     /// Whether the North Atlantic organised tracks are drawn.
     var showsNatTracks = false
 
@@ -162,6 +165,7 @@ struct TrackerMapView: UIViewRepresentable {
 
         // Weather first: the tiles go under everything else the map draws, and
         // adding them at the bottom of the pass keeps that ordering honest.
+        context.coordinator.syncTerminator(on: mapView)
         context.coordinator.syncWeatherTiles(on: mapView)
         context.coordinator.syncWinds(on: mapView)
         context.coordinator.syncNatTracks(on: mapView)
@@ -842,6 +846,47 @@ struct TrackerMapView: UIViewRepresentable {
             mapView.addAnnotations(windAnnotations)
         }
 
+        // MARK: Night
+
+        private var terminatorOverlays: [MKPolygon] = []
+
+        /// When the drawn terminator was worked out, so it is rebuilt on its
+        /// own slow clock rather than on every pass.
+        private var terminatorDrawnAt: Date?
+
+        /// How stale the shape may get. The terminator sweeps a quarter of a
+        /// degree a minute, so two minutes is half a degree — narrower than the
+        /// line it is drawn with at any zoom that shows a whole continent.
+        private static let terminatorLifetime: TimeInterval = 120
+
+        func syncTerminator(on mapView: MKMapView) {
+            guard parent.showsTerminator else {
+                clearTerminator(on: mapView)
+                return
+            }
+
+            if let drawn = terminatorDrawnAt,
+               Date().timeIntervalSince(drawn) < Self.terminatorLifetime {
+                return
+            }
+
+            clearTerminator(on: mapView)
+            terminatorDrawnAt = Date()
+            terminatorOverlays = Terminator.polygons()
+            guard !terminatorOverlays.isEmpty else { return }
+
+            // Below everything: this is a wash over the ground, and every other
+            // thing the map draws has to stay readable through it.
+            mapView.addOverlays(terminatorOverlays, level: .aboveRoads)
+        }
+
+        private func clearTerminator(on mapView: MKMapView) {
+            guard terminatorDrawnAt != nil else { return }
+            mapView.removeOverlays(terminatorOverlays)
+            terminatorOverlays.removeAll(keepingCapacity: true)
+            terminatorDrawnAt = nil
+        }
+
         // MARK: The organised tracks
 
         private var natOverlays: [MKPolyline] = []
@@ -1252,6 +1297,16 @@ struct TrackerMapView: UIViewRepresentable {
             }
 
             if let area = overlay as? MKPolygon {
+                if area.title == Terminator.nightTitle || area.title == Terminator.twilightTitle {
+                    let renderer = MKPolygonRenderer(polygon: area)
+                    renderer.fillColor = Terminator.fill(for: area.title)
+                    // No outline at all. The whole point of two bands is a soft
+                    // edge, and a stroke would put the hard line back.
+                    renderer.strokeColor = .clear
+                    renderer.lineWidth = 0
+                    return renderer
+                }
+
                 return Self.groundRenderer(for: area, title: area.title)
             }
 

@@ -14,6 +14,7 @@ enum HintPlacement: String {
     case friends
     case filters
     case weather
+    case stats
 }
 
 /// One line of guidance about the part of the app it is sitting in.
@@ -207,6 +208,24 @@ struct Hint: Identifiable, Equatable {
             id: "filters.aircraft",
             placement: .filters,
             text: "Aircraft kinds come from the same table that picks each plane's icon, so anything the map can draw, this can narrow down to."
+        ),
+
+        // MARK: The server, counted
+
+        Hint(
+            id: "stats.source",
+            placement: .stats,
+            text: "Every number here is counted from the same packet the map is drawn from, so it can never disagree with what you are looking at — and none of it is fetched."
+        ),
+        Hint(
+            id: "stats.airports",
+            placement: .stats,
+            text: "Any field in the busiest lists opens straight from here."
+        ),
+        Hint(
+            id: "stats.median",
+            placement: .stats,
+            text: "The cruise figure is a median rather than an average: one aircraft at fifty thousand feet drags a mean and says nothing about where the server actually is."
         ),
 
         // MARK: Weather

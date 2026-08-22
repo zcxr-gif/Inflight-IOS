@@ -100,13 +100,26 @@ final class MapFilters: ObservableObject {
         didSet { UserDefaults.standard.set(showsNatTracks, forKey: Self.natKey) }
     }
 
+    /// Whether the half of the world that is in darkness is washed over.
+    ///
+    /// Uncounted as a filter, like the layers around it. On by default and it
+    /// is the only new layer that is: it costs nothing — the sun's position is
+    /// arithmetic on the device, with nothing to fetch and nothing that can be
+    /// stale but the clock — and knowing whether the aeroplane you are watching
+    /// is flying into the night is most of what makes a tracker feel live.
+    @Published var showsTerminator: Bool {
+        didSet { UserDefaults.standard.set(showsTerminator, forKey: Self.terminatorKey) }
+    }
+
     private static let planKey = "map.showsFlightPlan"
     private static let natKey = "map.showsNatTracks"
+    private static let terminatorKey = "map.showsTerminator"
 
     private init() {
         let defaults = UserDefaults.standard
         showsFlightPlan = defaults.object(forKey: Self.planKey) as? Bool ?? true
         showsNatTracks = defaults.bool(forKey: Self.natKey)
+        showsTerminator = defaults.object(forKey: Self.terminatorKey) as? Bool ?? true
         // On by default: the fields being worked are the most useful thing on
         // the map after the traffic, and a feature nobody finds is a feature
         // nobody has.

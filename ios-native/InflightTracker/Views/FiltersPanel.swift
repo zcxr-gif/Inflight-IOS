@@ -68,6 +68,15 @@ struct FiltersPanel: View {
                 PanelDivider()
 
                 PanelToggleRow(
+                    title: "Day and night",
+                    symbol: "moon.stars",
+                    detail: "Washes the half of the world that is in darkness, with civil twilight as a softer band at its edge. Worked out on the device from the date and the clock — nothing to fetch.",
+                    isOn: $filters.showsTerminator
+                )
+
+                PanelDivider()
+
+                PanelToggleRow(
                     title: "North Atlantic tracks",
                     symbol: "arrow.left.and.right",
                     detail: "The organised track system, republished twice a day and coloured by letter, with the levels each track is valid at. It is what explains a hundred aircraft flying in parallel lines across the ocean.",
