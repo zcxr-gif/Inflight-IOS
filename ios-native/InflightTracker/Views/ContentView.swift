@@ -10,6 +10,12 @@ struct ContentView: View {
     @ObservedObject private var weatherPreferences = WeatherPreferences.shared
     /// Which tile layers are actually being served, for the chip's menu.
     @ObservedObject private var tiles = RainViewerService.shared
+    /// Observed for its arrivals rather than read here: a grid of model wind
+    /// lands well after the switch that asked for it, and the map only draws
+    /// what it is holding when something redraws it. Without this the barbs
+    /// waited for the next packet, which is a switch that appears to do
+    /// nothing for several seconds.
+    @ObservedObject private var winds = WindsAloftStore.shared
     @ObservedObject private var friends = FriendsStore.shared
     @ObservedObject private var push = PushService.shared
     @ObservedObject private var entitlements = Entitlements.shared
