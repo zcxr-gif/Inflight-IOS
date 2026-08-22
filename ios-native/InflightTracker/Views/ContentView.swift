@@ -59,6 +59,10 @@ struct ContentView: View {
 
     /// Weather for the field the map is over, and for the open flight's route.
     @StateObject private var weather = WeatherModel()
+
+    /// The weather drawn under the traffic — which layer, and which frame of
+    /// it while the radar is running.
+    @StateObject private var mapWeather = MapWeatherModel()
     @State private var isWeatherExpanded = false
 
     /// Playback of the open aircraft's own track, started from the window and
@@ -184,6 +188,10 @@ struct ContentView: View {
                 airports: mapAirports,
                 showsGroundLayout: filters.showsGroundLayout,
                 showsFlightPlan: filters.showsFlightPlan,
+                weatherTiles: mapWeather.tiles,
+                showsWinds: weatherPreferences.showsWinds,
+                windLevel: weatherPreferences.windLevel,
+                showsFieldConditions: weatherPreferences.showsFieldConditions,
                 onSelectAirport: { icao in
                     guard let field = AirportStore.shared.airport(icao) else { return }
                     // No origin: a field tapped on the map was not arrived at
@@ -225,6 +233,11 @@ struct ContentView: View {
 
                 if selection != nil, weatherPreferences.isChipVisible {
                     WeatherChip(model: weather, theme: theme, isExpanded: $isWeatherExpanded)
+                        .transition(.opacity.combined(with: .move(edge: .leading)))
+                }
+
+                if weatherPreferences.mapLayer != .off {
+                    MapWeatherBar(model: mapWeather, theme: theme)
                         .transition(.opacity.combined(with: .move(edge: .leading)))
                 }
             }
@@ -289,6 +302,11 @@ struct ContentView: View {
                     pendingFlightId = nil
                 }
             }
+
+            // The frame index goes stale on its own clock; this is just the
+            // regular tick that notices, and it is a date comparison until the
+            // interval is actually up.
+            mapWeather.refresh()
 
             guard selection != nil else { return }
             updateWeather()
@@ -374,7 +392,11 @@ struct ContentView: View {
             guard let link = InflightLink.parse(url) else { return }
             open(link)
         }
-        .onAppear { feed.connect() }
+        .onAppear {
+            feed.connect()
+            mapWeather.refresh()
+        }
+        .animation(.easeInOut(duration: 0.22), value: weatherPreferences.mapLayer)
         // Pro can end while the app is open, and a tracker is an app people
         // leave open for hours. Coming back to the foreground is the moment to
         // re-ask: a subscription that lapsed overnight, a refund Apple granted,

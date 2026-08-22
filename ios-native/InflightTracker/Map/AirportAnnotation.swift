@@ -36,11 +36,24 @@ final class AirportAnnotationView: MKAnnotationView {
 
     static let reuseIdentifier = "airport"
 
-    private static let width: CGFloat = 66
+    private static let width: CGFloat = 76
     private static let glyph: CGFloat = 20
+
+    /// Height of the code, and of the conditions line under it.
+    private static let codeHeight: CGFloat = 12
+    private static let conditionsHeight: CGFloat = 11
+
+    /// How far above the coordinate the middle of the glyph sits.
+    private static let glyphLift: CGFloat = 15
 
     private let icon = UIImageView()
     private let label = UILabel()
+
+    /// Wind and temperature, when the map is close enough to have room for
+    /// them. Hidden rather than removed: a marker is reused across fields, and
+    /// laying the subview out once is cheaper than adding and removing it as
+    /// the map zooms.
+    private let conditions = UILabel()
 
     override init(annotation: MKAnnotation?, reuseIdentifier: String?) {
         super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
@@ -54,10 +67,22 @@ final class AirportAnnotationView: MKAnnotationView {
         zPriority = .min
         collisionMode = .circle
 
-        frame = CGRect(x: 0, y: 0, width: Self.width, height: Self.glyph + 15)
-        // The glyph marks the field, so the *glyph* sits on the coordinate,
-        // not the middle of a box that also contains a label.
-        centerOffset = CGPoint(x: 0, y: -(15 / 2))
+        frame = CGRect(
+            x: 0,
+            y: 0,
+            width: Self.width,
+            height: Self.glyph + Self.codeHeight + Self.conditionsHeight + 3
+        )
+        // Where the glyph lands is measured from the coordinate rather than
+        // from the middle of the box, which also holds two lines of text —
+        // and it lands exactly where it did when the box was one line shorter,
+        // so gaining a conditions line moved the text and not the mark.
+        //
+        // Held constant whether or not that second line is drawn, too: the
+        // frame keeps its full height and the label is hidden, so zooming past
+        // the threshold changes what a marker says without shifting where it
+        // points.
+        centerOffset = CGPoint(x: 0, y: frame.height / 2 - Self.glyph / 2 - Self.glyphLift)
 
         icon.frame = CGRect(
             x: (Self.width - Self.glyph) / 2,
@@ -68,7 +93,7 @@ final class AirportAnnotationView: MKAnnotationView {
         icon.contentMode = .scaleAspectFit
         addSubview(icon)
 
-        label.frame = CGRect(x: 0, y: Self.glyph + 1, width: Self.width, height: 12)
+        label.frame = CGRect(x: 0, y: Self.glyph + 1, width: Self.width, height: Self.codeHeight)
         label.textAlignment = .center
         label.font = .systemFont(ofSize: 9.5, weight: .bold)
         label.adjustsFontSizeToFitWidth = true
@@ -80,6 +105,23 @@ final class AirportAnnotationView: MKAnnotationView {
         label.layer.shadowRadius = 2
         label.layer.shadowOffset = .zero
         addSubview(label)
+
+        conditions.frame = CGRect(
+            x: 0,
+            y: Self.glyph + Self.codeHeight + 2,
+            width: Self.width,
+            height: Self.conditionsHeight
+        )
+        conditions.textAlignment = .center
+        conditions.font = .monospacedDigitSystemFont(ofSize: 8.5, weight: .semibold)
+        conditions.adjustsFontSizeToFitWidth = true
+        conditions.minimumScaleFactor = 0.75
+        conditions.layer.shadowColor = UIColor.black.cgColor
+        conditions.layer.shadowOpacity = 0.85
+        conditions.layer.shadowRadius = 2
+        conditions.layer.shadowOffset = .zero
+        conditions.textColor = .white
+        addSubview(conditions)
     }
 
     @available(*, unavailable)
@@ -87,7 +129,12 @@ final class AirportAnnotationView: MKAnnotationView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func apply(_ annotation: AirportAnnotation) {
+    /// Draws one field.
+    ///
+    /// `showingConditions` is decided by the map rather than here: it is a
+    /// question about the camera, and a marker has no idea how far out it is
+    /// being looked at from.
+    func apply(_ annotation: AirportAnnotation, conditions showingConditions: Bool = false) {
         let field = annotation.field
 
         // A field somebody is working reads as the larger, blue mark; one
@@ -109,6 +156,49 @@ final class AirportAnnotationView: MKAnnotationView {
         // that gets full strength; a busy but uncontrolled field is drawn back
         // far enough to read as context.
         alpha = field.isControlled ? 1 : 0.72
+
+        let report = showingConditions ? WeatherService.shared.cached(field.airport.icao) : nil
+        conditions.text = report.map(Self.conditionsLine)
+        conditions.isHidden = conditions.text?.isEmpty ?? true
+    }
+
+    /// Wind and temperature on one short line.
+    ///
+    /// Written tighter than the window writes the same report — `270/12kt 18°`
+    /// rather than `270° @ 12 kt` — because this has the width of an ICAO code
+    /// to say it in. Nothing else from the report comes with it: the code above
+    /// is already carrying the flight category in its colour, and a marker on a
+    /// map is not somewhere to read a METAR.
+    private static func conditionsLine(for metar: Metar) -> String {
+        let preferences = WeatherPreferences.shared
+        var parts: [String] = []
+
+        if let speed = metar.windSpeedKnots {
+            if speed == 0 {
+                parts.append("CALM")
+            } else {
+                let direction = metar.windDirectionDegrees
+                    .map { String(format: "%03d", $0) } ?? "VRB"
+                let converted = Int(
+                    preferences.windUnit.convert(fromKnots: Double(speed)).rounded()
+                )
+                var wind = "\(direction)/\(converted)"
+                if let gust = metar.windGustKnots {
+                    let gusting = Int(
+                        preferences.windUnit.convert(fromKnots: Double(gust)).rounded()
+                    )
+                    wind += "G\(gusting)"
+                }
+                parts.append(wind + preferences.windUnit.label)
+            }
+        }
+
+        if let temperature = metar.temperatureC {
+            let value = preferences.temperatureUnit.convert(fromCelsius: temperature)
+            parts.append("\(Int(value.rounded()))°")
+        }
+
+        return parts.joined(separator: " ")
     }
 }
 
