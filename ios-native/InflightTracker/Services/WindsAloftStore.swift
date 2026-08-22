@@ -86,10 +86,7 @@ final class WindsAloftStore: ObservableObject {
     func load(region: MKCoordinateRegion, level: WindLevel) {
         guard let grid = Self.grid(for: region) else {
             // Zoomed somewhere the grid cannot say anything useful about.
-            if key != nil || !barbs.isEmpty {
-                key = nil
-                barbs = []
-            }
+            publish(key: nil, barbs: [])
             return
         }
 
@@ -101,10 +98,7 @@ final class WindsAloftStore: ObservableObject {
         lock.unlock()
 
         if fresh, let entry = entry {
-            if key != wanted {
-                key = wanted
-                barbs = entry.barbs
-            }
+            publish(key: wanted, barbs: entry.barbs)
             return
         }
 
@@ -114,9 +108,30 @@ final class WindsAloftStore: ObservableObject {
     /// Drop what is drawn. For the switch going off — barbs for a level nobody
     /// is looking at are barbs the map should not be holding.
     func clear() {
-        guard key != nil || !barbs.isEmpty else { return }
-        key = nil
-        barbs = []
+        publish(key: nil, barbs: [])
+    }
+
+    /// Announce a new grid, never synchronously.
+    ///
+    /// `load` is called from inside the map's layout pass, and the map observes
+    /// this object — so assigning a `@Published` there would be mutating state
+    /// in the middle of a SwiftUI update, which is at best a purple warning and
+    /// at worst a render that re-enters itself. Hopping a runloop turn costs
+    /// one frame and makes the whole thing ordinary: the assignment lands, the
+    /// map is asked to update, and it reads the new grid on the next pass.
+    ///
+    /// The comparison happens twice on purpose — once to avoid scheduling work
+    /// that would change nothing, and again on arrival, because several passes
+    /// can be queued before the first one runs.
+    private func publish(key newKey: String?, barbs newBarbs: [Barb]) {
+        guard key != newKey || barbs != newBarbs else { return }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            guard self.key != newKey || self.barbs != newBarbs else { return }
+            self.key = newKey
+            self.barbs = newBarbs
+        }
     }
 
     // MARK: - The lattice
@@ -204,10 +219,7 @@ final class WindsAloftStore: ObservableObject {
             }
             self.lock.unlock()
 
-            DispatchQueue.main.async {
-                self.key = wanted
-                self.barbs = parsed
-            }
+            self.publish(key: wanted, barbs: parsed)
         }.resume()
     }
 
