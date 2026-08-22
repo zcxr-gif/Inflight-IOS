@@ -51,6 +51,9 @@ struct TrackerMapView: UIViewRepresentable {
     /// switched off, or switched on and still waiting for the frame index.
     var weatherTiles: MapWeatherTiles?
 
+    /// Whether the North Atlantic organised tracks are drawn.
+    var showsNatTracks = false
+
     /// Whether model wind is drawn across the visible map, and at what height.
     var showsWinds = false
     var windLevel: WindLevel = .fl340
@@ -68,6 +71,10 @@ struct TrackerMapView: UIViewRepresentable {
     /// Observed for the same reason: a grid of wind fetched for this region
     /// lands well after the pan that asked for it.
     @ObservedObject var winds = WindsAloftStore.shared
+
+    /// And again: the track set is fetched when the layer is switched on, and
+    /// lands a moment later.
+    @ObservedObject var natTracks = NatTrackService.shared
 
     /// Opening a field that was tapped on the map. Separate from `selection`,
     /// which is an aircraft and drives the flight window.
@@ -157,6 +164,7 @@ struct TrackerMapView: UIViewRepresentable {
         // adding them at the bottom of the pass keeps that ordering honest.
         context.coordinator.syncWeatherTiles(on: mapView)
         context.coordinator.syncWinds(on: mapView)
+        context.coordinator.syncNatTracks(on: mapView)
         context.coordinator.applyStyle(style, on: mapView)
         context.coordinator.applyHighlighting(highlighting, on: mapView)
         context.coordinator.sync(flights: flights, on: mapView)
@@ -834,6 +842,73 @@ struct TrackerMapView: UIViewRepresentable {
             mapView.addAnnotations(windAnnotations)
         }
 
+        // MARK: The organised tracks
+
+        private var natOverlays: [MKPolyline] = []
+        private var natLabels: [MKAnnotation] = []
+
+        /// What is drawn, so a set that has not been republished is not torn
+        /// down and rebuilt on every packet.
+        private var renderedNatKey: String?
+
+        /// Draws the North Atlantic track system.
+        ///
+        /// Whole-world rather than culled to the viewport: there are a dozen
+        /// tracks, they are one polyline each, and the alternative — rebuilding
+        /// them on every pan — costs more than simply leaving them on the map.
+        func syncNatTracks(on mapView: MKMapView) {
+            guard parent.showsNatTracks else {
+                clearNatTracks(on: mapView)
+                return
+            }
+
+            let service = NatTrackService.shared
+            service.refresh()
+
+            let tracks = service.tracks
+            let key = tracks.map { "\($0.name)|\($0.coordinates.count)" }.joined(separator: ",")
+            guard renderedNatKey != key else { return }
+
+            clearNatTracks(on: mapView)
+            renderedNatKey = key
+            guard !tracks.isEmpty else { return }
+
+            for track in tracks {
+                // Geodesic, because a track is flown as a great circle and a
+                // straight line between two North Atlantic fixes is visibly
+                // south of where the aeroplanes actually are.
+                let line = MKGeodesicPolyline(
+                    coordinates: track.coordinates,
+                    count: track.coordinates.count
+                )
+                line.title = NatTrackStyle.title(for: track)
+                natOverlays.append(line)
+
+                // Named at both ends, because which end you are looking at
+                // depends entirely on which side of the ocean you are.
+                let text = NatTrackStyle.label(for: track)
+                if let first = track.coordinates.first {
+                    natLabels.append(GroundLabel(coordinate: first, text: text))
+                }
+                if let last = track.coordinates.last, track.coordinates.count > 1 {
+                    natLabels.append(GroundLabel(coordinate: last, text: text))
+                }
+            }
+
+            // Under the traffic, like everything else that is context.
+            mapView.addOverlays(natOverlays, level: .aboveRoads)
+            mapView.addAnnotations(natLabels)
+        }
+
+        private func clearNatTracks(on mapView: MKMapView) {
+            guard renderedNatKey != nil else { return }
+            mapView.removeOverlays(natOverlays)
+            mapView.removeAnnotations(natLabels)
+            natOverlays.removeAll(keepingCapacity: true)
+            natLabels.removeAll(keepingCapacity: true)
+            renderedNatKey = nil
+        }
+
         // MARK: Ground layout
 
         /// How wide the view has to be, in nautical miles, before a field's
@@ -1186,6 +1261,15 @@ struct TrackerMapView: UIViewRepresentable {
 
             if line.title?.hasPrefix(Self.groundTitle) == true {
                 return Self.groundRenderer(for: line, title: line.title)
+            }
+
+            if let track = NatTrackStyle.name(fromTitle: line.title) {
+                let renderer = MKPolylineRenderer(polyline: line)
+                renderer.lineCap = .round
+                renderer.lineJoin = .round
+                renderer.strokeColor = NatTrackStyle.colour(for: track).withAlphaComponent(0.75)
+                renderer.lineWidth = 2.6
+                return renderer
             }
 
             let renderer = MKPolylineRenderer(polyline: line)

@@ -96,6 +96,13 @@ struct ContentView: View {
     /// Opened from the avatar button, and from Settings.
     @State private var isShowingAccount = false
 
+    /// The pilot page the avatar opened. Held as a link rather than a flag so
+    /// the same sheet can later be pointed at somebody else.
+    @State private var viewingProfile: ProfileLink?
+
+    /// Raised from the avatar's menu, for an account without Pro.
+    @State private var isShowingProPaywall = false
+
     /// Raised when a locked map style is picked.
     @State private var isShowingStylePaywall = false
 
@@ -189,6 +196,7 @@ struct ContentView: View {
                 showsGroundLayout: filters.showsGroundLayout,
                 showsFlightPlan: filters.showsFlightPlan,
                 weatherTiles: mapWeather.tiles,
+                showsNatTracks: filters.showsNatTracks,
                 showsWinds: weatherPreferences.showsWinds,
                 windLevel: weatherPreferences.windLevel,
                 showsFieldConditions: weatherPreferences.showsFieldConditions,
@@ -215,20 +223,28 @@ struct ContentView: View {
             // where a window open at its peak leaves room to actually watch the
             // thing you just tapped.
             VStack(alignment: .leading, spacing: 10) {
-                if selection == nil {
-                    // Top-aligned so the results card drops below the field
-                    // rather than pushing the avatar down the screen with it.
-                    HStack(alignment: .top, spacing: 10) {
+                // Top-aligned so the results card drops below the field rather
+                // than pushing the avatar down the screen with it.
+                //
+                // The avatar is outside the search field's own condition on
+                // purpose. It used to go with it, which meant the one way in to
+                // your own profile disappeared the moment you tapped an
+                // aeroplane — and watching an aeroplane is what people are
+                // doing almost all of the time they have this app open.
+                HStack(alignment: .top, spacing: 10) {
+                    if selection == nil {
                         MapSearchField(
                             query: $query,
                             results: results,
                             theme: theme,
                             onSelect: open
                         )
-
-                        profileButton
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                    } else {
+                        Spacer(minLength: 0)
                     }
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+
+                    profileButton
                 }
 
                 if selection != nil, weatherPreferences.isChipVisible {
@@ -386,6 +402,18 @@ struct ContentView: View {
             // pilot is in the air right now.
             AccountPanel().environmentObject(feed)
         }
+        .sheet(item: $viewingProfile) { link in
+            // Handed the feed explicitly, like every other sheet that opens a
+            // profile: a profile says whether that pilot is in the air, and
+            // tapping the aircraft it names has to be able to fly the map to it.
+            PublicProfileView(link: link) { flight in
+                viewingProfile = nil
+                selection = SelectedFlight(id: flight.id)
+                focus(on: flight.coordinate, spanMeters: 240_000)
+            }
+            .environmentObject(feed)
+        }
+        .sheet(isPresented: $isShowingProPaywall) { ProPanel() }
         .sheet(isPresented: $isShowingStylePaywall) { ProPanel(highlighted: .mapStyles) }
         .sheet(isPresented: $isShowingFindMePaywall) { ProPanel(highlighted: .findMyAircraft) }
         .onOpenURL { url in
@@ -741,9 +769,24 @@ struct ContentView: View {
     ///
     /// The state reading survives: a picture or initials means signed in, a
     /// glyph means not, and a dot marks Pro.
+    /// The avatar, top right, on every screen the map ever shows.
+    ///
+    /// A tap goes where somebody tapping their own face expects to go: to their
+    /// profile, as other pilots see it. It used to open the account panel, from
+    /// which the profile was two more taps and a decision about which of the
+    /// rows meant "me" — which is a long way round to your own page.
+    ///
+    /// Everything that *is* account machinery — signing in, Pro, editing —
+    /// hangs off a long press instead, and is still one tap away under
+    /// Settings. Signed out there is no profile to show, so the tap falls back
+    /// to the panel, which is where signing in happens anyway.
     private var profileButton: some View {
         Button {
-            isShowingAccount = true
+            if let handle = profiles.profile?.handle, !handle.isEmpty {
+                viewingProfile = .handle(handle)
+            } else {
+                isShowingAccount = true
+            }
         } label: {
             Group {
                 if let account = accounts.account {
@@ -780,6 +823,30 @@ struct ContentView: View {
         .flightInfoChrome(theme, in: Circle())
         .environment(\.colorScheme, theme.colorScheme)
         .accessibilityLabel(profileLabel)
+        .accessibilityHint(profiles.profile == nil ? "Opens your account" : "Opens your profile")
+        .contextMenu {
+            if let handle = profiles.profile?.handle, !handle.isEmpty {
+                Button {
+                    viewingProfile = .handle(handle)
+                } label: {
+                    Label("Your profile", systemImage: "person.crop.circle")
+                }
+            }
+
+            Button {
+                isShowingAccount = true
+            } label: {
+                Label(accounts.isSignedIn ? "Account" : "Sign in", systemImage: "gearshape")
+            }
+
+            if !entitlements.isPro {
+                Button {
+                    isShowingProPaywall = true
+                } label: {
+                    Label("Inflight Pro", systemImage: "sparkles")
+                }
+            }
+        }
     }
 
     private var profileLabel: String {

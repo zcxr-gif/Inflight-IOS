@@ -89,11 +89,24 @@ final class MapFilters: ObservableObject {
         didSet { UserDefaults.standard.set(showsFlightPlan, forKey: Self.planKey) }
     }
 
+    /// Whether the North Atlantic organised tracks are drawn.
+    ///
+    /// Uncounted as a filter, like the layers above it, and off by default —
+    /// it is a dozen coloured lines across one ocean, which is exactly what
+    /// somebody watching the North Atlantic wants and clutter to everybody
+    /// else. One request an hour while it is on, and none at all while it is
+    /// not.
+    @Published var showsNatTracks: Bool {
+        didSet { UserDefaults.standard.set(showsNatTracks, forKey: Self.natKey) }
+    }
+
     private static let planKey = "map.showsFlightPlan"
+    private static let natKey = "map.showsNatTracks"
 
     private init() {
         let defaults = UserDefaults.standard
         showsFlightPlan = defaults.object(forKey: Self.planKey) as? Bool ?? true
+        showsNatTracks = defaults.bool(forKey: Self.natKey)
         // On by default: the fields being worked are the most useful thing on
         // the map after the traffic, and a feature nobody finds is a feature
         // nobody has.

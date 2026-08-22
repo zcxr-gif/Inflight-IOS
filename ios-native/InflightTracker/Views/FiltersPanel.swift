@@ -64,6 +64,15 @@ struct FiltersPanel: View {
                     detail: "Draws an open flight's filed plan on the map — the line through it, and every fix on it named. Procedures are expanded to the fixes they contain. Most pilots file nothing, and nothing is drawn when they haven't.",
                     isOn: $filters.showsFlightPlan
                 )
+
+                PanelDivider()
+
+                PanelToggleRow(
+                    title: "North Atlantic tracks",
+                    symbol: "arrow.left.and.right",
+                    detail: "The organised track system, republished twice a day and coloured by letter, with the levels each track is valid at. It is what explains a hundred aircraft flying in parallel lines across the ocean.",
+                    isOn: $filters.showsNatTracks
+                )
             }
 
             PanelSection(title: "PHASE") {
