@@ -14,6 +14,7 @@ struct ConnectPanel: View {
     @ObservedObject private var publisher = LiveStatusPublisher.shared
     @ObservedObject private var profiles = ProfileStore.shared
     @ObservedObject private var appearance = FlightInfoAppearance.shared
+    @ObservedObject private var push = PushService.shared
 
     @State private var typedHost: String = ""
     @FocusState private var addressFocused: Bool
@@ -27,9 +28,7 @@ struct ConnectPanel: View {
                 PanelToggleRow(
                     title: "Read from the sim",
                     symbol: "antenna.radiowaves.left.and.right",
-                    detail: "Reads your aircraft straight from Infinite Flight over Wi-Fi. "
-                          + "Needs the sim running on another device on this network, with "
-                          + "Connect switched on in its settings.",
+                    detail: readDetail,
                     isOn: Binding(
                         get: { session.isEnabled },
                         set: { session.isEnabled = $0 }
@@ -45,6 +44,18 @@ struct ConnectPanel: View {
                     isOn: Binding(
                         get: { session.isSameDevice },
                         set: { session.isSameDevice = $0 }
+                    )
+                )
+
+                PanelDivider()
+
+                PanelToggleRow(
+                    title: "Tell me when it connects",
+                    symbol: "bell",
+                    detail: noticesDetail,
+                    isOn: Binding(
+                        get: { session.announcesConnection },
+                        set: { session.announcesConnection = $0 }
                     )
                 )
 
@@ -86,6 +97,30 @@ struct ConnectPanel: View {
         .onAppear { typedHost = session.host }
     }
 
+    /// What the switch needs, which is not the same sentence on one device as
+    /// on two — and the two-device sentence read as a flat contradiction of the
+    /// switch below it to anybody flying on this phone.
+    private var readDetail: String {
+        if session.isSameDevice {
+            return "Reads your aircraft straight from Infinite Flight on this device. "
+                 + "Needs Connect switched on in the sim, under Settings → General."
+        }
+        return "Reads your aircraft straight from Infinite Flight over Wi-Fi. Needs the "
+             + "sim running on another device on this network, with Connect switched on "
+             + "in its settings."
+    }
+
+    /// Why anybody would want the banner, and why anybody would want it gone.
+    private var noticesDetail: String {
+        if session.announcesConnection {
+            return "A banner when the link is made, and one saying why when it isn't. It "
+                 + "arrives on top of Infinite Flight, which on one device is the only place "
+                 + "you could see it."
+        }
+        return "No banners. The panel still says what happened — you just have to come and "
+             + "look."
+    }
+
     private var subtitle: String? {
         switch session.status {
         case .off:                  return session.isEnabled ? "Idle" : "Off"
@@ -116,6 +151,13 @@ struct ConnectPanel: View {
                         .foregroundStyle(theme.textDim)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+
+                if let attempt = attemptLine {
+                    Text(attempt)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(theme.textDim)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             Spacer(minLength: 0)
@@ -142,18 +184,34 @@ struct ConnectPanel: View {
     private var statusDetail: String? {
         switch session.status {
         case let .waiting(reason):
-            // The reason, and then the thing the old "Couldn't connect" never
-            // said: nobody has to come back and press anything. The session
-            // keeps trying on a backoff for as long as the switch is on, so
-            // starting the sim at any point is enough.
-            return reason + "\n\nStill trying. Start Infinite Flight whenever you like — "
-                 + "this connects by itself and tells you when it does."
+            // The reason, and one short line for the thing the old "Couldn't
+            // connect" never said: nobody has to come back and press anything.
+            // That used to be a paragraph, which is a lot of words to read
+            // every time the sim is simply not open yet.
+            return reason + "\n\nStill trying."
         case .live:               return session.manifestSummary
         case .searching:
             return "Infinite Flight announces itself on the network while Connect is on. "
                  + "If nothing is found, enter the device's address below."
         default: return nil
         }
+    }
+
+    /// Proof that something is happening, or proof that nothing is.
+    ///
+    /// The status word alone reads identically whether the session is knocking
+    /// on the sim once a second or has never once run — which is exactly the
+    /// confusion that costs an evening: a pilot with the master switch off sees
+    /// a screen that looks like a connection failing rather than a feature that
+    /// was never started.
+    private var attemptLine: String? {
+        guard session.isEnabled else { return "Not running — turn on Read from the sim" }
+        guard let attempt = session.lastAttempt else { return "No attempt yet" }
+
+        let ago = Self.relative.localizedString(for: attempt.at, relativeTo: Date())
+        return attempt.succeeded
+            ? "Connected \(ago) · \(attempt.address)"
+            : "Last tried \(ago) · \(attempt.address)"
     }
 
     private var statusColour: Color {
@@ -228,7 +286,16 @@ struct ConnectPanel: View {
     // MARK: - One device
 
     private var sameDeviceDetail: String {
-        session.isSameDevice
+        if !session.isEnabled {
+            // The trap this row used to be: it moved, and nothing ran, because
+            // everything is gated on the switch above it. Turning it on now
+            // turns that one on too, and this says so rather than leaving the
+            // pilot to infer it from a screen where nothing happens.
+            return "Reading from the sim is off, so nothing is running. Turning this on turns "
+                 + "it back on — the switch above is the feature, this one only says where the "
+                 + "simulator is."
+        }
+        return session.isSameDevice
             ? "Talks to Infinite Flight over this device's own loopback. No Wi-Fi, no address, and no local network permission."
             : "Turn on if you fly on this same iPhone or iPad rather than a second device."
     }
@@ -264,13 +331,62 @@ struct ConnectPanel: View {
                     ? "Open Inflight beside Infinite Flight in Split View and everything works live — the whole flight, as it happens."
                     : "While you fly, iOS suspends Inflight behind the simulator, so it cannot watch the flight itself.")
 
+                bullet("Both switches above have to be on. \"Read from the sim\" is the feature; \"It's on this device\" only says where the simulator is.")
+
+                bullet("Infinite Flight answers only while it is running, and this app runs only while it is not behind it — so the link is made in the moments either side of a switch. Inflight keeps trying for about half a minute after you leave it, and again the instant you come back.")
+
+                bullet("The order that works: open Infinite Flight, let it finish loading, then switch back here. Coming back is usually the attempt that succeeds, because the sim is still awake behind you — and the notification arrives then.")
+
                 bullet("Your flight is recorded from the map either way. Come back here after landing and the touchdown is read from the simulator and added to it — Infinite Flight keeps the last landing until the next one, so nothing has to be watching at the time.")
 
                 bullet("It's checked automatically each time you open Inflight. The button above is for when you want to be sure.")
+
+                if !push.canNotify { notificationsOff }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 11)
         }
+    }
+
+    private var notificationsOffText: String {
+        if push.authorization == .denied {
+            return "Notifications are off, so there is no way to tell you whether this "
+                 + "connected — it happens while you are in Infinite Flight. Turning them "
+                 + "back on lives in iOS Settings."
+        }
+        return "Allow notifications and you'll be told, on top of Infinite Flight, whether "
+             + "Inflight managed to read the sim."
+    }
+
+    /// Shown only while notifications are off, and only on one device.
+    ///
+    /// Everywhere else in the app a notification is a convenience. Here it is
+    /// the only channel there is: the moment the link is made is a moment the
+    /// pilot is inside Infinite Flight, so a panel cannot tell them and a
+    /// banner is the whole of the answer to "did it connect?".
+    private var notificationsOff: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(notificationsOffText)
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button {
+                if push.authorization == .denied {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                } else {
+                    push.requestAuthorization()
+                }
+            } label: {
+                Text(push.authorization == .denied ? "Open Settings" : "Allow notifications")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(theme.accent)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.top, 2)
     }
 
     private var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
@@ -280,6 +396,8 @@ struct ConnectPanel: View {
         case .attached:              return "checkmark.circle.fill"
         case .nothingToAttach:       return "minus.circle"
         case .simulatorNotReachable: return "moon.zzz"
+        case .needsAccount:          return "person.crop.circle.badge.exclamationmark"
+        case .refused:               return "questionmark.circle"
         }
     }
 
@@ -288,7 +406,38 @@ struct ConnectPanel: View {
         case .attached:              return .green
         case .nothingToAttach:       return theme.textDim
         case .simulatorNotReachable: return theme.textDim
+        case .needsAccount:          return .orange
+        case .refused:               return theme.textDim
         }
+    }
+
+    /// The sim says one name and the profile says another.
+    ///
+    /// Worth a whole block because it is the likeliest reason a pilot who has
+    /// set everything up correctly hears nothing about their own flight: the
+    /// server looks for the name on the profile, the map shows the name in the
+    /// sim, and when they differ the join between the two simply does not
+    /// exist. Not fixed silently — a profile is public, and the handle on it is
+    /// the pilot's to choose.
+    private func identityMismatch(_ name: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Your profile says @\(profiles.profile?.ifUsername ?? "") and the sim says "
+               + "\(name). Announcements about your own flight are addressed by the name on "
+               + "your profile, so while these differ they cannot reach you.")
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button {
+                Task { await profiles.replaceIFUsername(with: name) }
+            } label: {
+                Text("Use \(name)")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(theme.accent)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.top, 2)
     }
 
     // MARK: - Sharing
@@ -304,6 +453,17 @@ struct ConnectPanel: View {
                     set: { publisher.isSharing = $0 }
                 )
             )
+
+            if let blocker = sharingBlocker {
+                PanelDivider()
+
+                Text(blocker)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 11)
+            }
 
             if publisher.isSharing {
                 PanelDivider()
@@ -343,6 +503,40 @@ struct ConnectPanel: View {
         }
     }
 
+    /// Why the flight window is empty, in the order the publisher checks.
+    ///
+    /// Every one of these is a condition `LiveStatusPublisher.publishIfAble`
+    /// returns silently on, and a silent return looks identical from the
+    /// outside to a feature that does not work. The switch being off is the
+    /// commonest by a distance — it is a second switch, defaulting off, on a
+    /// screen whose first switch is the one everybody is thinking about — and
+    /// the position being unpublished is the one nobody would ever guess.
+    ///
+    /// Only shown once the sim is actually attached. Before that there is
+    /// nothing to publish and saying so would be nagging.
+    private var sharingBlocker: String? {
+        guard session.status.isLive else { return nil }
+
+        if !publisher.isSharing {
+            return "Nothing about this flight is being sent anywhere, so your flight window "
+                 + "has nothing to show. That is what the switch above does."
+        }
+        if !profiles.hasProfile {
+            return "Sign in and claim a handle. A live status belongs to a profile, and "
+                 + "there is nowhere to put one without it."
+        }
+        if !session.telemetry.hasPosition {
+            return "This aircraft isn't publishing a position over Connect, so there is "
+                 + "nothing to send. See NOT PUBLISHED BY THIS AIRCRAFT below — that list "
+                 + "is what to send me."
+        }
+        if publisher.lastPublished == nil {
+            return "Connected, and nothing sent yet. The first row goes out on the first "
+                 + "full pass; if this stays here, the reason is above or below it."
+        }
+        return nil
+    }
+
     private var sharingDetail: String {
         publisher.isSharing
             ? "Your position, phase of flight and configuration go on your profile while you fly. Turning this off deletes it."
@@ -363,6 +557,7 @@ struct ConnectPanel: View {
                 if let username = session.telemetry.username {
                     reading("Pilot", username)
                 }
+                if let mismatch = session.simUsernameMismatch { identityMismatch(mismatch) }
                 if let server = session.telemetry.serverName {
                     reading("Server", server)
                 }
@@ -394,6 +589,9 @@ struct ConnectPanel: View {
                 }
                 if let squawk = session.telemetry.transponderCode {
                     reading("Squawk", String(format: "%04d", squawk))
+                }
+                if let atc = session.telemetry.atcFacility {
+                    reading("On frequency", atc)
                 }
                 // Only when true. A panel that says "Stalling: no" is a panel
                 // nobody reads the day it says yes.
@@ -508,15 +706,44 @@ struct ConnectPanel: View {
         } else if session.status.isLive,
                   session.unresolvedFields.contains(.atcMessage) {
             PanelSection(title: "ON FREQUENCY") {
-                Text("This build of Infinite Flight doesn't publish ATC messages over "
-                   + "Connect, so there is nothing to show. Everything else still works.")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(theme.textDim)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 11)
+                VStack(alignment: .leading, spacing: 8) {
+                    if let atc = session.telemetry.atcFacility {
+                        Text("Tuned to \(atc).")
+                            .font(.system(size: 12.5, weight: .semibold))
+                            .foregroundStyle(theme.textPrimary)
+                    }
+
+                    // Two different things, and conflating them is what makes
+                    // this look broken: the comm radio publishes the name of
+                    // the controller, and that is all it publishes. The
+                    // transcript is a separate pushed stream that this build of
+                    // Infinite Flight does not appear to expose at all.
+                    Text(atcNoTranscriptText)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(theme.textDim)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 11)
             }
         }
+    }
+
+    /// Why a panel headed "on frequency" has no words on it.
+    ///
+    /// The comm radio publishes who you are tuned to and nothing else. The
+    /// transcript is a separate pushed stream that this build of Infinite
+    /// Flight does not appear to expose, and saying so is better than an empty
+    /// box that looks like a bug in this app.
+    private var atcNoTranscriptText: String {
+        if session.telemetry.atcFacility == nil {
+            return "Nothing on frequency. Infinite Flight publishes the controller's name "
+                 + "over Connect but not what is said, so there is no transcript to show — "
+                 + "everything else still works."
+        }
+        return "Infinite Flight publishes the controller's name over Connect but not the "
+             + "messages themselves, so this is as far as it goes. Everything else still "
+             + "works."
     }
 
     // MARK: - Copy

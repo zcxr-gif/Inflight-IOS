@@ -21,6 +21,18 @@ struct ContentView: View {
 
     @State private var selection: SelectedFlight?
 
+    /// Whatever this pilot is flying right now, refreshed once per packet.
+    ///
+    /// Held in state rather than computed in `body` deliberately: the body runs
+    /// far more often than the feed changes, and scanning several thousand
+    /// aircraft for one name on every layout pass is the wrong way round — the
+    /// same reasoning as the logbook hook below.
+    ///
+    /// A list, because a pilot can be on more than one server and the feed
+    /// reports both. Picking one and hiding the rest is how the friends list
+    /// used to lose people's flights.
+    @State private var myFlights: [Flight] = []
+
     /// Height the peak state needs for its own content, reported back by the
     /// window once it has measured itself.
     @State private var peakHeight = FlightInfoLayout.basePeakHeight
@@ -82,6 +94,9 @@ struct ContentView: View {
 
     /// Raised when a locked map style is picked.
     @State private var isShowingStylePaywall = false
+
+    /// Raised when somebody without Pro asks to be taken to their own aircraft.
+    @State private var isShowingFindMePaywall = false
 
     /// A widget tap that hasn't been acted on yet.
     ///
@@ -168,6 +183,7 @@ struct ContentView: View {
                 style: appearance.resolvedMapStyle,
                 airports: mapAirports,
                 showsGroundLayout: filters.showsGroundLayout,
+                showsFlightPlan: filters.showsFlightPlan,
                 onSelectAirport: { icao in
                     guard let field = AirportStore.shared.airport(icao) else { return }
                     // No origin: a field tapped on the map was not arrived at
@@ -217,6 +233,7 @@ struct ContentView: View {
 
             mapControls
             mapStyleControl
+            findMeControl
             mapToolbar
             replayBar
         }
@@ -352,6 +369,7 @@ struct ContentView: View {
             AccountPanel().environmentObject(feed)
         }
         .sheet(isPresented: $isShowingStylePaywall) { ProPanel(highlighted: .mapStyles) }
+        .sheet(isPresented: $isShowingFindMePaywall) { ProPanel(highlighted: .findMyAircraft) }
         .onOpenURL { url in
             guard let link = InflightLink.parse(url) else { return }
             open(link)
@@ -387,6 +405,7 @@ struct ContentView: View {
         // round.
         .onChange(of: feed.lastUpdate) { _, _ in
             LogbookRecorder.shared.note(flights: feed.flights, server: feed.server)
+            refreshMyFlights()
         }
         .task {
             // Both are launch work rather than panel work: the App Store
@@ -510,6 +529,30 @@ struct ContentView: View {
             selection = nil
             sheet = .panel(kind)
         }
+    }
+
+    /// Finds this pilot's own aeroplanes in the packet that has just arrived.
+    ///
+    /// Bails before the scan when there is no name to match, which is the
+    /// ordinary state for anybody who has not filled one in — and the whole
+    /// cost of the feature for them.
+    private func refreshMyFlights() {
+        let identity = PilotIdentity.shared
+        guard identity.isSet else {
+            if !myFlights.isEmpty { myFlights = [] }
+            return
+        }
+
+        let mine = feed.flights
+            .filter { identity.isMe($0.username) }
+            .sorted {
+                if $0.altitudeFeet != $1.altitudeFeet { return $0.altitudeFeet > $1.altitudeFeet }
+                return $0.id < $1.id
+            }
+
+        // Assigning an identical array would still publish a change and rebuild
+        // the map's chrome on every packet.
+        if mine.map(\.id) != myFlights.map(\.id) { myFlights = mine }
     }
 
     private func openFlight(_ id: String) {
@@ -780,6 +823,75 @@ struct ContentView: View {
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))
         }
+    }
+
+    /// Straight to the aeroplane you are flying, and its window open on it.
+    ///
+    /// The map is a map of everybody, and the one aircraft its owner most often
+    /// wants is the hardest to find on it: somewhere over an ocean, at a zoom
+    /// level where it is a pixel, in a packet of several thousand. `pilotColours`
+    /// solves the half of that where the aeroplane is already on screen. This is
+    /// the other half.
+    ///
+    /// Only there when there is somewhere to go — a name on the profile and at
+    /// least one aeroplane in the air under it — because a control that does
+    /// nothing when tapped is worse than one that is absent. Pro is checked on
+    /// the tap rather than by hiding it: somebody who does not have Pro should
+    /// be able to see that this exists.
+    @ViewBuilder
+    private var findMeControl: some View {
+        if selection == nil, !replay.isActive, !myFlights.isEmpty {
+            Group {
+                if myFlights.count == 1 {
+                    Button { goToMyAircraft(myFlights[0]) } label: { findMeLabel }
+                        .accessibilityLabel("Go to my aircraft")
+                } else {
+                    // More than one, so the tap has to ask which. Callsigns are
+                    // the only thing that tells two of your own flights apart.
+                    Menu {
+                        ForEach(myFlights) { flight in
+                            Button {
+                                goToMyAircraft(flight)
+                            } label: {
+                                Label(
+                                    flight.callsign ?? flight.id,
+                                    systemImage: "airplane"
+                                )
+                            }
+                        }
+                    } label: {
+                        findMeLabel
+                    }
+                    .accessibilityLabel("Go to one of my aircraft")
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .environment(\.colorScheme, theme.colorScheme)
+            .padding(.trailing, 16)
+            // Above the style control, which sits in the same corner.
+            .padding(.bottom, MapToolbar.reservedHeight + 60)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+            .ignoresSafeArea(.keyboard, edges: .bottom)
+            .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))
+        }
+    }
+
+    private var findMeLabel: some View {
+        Image(systemName: entitlements.has(.findMyAircraft) ? "location.magnifyingglass" : "lock")
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(theme.textPrimary)
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
+    }
+
+    /// The whole feature: put the map on it, and open its window.
+    private func goToMyAircraft(_ flight: Flight) {
+        guard entitlements.has(.findMyAircraft) else {
+            isShowingFindMePaywall = true
+            return
+        }
+        openFlight(flight.id)
     }
 
     /// Sits above the peak state while an aircraft is open. At the full window

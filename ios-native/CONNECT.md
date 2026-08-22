@@ -30,9 +30,9 @@ impossible; that was wrong, and wrong in a way worth writing down.
 |---|---|---|---|
 | **Two devices**, same Wi-Fi | LAN, discovered or typed | Local network prompt; discovery may need the multicast entitlement | Everything, live, for the whole flight |
 | **One iPad**, Split View or Stage Manager | `127.0.0.1` | **None** | Everything, live, for the whole flight |
-| **One iPhone**, or iPad full screen | `127.0.0.1` | **None** | The landing, read when you come back — and the flight stays on other people's maps throughout, from the feed |
+| **One iPhone**, or iPad full screen | `127.0.0.1` | **None** | A live sample and a status row each time you switch into the sim, the landing read when you come back — and the flight stays on other people's maps throughout, from the feed |
 
-Two things make the one-device case work.
+Three things make the one-device case work.
 
 **Loopback needs no permission at all.** Apple's local-network privacy covers
 the *network* — unicast to a LAN address, multicast, broadcast, Bonjour.
@@ -48,6 +48,34 @@ claiming either to poll a flight simulator would be a lie to the user and to App
 Review. But the measurement is still sitting there afterwards. So the flight is
 recorded from the live feed as it always is, and `ConnectSession.catchUp()` fills
 the landing in when you next open the app.
+
+**The link is made on the way out, not on the way in.** This is the part that
+was wrong for as long as the feature existed, and it made same-device on a phone
+do nothing at all. Infinite Flight answers on 10112 only while it is the app in
+front; every attempt Inflight made was made from *its* own foreground, which is
+exactly when iOS has the simulator suspended and its socket answering nobody. A
+pilot switching back and forth to check was inspecting the one state in which it
+cannot work, and the panel said "Waiting for Infinite Flight" through an entire
+flight with nothing wrong at either end.
+
+So `didEnterBackground` no longer tears the session down when the sim is on this
+device. It asks iOS for a finite window — `beginBackgroundTask`, around thirty
+seconds, no background mode and nothing claimed that is not true — and starts a
+fresh attempt inside it, because the app that just replaced us *is* the
+simulator. Thirty seconds is enough to attach, resolve the manifest, read the
+flight id, take a telemetry sample, write one `pilot_live_status` row that the
+server then keeps alive from the feed, and say whether it worked. It is one
+window per app switch rather than a socket held for a flight, which is the
+difference between "open Infinite Flight and come back" producing something and
+producing nothing.
+
+The saying-so matters as much as the connecting. The notice is posted from
+inside that window, so it arrives on top of Infinite Flight — where the pilot
+is, and where the setting that fixes a failure lives. A failure is announced
+too, once, carrying the same sentence the panel would have shown
+(`ConnectSession.announceOutcome`), and the same sentence is not sent twice in a
+row: somebody who has not switched Connect on inside the sim needs telling once,
+not on every app switch.
 
 That is why `pilot_logbook_attach_landing` exists. `pilot_logbook` deliberately
 has no UPDATE policy — *a logbook you can rewrite is a logbook nobody reading a
@@ -75,6 +103,17 @@ is the one being flown here — and `infiniteflight/current_user` is the pilot's
 handle read out of the running sim rather than typed into a settings field,
 which is a materially stronger claim than anything `pilot_profiles.if_username`
 carries today.
+
+Both of those were read, displayed, and then dropped, which made the stronger
+claim worth nothing. They are now the two ways the server knows whose flight it
+is looking at when it announces a takeoff or a top of descent — the flight id
+through the `pilot_live_status` row, and the handle through
+`ConnectSession.adoptIdentity`, which fills in a blank `if_username` from the
+sim and offers the swap in the panel when the profile says something else. See
+*Your own flight, announced to you* in `NOTIFICATIONS.md`. This is also why the
+username field carries several candidate spellings now and the other two do
+not: a rename that costs a line in a panel is a nuisance, and a rename that
+silently costs the join is a pilot who hears nothing about their own flight.
 
 ## The wire
 
@@ -197,8 +236,10 @@ the clock it always did.
 A Connect link that drops mid-flight drops precisely when the app is too deeply
 suspended to notice, retry, or announce a retry. `ConnectSession` posts a local
 notice when a connection the pilot was kept waiting for finally comes up, and
-that is worth keeping — but it can only ever fire while they are looking at the
-screen, which is the one moment it tells them nothing.
+one when a window ends without it coming up. Those now reach somebody — they
+fire from the background window, over the top of the sim — but they can only
+speak for the thirty seconds the app is awake for. A link that dies four hours
+into a flight is still past anything the device can observe.
 
 So the server says it instead. `pilot_connect_alerts_due` returns the pilots
 whose flight is on the feed right now and whose sim has been quiet for twice the
@@ -444,7 +485,25 @@ twelve" is a sentence about the version running today.
 
 **The landing board stores nothing.** It is a query over the logbook every time
 it is asked for. A stored leaderboard is a table to maintain, a backfill when
-the rule changes, and a number that can be wrong.
+the rule changes, and a number that can be wrong. The same is true of
+`pilot_recent_landings`, the public feed of touchdowns as they are measured —
+one query, no table, nothing to keep in step.
+
+That feed needed one column, and the reason is the whole shape of this feature
+on a phone. `landed_at` is when the wheels touched; on a phone the app is
+suspended behind the simulator and the measurement is collected the next time
+both are awake, so a flight landed at 14:02 can be read at 14:40. Ordered by
+`landed_at` the feed would bury exactly the rows it exists to show, so
+`landing_recorded_at` records when we found out, stamped by a trigger rather
+than by either of the two paths a landing can arrive on — a rule enforced in one
+of them is a rule that holds half the time.
+
+It is also stricter about who appears than `pilot_logbook_readable`, which every
+by-handle reader uses. That serves a followers-only logbook to a follower, which
+is right when somebody has gone to a profile and asked. A firehose is discovery
+rather than lookup, and a pilot who set their logbook to followers did not ask
+to be surfaced to everyone who happens to follow them — so the feed wants
+`public`, and shows you your own either way.
 
 **`pilot_logbook` grows, and should.** One row per completed flight, ~200 bytes,
 already gated on three minutes airborne. That is the product, not trash.
@@ -474,9 +533,12 @@ and, with writes, fly it. That is Infinite Flight's decision rather than ours,
 but it is why the socket is never relayed off the device and why the panel says
 plainly what switching it on exposes.
 
-**Backgrounding.** iOS suspends the app and the socket dies with it. The session
-closes deliberately on `didEnterBackground` so the next foreground starts from a
-known state rather than from a half-dead connection whose every read times out.
+**Backgrounding.** iOS suspends the app and the socket dies with it. With the sim
+on another device the session closes deliberately on `didEnterBackground`, so the
+next foreground starts from a known state rather than from a half-dead connection
+whose every read times out. With the sim on *this* device it does the opposite
+and holds a finite window open — see *The link is made on the way out* — because
+that is the only moment the simulator is in front and answering.
 
 This is not a bug with a fix waiting to be found, and it is worth writing down
 why, because it is asked about repeatedly. The background modes that hold a TCP
@@ -485,7 +547,8 @@ describes this app, and silent audio or an unused location subscription claimed
 to keep a socket alive is a 2.5.4 rejection. `BGAppRefreshTask` gets about thirty
 seconds, opportunistically, and iOS deprioritises it hardest exactly when a
 flight simulator is holding the GPU and the thermal budget. What can be done
-instead is above: the *server* keeps the flight on the map, and the two
+instead is above: the *server* keeps the flight on the map, the thirty-second
+window catches a sample each time the pilot switches into the sim, and the two
 configurations where the app genuinely stays foregrounded for the whole flight —
 an iPad in Split View, or a second device on the same Wi-Fi — remain the ones
 that get live Connect telemetry end to end.

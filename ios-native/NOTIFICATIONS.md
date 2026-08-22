@@ -169,6 +169,80 @@ half is configured.
 signed with the wrong one registers for APNs successfully and then never
 receives anything.
 
+## Your own flight, announced to you
+
+This is the one people ask for by name, usually as "why can an airline's app
+tell me when we start descending and this can't".
+
+The answer is that those apps are not talking to the aeroplane. Nothing in a
+phone's pocket is attached to an airliner: a server watches a feed describing
+every flight, notices a state change on one row of it, and pushes a sentence to
+the phones that asked about that row. The phone contributes an address and
+nothing else — which is why it works with the phone asleep, or, in this app's
+case, with Infinite Flight in the foreground and everything else suspended
+behind it.
+
+Every part of that was already here and pointed the wrong way.
+`friend_events.cjs` diffs consecutive feed snapshots and decides, with
+hysteresis, when an aircraft has left the ground. `push.notifyAccount`
+addresses the person flying rather than the people watching them.
+`pilot_profiles.if_username` joins a feed row to an account. But the detector
+only ever ran for pilots *somebody else* was watching, and its pushes went to
+the watcher — so the one person guaranteed to care about a flight, the pilot in
+it, was the one person nothing was addressed to.
+
+`own_flight_events.cjs` is that same detector, read for the pilot:
+
+| | When | How it arrives |
+| --- | --- | --- |
+| **Airborne** | A confirmed ground → air transition | Active, silent |
+| **Top of descent** | Reached a cruise above 12,000 ft, then several consecutive descending samples | Active, with a sound, at APNs priority 10 — it is the moment there is something to do |
+| **On the ground** | A confirmed air → ground transition | Passive, silent |
+
+Nothing needing height above ground is announced, and that is a limit rather
+than an omission: the feed carries MSL altitude only, so 2,000 ft over
+Amsterdam and 2,000 ft over Denver are the same number and a different
+situation. "On final" would be wrong in mountains, which is worse than absent.
+
+### Knowing which aeroplane is yours
+
+Two joins, and the app tries not to make the pilot supply either.
+
+**The flight id**, `pilot_flight_alert_live_targets`. `pilot_live_status.
+flight_id` is the id the public feed uses, written by the app out of the running
+simulator, and a row carrying it is the pilot saying "this aeroplane on your map
+is me" in terms that involve no name matching at all. Thirty seconds of Connect
+in the background window as they switch into the sim is enough to publish one,
+and the announcements then run for the rest of the flight with the app closed.
+
+**The handle**, `pilot_flight_alert_targets`. `pilot_profiles.if_username`
+against the name the feed carries — the only route for somebody who has never
+used Connect. It is also the weaker one, and is treated as such: a handle
+claimed by two accounts reaches **neither**, unless exactly one of them is
+verified, because `if_username` is a claim that nothing checks and the
+alternative is telling a stranger the movements of a pilot they merely said they
+were. Asserted in `supabase/tests/flight_alerts.sql`.
+
+Where the handle comes from matters, because a blank or misspelled one is the
+commonest way to hear nothing. Connect has read `infiniteflight/current_user`
+on every connection since it existed and used to display it and nothing more;
+`ConnectSession.adoptIdentity` now fills in a **blank** `if_username` from it,
+and when the profile says something *different* the Connect panel offers the
+swap rather than rewriting a public profile behind the pilot's back.
+
+Plus, on both routes:
+
+* **A device registered against the account** — the same `/api/push/devices`
+  row the sim-drop notice needs.
+* **`pilot_profiles.flight_alerts`**, which defaults on and is a toggle in the
+  profile editor.
+
+Diagnosed from the `ownFlightEvents` block of `/api/admin/diagnostics`:
+`targets` is how many pilots are reachable by handle and `liveTargets` how many
+by a flight id they published, so both at zero while signed-in pilots are flying
+means the join is missing rather than the detector being broken. `tracking` is
+how many of their flights currently hold state.
+
 ## What each piece needs to work
 
 | Feature | Needs |
@@ -176,6 +250,7 @@ receives anything.
 | Takeoff / landing / online / offline pushes | APNs key on the backend, notification permission on the device |
 | "Inflight stopped reading your sim" | The above, plus being signed in — it is the one push addressed to an account rather than to a device token, so it needs the `/api/push/devices` registration `PushService.syncAccountRegistration` makes on launch and on sign-in |
 | Live banner raised by a friend's takeoff | The above, plus `NSSupportsLiveActivities` (set) and a push-to-start token, which iOS only issues on a real device — never the simulator |
+| Airborne / top of descent / landed, about your own flight | The above, plus either an Infinite Flight username on your profile or one Connect session on the flight — either is enough to join an aeroplane on the map to your account |
 | Home-screen widgets | The app group on both targets |
 | Aircraft photos on widgets | Nothing extra. The app caches them into the group as it fetches them for the flight window; a widget with no cached photo draws its own sky instead |
 

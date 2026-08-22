@@ -23,6 +23,15 @@ enum AppConfig {
         return URL(string: "\(socketURLString)/api/flights/\(encoded)/history")
     }
 
+    /// The filed plan for one flight, resolved by flight id alone — the map
+    /// holds one of those and has no idea which session the aeroplane is in.
+    static func flightPlanURL(flightId: String) -> URL? {
+        guard let encoded = flightId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
+            return nil
+        }
+        return URL(string: "\(socketURLString)/api/flights/\(encoded)/plan")
+    }
+
     /// What the backend will actually do for us — push, watchlist storage,
     /// which event kinds it knows about. Probed on launch rather than assumed,
     /// so a client shipped ahead of a backend rollout shows the friends list

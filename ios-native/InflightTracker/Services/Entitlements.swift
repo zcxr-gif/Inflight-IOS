@@ -22,6 +22,14 @@ enum ProFeature: String, CaseIterable, Identifiable {
     /// Satellite, and the globe.
     case mapStyles
 
+    /// Jumping straight to whatever you are flying right now.
+    ///
+    /// Its own feature rather than part of `pilotColours`, which is the other
+    /// half of the same problem: colours help you find your aeroplane once it
+    /// is on screen, and this is for when it is somewhere over the Atlantic and
+    /// the map is showing Frankfurt.
+    case findMyAircraft
+
     /// A photograph across the top of your public profile, and the colour it
     /// is drawn in. Everybody gets a profile, a picture and a banner; Pro is
     /// what makes the banner yours.
@@ -58,6 +66,7 @@ enum ProFeature: String, CaseIterable, Identifiable {
         case .watchlist: return "The whole watchlist"
         case .pilotColours: return "Your traffic, in your colours"
         case .mapStyles: return "Satellite and the globe"
+        case .findMyAircraft: return "Jump to your aircraft"
         case .profileBanner: return "Your profile, your way"
         case .logbook: return "Every flight you've made"
         }
@@ -73,6 +82,8 @@ enum ProFeature: String, CaseIterable, Identifiable {
             return "Your own aircraft and every pilot you watch, picked out of the traffic in colours you choose."
         case .mapStyles:
             return "Imagery, and the whole planet — free to spin and tilt with the traffic on it."
+        case .findMyAircraft:
+            return "One tap puts the map on the aeroplane you are flying and opens its window — wherever on Earth you have got to."
         case .profileBanner:
             return "A photograph across the top of your profile, in a colour you pick. Free profiles get a painted one."
         case .logbook:
@@ -86,6 +97,7 @@ enum ProFeature: String, CaseIterable, Identifiable {
         case .watchlist: return "person.2.badge.plus"
         case .pilotColours: return "paintpalette"
         case .mapStyles: return "globe"
+        case .findMyAircraft: return "location.magnifyingglass"
         case .profileBanner: return "photo.on.rectangle.angled"
         case .logbook: return "book.closed"
         }

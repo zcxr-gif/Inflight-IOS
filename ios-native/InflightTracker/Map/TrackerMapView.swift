@@ -45,6 +45,7 @@ struct TrackerMapView: UIViewRepresentable {
     /// Whether to draw the pavement of the field the map is over — runways,
     /// taxiways, aprons and terminals, with the runway designators.
     var showsGroundLayout = true
+    var showsFlightPlan = false
 
     /// Observed so a layout that arrives from the network after the map has
     /// settled is drawn when it lands, rather than waiting for the next pan.
@@ -175,6 +176,11 @@ struct TrackerMapView: UIViewRepresentable {
         /// rebuilt when the trail actually grows.
         private var renderedRouteKey: String?
         private var routeOverlays: [MKPolyline] = []
+
+        /// The fix names on the open flight's filed plan. Kept separately from
+        /// `groundLabels` so that turning the plan off, or opening another
+        /// aircraft, does not take an airport's runway designators with it.
+        private var planLabels: [MKAnnotation] = []
 
         /// The field whose pavement is currently drawn, and what was drawn for
         /// it. One field at a time: two are never both close enough to matter,
@@ -519,6 +525,13 @@ struct TrackerMapView: UIViewRepresentable {
             }
 
             let trail = FlightTrailStore.shared.points(for: flight.id)
+
+            // Read before the key is built, because asking is also what starts
+            // the fetch. Empty on the first pass for every flight, and empty
+            // forever for the many pilots who file nothing.
+            let plan = parent.showsFlightPlan
+                ? FlightPlanStore.shared.waypoints(for: flight.id)
+                : []
             let key = [
                 flight.id,
                 String(trail.count),
@@ -528,7 +541,12 @@ struct TrackerMapView: UIViewRepresentable {
                 // leaves the colours frozen partway up.
                 String(AltitudeBand.band(forFeet: flight.altitudeFeet)),
                 flight.departureIcao ?? "",
-                flight.arrivalIcao ?? ""
+                flight.arrivalIcao ?? "",
+                // The plan arrives well after the first draw — it is fetched
+                // when first asked for — so its arrival has to be able to
+                // invalidate the key, or the route is drawn once without it and
+                // never again.
+                parent.showsFlightPlan ? String(plan.count) : "off"
             ].joined(separator: "|")
 
             guard key != renderedRouteKey else { return }
@@ -568,8 +586,34 @@ struct TrackerMapView: UIViewRepresentable {
                 routeOverlays.append(dashed(from: flight.coordinate, to: arrival.coordinate))
             }
 
+            // MARK: The filed plan
+            //
+            // Drawn under everything else it shares the screen with: it is what
+            // the pilot *intends*, where the coloured track behind them is what
+            // they have actually done, and the two should not compete. The
+            // fixes are labelled because a line through unnamed corners is a
+            // shape rather than a route — the names are the whole reason for
+            // plotting the plan instead of just its ends.
+            if plan.count >= 2 {
+                let line = MKGeodesicPolyline(
+                    coordinates: plan.map(\.coordinate),
+                    count: plan.count
+                )
+                line.title = Self.planTitle
+                routeOverlays.append(line)
+            }
+
             if !routeOverlays.isEmpty {
                 mapView.addOverlays(routeOverlays, level: .aboveRoads)
+            }
+
+            if !planLabels.isEmpty {
+                mapView.removeAnnotations(planLabels)
+                planLabels.removeAll(keepingCapacity: true)
+            }
+            if !plan.isEmpty {
+                planLabels = plan.map { GroundLabel(coordinate: $0.coordinate, text: $0.name) }
+                mapView.addAnnotations(planLabels)
             }
         }
 
@@ -667,6 +711,11 @@ struct TrackerMapView: UIViewRepresentable {
         }
 
         private func clearRoute(on mapView: MKMapView) {
+            if !planLabels.isEmpty {
+                mapView.removeAnnotations(planLabels)
+                planLabels.removeAll(keepingCapacity: true)
+            }
+
             guard !routeOverlays.isEmpty else {
                 renderedRouteKey = nil
                 return
@@ -795,6 +844,10 @@ struct TrackerMapView: UIViewRepresentable {
         }
 
         static let groundTitle = "ground"
+
+        /// Marks the filed plan, so the renderer can draw it as intention
+        /// rather than as track.
+        static let planTitle = "plan"
 
         static let flownTitle = "flown"
         static let plannedTitle = "planned"
@@ -1015,6 +1068,19 @@ struct TrackerMapView: UIViewRepresentable {
             let renderer = MKPolylineRenderer(polyline: line)
             renderer.lineCap = .round
             renderer.lineJoin = .round
+
+            if line.title == Self.planTitle {
+                // The route as filed: solid but faint, and thin. It is a
+                // statement of intent sitting underneath a track that actually
+                // happened, and it should read as the quieter of the two.
+                renderer.strokeColor = UIColor { traits in
+                    traits.userInterfaceStyle == .light
+                        ? UIColor(red: 0.15, green: 0.40, blue: 0.75, alpha: 0.55)
+                        : UIColor(red: 0.55, green: 0.75, blue: 1.00, alpha: 0.55)
+                }
+                renderer.lineWidth = 1.6
+                return renderer
+            }
 
             if line.title == Self.plannedTitle {
                 // Inferred, so it reads as an assumption rather than as track.

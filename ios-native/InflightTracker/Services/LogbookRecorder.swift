@@ -333,12 +333,30 @@ final class LogbookRecorder: ObservableObject {
             arguments["p_airspeed_knots"] = Int(airspeed.rounded())
         }
 
+        // Read on every landing since Connect existed and thrown away until
+        // now. Both are evidence about *which* flight this touchdown belongs
+        // to, which matters when the pilot ended their flight before opening
+        // the app and there is no flight id to go on: the simulator holds the
+        // last landing until the next one, so somebody who has not flown since
+        // yesterday is still holding yesterday's.
+        if let latitude = landing.latitude { arguments["p_latitude"] = latitude }
+        if let longitude = landing.longitude { arguments["p_longitude"] = longitude }
+        if let elapsed = landing.flightTimeSeconds, elapsed > 0 {
+            arguments["p_flight_time_seconds"] = Int(elapsed.rounded())
+        }
+
         do {
             let rows: [AttachResult] = try await SupabaseData.rpc(
                 "pilot_logbook_attach_landing",
                 arguments: arguments,
                 accessToken: token
             )
+            // The server now says which of several things happened rather than
+            // just yes or no, and the difference matters to a pilot wondering
+            // where their landing went: "already recorded" is the system
+            // working, and "belongs to another flight" is the sim holding a
+            // touchdown from a session before this one.
+            lastAttachReason = rows.first?.reason
             return rows.first?.attached ?? false
         } catch {
             print("[logbook] Landing not attached: \(error.localizedDescription)")
@@ -346,12 +364,16 @@ final class LogbookRecorder: ObservableObject {
         }
     }
 
+    /// What the server made of the last landing offered to it.
+    @Published private(set) var lastAttachReason: String?
+
     private struct AttachResult: Decodable {
         let attached: Bool
         let flightId: String?
+        let reason: String?
 
         enum CodingKeys: String, CodingKey {
-            case attached
+            case attached, reason
             case flightId = "flight_id"
         }
 
@@ -359,6 +381,7 @@ final class LogbookRecorder: ObservableObject {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             attached = (try? c.decode(Bool.self, forKey: .attached)) ?? false
             flightId = try? c.decode(String.self, forKey: .flightId)
+            reason = try? c.decode(String.self, forKey: .reason)
         }
     }
 

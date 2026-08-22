@@ -92,6 +92,22 @@ final class ConnectSession: ObservableObject {
     /// the settings screen so a pilot can see the link is real.
     @Published private(set) var manifestSummary: String?
 
+    /// When the last connection was attempted, where, and how it went.
+    ///
+    /// The panel had no way of showing that anything was being tried at all —
+    /// only a status word, which reads the same whether the session is knocking
+    /// once a second or has never run. That is the difference between "the sim
+    /// is refusing" and "this feature is switched off and nobody said so", and
+    /// a pilot cannot tell them apart without it.
+    struct Attempt: Equatable {
+        let at: Date
+        let address: String
+        let outcome: String
+        let succeeded: Bool
+    }
+
+    @Published private(set) var lastAttempt: Attempt?
+
     /// Fields named in `ConnectField` that this aircraft does not publish.
     /// Surfaced rather than swallowed — it is the fastest way to find a path
     /// whose spelling has changed.
@@ -118,7 +134,21 @@ final class ConnectSession: ObservableObject {
     @Published var isSameDevice: Bool {
         didSet {
             defaults.set(isSameDevice, forKey: Self.sameDeviceKey)
-            guard isEnabled else { return }
+
+            // Switching this on when reading is off used to do nothing
+            // whatsoever, silently — every path below is gated on `isEnabled`,
+            // so the pilot got a switch that moved and a feature that never
+            // ran. Worse, the two rows read as alternatives: one says "read
+            // from the sim", the other says "it's on this device", and turning
+            // the first off to choose the second is the obvious thing to do
+            // and is exactly wrong.
+            //
+            // There is only one thing "the sim is on this device" can mean, and
+            // it is "read from the sim, which is here". So it says that.
+            guard isEnabled else {
+                if isSameDevice { isEnabled = true }
+                return
+            }
             stop()
             isEnabled = true
         }
@@ -132,9 +162,22 @@ final class ConnectSession: ObservableObject {
         }
     }
 
+    /// Whether attaching to the sim, and failing to, are worth a banner.
+    ///
+    /// On by default because on one device the banner is the only channel there
+    /// is — the moment the link is made is a moment the pilot is inside
+    /// Infinite Flight and cannot see this panel. But it is a notification
+    /// about plumbing rather than about flying, and somebody who has got it
+    /// working and knows the drill should be able to stop being told. The panel
+    /// keeps saying it either way.
+    @Published var announcesConnection: Bool {
+        didSet { defaults.set(announcesConnection, forKey: Self.noticesKey) }
+    }
+
     private static let hostKey = "connect.host"
     private static let enabledKey = "connect.enabled"
     private static let sameDeviceKey = "connect.sameDevice"
+    private static let noticesKey = "connect.notices"
 
     /// Infinite Flight serves Connect on every interface it has, loopback
     /// included, so an app on the same device reaches it here.
@@ -163,6 +206,12 @@ final class ConnectSession: ObservableObject {
     private var pollTask: Task<Void, Never>?
     private var discoveryListener: NWListener?
 
+    /// Whether this run of the loop has already offered the sim's held landing
+    /// to the logbook. Once per run rather than once per attach: a reconnection
+    /// mid-flight is not a landing to catch up on, and re-offering the same one
+    /// on every retry would be work for nothing.
+    private var hasCaughtUpThisRun = false
+
     /// How often the landing group is read, counted in passes of the fast loop.
     /// Landings do not happen every second and each extra read slows the
     /// position updates that do.
@@ -177,6 +226,16 @@ final class ConnectSession: ObservableObject {
     /// stays closed, and a client that retries every second on a phone in
     /// somebody's pocket is a battery complaint.
     private static let retryDelays: [UInt64] = [2, 5, 10, 30, 60]
+
+    /// Backoff inside a background window, where the entire budget is about
+    /// thirty seconds and a sixty-second wait is indistinguishable from not
+    /// trying again.
+    ///
+    /// Infinite Flight can take most of a minute to get from a tap on its icon
+    /// to a state where it answers on 10112, and the pilot who has just left
+    /// this app is usually launching it rather than returning to it already
+    /// running. So the window keeps knocking for as long as it has.
+    private static let windowRetryDelays: [UInt64] = [1, 1, 2, 3, 5]
     private var retryIndex = 0
 
     /// How many attempts a remembered address gets before the session goes
@@ -206,17 +265,16 @@ final class ConnectSession: ObservableObject {
         host = defaults.string(forKey: Self.hostKey) ?? ""
         isSameDevice = defaults.bool(forKey: Self.sameDeviceKey)
         isEnabled = defaults.bool(forKey: Self.enabledKey)
+        // Defaults-backed booleans are false when absent, and this one defaults
+        // on: a fresh install has never opted out.
+        announcesConnection = defaults.object(forKey: Self.noticesKey) as? Bool ?? true
 
         NotificationCenter.default.addObserver(
             forName: UIApplication.didEnterBackgroundNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            // iOS suspends us shortly after this and the socket dies with the
-            // process's attention. Closing deliberately means the next
-            // foreground starts from a known state rather than from a
-            // half-dead connection whose reads all time out.
-            Task { @MainActor in self?.suspend() }
+            Task { @MainActor in self?.handleBackgrounding() }
         }
 
         NotificationCenter.default.addObserver(
@@ -225,7 +283,14 @@ final class ConnectSession: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                guard let self, self.isEnabled else { return }
+                guard let self else { return }
+
+                // Whatever is left of the background window is finished with:
+                // the sim is behind us again and the pilot is looking at this
+                // screen, which is where the panel does the telling.
+                self.endBackgroundWindow(expired: false)
+
+                guard self.isEnabled else { return }
 
                 // The catch-up used to be here, and only here. It now lives at
                 // the top of `run()` instead, so the cold launch gets it too --
@@ -244,8 +309,18 @@ final class ConnectSession: ObservableObject {
 
         retryIndex = 0
         pollTask = Task { [weak self] in
+            // Whatever a previous attempt left open is closed from here rather
+            // than from wherever it was cancelled. Both used to be spawned as
+            // free-standing tasks, so a stale close could land on top of this
+            // attempt's fresh socket and take it down; done in order it cannot.
+            await self?.closeTransport()
             await self?.run()
         }
+    }
+
+    /// Closes the socket in the caller's own order of operations.
+    private func closeTransport() async {
+        await transport.close()
     }
 
     func stop() {
@@ -258,12 +333,17 @@ final class ConnectSession: ObservableObject {
         manifestSummary = nil
         unresolvedFields = []
         landingBaseline = nil
+        hasCaughtUpThisRun = false
         atcLog = []
         lastCatchUp = nil
         // Turning it off is not waiting for it. Only `stop()` clears this —
         // `suspend()` deliberately does not, because being suspended IS the
         // wait.
         isOwedConnectionNotice = false
+        announcedProblem = nil
+        hasAnnouncedThisWindow = false
+        simUsernameMismatch = nil
+        endBackgroundWindow(expired: false)
     }
 
     /// Backgrounded: drop the socket but keep the intention to reconnect.
@@ -273,6 +353,130 @@ final class ConnectSession: ObservableObject {
         cancelDiscovery()
         Task { await transport.close() }
         if isEnabled { status = .off }
+    }
+
+    // MARK: - The one window a phone has
+    //
+    // On a single phone the two apps can never both be in front, and until now
+    // that meant the link could never be made at all: every attempt was made
+    // from our own foreground, which is exactly when iOS has Infinite Flight
+    // suspended and its Connect socket is answering nobody. A pilot switching
+    // back and forth to see whether it had worked was watching the one state
+    // where it cannot work, and the panel sat on "Waiting for Infinite Flight"
+    // for the whole flight while nothing was wrong with either app.
+    //
+    // The moment it *can* work is the moment we are put away, because the app
+    // replacing us is the simulator. iOS grants a finite window to an app that
+    // asks for one on the way out — around thirty seconds, no entitlement, no
+    // background mode, nothing claimed that is not true — and thirty seconds is
+    // enough to attach, read the flight id, take a telemetry sample, publish a
+    // live status the server can then keep alive from the feed, and say so.
+    //
+    // This is not the fourteen-hour socket that `CONNECT.md` explains cannot be
+    // had. It is one window per app switch, which is what makes "open Infinite
+    // Flight, come back" produce something rather than nothing.
+
+    /// The finite window iOS has granted, if any.
+    private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
+
+    /// Whether this window has already had its say, so an attach and a failure
+    /// inside the same thirty seconds do not both raise a banner.
+    private var hasAnnouncedThisWindow = false
+
+    /// The last thing announced as blocking the link. Kept so the identical
+    /// sentence is not delivered again on the next app switch — a pilot who has
+    /// not switched Connect on inside the sim needs telling once, not every
+    /// time they change apps.
+    private var announcedProblem: String?
+
+    private func handleBackgrounding() {
+        // Two devices: nothing here changes anything there. The sim is on the
+        // other one and does not care which app is in front on this one, so
+        // there is nothing to gain by staying awake and a battery cost to it.
+        guard isEnabled, isSameDevice else {
+            suspend()
+            return
+        }
+
+        hasAnnouncedThisWindow = false
+        beginBackgroundWindow()
+
+        // Start again rather than continue. Whatever the session was doing a
+        // moment ago it was doing against a suspended simulator; this attempt
+        // is the first one with the sim actually in front, and it should not
+        // have to wait out a sixty-second backoff earned by attempts that never
+        // had a chance. `stop()` is deliberately not used: it would clear the
+        // record of the pilot having been kept waiting, which is the only thing
+        // that decides whether attaching is worth announcing.
+        pollTask?.cancel()
+        pollTask = nil
+        cancelDiscovery()
+        start()
+    }
+
+    private func beginBackgroundWindow() {
+        guard backgroundTask == .invalid else { return }
+
+        backgroundTask = UIApplication.shared.beginBackgroundTask(
+            withName: "Infinite Flight Connect"
+        ) { [weak self] in
+            // Called on the main thread when iOS wants the time back. It has to
+            // end promptly, so the session is torn down here rather than left
+            // to be killed with the process.
+            Task { @MainActor in self?.endBackgroundWindow(expired: true) }
+        }
+    }
+
+    /// Gives the window back. `expired` distinguishes iOS taking it from the
+    /// pilot returning to the app, which are different endings: only the first
+    /// has anything to report, because only the first happens while they are
+    /// still looking at Infinite Flight.
+    private func endBackgroundWindow(expired: Bool) {
+        let task = backgroundTask
+        backgroundTask = .invalid
+
+        if expired {
+            announceOutcome()
+            suspend()
+        }
+
+        if task != .invalid {
+            UIApplication.shared.endBackgroundTask(task)
+        }
+    }
+
+    /// One banner, at the end of a window, and only when it says something the
+    /// pilot could not already see.
+    ///
+    /// This is the half of the feature that used to be impossible. The notice
+    /// existed before and could only ever fire while the app was open, which is
+    /// the one moment it tells nobody anything. Fired from the window instead it
+    /// arrives over the top of Infinite Flight — where the pilot is, and where
+    /// the switch that fixes it lives.
+    private func announceOutcome() {
+        guard announcesConnection else { return }
+        guard !hasAnnouncedThisWindow else { return }
+
+        if status.isLive {
+            // Attaching already announced itself. Nothing to add.
+            return
+        }
+
+        guard case let .waiting(reason) = status else { return }
+        guard reason != announcedProblem else { return }
+
+        hasAnnouncedThisWindow = true
+        announcedProblem = reason
+
+        PushService.shared.post(
+            title: "Not reading Infinite Flight",
+            body: Self.firstSentence(of: reason),
+            // Its own identifier, so the failure and the success replace
+            // themselves rather than each other: a pilot who fixes it should
+            // see the connected notice arrive alongside, not silently overwrite
+            // the explanation they were following.
+            identifier: "connect.blocked"
+        )
     }
 
     /// Forget the remembered address and go back out to look for the sim.
@@ -312,7 +516,16 @@ final class ConnectSession: ObservableObject {
         // has been and gone. So the one path that matters most -- land, come
         // back, open the app -- was the one path that never caught up, and the
         // pilot saw nothing happen.
-        if isSameDevice { await catchUp() }
+        //
+        // It used to be a whole second connection of its own, opened and closed
+        // before the poll loop was allowed to dial. That cost a connect and an
+        // entire manifest fetch -- seconds -- at the exact moment there are
+        // only seconds: on a phone the simulator is reachable for a short
+        // while after the pilot switches away from it, and whichever of the
+        // two attempts came first was spending that time twice over. It is now
+        // done from the poll loop's own connection, on its first attach, which
+        // is why `attach` takes the landing before adopting it as the baseline.
+        hasCaughtUpThisRun = false
 
         while !Task.isCancelled {
             do {
@@ -320,11 +533,17 @@ final class ConnectSession: ObservableObject {
 
                 try await attach(to: address)
                 retryIndex = 0
+                lastAttempt = Attempt(at: Date(), address: address, outcome: "Connected", succeeded: true)
 
-                // Tell them, but only if they were kept waiting. A connection
-                // that worked first time needs no announcement — they were
-                // watching it happen.
-                if isOwedConnectionNotice {
+                // Tell them if they were kept waiting — a connection that
+                // worked first time while they watched needs no announcement —
+                // and tell them in a background window whether they were kept
+                // waiting or not, because in a window they are inside Infinite
+                // Flight and the panel that would otherwise say so is behind
+                // it. That is the whole point of the window: the answer to
+                // "did it connect?" arriving where the question is asked.
+                let inWindow = backgroundTask != .invalid
+                if isOwedConnectionNotice || (inWindow && !hasAnnouncedThisWindow) {
                     isOwedConnectionNotice = false
                     announceConnected(to: address)
                 }
@@ -335,6 +554,12 @@ final class ConnectSession: ObservableObject {
             } catch {
                 guard !Task.isCancelled else { return }
                 status = .waiting(error.localizedDescription)
+                lastAttempt = Attempt(
+                    at: Date(),
+                    address: isSameDevice ? Self.loopback : host,
+                    outcome: error.localizedDescription,
+                    succeeded: false
+                )
                 await transport.close()
 
                 // From here on there is something to announce, and a reason to
@@ -344,12 +569,18 @@ final class ConnectSession: ObservableObject {
                 // question in front of them.
                 if !isOwedConnectionNotice {
                     isOwedConnectionNotice = true
-                    if PushService.shared.authorization == .notDetermined {
+                    // Only ever asked with the app in front. A permission
+                    // prompt raised from a background window would be held by
+                    // iOS and shown much later, out of the context that
+                    // justified it.
+                    if PushService.shared.authorization == .notDetermined,
+                       UIApplication.shared.applicationState == .active {
                         PushService.shared.requestAuthorization()
                     }
                 }
 
-                let delay = Self.retryDelays[min(retryIndex, Self.retryDelays.count - 1)]
+                let schedule = backgroundTask != .invalid ? Self.windowRetryDelays : Self.retryDelays
+                let delay = schedule[min(retryIndex, schedule.count - 1)]
                 retryIndex += 1
 
                 do {
@@ -363,6 +594,15 @@ final class ConnectSession: ObservableObject {
 
     /// One line, once, when a link the pilot has been waiting for comes up.
     private func announceConnected(to address: String) {
+        hasAnnouncedThisWindow = true
+        // Whatever was blocking this is no longer blocking it, so the next time
+        // it does block the explanation is new again and worth sending. Cleared
+        // even when the banner is muted, so turning notices back on does not
+        // inherit a suppression from a problem that has since been fixed.
+        announcedProblem = nil
+
+        guard announcesConnection else { return }
+
         let place = address == Self.loopback ? "on this device" : "at \(address)"
         PushService.shared.post(
             title: "Connected to Infinite Flight",
@@ -371,6 +611,20 @@ final class ConnectSession: ObservableObject {
             // Wi-Fi replaces the notice instead of stacking a column of them.
             identifier: "connect.attached"
         )
+    }
+
+    /// The first sentence of a failure, for somewhere with no room for the rest.
+    ///
+    /// `ConnectTransport.explain` writes a paragraph on purpose: it is read in
+    /// the panel, by somebody who has come looking for what to do about it, and
+    /// naming the port and the setting is the whole value of it. A banner is not
+    /// that place. It arrives over the top of Infinite Flight while the pilot is
+    /// flying, it is truncated by iOS anyway, and what it has to convey is
+    /// "this isn't working" — the panel is one tap away for the rest.
+    nonisolated static func firstSentence(of text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let stop = trimmed.firstIndex(of: ".") else { return trimmed }
+        return String(trimmed[...stop])
     }
 
     private func resolveHost() async throws -> String {
@@ -444,9 +698,15 @@ final class ConnectSession: ObservableObject {
         try await readSession()
 
         // Whatever landing the sim is already holding belongs to before this
-        // connection existed. Adopted silently as the mark to beat.
+        // connection existed. Adopted silently as the mark to beat -- but on a
+        // same-device session it is also the landing the pilot has just made
+        // and come back to have recorded, so it is offered to the logbook on
+        // the way past. Offering it twice is free: `pilot_logbook_attach_
+        // landing` only ever fills columns that are still empty.
         landingBaseline = nil
-        try await readLanding(adoptingBaseline: true)
+        let catchingUp = isSameDevice && !hasCaughtUpThisRun
+        hasCaughtUpThisRun = true
+        try await readLanding(adoptingBaseline: true, offeringToLogbook: catchingUp)
 
         await attachATC()
 
@@ -467,6 +727,13 @@ final class ConnectSession: ObservableObject {
 
             next.sampledAt = Date()
             telemetry = next
+
+            // The first pass is the first moment there is a position to share,
+            // and on one device it may also be one of the few. Publishing on it
+            // rather than waiting for the 45-second heartbeat is what puts the
+            // flight in front of other people at all when the connection lasts
+            // half a minute.
+            if pass == 0 { LiveStatusPublisher.shared.publishNow() }
 
             if pass % Self.periodicEveryNPasses == 0 {
                 try await readPeriodic()
@@ -518,7 +785,56 @@ final class ConnectSession: ObservableObject {
         }
         next.sampledAt = Date()
         telemetry = next
+
+        adoptIdentity(from: next)
     }
+
+    /// The pilot's own name, taken from the simulator rather than asked for.
+    ///
+    /// `infiniteflight/current_user` has been read on every connection since
+    /// Connect existed, shown in the panel, and then dropped on the floor —
+    /// while the same name, typed by hand into a settings field, is what joins
+    /// this account to an aeroplane on the map. Everything that needs to know
+    /// which flight is yours needs that join: the map's "this is me", and the
+    /// server's announcements about your own flight, which cannot be addressed
+    /// without it.
+    ///
+    /// Asking somebody to type a name the app is already being told is how the
+    /// join ends up blank or misspelled, so a blank one is filled in from here.
+    /// A DIFFERENT one is not overwritten: a profile is public, and rewriting
+    /// the name on it because a simulator disagreed is a surprise rather than a
+    /// repair. `ConnectPanel` offers that swap instead, with both names in
+    /// front of the pilot.
+    private func adoptIdentity(from snapshot: ConnectTelemetry) {
+        guard let raw = snapshot.username?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else { return }
+
+        // The local one first: it is what the map highlights your own aeroplane
+        // by, it is nobody else's business, and a blank one there is pure loss.
+        if !PilotIdentity.shared.isSet {
+            PilotIdentity.shared.set(raw)
+        }
+
+        guard let profile = ProfileStore.shared.profile else { return }
+        let stored = profile.ifUsername.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if stored.isEmpty {
+            Task { await ProfileStore.shared.adoptSimUsername(raw) }
+            simUsernameMismatch = nil
+        } else if stored.lowercased() != raw.lowercased() {
+            simUsernameMismatch = raw
+        } else {
+            simUsernameMismatch = nil
+        }
+    }
+
+    /// The name the sim reports, when the profile says something else.
+    ///
+    /// Surfaced rather than acted on. It is the likeliest reason a pilot who
+    /// has done everything right hears nothing about their own flight — the
+    /// server is looking for the name on the profile and the map is showing the
+    /// one in the sim — and it is not a thing to fix behind their back.
+    @Published private(set) var simUsernameMismatch: String?
 
     // MARK: - Catching up on one device
     //
@@ -551,14 +867,36 @@ final class ConnectSession: ObservableObject {
         case attached(fpm: Int)
         case nothingToAttach
         case simulatorNotReachable
+        /// The server had the landing and would not take it: it belongs to a
+        /// flight already measured, or to one this is not. Distinct from
+        /// `nothingToAttach`, which means the simulator was holding nothing.
+        case refused(String)
+        /// There is nowhere to put a landing. A logbook belongs to a profile,
+        /// so without one this cannot do anything — and used to say nothing
+        /// either, which made the button look broken rather than inapplicable.
+        case needsAccount
 
         var label: String {
             switch self {
             case let .attached(fpm):    return "Landing recorded: \(fpm) fpm"
             case .nothingToAttach:      return "No new landing to record"
             case .simulatorNotReachable: return "Infinite Flight wasn't running"
+            case .needsAccount:         return "Sign in and claim a handle to record landings"
+            case let .refused(reason):  return "Not recorded — \(reason)"
             }
         }
+    }
+
+    /// What to show for a landing the server has just been offered.
+    ///
+    /// A refusal is not a failure and should not read as one: the commonest by
+    /// far is "already recorded", which is the catch-up doing exactly what it
+    /// is for on a flight it has already filled in.
+    @MainActor
+    private static func outcome(attached: Bool, fpm: Double) -> CatchUpResult {
+        if attached { return .attached(fpm: Int(fpm.rounded())) }
+        guard let reason = LogbookRecorder.shared.lastAttachReason else { return .nothingToAttach }
+        return .refused(reason)
     }
 
     /// Opens a short connection, reads the landing the sim is still holding, and
@@ -575,7 +913,10 @@ final class ConnectSession: ObservableObject {
     /// is free and offering it to an already-measured flight does nothing.
     func catchUp() async {
         guard isEnabled, isSameDevice else { return }
-        guard AccountStore.shared.isSignedIn, ProfileStore.shared.hasProfile else { return }
+        guard AccountStore.shared.isSignedIn, ProfileStore.shared.hasProfile else {
+            lastCatchUp = .needsAccount
+            return
+        }
 
         // Already live — an iPad in Split View — so the poll loop is watching
         // properly and there is nothing to catch up on.
@@ -623,7 +964,7 @@ final class ConnectSession: ObservableObject {
 
             lastLanding = landing
             let attached = await LogbookRecorder.shared.attach(landing, flightID: flightID)
-            lastCatchUp = attached ? .attached(fpm: Int(rate.rounded())) : .nothingToAttach
+            lastCatchUp = Self.outcome(attached: attached, fpm: rate)
 
         } catch {
             await transport.close()
@@ -685,7 +1026,10 @@ final class ConnectSession: ObservableObject {
 
     // MARK: - Landings
 
-    private func readLanding(adoptingBaseline: Bool = false) async throws {
+    private func readLanding(
+        adoptingBaseline: Bool = false,
+        offeringToLogbook: Bool = false
+    ) async throws {
         var landing = ConnectLanding()
 
         for field in ConnectField.landing {
@@ -712,6 +1056,7 @@ final class ConnectSession: ObservableObject {
             // it has been restarted, this is the honest state and the first
             // real landing will be new by definition.
             if adoptingBaseline { landingBaseline = ConnectLanding() }
+            if offeringToLogbook { lastCatchUp = .nothingToAttach }
             return
         }
 
@@ -722,6 +1067,23 @@ final class ConnectSession: ObservableObject {
         // reporting it. See `landingBaseline`.
         if adoptingBaseline {
             landingBaseline = candidate
+
+            // ...except on the first attach of a same-device session, where
+            // "whatever is already there" is very likely the touchdown the
+            // pilot has just come back to the app to have recorded.
+            if offeringToLogbook, let rate = landing.verticalSpeedFPM {
+                lastLanding = landing
+                let held = landing
+                let flightID = telemetry.flightID
+                // Not awaited: the poll loop owns this connection and the
+                // logbook write is a round trip to Supabase. Making the first
+                // telemetry pass wait on it would spend the seconds this whole
+                // reordering exists to save.
+                Task { [weak self] in
+                    let attached = await LogbookRecorder.shared.attach(held, flightID: flightID)
+                    self?.lastCatchUp = Self.outcome(attached: attached, fpm: rate)
+                }
+            }
             return
         }
 
@@ -760,6 +1122,9 @@ final class ConnectSession: ObservableObject {
         case .serverID:          snapshot.serverID = value.text
         case .serverName:        snapshot.serverName = value.text
         case .username:          snapshot.username = value.text
+        case .atcFacility:
+            let name = value.text?.trimmingCharacters(in: .whitespacesAndNewlines)
+            snapshot.atcFacility = (name?.isEmpty ?? true) ? nil : name
         case .appState:          snapshot.appState = value.text
         case .appVersion:        snapshot.appVersion = value.text
         case .engineCount:       snapshot.engineCount = value.number.map { Int($0) }

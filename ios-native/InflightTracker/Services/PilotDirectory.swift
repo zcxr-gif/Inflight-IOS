@@ -192,6 +192,27 @@ final class PilotDirectory: ObservableObject {
         return rows?.first
     }
 
+    /// What the simulator is reporting about ONE flight, found by the id the
+    /// public feed uses.
+    ///
+    /// The other readers come at this table from the pilot — a handle, the
+    /// people you follow, everybody who chose public. The flight window comes at
+    /// it from the other end: it has an aeroplane drawn and an id for it, and no
+    /// handle at all. Same visibility test underneath, so asking this way
+    /// reveals exactly what asking by handle would.
+    func liveFlight(id: String) async -> PilotLiveStatus? {
+        let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let token = await AccountStore.shared.currentAccessToken()
+        let rows: [PilotLiveStatus]? = try? await SupabaseData.rpc(
+            "pilot_live_flight",
+            arguments: ["p_flight_id": trimmed],
+            accessToken: token
+        )
+        return rows?.first
+    }
+
     /// Everybody you follow who is in the air.
     ///
     /// The reason the whole live-status feature is worth having: a friends list
@@ -233,6 +254,23 @@ final class PilotDirectory: ObservableObject {
         return (try? await SupabaseData.rpc(
             "pilot_landing_board",
             arguments: ["p_window_days": windowDays, "p_limit": limit],
+            accessToken: token
+        )) ?? []
+    }
+
+    /// Landings as they are measured, newest first, across everybody whose
+    /// logbook is public.
+    ///
+    /// Readable signed out, unlike the board above — the board is your own
+    /// circle and is meaningless without an account, and this is the set of
+    /// landings whose owners have said "public". So the token is optional
+    /// rather than required, and a signed-out reader gets the same feed minus
+    /// their own rows.
+    func recentLandings(limit: Int = 25) async -> [PilotRecentLanding] {
+        let token = await AccountStore.shared.currentAccessToken()
+        return (try? await SupabaseData.rpc(
+            "pilot_recent_landings",
+            arguments: ["p_limit": limit],
             accessToken: token
         )) ?? []
     }

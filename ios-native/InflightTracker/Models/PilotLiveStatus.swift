@@ -99,6 +99,20 @@ struct PilotLiveStatus: Decodable, Equatable {
 
     let startedAt: Date?
 
+    /// When the pilot's own simulator last spoke, as distinct from when the row
+    /// last changed.
+    ///
+    /// The two differ for the whole of a long flight on a phone: iOS suspends
+    /// the app behind Infinite Flight, the server keeps the aeroplane on the
+    /// map from the public feed, and everything the feed cannot see — the fuel,
+    /// the configuration, the wind at the wing — stays exactly as the sim last
+    /// reported it. This is the clock those figures belong to, and without it a
+    /// reader shows an hour-old fuel state as though it were current.
+    let simLiveAt: Date?
+
+    /// `sim` or `feed`: which of the two put the aircraft where it is.
+    let positionSource: String?
+
     /// When a sample carrying a position last arrived. The freshness clock, and
     /// the "last seen" a card shows once `isLive` has gone false.
     let lastLiveAt: Date?
@@ -131,6 +145,8 @@ struct PilotLiveStatus: Decodable, Equatable {
         case isLive = "is_live"
         case flightID = "flight_id"
         case serverName = "server_name"
+        case simLiveAt = "sim_live_at"
+        case positionSource = "position_source"
         case altitudeMSL = "altitude_msl"
         case altitudeAGL = "altitude_agl"
         case groundSpeedKnots = "ground_speed_knots"
@@ -242,6 +258,9 @@ struct PilotLiveStatus: Decodable, Equatable {
             .flatMap(SupabaseAuth.Timestamp.date(from:))
         updatedAt = (try? c.decode(String.self, forKey: .updatedAt))
             .flatMap(SupabaseAuth.Timestamp.date(from:))
+        simLiveAt = (try? c.decode(String.self, forKey: .simLiveAt))
+            .flatMap(SupabaseAuth.Timestamp.date(from:))
+        positionSource = try? c.decode(String.self, forKey: .positionSource)
     }
 
     var coordinate: CLLocationCoordinate2D? {
@@ -508,6 +527,71 @@ struct PilotLiveSummary: Decodable, Equatable, Identifiable {
 /// A global board is won once by whoever flies most and is then a wall somebody
 /// else is standing at; a board of the twenty people you actually fly with is
 /// one you can be on.
+/// One landing, as it reaches the world.
+///
+/// Distinct from `PilotLandingBoardEntry`, which is a pilot summarised over a
+/// window. This is a single touchdown with the aeroplane it was made in, and it
+/// carries two clocks: `landedAt`, when the wheels touched, and `recordedAt`,
+/// when the measurement actually reached us. On a phone those are far apart —
+/// iOS has the app suspended behind the simulator and the landing is collected
+/// afterwards — and the feed is ordered by the second one, so a landing shows up
+/// when it is news rather than buried under the hour it took to be read.
+struct PilotRecentLanding: Decodable, Equatable, Identifiable {
+
+    let handle: String
+    let displayName: String
+    let avatarPath: String?
+    let isPro: Bool
+
+    let aircraft: String?
+    let callsign: String?
+    let originIcao: String?
+    let destinationIcao: String?
+
+    let verticalSpeedFPM: Int
+    let score: Int?
+    let gForce: Double?
+
+    let landedAt: Date?
+    let recordedAt: Date?
+    let isSelf: Bool
+
+    /// Stable enough for a list that is re-fetched rather than mutated: one
+    /// pilot cannot land twice at the same instant.
+    var id: String { "\(handle)|\(recordedAt?.timeIntervalSince1970 ?? 0)" }
+
+    /// What the number means, in the words pilots use. The thresholds match
+    /// nothing on the server — this is presentation, and the rate is the fact.
+    var verdict: String {
+        switch abs(verticalSpeedFPM) {
+        case ..<100:  return "Butter"
+        case ..<200:  return "Smooth"
+        case ..<400:  return "Firm"
+        case ..<600:  return "Heavy"
+        default:      return "Hard"
+        }
+    }
+
+    var route: String? {
+        guard let from = originIcao, let to = destinationIcao else { return destinationIcao ?? originIcao }
+        return "\(from) → \(to)"
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case handle, aircraft, callsign, score
+        case displayName = "display_name"
+        case avatarPath = "avatar_path"
+        case isPro = "is_pro"
+        case originIcao = "origin_icao"
+        case destinationIcao = "destination_icao"
+        case verticalSpeedFPM = "vertical_speed_fpm"
+        case gForce = "g_force"
+        case landedAt = "landed_at"
+        case recordedAt = "recorded_at"
+        case isSelf = "is_self"
+    }
+}
+
 struct PilotLandingBoardEntry: Decodable, Equatable, Identifiable {
 
     let handle: String

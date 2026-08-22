@@ -55,6 +55,15 @@ struct FiltersPanel: View {
                     detail: "Draws runways, taxiways and terminals with their names once the map is over a field. From OpenStreetMap, so it is as good as the field's mapping.",
                     isOn: $filters.showsGroundLayout
                 )
+
+                PanelDivider()
+
+                PanelToggleRow(
+                    title: "Filed waypoints",
+                    symbol: "point.topleft.down.curvedto.point.filled.bottomright.up",
+                    detail: "Plots the fixes on an open flight's filed plan, named, with the route through them. Procedures are expanded to the fixes they contain. Most pilots file nothing, and nothing is drawn when they haven't.",
+                    isOn: $filters.showsFlightPlan
+                )
             }
 
             PanelSection(title: "PHASE") {

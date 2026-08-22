@@ -818,3 +818,202 @@ extension View {
             .truncationMode(.tail)
     }
 }
+
+// MARK: - What the simulator itself is reporting
+
+/// The half of a flight the public feed can never produce.
+///
+/// The feed describes every aeroplane in the sky from a cloud service: where it
+/// is, how fast, how high. It cannot say how much fuel is left, where the gear
+/// is, what the wind is doing at the wing, or what the pilot has the thrust set
+/// to — none of that leaves the device Infinite Flight is running on. This is
+/// the pilot's own copy of the sim, published by their phone through Connect
+/// and read back here by flight id.
+///
+/// **Absent rather than empty when nobody is broadcasting.** A permanent
+/// "waiting for aircraft data" on a flight that will never have any is worse
+/// than no block at all — it reads as something broken instead of something
+/// that was never switched on. Almost every aircraft on the map falls into that
+/// case, which is why the card is conditional at its call site.
+///
+/// **Nothing is dated now unless it is now.** When the pilot's app has been
+/// suspended behind the simulator the server keeps their position alive from
+/// the feed, and the sim's own figures — the fuel, the configuration, the wind
+/// — stay exactly as last reported. Those get `sim_live_at` against them, so a
+/// reader sees "3.2 t · 14 min ago" rather than a stale number presented as a
+/// current one.
+struct SimReadoutCard: View {
+
+    let status: PilotLiveStatus
+    let theme: FlightInfoTheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            header
+
+            if !primary.isEmpty {
+                HStack(spacing: 8) {
+                    ForEach(primary, id: \.label) { stat in
+                        MiniStat(
+                            label: stat.label,
+                            value: stat.value,
+                            theme: theme,
+                            alignment: stat.alignment
+                        )
+                    }
+                }
+            }
+
+            if !secondary.isEmpty {
+                HStack(spacing: 8) {
+                    ForEach(secondary, id: \.label) { stat in
+                        MiniStat(
+                            label: stat.label,
+                            value: stat.value,
+                            theme: theme,
+                            alignment: stat.alignment
+                        )
+                    }
+                }
+            }
+
+            if let configuration = configurationLine {
+                Text(configuration)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(theme.textSecondary)
+                    .flightInfoLine(minimumScale: 0.75)
+            }
+
+            if let warning = warningLine {
+                Text(warning)
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.orange)
+            }
+
+            if let age = ageLine {
+                Text(age)
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundStyle(theme.textDim)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(14)
+        .flightInfoSurface(theme, radius: theme.radiusMedium)
+    }
+
+    private var header: some View {
+        HStack(spacing: 6) {
+            Text("FROM THE SIM")
+                .font(.system(size: 9, weight: .bold))
+                .tracking(1)
+                .foregroundStyle(theme.textDim)
+
+            Text("@\(status.handle)")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(theme.accent)
+
+            Spacer(minLength: 4)
+
+            Image(systemName: "antenna.radiowaves.left.and.right")
+                .font(.system(size: 10))
+                .foregroundStyle(theme.textDim)
+        }
+    }
+
+    private struct Stat {
+        let label: String
+        let value: String
+        var alignment: HorizontalAlignment = .leading
+    }
+
+    /// Fuel first, because it is the one people ask for and the one the feed
+    /// has no way of knowing.
+    private var primary: [Stat] {
+        var out: [Stat] = []
+
+        if let fuel = status.fuelRemainingKg, fuel > 0 {
+            out.append(Stat(label: "FUEL", value: Self.tonnes(fuel)))
+        }
+        if let burn = status.fuelBurnKgh, burn > 0 {
+            out.append(Stat(label: "BURN", value: "\(Format.number(Double(burn))) kg/h", alignment: .center))
+        }
+        if let n1 = status.engineN1, n1 > 0 {
+            out.append(Stat(label: "N1", value: "\(n1)%", alignment: out.count >= 2 ? .trailing : .leading))
+        }
+        return out
+    }
+
+    private var secondary: [Stat] {
+        var out: [Stat] = []
+
+        if let ias = status.indicatedAirspeedKnots, ias > 0 {
+            out.append(Stat(label: "IAS", value: "\(ias) kts"))
+        }
+        if let agl = status.altitudeAGL {
+            out.append(Stat(label: "AGL", value: "\(Format.number(Double(agl))) ft", alignment: .center))
+        }
+        if let wind = windSummary {
+            out.append(Stat(label: "WIND", value: wind, alignment: out.count >= 2 ? .trailing : .leading))
+        }
+        return out
+    }
+
+    private var windSummary: String? {
+        guard let velocity = status.windVelocityKnots else { return nil }
+        guard let direction = status.windDirection else { return "\(velocity) kt" }
+        let gust = status.windGustKnots.map { $0 > velocity ? "G\($0)" : "" } ?? ""
+        return String(format: "%03d/%d%@", direction, velocity, gust)
+    }
+
+    /// Gear, flaps and the lights, in the order a pilot would read them off.
+    /// One line rather than a grid: none of it is a number, and all of it is
+    /// only interesting as a picture of how the aeroplane is set up.
+    private var configurationLine: String? {
+        var parts: [String] = []
+
+        if let gear = status.gearState {
+            parts.append(gear == 0 ? "Gear up" : "Gear down")
+        }
+        if let flaps = status.flapsState, flaps > 0 {
+            parts.append("Flaps \(flaps)")
+        }
+        if let spoilers = status.spoilersState, spoilers > 0 {
+            parts.append(spoilers > 1 ? "Spoilers armed" : "Spoilers")
+        }
+        if status.reverseThrust == true { parts.append("Reverse") }
+        if status.parkingBrake == true { parts.append("Brake set") }
+        if status.landingLights == true { parts.append("Landing lights") }
+        if status.strobeLights == true { parts.append("Strobes") }
+
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// Only when true. A card that says "Stalling: no" is a card nobody reads
+    /// the day it says yes.
+    private var warningLine: String? {
+        var parts: [String] = []
+        if status.isStalling == true { parts.append("STALL") }
+        if status.isOverspeeding == true { parts.append("OVERSPEED") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// Says how old the sim's figures are whenever they are not current, and
+    /// says nothing at all when they are.
+    private var ageLine: String? {
+        guard let sampled = status.simLiveAt else { return nil }
+        let age = Date().timeIntervalSince(sampled)
+        guard age > 120 else { return nil }
+
+        let minutes = Int(age / 60)
+        let when = minutes < 60
+            ? "\(minutes) min ago"
+            : "\(minutes / 60) h ago"
+        return "From the sim \(when) — the position since then is the map's, not theirs."
+    }
+
+    private static func tonnes(_ kilograms: Int) -> String {
+        kilograms >= 1000
+            ? String(format: "%.1f t", Double(kilograms) / 1000)
+            : "\(kilograms) kg"
+    }
+}

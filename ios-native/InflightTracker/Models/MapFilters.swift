@@ -72,8 +72,25 @@ final class MapFilters: ObservableObject {
         didSet { UserDefaults.standard.set(showsGroundLayout, forKey: Self.groundKey) }
     }
 
+    /// Whether the fixes on an open flight's filed plan are drawn.
+    ///
+    /// Uncounted as a filter for the same reason as the two above: it adds to
+    /// the map rather than narrowing it. Off by default, unlike them — it is
+    /// the only one of the three that costs a request per aircraft you tap,
+    /// and a route drawn over a track already on screen is a lot of ink for
+    /// somebody who did not ask for it.
+    @Published var showsFlightPlan: Bool {
+        didSet {
+            UserDefaults.standard.set(showsFlightPlan, forKey: Self.planKey)
+            if !showsFlightPlan { FlightPlanStore.shared.clear() }
+        }
+    }
+
+    private static let planKey = "map.showsFlightPlan"
+
     private init() {
         let defaults = UserDefaults.standard
+        showsFlightPlan = defaults.object(forKey: Self.planKey) as? Bool ?? false
         // On by default: the fields being worked are the most useful thing on
         // the map after the traffic, and a feature nobody finds is a feature
         // nobody has.

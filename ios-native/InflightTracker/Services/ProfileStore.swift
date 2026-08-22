@@ -81,6 +81,16 @@ final class ProfileStore: ObservableObject {
         /// nobody should have to go and find.
         var liveVisibility: Visibility = .followers
 
+        /// Whether the server announces this pilot's own flight to them —
+        /// airborne, top of descent, landed — from the live feed.
+        ///
+        /// Stored on the profile rather than in `UserDefaults` because the
+        /// thing that acts on it is the backend, not this app: the whole point
+        /// of these notices is that they are worked out and sent while the app
+        /// is suspended behind Infinite Flight, or not running at all. A local
+        /// preference could not be consulted at the moment it matters.
+        var flightAlerts: Bool = true
+
         var avatarPath: String?
         var bannerPath: String?
 
@@ -242,6 +252,43 @@ final class ProfileStore: ObservableObject {
 
     // MARK: - Writing
 
+    /// Fills in the Infinite Flight handle from the running simulator.
+    ///
+    /// Only ever fills a blank. `infiniteflight/current_user` is a stronger
+    /// claim than anything typed into a text field — it is read out of the sim
+    /// that is flying the aeroplane — but a profile is a public thing, and
+    /// silently rewriting the name on somebody's public profile because a
+    /// simulator said something else is not a repair, it is a surprise. When
+    /// they disagree the Connect panel offers the swap instead.
+    ///
+    /// Worth doing at all because the handle is the join between a profile and
+    /// an aeroplane on the map, and asking somebody to type in a name the app
+    /// is already being told is how the join ends up blank or misspelled — and
+    /// a blank join is a pilot who is told nothing about their own flight.
+    @discardableResult
+    func adoptSimUsername(_ raw: String) async -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        guard var current = profile else { return false }
+        guard current.ifUsername.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+
+        current.ifUsername = trimmed
+        return await save(current)
+    }
+
+    /// The same swap, asked for deliberately after being offered it.
+    @discardableResult
+    func replaceIFUsername(with raw: String) async -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, var current = profile else { return false }
+        guard current.ifUsername != trimmed else { return false }
+
+        current.ifUsername = trimmed
+        return await save(current)
+    }
+
     /// Claims a handle, or saves an edit. The same request either way — there
     /// is one row per account, and which of the two this is is not something
     /// the client should have to find out by reading first.
@@ -272,7 +319,8 @@ final class ProfileStore: ObservableObject {
             "is_public": edited.isPublic,
             "friends_visibility": edited.friendsVisibility.rawValue,
             "logbook_visibility": edited.logbookVisibility.rawValue,
-            "live_visibility": edited.liveVisibility.rawValue
+            "live_visibility": edited.liveVisibility.rawValue,
+            "flight_alerts": edited.flightAlerts
         ]
 
         // NSNull rather than omission: leaving a key out of an upsert leaves
@@ -515,6 +563,7 @@ final class ProfileStore: ObservableObject {
             let friends_visibility: String?
             let logbook_visibility: String?
             let live_visibility: String?
+            let flight_alerts: Bool?
             let moderation_state: String?
             let moderation_note: String?
         }
@@ -537,6 +586,7 @@ final class ProfileStore: ObservableObject {
             friendsVisibility: Visibility(rawValue: row.friends_visibility ?? "public") ?? .public,
             logbookVisibility: Visibility(rawValue: row.logbook_visibility ?? "public") ?? .public,
             liveVisibility: Visibility(rawValue: row.live_visibility ?? "followers") ?? .followers,
+            flightAlerts: row.flight_alerts ?? true,
             avatarPath: row.avatar_path,
             bannerPath: row.banner_path,
             moderationState: row.moderation_state ?? "ok",
