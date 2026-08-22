@@ -31,6 +31,11 @@ struct FlightDetailView: View {
     /// arrives.
     @State private var track: [TrackPoint] = []
 
+    /// What the pilot's own simulator says about this flight, when they are
+    /// broadcasting it. Absent for almost every aircraft on the map, which is
+    /// why the block that draws it is absent rather than empty.
+    @State private var sim: PilotLiveStatus?
+
     let flightId: String
 
     /// Reported upward so the sheet's peak detent is exactly as tall as the
@@ -146,6 +151,17 @@ struct FlightDetailView: View {
         .onAppear {
             load(flight)
             loadTrack()
+            loadSim()
+        }
+        // The sim writes its row every 15 to 45 seconds, so re-asking on the
+        // sheet's own expansion or on every packet would be waste. A minute is
+        // slower than the source changes and faster than anybody notices.
+        .task(id: flightId) {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
+                guard !Task.isCancelled else { return }
+                loadSim()
+            }
         }
         .onChange(of: flight?.liveryName) { _, _ in load(flight) }
         .onChange(of: photoLoader.photo?.url) { _, url in imageLoader.load(url) }
@@ -193,6 +209,22 @@ struct FlightDetailView: View {
     /// Pulls the flown path the backend already has for this flight, which
     /// covers it from departure rather than from whenever the app happened to
     /// start watching.
+    /// Asks whether anybody is broadcasting this flight from their sim.
+    ///
+    /// Cheap and usually empty: one round trip per window opened, answered by a
+    /// single indexed lookup, and for all but a handful of aircraft the answer
+    /// is nothing. Refreshed on the same clock as the rest of the window rather
+    /// than polled — the sim's own row is written every 15 to 45 seconds, so
+    /// there is nothing to gain by asking faster than somebody looks.
+    private func loadSim() {
+        let wanted = flightId
+        Task {
+            let status = await PilotDirectory.shared.liveFlight(id: wanted)
+            guard wanted == flightId else { return }
+            sim = status
+        }
+    }
+
     private func loadTrack() {
         track = FlightTrailStore.shared.points(for: flightId)
 
@@ -264,6 +296,10 @@ struct FlightDetailView: View {
 
                     situationCard(for: flight)
                     telemetry(for: flight)
+
+                    if let sim = sim {
+                        SimReadoutCard(status: sim, theme: theme)
+                    }
 
                     if track.count >= 4 {
                         AltitudeProfileCard(points: track, theme: theme)

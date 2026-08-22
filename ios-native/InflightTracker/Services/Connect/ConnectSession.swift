@@ -470,7 +470,7 @@ final class ConnectSession: ObservableObject {
 
         PushService.shared.post(
             title: "Not reading Infinite Flight",
-            body: reason,
+            body: Self.firstSentence(of: reason),
             // Its own identifier, so the failure and the success replace
             // themselves rather than each other: a pilot who fixes it should
             // see the connected notice arrive alongside, not silently overwrite
@@ -611,6 +611,20 @@ final class ConnectSession: ObservableObject {
             // Wi-Fi replaces the notice instead of stacking a column of them.
             identifier: "connect.attached"
         )
+    }
+
+    /// The first sentence of a failure, for somewhere with no room for the rest.
+    ///
+    /// `ConnectTransport.explain` writes a paragraph on purpose: it is read in
+    /// the panel, by somebody who has come looking for what to do about it, and
+    /// naming the port and the setting is the whole value of it. A banner is not
+    /// that place. It arrives over the top of Infinite Flight while the pilot is
+    /// flying, it is truncated by iOS anyway, and what it has to convey is
+    /// "this isn't working" — the panel is one tap away for the rest.
+    nonisolated static func firstSentence(of text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let stop = trimmed.firstIndex(of: ".") else { return trimmed }
+        return String(trimmed[...stop])
     }
 
     private func resolveHost() async throws -> String {
@@ -853,6 +867,10 @@ final class ConnectSession: ObservableObject {
         case attached(fpm: Int)
         case nothingToAttach
         case simulatorNotReachable
+        /// The server had the landing and would not take it: it belongs to a
+        /// flight already measured, or to one this is not. Distinct from
+        /// `nothingToAttach`, which means the simulator was holding nothing.
+        case refused(String)
         /// There is nowhere to put a landing. A logbook belongs to a profile,
         /// so without one this cannot do anything — and used to say nothing
         /// either, which made the button look broken rather than inapplicable.
@@ -864,8 +882,21 @@ final class ConnectSession: ObservableObject {
             case .nothingToAttach:      return "No new landing to record"
             case .simulatorNotReachable: return "Infinite Flight wasn't running"
             case .needsAccount:         return "Sign in and claim a handle to record landings"
+            case let .refused(reason):  return "Not recorded — \(reason)"
             }
         }
+    }
+
+    /// What to show for a landing the server has just been offered.
+    ///
+    /// A refusal is not a failure and should not read as one: the commonest by
+    /// far is "already recorded", which is the catch-up doing exactly what it
+    /// is for on a flight it has already filled in.
+    @MainActor
+    private static func outcome(attached: Bool, fpm: Double) -> CatchUpResult {
+        if attached { return .attached(fpm: Int(fpm.rounded())) }
+        guard let reason = LogbookRecorder.shared.lastAttachReason else { return .nothingToAttach }
+        return .refused(reason)
     }
 
     /// Opens a short connection, reads the landing the sim is still holding, and
@@ -933,7 +964,7 @@ final class ConnectSession: ObservableObject {
 
             lastLanding = landing
             let attached = await LogbookRecorder.shared.attach(landing, flightID: flightID)
-            lastCatchUp = attached ? .attached(fpm: Int(rate.rounded())) : .nothingToAttach
+            lastCatchUp = Self.outcome(attached: attached, fpm: rate)
 
         } catch {
             await transport.close()
@@ -1050,7 +1081,7 @@ final class ConnectSession: ObservableObject {
                 // reordering exists to save.
                 Task { [weak self] in
                     let attached = await LogbookRecorder.shared.attach(held, flightID: flightID)
-                    self?.lastCatchUp = attached ? .attached(fpm: Int(rate.rounded())) : .nothingToAttach
+                    self?.lastCatchUp = Self.outcome(attached: attached, fpm: rate)
                 }
             }
             return

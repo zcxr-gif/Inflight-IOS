@@ -184,12 +184,11 @@ struct ConnectPanel: View {
     private var statusDetail: String? {
         switch session.status {
         case let .waiting(reason):
-            // The reason, and then the thing the old "Couldn't connect" never
-            // said: nobody has to come back and press anything. The session
-            // keeps trying on a backoff for as long as the switch is on, so
-            // starting the sim at any point is enough.
-            return reason + "\n\nStill trying. Start Infinite Flight whenever you like — "
-                 + "this connects by itself and tells you when it does."
+            // The reason, and one short line for the thing the old "Couldn't
+            // connect" never said: nobody has to come back and press anything.
+            // That used to be a paragraph, which is a lot of words to read
+            // every time the sim is simply not open yet.
+            return reason + "\n\nStill trying."
         case .live:               return session.manifestSummary
         case .searching:
             return "Infinite Flight announces itself on the network while Connect is on. "
@@ -398,6 +397,7 @@ struct ConnectPanel: View {
         case .nothingToAttach:       return "minus.circle"
         case .simulatorNotReachable: return "moon.zzz"
         case .needsAccount:          return "person.crop.circle.badge.exclamationmark"
+        case .refused:               return "questionmark.circle"
         }
     }
 
@@ -407,6 +407,7 @@ struct ConnectPanel: View {
         case .nothingToAttach:       return theme.textDim
         case .simulatorNotReachable: return theme.textDim
         case .needsAccount:          return .orange
+        case .refused:               return theme.textDim
         }
     }
 

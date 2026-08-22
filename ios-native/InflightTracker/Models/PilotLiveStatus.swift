@@ -99,6 +99,20 @@ struct PilotLiveStatus: Decodable, Equatable {
 
     let startedAt: Date?
 
+    /// When the pilot's own simulator last spoke, as distinct from when the row
+    /// last changed.
+    ///
+    /// The two differ for the whole of a long flight on a phone: iOS suspends
+    /// the app behind Infinite Flight, the server keeps the aeroplane on the
+    /// map from the public feed, and everything the feed cannot see — the fuel,
+    /// the configuration, the wind at the wing — stays exactly as the sim last
+    /// reported it. This is the clock those figures belong to, and without it a
+    /// reader shows an hour-old fuel state as though it were current.
+    let simLiveAt: Date?
+
+    /// `sim` or `feed`: which of the two put the aircraft where it is.
+    let positionSource: String?
+
     /// When a sample carrying a position last arrived. The freshness clock, and
     /// the "last seen" a card shows once `isLive` has gone false.
     let lastLiveAt: Date?
@@ -131,6 +145,8 @@ struct PilotLiveStatus: Decodable, Equatable {
         case isLive = "is_live"
         case flightID = "flight_id"
         case serverName = "server_name"
+        case simLiveAt = "sim_live_at"
+        case positionSource = "position_source"
         case altitudeMSL = "altitude_msl"
         case altitudeAGL = "altitude_agl"
         case groundSpeedKnots = "ground_speed_knots"
@@ -242,6 +258,9 @@ struct PilotLiveStatus: Decodable, Equatable {
             .flatMap(SupabaseAuth.Timestamp.date(from:))
         updatedAt = (try? c.decode(String.self, forKey: .updatedAt))
             .flatMap(SupabaseAuth.Timestamp.date(from:))
+        simLiveAt = (try? c.decode(String.self, forKey: .simLiveAt))
+            .flatMap(SupabaseAuth.Timestamp.date(from:))
+        positionSource = try? c.decode(String.self, forKey: .positionSource)
     }
 
     var coordinate: CLLocationCoordinate2D? {
