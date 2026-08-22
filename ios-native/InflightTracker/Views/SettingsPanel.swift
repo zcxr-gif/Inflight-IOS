@@ -10,6 +10,7 @@ struct SettingsPanel: View {
     @EnvironmentObject private var feed: LiveFeed
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @ObservedObject private var hints = HintsStore.shared
+    @ObservedObject private var instruments = InstrumentPreferences.shared
     @ObservedObject private var accounts = AccountStore.shared
     @ObservedObject private var entitlements = Entitlements.shared
     // Observed for the price alone: it arrives from the App Store a moment
@@ -78,6 +79,53 @@ struct SettingsPanel: View {
                     detail: connectDetail
                 ) {
                     isShowingConnect = true
+                }
+            }
+
+            // Its own section, above appearance, because it is a feature
+            // rather than a finish: this decides whether a whole panel is in
+            // the flight window, not what colour it is.
+            PanelSection(title: "INSTRUMENTS") {
+                PanelToggleRow(
+                    title: "Flight instruments",
+                    symbol: "gauge.open.with.lines.needle.33percent",
+                    detail: "Puts a primary flight display and a navigation display in every flight window — attitude, speed and height on one, the filed route and the traffic around it on the other.",
+                    isOn: $instruments.isEnabled
+                )
+
+                if instruments.isEnabled {
+                    PanelDivider()
+
+                    PanelPickerRow(
+                        title: "Opens on",
+                        symbol: "rectangle.on.rectangle",
+                        options: InstrumentDisplay.allCases,
+                        label: { $0.label },
+                        detail: instrumentsDetail,
+                        selection: $instruments.display
+                    )
+
+                    PanelDivider()
+
+                    PanelPickerRow(
+                        title: "Navigation display",
+                        symbol: "location.north.line",
+                        options: NavigationDisplayMode.allCases,
+                        label: { $0.label },
+                        detail: instruments.navigationMode == .arc
+                            ? "The fan in front of the aircraft, which is what you would fly with."
+                            : "The full compass, which shows what is behind you as well.",
+                        selection: $instruments.navigationMode
+                    )
+
+                    PanelDivider()
+
+                    PanelToggleRow(
+                        title: "Traffic on the ND",
+                        symbol: "airplane.circle",
+                        detail: "Draws the nearest aircraft from the feed, with how far above or below they are in hundreds of feet. Anything within two thousand feet is picked out.",
+                        isOn: $instruments.showsTraffic
+                    )
                 }
             }
 
@@ -192,6 +240,17 @@ struct SettingsPanel: View {
         case .syncing:              return "Reading what this aircraft publishes…"
         case let .live(host):       return "Connected to \(host)."
         case let .waiting(reason):  return "Waiting — \(reason)"
+        }
+    }
+
+    /// What the chosen display actually shows, and — for the PFD — the one
+    /// thing about it worth knowing before it is read.
+    private var instrumentsDetail: String {
+        switch instruments.display {
+        case .pfd:
+            return "Attitude, speed, height and heading. Pitch and bank are read from the simulator when the pilot is broadcasting through Connect, and worked out from the flight path and the rate of turn when they are not — the display says which."
+        case .navigation:
+            return "The filed route, both ends of it, and the traffic around the aircraft, heading up."
         }
     }
 

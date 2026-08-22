@@ -105,6 +105,11 @@ struct TrackerMapView: UIViewRepresentable {
             forAnnotationViewWithReuseIdentifier: AirportAnnotationView.reuseIdentifier
         )
 
+        mapView.register(
+            PlanWaypointView.self,
+            forAnnotationViewWithReuseIdentifier: PlanWaypointView.reuseIdentifier
+        )
+
         return mapView
     }
 
@@ -612,7 +617,7 @@ struct TrackerMapView: UIViewRepresentable {
                 planLabels.removeAll(keepingCapacity: true)
             }
             if !plan.isEmpty {
-                planLabels = plan.map { GroundLabel(coordinate: $0.coordinate, text: $0.name) }
+                planLabels = plan.map { PlanWaypointAnnotation(waypoint: $0) }
                 mapView.addAnnotations(planLabels)
             }
         }
@@ -1072,13 +1077,11 @@ struct TrackerMapView: UIViewRepresentable {
             if line.title == Self.planTitle {
                 // The route as filed: solid but faint, and thin. It is a
                 // statement of intent sitting underneath a track that actually
-                // happened, and it should read as the quieter of the two.
-                renderer.strokeColor = UIColor { traits in
-                    traits.userInterfaceStyle == .light
-                        ? UIColor(red: 0.15, green: 0.40, blue: 0.75, alpha: 0.55)
-                        : UIColor(red: 0.55, green: 0.75, blue: 1.00, alpha: 0.55)
-                }
-                renderer.lineWidth = 1.6
+                // happened, and it should read as the quieter of the two. The
+                // colour is shared with the fixes drawn along it, so the line
+                // and the diamonds on it are visibly one route.
+                renderer.strokeColor = PlanStyle.line
+                renderer.lineWidth = 1.8
                 return renderer
             }
 
@@ -1154,6 +1157,15 @@ struct TrackerMapView: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
+            if let waypoint = annotation as? PlanWaypointAnnotation {
+                let view = mapView.dequeueReusableAnnotationView(
+                    withIdentifier: PlanWaypointView.reuseIdentifier,
+                    for: annotation
+                )
+                (view as? PlanWaypointView)?.apply(waypoint)
+                return view
+            }
+
             if let label = annotation as? GroundLabel {
                 let view = mapView.dequeueReusableAnnotationView(
                     withIdentifier: GroundLabelView.reuseIdentifier,

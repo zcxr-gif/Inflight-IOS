@@ -19,6 +19,7 @@ struct FlightDetailView: View {
 
     @EnvironmentObject private var feed: LiveFeed
     @ObservedObject private var appearance = FlightInfoAppearance.shared
+    @ObservedObject private var instruments = InstrumentPreferences.shared
     @StateObject private var photoLoader = AircraftPhotoLoader()
     @StateObject private var imageLoader = RemoteImageLoader()
 
@@ -30,6 +31,12 @@ struct FlightDetailView: View {
     /// extended by live samples. Held here so the profile redraws when it
     /// arrives.
     @State private var track: [TrackPoint] = []
+
+    /// The plan this flight filed, when it filed one. Held here rather than in
+    /// the card that draws it so the card is only ever in the tree when there
+    /// is a route to put in it — an empty card still costs the stack a gap the
+    /// width of its spacing.
+    @State private var plan: [PlanWaypoint] = []
 
     /// What the pilot's own simulator says about this flight, when they are
     /// broadcasting it. Absent for almost every aircraft on the map, which is
@@ -152,6 +159,7 @@ struct FlightDetailView: View {
             load(flight)
             loadTrack()
             loadSim()
+            loadPlan()
         }
         // The sim writes its row every 15 to 45 seconds, so re-asking on the
         // sheet's own expansion or on every packet would be waste. A minute is
@@ -165,10 +173,13 @@ struct FlightDetailView: View {
         }
         .onChange(of: flight?.liveryName) { _, _ in load(flight) }
         .onChange(of: photoLoader.photo?.url) { _, url in imageLoader.load(url) }
-        // Live samples extend the path between packets.
+        // Live samples extend the path between packets, and the filed plan —
+        // which is fetched on first ask and cached — lands a moment after the
+        // window opens rather than with it.
         .onChange(of: feed.lastUpdate) { _, _ in
             let latest = FlightTrailStore.shared.points(for: flightId)
             if latest.count != track.count { track = latest }
+            loadPlan()
         }
     }
 
@@ -223,6 +234,16 @@ struct FlightDetailView: View {
             guard wanted == flightId else { return }
             sim = status
         }
+    }
+
+    /// The filed plan, from the same store the map draws from.
+    ///
+    /// Asking is what starts the fetch, and the answer is empty until it lands
+    /// — and empty forever for the many pilots who file nothing, which the
+    /// store remembers so this stops costing a request.
+    private func loadPlan() {
+        let latest = FlightPlanStore.shared.waypoints(for: flightId)
+        if latest != plan { plan = latest }
     }
 
     private func loadTrack() {
@@ -296,6 +317,15 @@ struct FlightDetailView: View {
 
                     situationCard(for: flight)
                     telemetry(for: flight)
+
+                    if instruments.isEnabled {
+                        InstrumentsCard(flightId: flight.id, theme: theme)
+                            .environmentObject(feed)
+                    }
+
+                    if !plan.isEmpty {
+                        FiledRouteCard(flight: flight, waypoints: plan, theme: theme)
+                    }
 
                     if let sim = sim {
                         SimReadoutCard(status: sim, theme: theme)

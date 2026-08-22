@@ -61,6 +61,11 @@ struct Hint: Identifiable, Equatable {
             text: "There is no cap on how many aircraft the map draws. Zoom out as far as you like — if the server has two thousand aeroplanes in view, you get two thousand."
         ),
         Hint(
+            id: "map.filedRoute",
+            placement: .map,
+            text: "Open a flight and the map draws the plan it filed — the line, and every fix on it named. Filters has the switch if you would rather it didn't."
+        ),
+        Hint(
             id: "map.filters",
             placement: .map,
             text: "Filters change only what is drawn, never what is received, so turning them all back on is instant."
@@ -92,6 +97,21 @@ struct Hint: Identifiable, Equatable {
             id: "flight.pin",
             placement: .flight,
             text: "Pin puts this flight on the home-screen widget, drawn on the aircraft's own photo."
+        ),
+        Hint(
+            id: "flight.instruments",
+            placement: .flight,
+            text: "The instruments card carries a primary flight display and a navigation display. Tap the arrows on it for the full screen, and the switch beside them to change which one you are looking at."
+        ),
+        Hint(
+            id: "flight.attitude",
+            placement: .flight,
+            text: "Pitch and bank on the PFD are read from the simulator when the pilot is broadcasting through Connect, and worked out from the flight path and the rate of turn when they are not. The display says which, every time."
+        ),
+        Hint(
+            id: "flight.filedRoute",
+            placement: .flight,
+            text: "Filed route lists every fix on the plan, with the one being flown to picked out — and the same route is drawn on the map underneath."
         ),
         Hint(
             id: "flight.route",

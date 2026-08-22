@@ -59,9 +59,9 @@ struct FiltersPanel: View {
                 PanelDivider()
 
                 PanelToggleRow(
-                    title: "Filed waypoints",
+                    title: "Filed route",
                     symbol: "point.topleft.down.curvedto.point.filled.bottomright.up",
-                    detail: "Plots the fixes on an open flight's filed plan, named, with the route through them. Procedures are expanded to the fixes they contain. Most pilots file nothing, and nothing is drawn when they haven't.",
+                    detail: "Draws an open flight's filed plan on the map — the line through it, and every fix on it named. Procedures are expanded to the fixes they contain. Most pilots file nothing, and nothing is drawn when they haven't.",
                     isOn: $filters.showsFlightPlan
                 )
             }
