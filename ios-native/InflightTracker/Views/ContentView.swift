@@ -198,7 +198,11 @@ struct ContentView: View {
                 // the live aircraft at the same time would be two things
                 // fighting over one map.
                 isFollowing: isFollowing && !replay.isActive,
-                colorScheme: theme.colorScheme,
+                // The map's own answer, which is the app's until a palette
+                // says otherwise. The chrome over the map keeps the app's
+                // either way: a light map under a dark app is a choice about
+                // the cartography, not about the furniture.
+                colorScheme: appearance.resolvedMapScheme,
                 style: appearance.resolvedMapStyle,
                 airports: mapAirports,
                 showsGroundLayout: filters.showsGroundLayout,
@@ -1013,9 +1017,31 @@ struct ContentView: View {
     /// paywall is opened *from* picking the globe, and buying Pro there leaves
     /// you on the globe rather than back where you started having to pick it
     /// again.
-    private func select(_ style: MapStyleMode) {
-        appearance.mapStyle = style
-        if style.isPro, !entitlements.isPro { isShowingStylePaywall = true }
+    private func select(_ projection: MapProjection) {
+        appearance.mapProjection = projection
+        if projection.isPro, !entitlements.isPro { isShowingStylePaywall = true }
+    }
+
+    private func select(_ palette: MapPalette) {
+        appearance.mapPalette = palette
+        if palette.isPro, !entitlements.isPro { isShowingStylePaywall = true }
+    }
+
+    /// Whether a Pro choice is one this account cannot have yet. Shown rather
+    /// than hidden — you cannot want something you have never seen.
+    private func locked(_ isPro: Bool) -> Bool { isPro && !entitlements.isPro }
+
+    /// The glyph on the corner button: the shape of the map when it is the
+    /// planet, since that is the bigger fact about it, and otherwise whatever
+    /// it is drawn in.
+    private var mapStyleSymbol: String {
+        let style = appearance.resolvedMapStyle
+        return style.projection == .globe ? style.projection.symbol : style.palette.symbol
+    }
+
+    private var mapStyleLabel: String {
+        let style = appearance.resolvedMapStyle
+        return "Map style, \(style.projection.label.lowercased()), \(style.palette.label.lowercased())"
     }
 
     /// How the map is drawn, in the corner that holds the map's controls.
@@ -1027,8 +1053,10 @@ struct ContentView: View {
     /// and this gets out of its way; the style is still under Settings, where it
     /// is stored.
     ///
-    /// A menu rather than a cycle button: four styles is one too many to page
-    /// through blind, and the globe is the one people are looking for.
+    /// A menu rather than a cycle button, and now two lists in one menu: the
+    /// shape of the world, and what it is drawn in. They were one list of four
+    /// styles, which meant the planet only ever came in satellite imagery and
+    /// the flat map could never be black.
     @ViewBuilder
     private var mapStyleControl: some View {
         if selection == nil, !replay.isActive {
@@ -1038,29 +1066,60 @@ struct ContentView: View {
             // each other.
             VStack(spacing: 0) {
                 Menu {
-                    // Buttons rather than a `Picker` bound to the setting: two
+                    // Buttons rather than a `Picker` bound to the setting: some
                     // of these are Pro, and a binding would have already
                     // changed the map by the time anything could check. Each
                     // one decides for itself whether it is switching the map or
                     // opening the paywall.
-                    ForEach(MapStyleMode.allCases) { style in
-                        Button {
-                            select(style)
-                        } label: {
-                            Label(
-                                style.isPro && !entitlements.isPro ? "\(style.label) (Pro)" : style.label,
-                                systemImage: appearance.mapStyle == style ? "checkmark" : style.symbol
-                            )
+                    Section("Shape") {
+                        ForEach(MapProjection.allCases) { projection in
+                            Button {
+                                select(projection)
+                            } label: {
+                                Label(
+                                    locked(projection.isPro) ? "\(projection.label) (Pro)" : projection.label,
+                                    systemImage: appearance.mapProjection == projection
+                                        ? "checkmark"
+                                        : projection.symbol
+                                )
+                            }
                         }
                     }
+
+                    Section("Map") {
+                        ForEach(MapPalette.allCases) { palette in
+                            Button {
+                                select(palette)
+                            } label: {
+                                Label(
+                                    locked(palette.isPro) ? "\(palette.label) (Pro)" : palette.label,
+                                    systemImage: appearance.mapPalette == palette ? "checkmark" : palette.symbol
+                                )
+                            }
+                        }
+                    }
+
+                    Section {
+                        // Nothing to turn up on imagery: it has no roads, no
+                        // terrain shading and no emphasis to set.
+                        Button {
+                            appearance.isMapDetailed.toggle()
+                        } label: {
+                            Label(
+                                "Full detail",
+                                systemImage: appearance.isMapDetailed ? "checkmark" : "map.fill"
+                            )
+                        }
+                        .disabled(appearance.resolvedMapStyle.palette.usesImagery)
+                    }
                 } label: {
-                    Image(systemName: appearance.resolvedMapStyle.symbol)
+                    Image(systemName: mapStyleSymbol)
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(theme.textPrimary)
                         .frame(width: 44, height: 42)
                         .contentShape(Rectangle())
                 }
-                .accessibilityLabel("Map style, \(appearance.resolvedMapStyle.label)")
+                .accessibilityLabel(mapStyleLabel)
 
                 Rectangle()
                     .fill(theme.stroke)

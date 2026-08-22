@@ -44,7 +44,12 @@ final class FlightInfoAppearance: ObservableObject {
     private static let glassKey = "flightInfoGlassEnabled"
     private static let peakStyleKey = "flightInfoPeakStyle"
     private static let modeKey = "appAppearanceMode"
-    private static let mapStyleKey = "mapStyleMode"
+    /// The old single map style, read once so an install that predates the
+    /// split lands on the same map it had.
+    private static let legacyMapStyleKey = "mapStyleMode"
+    private static let mapProjectionKey = "map.projection"
+    private static let mapPaletteKey = "map.palette"
+    private static let mapDetailKey = "map.detailed"
 
     @Published var isGlassEnabled: Bool {
         didSet { UserDefaults.standard.set(isGlassEnabled, forKey: Self.glassKey) }
@@ -61,8 +66,21 @@ final class FlightInfoAppearance: ObservableObject {
     /// How the map itself is drawn. Lives here rather than under the filters:
     /// the filters are about *which traffic* is on the map, and this is about
     /// what the map looks like — the same question as light and dark.
-    @Published var mapStyle: MapStyleMode {
-        didSet { UserDefaults.standard.set(mapStyle.rawValue, forKey: Self.mapStyleKey) }
+    ///
+    /// Three settings rather than one style, because they are three separate
+    /// questions: what shape the world is, what it is drawn in, and how much of
+    /// it is drawn. Every combination is legal — a black globe, a satellite flat
+    /// map, a detailed light one.
+    @Published var mapProjection: MapProjection {
+        didSet { UserDefaults.standard.set(mapProjection.rawValue, forKey: Self.mapProjectionKey) }
+    }
+
+    @Published var mapPalette: MapPalette {
+        didSet { UserDefaults.standard.set(mapPalette.rawValue, forKey: Self.mapPaletteKey) }
+    }
+
+    @Published var isMapDetailed: Bool {
+        didSet { UserDefaults.standard.set(isMapDetailed, forKey: Self.mapDetailKey) }
     }
 
     /// What iOS itself is set to, reported in by the root view.
@@ -89,13 +107,24 @@ final class FlightInfoAppearance: ObservableObject {
 
     /// What the map should actually draw.
     ///
-    /// The choice is kept exactly as made even when it is a Pro style and Pro
-    /// is not active — a lapsed subscription drops you back to the standard map
-    /// without forgetting that you liked the globe, so it is there again the
-    /// moment Pro is. Everything that draws the map reads this; the picker
-    /// reads `mapStyle`, because it is showing you your choice.
-    var resolvedMapStyle: MapStyleMode {
-        mapStyle.isPro && !Entitlements.shared.isPro ? .muted : mapStyle
+    /// The choice is kept exactly as made even when part of it is Pro and Pro
+    /// is not active — a lapsed subscription drops you back to the flat
+    /// cartographic map without forgetting that you liked the globe, so it is
+    /// there again the moment Pro is. Each axis falls back on its own: losing
+    /// Pro takes the imagery away but leaves a black map black.
+    var resolvedMapStyle: MapLook {
+        let isPro = Entitlements.shared.isPro
+        return MapLook(
+            projection: mapProjection.isPro && !isPro ? .flat : mapProjection,
+            palette: mapPalette.isPro && !isPro ? .auto : mapPalette,
+            isDetailed: isMapDetailed
+        )
+    }
+
+    /// Which appearance the map itself draws in — the palette's, or the app's
+    /// own when the palette follows along.
+    var resolvedMapScheme: ColorScheme {
+        resolvedMapStyle.palette.scheme ?? resolvedScheme
     }
 
     func adopt(systemScheme scheme: ColorScheme) {
@@ -115,9 +144,22 @@ final class FlightInfoAppearance: ObservableObject {
         // installs follow iOS.
         mode = AppAppearanceMode(rawValue: defaults.string(forKey: Self.modeKey) ?? "")
             ?? (defaults.object(forKey: Self.glassKey) == nil ? .system : .dark)
-        // Muted is the map the app has always drawn, so nobody's map changes
-        // under them on update — the globe is something you go and switch on.
-        mapStyle = MapStyleMode(rawValue: defaults.string(forKey: Self.mapStyleKey) ?? "") ?? .muted
+        // The map the app has always drawn, so nobody's map changes under them
+        // on update. An install from before the style was split has one stored
+        // style rather than three settings, and it is read across to whichever
+        // pair of them means the same thing; anybody who has chosen since has
+        // the three, and the legacy value is ignored.
+        let legacy = MapLook.from(legacy: defaults.string(forKey: Self.legacyMapStyleKey) ?? "")
+
+        mapProjection = MapProjection(rawValue: defaults.string(forKey: Self.mapProjectionKey) ?? "")
+            ?? legacy?.projection
+            ?? .flat
+        mapPalette = MapPalette(rawValue: defaults.string(forKey: Self.mapPaletteKey) ?? "")
+            ?? legacy?.palette
+            ?? .auto
+        isMapDetailed = defaults.object(forKey: Self.mapDetailKey) as? Bool
+            ?? legacy?.isDetailed
+            ?? false
     }
 }
 

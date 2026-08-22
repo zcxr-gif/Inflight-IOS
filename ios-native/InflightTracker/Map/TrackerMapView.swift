@@ -28,15 +28,16 @@ struct TrackerMapView: UIViewRepresentable {
     /// is a mode, and it keeps acting on every packet for as long as it is on.
     var isFollowing = false
 
-    /// Which way round the app is drawn, so MapKit's own light and dark styles
-    /// follow the app's appearance setting rather than iOS's. Passed in rather
+    /// Which way round the map is drawn: the palette's own answer when it has
+    /// one, and the app's appearance setting when it hasn't. Passed in rather
     /// than read from the environment: the map is the one surface underneath
     /// everything else, so it has to be told, not stamped.
     var colorScheme: ColorScheme = .dark
 
-    /// How the map underneath the traffic is drawn — and, for the globe,
-    /// whether the camera is free to rotate and tilt.
-    var style: MapStyleMode = .muted
+    /// How the map underneath the traffic is drawn — its shape, its palette,
+    /// how much detail it carries, and with the globe whether the camera is
+    /// free to rotate and tilt.
+    var style = MapLook()
 
     /// Fields worth marking — controlled, or busy. Empty when the filter is
     /// off, which is how the whole feature is switched off.
@@ -260,7 +261,10 @@ struct TrackerMapView: UIViewRepresentable {
         /// The style currently applied to the map view, so the configuration is
         /// only swapped when it actually changes — assigning
         /// `preferredConfiguration` reloads the map's tiles.
-        private var appliedStyle: MapStyleMode?
+        private var appliedStyle: MapLook?
+
+        /// The black wash under the traffic, while a palette asks for one.
+        private var dimmingOverlay: MKPolygon?
 
         /// Field markers currently on the map, by ICAO.
         private var airportAnnotations: [String: AirportAnnotation] = [:]
@@ -283,7 +287,7 @@ struct TrackerMapView: UIViewRepresentable {
 
         // MARK: Style
 
-        func applyStyle(_ style: MapStyleMode, on mapView: MKMapView) {
+        func applyStyle(_ style: MapLook, on mapView: MKMapView) {
             guard appliedStyle != style else { return }
             let previous = appliedStyle
             appliedStyle = style
@@ -292,13 +296,20 @@ struct TrackerMapView: UIViewRepresentable {
             mapView.isRotateEnabled = style.isFreeCamera
             mapView.isPitchEnabled = style.isFreeCamera
 
+            syncDimming(style, on: mapView)
+
+            // The camera only moves when the projection itself changes. A
+            // repaint — picking black, turning the detail up — has no business
+            // pulling the globe back out to arm's length.
+            guard previous?.projection != style.projection else { return }
+
             if style.isFreeCamera {
                 // Only when the style actually changes — which the guard above
                 // has already established — and never on a redraw, or the globe
                 // would yank itself back out to arm's length each time a packet
                 // landed. A stored globe gets this on launch too, which is
                 // right: it is the whole reason the style was saved.
-                if let distance = style.openingDistance {
+                if let distance = style.projection.openingDistance {
                     let camera = MKMapCamera(
                         lookingAtCenter: mapView.centerCoordinate,
                         fromDistance: distance,
@@ -326,6 +337,28 @@ struct TrackerMapView: UIViewRepresentable {
                 }
                 realign(on: mapView, heading: 0)
             }
+        }
+
+        /// The black palette's wash, put on or taken off.
+        ///
+        /// Inserted at the bottom of its level rather than added to the top of
+        /// it, so it dims the cartography and not the weather tiles, the night
+        /// or the routes — all of which are added to the same level and would
+        /// otherwise end up underneath it.
+        private func syncDimming(_ style: MapLook, on mapView: MKMapView) {
+            guard style.dimming > 0 else {
+                if let overlay = dimmingOverlay {
+                    mapView.removeOverlay(overlay)
+                    dimmingOverlay = nil
+                }
+                return
+            }
+
+            guard dimmingOverlay == nil else { return }
+
+            let overlay = MapDimming.overlay()
+            dimmingOverlay = overlay
+            mapView.insertOverlay(overlay, at: 0, level: .aboveRoads)
         }
 
         /// Re-applies every drawn sprite's rotation against a new camera
@@ -1403,6 +1436,14 @@ struct TrackerMapView: UIViewRepresentable {
             }
 
             if let area = overlay as? MKPolygon {
+                if area.title == MapDimming.title {
+                    let renderer = MKPolygonRenderer(polygon: area)
+                    renderer.fillColor = UIColor.black.withAlphaComponent(parent.style.dimming)
+                    renderer.strokeColor = .clear
+                    renderer.lineWidth = 0
+                    return renderer
+                }
+
                 if Terminator.isBand(area.title) {
                     let renderer = MKPolygonRenderer(polygon: area)
                     renderer.fillColor = Terminator.bandFill
@@ -1657,7 +1698,7 @@ struct TrackerMapView: UIViewRepresentable {
         /// actually moved — on a north-up map it costs one comparison. Re-culling
         /// walks every aircraft on the server, so it stays on its own throttle.
         func mapViewDidChangeVisibleRegion(_ mapView: MKMapView) {
-            if parent.style.isFreeCamera {
+            if parent.style.projection.isFreeCamera {
                 let heading = mapView.camera.heading
                 if abs(heading - appliedCameraHeading) > 1 {
                     realign(on: mapView, heading: heading)

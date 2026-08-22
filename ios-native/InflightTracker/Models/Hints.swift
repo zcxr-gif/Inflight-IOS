@@ -82,6 +82,11 @@ struct Hint: Identifiable, Equatable {
             text: "Filters can draw the North Atlantic tracks, coloured by letter with the levels each is valid at — which is what explains a hundred aircraft flying in parallel across the ocean."
         ),
         Hint(
+            id: "map.styleAxes",
+            placement: .map,
+            text: "The map-style button asks two things now: what shape the world is — flat or the globe — and what it is drawn in, light, dark, near black or satellite. Any pairing works, so the globe can be black and the flat map can be imagery."
+        ),
+        Hint(
             id: "map.ruler",
             placement: .map,
             text: "The ruler under the map-style button measures a leg: tap two places and it gives you the great-circle distance, the heading to fly it on, and roughly how long it takes. Taps near a field name the field."
