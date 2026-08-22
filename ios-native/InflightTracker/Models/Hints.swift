@@ -77,6 +77,11 @@ struct Hint: Identifiable, Equatable {
             text: "Filters can draw the North Atlantic tracks, coloured by letter with the levels each is valid at — which is what explains a hundred aircraft flying in parallel across the ocean."
         ),
         Hint(
+            id: "map.ruler",
+            placement: .map,
+            text: "The ruler under the map-style button measures a leg: tap two places and it gives you the great-circle distance, the heading to fly it on, and roughly how long it takes. Taps near a field name the field."
+        ),
+        Hint(
             id: "map.filedRoute",
             placement: .map,
             text: "Open a flight and the map draws the plan it filed — the line, and every fix on it named. Filters has the switch if you would rather it didn't."

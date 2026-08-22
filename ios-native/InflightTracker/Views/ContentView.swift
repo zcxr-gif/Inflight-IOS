@@ -44,6 +44,9 @@ struct ContentView: View {
     /// Latest camera request from the chrome around the map.
     @State private var mapCommand: MapCommand?
 
+    /// The ruler: whether it is down, and the leg it is measuring.
+    @State private var measurement = MapMeasurement()
+
     /// Whether the map is staying with the open aircraft. Lives here rather
     /// than in the map so it can be turned off by the things that contradict
     /// it — framing a whole route, or closing the window entirely.
@@ -196,6 +199,7 @@ struct ContentView: View {
                 showsGroundLayout: filters.showsGroundLayout,
                 showsFlightPlan: filters.showsFlightPlan,
                 weatherTiles: mapWeather.tiles,
+                measurement: $measurement,
                 showsTerminator: filters.showsTerminator,
                 showsNatTracks: filters.showsNatTracks,
                 showsWinds: weatherPreferences.showsWinds,
@@ -255,6 +259,11 @@ struct ContentView: View {
 
                 if weatherPreferences.mapLayer != .off {
                     MapWeatherBar(model: mapWeather, theme: theme)
+                        .transition(.opacity.combined(with: .move(edge: .leading)))
+                }
+
+                if measurement.isOn {
+                    MeasureBar(measurement: $measurement, theme: theme)
                         .transition(.opacity.combined(with: .move(edge: .leading)))
                 }
             }
@@ -426,6 +435,7 @@ struct ContentView: View {
             mapWeather.refresh()
         }
         .animation(.easeInOut(duration: 0.22), value: weatherPreferences.mapLayer)
+        .animation(.easeInOut(duration: 0.22), value: measurement)
         // Pro can end while the app is open, and a tracker is an app people
         // leave open for hours. Coming back to the foreground is the moment to
         // re-ask: a subscription that lapsed overnight, a refund Apple granted,
@@ -890,29 +900,53 @@ struct ContentView: View {
     @ViewBuilder
     private var mapStyleControl: some View {
         if selection == nil, !replay.isActive {
-            Menu {
-                // Buttons rather than a `Picker` bound to the setting: two of
-                // these are Pro, and a binding would have already changed the
-                // map by the time anything could check. Each one decides for
-                // itself whether it is switching the map or opening the paywall.
-                ForEach(MapStyleMode.allCases) { style in
-                    Button {
-                        select(style)
-                    } label: {
-                        Label(
-                            style.isPro && !entitlements.isPro ? "\(style.label) (Pro)" : style.label,
-                            systemImage: appearance.mapStyle == style ? "checkmark" : style.symbol
-                        )
+            // Two controls sharing one piece of chrome, the way the flight
+            // window's hub does — so this corner reads as the map's own
+            // furniture rather than as loose buttons that happen to be near
+            // each other.
+            VStack(spacing: 0) {
+                Menu {
+                    // Buttons rather than a `Picker` bound to the setting: two
+                    // of these are Pro, and a binding would have already
+                    // changed the map by the time anything could check. Each
+                    // one decides for itself whether it is switching the map or
+                    // opening the paywall.
+                    ForEach(MapStyleMode.allCases) { style in
+                        Button {
+                            select(style)
+                        } label: {
+                            Label(
+                                style.isPro && !entitlements.isPro ? "\(style.label) (Pro)" : style.label,
+                                systemImage: appearance.mapStyle == style ? "checkmark" : style.symbol
+                            )
+                        }
                     }
+                } label: {
+                    Image(systemName: appearance.resolvedMapStyle.symbol)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(theme.textPrimary)
+                        .frame(width: 44, height: 42)
+                        .contentShape(Rectangle())
                 }
-            } label: {
-                Image(systemName: appearance.resolvedMapStyle.symbol)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(theme.textPrimary)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
+                .accessibilityLabel("Map style, \(appearance.resolvedMapStyle.label)")
+
+                Rectangle()
+                    .fill(theme.stroke)
+                    .frame(height: 1)
+
+                // The ruler lives beside the style rather than in the flight
+                // window's hub: measuring is about the map, and it is most
+                // wanted when no aircraft is open and you are looking at the
+                // shape of somewhere.
+                mapButton(
+                    "ruler",
+                    measurement.isOn ? "Put the ruler away" : "Measure a distance",
+                    isOn: measurement.isOn
+                ) {
+                    measurement.isOn.toggle()
+                }
             }
-            .accessibilityLabel("Map style, \(appearance.resolvedMapStyle.label)")
+            .frame(width: 44)
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .environment(\.colorScheme, theme.colorScheme)

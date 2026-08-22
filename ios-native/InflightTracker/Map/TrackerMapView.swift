@@ -51,6 +51,10 @@ struct TrackerMapView: UIViewRepresentable {
     /// switched off, or switched on and still waiting for the frame index.
     var weatherTiles: MapWeatherTiles?
 
+    /// The ruler: whether it is down, and where its two ends are. A binding
+    /// because the map is where the taps land, so the map is what moves it.
+    @Binding var measurement: MapMeasurement
+
     /// Whether night is washed over the half of the world that is in it.
     var showsTerminator = false
 
@@ -141,6 +145,22 @@ struct TrackerMapView: UIViewRepresentable {
             forAnnotationViewWithReuseIdentifier: WindBarbView.reuseIdentifier
         )
 
+        mapView.register(
+            MeasurePointView.self,
+            forAnnotationViewWithReuseIdentifier: MeasurePointView.reuseIdentifier
+        )
+
+        // Installed once and left there. It does nothing at all unless the
+        // ruler is down, and its delegate turns away any touch that landed on
+        // an annotation — so tapping an aeroplane still opens the aeroplane,
+        // even mid-measurement.
+        let tap = UITapGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.handleMeasureTap(_:))
+        )
+        tap.delegate = context.coordinator
+        mapView.addGestureRecognizer(tap)
+
         return mapView
     }
 
@@ -166,6 +186,7 @@ struct TrackerMapView: UIViewRepresentable {
         // Weather first: the tiles go under everything else the map draws, and
         // adding them at the bottom of the pass keeps that ordering honest.
         context.coordinator.syncTerminator(on: mapView)
+        context.coordinator.syncMeasurement(on: mapView)
         context.coordinator.syncWeatherTiles(on: mapView)
         context.coordinator.syncWinds(on: mapView)
         context.coordinator.syncNatTracks(on: mapView)
@@ -185,7 +206,7 @@ struct TrackerMapView: UIViewRepresentable {
 
     // MARK: - Coordinator
 
-    final class Coordinator: NSObject, MKMapViewDelegate {
+    final class Coordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDelegate {
 
         static let reuseIdentifier = "flight"
         static let replayReuseIdentifier = "replay"
@@ -846,6 +867,90 @@ struct TrackerMapView: UIViewRepresentable {
             mapView.addAnnotations(windAnnotations)
         }
 
+        // MARK: The ruler
+
+        private var measureOverlay: MKPolyline?
+        private var measurePins: [MeasurePoint] = []
+        private var renderedMeasureKey: String?
+
+        /// Where the tap landed, as a place on the earth.
+        @objc func handleMeasureTap(_ recogniser: UITapGestureRecognizer) {
+            guard parent.measurement.isOn else { return }
+            guard let mapView = recogniser.view as? MKMapView else { return }
+
+            let point = recogniser.location(in: mapView)
+            let coordinate = mapView.convert(point, toCoordinateFrom: mapView)
+            guard coordinate.latitude.isFinite, coordinate.longitude.isFinite else { return }
+
+            parent.measurement.add(coordinate)
+        }
+
+        /// Lets the map keep its own gestures, and keeps aeroplanes tappable.
+        ///
+        /// Without the second half of this, dropping a measuring point on top
+        /// of an aircraft would also open that aircraft's window — two things
+        /// happening for one tap, neither of them cancellable.
+        func gestureRecognizer(
+            _ recogniser: UIGestureRecognizer,
+            shouldReceive touch: UITouch
+        ) -> Bool {
+            guard parent.measurement.isOn else { return false }
+
+            var view = touch.view
+            while let candidate = view {
+                if candidate is MKAnnotationView { return false }
+                view = candidate.superview
+            }
+            return true
+        }
+
+        func gestureRecognizer(
+            _ recogniser: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+        ) -> Bool {
+            true
+        }
+
+        func syncMeasurement(on mapView: MKMapView) {
+            let measurement = parent.measurement
+            let key = measurement.isOn
+                ? [measurement.start, measurement.end]
+                    .map { $0.map { String(format: "%.5f,%.5f", $0.latitude, $0.longitude) } ?? "-" }
+                    .joined(separator: "|")
+                : "off"
+
+            guard renderedMeasureKey != key else { return }
+            renderedMeasureKey = key
+
+            if let existing = measureOverlay {
+                mapView.removeOverlay(existing)
+                measureOverlay = nil
+            }
+            if !measurePins.isEmpty {
+                mapView.removeAnnotations(measurePins)
+                measurePins.removeAll(keepingCapacity: true)
+            }
+
+            guard measurement.isOn else { return }
+
+            if let start = measurement.start {
+                measurePins.append(MeasurePoint(coordinate: start, letter: "A"))
+            }
+            if let end = measurement.end {
+                measurePins.append(MeasurePoint(coordinate: end, letter: "B"))
+            }
+            if !measurePins.isEmpty { mapView.addAnnotations(measurePins) }
+
+            guard let start = measurement.start, let end = measurement.end else { return }
+
+            // Geodesic, because the number in the readout is a great-circle
+            // distance and a straight line would be measuring something else.
+            let line = MKGeodesicPolyline(coordinates: [start, end], count: 2)
+            line.title = MeasureStyle.title
+            measureOverlay = line
+            mapView.addOverlay(line, level: .aboveLabels)
+        }
+
         // MARK: Night
 
         private var terminatorOverlays: [MKPolygon] = []
@@ -1318,6 +1423,15 @@ struct TrackerMapView: UIViewRepresentable {
                 return Self.groundRenderer(for: line, title: line.title)
             }
 
+            if line.title == MeasureStyle.title {
+                let renderer = MKPolylineRenderer(polyline: line)
+                renderer.strokeColor = MeasureStyle.line
+                renderer.lineWidth = 2.4
+                renderer.lineCap = .round
+                renderer.lineDashPattern = [6, 5]
+                return renderer
+            }
+
             if let track = NatTrackStyle.name(fromTitle: line.title) {
                 let renderer = MKPolylineRenderer(polyline: line)
                 renderer.lineCap = .round
@@ -1414,6 +1528,15 @@ struct TrackerMapView: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
+            if let point = annotation as? MeasurePoint {
+                let view = mapView.dequeueReusableAnnotationView(
+                    withIdentifier: MeasurePointView.reuseIdentifier,
+                    for: annotation
+                )
+                (view as? MeasurePointView)?.apply(point)
+                return view
+            }
+
             if let barb = annotation as? WindBarbAnnotation {
                 let view = mapView.dequeueReusableAnnotationView(
                     withIdentifier: WindBarbView.reuseIdentifier,
