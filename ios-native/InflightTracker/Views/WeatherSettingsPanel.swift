@@ -1,4 +1,6 @@
 import SwiftUI
+// For `WeatherAttribution`, which the attribution row is handed.
+import WeatherKit
 
 /// Weather settings, from the last item in the weather chip's menu.
 ///
@@ -19,13 +21,44 @@ struct WeatherSettingsPanel: View {
     @ObservedObject private var preferences = WeatherPreferences.shared
     @ObservedObject private var appearance = FlightInfoAppearance.shared
 
+    /// What the tile service is actually serving. RainViewer has been
+    /// withdrawing its free tier in stages, and a layer it has stopped serving
+    /// should not be offered as a switch that draws nothing.
+    @ObservedObject private var tiles = RainViewerService.shared
+
+    @ObservedObject private var apple = AppleWeatherService.shared
+
     private var theme: FlightInfoTheme { appearance.theme }
+
+    /// The layers there is any point offering. Off is always in; a withdrawn
+    /// layer stays in only while it is the one selected, because a picker whose
+    /// selection is not among its options draws blank.
+    private var layers: [MapWeatherLayer] {
+        MapWeatherLayer.allCases.filter {
+            tiles.isAvailable($0) || $0 == preferences.mapLayer
+        }
+    }
+
+    /// What to say under the layer picker: why the chosen one is drawing
+    /// nothing, if it is, and otherwise what it is.
+    private var layerDetail: String {
+        guard preferences.mapLayer != .off, !tiles.isAvailable(preferences.mapLayer) else {
+            return preferences.mapLayer.detail
+        }
+        return "\(preferences.mapLayer.label) is not being served just now — the map draws nothing for it. RainViewer has been withdrawing its free layers in stages."
+    }
 
     var body: some View {
         MapPanel(title: "Weather", subtitle: subtitle) {
             if let station = model.nearby {
                 PanelSection(title: "SAMPLE") {
                     sample(for: station)
+
+                    // Whose reading it is, when it is not the field's own.
+                    if station.metar == nil, apple.conditions(for: station.airport.icao) != nil {
+                        PanelDivider()
+                        WeatherAttributionRow(attribution: apple.attribution)
+                    }
                 }
             }
 
@@ -54,9 +87,9 @@ struct WeatherSettingsPanel: View {
                 PanelPickerRow(
                     title: "Weather layer",
                     symbol: "cloud.rain",
-                    options: MapWeatherLayer.allCases,
+                    options: layers,
                     label: { $0.label },
-                    detail: preferences.mapLayer.detail,
+                    detail: layerDetail,
                     selection: $preferences.mapLayer
                 )
 
@@ -125,23 +158,50 @@ struct WeatherSettingsPanel: View {
 
             HintStrip(placement: .weather)
 
-            Text("Reports come from VATSIM's METAR service, the same source the tracker has always used, and each station issues one an hour. The radar and cloud tiles are RainViewer's; the winds aloft are Open-Meteo's model data.")
+            Text("Reports come from VATSIM's METAR service, the same source the tracker has always used, and each station issues one an hour. Where a field files none — which is most of the world's airfields — the reading is Apple's, and says so. The radar tiles are RainViewer's; the winds aloft are Open-Meteo's model data.")
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(theme.textDim)
                 .padding(.horizontal, 2)
+        }
+        // The layer picker offers what is actually being served, and with every
+        // layer off nothing else would ever ask. One small index document, when
+        // somebody opens the panel that shows the switch.
+        .onAppear { tiles.refresh() }
+        .task(id: model.nearby?.airport.icao) {
+            guard let station = model.nearby, station.metar == nil else { return }
+            apple.load(key: station.airport.icao, coordinate: station.airport.coordinate)
         }
     }
 
     private var subtitle: String {
         guard let station = model.nearby else { return "No field in range" }
+        if station.metar == nil, sampleFallback != nil {
+            return "Nearest field · \(station.airport.icao)"
+        }
         return "Nearest report · \(station.airport.icao)"
+    }
+
+    private func sampleTemperature(for station: WeatherModel.Station) -> String {
+        if let metar = station.metar {
+            return metar.temperatureLabel(in: preferences.temperatureUnit)
+        }
+        guard let apple = sampleFallback else { return "—" }
+        return "\(Int(preferences.temperatureUnit.convert(fromCelsius: apple.temperatureC).rounded()))°"
+    }
+
+    /// Apple's answer for the sampled field, when the field files nothing.
+    private var sampleFallback: AppleWeatherService.Conditions? {
+        guard let station = model.nearby, station.metar == nil else { return nil }
+        return apple.conditions(for: station.airport.icao)
     }
 
     /// The live report, written the way the current settings write it.
     private func sample(for station: WeatherModel.Station) -> some View {
         HStack(spacing: 12) {
             Image(systemName: station.metar?.symbol(isDaylight: station.isDaylight)
+                  ?? sampleFallback?.symbolName
                   ?? (station.isDaylight ? "sun.max.fill" : "moon.stars.fill"))
+                .symbolRenderingMode(.hierarchical)
                 .font(.system(size: 26))
                 .foregroundStyle(theme.textPrimary)
                 .frame(width: 34)
@@ -158,6 +218,7 @@ struct WeatherSettingsPanel: View {
                 }
 
                 Text(station.metar.map { "\($0.conditionLabel) · \($0.windLabel(in: preferences.windUnit))" }
+                     ?? sampleFallback?.label
                      ?? station.airport.name)
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(theme.textDim)
@@ -165,7 +226,7 @@ struct WeatherSettingsPanel: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text(station.metar?.temperatureLabel(in: preferences.temperatureUnit) ?? "—")
+            Text(sampleTemperature(for: station))
                 .font(.system(size: 26, weight: .bold, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
                 .fixedSize()

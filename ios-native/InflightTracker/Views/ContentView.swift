@@ -8,6 +8,8 @@ struct ContentView: View {
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @ObservedObject private var filters = MapFilters.shared
     @ObservedObject private var weatherPreferences = WeatherPreferences.shared
+    /// Which tile layers are actually being served, for the chip's menu.
+    @ObservedObject private var tiles = RainViewerService.shared
     @ObservedObject private var friends = FriendsStore.shared
     @ObservedObject private var push = PushService.shared
     @ObservedObject private var entitlements = Entitlements.shared
@@ -301,15 +303,22 @@ struct ContentView: View {
                         )
                         .transition(.opacity.combined(with: .move(edge: .top)))
                     } else {
+                        // In the corner the search field has just vacated,
+                        // rather than on a line of its own underneath it. The
+                        // chip used to sit below this row, which left the top
+                        // left of the map — the one corner a window at its peak
+                        // does not cover — empty, with the weather pushed a row
+                        // down for no reason. Top-aligned, so opening the chip
+                        // drops its card below without moving the avatar.
+                        if weatherPreferences.isChipVisible {
+                            WeatherChip(model: weather, theme: theme, isExpanded: $isWeatherExpanded)
+                                .transition(.opacity.combined(with: .move(edge: .leading)))
+                        }
+
                         Spacer(minLength: 0)
                     }
 
                     profileButton
-                }
-
-                if selection != nil, weatherPreferences.isChipVisible {
-                    WeatherChip(model: weather, theme: theme, isExpanded: $isWeatherExpanded)
-                        .transition(.opacity.combined(with: .move(edge: .leading)))
                 }
 
                 if weatherPreferences.mapLayer != .off {
@@ -904,20 +913,23 @@ struct ContentView: View {
             }
         } label: {
             Group {
-                if let account = accounts.account {
+                if let account = accounts.account, profiles.profile?.avatarURL != nil {
                     PilotAvatar(
                         url: profiles.profile?.avatarURL,
                         // The profile's initials when there is one, because
                         // that is the name other pilots see; the account's
-                        // otherwise.
+                        // otherwise. Only ever seen for the moment the picture
+                        // takes to load, since this branch has one.
                         initials: profiles.profile?.initials ?? account.initials,
                         side: 38
                     )
                 } else {
-                    Image(systemName: "person.crop.circle")
-                        .font(.system(size: 17, weight: .medium))
-                        .foregroundStyle(theme.textPrimary)
-                        .frame(width: 38, height: 38)
+                    // The app's own mark, in the corner it has always kept for
+                    // an account. It stands in for the system person glyph
+                    // signed out, and for the initials-on-accent circle signed
+                    // in without a picture — a pilot who has uploaded one still
+                    // gets their own face above.
+                    inflightMark
                 }
             }
             // Small, and outside the circle, so it reads as a state marker on
@@ -964,6 +976,17 @@ struct ContentView: View {
         }
     }
 
+    /// The Inflight pin, sized to sit in the same 38-point circle an avatar
+    /// does. Trimmed to its own ink in the asset catalogue rather than padded,
+    /// so it fills the button the way a picture would.
+    private var inflightMark: some View {
+        Image("InflightLogo")
+            .resizable()
+            .scaledToFit()
+            .padding(6)
+            .frame(width: 38, height: 38)
+    }
+
     private var profileLabel: String {
         guard let account = accounts.account else { return "Sign in" }
         return entitlements.isPro ? "\(account.handle), Pro account" : account.handle
@@ -996,7 +1019,12 @@ struct ContentView: View {
                     // style menu uses them: each one is a decision, and a
                     // checkmark beside the current answer is how the rest of
                     // the app's menus read.
-                    ForEach(MapWeatherLayer.allCases) { layer in
+                    //
+                    // Only the layers the tile service is actually serving.
+                    // RainViewer has been withdrawing its free tier in stages,
+                    // and offering a switch that draws nothing is worse than
+                    // not offering it.
+                    ForEach(availableWeatherLayers) { layer in
                         Button {
                             weatherPreferences.mapLayer = layer
                         } label: {
@@ -1048,6 +1076,15 @@ struct ContentView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomLeading)))
+        }
+    }
+
+    /// The tile layers there is any point offering. A withdrawn one stays in
+    /// the list only while it is the one selected, so the menu still shows what
+    /// the map is set to.
+    private var availableWeatherLayers: [MapWeatherLayer] {
+        MapWeatherLayer.allCases.filter {
+            tiles.isAvailable($0) || $0 == weatherPreferences.mapLayer
         }
     }
 

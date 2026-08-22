@@ -73,8 +73,15 @@ final class RainViewerService: ObservableObject {
 
     /// Whether a layer has anything to draw. Radar and satellite are withdrawn
     /// on different schedules, so this is asked per layer rather than once.
+    ///
+    /// "Not known to be withdrawn" rather than "known to be there": until the
+    /// index has actually been read, every layer is offered. The pickers hide
+    /// what this says no to, and hiding radar because nobody has switched a
+    /// layer on yet would be the same bug in the other direction.
     func isAvailable(_ layer: MapWeatherLayer) -> Bool {
-        layer == .off || !frames(for: layer).isEmpty
+        guard layer != .off else { return true }
+        guard state == .ready else { return true }
+        return !frames(for: layer).isEmpty
     }
 
     /// Fetch the index if it is stale. Safe to call on every packet — it is a

@@ -309,26 +309,52 @@ struct TrackerMapView: UIViewRepresentable {
             let previous = appliedStyle
             appliedStyle = style
 
+            // Where the camera was standing before the map underneath it was
+            // swapped. Assigning `preferredConfiguration` tears the map down and
+            // rebuilds it, and the camera does not reliably survive that: on the
+            // globe it comes back somewhere flat and close in, which is why
+            // recolouring the planet looked like it had flattened it.
+            let before = mapView.camera
+            let heldDistance = before.centerCoordinateDistance
+            let heldPitch = before.pitch
+            let heldHeading = before.heading
+            let heldCentre = mapView.centerCoordinate
+
             mapView.preferredConfiguration = style.configuration()
             mapView.isRotateEnabled = style.isFreeCamera
             mapView.isPitchEnabled = style.isFreeCamera
 
             syncDimming(style, on: mapView)
 
-            // The camera only moves when the projection itself changes. A
-            // repaint — picking black, turning the detail up — has no business
-            // pulling the globe back out to arm's length.
-            guard previous?.projection != style.projection else { return }
+            let isNewProjection = previous?.projection != style.projection
+
+            // Same shape of world, different paint. The camera should not have
+            // moved at all, so it is put back exactly where it was rather than
+            // left wherever the reload dropped it — and without animation,
+            // because as far as anyone watching is concerned it never left.
+            guard isNewProjection else {
+                guard heldDistance.isFinite, heldDistance > 0 else { return }
+                mapView.setCamera(
+                    MKMapCamera(
+                        lookingAtCenter: heldCentre,
+                        fromDistance: heldDistance,
+                        pitch: heldPitch,
+                        heading: heldHeading
+                    ),
+                    animated: false
+                )
+                return
+            }
 
             if style.isFreeCamera {
-                // Only when the style actually changes — which the guard above
-                // has already established — and never on a redraw, or the globe
+                // Only when the projection actually changes — which the guard
+                // above has established — and never on a redraw, or the globe
                 // would yank itself back out to arm's length each time a packet
                 // landed. A stored globe gets this on launch too, which is
                 // right: it is the whole reason the style was saved.
                 if let distance = style.projection.openingDistance {
                     let camera = MKMapCamera(
-                        lookingAtCenter: mapView.centerCoordinate,
+                        lookingAtCenter: heldCentre,
                         fromDistance: distance,
                         pitch: 0,
                         heading: 0
@@ -338,15 +364,15 @@ struct TrackerMapView: UIViewRepresentable {
             } else {
                 // Leaving the globe with the camera spun would leave every
                 // sprite crooked on a map that can no longer be straightened,
-                // so north-up is restored on the way out. Built fresh rather
-                // than mutated: `mapView.camera` hands back the map's own
-                // object, and editing it in place is not how it is meant to be
-                // driven.
-                let current = mapView.camera
-                if current.heading != 0 || current.pitch != 0 {
+                // so north-up is restored on the way out — from where the
+                // camera was standing before the swap rather than from wherever
+                // the reload left it. Built fresh rather than mutated:
+                // `mapView.camera` hands back the map's own object, and editing
+                // it in place is not how it is meant to be driven.
+                if heldHeading != 0 || heldPitch != 0, heldDistance.isFinite, heldDistance > 0 {
                     let camera = MKMapCamera(
-                        lookingAtCenter: mapView.centerCoordinate,
-                        fromDistance: current.centerCoordinateDistance,
+                        lookingAtCenter: heldCentre,
+                        fromDistance: heldDistance,
                         pitch: 0,
                         heading: 0
                     )

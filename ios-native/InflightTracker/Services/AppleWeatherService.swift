@@ -53,6 +53,18 @@ final class AppleWeatherService: ObservableObject {
         let fetched: Date
     }
 
+    /// The two or three things a place that would show a METAR needs when
+    /// there is no METAR to show.
+    ///
+    /// Deliberately the same shape as what a report gives: a symbol, a
+    /// temperature and a sentence. The chip and the panels draw either without
+    /// caring which they were handed, beyond saying whose it is.
+    struct Conditions: Equatable {
+        let temperatureC: Double
+        let symbolName: String
+        let label: String
+    }
+
     enum State {
         case idle
         case loading
@@ -87,6 +99,22 @@ final class AppleWeatherService: ObservableObject {
             return snapshot
         }
         return nil
+    }
+
+    /// What it is doing at a place right now, when something else was supposed
+    /// to say and could not.
+    ///
+    /// The METAR stays first everywhere this is used: it is the observation the
+    /// field itself filed, in the units an aircraft is flown in. This is for the
+    /// large majority of the world's airfields that file nothing at all, where
+    /// the alternative on screen was an em dash.
+    func conditions(for key: String) -> Conditions? {
+        guard let snapshot = snapshot(for: key) else { return nil }
+        return Conditions(
+            temperatureC: snapshot.temperatureC,
+            symbolName: snapshot.symbolName,
+            label: snapshot.conditionLabel
+        )
     }
 
     /// Loads a point's weather. Safe to call on every appearance: fresh, in
