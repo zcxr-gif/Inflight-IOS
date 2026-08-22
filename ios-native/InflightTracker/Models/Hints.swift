@@ -69,7 +69,12 @@ struct Hint: Identifiable, Equatable {
         Hint(
             id: "map.weatherLayers",
             placement: .map,
-            text: "Weather has radar and cloud tiles for the map, and wind barbs at any flight level from 050 to 390. The strip that appears says which frame you are looking at, and can be dragged back through the last two hours."
+            text: "The weather chip, bottom left, has radar and cloud tiles for the map and wind barbs at any flight level from 050 to 390. The strip that appears says which frame you are looking at, and can be dragged back through the last two hours."
+        ),
+        Hint(
+            id: "map.statsTab",
+            placement: .map,
+            text: "Pull the tab on top of the toolbar for what the server is doing right now — how many are up, how many are on the ground, who is working. All of it counted from the packet the map is drawn from."
         ),
         Hint(
             id: "map.natTracks",

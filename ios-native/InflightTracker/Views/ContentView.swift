@@ -47,6 +47,11 @@ struct ContentView: View {
     /// The ruler: whether it is down, and the leg it is measuring.
     @State private var measurement = MapMeasurement()
 
+    /// Whether the stats are pulled up over the toolbar. Here rather than in
+    /// the tab itself because the chrome in the two bottom corners has to move
+    /// out of the way of the card while it is up.
+    @State private var isStatsUp = false
+
     /// Whether the map is staying with the open aircraft. Lives here rather
     /// than in the map so it can be turned off by the things that contradict
     /// it — framing a whole route, or closing the window entirely.
@@ -271,6 +276,7 @@ struct ContentView: View {
             .padding(.top, 8)
 
             mapControls
+            weatherControl
             mapStyleControl
             findMeControl
             mapToolbar
@@ -278,6 +284,7 @@ struct ContentView: View {
         }
         .animation(.easeInOut(duration: 0.22), value: selection?.id)
         .animation(.easeInOut(duration: 0.22), value: replay.isActive)
+        .animation(.easeInOut(duration: 0.24), value: isStatsUp)
         .onChange(of: selection?.id) { _, id in
             // A replay belongs to the aircraft it was started from, and to the
             // window that drew the track under it. Opening another aircraft,
@@ -304,6 +311,12 @@ struct ContentView: View {
             }
 
             isWeatherExpanded = false
+
+            // The toolbar and its tab are going away with the window opening
+            // over them; the stats should not be waiting up when it closes
+            // again, half an hour and three aeroplanes later.
+            isStatsUp = false
+
             updateWeather(force: true)
         }
         // The aircraft keeps moving while its window is open, so the field it
@@ -755,13 +768,29 @@ struct ContentView: View {
                 // something that goes away would be the wrong trade.
                 HintStrip(placement: .map, isFloating: true)
 
-                MapToolbar(
-                    theme: theme,
-                    atcCount: feed.atcCount,
-                    activeFilters: filters.activeCount,
-                    friendsAloft: friendsAloft
-                ) { kind in
-                    sheet = .panel(kind)
+                // The stats tab and the bar are one piece of furniture, so they
+                // sit tight against each other — the tab reads as the top edge
+                // of the bar rather than as a button floating above it.
+                //
+                // The card it pulls up is not reserved against, for the same
+                // reason the hint above is not: it is up for as long as it is
+                // being read and then gone, and the corners lift out of its way
+                // while it is.
+                VStack(spacing: 3) {
+                    StatsTip(theme: theme, isUp: $isStatsUp) {
+                        isStatsUp = false
+                        sheet = .panel(.stats)
+                    }
+                    .environmentObject(feed)
+
+                    MapToolbar(
+                        theme: theme,
+                        atcCount: feed.atcCount,
+                        activeFilters: filters.activeCount,
+                        friendsAloft: friendsAloft
+                    ) { kind in
+                        sheet = .panel(kind)
+                    }
                 }
             }
             .padding(.horizontal, 14)
@@ -875,6 +904,109 @@ struct ContentView: View {
         return entitlements.isPro ? "\(account.handle), Pro account" : account.handle
     }
 
+    /// How far the chrome in the bottom corners moves while the stats card is
+    /// up, so it sits above the card rather than behind it.
+    private var statsLift: CGFloat {
+        isStatsUp && selection == nil && !replay.isActive ? StatsTip.cardHeight + 6 : 0
+    }
+
+    /// Weather, on the map's left shoulder.
+    ///
+    /// The mirror of the style and the ruler on the right: the same chrome, the
+    /// same height, the opposite corner. It used to be a seventh of the toolbar
+    /// — a whole destination for what is mostly one decision, which layer is
+    /// drawn — and putting it here makes that decision one tap from the map
+    /// instead of a tap, a panel and a scroll.
+    ///
+    /// The glyph is whichever layer is on, and the chip fills with the accent
+    /// while anything is, the same way the ruler reads when it is down. The
+    /// panel behind it still exists for the units, the sample and the rest; it
+    /// is the last item in the menu.
+    @ViewBuilder
+    private var weatherControl: some View {
+        if selection == nil, !replay.isActive {
+            Menu {
+                Section("Layer") {
+                    // Buttons rather than a `Picker`, for the same reason the
+                    // style menu uses them: each one is a decision, and a
+                    // checkmark beside the current answer is how the rest of
+                    // the app's menus read.
+                    ForEach(MapWeatherLayer.allCases) { layer in
+                        Button {
+                            weatherPreferences.mapLayer = layer
+                        } label: {
+                            Label(
+                                layer.label,
+                                systemImage: weatherPreferences.mapLayer == layer ? "checkmark" : layer.symbol
+                            )
+                        }
+                    }
+                }
+
+                Section {
+                    Button {
+                        weatherPreferences.showsWinds.toggle()
+                    } label: {
+                        Label(
+                            "Winds at \(weatherPreferences.windLevel.longLabel)",
+                            systemImage: weatherPreferences.showsWinds ? "checkmark" : "wind"
+                        )
+                    }
+
+                    Button {
+                        sheet = .panel(.weather)
+                    } label: {
+                        Label("Weather settings", systemImage: "slider.horizontal.3")
+                    }
+                }
+            } label: {
+                Image(systemName: weatherSymbol)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(isWeatherOnMap ? theme.onAccent : theme.textPrimary)
+                    .frame(width: 44, height: 42)
+                    .background {
+                        if isWeatherOnMap { Rectangle().fill(theme.accent) }
+                    }
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel(weatherLabel)
+            .accessibilityAddTraits(isWeatherOnMap ? .isSelected : [])
+            .frame(width: 44)
+            // Glass draws behind its content rather than clipping it, so
+            // without this the accent squares off the chip's corners when a
+            // layer is on.
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .environment(\.colorScheme, theme.colorScheme)
+            .padding(.leading, 16)
+            .padding(.bottom, MapToolbar.reservedHeight + 8 + statsLift)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+            .ignoresSafeArea(.keyboard, edges: .bottom)
+            .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomLeading)))
+        }
+    }
+
+    /// Anything of the weather actually drawn on the map — tiles under the
+    /// traffic, or barbs over it.
+    private var isWeatherOnMap: Bool {
+        weatherPreferences.mapLayer != .off || weatherPreferences.showsWinds
+    }
+
+    private var weatherSymbol: String {
+        if weatherPreferences.mapLayer != .off { return weatherPreferences.mapLayer.symbol }
+        return weatherPreferences.showsWinds ? "wind" : "cloud.sun.fill"
+    }
+
+    private var weatherLabel: String {
+        switch (weatherPreferences.mapLayer, weatherPreferences.showsWinds) {
+        case (.off, false): return "Weather"
+        case (.off, true): return "Weather, winds at \(weatherPreferences.windLevel.longLabel)"
+        case (let layer, false): return "Weather, \(layer.label.lowercased())"
+        case (let layer, true):
+            return "Weather, \(layer.label.lowercased()) and winds at \(weatherPreferences.windLevel.longLabel)"
+        }
+    }
+
     /// Switching the map, or being told why you cannot.
     ///
     /// The choice is still stored when it is refused, which is the point: the
@@ -951,8 +1083,8 @@ struct ContentView: View {
             .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .environment(\.colorScheme, theme.colorScheme)
             .padding(.trailing, 16)
-            // Clears the toolbar, and the hint strip that can sit above it.
-            .padding(.bottom, MapToolbar.reservedHeight + 8)
+            // Clears the toolbar, and the stats card while it is up.
+            .padding(.bottom, MapToolbar.reservedHeight + 8 + statsLift)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))
@@ -1004,7 +1136,7 @@ struct ContentView: View {
             .environment(\.colorScheme, theme.colorScheme)
             .padding(.trailing, 16)
             // Above the style control, which sits in the same corner.
-            .padding(.bottom, MapToolbar.reservedHeight + 60)
+            .padding(.bottom, MapToolbar.reservedHeight + 60 + statsLift)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))

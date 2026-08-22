@@ -70,7 +70,7 @@ struct FiltersPanel: View {
                 PanelToggleRow(
                     title: "Day and night",
                     symbol: "moon.stars",
-                    detail: "Washes the half of the world that is in darkness, with civil twilight as a softer band at its edge. Worked out on the device from the date and the clock — nothing to fetch.",
+                    detail: "Washes the half of the world that is in darkness, fading in through twilight the way the real edge does rather than stopping at a line. Worked out on the device from the date and the clock — nothing to fetch.",
                     isOn: $filters.showsTerminator
                 )
 

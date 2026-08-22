@@ -960,8 +960,9 @@ struct TrackerMapView: UIViewRepresentable {
         private var terminatorDrawnAt: Date?
 
         /// How stale the shape may get. The terminator sweeps a quarter of a
-        /// degree a minute, so two minutes is half a degree — narrower than the
-        /// line it is drawn with at any zoom that shows a whole continent.
+        /// degree a minute, so two minutes is half a degree — a fifth of the
+        /// width of one band of the fade, and invisible at any zoom that shows
+        /// a whole continent.
         private static let terminatorLifetime: TimeInterval = 120
 
         func syncTerminator(on mapView: MKMapView) {
@@ -1402,11 +1403,11 @@ struct TrackerMapView: UIViewRepresentable {
             }
 
             if let area = overlay as? MKPolygon {
-                if area.title == Terminator.nightTitle || area.title == Terminator.twilightTitle {
+                if Terminator.isBand(area.title) {
                     let renderer = MKPolygonRenderer(polygon: area)
-                    renderer.fillColor = Terminator.fill(for: area.title)
-                    // No outline at all. The whole point of two bands is a soft
-                    // edge, and a stroke would put the hard line back.
+                    renderer.fillColor = Terminator.bandFill
+                    // No outline at all. The whole point of the stack of bands
+                    // is a soft edge, and a stroke would put the hard line back.
                     renderer.strokeColor = .clear
                     renderer.lineWidth = 0
                     return renderer

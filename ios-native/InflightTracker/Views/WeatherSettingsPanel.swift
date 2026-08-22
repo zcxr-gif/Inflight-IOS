@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Weather settings, from the toolbar's weather button.
+/// Weather settings, from the last item in the weather chip's menu.
 ///
 /// The units and the chip are about how a report *reads* rather than which
 /// reports are fetched, so the sample at the top is live and changing a unit
