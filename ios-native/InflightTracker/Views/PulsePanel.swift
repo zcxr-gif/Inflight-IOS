@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// What the server is doing tonight, from the toolbar.
+/// What the server is doing tonight, from the tab above the toolbar.
 ///
 /// Every number is counted from the packet the map is drawn from, so nothing
 /// here can disagree with what is on screen — and nothing here costs a request.

@@ -21,7 +21,25 @@ final class PlaneSprites {
 
     static let shared = PlaneSprites()
 
-    private var cache: [String: UIImage] = [:]
+    /// What a drawn icon is filed under.
+    ///
+    /// A struct rather than an interpolated string, because this is looked up
+    /// once per aircraft that has turned since the last packet — a few hundred
+    /// times a second on a busy server — and building the key was costing two
+    /// string allocations every time, to look up something that was already
+    /// there.
+    private struct IconKey: Hashable {
+        let sprite: String
+        /// The body colour, packed, so two colours a floating-point hair apart
+        /// are the same key. They arrive here from a `Color` round-tripped
+        /// through user defaults, and without the rounding a slider drag would
+        /// mint a new cache entry per frame.
+        let body: UInt32
+        let pointSize: CGFloat
+        let padded: Bool
+    }
+
+    private var cache: [IconKey: UIImage] = [:]
 
     private init() {}
 
@@ -57,7 +75,12 @@ final class PlaneSprites {
     /// dark colour still reads against a dark map.
     func icon(forKey key: String, selected: Bool, tint: UIColor? = nil) -> UIImage? {
         let body = tint ?? (selected ? Palette.selected : Palette.body)
-        let cacheKey = "\(key)|\(body.cacheKey)"
+        let cacheKey = IconKey(
+            sprite: key,
+            body: body.packed,
+            pointSize: AppConfig.iconPointSize,
+            padded: true
+        )
         if let cached = cache[cacheKey] { return cached }
 
         guard let mark = mark(forKey: key) else { return nil }
@@ -81,7 +104,12 @@ final class PlaneSprites {
     /// annotation stays tappable. An airport marker sizes its own image view
     /// and wants the drawing to fill it.
     func rawIcon(forKey key: String, pointSize: CGFloat) -> UIImage? {
-        let cacheKey = "raw|\(key)|\(pointSize)"
+        let cacheKey = IconKey(
+            sprite: key,
+            body: Palette.body.packed,
+            pointSize: pointSize,
+            padded: false
+        )
         if let cached = cache[cacheKey] { return cached }
 
         guard let mark = mark(forKey: key) else { return nil }
@@ -202,18 +230,22 @@ final class PlaneSprites {
 
 private extension UIColor {
 
-    /// A short, stable string for this colour, for use in a cache key.
+    /// This colour as one integer, for use in a cache key.
     ///
     /// Rounded to the nearest 1/255 on purpose: colours arrive here from a
     /// `Color` round-tripped through user defaults, and two that are a
     /// floating-point hair apart are the same colour to look at. Without the
     /// rounding a slider drag would mint a new cache entry per frame.
-    var cacheKey: String {
+    var packed: UInt32 {
         var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
         guard getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
-            return description
+            // A pattern or an unconvertible space, which none of the palette
+            // is. Distinct from every real colour, and stable.
+            return .max
         }
-        let scale = { (value: CGFloat) in Int((value * 255).rounded()) }
-        return "\(scale(red)),\(scale(green)),\(scale(blue)),\(scale(alpha))"
+        let channel = { (value: CGFloat) in
+            UInt32((min(max(value, 0), 1) * 255).rounded())
+        }
+        return channel(red) << 24 | channel(green) << 16 | channel(blue) << 8 | channel(alpha)
     }
 }

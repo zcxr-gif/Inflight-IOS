@@ -19,7 +19,17 @@ final class FriendsStore: ObservableObject {
     static let shared = FriendsStore()
 
     /// Lowercased usernames, in the order they were added.
-    @Published private(set) var friends: [String] = []
+    @Published private(set) var friends: [String] = [] {
+        didSet { watched = Set(friends) }
+    }
+
+    /// The same names, as a set.
+    ///
+    /// The map asks "is this pilot watched?" once per aircraft per packet, and
+    /// the traffic highlighting rebuilt this set from the list every time the
+    /// screen redrew. It changes when somebody is added or removed and at no
+    /// other time, so it is kept rather than rebuilt.
+    private(set) var watched: Set<String> = []
 
     @Published var preferences: NotificationPreferences {
         didSet {
@@ -42,7 +52,11 @@ final class FriendsStore: ObservableObject {
         // — the friends list still works, the widgets just can't see it.
         defaults = UserDefaults(suiteName: SharedStore.appGroupIdentifier) ?? .standard
 
-        friends = defaults.stringArray(forKey: Self.friendsKey) ?? []
+        // Assigned rather than set through the property's observer, which does
+        // not run during `init`.
+        let stored = defaults.stringArray(forKey: Self.friendsKey) ?? []
+        friends = stored
+        watched = Set(stored)
         if let data = defaults.data(forKey: Self.preferencesKey),
            let decoded = try? JSONDecoder().decode(NotificationPreferences.self, from: data) {
             preferences = decoded

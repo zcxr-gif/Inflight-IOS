@@ -52,14 +52,55 @@ struct SettingsPanel: View {
                 }
             }
 
-            // Its own section rather than a row in Appearance: four styles
-            // with a sentence each is a list, and two of them are Pro, which a
-            // segmented control has nowhere to say.
-            PanelSection(title: "MAP") {
-                ForEach(MapStyleMode.allCases) { style in
-                    if style != MapStyleMode.allCases.first { PanelDivider() }
-                    mapStyleRow(style)
+            // Its own section rather than a row in Appearance: each of these
+            // wants a sentence, and some of them are Pro, which a segmented
+            // control has nowhere to say.
+            //
+            // Two lists rather than one, because they are two questions. The
+            // shape of the world and what it is drawn in used to be a single
+            // list of four styles, which is why the planet only ever came in
+            // satellite imagery.
+            PanelSection(title: "MAP SHAPE") {
+                ForEach(MapProjection.allCases) { projection in
+                    if projection != MapProjection.allCases.first { PanelDivider() }
+
+                    mapChoiceRow(
+                        title: projection.label,
+                        symbol: projection.symbol,
+                        detail: projection.detail,
+                        isPro: projection.isPro,
+                        isSelected: appearance.mapProjection == projection
+                    ) {
+                        appearance.mapProjection = projection
+                    }
                 }
+            }
+
+            PanelSection(title: "MAP STYLE") {
+                ForEach(MapPalette.allCases) { palette in
+                    if palette != MapPalette.allCases.first { PanelDivider() }
+
+                    mapChoiceRow(
+                        title: palette.label,
+                        symbol: palette.symbol,
+                        detail: palette.detail,
+                        isPro: palette.isPro,
+                        isSelected: appearance.mapPalette == palette
+                    ) {
+                        appearance.mapPalette = palette
+                    }
+                }
+
+                PanelDivider()
+
+                PanelToggleRow(
+                    title: "Full detail",
+                    symbol: "map.fill",
+                    detail: "Roads, terrain shading and place names at full strength, rather than the muted cartography the map recedes into behind the traffic. Imagery has none of it to turn up.",
+                    isOn: $appearance.isMapDetailed
+                )
+                .disabled(appearance.mapPalette.usesImagery)
+                .opacity(appearance.mapPalette.usesImagery ? 0.45 : 1)
             }
 
             PanelSection(title: "FEED") {
@@ -314,22 +355,31 @@ struct SettingsPanel: View {
         .buttonStyle(.plain)
     }
 
-    /// One map style. Locked styles are shown, not hidden — you cannot want
-    /// something you have never seen — and tapping one opens the paywall
-    /// rather than silently doing nothing.
-    private func mapStyleRow(_ style: MapStyleMode) -> some View {
-        let locked = style.isPro && !entitlements.isPro
-        let selected = appearance.mapStyle == style
+    /// One choice about how the map is drawn — its shape, or its palette.
+    ///
+    /// Locked choices are shown, not hidden — you cannot want something you
+    /// have never seen — and tapping one opens the paywall rather than silently
+    /// doing nothing. The choice is still stored either way, so buying Pro from
+    /// there leaves you on the thing you picked.
+    private func mapChoiceRow(
+        title: String,
+        symbol: String,
+        detail: String,
+        isPro: Bool,
+        isSelected: Bool,
+        select: @escaping () -> Void
+    ) -> some View {
+        let locked = isPro && !entitlements.isPro
 
         return Button {
-            appearance.mapStyle = style
+            select()
             if locked { isShowingPaywall = true }
         } label: {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 4) {
-                    PanelRowLabel(title: style.label, symbol: style.symbol)
+                    PanelRowLabel(title: title, symbol: symbol)
 
-                    Text(style.detail)
+                    Text(detail)
                         .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(theme.textDim)
                         .padding(.leading, 30)
@@ -347,7 +397,7 @@ struct SettingsPanel: View {
                         .padding(.vertical, 3)
                         .background { Capsule().fill(theme.accent) }
                         .fixedSize()
-                } else if selected {
+                } else if isSelected {
                     Image(systemName: "checkmark")
                         .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(theme.textPrimary)

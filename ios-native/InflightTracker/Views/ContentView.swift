@@ -8,6 +8,14 @@ struct ContentView: View {
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @ObservedObject private var filters = MapFilters.shared
     @ObservedObject private var weatherPreferences = WeatherPreferences.shared
+    /// Which tile layers are actually being served, for the chip's menu.
+    @ObservedObject private var tiles = RainViewerService.shared
+    /// Observed for its arrivals rather than read here: a grid of model wind
+    /// lands well after the switch that asked for it, and the map only draws
+    /// what it is holding when something redraws it. Without this the barbs
+    /// waited for the next packet, which is a switch that appears to do
+    /// nothing for several seconds.
+    @ObservedObject private var winds = WindsAloftStore.shared
     @ObservedObject private var friends = FriendsStore.shared
     @ObservedObject private var push = PushService.shared
     @ObservedObject private var entitlements = Entitlements.shared
@@ -46,6 +54,11 @@ struct ContentView: View {
 
     /// The ruler: whether it is down, and the leg it is measuring.
     @State private var measurement = MapMeasurement()
+
+    /// Whether the stats are pulled up over the toolbar. Here rather than in
+    /// the tab itself because the chrome in the two bottom corners has to move
+    /// out of the way of the card while it is up.
+    @State private var isStatsUp = false
 
     /// Whether the map is staying with the open aircraft. Lives here rather
     /// than in the map so it can be turned off by the things that contradict
@@ -87,13 +100,56 @@ struct ContentView: View {
     private static let busiestAirportsOnMap = 40
 
     /// Fields to mark. Empty when the toggle is off, which is the whole switch.
-    private var mapAirports: [MapAirport] {
-        guard filters.showsAirports else { return [] }
-        return MapAirport.active(
-            in: feed.flights,
-            stations: feed.atcStations,
-            busiestLimit: Self.busiestAirportsOnMap
-        )
+    ///
+    /// Held in state and recounted once per packet rather than worked out in
+    /// `body`, for the same reason `myFlights` is: ranking the fields walks
+    /// every aircraft on the server twice over, upper-casing two ICAOs apiece,
+    /// and the body runs far more often than the feed changes — on every
+    /// keystroke in the search field, every time a chip opens, and twenty times
+    /// a second for the length of a replay.
+    @State private var mapAirports: [MapAirport] = []
+
+    /// Bumped whenever the list above is rebuilt, so the map can tell whether
+    /// its markers need re-diffing without comparing the two lists.
+    @State private var airportsRevision = 0
+
+    /// Watched pilots the feed can currently see, for the toolbar's badge.
+    /// Counted per packet rather than per redraw, and for the same reason: it
+    /// is a walk over the whole server, lower-casing a name per aircraft.
+    @State private var friendsAloft = 0
+
+    private func refreshMapAirports() {
+        let fields = filters.showsAirports
+            ? MapAirport.active(
+                in: feed.flights,
+                stations: feed.atcStations,
+                busiestLimit: Self.busiestAirportsOnMap
+            )
+            : []
+
+        // `MapAirport` compares by what is drawn, so an unchanged ranking
+        // publishes nothing and the map is left alone.
+        guard fields != mapAirports else { return }
+        mapAirports = fields
+        airportsRevision &+= 1
+    }
+
+    private func refreshFriendsAloft() {
+        // The store keeps this set, lowercased, and rebuilds it only when
+        // somebody is added or removed.
+        let watched = friends.watched
+        guard !watched.isEmpty else {
+            if friendsAloft != 0 { friendsAloft = 0 }
+            return
+        }
+
+        var seen = Set<String>()
+        for flight in feed.flights {
+            guard let username = flight.username?.lowercased(), watched.contains(username) else { continue }
+            seen.insert(username)
+        }
+
+        if friendsAloft != seen.count { friendsAloft = seen.count }
     }
 
     /// Opened from the avatar button, and from Settings.
@@ -167,117 +223,171 @@ struct ContentView: View {
         MapSearch.results(for: query, in: feed.flights, limit: 6)
     }
 
-    /// Watched pilots the feed can currently see, for the toolbar's badge.
-    /// Counted over the whole packet rather than `visibleFlights` — a friend
-    /// hidden by an altitude filter is still flying.
-    private var friendsAloft: Int {
-        let watched = Set(friends.friends)
-        guard !watched.isEmpty else { return 0 }
-        var seen = Set<String>()
-        for flight in feed.flights {
-            guard let username = flight.username?.lowercased(), watched.contains(username) else { continue }
-            seen.insert(username)
-        }
-        return seen.count
+    /// A stamp of everything that decides which aircraft the map should be
+    /// drawing: the packet it came from, the filters narrowing it, and the one
+    /// aircraft that is kept whatever they say.
+    ///
+    /// The map skips its whole annotation diff when this has not moved. Without
+    /// it every redraw walked the server — and the body redraws for reasons
+    /// that have nothing to do with the traffic.
+    private var trafficRevision: Int {
+        var hasher = Hasher()
+        hasher.combine(feed.lastUpdate)
+        hasher.combine(filters.signature)
+        hasher.combine(selection?.id)
+        return hasher.finalize()
     }
 
-    var body: some View {
-        ZStack(alignment: .top) {
-            TrackerMapView(
-                flights: visibleFlights,
-                selection: $selection,
-                command: mapCommand,
-                bottomInset: selection == nil ? MapToolbar.reservedHeight : peakHeight,
-                replayFrame: replay.frame,
-                // A replay is driving the camera down the old track; following
-                // the live aircraft at the same time would be two things
-                // fighting over one map.
-                isFollowing: isFollowing && !replay.isActive,
-                colorScheme: theme.colorScheme,
-                style: appearance.resolvedMapStyle,
-                airports: mapAirports,
-                showsGroundLayout: filters.showsGroundLayout,
-                showsFlightPlan: filters.showsFlightPlan,
-                weatherTiles: mapWeather.tiles,
-                measurement: $measurement,
-                showsTerminator: filters.showsTerminator,
-                showsNatTracks: filters.showsNatTracks,
-                showsWinds: weatherPreferences.showsWinds,
-                windLevel: weatherPreferences.windLevel,
-                showsFieldConditions: weatherPreferences.showsFieldConditions,
-                onSelectAirport: { icao in
-                    guard let field = AirportStore.shared.airport(icao) else { return }
-                    // No origin: a field tapped on the map was not arrived at
-                    // from an aircraft, even if one happens to be open behind
-                    // it, and offering to go "back" to one would be inventing a
-                    // history.
-                    selection = nil
-                    openAirport(field)
-                },
-                highlighting: highlighting
-            )
-            .ignoresSafeArea()
+    /// How much of the bottom of the map is spoken for: the toolbar, or the
+    /// window sitting over it.
+    ///
+    /// Hoisted out of the map's argument list along with the two below it, and
+    /// not for tidiness. Swift type-checks a view's body as one expression, and
+    /// the cost of that climbs steeply with the size of it — a `body` this long
+    /// with conditionals and operators buried in a twenty-argument call is how
+    /// a build starts failing with "unable to type-check this expression in
+    /// reasonable time". Every one of these is a separate, trivially solved
+    /// expression now.
+    private var mapBottomInset: CGFloat {
+        selection == nil ? MapToolbar.reservedHeight : peakHeight
+    }
 
-            // Map chrome, top down: the search field until an aircraft is
-            // open, then the weather chip in its place — it reports on where
-            // that aircraft is, so there is nothing for it to say without one.
-            //
-            // The search field gives way for the same reason the toolbar does.
-            // Once you have found the aircraft, the field has done its job, and
-            // leaving it there costs the top of the map — which is precisely
-            // where a window open at its peak leaves room to actually watch the
-            // thing you just tapped.
-            VStack(alignment: .leading, spacing: 10) {
-                // Top-aligned so the results card drops below the field rather
-                // than pushing the avatar down the screen with it.
-                //
-                // The avatar is outside the search field's own condition on
-                // purpose. It used to go with it, which meant the one way in to
-                // your own profile disappeared the moment you tapped an
-                // aeroplane — and watching an aeroplane is what people are
-                // doing almost all of the time they have this app open.
-                HStack(alignment: .top, spacing: 10) {
-                    if selection == nil {
-                        MapSearchField(
-                            query: $query,
-                            results: results,
-                            theme: theme,
-                            onSelect: open
-                        )
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                    } else {
-                        Spacer(minLength: 0)
-                    }
+    /// A replay is driving the camera down the old track; following the live
+    /// aircraft at the same time would be two things fighting over one map.
+    private var isFollowingLive: Bool { isFollowing && !replay.isActive }
 
-                    profileButton
-                }
+    /// A field tapped on the map. No origin: it was not arrived at from an
+    /// aircraft, even if one happens to be open behind it, and offering to go
+    /// "back" to one would be inventing a history.
+    private func openAirport(fromMap icao: String) {
+        guard let field = AirportStore.shared.airport(icao) else { return }
+        selection = nil
+        openAirport(field)
+    }
 
-                if selection != nil, weatherPreferences.isChipVisible {
+    /// The map itself, under everything.
+    private var map: some View {
+        TrackerMapView(
+            flights: visibleFlights,
+            selection: $selection,
+            command: mapCommand,
+            bottomInset: mapBottomInset,
+            replayFrame: replay.frame,
+            isFollowing: isFollowingLive,
+            // The map's own answer, which is the app's until a palette says
+            // otherwise. The chrome over the map keeps the app's either way: a
+            // light map under a dark app is a choice about the cartography,
+            // not about the furniture.
+            colorScheme: appearance.resolvedMapScheme,
+            style: appearance.resolvedMapStyle,
+            trafficRevision: trafficRevision,
+            airports: mapAirports,
+            airportsRevision: airportsRevision,
+            showsGroundLayout: filters.showsGroundLayout,
+            showsFlightPlan: filters.showsFlightPlan,
+            weatherTiles: mapWeather.tiles,
+            onWeatherLegibility: { mapWeather.report(legible: $0) },
+            measurement: $measurement,
+            showsTerminator: filters.showsTerminator,
+            showsNatTracks: filters.showsNatTracks,
+            showsWinds: weatherPreferences.showsWinds,
+            windLevel: weatherPreferences.windLevel,
+            showsFieldConditions: weatherPreferences.showsFieldConditions,
+            onSelectAirport: { openAirport(fromMap: $0) },
+            highlighting: highlighting
+        )
+        .ignoresSafeArea()
+    }
+
+    /// The top row: what you are looking for, or what you have found, and your
+    /// own face beside it.
+    ///
+    /// The avatar is outside the search field's own condition on purpose. It
+    /// used to go with it, which meant the one way in to your own profile
+    /// disappeared the moment you tapped an aeroplane — and watching an
+    /// aeroplane is what people are doing almost all of the time they have this
+    /// app open.
+    ///
+    /// Top-aligned, so the results card drops below the field rather than
+    /// pushing the avatar down the screen with it, and so opening the weather
+    /// chip drops its card without moving anything either.
+    private var topRow: some View {
+        HStack(alignment: .top, spacing: 10) {
+            if selection == nil {
+                MapSearchField(
+                    query: $query,
+                    results: results,
+                    theme: theme,
+                    onSelect: open
+                )
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            } else {
+                // In the corner the search field has just vacated, rather than
+                // on a line of its own underneath it. The chip used to sit
+                // below this row, which left the top left of the map — the one
+                // corner a window at its peak does not cover — empty, with the
+                // weather pushed a row down for no reason.
+                if weatherPreferences.isChipVisible {
                     WeatherChip(model: weather, theme: theme, isExpanded: $isWeatherExpanded)
                         .transition(.opacity.combined(with: .move(edge: .leading)))
                 }
 
-                if weatherPreferences.mapLayer != .off {
-                    MapWeatherBar(model: mapWeather, theme: theme)
-                        .transition(.opacity.combined(with: .move(edge: .leading)))
-                }
-
-                if measurement.isOn {
-                    MeasureBar(measurement: $measurement, theme: theme)
-                        .transition(.opacity.combined(with: .move(edge: .leading)))
-                }
+                Spacer(minLength: 0)
             }
-            .padding(.horizontal, 14)
-            .padding(.top, 8)
 
+            profileButton
+        }
+    }
+
+    /// Map chrome, top down: the search field until an aircraft is open, then
+    /// the weather chip in its place — it reports on where that aircraft is, so
+    /// there is nothing for it to say without one.
+    ///
+    /// The search field gives way for the same reason the toolbar does. Once
+    /// you have found the aircraft, the field has done its job, and leaving it
+    /// there costs the top of the map — which is precisely where a window open
+    /// at its peak leaves room to actually watch the thing you just tapped.
+    private var topChrome: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            topRow
+
+            if weatherPreferences.mapLayer != .off {
+                MapWeatherBar(model: mapWeather, theme: theme)
+                    .transition(.opacity.combined(with: .move(edge: .leading)))
+            }
+
+            if measurement.isOn {
+                MeasureBar(measurement: $measurement, theme: theme)
+                    .transition(.opacity.combined(with: .move(edge: .leading)))
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 8)
+    }
+
+    /// Everything on screen: the map, and the chrome floating over it.
+    ///
+    /// Separated from the modifiers below it so the two are type-checked as two
+    /// expressions rather than one very large one.
+    private var mapStack: some View {
+        ZStack(alignment: .top) {
+            map
+            topChrome
             mapControls
+            weatherControl
             mapStyleControl
             findMeControl
             mapToolbar
             replayBar
         }
+    }
+
+    /// The stack, with everything that watches for a change attached.
+    private var watchedStack: some View {
+        mapStack
         .animation(.easeInOut(duration: 0.22), value: selection?.id)
         .animation(.easeInOut(duration: 0.22), value: replay.isActive)
+        .animation(.easeInOut(duration: 0.24), value: isStatsUp)
         .onChange(of: selection?.id) { _, id in
             // A replay belongs to the aircraft it was started from, and to the
             // window that drew the track under it. Opening another aircraft,
@@ -304,6 +414,12 @@ struct ContentView: View {
             }
 
             isWeatherExpanded = false
+
+            // The toolbar and its tab are going away with the window opening
+            // over them; the stats should not be waiting up when it closes
+            // again, half an hour and three aeroplanes later.
+            isStatsUp = false
+
             updateWeather(force: true)
         }
         // The aircraft keeps moving while its window is open, so the field it
@@ -348,57 +464,18 @@ struct ContentView: View {
         .onChange(of: sheet) { _, value in
             if value != .flight, selection != nil { selection = nil }
         }
+    }
+
+    /// The map, everything watching it, and everything it can present.
+    ///
+    /// The chain is split in two here for the same reason the view tree above
+    /// was broken up: one expression carrying a dozen modifiers, several of
+    /// them presenting whole view trees of their own, is the sort the compiler
+    /// gives up type-checking.
+    var body: some View {
+        watchedStack
         .sheet(item: $sheet) { which in
-            switch which {
-            case .flight:
-                Group {
-                    if let selected = selection {
-                        FlightDetailView(
-                            flightId: selected.id,
-                            peakHeight: $peakHeight,
-                            onReplay: { track in startReplay(of: selected.id, track: track) },
-                            onSelectAirport: { field in openAirport(field, from: selected) }
-                        )
-                            // Resets the window's own state per aircraft
-                            // without taking the sheet down with it.
-                            .id(selected.id)
-                            .environmentObject(feed)
-                    }
-                }
-                .presentationDetents([peakDetent, .large], selection: $detent)
-                .presentationDragIndicator(.visible)
-                .flightInfoSheetInteraction(upThrough: peakDetent)
-                // Belt and braces: however the sheet came to be on screen, it
-                // starts in the peak state.
-                .onAppear { detent = peakDetent }
-
-            case .panel(let kind):
-                panel(kind)
-
-            case .airport(let icao):
-                // Resolved here rather than carried in the case: the sheet can
-                // outlive the search result it was opened from, and an ICAO the
-                // dataset doesn't have is nothing to present.
-                if let airport = AirportStore.shared.airport(icao) {
-                    AirportPanel(
-                        airport: airport,
-                        onShowOnMap: { field in
-                            // Same order as the other panels: close first, then
-                            // move, so the field isn't framed underneath the
-                            // sheet it was picked in.
-                            sheet = nil
-                            focus(on: field.coordinate, spanMeters: 90_000)
-                        },
-                        onSelectFlight: { flight in
-                            sheet = nil
-                            selection = SelectedFlight(id: flight.id)
-                            focus(on: flight.coordinate, spanMeters: 240_000)
-                        },
-                        origin: airportReturn
-                    )
-                    .environmentObject(feed)
-                }
-            }
+            sheetContent(for: which)
         }
         // The detent set changes with the measurement, so the selection has to
         // move to the new value or the sheet snaps to whatever is left.
@@ -433,6 +510,11 @@ struct ContentView: View {
         .onAppear {
             feed.connect()
             mapWeather.refresh()
+            // Whatever the feed already has, for a view appearing over a
+            // connection that has been running — coming back from a sheet, or
+            // a second appearance of the map.
+            refreshMapAirports()
+            refreshFriendsAloft()
         }
         .animation(.easeInOut(duration: 0.22), value: weatherPreferences.mapLayer)
         .animation(.easeInOut(duration: 0.22), value: measurement)
@@ -459,15 +541,25 @@ struct ContentView: View {
         .onChange(of: entitlements.isPro) { _, _ in
             replay.stopIfUnentitled()
         }
-        // The logbook is written from the same packets the map is drawn from.
-        // Keyed on `lastUpdate` rather than on the array so it runs once per
-        // packet: `flights` is rebuilt every time and comparing thousands of
-        // aircraft to decide whether to look at one of them is the wrong way
-        // round.
+        // Everything derived from a packet, worked out once as it lands rather
+        // than every time something asks for it. All four walk the whole
+        // server, and the body runs far more often than the feed changes.
+        //
+        // Keyed on `lastUpdate` rather than on the array itself: `flights` is
+        // rebuilt every packet, and comparing thousands of aircraft to decide
+        // whether to look at them is the wrong way round.
         .onChange(of: feed.lastUpdate) { _, _ in
             LogbookRecorder.shared.note(flights: feed.flights, server: feed.server)
             refreshMyFlights()
+            refreshMapAirports()
+            refreshFriendsAloft()
         }
+        // The other half of what those three depend on: who is on frequency
+        // ranks the fields, the watchlist decides the badge, and the switch
+        // decides whether there are any markers at all.
+        .onChange(of: feed.stationsUpdate) { _, _ in refreshMapAirports() }
+        .onChange(of: filters.showsAirports) { _, _ in refreshMapAirports() }
+        .onChange(of: friends.friends) { _, _ in refreshFriendsAloft() }
         .task {
             // Both are launch work rather than panel work: the App Store
             // entitlement decides whether a Pro tile is locked on the first
@@ -479,6 +571,73 @@ struct ContentView: View {
     }
 
     // MARK: - Panels
+
+    /// Whatever the one sheet is currently showing.
+    ///
+    /// Its own method rather than a closure inside `body`, and each branch its
+    /// own method under that: a `switch` returning three quite different view
+    /// trees, written inline, is one more large sub-expression in a body that
+    /// the compiler already struggles to type-check as a whole.
+    @ViewBuilder
+    private func sheetContent(for which: WindowSheet) -> some View {
+        switch which {
+        case .flight:
+            flightWindow
+        case .panel(let kind):
+            panel(kind)
+        case .airport(let icao):
+            airportSheet(icao)
+        }
+    }
+
+    private var flightWindow: some View {
+        Group {
+            if let selected = selection {
+                FlightDetailView(
+                    flightId: selected.id,
+                    peakHeight: $peakHeight,
+                    onReplay: { track in startReplay(of: selected.id, track: track) },
+                    onSelectAirport: { field in openAirport(field, from: selected) }
+                )
+                    // Resets the window's own state per aircraft without taking
+                    // the sheet down with it.
+                    .id(selected.id)
+                    .environmentObject(feed)
+            }
+        }
+        .presentationDetents([peakDetent, .large], selection: $detent)
+        .presentationDragIndicator(.visible)
+        .flightInfoSheetInteraction(upThrough: peakDetent)
+        // Belt and braces: however the sheet came to be on screen, it starts in
+        // the peak state.
+        .onAppear { detent = peakDetent }
+    }
+
+    /// A field. Resolved here rather than carried in the sheet's case: the
+    /// sheet can outlive the search result it was opened from, and an ICAO the
+    /// dataset doesn't have is nothing to present.
+    @ViewBuilder
+    private func airportSheet(_ icao: String) -> some View {
+        if let airport = AirportStore.shared.airport(icao) {
+            AirportPanel(
+                airport: airport,
+                onShowOnMap: { field in
+                    // Same order as the other panels: close first, then move,
+                    // so the field isn't framed underneath the sheet it was
+                    // picked in.
+                    sheet = nil
+                    focus(on: field.coordinate, spanMeters: 90_000)
+                },
+                onSelectFlight: { flight in
+                    sheet = nil
+                    selection = SelectedFlight(id: flight.id)
+                    focus(on: flight.coordinate, spanMeters: 240_000)
+                },
+                origin: airportReturn
+            )
+            .environmentObject(feed)
+        }
+    }
 
     @ViewBuilder
     private func panel(_ kind: MapPanelKind) -> some View {
@@ -755,13 +914,29 @@ struct ContentView: View {
                 // something that goes away would be the wrong trade.
                 HintStrip(placement: .map, isFloating: true)
 
-                MapToolbar(
-                    theme: theme,
-                    atcCount: feed.atcCount,
-                    activeFilters: filters.activeCount,
-                    friendsAloft: friendsAloft
-                ) { kind in
-                    sheet = .panel(kind)
+                // The stats tab and the bar are one piece of furniture, so they
+                // sit tight against each other — the tab reads as the top edge
+                // of the bar rather than as a button floating above it.
+                //
+                // The card it pulls up is not reserved against, for the same
+                // reason the hint above is not: it is up for as long as it is
+                // being read and then gone, and the corners lift out of its way
+                // while it is.
+                VStack(spacing: 3) {
+                    StatsTip(theme: theme, isUp: $isStatsUp) {
+                        isStatsUp = false
+                        sheet = .panel(.stats)
+                    }
+                    .environmentObject(feed)
+
+                    MapToolbar(
+                        theme: theme,
+                        atcCount: feed.atcCount,
+                        activeFilters: filters.activeCount,
+                        friendsAloft: friendsAloft
+                    ) { kind in
+                        sheet = .panel(kind)
+                    }
                 }
             }
             .padding(.horizontal, 14)
@@ -810,20 +985,23 @@ struct ContentView: View {
             }
         } label: {
             Group {
-                if let account = accounts.account {
+                if let account = accounts.account, profiles.profile?.avatarURL != nil {
                     PilotAvatar(
                         url: profiles.profile?.avatarURL,
                         // The profile's initials when there is one, because
                         // that is the name other pilots see; the account's
-                        // otherwise.
+                        // otherwise. Only ever seen for the moment the picture
+                        // takes to load, since this branch has one.
                         initials: profiles.profile?.initials ?? account.initials,
                         side: 38
                     )
                 } else {
-                    Image(systemName: "person.crop.circle")
-                        .font(.system(size: 17, weight: .medium))
-                        .foregroundStyle(theme.textPrimary)
-                        .frame(width: 38, height: 38)
+                    // The app's own mark, in the corner it has always kept for
+                    // an account. It stands in for the system person glyph
+                    // signed out, and for the initials-on-accent circle signed
+                    // in without a picture — a pilot who has uploaded one still
+                    // gets their own face above.
+                    inflightMark
                 }
             }
             // Small, and outside the circle, so it reads as a state marker on
@@ -870,9 +1048,140 @@ struct ContentView: View {
         }
     }
 
+    /// The Inflight pin, sized to sit in the same 38-point circle an avatar
+    /// does. Trimmed to its own ink in the asset catalogue rather than padded,
+    /// so it fills the button the way a picture would.
+    private var inflightMark: some View {
+        Image("InflightLogo")
+            .resizable()
+            .scaledToFit()
+            .padding(6)
+            .frame(width: 38, height: 38)
+    }
+
     private var profileLabel: String {
         guard let account = accounts.account else { return "Sign in" }
         return entitlements.isPro ? "\(account.handle), Pro account" : account.handle
+    }
+
+    /// How far the chrome in the bottom corners moves while the stats card is
+    /// up, so it sits above the card rather than behind it.
+    private var statsLift: CGFloat {
+        isStatsUp && selection == nil && !replay.isActive ? StatsTip.cardHeight + 6 : 0
+    }
+
+    /// Weather, on the map's left shoulder.
+    ///
+    /// The mirror of the style and the ruler on the right: the same chrome, the
+    /// same height, the opposite corner. It used to be a seventh of the toolbar
+    /// — a whole destination for what is mostly one decision, which layer is
+    /// drawn — and putting it here makes that decision one tap from the map
+    /// instead of a tap, a panel and a scroll.
+    ///
+    /// The glyph is whichever layer is on, and the chip fills with the accent
+    /// while anything is, the same way the ruler reads when it is down. The
+    /// panel behind it still exists for the units, the sample and the rest; it
+    /// is the last item in the menu.
+    @ViewBuilder
+    private var weatherControl: some View {
+        if selection == nil, !replay.isActive {
+            Menu {
+                Section("Layer") {
+                    // Buttons rather than a `Picker`, for the same reason the
+                    // style menu uses them: each one is a decision, and a
+                    // checkmark beside the current answer is how the rest of
+                    // the app's menus read.
+                    //
+                    // Only the layers the tile service is actually serving.
+                    // RainViewer has been withdrawing its free tier in stages,
+                    // and offering a switch that draws nothing is worse than
+                    // not offering it.
+                    ForEach(availableWeatherLayers) { layer in
+                        Button {
+                            weatherPreferences.mapLayer = layer
+                        } label: {
+                            Label(
+                                layer.label,
+                                systemImage: weatherPreferences.mapLayer == layer ? "checkmark" : layer.symbol
+                            )
+                        }
+                    }
+                }
+
+                Section {
+                    Button {
+                        weatherPreferences.showsWinds.toggle()
+                    } label: {
+                        Label(
+                            "Winds at \(weatherPreferences.windLevel.longLabel)",
+                            systemImage: weatherPreferences.showsWinds ? "checkmark" : "wind"
+                        )
+                    }
+
+                    Button {
+                        sheet = .panel(.weather)
+                    } label: {
+                        Label("Weather settings", systemImage: "slider.horizontal.3")
+                    }
+                }
+            } label: {
+                Image(systemName: weatherSymbol)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(isWeatherOnMap ? theme.onAccent : theme.textPrimary)
+                    .frame(width: 44, height: 42)
+                    .background {
+                        if isWeatherOnMap { Rectangle().fill(theme.accent) }
+                    }
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel(weatherLabel)
+            .accessibilityAddTraits(isWeatherOnMap ? .isSelected : [])
+            .frame(width: 44)
+            // Glass draws behind its content rather than clipping it, so
+            // without this the accent squares off the chip's corners when a
+            // layer is on.
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .environment(\.colorScheme, theme.colorScheme)
+            .padding(.leading, 16)
+            .padding(.bottom, MapToolbar.reservedHeight + 8 + statsLift)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+            .ignoresSafeArea(.keyboard, edges: .bottom)
+            .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomLeading)))
+        }
+    }
+
+    /// The tile layers there is any point offering. A withdrawn one stays in
+    /// the list only while it is the one selected, so the menu still shows what
+    /// the map is set to.
+    private var availableWeatherLayers: [MapWeatherLayer] {
+        // `tiles` is observed rather than asked: the router reads it, and this
+        // needs re-running when what it says changes.
+        _ = tiles.state
+        return MapWeatherLayer.allCases.filter {
+            MapWeatherSource.isAvailable($0) || $0 == weatherPreferences.mapLayer
+        }
+    }
+
+    /// Anything of the weather actually drawn on the map — tiles under the
+    /// traffic, or barbs over it.
+    private var isWeatherOnMap: Bool {
+        weatherPreferences.mapLayer != .off || weatherPreferences.showsWinds
+    }
+
+    private var weatherSymbol: String {
+        if weatherPreferences.mapLayer != .off { return weatherPreferences.mapLayer.symbol }
+        return weatherPreferences.showsWinds ? "wind" : "cloud.sun.fill"
+    }
+
+    private var weatherLabel: String {
+        switch (weatherPreferences.mapLayer, weatherPreferences.showsWinds) {
+        case (.off, false): return "Weather"
+        case (.off, true): return "Weather, winds at \(weatherPreferences.windLevel.longLabel)"
+        case (let layer, false): return "Weather, \(layer.label.lowercased())"
+        case (let layer, true):
+            return "Weather, \(layer.label.lowercased()) and winds at \(weatherPreferences.windLevel.longLabel)"
+        }
     }
 
     /// Switching the map, or being told why you cannot.
@@ -881,9 +1190,31 @@ struct ContentView: View {
     /// paywall is opened *from* picking the globe, and buying Pro there leaves
     /// you on the globe rather than back where you started having to pick it
     /// again.
-    private func select(_ style: MapStyleMode) {
-        appearance.mapStyle = style
-        if style.isPro, !entitlements.isPro { isShowingStylePaywall = true }
+    private func select(_ projection: MapProjection) {
+        appearance.mapProjection = projection
+        if projection.isPro, !entitlements.isPro { isShowingStylePaywall = true }
+    }
+
+    private func select(_ palette: MapPalette) {
+        appearance.mapPalette = palette
+        if palette.isPro, !entitlements.isPro { isShowingStylePaywall = true }
+    }
+
+    /// Whether a Pro choice is one this account cannot have yet. Shown rather
+    /// than hidden — you cannot want something you have never seen.
+    private func locked(_ isPro: Bool) -> Bool { isPro && !entitlements.isPro }
+
+    /// The glyph on the corner button: the shape of the map when it is the
+    /// planet, since that is the bigger fact about it, and otherwise whatever
+    /// it is drawn in.
+    private var mapStyleSymbol: String {
+        let style = appearance.resolvedMapStyle
+        return style.projection == .globe ? style.projection.symbol : style.palette.symbol
+    }
+
+    private var mapStyleLabel: String {
+        let style = appearance.resolvedMapStyle
+        return "Map style, \(style.projection.label.lowercased()), \(style.palette.label.lowercased())"
     }
 
     /// How the map is drawn, in the corner that holds the map's controls.
@@ -895,8 +1226,10 @@ struct ContentView: View {
     /// and this gets out of its way; the style is still under Settings, where it
     /// is stored.
     ///
-    /// A menu rather than a cycle button: four styles is one too many to page
-    /// through blind, and the globe is the one people are looking for.
+    /// A menu rather than a cycle button, and now two lists in one menu: the
+    /// shape of the world, and what it is drawn in. They were one list of four
+    /// styles, which meant the planet only ever came in satellite imagery and
+    /// the flat map could never be black.
     @ViewBuilder
     private var mapStyleControl: some View {
         if selection == nil, !replay.isActive {
@@ -906,29 +1239,60 @@ struct ContentView: View {
             // each other.
             VStack(spacing: 0) {
                 Menu {
-                    // Buttons rather than a `Picker` bound to the setting: two
+                    // Buttons rather than a `Picker` bound to the setting: some
                     // of these are Pro, and a binding would have already
                     // changed the map by the time anything could check. Each
                     // one decides for itself whether it is switching the map or
                     // opening the paywall.
-                    ForEach(MapStyleMode.allCases) { style in
-                        Button {
-                            select(style)
-                        } label: {
-                            Label(
-                                style.isPro && !entitlements.isPro ? "\(style.label) (Pro)" : style.label,
-                                systemImage: appearance.mapStyle == style ? "checkmark" : style.symbol
-                            )
+                    Section("Shape") {
+                        ForEach(MapProjection.allCases) { projection in
+                            Button {
+                                select(projection)
+                            } label: {
+                                Label(
+                                    locked(projection.isPro) ? "\(projection.label) (Pro)" : projection.label,
+                                    systemImage: appearance.mapProjection == projection
+                                        ? "checkmark"
+                                        : projection.symbol
+                                )
+                            }
                         }
                     }
+
+                    Section("Map") {
+                        ForEach(MapPalette.allCases) { palette in
+                            Button {
+                                select(palette)
+                            } label: {
+                                Label(
+                                    locked(palette.isPro) ? "\(palette.label) (Pro)" : palette.label,
+                                    systemImage: appearance.mapPalette == palette ? "checkmark" : palette.symbol
+                                )
+                            }
+                        }
+                    }
+
+                    Section {
+                        // Nothing to turn up on imagery: it has no roads, no
+                        // terrain shading and no emphasis to set.
+                        Button {
+                            appearance.isMapDetailed.toggle()
+                        } label: {
+                            Label(
+                                "Full detail",
+                                systemImage: appearance.isMapDetailed ? "checkmark" : "map.fill"
+                            )
+                        }
+                        .disabled(appearance.resolvedMapStyle.palette.usesImagery)
+                    }
                 } label: {
-                    Image(systemName: appearance.resolvedMapStyle.symbol)
+                    Image(systemName: mapStyleSymbol)
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(theme.textPrimary)
                         .frame(width: 44, height: 42)
                         .contentShape(Rectangle())
                 }
-                .accessibilityLabel("Map style, \(appearance.resolvedMapStyle.label)")
+                .accessibilityLabel(mapStyleLabel)
 
                 Rectangle()
                     .fill(theme.stroke)
@@ -951,8 +1315,8 @@ struct ContentView: View {
             .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .environment(\.colorScheme, theme.colorScheme)
             .padding(.trailing, 16)
-            // Clears the toolbar, and the hint strip that can sit above it.
-            .padding(.bottom, MapToolbar.reservedHeight + 8)
+            // Clears the toolbar, and the stats card while it is up.
+            .padding(.bottom, MapToolbar.reservedHeight + 8 + statsLift)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))
@@ -1004,7 +1368,7 @@ struct ContentView: View {
             .environment(\.colorScheme, theme.colorScheme)
             .padding(.trailing, 16)
             // Above the style control, which sits in the same corner.
-            .padding(.bottom, MapToolbar.reservedHeight + 60)
+            .padding(.bottom, MapToolbar.reservedHeight + 60 + statsLift)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))

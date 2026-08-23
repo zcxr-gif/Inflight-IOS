@@ -1,12 +1,16 @@
 import SwiftUI
 
-/// The seven places the toolbar goes.
+/// The places a panel can be opened, and the five of them the toolbar carries.
 ///
-/// Ordered as they are read: who you came to see, then what is happening on
-/// the server, then what the map is showing, then how it reads, then the app
-/// itself. Friends leads because it is the only one that is about a person.
-/// ATC, airports and stats are a run — who is working, where everyone is, and
-/// what all of it adds up to — so they sit together in the middle.
+/// Ordered as they are read: who you came to see, then who is working, then
+/// where everyone is, then what the map is showing, then the app itself.
+/// Friends leads because it is the only one that is about a person.
+///
+/// Stats and weather are still panels — a widget can link straight to either,
+/// and both are still opened from somewhere — but neither takes a place on the
+/// bar any more. Weather is a chip on the map's left shoulder, beside the map
+/// style and the ruler on its right; the stats come up on a tab above the bar,
+/// where they cost nothing until they are asked for.
 enum MapPanelKind: String, Identifiable, CaseIterable {
 
     case friends
@@ -18,6 +22,9 @@ enum MapPanelKind: String, Identifiable, CaseIterable {
     case settings
 
     var id: String { rawValue }
+
+    /// What the bar itself shows, in order.
+    static let barItems: [MapPanelKind] = [.friends, .atc, .airports, .filters, .settings]
 
     var label: String {
         switch self {
@@ -55,10 +62,11 @@ enum MapPanelKind: String, Identifiable, CaseIterable {
 /// open a panel to discover.
 struct MapToolbar: View {
 
-    /// How much of the bottom of the map the bar covers, including the gap
-    /// under it. The map keeps this much clear when it frames something, the
-    /// same way it keeps clear of the flight window.
-    static let reservedHeight: CGFloat = 80
+    /// How much of the bottom of the map the bar covers, including the stats
+    /// tab sitting on top of it and the gap underneath. The map keeps this much
+    /// clear when it frames something, the same way it keeps clear of the
+    /// flight window.
+    static let reservedHeight: CGFloat = 100
 
     let theme: FlightInfoTheme
 
@@ -79,7 +87,7 @@ struct MapToolbar: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            ForEach(MapPanelKind.allCases) { kind in
+            ForEach(MapPanelKind.barItems) { kind in
                 Button {
                     action(kind)
                 } label: {
@@ -108,12 +116,13 @@ struct MapToolbar: View {
                         .offset(x: 9, y: -7)
                 }
 
-            // Seven of these have to fit across the narrowest phone the app
-            // runs on, so the label is a shade smaller than it was at six and
-            // is allowed to shrink further before it truncates. A toolbar item
-            // whose name is cut in half is an item nobody presses.
+            // Five of these across the narrowest phone the app runs on, which
+            // is room enough to read them properly again — the label shrank to
+            // nine point when there were seven. It is still allowed to scale
+            // before it truncates: a toolbar item whose name is cut in half is
+            // an item nobody presses.
             Text(kind.label)
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(theme.textSecondary)
                 .flightInfoLine(minimumScale: 0.65)
         }

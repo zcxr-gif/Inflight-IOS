@@ -45,7 +45,15 @@ final class FlightAnnotation: NSObject, MKAnnotation {
     @discardableResult
     func update(with flight: Flight) -> Bool {
         self.flight = flight
-        coordinate = flight.coordinate
+
+        // Only when it has actually moved. Setting the coordinate posts two KVO
+        // notifications and asks MapKit to reposition the view, and a good
+        // share of a busy server is sitting still at a gate — those would be
+        // several hundred repositions a packet, all of them to the same place.
+        if storedCoordinate.latitude != flight.latitude
+            || storedCoordinate.longitude != flight.longitude {
+            coordinate = flight.coordinate
+        }
 
         let headingChanged = abs((renderedHeading ?? -999) - flight.heading) > 0.5
         let spriteChanged = renderedSpriteKey != flight.spriteKey

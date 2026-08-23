@@ -2,11 +2,15 @@ import Foundation
 
 /// The weather drawn *under* the traffic, as tiles.
 ///
-/// One at a time rather than a set of switches. Radar and satellite cover the
-/// same sky from two directions — radar sees what is falling, infrared sees
-/// what is up there — and stacked they are two translucent images competing
-/// for the same pixels with the map underneath them both. Picking one is also
-/// half the tiles fetched, which matters on a metered API.
+/// One at a time rather than a set of switches. The two cover the same sky from
+/// two directions — radar sees what is falling now, the satellite sees what is
+/// up there — and stacked they are two translucent images competing for the
+/// same pixels with the map underneath them both. Picking one is also half the
+/// tiles fetched.
+///
+/// They come from different places and answer on different clocks, which the
+/// labels are careful about: RainViewer's radar is a ten-minute mosaic of the
+/// last two hours, and NASA's satellite is a daily global composite.
 enum MapWeatherLayer: String, CaseIterable, Identifiable {
 
     case off
@@ -14,7 +18,7 @@ enum MapWeatherLayer: String, CaseIterable, Identifiable {
     /// Composite radar reflectivity — where it is raining or snowing.
     case radar
 
-    /// Infrared satellite — where the cloud is, including the vast majority of
+    /// Satellite imagery — where the cloud is, including the vast majority of
     /// the sky that has no radar under it at all.
     case satellite
 
@@ -43,7 +47,7 @@ enum MapWeatherLayer: String, CaseIterable, Identifiable {
         case .radar:
             return "Composite precipitation radar, two hours of it. Coarse when zoomed right in — the free tier serves tiles only down to a low zoom and the map scales them up from there."
         case .satellite:
-            return "Infrared cloud cover. Reads at cruise and out over the ocean, where there is no radar to see with."
+            return "NASA's global satellite imagery, a day at a time. Reads at cruise and out over the ocean, where there is no radar to see with — but it is today's picture rather than this minute's, and the strip can be dragged back through the last few days."
         }
     }
 }

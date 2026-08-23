@@ -46,6 +46,15 @@ final class LiveFeed: ObservableObject {
     /// rather than by the views, which would each walk the stations to do it.
     @Published private(set) var atcCount = 0
 
+    /// When the controllers last changed.
+    ///
+    /// The traffic has `lastUpdate` for exactly this reason and the stations
+    /// needed their own: anything derived from who is working — the ranked
+    /// fields the map marks, chiefly — wants to be rebuilt when a packet lands
+    /// and at no other time, and comparing the grouped stations on every
+    /// redraw to find that out is the thing being avoided.
+    @Published private(set) var stationsUpdate: Date?
+
     private var manager: SocketManager?
     private var socket: SocketIOClient?
     private let decodeQueue = DispatchQueue(label: "com.tracker.inflight.feed", qos: .userInitiated)
@@ -152,6 +161,7 @@ final class LiveFeed: ObservableObject {
         flights = []
         atcStations = []
         atcCount = 0
+        stationsUpdate = Date()
         status = .connecting
 
         socket?.emit("join_server_room", newServer)
@@ -220,6 +230,7 @@ final class LiveFeed: ObservableObject {
         publish { feed in
             feed.atcStations = stations
             feed.atcCount = count
+            feed.stationsUpdate = Date()
         }
     }
 

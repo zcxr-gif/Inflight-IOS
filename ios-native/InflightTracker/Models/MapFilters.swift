@@ -170,6 +170,20 @@ final class MapFilters: ObservableObject {
             || filedRouteOnly
     }
 
+    /// A stamp of everything `apply` looks at.
+    ///
+    /// The map keys its annotation diff on this and on the packet: between them
+    /// they say whether the traffic it should be drawing can possibly have
+    /// changed, in one integer rather than a walk over the server.
+    var signature: Int {
+        var hasher = Hasher()
+        hasher.combine(phases)
+        hasher.combine(bands)
+        hasher.combine(categories)
+        hasher.combine(filedRouteOnly)
+        return hasher.finalize()
+    }
+
     /// How many of the groups are narrowed. Shown on the toolbar rather than a
     /// count of hidden aircraft, which would tick about on every packet.
     var activeCount: Int {

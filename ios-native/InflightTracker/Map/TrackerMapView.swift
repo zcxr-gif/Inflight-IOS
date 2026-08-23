@@ -28,19 +28,38 @@ struct TrackerMapView: UIViewRepresentable {
     /// is a mode, and it keeps acting on every packet for as long as it is on.
     var isFollowing = false
 
-    /// Which way round the app is drawn, so MapKit's own light and dark styles
-    /// follow the app's appearance setting rather than iOS's. Passed in rather
+    /// Which way round the map is drawn: the palette's own answer when it has
+    /// one, and the app's appearance setting when it hasn't. Passed in rather
     /// than read from the environment: the map is the one surface underneath
     /// everything else, so it has to be told, not stamped.
     var colorScheme: ColorScheme = .dark
 
-    /// How the map underneath the traffic is drawn — and, for the globe,
-    /// whether the camera is free to rotate and tilt.
-    var style: MapStyleMode = .muted
+    /// How the map underneath the traffic is drawn — its shape, its palette,
+    /// how much detail it carries, and with the globe whether the camera is
+    /// free to rotate and tilt.
+    var style = MapLook()
+
+    /// A stamp of the packet and the filters behind `flights`.
+    ///
+    /// SwiftUI hands this view to `updateUIView` every time the screen around
+    /// it redraws — a keystroke in the search field, a chip opening, twenty
+    /// times a second while a replay runs — and none of those change the
+    /// traffic. Diffing several thousand aircraft to discover that is the work
+    /// this exists to skip.
+    var trafficRevision: Int = 0
+
+    /// Told when the weather tiles stop being worth drawing at this zoom, or
+    /// start again. The map is the only thing that knows how wide the view is;
+    /// the strip over it is where the reason belongs.
+    var onWeatherLegibility: (Bool) -> Void = { _ in }
 
     /// Fields worth marking — controlled, or busy. Empty when the filter is
     /// off, which is how the whole feature is switched off.
     var airports: [MapAirport] = []
+
+    /// Bumped when the list above is rebuilt, so the markers are re-diffed on a
+    /// new ranking rather than on every redraw.
+    var airportsRevision: Int = 0
 
     /// Whether to draw the pavement of the field the map is over — runways,
     /// taxiways, aprons and terminals, with the runway designators.
@@ -192,8 +211,12 @@ struct TrackerMapView: UIViewRepresentable {
         context.coordinator.syncNatTracks(on: mapView)
         context.coordinator.applyStyle(style, on: mapView)
         context.coordinator.applyHighlighting(highlighting, on: mapView)
-        context.coordinator.sync(flights: flights, on: mapView)
-        context.coordinator.syncAirports(airports, on: mapView)
+        // Both of these diff a list against what is drawn, and both are handed
+        // the stamp that says whether the list can have changed. Panning is not
+        // covered by the stamp and does not need to be: the map's own region
+        // callbacks re-cull directly, on their own throttle.
+        context.coordinator.syncIfNeeded(flights: flights, revision: trafficRevision, on: mapView)
+        context.coordinator.syncAirports(airports, revision: airportsRevision, on: mapView)
         context.coordinator.syncSelection(selection, on: mapView)
         context.coordinator.syncRoute(on: mapView)
         context.coordinator.syncReplay(on: mapView)
@@ -260,7 +283,10 @@ struct TrackerMapView: UIViewRepresentable {
         /// The style currently applied to the map view, so the configuration is
         /// only swapped when it actually changes — assigning
         /// `preferredConfiguration` reloads the map's tiles.
-        private var appliedStyle: MapStyleMode?
+        private var appliedStyle: MapLook?
+
+        /// The black wash under the traffic, while a palette asks for one.
+        private var dimmingOverlay: MKPolygon?
 
         /// Field markers currently on the map, by ICAO.
         private var airportAnnotations: [String: AirportAnnotation] = [:]
@@ -283,24 +309,57 @@ struct TrackerMapView: UIViewRepresentable {
 
         // MARK: Style
 
-        func applyStyle(_ style: MapStyleMode, on mapView: MKMapView) {
+        func applyStyle(_ style: MapLook, on mapView: MKMapView) {
             guard appliedStyle != style else { return }
             let previous = appliedStyle
             appliedStyle = style
+
+            // Where the camera was standing before the map underneath it was
+            // swapped. Assigning `preferredConfiguration` tears the map down and
+            // rebuilds it, and the camera does not reliably survive that: on the
+            // globe it comes back somewhere flat and close in, which is why
+            // recolouring the planet looked like it had flattened it.
+            let before = mapView.camera
+            let heldDistance = before.centerCoordinateDistance
+            let heldPitch = before.pitch
+            let heldHeading = before.heading
+            let heldCentre = mapView.centerCoordinate
 
             mapView.preferredConfiguration = style.configuration()
             mapView.isRotateEnabled = style.isFreeCamera
             mapView.isPitchEnabled = style.isFreeCamera
 
+            syncDimming(style, on: mapView)
+
+            let isNewProjection = previous?.projection != style.projection
+
+            // Same shape of world, different paint. The camera should not have
+            // moved at all, so it is put back exactly where it was rather than
+            // left wherever the reload dropped it — and without animation,
+            // because as far as anyone watching is concerned it never left.
+            guard isNewProjection else {
+                guard heldDistance.isFinite, heldDistance > 0 else { return }
+                mapView.setCamera(
+                    MKMapCamera(
+                        lookingAtCenter: heldCentre,
+                        fromDistance: heldDistance,
+                        pitch: heldPitch,
+                        heading: heldHeading
+                    ),
+                    animated: false
+                )
+                return
+            }
+
             if style.isFreeCamera {
-                // Only when the style actually changes — which the guard above
-                // has already established — and never on a redraw, or the globe
+                // Only when the projection actually changes — which the guard
+                // above has established — and never on a redraw, or the globe
                 // would yank itself back out to arm's length each time a packet
                 // landed. A stored globe gets this on launch too, which is
                 // right: it is the whole reason the style was saved.
-                if let distance = style.openingDistance {
+                if let distance = style.projection.openingDistance {
                     let camera = MKMapCamera(
-                        lookingAtCenter: mapView.centerCoordinate,
+                        lookingAtCenter: heldCentre,
                         fromDistance: distance,
                         pitch: 0,
                         heading: 0
@@ -310,15 +369,15 @@ struct TrackerMapView: UIViewRepresentable {
             } else {
                 // Leaving the globe with the camera spun would leave every
                 // sprite crooked on a map that can no longer be straightened,
-                // so north-up is restored on the way out. Built fresh rather
-                // than mutated: `mapView.camera` hands back the map's own
-                // object, and editing it in place is not how it is meant to be
-                // driven.
-                let current = mapView.camera
-                if current.heading != 0 || current.pitch != 0 {
+                // so north-up is restored on the way out — from where the
+                // camera was standing before the swap rather than from wherever
+                // the reload left it. Built fresh rather than mutated:
+                // `mapView.camera` hands back the map's own object, and editing
+                // it in place is not how it is meant to be driven.
+                if heldHeading != 0 || heldPitch != 0, heldDistance.isFinite, heldDistance > 0 {
                     let camera = MKMapCamera(
-                        lookingAtCenter: mapView.centerCoordinate,
-                        fromDistance: current.centerCoordinateDistance,
+                        lookingAtCenter: heldCentre,
+                        fromDistance: heldDistance,
                         pitch: 0,
                         heading: 0
                     )
@@ -326,6 +385,28 @@ struct TrackerMapView: UIViewRepresentable {
                 }
                 realign(on: mapView, heading: 0)
             }
+        }
+
+        /// The black palette's wash, put on or taken off.
+        ///
+        /// Inserted at the bottom of its level rather than added to the top of
+        /// it, so it dims the cartography and not the weather tiles, the night
+        /// or the routes — all of which are added to the same level and would
+        /// otherwise end up underneath it.
+        private func syncDimming(_ style: MapLook, on mapView: MKMapView) {
+            guard style.dimming > 0 else {
+                if let overlay = dimmingOverlay {
+                    mapView.removeOverlay(overlay)
+                    dimmingOverlay = nil
+                }
+                return
+            }
+
+            guard dimmingOverlay == nil else { return }
+
+            let overlay = MapDimming.overlay()
+            dimmingOverlay = overlay
+            mapView.insertOverlay(overlay, at: 0, level: .aboveRoads)
         }
 
         /// Re-applies every drawn sprite's rotation against a new camera
@@ -372,23 +453,69 @@ struct TrackerMapView: UIViewRepresentable {
 
         // MARK: Airports
 
+        /// What the drawn markers were last diffed against: the ranking, where
+        /// the map is looking, and everything that decides how a marker is
+        /// written. Nothing in that list changes on an ordinary redraw, and the
+        /// diff below costs a string per marked field.
+        private struct AirportSyncKey: Equatable {
+            let revision: Int
+            let latitude: Double
+            let longitude: Double
+            let latitudeSpan: Double
+            let longitudeSpan: Double
+            let conditions: Bool
+            let weather: Int
+            let windUnit: String
+            let temperatureUnit: String
+        }
+
+        private var renderedAirportKey: AirportSyncKey?
+
         /// Adds, updates and removes the field markers.
         ///
         /// Culled to the viewport like the traffic is, and for the same reason:
         /// a busy server can have a hundred-odd fields worth marking, and the
         /// ones off screen cost layout for nothing. Unlike an aircraft there is
         /// no grace period — a field does not flicker in and out of a packet.
-        func syncAirports(_ airports: [MapAirport], on mapView: MKMapView) {
+        func syncAirports(_ airports: [MapAirport], revision: Int, on mapView: MKMapView) {
             guard !airports.isEmpty else {
                 if !airportAnnotations.isEmpty {
                     mapView.removeAnnotations(Array(airportAnnotations.values))
                     airportAnnotations.removeAll()
+                    renderedCategories.removeAll()
                 }
+                renderedAirportKey = nil
                 return
             }
 
             let region = mapView.region
             guard region.span.latitudeDelta.isFinite, region.span.longitudeDelta.isFinite else { return }
+
+            // Wind and temperature under the code, but only once the map is
+            // near enough that a marker has room for a second line. Zoomed
+            // out, every field on a continent carrying two lines is a wall of
+            // text rather than a map.
+            let conditions = parent.showsFieldConditions
+                && region.span.latitudeDelta <= Self.fieldConditionSpanDegrees
+
+            let preferences = WeatherPreferences.shared
+            let key = AirportSyncKey(
+                revision: revision,
+                latitude: region.center.latitude,
+                longitude: region.center.longitude,
+                latitudeSpan: region.span.latitudeDelta,
+                longitudeSpan: region.span.longitudeDelta,
+                conditions: conditions,
+                // A report landing repaints one marker. The counter is how that
+                // is noticed without asking the cache about every field on
+                // every pass.
+                weather: WeatherService.shared.generation,
+                windUnit: preferences.windUnit.rawValue,
+                temperatureUnit: preferences.temperatureUnit.rawValue
+            )
+
+            guard key != renderedAirportKey else { return }
+            renderedAirportKey = key
 
             let latitudeMargin = region.span.latitudeDelta * AppConfig.flightAddMargin
             let longitudeMargin = region.span.longitudeDelta * AppConfig.flightAddMargin
@@ -408,19 +535,16 @@ struct TrackerMapView: UIViewRepresentable {
             // no others.
             WeatherService.shared.prefetch(Array(wanted.keys))
 
-            // Wind and temperature under the code, but only once the map is
-            // near enough that a marker has room for a second line. Zoomed
-            // out, every field on a continent carrying two lines is a wall of
-            // text rather than a map.
-            let conditions = parent.showsFieldConditions
-                && region.span.latitudeDelta <= Self.fieldConditionSpanDegrees
+            // Everything but the category is the same for every marker on this
+            // pass, so it is written once rather than per field.
+            let suffix = "|\(conditions)|\(preferences.windUnit.rawValue)|\(preferences.temperatureUnit.rawValue)"
 
             for (icao, field) in wanted {
                 let category = WeatherService.shared.cached(icao)?.flightCategory.rawValue ?? ""
-                // The drawn state is more than the category now: the same
-                // report is written differently depending on whether there is
-                // room for it, and on the units it is written in.
-                let drawn = "\(category)|\(conditions)|\(WeatherPreferences.shared.windUnit.rawValue)|\(WeatherPreferences.shared.temperatureUnit.rawValue)"
+                // The drawn state is more than the category: the same report is
+                // written differently depending on whether there is room for
+                // it, and on the units it is written in.
+                let drawn = category + suffix
 
                 if let existing = airportAnnotations[icao] {
                     let repaint = renderedCategories[icao] != drawn
@@ -451,10 +575,24 @@ struct TrackerMapView: UIViewRepresentable {
 
         // MARK: Annotation syncing
 
+        /// The revision the drawn traffic was last diffed against.
+        private var syncedTrafficRevision: Int?
+
+        /// The diff, but only when the traffic it would be diffing can have
+        /// changed. Panning goes to `sync` directly — the viewport is not part
+        /// of the revision, and re-culling for it is the one thing that has to
+        /// happen without a new packet.
+        func syncIfNeeded(flights: [Flight], revision: Int, on mapView: MKMapView) {
+            guard syncedTrafficRevision != revision else { return }
+            syncedTrafficRevision = revision
+            sync(flights: flights, on: mapView)
+        }
+
         func sync(flights: [Flight], on mapView: MKMapView) {
             let now = Date()
             let visible = cull(flights: flights, to: mapView)
             var seen = Set<String>()
+            seen.reserveCapacity(visible.count)
             var additions: [FlightAnnotation] = []
 
             for flight in visible {
@@ -480,14 +618,22 @@ struct TrackerMapView: UIViewRepresentable {
             // exactly the blink this is here to stop. Those keep their last
             // position until the grace period is up.
             let selectedId = parent.selection?.id
-            let reported = Set(flights.map(\.id))
+
+            // Built on demand rather than up front. On a settled map every
+            // annotation is in `seen` and this is never needed at all — and
+            // building it means an array and a set of several thousand strings,
+            // which was being thrown away unused on every pass.
+            var reported: Set<String>?
 
             var removals: [FlightAnnotation] = []
 
             for (id, annotation) in annotations {
                 guard id != selectedId, !seen.contains(id) else { continue }
 
-                if !reported.contains(id),
+                let ids = reported ?? Set(flights.lazy.map(\.id))
+                reported = ids
+
+                if !ids.contains(id),
                    now.timeIntervalSince(lastSeen[id] ?? .distantPast) < AppConfig.flightGracePeriod {
                     continue
                 }
@@ -521,8 +667,14 @@ struct TrackerMapView: UIViewRepresentable {
         /// nothing sitting on the edge can flip between the two on consecutive
         /// passes.
         private func cull(flights: [Flight], to mapView: MKMapView) -> [Flight] {
+            let selectedId = parent.selection?.id
+            var selected: Flight?
+
+            defer { selectedSnapshot = selected }
+
             let region = mapView.region
             guard region.span.latitudeDelta.isFinite, region.span.longitudeDelta.isFinite else {
+                selected = selectedId.flatMap { id in flights.first { $0.id == id } }
                 return flights
             }
 
@@ -533,6 +685,10 @@ struct TrackerMapView: UIViewRepresentable {
             let keepLongitude = region.span.longitudeDelta * AppConfig.flightKeepMargin
 
             return flights.filter { flight in
+                // Picked up in the pass that is already walking every aircraft,
+                // so the route under the open window costs nothing to find.
+                if flight.id == selectedId { selected = flight }
+
                 let deltaLatitude = abs(flight.latitude - center.latitude)
                 let deltaLongitude = Self.longitudeDelta(flight.longitude, center.longitude)
 
@@ -543,6 +699,11 @@ struct TrackerMapView: UIViewRepresentable {
                     && deltaLongitude <= (isDrawn ? keepLongitude : addLongitude)
             }
         }
+
+        /// The open aircraft as it was in the packet the map was last diffed
+        /// against. Selecting one changes the revision, so this is never behind
+        /// the selection it belongs to.
+        private var selectedSnapshot: Flight?
 
         /// Shortest angular distance between two longitudes, so traffic either
         /// side of the antimeridian isn't treated as half a world away.
@@ -584,8 +745,14 @@ struct TrackerMapView: UIViewRepresentable {
 
         // MARK: Route overlays
 
+        /// The open aircraft, without walking the server for it.
+        ///
+        /// The snapshot the last diff took is the same object the linear search
+        /// would find; the search is kept as the answer for the one pass where
+        /// a selection has been made and no diff has run yet.
         private func selectedFlight() -> Flight? {
             guard let id = parent.selection?.id else { return nil }
+            if let snapshot = selectedSnapshot, snapshot.id == id { return snapshot }
             return parent.flights.first { $0.id == id }
         }
 
@@ -805,6 +972,10 @@ struct TrackerMapView: UIViewRepresentable {
         /// frame that has not changed is not torn down and re-fetched.
         private var weatherOverlay: RainViewerTileOverlay?
 
+        /// What was last said about the tiles being worth drawing at this zoom,
+        /// so the model hears about a change rather than about every pass.
+        private var reportedWeatherLegibility = true
+
         /// The barbs on the map, and the grid they belong to.
         private var windAnnotations: [WindBarbAnnotation] = []
         private var renderedWindKey: String?
@@ -816,7 +987,20 @@ struct TrackerMapView: UIViewRepresentable {
         /// would mean holding two full tile sets for a layer that is already
         /// the most expensive thing on the map.
         func syncWeatherTiles(on mapView: MKMapView) {
-            let wanted = parent.weatherTiles
+            // Zoomed in past where the tiles hold any detail, the overlay comes
+            // off rather than being magnified into a smear. The map is the only
+            // thing that knows how wide the view is, so it decides — and tells
+            // the model, which is what puts the reason in the strip.
+            let span = mapView.region.span.longitudeDelta
+            let legible = parent.weatherTiles
+                .map { MapWeatherSource.isLegible($0.layer, acrossDegrees: span) } ?? true
+
+            if legible != reportedWeatherLegibility {
+                reportedWeatherLegibility = legible
+                parent.onWeatherLegibility(legible)
+            }
+
+            let wanted = legible ? parent.weatherTiles : nil
 
             if weatherOverlay?.key == wanted?.key { return }
 
@@ -840,6 +1024,16 @@ struct TrackerMapView: UIViewRepresentable {
         /// The store does the deciding — which lattice this region rounds to,
         /// whether that grid is already held, whether it is worth asking at
         /// this zoom at all. This only draws whatever it currently holds.
+        /// Where the map was, and which level was wanted, the last time the
+        /// grid was asked for.
+        private var windRequest: (latitude: Double, longitude: Double, span: Double, level: String)?
+        private var windRequestedAt = Date.distantPast
+
+        /// How often the grid is re-asked for over a map that is sitting still.
+        /// The store answers from its cache until the model data is stale; this
+        /// is only about noticing that it has gone stale.
+        private static let windRefreshInterval: TimeInterval = 20
+
         func syncWinds(on mapView: MKMapView) {
             guard parent.showsWinds else {
                 if !windAnnotations.isEmpty {
@@ -847,12 +1041,33 @@ struct TrackerMapView: UIViewRepresentable {
                     windAnnotations.removeAll(keepingCapacity: true)
                 }
                 renderedWindKey = nil
+                windRequest = nil
                 WindsAloftStore.shared.clear()
                 return
             }
 
             let store = WindsAloftStore.shared
-            store.load(region: mapView.region, level: parent.windLevel)
+
+            // Working out which lattice this region rounds to builds the whole
+            // grid of points and formats its identity, which is a good deal of
+            // work to do on every redraw to arrive at the same answer as last
+            // time. The map moving is what changes that answer — plus the clock,
+            // so that a still map still notices stale model data.
+            let region = mapView.region
+            let here = (
+                latitude: region.center.latitude,
+                longitude: region.center.longitude,
+                span: region.span.latitudeDelta,
+                level: parent.windLevel.rawValue
+            )
+            let now = Date()
+            if windRequest == nil
+                || windRequest! != here
+                || now.timeIntervalSince(windRequestedAt) >= Self.windRefreshInterval {
+                windRequest = here
+                windRequestedAt = now
+                store.load(region: region, level: parent.windLevel)
+            }
 
             guard renderedWindKey != store.key else { return }
             renderedWindKey = store.key
@@ -960,8 +1175,9 @@ struct TrackerMapView: UIViewRepresentable {
         private var terminatorDrawnAt: Date?
 
         /// How stale the shape may get. The terminator sweeps a quarter of a
-        /// degree a minute, so two minutes is half a degree — narrower than the
-        /// line it is drawn with at any zoom that shows a whole continent.
+        /// degree a minute, so two minutes is half a degree — a fifth of the
+        /// width of one band of the fade, and invisible at any zoom that shows
+        /// a whole continent.
         private static let terminatorLifetime: TimeInterval = 120
 
         func syncTerminator(on mapView: MKMapView) {
@@ -1069,6 +1285,9 @@ struct TrackerMapView: UIViewRepresentable {
         /// are the map.
         private static let groundSpanNM: Double = 9
 
+        /// Where the map was the last time the ground layer was worked out.
+        private var groundRegion: (latitude: Double, longitude: Double, span: Double)?
+
         /// How wide the view may be, in degrees of latitude, before a field's
         /// conditions stop being drawn under its code. About four hundred
         /// miles — a country rather than a continent.
@@ -1079,14 +1298,30 @@ struct TrackerMapView: UIViewRepresentable {
         /// Runways, taxiways, aprons and terminals from OpenStreetMap, with
         /// the runway designators — which is the part neither Apple's basemap
         /// nor imagery gives you.
+        ///
+        /// Resolving which field the map is over is a walk over every airport
+        /// in the dataset on a cache miss, so it is done when the map moves and
+        /// skipped on the redraws where it hasn't.
         func syncGround(on mapView: MKMapView) {
             guard parent.showsGroundLayout else {
                 clearGround(on: mapView)
+                groundRegion = nil
                 return
             }
 
             let region = mapView.region
             guard region.span.latitudeDelta.isFinite else { return }
+
+            let here = (
+                latitude: region.center.latitude,
+                longitude: region.center.longitude,
+                span: region.span.latitudeDelta
+            )
+            // Only once something is actually drawn for this spot. Until then
+            // the pavement may still be arriving from the network, and the
+            // redraw it lands on is what puts it on the map.
+            if let last = groundRegion, last == here, renderedGroundIcao != nil { return }
+            groundRegion = here
 
             // Degrees of latitude are nautical miles times sixty, everywhere.
             let spanNM = region.span.latitudeDelta * 60
@@ -1402,11 +1637,19 @@ struct TrackerMapView: UIViewRepresentable {
             }
 
             if let area = overlay as? MKPolygon {
-                if area.title == Terminator.nightTitle || area.title == Terminator.twilightTitle {
+                if area.title == MapDimming.title {
+                    let renderer = MKPolygonRenderer(polygon: area)
+                    renderer.fillColor = UIColor.black.withAlphaComponent(parent.style.dimming)
+                    renderer.strokeColor = .clear
+                    renderer.lineWidth = 0
+                    return renderer
+                }
+
+                if Terminator.isBand(area.title) {
                     let renderer = MKPolygonRenderer(polygon: area)
                     renderer.fillColor = Terminator.fill(for: area.title)
-                    // No outline at all. The whole point of two bands is a soft
-                    // edge, and a stroke would put the hard line back.
+                    // No outline at all. The whole point of the stack of bands
+                    // is a soft edge, and a stroke would put the hard line back.
                     renderer.strokeColor = .clear
                     renderer.lineWidth = 0
                     return renderer
@@ -1656,7 +1899,7 @@ struct TrackerMapView: UIViewRepresentable {
         /// actually moved — on a north-up map it costs one comparison. Re-culling
         /// walks every aircraft on the server, so it stays on its own throttle.
         func mapViewDidChangeVisibleRegion(_ mapView: MKMapView) {
-            if parent.style.isFreeCamera {
+            if parent.style.projection.isFreeCamera {
                 let heading = mapView.camera.heading
                 if abs(heading - appliedCameraHeading) > 1 {
                     realign(on: mapView, heading: heading)
@@ -1685,6 +1928,11 @@ struct TrackerMapView: UIViewRepresentable {
                 // The wind grid is a function of the region, so it is resolved
                 // on the same settle the ground layer is — never mid-pan.
                 self.syncWinds(on: mapView)
+                // And whether the weather tiles still hold detail at this zoom,
+                // which is the same question asked of a different layer. On the
+                // settle rather than mid-pinch: a zoom that passes through the
+                // limit and back out should not flick the overlay off and on.
+                self.syncWeatherTiles(on: mapView)
             }
 
             pendingCull = work

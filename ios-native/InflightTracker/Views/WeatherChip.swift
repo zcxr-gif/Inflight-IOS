@@ -1,5 +1,8 @@
 import CoreLocation
 import SwiftUI
+// For `WeatherAttribution`, which the attribution row is handed. Named here
+// rather than relied on through another file's import.
+import WeatherKit
 
 /// Weather where the map is looking, top left.
 ///
@@ -7,6 +10,13 @@ import SwiftUI
 /// and wind. Tapped, it opens out to add both ends of whatever route is open,
 /// each marked day or night, so a long-haul's destination weather is one tap
 /// away from the map.
+///
+/// Most of the world's airfields file no METAR at all, and this used to answer
+/// for them with an em dash and the field's name — which is the chip appearing
+/// not to work, over an aircraft that is perfectly well somewhere with weather.
+/// Apple fills those in. The report always wins where there is one: it is the
+/// observation the field itself made, in the units an aircraft is flown in,
+/// and Apple's is a model's answer for the same patch of ground.
 struct WeatherChip: View {
 
     @ObservedObject var model: WeatherModel
@@ -15,19 +25,39 @@ struct WeatherChip: View {
     @Binding var isExpanded: Bool
 
     @ObservedObject private var preferences = WeatherPreferences.shared
+    @ObservedObject private var apple = AppleWeatherService.shared
 
-    /// What opening the chip shows. With route ends turned off it is only ever
-    /// about the field being passed — and one station is the collapsed chip
-    /// again, so there is nothing to open into.
+    /// What the chip is about: the field being passed, plus both ends of the
+    /// route when that is switched on.
     private var stations: [WeatherModel.Station] {
-        guard preferences.showsRouteEnds else { return [] }
+        guard preferences.showsRouteEnds else { return [model.nearby].compactMap { $0 } }
         return [model.nearby, model.departure, model.arrival].compactMap { $0 }
     }
 
-    /// There is only something to open into when the chip would say more than
-    /// it already does — a route with both ends filed. One station is the
-    /// collapsed chip over again, so it stays shut and stops being a button.
-    private var isExpandable: Bool { stations.count >= 2 }
+    /// Whichever of those have no report of their own, for Apple to answer.
+    private var unreported: [WeatherModel.Station] {
+        stations.filter { $0.metar == nil }
+    }
+
+    /// Changes when the set of fields waiting on Apple changes, and at no other
+    /// time — so the fetch is asked for once per field rather than once per
+    /// redraw of a chip that is following a moving aeroplane.
+    private var pendingKey: String {
+        unreported.map(\.airport.icao).joined(separator: "|")
+    }
+
+    /// Whether anything on screen is Apple's rather than the field's. Their
+    /// terms require the mark wherever the data is shown, and the mark lives in
+    /// the opened card — so this is also what makes the chip open.
+    private var isShowingApple: Bool {
+        stations.contains { $0.metar == nil && apple.conditions(for: $0.airport.icao) != nil }
+    }
+
+    /// There is something to open into when the chip would say more than it
+    /// already does — a route with both ends filed, or Apple data that owes an
+    /// attribution. One station and a report is the collapsed chip over again,
+    /// so it stays shut and stops being a button.
+    private var isExpandable: Bool { stations.count >= 2 || isShowingApple }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -51,19 +81,54 @@ struct WeatherChip: View {
             }
         }
         .environment(\.colorScheme, theme.colorScheme)
+        .task(id: pendingKey) {
+            for station in unreported {
+                apple.load(key: station.airport.icao, coordinate: station.airport.coordinate)
+            }
+        }
+    }
+
+    // MARK: - What a station is showing
+
+    /// Apple's answer for a station, or nil when the field filed its own.
+    private func fallback(for station: WeatherModel.Station) -> AppleWeatherService.Conditions? {
+        guard station.metar == nil else { return nil }
+        return apple.conditions(for: station.airport.icao)
+    }
+
+    private func symbol(for station: WeatherModel.Station) -> String {
+        if let metar = station.metar { return metar.symbol(isDaylight: station.isDaylight) }
+        if let apple = fallback(for: station) { return apple.symbolName }
+        return station.isDaylight ? "sun.max.fill" : "moon.stars.fill"
+    }
+
+    private func temperature(for station: WeatherModel.Station) -> String {
+        if let metar = station.metar { return metar.temperatureLabel(in: preferences.temperatureUnit) }
+        guard let apple = fallback(for: station) else { return "—" }
+        return "\(Int(preferences.temperatureUnit.convert(fromCelsius: apple.temperatureC).rounded()))°"
+    }
+
+    /// The line under the code: the wind where there is a report, what it is
+    /// doing where there is only Apple, and the field's name where there is
+    /// neither.
+    private func detail(for station: WeatherModel.Station) -> String {
+        if let metar = station.metar {
+            return "\(metar.conditionLabel) · \(metar.windLabel(in: preferences.windUnit))"
+        }
+        return fallback(for: station)?.label ?? station.airport.name
     }
 
     // MARK: - Collapsed
 
     private func summary(for station: WeatherModel.Station) -> some View {
         HStack(spacing: 9) {
-            Image(systemName: station.metar?.symbol(isDaylight: station.isDaylight)
-                  ?? (station.isDaylight ? "sun.max.fill" : "moon.stars.fill"))
+            Image(systemName: symbol(for: station))
+                .symbolRenderingMode(.hierarchical)
                 .font(.system(size: 17))
                 .foregroundStyle(theme.textPrimary)
                 .frame(width: 22)
 
-            Text(station.metar?.temperatureLabel(in: preferences.temperatureUnit) ?? "—")
+            Text(temperature(for: station))
                 .font(.system(size: 19, weight: .bold, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
                 .fixedSize()
@@ -73,7 +138,7 @@ struct WeatherChip: View {
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(theme.textSecondary)
 
-                Text(station.metar?.windLabel(in: preferences.windUnit) ?? station.airport.name)
+                Text(detail(for: station))
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .flightInfoLine(minimumScale: 0.8)
@@ -98,6 +163,16 @@ struct WeatherChip: View {
                 }
                 row(for: station)
             }
+
+            // Apple's terms: their mark wherever their data is. It is why the
+            // chip opens at all when a field has no report of its own.
+            if isShowingApple {
+                Rectangle()
+                    .fill(theme.stroke)
+                    .frame(height: 1)
+
+                WeatherAttributionRow(attribution: apple.attribution)
+            }
         }
         .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: theme.radiusMedium, style: .continuous))
         .frame(maxWidth: 268, alignment: .leading)
@@ -106,8 +181,8 @@ struct WeatherChip: View {
 
     private func row(for station: WeatherModel.Station) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: station.metar?.symbol(isDaylight: station.isDaylight)
-                  ?? (station.isDaylight ? "sun.max.fill" : "moon.stars.fill"))
+            Image(systemName: symbol(for: station))
+                .symbolRenderingMode(.hierarchical)
                 .font(.system(size: 15))
                 .foregroundStyle(theme.textPrimary)
                 .frame(width: 20)
@@ -133,7 +208,7 @@ struct WeatherChip: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text(station.metar?.temperatureLabel(in: preferences.temperatureUnit) ?? "—")
+            Text(temperature(for: station))
                 .font(.system(size: 16, weight: .bold, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
                 .fixedSize()
@@ -158,10 +233,4 @@ struct WeatherChip: View {
         }
         .fixedSize()
     }
-
-    private func detail(for station: WeatherModel.Station) -> String {
-        guard let metar = station.metar else { return station.airport.name }
-        return "\(metar.conditionLabel) · \(metar.windLabel(in: preferences.windUnit))"
-    }
-
 }

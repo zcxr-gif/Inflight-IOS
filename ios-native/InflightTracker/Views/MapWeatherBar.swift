@@ -59,14 +59,36 @@ struct MapWeatherBar: View {
 
     /// The frame's own time, in the phone's timezone, because a radar frame is
     /// something you compare against the window rather than against UTC.
+    ///
+    /// Two scales, because the two layers work on two: radar frames are ten
+    /// minutes apart and are read in minutes, and the satellite's are whole
+    /// days. "−1440 MIN" is technically the truth about yesterday's imagery and
+    /// no use to anybody.
     private var label: String {
         guard let time = model.frameTime else { return preferences.mapLayer.label.uppercased() }
 
         let minutes = Int(Date().timeIntervalSince(time) / 60)
+        guard minutes < 360 else { return dayLabel(for: time) }
+
         switch minutes {
         case ..<(-1): return "+\(-minutes) MIN"
         case -1...1: return "NOW"
         default: return "−\(minutes) MIN"
+        }
+    }
+
+    private func dayLabel(for time: Date) -> String {
+        let calendar = Calendar.current
+        let days = calendar.dateComponents(
+            [.day],
+            from: calendar.startOfDay(for: time),
+            to: calendar.startOfDay(for: Date())
+        ).day ?? 0
+
+        switch days {
+        case ..<1: return "TODAY"
+        case 1: return "YESTERDAY"
+        default: return "−\(days) DAYS"
         }
     }
 

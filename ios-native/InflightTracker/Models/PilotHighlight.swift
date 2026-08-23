@@ -81,16 +81,49 @@ struct PilotHighlighting: Equatable {
 
     /// Off entirely — no account is Pro, the preference is off, or there is
     /// nothing to highlight. Every lookup short-circuits.
-    var isActive = false
+    let isActive: Bool
 
     /// Lowercased. Empty matches nothing.
-    var me = ""
+    let me: String
 
     /// Lowercased watched usernames.
-    var watched: Set<String> = []
+    let watched: Set<String>
 
-    var ownColor: Color = PilotHighlightPreferences.defaultOwn
-    var friendColor: Color = PilotHighlightPreferences.defaultFriend
+    let ownColor: Color
+    let friendColor: Color
+
+    /// The same two colours, bridged once when the value is made.
+    ///
+    /// `tint` is asked about an aircraft at a time and hands its answer to the
+    /// sprite cache, which wants a `UIColor`; building one there meant a bridge
+    /// per painted aeroplane. Not compared — they are derived from the two
+    /// above, which are.
+    private let ownTint: UIColor
+    private let friendTint: UIColor
+
+    init(
+        isActive: Bool = false,
+        me: String = "",
+        watched: Set<String> = [],
+        ownColor: Color = PilotHighlightPreferences.defaultOwn,
+        friendColor: Color = PilotHighlightPreferences.defaultFriend
+    ) {
+        self.isActive = isActive
+        self.me = me
+        self.watched = watched
+        self.ownColor = ownColor
+        self.friendColor = friendColor
+        self.ownTint = UIColor(ownColor)
+        self.friendTint = UIColor(friendColor)
+    }
+
+    static func == (lhs: PilotHighlighting, rhs: PilotHighlighting) -> Bool {
+        lhs.isActive == rhs.isActive
+            && lhs.me == rhs.me
+            && lhs.watched == rhs.watched
+            && lhs.ownColor == rhs.ownColor
+            && lhs.friendColor == rhs.friendColor
+    }
 
     /// What this flight should be painted, or nil to leave it as the sprite
     /// sheet drew it.
@@ -101,8 +134,8 @@ struct PilotHighlighting: Equatable {
         guard isActive, let username = username, !username.isEmpty else { return nil }
 
         let key = username.lowercased()
-        if !me.isEmpty, key == me { return UIColor(ownColor) }
-        if watched.contains(key) { return UIColor(friendColor) }
+        if !me.isEmpty, key == me { return ownTint }
+        if watched.contains(key) { return friendTint }
         return nil
     }
 
@@ -120,7 +153,8 @@ struct PilotHighlighting: Equatable {
         return PilotHighlighting(
             isActive: true,
             me: PilotIdentity.shared.matchKey,
-            watched: Set(FriendsStore.shared.friends.map { $0.lowercased() }),
+            // Already lowercased, and already a set: the store keeps one.
+            watched: FriendsStore.shared.watched,
             ownColor: preferences.ownColor,
             friendColor: preferences.friendColor
         )
