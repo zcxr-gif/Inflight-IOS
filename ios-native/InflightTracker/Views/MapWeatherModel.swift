@@ -109,7 +109,10 @@ final class MapWeatherModel: ObservableObject {
             return
         }
 
-        unavailable = nil
+        // The index has frames, so the only remaining reason for an empty map
+        // is the tiles themselves being refused — which the overlay reports and
+        // the strip is the place to say.
+        unavailable = service.tileFailure
 
         // The playhead is clamped rather than wrapped: a shorter list arriving
         // — which is what a nowcast expiring looks like — should land on the

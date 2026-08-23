@@ -56,10 +56,21 @@ final class WindsAloftStore: ObservableObject {
     private static let columns = 5
     private static let rows = 4
 
-    /// Outside this the barbs are meaningless — too far out and five points
-    /// span a hemisphere, too far in and all five carry the same number.
-    private static let minimumSpanDegrees: Double = 0.4
-    private static let maximumSpanDegrees: Double = 45
+    /// The span of map the barbs are drawn over, in degrees of latitude.
+    ///
+    /// Both ends used to be much tighter, on the reasoning that five points
+    /// across a hemisphere say nothing and five points across an airfield all
+    /// say the same thing. The first half of that is wrong in the one case
+    /// people most want it: the whole question over an ocean is which way the
+    /// jet is running, and twenty arrows across the North Atlantic answer it
+    /// exactly the way a chart does. The second half is true but harmless — the
+    /// wind at the field is still the wind at the field.
+    ///
+    /// So this is now as wide as a hemisphere and as close as a circuit, and
+    /// the barbs stop being a layer that appears only at the one zoom nobody
+    /// was at.
+    private static let minimumSpanDegrees: Double = 0.15
+    private static let maximumSpanDegrees: Double = 120
 
     /// The model publishes hourly. Half of that keeps the arrows honest
     /// without asking for a forecast that has not been re-run.
@@ -186,10 +197,14 @@ final class WindsAloftStore: ObservableObject {
         )
     }
 
-    /// The nearest of 0.25, 0.5, 1, 2, 5, 10 degrees. A tidy ladder, so
-    /// zooming settles on one of six lattices rather than a new one each time.
+    /// The nearest rung of a tidy ladder, so zooming settles on one of a
+    /// handful of lattices rather than minting a new one at every scale. The
+    /// top of it reaches as far as `maximumSpanDegrees` now does: without a
+    /// rung above ten, every view wider than a country rounded to the same
+    /// ten-degree lattice and asked for a grid far denser than the map could
+    /// show.
     private static func niceStep(_ raw: Double) -> Double {
-        let ladder: [Double] = [0.25, 0.5, 1, 2, 5, 10]
+        let ladder: [Double] = [0.25, 0.5, 1, 2, 5, 10, 15, 20, 30]
         return ladder.first { raw <= $0 } ?? ladder[ladder.count - 1]
     }
 

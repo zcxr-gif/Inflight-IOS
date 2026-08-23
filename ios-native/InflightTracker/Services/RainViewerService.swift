@@ -50,6 +50,24 @@ final class RainViewerService: ObservableObject {
 
     @Published private(set) var satelliteFrames: [Frame] = []
 
+    /// Why the tiles themselves are not drawing, when the index said they
+    /// would.
+    ///
+    /// The index listing a frame is not the same as the images for it being
+    /// served: a withdrawn tier answers the index perfectly well and then
+    /// refuses every tile, which on the map is a layer that is switched on,
+    /// costs requests, and draws nothing at all — with nothing anywhere saying
+    /// why. The overlay reports what it actually got back, and this is what the
+    /// strip over the map reads.
+    @Published private(set) var tileFailure: String?
+
+    /// How many refusals in a row, with no tile drawn between them, count as a
+    /// layer that is not being served. More than one because a single 404 is a
+    /// frame that expired mid-pan, which is ordinary.
+    private static let tileFailuresBeforeReporting = 4
+
+    private var tileFailures = 0
+
     /// The index regenerates every ten minutes. Asking twice as often as that
     /// keeps the newest frame no more than a few minutes stale without asking
     /// for a document that has not changed.
@@ -82,6 +100,48 @@ final class RainViewerService: ObservableObject {
         guard layer != .off else { return true }
         guard state == .ready else { return true }
         return !frames(for: layer).isEmpty
+    }
+
+    /// What one tile request came back as, reported by the overlay.
+    ///
+    /// Called from a URL session's own thread, once per tile, so it hops to the
+    /// main queue and does as little as possible: a counter, and a message only
+    /// when enough have failed in a row to mean something.
+    func noteTile(status: Int, failed: Bool) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+
+            guard failed else {
+                // One tile drawn is the whole layer working. Anything said
+                // about it before that was wrong.
+                self.tileFailures = 0
+                if self.tileFailure != nil { self.tileFailure = nil }
+                return
+            }
+
+            self.tileFailures += 1
+            guard self.tileFailures >= Self.tileFailuresBeforeReporting else { return }
+
+            let message = Self.tileReason(status: status)
+            if self.tileFailure != message { self.tileFailure = message }
+        }
+    }
+
+    private static func tileReason(status: Int) -> String {
+        switch status {
+        case 401, 402, 403:
+            return "The tile service is refusing these tiles — the free tier no longer covers them."
+        case 404:
+            return "The tile service has no images for this frame."
+        case 429:
+            return "The tile service is rate-limiting this app. Try again shortly."
+        case 500...599:
+            return "The tile service is having trouble (\(status))."
+        case 0:
+            return "Could not reach the tile service."
+        default:
+            return "The tile service refused these tiles (\(status))."
+        }
     }
 
     /// Fetch the index if it is stale. Safe to call on every packet — it is a
@@ -121,6 +181,11 @@ final class RainViewerService: ObservableObject {
                 self.host = parsed.host
                 self.radarFrames = parsed.radar
                 self.satelliteFrames = parsed.satellite
+
+                // A fresh index is a fresh chance for the tiles behind it.
+                self.tileFailures = 0
+                self.tileFailure = nil
+
                 self.state = parsed.radar.isEmpty && parsed.satellite.isEmpty
                     ? .unavailable("The radar service is no longer serving free tiles.")
                     : .ready

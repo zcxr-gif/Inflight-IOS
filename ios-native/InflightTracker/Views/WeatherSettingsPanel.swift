@@ -42,10 +42,19 @@ struct WeatherSettingsPanel: View {
     /// What to say under the layer picker: why the chosen one is drawing
     /// nothing, if it is, and otherwise what it is.
     private var layerDetail: String {
-        guard preferences.mapLayer != .off, !tiles.isAvailable(preferences.mapLayer) else {
-            return preferences.mapLayer.detail
+        guard preferences.mapLayer != .off else { return preferences.mapLayer.detail }
+
+        if !tiles.isAvailable(preferences.mapLayer) {
+            return "\(preferences.mapLayer.label) is not being served just now — the map draws nothing for it. RainViewer has been withdrawing its free layers in stages."
         }
-        return "\(preferences.mapLayer.label) is not being served just now — the map draws nothing for it. RainViewer has been withdrawing its free layers in stages."
+
+        // The frames exist and the images behind them do not, which is the
+        // failure that used to be completely silent.
+        if let failure = tiles.tileFailure {
+            return "\(preferences.mapLayer.label): \(failure)"
+        }
+
+        return preferences.mapLayer.detail
     }
 
     var body: some View {
