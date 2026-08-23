@@ -23,13 +23,8 @@ final class RainViewerService: ObservableObject {
 
     static let shared = RainViewerService()
 
-    /// One frame: when it is for, and where its tiles live.
-    struct Frame: Equatable, Identifiable {
-        let time: Date
-        let path: String
-
-        var id: String { path }
-    }
+    /// Shared with the satellite archive, which has frames of its own.
+    typealias Frame = WeatherFrame
 
     enum State: Equatable {
         case idle
@@ -48,6 +43,13 @@ final class RainViewerService: ObservableObject {
     /// animation runs forwards through time in one list.
     @Published private(set) var radarFrames: [Frame] = []
 
+    /// The infrared satellite, while it lasted.
+    ///
+    /// RainViewer's published schedule withdrew it from the free tier, and the
+    /// cloud layer is NASA's now — see `SatelliteImagery`. This is still parsed
+    /// out of the index because the index still has a place for it, and a
+    /// service that starts serving it again should not need a release to be
+    /// noticed. Nothing draws from it today.
     @Published private(set) var satelliteFrames: [Frame] = []
 
     /// Why the tiles themselves are not drawing, when the index said they
@@ -89,17 +91,25 @@ final class RainViewerService: ObservableObject {
         }
     }
 
-    /// Whether a layer has anything to draw. Radar and satellite are withdrawn
-    /// on different schedules, so this is asked per layer rather than once.
+    /// Whether this service has anything to draw for a layer.
     ///
     /// "Not known to be withdrawn" rather than "known to be there": until the
-    /// index has actually been read, every layer is offered. The pickers hide
-    /// what this says no to, and hiding radar because nobody has switched a
-    /// layer on yet would be the same bug in the other direction.
+    /// index has actually been read, the layer is offered. Hiding radar because
+    /// nobody has switched a layer on yet would be the same bug in the other
+    /// direction.
     func isAvailable(_ layer: MapWeatherLayer) -> Bool {
         guard layer != .off else { return true }
         guard state == .ready else { return true }
         return !frames(for: layer).isEmpty
+    }
+
+    /// Forget what the tiles were doing.
+    ///
+    /// For a change of layer: the two are served by different people, and one's
+    /// refusals say nothing about the other's.
+    func resetTileReports() {
+        tileFailures = 0
+        if tileFailure != nil { tileFailure = nil }
     }
 
     /// What one tile request came back as, reported by the overlay.
@@ -168,7 +178,7 @@ final class RainViewerService: ObservableObject {
                     // Whatever we already have stays on screen: a failed
                     // refresh is a reason to keep the last good frames, not to
                     // clear the map.
-                    if self.radarFrames.isEmpty && self.satelliteFrames.isEmpty {
+                    if self.radarFrames.isEmpty {
                         self.state = .unavailable(
                             error == nil
                                 ? "The radar service answered with something this app could not read."
@@ -186,7 +196,10 @@ final class RainViewerService: ObservableObject {
                 self.tileFailures = 0
                 self.tileFailure = nil
 
-                self.state = parsed.radar.isEmpty && parsed.satellite.isEmpty
+                // Judged on the radar alone: the satellite section going away
+                // is what was expected of it, and the cloud layer no longer
+                // comes from here anyway.
+                self.state = parsed.radar.isEmpty
                     ? .unavailable("The radar service is no longer serving free tiles.")
                     : .ready
             }

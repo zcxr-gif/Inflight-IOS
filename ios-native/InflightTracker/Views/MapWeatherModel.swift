@@ -41,6 +41,10 @@ final class MapWeatherModel: ObservableObject {
     private var timer: AnyCancellable?
     private var watchers: Set<AnyCancellable> = []
 
+    /// Which layer was last built, so a change of layer can start the playhead
+    /// and the tile reports over.
+    private var lastLayer: MapWeatherLayer = .off
+
     init() {
         // Anything that changes what should be on screen rebuilds it: the
         // frame index landing, the layer being switched, the animation being
@@ -67,6 +71,15 @@ final class MapWeatherModel: ObservableObject {
     /// is stale, and does nothing at all while the layer is off — a switch
     /// nobody has turned on should cost no network.
     func refresh() {
+        if preferences.mapLayer != lastLayer {
+            lastLayer = preferences.mapLayer
+            // The two layers are different services with different frame
+            // counts. Neither the playhead nor anything said about the last
+            // one's tiles carries over.
+            step = 0
+            service.resetTileReports()
+        }
+
         guard preferences.mapLayer != .off else {
             stop()
             if tiles != nil || frameTime != nil || unavailable != nil {
@@ -78,7 +91,10 @@ final class MapWeatherModel: ObservableObject {
             return
         }
 
-        service.refresh()
+        // Only the radar has an index to fetch. The satellite's frames are days
+        // of the calendar, which need asking nobody.
+        if preferences.mapLayer == .radar { service.refresh() }
+
         rebuild()
         startIfNeeded()
     }
@@ -86,7 +102,7 @@ final class MapWeatherModel: ObservableObject {
     /// Drag the playhead by hand. Stops nothing — the animation, if it is
     /// running, simply carries on from wherever it was left.
     func scrub(to fraction: Double) {
-        let frames = service.frames(for: preferences.mapLayer)
+        let frames = MapWeatherSource.frames(for: preferences.mapLayer)
         guard frames.count > 1 else { return }
         let index = Int((fraction * Double(frames.count - 1)).rounded())
         step = min(max(index, 0), frames.count - 1)
@@ -99,9 +115,9 @@ final class MapWeatherModel: ObservableObject {
         let layer = preferences.mapLayer
         guard layer != .off else { return }
 
-        let frames = service.frames(for: layer)
+        let frames = MapWeatherSource.frames(for: layer)
 
-        guard let host = service.host, !frames.isEmpty else {
+        guard let host = MapWeatherSource.host(for: layer), !frames.isEmpty else {
             tiles = nil
             frameTime = nil
             progress = nil
@@ -126,8 +142,13 @@ final class MapWeatherModel: ObservableObject {
     }
 
     private func startIfNeeded() {
-        let frames = service.frames(for: preferences.mapLayer)
-        let wanted = preferences.animatesRadar && frames.count > 1
+        let frames = MapWeatherSource.frames(for: preferences.mapLayer)
+        // Only the radar runs. The satellite's frames are whole days, and three
+        // days flicking past at three a second is a strobe rather than an
+        // animation — they are there to be scrubbed through by hand.
+        let wanted = preferences.animatesRadar
+            && frames.count > 1
+            && preferences.mapLayer == .radar
 
         guard wanted else {
             stop()
@@ -148,7 +169,7 @@ final class MapWeatherModel: ObservableObject {
     }
 
     private func advance() {
-        let frames = service.frames(for: preferences.mapLayer)
+        let frames = MapWeatherSource.frames(for: preferences.mapLayer)
         guard frames.count > 1 else { return }
 
         // The pause on the newest frame is spent by running the counter past
@@ -164,17 +185,16 @@ final class MapWeatherModel: ObservableObject {
     }
 
     private static func reason(for state: RainViewerService.State, layer: MapWeatherLayer) -> String? {
+        // The cloud layer has no index to be missing from: its frames are days
+        // of the calendar. Reaching here at all means something else, and the
+        // tiles report their own trouble.
+        guard layer == .radar else { return nil }
+
         switch state {
         case .idle, .loading:
             return nil
         case .ready:
-            // The index arrived and this layer was not in it. RainViewer's
-            // published schedule has the satellite maps ending on 1 January
-            // 2026, so this is the expected answer for that one rather than a
-            // fault.
-            return layer == .satellite
-                ? "Cloud tiles are no longer served. Radar still is."
-                : "No radar frames are being served just now."
+            return "No radar frames are being served just now."
         case .unavailable(let reason):
             return reason
         }

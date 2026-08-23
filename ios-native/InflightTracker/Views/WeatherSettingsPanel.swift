@@ -34,8 +34,11 @@ struct WeatherSettingsPanel: View {
     /// layer stays in only while it is the one selected, because a picker whose
     /// selection is not among its options draws blank.
     private var layers: [MapWeatherLayer] {
-        MapWeatherLayer.allCases.filter {
-            tiles.isAvailable($0) || $0 == preferences.mapLayer
+        // `tiles` is observed rather than asked: the router reads it, and this
+        // needs re-running when what it says changes.
+        _ = tiles.state
+        return MapWeatherLayer.allCases.filter {
+            MapWeatherSource.isAvailable($0) || $0 == preferences.mapLayer
         }
     }
 
@@ -44,7 +47,7 @@ struct WeatherSettingsPanel: View {
     private var layerDetail: String {
         guard preferences.mapLayer != .off else { return preferences.mapLayer.detail }
 
-        if !tiles.isAvailable(preferences.mapLayer) {
+        if !MapWeatherSource.isAvailable(preferences.mapLayer) {
             return "\(preferences.mapLayer.label) is not being served just now — the map draws nothing for it. RainViewer has been withdrawing its free layers in stages."
         }
 
@@ -102,7 +105,9 @@ struct WeatherSettingsPanel: View {
                     selection: $preferences.mapLayer
                 )
 
-                if preferences.mapLayer != .off {
+                // Radar only. The satellite's frames are whole days, and they
+                // are there to be dragged through rather than played.
+                if preferences.mapLayer == .radar {
                     PanelDivider()
 
                     PanelToggleRow(
@@ -167,7 +172,7 @@ struct WeatherSettingsPanel: View {
 
             HintStrip(placement: .weather)
 
-            Text("Reports come from VATSIM's METAR service, the same source the tracker has always used, and each station issues one an hour. Where a field files none — which is most of the world's airfields — the reading is Apple's, and says so. The radar tiles are RainViewer's; the winds aloft are Open-Meteo's model data.")
+            Text("Reports come from VATSIM's METAR service, the same source the tracker has always used, and each station issues one an hour. Where a field files none — which is most of the world's airfields — the reading is Apple's, and says so. The radar tiles are RainViewer's; the satellite imagery is from NASA's Global Imagery Browse Services, part of their Earth Science Data and Information System; the winds aloft are Open-Meteo's model data. None of it costs anything to use.")
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(theme.textDim)
                 .padding(.horizontal, 2)

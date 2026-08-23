@@ -19,23 +19,17 @@ struct MapWeatherTiles: Equatable {
     var key: String { "\(layer.rawValue)|\(host)\(frame.path)" }
 }
 
+/// The tiles for whichever weather layer is on.
+///
+/// Two services behind one overlay: RainViewer's radar frames, and NASA's
+/// daily satellite composites. They agree on nothing except that a tile is a
+/// 256-pixel PNG or JPEG at a z/x/y — so this builds each one's URL its own
+/// way and everything above it stays the same.
 final class RainViewerTileOverlay: MKTileOverlay {
 
-    /// How deep the free tier serves.
-    ///
-    /// RainViewer's published schedule takes free users to zoom 7 from January
-    /// 2026, having been 10 since September 2025. Set to the lower of the two
-    /// deliberately: `MKTileOverlay` scales a coarse tile up to fill a closer
-    /// zoom, so asking too shallow costs sharpness, while asking too deep gets
-    /// a 404 and draws *nothing* — and a weather layer that vanishes when you
-    /// zoom in is a bug report, where a soft one is a known limit.
-    static let maximumFreeZoom = 7
-
     /// RainViewer's colour schemes, by number. Four is the one that reads as
-    /// weather radar to anybody who has seen a forecast; satellite has to be
-    /// zero, which is the only scheme its data is served in.
+    /// weather radar to anybody who has seen a forecast.
     private static let radarColourScheme = 4
-    private static let satelliteColourScheme = 0
 
     private let tiles: MapWeatherTiles
 
@@ -47,33 +41,33 @@ final class RainViewerTileOverlay: MKTileOverlay {
         // over the basemap, not instead of it.
         canReplaceMapContent = false
         minimumZ = 0
-        maximumZ = Self.maximumFreeZoom
+        maximumZ = MapWeatherSource.maximumZoom(for: tiles.layer)
         tileSize = CGSize(width: 256, height: 256)
     }
 
     var key: String { tiles.key }
 
     override func url(forTilePath path: MKTileOverlayPath) -> URL {
-        let colour = tiles.layer == .satellite
-            ? Self.satelliteColourScheme
-            : Self.radarColourScheme
+        if tiles.layer == .satellite {
+            return SatelliteImagery.url(frame: tiles.frame, z: path.z, x: path.x, y: path.y)
+                ?? Self.nowhere
+        }
 
-        // Smoothing on for radar, which is a field rather than a set of
-        // pixels; snow shown in its own colours. Satellite takes neither, and
-        // the service requires both to be zero for it.
-        let options = tiles.layer == .satellite ? "0_0" : "1_1"
-
+        // Smoothing on, which suits a field rather than a set of pixels, and
+        // snow in its own colours.
         let string = """
         \(tiles.host)\(tiles.frame.path)/\(Int(tileSize.width))\
-        /\(path.z)/\(path.x)/\(path.y)/\(colour)/\(options).png
+        /\(path.z)/\(path.x)/\(path.y)/\(Self.radarColourScheme)/1_1.png
         """
 
         // `MKTileOverlay` demands a URL rather than an optional, and the only
-        // way this string fails to be one is a host the service invented. A
+        // way these strings fail to be one is a host the service invented. A
         // URL that resolves to nothing draws nothing, which is the same
         // outcome and reached without a crash.
-        return URL(string: string) ?? URL(string: "https://tilecache.rainviewer.com/")!
+        return URL(string: string) ?? Self.nowhere
     }
+
+    private static let nowhere = URL(string: "https://tilecache.rainviewer.com/")!
 
     /// Fetches a tile, and says what came back.
     ///

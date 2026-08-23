@@ -1089,8 +1089,11 @@ struct ContentView: View {
     /// the list only while it is the one selected, so the menu still shows what
     /// the map is set to.
     private var availableWeatherLayers: [MapWeatherLayer] {
-        MapWeatherLayer.allCases.filter {
-            tiles.isAvailable($0) || $0 == weatherPreferences.mapLayer
+        // `tiles` is observed rather than asked: the router reads it, and this
+        // needs re-running when what it says changes.
+        _ = tiles.state
+        return MapWeatherLayer.allCases.filter {
+            MapWeatherSource.isAvailable($0) || $0 == weatherPreferences.mapLayer
         }
     }
 
