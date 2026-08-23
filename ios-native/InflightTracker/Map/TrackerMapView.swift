@@ -48,11 +48,6 @@ struct TrackerMapView: UIViewRepresentable {
     /// this exists to skip.
     var trafficRevision: Int = 0
 
-    /// Told when the weather tiles stop being worth drawing at this zoom, or
-    /// start again. The map is the only thing that knows how wide the view is;
-    /// the strip over it is where the reason belongs.
-    var onWeatherLegibility: (Bool) -> Void = { _ in }
-
     /// Fields worth marking — controlled, or busy. Empty when the filter is
     /// off, which is how the whole feature is switched off.
     var airports: [MapAirport] = []
@@ -69,6 +64,11 @@ struct TrackerMapView: UIViewRepresentable {
     /// The weather tiles to draw under the traffic, if any. Nil is the layer
     /// switched off, or switched on and still waiting for the frame index.
     var weatherTiles: MapWeatherTiles?
+
+    /// Told when the weather tiles stop being worth drawing at this zoom, or
+    /// start again. The map is the only thing that knows how wide the view is;
+    /// the strip over it is where the reason belongs.
+    var onWeatherLegibility: (Bool) -> Void = { _ in }
 
     /// The ruler: whether it is down, and where its two ends are. A binding
     /// because the map is where the taps land, so the map is what moves it.
