@@ -134,7 +134,10 @@ final class AppleWeatherService: ObservableObject {
             let snapshot = await Self.fetch(coordinate)
             let mark = try? await WeatherKit.WeatherService.shared.attribution
 
-            await MainActor.run {
+            // Weak again on the way in rather than reaching for the outer
+            // closure's `self`, which is a mutable capture crossing into
+            // concurrent code — a warning today and an error under Swift 6.
+            await MainActor.run { [weak self] in
                 guard let self = self else { return }
                 self.inFlight.remove(key)
                 if let mark = mark { self.attribution = mark }

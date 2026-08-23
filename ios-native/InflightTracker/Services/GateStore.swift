@@ -75,7 +75,10 @@ final class GateStore: ObservableObject {
 
         Task { [weak self] in
             let gates = await Self.fetch(icao: icao, at: airport.coordinate)
-            await MainActor.run {
+            // Weak again on the way in rather than reaching for the outer
+            // closure's `self`, which is a mutable capture crossing into
+            // concurrent code — a warning today and an error under Swift 6.
+            await MainActor.run { [weak self] in
                 guard let self = self else { return }
                 self.inFlight.remove(icao)
                 if let gates = gates {
