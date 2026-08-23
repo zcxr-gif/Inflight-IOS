@@ -275,6 +275,35 @@ final class PilotDirectory: ObservableObject {
         )) ?? []
     }
 
+    /// The most-watched pilots, in one of three scopes.
+    ///
+    /// Uncached, deliberately. Everything else in this object is a fact about
+    /// one pilot that a second reader would want the same answer to; this is a
+    /// board that moves, is asked for once when the stats panel is opened, and
+    /// is re-asked only when somebody changes the tab. A ninety-second cache on
+    /// it would save nothing and would make a follow made from a row on the
+    /// board fail to show up in the count beside it.
+    ///
+    /// Readable signed out — the counts are of public profiles, which already
+    /// serve a follower count to anybody. What a signed-out reader loses is the
+    /// "you follow them" mark and any pilot broadcasting to followers only.
+    func mostWatched(
+        scope: MostWatchedPilot.Scope = .all,
+        windowDays: Int = 7,
+        limit: Int = 10
+    ) async -> [MostWatchedPilot] {
+        let token = await AccountStore.shared.currentAccessToken()
+        return (try? await SupabaseData.rpc(
+            "pilot_most_watched",
+            arguments: [
+                "p_scope": scope.rawValue,
+                "p_window_days": windowDays,
+                "p_limit": limit
+            ],
+            accessToken: token
+        )) ?? []
+    }
+
     func badges(of handle: String) async -> [PilotBadge] {
         let token = await AccountStore.shared.currentAccessToken()
         return (try? await SupabaseData.rpc(

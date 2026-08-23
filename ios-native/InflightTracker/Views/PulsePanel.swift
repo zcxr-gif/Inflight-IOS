@@ -2,11 +2,16 @@ import SwiftUI
 
 /// What the server is doing tonight, from the tab above the toolbar.
 ///
-/// Every number is counted from the packet the map is drawn from, so nothing
-/// here can disagree with what is on screen — and nothing here costs a request.
-/// It recounts once per packet rather than once per layout pass: it is a walk
-/// over every aircraft on the server, which is cheap a few times a minute and
-/// wasteful several times a second.
+/// Every number about the traffic is counted from the packet the map is drawn
+/// from, so nothing here can disagree with what is on screen. It recounts once
+/// per packet rather than once per layout pass: it is a walk over every
+/// aircraft on the server, which is cheap a few times a minute and wasteful
+/// several times a second.
+///
+/// The one exception is the most-watched board, which is about people rather
+/// than aeroplanes and so cannot come out of the feed. It is a card that stays
+/// shut until it is pulled open, and it is the only thing in this panel that
+/// costs a request.
 struct PulsePanel: View {
 
     @EnvironmentObject private var feed: LiveFeed
@@ -18,11 +23,22 @@ struct PulsePanel: View {
 
     @State private var pulse = ServerPulse.empty
 
+    /// A pilot opened from the most-watched board. Presented here rather than
+    /// inside the card because a profile wants the live feed — "show me this
+    /// aeroplane" is a thing it offers — and the panel is what has one.
+    @State private var opened: ProfileLink?
+
     private var theme: FlightInfoTheme { appearance.theme }
 
     var body: some View {
         MapPanel(title: "Stats", subtitle: subtitle) {
             headline
+
+            // Above the distributions on purpose. Everything below this counts
+            // aeroplanes; this counts people, and it is the one thing in the
+            // panel somebody opens the panel *for*. It is shut until pulled,
+            // so leading with it costs the traffic figures one line.
+            MostWatchedCard { link in opened = link }
 
             if pulse.total == 0 {
                 PanelEmptyState(
@@ -42,13 +58,17 @@ struct PulsePanel: View {
 
             HintStrip(placement: .stats)
 
-            Text("Counted from the same packet the map is drawn from, so these can never disagree with what is on screen. Nothing here is fetched.")
+            Text("Every count below the board is taken from the same packet the map is drawn from, so these can never disagree with what is on screen. The board is the one thing here that is fetched.")
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(theme.textDim)
                 .padding(.horizontal, 2)
         }
         .onAppear(perform: recount)
         .onChange(of: feed.lastUpdate) { _, _ in recount() }
+        .sheet(item: $opened) { link in
+            PublicProfileView(link: link)
+                .environmentObject(feed)
+        }
     }
 
     private func recount() {
