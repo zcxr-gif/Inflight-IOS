@@ -63,6 +63,16 @@ final class RainViewerService: ObservableObject {
     /// strip over the map reads.
     @Published private(set) var tileFailure: String?
 
+    /// Whether the tile service is currently turning requests away for coming
+    /// too fast.
+    ///
+    /// Answered on the first 429 rather than after a run of them, because
+    /// unlike a 404 there is nothing ambiguous about it — and because the
+    /// correct response is to stop immediately. The animation is what generates
+    /// the load, so the animation is what stops; a single frame stays on the
+    /// map, and the first tile it draws successfully clears this.
+    @Published private(set) var isThrottled = false
+
     /// How many refusals in a row, with no tile drawn between them, count as a
     /// layer that is not being served. More than one because a single 404 is a
     /// frame that expired mid-pan, which is ordinary.
@@ -110,6 +120,7 @@ final class RainViewerService: ObservableObject {
     func resetTileReports() {
         tileFailures = 0
         if tileFailure != nil { tileFailure = nil }
+        if isThrottled { isThrottled = false }
     }
 
     /// What one tile request came back as, reported by the overlay.
@@ -123,14 +134,21 @@ final class RainViewerService: ObservableObject {
 
             guard failed else {
                 // One tile drawn is the whole layer working. Anything said
-                // about it before that was wrong.
+                // about it before that was wrong, throttling included — the
+                // service is answering again.
                 self.tileFailures = 0
                 if self.tileFailure != nil { self.tileFailure = nil }
+                if self.isThrottled { self.isThrottled = false }
                 return
             }
 
+            // Being turned away for asking too fast needs no corroboration, and
+            // waiting for three more of them is three more requests made while
+            // already over the line.
+            if status == 429, !self.isThrottled { self.isThrottled = true }
+
             self.tileFailures += 1
-            guard self.tileFailures >= Self.tileFailuresBeforeReporting else { return }
+            guard self.tileFailures >= Self.tileFailuresBeforeReporting || status == 429 else { return }
 
             let message = Self.tileReason(status: status)
             if self.tileFailure != message { self.tileFailure = message }

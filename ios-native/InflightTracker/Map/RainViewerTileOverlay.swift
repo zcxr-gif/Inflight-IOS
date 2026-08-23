@@ -69,21 +69,51 @@ final class RainViewerTileOverlay: MKTileOverlay {
 
     private static let nowhere = URL(string: "https://tilecache.rainviewer.com/")!
 
+    /// Where tiles are kept.
+    ///
+    /// Its own store, and a large one. Overriding `loadTile` takes the fetch
+    /// away from `MKTileOverlay`, which has a tile cache built for exactly this
+    /// — and the first version of that override handed the job to
+    /// `URLSession.shared`, whose cache is a few megabytes shared with every
+    /// other request the app makes. Aircraft photographs evict tiles the moment
+    /// they land, so every pan and every frame of an animation went back to the
+    /// network: the service throttles, tiles come back empty, and the layer
+    /// flickers in and out.
+    ///
+    /// A tile's URL names its own frame — RainViewer's carries a timestamp,
+    /// NASA's a date — so no tile ever changes under its address, and the cache
+    /// can be believed rather than revalidated. That is what makes the second
+    /// pass of an animation loop cost nothing at all.
+    private static let session: URLSession = {
+        let configuration = URLSessionConfiguration.default
+        configuration.urlCache = URLCache(
+            memoryCapacity: 16 * 1024 * 1024,
+            diskCapacity: 128 * 1024 * 1024,
+            diskPath: "weather-tiles"
+        )
+        configuration.requestCachePolicy = .returnCacheDataElseLoad
+        // A screenful of tiles asked for at once is a burst a rate limiter
+        // notices. Four at a time fills the map in much the same wall time and
+        // looks far less like an attack.
+        configuration.httpMaximumConnectionsPerHost = 4
+        return URLSession(configuration: configuration)
+    }()
+
     /// Fetches a tile, and says what came back.
     ///
     /// `MKTileOverlay` will do this itself, and did — but it swallows the
     /// answer. A tier that has been withdrawn serves the index listing the
     /// frames and then refuses every image, and the map's own version of that
     /// is a layer switched on, drawing nothing, explaining nothing. Everything
-    /// here is what the base class does; the only addition is telling the
-    /// service whether the request actually produced a tile.
+    /// here is what the base class does, with a cache of its own above; the
+    /// only addition is telling the service whether the request produced a tile.
     override func loadTile(
         at path: MKTileOverlayPath,
         result: @escaping (Data?, Error?) -> Void
     ) {
         let request = URLRequest(url: url(forTilePath: path))
 
-        URLSession.shared.dataTask(with: request) { data, response, error in
+        Self.session.dataTask(with: request) { data, response, error in
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             let isImage = (200..<300).contains(status) && (data?.isEmpty == false)
 

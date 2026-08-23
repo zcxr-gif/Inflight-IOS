@@ -25,13 +25,26 @@ final class MapWeatherModel: ObservableObject {
     /// say why rather than showing a switch that appears to do nothing.
     @Published private(set) var unavailable: String?
 
-    /// Frames a second. Slow enough to read a squall line moving, fast enough
-    /// that two hours does not take a minute to watch.
-    private static let framesPerSecond: Double = 3
+    /// Frames a second.
+    ///
+    /// Slower than it was. Every frame is a whole screen of tiles from a free
+    /// service, and three a second asks for them faster than they can arrive —
+    /// which is a rate limiter tripped, tiles refused, and a layer that
+    /// flickers rather than animates. Two a second still reads as movement, and
+    /// the second time round the loop it comes from the cache and costs
+    /// nothing.
+    private static let framesPerSecond: Double = 2
+
+    /// How much of the past the animation runs through.
+    ///
+    /// An hour rather than the two the index carries. The frames are ten
+    /// minutes apart, so this halves the tiles a loop touches — and an hour is
+    /// enough to see which way a front is moving, which is the whole question.
+    /// The scrubber still reaches every frame the service published.
+    private static let animatedFrames = 7
 
     /// How long the newest frame is held before the loop restarts, so the
-    /// animation ends on *now* rather than flicking straight back to two hours
-    /// ago.
+    /// animation ends on *now* rather than flicking straight back to the start.
     private static let restingFrames = 4
 
     private let service = RainViewerService.shared
@@ -144,11 +157,18 @@ final class MapWeatherModel: ObservableObject {
     private func startIfNeeded() {
         let frames = MapWeatherSource.frames(for: preferences.mapLayer)
         // Only the radar runs. The satellite's frames are whole days, and three
-        // days flicking past at three a second is a strobe rather than an
+        // days flicking past at two a second is a strobe rather than an
         // animation — they are there to be scrubbed through by hand.
+        //
+        // And nothing runs while the service is turning requests away: the
+        // animation is what asks for thirteen screens of tiles instead of one,
+        // so it is the thing that stops. The frame left on the map keeps asking
+        // for its own tiles as you pan, and the first one that arrives says the
+        // service is answering again.
         let wanted = preferences.animatesRadar
             && frames.count > 1
             && preferences.mapLayer == .radar
+            && !service.isThrottled
 
         guard wanted else {
             stop()
@@ -175,7 +195,16 @@ final class MapWeatherModel: ObservableObject {
         // The pause on the newest frame is spent by running the counter past
         // the end of the list rather than by juggling a second timer.
         step += 1
-        if step >= frames.count + Self.restingFrames { step = 0 }
+
+        // Back to the start of the animated window rather than to the start of
+        // the list: the older half of the two hours is still there to be
+        // scrubbed to, it is simply not worth fetching on every loop. A
+        // playhead dragged behind that window runs forward through everything
+        // once and then settles into it.
+        if step >= frames.count + Self.restingFrames {
+            step = max(0, frames.count - Self.animatedFrames)
+        }
+
         rebuild()
     }
 
