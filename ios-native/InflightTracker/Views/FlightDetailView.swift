@@ -295,7 +295,10 @@ struct FlightDetailView: View {
                     spriteKey: flight.spriteKey,
                     contributor: photoLoader.photo?.contributor,
                     theme: theme,
-                    width: width
+                    width: width,
+                    // The full window pages through everything the lookup
+                    // found; the peak state above deliberately does not.
+                    photos: photoLoader.photos
                 )
                 .id(Self.topAnchor)
 
@@ -509,10 +512,14 @@ private struct FlightInfoWindowChrome: ViewModifier {
     }
 }
 
-/// Loads the community photo for one aircraft type + livery.
+/// Loads the community photographs for one aircraft type + livery.
 final class AircraftPhotoLoader: ObservableObject {
 
-    @Published private(set) var photo: AircraftPhoto?
+    @Published private(set) var photos: [AircraftPhoto] = []
+
+    /// The first one, which is what everything outside the header wants: the
+    /// peak's thumbnail, the registration, the image the window loads eagerly.
+    var photo: AircraftPhoto? { photos.first }
 
     private var requestedKey: String?
 
@@ -521,9 +528,9 @@ final class AircraftPhotoLoader: ObservableObject {
         guard requestedKey != key else { return }
         requestedKey = key
 
-        AircraftPhotoService.shared.photo(type: type, livery: livery) { [weak self] resolved in
+        AircraftPhotoService.shared.photos(type: type, livery: livery) { [weak self] resolved in
             guard let self = self, self.requestedKey == key else { return }
-            self.photo = resolved
+            self.photos = resolved
         }
     }
 }

@@ -378,15 +378,34 @@ struct PlaceCard: View {
 /// another.
 struct FlightHero: View {
 
+    /// The first photograph, already loaded by the window. It sets the
+    /// header's height and fills the first page without waiting.
     let image: UIImage?
+
     let spriteKey: String
     let contributor: String?
     let theme: FlightInfoTheme
     let width: CGFloat
 
+    /// Everything the lookup returned for this type and livery.
+    ///
+    /// Empty for the peak state, which is a preview under a sheet you drag —
+    /// a horizontal swipe there is a gesture fighting the window rather than a
+    /// gallery. Left empty it draws exactly the single photo it always did.
+    var photos: [AircraftPhoto] = []
+
+    @State private var page = 0
+
+    private var isGallery: Bool { photos.count > 1 }
+
     /// Takes the photo's own shape where it can, so a fitted photo fills the
     /// header edge to edge instead of sitting between blurred bars. Extremes
     /// are clamped — a panoramic shot may not eat the whole sheet.
+    ///
+    /// Measured from the first photograph even in a gallery: the others are
+    /// fitted into the height it sets. A header that resized itself under your
+    /// thumb as you paged through shots of different shapes would be a worse
+    /// thing than a little letterboxing.
     static func height(for width: CGFloat, image: UIImage?) -> CGFloat {
         guard let image = image, image.size.width > 0, image.size.height > 0 else {
             return min(max(width * 0.56, 190), 250)
@@ -397,27 +416,61 @@ struct FlightHero: View {
     }
 
     var body: some View {
-        AircraftPhotoImage(
-            image: image,
-            spriteKey: spriteKey,
-            theme: theme,
-            iconSize: 64,
-            // Airliner photos are wide; filling this frame would cut the nose
-            // and tail off, so the whole airframe is fitted onto a blurred
-            // copy of itself instead.
-            contentMode: .fit
-        )
+        Group {
+            if isGallery {
+                TabView(selection: $page) {
+                    ForEach(Array(photos.enumerated()), id: \.element.url) { index, photo in
+                        HeroPage(
+                            photo: photo,
+                            // The window has already fetched the first one.
+                            preloaded: index == 0 ? image : nil,
+                            spriteKey: spriteKey,
+                            theme: theme
+                        )
+                        .tag(index)
+                    }
+                }
+                // The app draws its own, in the theme's ink — the system's dots
+                // are white, which disappears on a light window over a pale sky.
+                .tabViewStyle(.page(indexDisplayMode: .never))
+            } else {
+                AircraftPhotoImage(
+                    image: image,
+                    spriteKey: spriteKey,
+                    theme: theme,
+                    iconSize: 64,
+                    // Airliner photos are wide; filling this frame would cut
+                    // the nose and tail off, so the whole airframe is fitted
+                    // onto a blurred copy of itself instead.
+                    contentMode: .fit
+                )
+            }
+        }
         .frame(width: width, height: Self.height(for: width, image: image))
         .overlay { PhotoScrim(theme: theme) }
         // The photo's own alpha is faded out at the bottom, so it melts into
         // the window's ground rather than ending on a black band.
         .mask { PhotoFadeMask() }
+        // Both of these go on after the mask, so neither fades out with the
+        // bottom of the photograph.
         .overlay(alignment: .topTrailing) { credit }
+        .overlay(alignment: .bottomLeading) { pageDots }
+        // A shorter list arriving — another aircraft's photos, or a failed
+        // reload — must not leave the playhead past the end of it.
+        .onChange(of: photos.count) { _, count in
+            if page >= count { page = 0 }
+        }
+    }
+
+    /// Whoever took the photograph currently on screen.
+    private var currentContributor: String? {
+        guard isGallery, photos.indices.contains(page) else { return contributor }
+        return photos[page].contributor
     }
 
     @ViewBuilder
     private var credit: some View {
-        if let contributor = contributor {
+        if let contributor = currentContributor {
             Text("© \(contributor)")
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(theme.textPrimary)
@@ -429,6 +482,58 @@ struct FlightHero: View {
                 .frame(maxWidth: 150, alignment: .trailing)
                 .padding(.top, 12)
                 .padding(.trailing, 12)
+                // The credit belongs to the photograph, so it changes with it
+                // rather than being replaced under a stationary label.
+                .animation(.easeInOut(duration: 0.18), value: currentContributor)
+        }
+    }
+
+    @ViewBuilder
+    private var pageDots: some View {
+        if isGallery {
+            HStack(spacing: 5) {
+                ForEach(photos.indices, id: \.self) { index in
+                    Circle()
+                        .fill(theme.textPrimary)
+                        .opacity(index == page ? 0.9 : 0.3)
+                        .frame(width: 5, height: 5)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .flightInfoSurface(theme, radius: 8, elevated: true)
+            .padding(.leading, 12)
+            .padding(.bottom, 10)
+            .animation(.easeInOut(duration: 0.18), value: page)
+            .accessibilityLabel("Photo \(page + 1) of \(photos.count)")
+        }
+    }
+}
+
+/// One photograph in the header's gallery.
+///
+/// Its own loader, so pages fetch as they are reached rather than all at once
+/// — the shared image cache means paging back to one is instant.
+private struct HeroPage: View {
+
+    let photo: AircraftPhoto
+    let preloaded: UIImage?
+    let spriteKey: String
+    let theme: FlightInfoTheme
+
+    @StateObject private var loader = RemoteImageLoader()
+
+    var body: some View {
+        AircraftPhotoImage(
+            image: preloaded ?? loader.image,
+            spriteKey: spriteKey,
+            theme: theme,
+            iconSize: 64,
+            contentMode: .fit
+        )
+        .onAppear { if preloaded == nil { loader.load(photo.url) } }
+        .onChange(of: photo.url) { _, url in
+            if preloaded == nil { loader.load(url) }
         }
     }
 }
