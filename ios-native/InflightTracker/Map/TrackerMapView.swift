@@ -48,6 +48,11 @@ struct TrackerMapView: UIViewRepresentable {
     /// this exists to skip.
     var trafficRevision: Int = 0
 
+    /// Told when the weather tiles stop being worth drawing at this zoom, or
+    /// start again. The map is the only thing that knows how wide the view is;
+    /// the strip over it is where the reason belongs.
+    var onWeatherLegibility: (Bool) -> Void = { _ in }
+
     /// Fields worth marking — controlled, or busy. Empty when the filter is
     /// off, which is how the whole feature is switched off.
     var airports: [MapAirport] = []
@@ -967,6 +972,10 @@ struct TrackerMapView: UIViewRepresentable {
         /// frame that has not changed is not torn down and re-fetched.
         private var weatherOverlay: RainViewerTileOverlay?
 
+        /// What was last said about the tiles being worth drawing at this zoom,
+        /// so the model hears about a change rather than about every pass.
+        private var reportedWeatherLegibility = true
+
         /// The barbs on the map, and the grid they belong to.
         private var windAnnotations: [WindBarbAnnotation] = []
         private var renderedWindKey: String?
@@ -978,7 +987,20 @@ struct TrackerMapView: UIViewRepresentable {
         /// would mean holding two full tile sets for a layer that is already
         /// the most expensive thing on the map.
         func syncWeatherTiles(on mapView: MKMapView) {
-            let wanted = parent.weatherTiles
+            // Zoomed in past where the tiles hold any detail, the overlay comes
+            // off rather than being magnified into a smear. The map is the only
+            // thing that knows how wide the view is, so it decides — and tells
+            // the model, which is what puts the reason in the strip.
+            let span = mapView.region.span.longitudeDelta
+            let legible = parent.weatherTiles
+                .map { MapWeatherSource.isLegible($0.layer, acrossDegrees: span) } ?? true
+
+            if legible != reportedWeatherLegibility {
+                reportedWeatherLegibility = legible
+                parent.onWeatherLegibility(legible)
+            }
+
+            let wanted = legible ? parent.weatherTiles : nil
 
             if weatherOverlay?.key == wanted?.key { return }
 
@@ -1906,6 +1928,11 @@ struct TrackerMapView: UIViewRepresentable {
                 // The wind grid is a function of the region, so it is resolved
                 // on the same settle the ground layer is — never mid-pan.
                 self.syncWinds(on: mapView)
+                // And whether the weather tiles still hold detail at this zoom,
+                // which is the same question asked of a different layer. On the
+                // settle rather than mid-pinch: a zoom that passes through the
+                // limit and back out should not flick the overlay off and on.
+                self.syncWeatherTiles(on: mapView)
             }
 
             pendingCull = work

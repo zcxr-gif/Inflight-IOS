@@ -58,6 +58,26 @@ final class MapWeatherModel: ObservableObject {
     /// and the tile reports over.
     private var lastLayer: MapWeatherLayer = .off
 
+    /// Whether the map is somewhere the tiles still hold detail, as reported by
+    /// the map itself.
+    private var isLegible = true
+
+    /// The map, saying whether the current layer is worth drawing at the zoom it
+    /// is now at.
+    ///
+    /// Hopped through the main queue rather than acted on where it is called:
+    /// this arrives from inside the map's own layout pass, and publishing from
+    /// there is changing state in the middle of a SwiftUI update.
+    func report(legible: Bool) {
+        guard isLegible != legible else { return }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, self.isLegible != legible else { return }
+            self.isLegible = legible
+            self.rebuild()
+        }
+    }
+
     init() {
         // Anything that changes what should be on screen rebuilds it: the
         // frame index landing, the layer being switched, the animation being
@@ -138,10 +158,16 @@ final class MapWeatherModel: ObservableObject {
             return
         }
 
-        // The index has frames, so the only remaining reason for an empty map
-        // is the tiles themselves being refused — which the overlay reports and
-        // the strip is the place to say.
-        unavailable = service.tileFailure
+        // Zoomed in past the imagery's own detail, the map takes the overlay
+        // off — so the strip says why, rather than leaving a layer that is
+        // switched on and drawing nothing.
+        //
+        // Otherwise the index has frames, and the only remaining reason for an
+        // empty map is the tiles themselves being refused, which the overlay
+        // reports.
+        unavailable = isLegible
+            ? service.tileFailure
+            : "Too close in for \(layer.label.lowercased()). Zoom out."
 
         // The playhead is clamped rather than wrapped: a shorter list arriving
         // — which is what a nowcast expiring looks like — should land on the

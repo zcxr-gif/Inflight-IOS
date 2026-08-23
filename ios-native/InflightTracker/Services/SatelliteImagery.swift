@@ -51,21 +51,25 @@ enum SatelliteImagery {
     static let maximumZoom = 8
 
     /// How many days of imagery the scrubber can reach back through.
-    ///
-    /// Today's is still being assembled while the satellite is still flying it,
-    /// so the day before is the one that is certainly whole — which is exactly
-    /// what having more than one frame is for.
     private static let dayCount = 3
 
     /// The days available, oldest first, so the strip runs forwards through
-    /// time the way the radar's frames do.
+    /// time the way the radar's frames do — and ending *yesterday*.
+    ///
+    /// Today is deliberately not among them. A day's imagery is not a
+    /// photograph taken at midnight; it is assembled swath by swath as the
+    /// satellite flies its orbits, so today's is a few stripes across a
+    /// mostly empty world until the day is over. Asking for it is how the
+    /// layer came up as one lonely tile over an ocean. Yesterday's is whole,
+    /// global, and — for weather systems that take days to cross an ocean —
+    /// very nearly as current.
     static func frames(now: Date = Date()) -> [WeatherFrame] {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC") ?? .current
 
         let today = calendar.startOfDay(for: now)
 
-        return (0..<dayCount).reversed().compactMap { back in
+        return (1...dayCount).reversed().compactMap { back in
             guard let day = calendar.date(byAdding: .day, value: -back, to: today) else { return nil }
             return WeatherFrame(time: day, path: Self.date(day, in: calendar))
         }
@@ -147,5 +151,33 @@ enum MapWeatherSource {
         case .off, .radar: return radarMaximumZoom
         case .satellite: return SatelliteImagery.maximumZoom
         }
+    }
+
+    /// How narrow a view a layer is still worth drawing over, in degrees of
+    /// longitude across the map.
+    ///
+    /// Neither service serves tiles anywhere near the depth this map will zoom
+    /// to, and `MKTileOverlay` fills the gap by magnifying the deepest tile it
+    /// has. Past a point that stops being a picture: one 250-metre tile of
+    /// daily satellite imagery stretched across a city is a coloured smear
+    /// where a coastline used to be, and it reads as the layer being broken
+    /// rather than as the layer being out of its depth.
+    ///
+    /// So each stops where it stops meaning anything. A tile at the satellite's
+    /// deepest zoom is about a degree and a half across, so a view narrower
+    /// than one tile is where it goes; radar is smoothed and its blobs survive
+    /// being stretched much further, so it is allowed much closer.
+    static func minimumSpanDegrees(for layer: MapWeatherLayer) -> Double {
+        switch layer {
+        case .off: return 0
+        case .radar: return 0.3
+        case .satellite: return 1.2
+        }
+    }
+
+    /// Whether a layer has anything to say about a view this wide.
+    static func isLegible(_ layer: MapWeatherLayer, acrossDegrees span: Double) -> Bool {
+        guard span.isFinite, span > 0 else { return true }
+        return span >= minimumSpanDegrees(for: layer)
     }
 }

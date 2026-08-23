@@ -262,6 +262,7 @@ struct ContentView: View {
                 showsGroundLayout: filters.showsGroundLayout,
                 showsFlightPlan: filters.showsFlightPlan,
                 weatherTiles: mapWeather.tiles,
+                onWeatherLegibility: { mapWeather.report(legible: $0) },
                 measurement: $measurement,
                 showsTerminator: filters.showsTerminator,
                 showsNatTracks: filters.showsNatTracks,
