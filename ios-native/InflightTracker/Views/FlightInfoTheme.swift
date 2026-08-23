@@ -319,15 +319,30 @@ struct FlightInfoTheme {
     /// dimming rather than on a ground of our own, which is the deliberate
     /// trade: this is the number to raise if a caption ever gets lost over
     /// snow or a bright ocean.
+    /// The scheme is stamped here rather than left to the view that presents
+    /// the sheet, and that is the whole reason a light window used to come up
+    /// dark.
+    ///
+    /// The system's glass takes its own colour from the environment it is drawn
+    /// in. A presentation background is built in a closure and hung on the
+    /// sheet itself, so it does not reliably inherit what the content around it
+    /// was stamped with — and the app deliberately never forces a scheme on the
+    /// window, so what it inherited instead was *iOS's*. Light app on a phone
+    /// set to dark meant dark glass under near-black ink, which is exactly the
+    /// slab this design spent so long avoiding. Every other surface in the app
+    /// stamps this; this one has to as well.
     @ViewBuilder
     var sheetBackground: some View {
-        if isGlass {
-            Rectangle()
-                .fill(windowFill.opacity(groundOpacity))
-                .glassEffect(.regular.tint(scrim), in: Rectangle())
-        } else {
-            Rectangle().fill(windowFill)
+        Group {
+            if isGlass {
+                Rectangle()
+                    .fill(windowFill.opacity(groundOpacity))
+                    .glassEffect(.regular.tint(scrim), in: Rectangle())
+            } else {
+                Rectangle().fill(windowFill)
+            }
         }
+        .environment(\.colorScheme, colorScheme)
     }
 
     /// The four shipping looks, from the two switches that pick between them.
@@ -402,16 +417,25 @@ struct FlightInfoTheme {
     /// the map exactly as little as the dark one does, and every view that
     /// reads `accent` still gets a colour that white text can sit on top of.
     ///
-    /// The one number that is not a straight inversion is the ground: black ink
-    /// on glass needs a real surface under it, where white text could lean on
-    /// the system's own dimming. Raise `groundOpacity` before any of the text
-    /// tokens if a caption is ever lost over a dark coastline.
+    /// The one number that is not a straight inversion is the ground, and it is
+    /// the one that had to change.
+    ///
+    /// Glass *dims* what is behind it. That helps white text, which is why the
+    /// dark themes can float on almost nothing, and it works against black ink,
+    /// which needs a surface of its own. At a little over half opacity the map
+    /// still came through hard enough to grey the paper down — and since the
+    /// map itself can now be set to dark or to near-black independently of the
+    /// app, "what is behind it" stopped being a safe assumption. The ground is
+    /// most of the way to paper now, with the scrim leaning white rather than
+    /// sitting neutral, so a light window reads as light over any map the app
+    /// can draw. There is still a trace of the world coming through, which is
+    /// the point of the window being glass at all.
     static let lightGlass = FlightInfoTheme(
         isGlass: true,
         isLight: true,
         windowFill: Color(red: 0.96, green: 0.96, blue: 0.97),
-        scrim: Color.white.opacity(0.10),
-        chromeTint: Color.white.opacity(0.22),
+        scrim: Color.white.opacity(0.28),
+        chromeTint: Color.white.opacity(0.30),
         surfaceTint: Color.black.opacity(0.035),
         elevatedTint: Color.black.opacity(0.075),
         surfaceFill: Color.black.opacity(0.055),
@@ -424,7 +448,7 @@ struct FlightInfoTheme {
         accent: Color(white: 0.10),
         onAccent: Color(white: 0.98),
         trackFill: Color.black.opacity(0.14),
-        groundOpacity: 0.55,
+        groundOpacity: 0.85,
         textHalo: Color.white.opacity(0.5)
     )
 

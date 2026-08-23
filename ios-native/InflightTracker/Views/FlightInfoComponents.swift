@@ -408,7 +408,7 @@ struct FlightHero: View {
             contentMode: .fit
         )
         .frame(width: width, height: Self.height(for: width, image: image))
-        .overlay { PhotoScrim() }
+        .overlay { PhotoScrim(theme: theme) }
         // The photo's own alpha is faded out at the bottom, so it melts into
         // the window's ground rather than ending on a black band.
         .mask { PhotoFadeMask() }
@@ -577,18 +577,30 @@ struct PhotoFadeMask: View {
     }
 }
 
-/// Just enough shading under the identity block to keep white text off a
+/// Just enough shading under the identity block to keep the text over it off a
 /// bright sky. Fades out again at the very bottom so it can't reintroduce the
 /// band the mask is there to avoid.
+///
+/// Which way it shades depends on the theme, and it used to be black either
+/// way. The text over a photo is the window's own ink — white on the dark
+/// themes, near-black on the light ones — so on light this was darkening the
+/// photo *and* the top of the window behind the very text it was meant to be
+/// helping. White lifts a light theme's photo the way black settles a dark
+/// one's, and a little more of it, because a white wash reads softer than a
+/// black one at the same opacity.
 struct PhotoScrim: View {
+
+    let theme: FlightInfoTheme
+
+    private var shade: Color { theme.isLight ? .white : .black }
 
     var body: some View {
         LinearGradient(
             stops: [
                 .init(color: .clear, location: 0),
-                .init(color: .black.opacity(0.10), location: 0.45),
-                .init(color: .black.opacity(0.30), location: 0.78),
-                .init(color: .black.opacity(0.10), location: 1)
+                .init(color: shade.opacity(theme.isLight ? 0.14 : 0.10), location: 0.45),
+                .init(color: shade.opacity(theme.isLight ? 0.40 : 0.30), location: 0.78),
+                .init(color: shade.opacity(theme.isLight ? 0.14 : 0.10), location: 1)
             ],
             startPoint: .top,
             endPoint: .bottom
