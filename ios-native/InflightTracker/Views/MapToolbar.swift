@@ -53,30 +53,18 @@ enum MapPanelKind: String, Identifiable, CaseIterable {
     }
 }
 
-/// The bar along the bottom of the map.
+/// The bar of destinations, inside the dock.
 ///
-/// One piece of chrome rather than four floating buttons, so it reads as the
-/// app's own furniture — the same call the flight window's map controls make.
-/// It carries the state each destination is in: how many positions are open,
-/// and whether the map is being filtered, so neither is a surprise you have to
-/// open a panel to discover.
+/// One piece rather than five floating buttons, so it reads as the app's own
+/// furniture — the same call the flight window's map controls make. It carries
+/// the state each destination is in: how many positions are open, and whether
+/// the map is being filtered, so neither is a surprise you have to open a panel
+/// to discover.
+///
+/// Drawn on a raised surface rather than on its own glass: it sits inside
+/// `MapDock`, which is already glass, and glass on glass reads as two cards
+/// stacked rather than as a bar on a dock.
 struct MapToolbar: View {
-
-    /// How much of the bottom of the map the bar covers, including the stats
-    /// handle sitting on top of it and the gap underneath. The map keeps this
-    /// much clear when it frames something, the same way it keeps clear of the
-    /// flight window.
-    static let reservedHeight: CGFloat = 108
-
-    /// The strip immediately above the bar, kept empty for Apple's "Legal"
-    /// link.
-    ///
-    /// MapKit draws the link in the bottom-left corner of whatever the map's
-    /// layout margins leave it, and Apple's terms require it to stay visible
-    /// and tappable — so the map lifts it to just above the bar, and the chrome
-    /// in the two bottom corners starts above this lane rather than on top of
-    /// it.
-    static let legalLane: CGFloat = 20
 
     let theme: FlightInfoTheme
 
@@ -109,8 +97,7 @@ struct MapToolbar: View {
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 4)
-        .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .environment(\.colorScheme, theme.colorScheme)
+        .flightInfoSurface(theme, radius: 22, elevated: true)
     }
 
     private func item(_ kind: MapPanelKind) -> some View {

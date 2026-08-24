@@ -252,7 +252,7 @@ struct ContentView: View {
     /// reasonable time". Every one of these is a separate, trivially solved
     /// expression now.
     private var mapBottomInset: CGFloat {
-        selection == nil ? MapToolbar.reservedHeight : peakHeight
+        selection == nil ? MapDock.reservedHeight : peakHeight
     }
 
     /// How far up the map has to hold Apple's "Legal" link so the app's own
@@ -276,7 +276,7 @@ struct ContentView: View {
     /// Where the chrome in the two bottom corners starts: above the bar, and
     /// above the lane the legal link now sits in.
     private var cornerInset: CGFloat {
-        MapToolbar.reservedHeight + MapToolbar.legalLane
+        MapDock.reservedHeight + MapDock.legalLane
     }
 
     /// How tall the map's own control stack is: three rows with a hairline
@@ -945,7 +945,7 @@ struct ContentView: View {
 
     // MARK: - Bottom chrome
 
-    /// The toolbar, along the bottom while the map is the whole screen. With an
+    /// The dock, along the bottom while the map is the whole screen. With an
     /// aircraft open the info window is sitting over this, so it gives way to
     /// the window's own controls rather than hiding behind it.
     @ViewBuilder
@@ -960,31 +960,28 @@ struct ContentView: View {
                 // something that goes away would be the wrong trade.
                 HintStrip(placement: .map, isFloating: true)
 
-                // The stats handle and the bar are one piece of furniture, so
-                // they sit tight against each other — the grabber reads as the
-                // top edge of the bar rather than as a button floating above
-                // it.
+                // One card, with the handle on it and the bar inside it. What
+                // the handle pulls up opens within the same card rather than
+                // as a second one floating above — so there is one shape on
+                // the bottom of the screen and it grows when you pull it.
                 //
-                // The card it pulls up is not reserved against, for the same
-                // reason the hint above is not: it is up for as long as it is
-                // being read and then gone, and the corners lift out of its way
-                // while it is.
-                VStack(spacing: 3) {
-                    StatsTip(theme: theme, isUp: $isStatsUp) {
+                // The map's reserved inset is not grown to match, for the same
+                // reason the hint above is not: the stats are up for as long as
+                // they are being read and then gone, and the corners lift out
+                // of their way while they are.
+                MapDock(
+                    theme: theme,
+                    atcCount: feed.atcCount,
+                    activeFilters: filters.activeCount,
+                    friendsAloft: friendsAloft,
+                    isStatsUp: $isStatsUp,
+                    onPanel: { kind in sheet = .panel(kind) },
+                    onOpenStats: {
                         isStatsUp = false
                         sheet = .panel(.stats)
                     }
-                    .environmentObject(feed)
-
-                    MapToolbar(
-                        theme: theme,
-                        atcCount: feed.atcCount,
-                        activeFilters: filters.activeCount,
-                        friendsAloft: friendsAloft
-                    ) { kind in
-                        sheet = .panel(kind)
-                    }
-                }
+                )
+                .environmentObject(feed)
             }
             .padding(.horizontal, 14)
             .padding(.bottom, 6)
@@ -1114,7 +1111,7 @@ struct ContentView: View {
     /// How far the chrome in the bottom corners moves while the stats card is
     /// up, so it sits above the card rather than behind it.
     private var statsLift: CGFloat {
-        isStatsUp && selection == nil && !replay.isActive ? StatsTip.cardHeight + 6 : 0
+        isStatsUp && selection == nil && !replay.isActive ? MapDock.statsLift : 0
     }
 
     /// Weather, on the map's left shoulder.
