@@ -102,7 +102,7 @@ struct MapToolbar: View {
     /// How far the items sit inside the bar. The same on all four sides, so the
     /// row is centred in the shape it is drawn on rather than being pushed at
     /// one edge by the dock's uneven padding.
-    static let inset: CGFloat = 5
+    static let inset: CGFloat = 4
 
     /// ...and the items' own radius, concentric again with the bar.
     static let itemRadius: CGFloat = radius - inset
@@ -117,9 +117,14 @@ struct MapToolbar: View {
     static let labelRow: CGFloat = 12
     static let iconBox: CGFloat = 26
     static let rowGap: CGFloat = 4
-    static let itemPadding: CGFloat = 8
+    static let itemPadding: CGFloat = 6
 
     /// One item, and then the bar around them.
+    ///
+    /// Forty-eight and fifty-six. That is not an accident: a system tab bar is
+    /// forty-nine points tall, and this is the same furniture doing the same
+    /// job. It was sixty-two, which is a bar noticeably fatter than the one
+    /// every other app on the phone puts in the same place.
     static let itemHeight: CGFloat = iconRow + rowGap + labelRow + itemPadding * 2
     static let height: CGFloat = itemHeight + inset * 2
 

@@ -58,21 +58,27 @@ struct MapDock: View {
     /// because the bar reads them to work out its own radius: a bar whose
     /// curve is not the card's curve less the inset reads as a rectangle in a
     /// rounded box.
-    static let cornerRadius: CGFloat = 30
-    static let cardInset: CGFloat = 8
+    static let cornerRadius: CGFloat = 26
+    static let cardInset: CGFloat = 6
 
-    private static let cardTop: CGFloat = 6
-    private static let cardBottom: CGFloat = 8
-    private static let rowGap: CGFloat = 8
+    private static let cardTop: CGFloat = 4
+    private static let cardBottom: CGFloat = 6
+    private static let rowGap: CGFloat = 6
 
-    /// The band the grabber sits in. Deliberately generous: the old one was
-    /// fifteen points tall including its padding, which is a target you miss
-    /// as often as you hit, and missing it meant a drag that started on the
-    /// bar underneath instead.
-    static let handleBand: CGFloat = 28
+    /// The band the grabber sits in.
+    ///
+    /// This was twenty-eight, on the theory that a bigger target is an easier
+    /// one. It is, and it also put thirty-six points of empty card above a bar
+    /// that is only forty-eight tall — the handle stopped reading as a marker
+    /// on the dock and started reading as a second row of nothing. Twenty is
+    /// still a third taller than the fifteen it started at, and the drag does
+    /// not depend on hitting it anyway: the gesture is on the whole card, so
+    /// this only has to be big enough to *tap*, and the tap has the card's own
+    /// top padding under it as well.
+    static let handleBand: CGFloat = 20
 
     /// The gap the map leaves between the card and the safe area.
-    static let liftOffSafeArea: CGFloat = 6
+    static let liftOffSafeArea: CGFloat = 4
 
     /// How much of the map's bottom edge the dock covers, closed, including the
     /// gap underneath it. The map keeps this much clear when it frames

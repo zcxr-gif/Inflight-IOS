@@ -403,7 +403,15 @@ struct TrackerMapView: UIViewRepresentable {
             let heldDistance = before.centerCoordinateDistance
             let heldPitch = before.pitch
             let heldHeading = before.heading
-            let heldCentre = mapView.centerCoordinate
+            // The *camera's* centre, not the map view's.
+            //
+            // `mapView.centerCoordinate` is derived from `region`, and MapKit
+            // documents `region` as undefined whenever the map is not showing a
+            // flat rectangular area — which is every globe, and anything
+            // pitched. Reading it while the planet is on screen hands back a
+            // coordinate for a rectangle that does not exist, and putting the
+            // camera back at it is how a globe ends up somewhere else entirely.
+            let heldCentre = before.centerCoordinate
 
             mapView.preferredConfiguration = style.configuration()
             mapView.isRotateEnabled = style.isFreeCamera
@@ -419,15 +427,35 @@ struct TrackerMapView: UIViewRepresentable {
             // because as far as anyone watching is concerned it never left.
             guard isNewProjection else {
                 guard heldDistance.isFinite, heldDistance > 0 else { return }
-                mapView.setCamera(
-                    MKMapCamera(
-                        lookingAtCenter: heldCentre,
-                        fromDistance: heldDistance,
-                        pitch: heldPitch,
-                        heading: heldHeading
-                    ),
-                    animated: false
+
+                let held = MKMapCamera(
+                    lookingAtCenter: heldCentre,
+                    fromDistance: heldDistance,
+                    pitch: heldPitch,
+                    heading: heldHeading
                 )
+
+                mapView.setCamera(held, animated: false)
+
+                // ...and again once the swap has actually landed.
+                //
+                // Assigning `preferredConfiguration` does not finish on the
+                // line that assigns it: the map tears its renderer down and
+                // rebuilds it, and when that lands MapKit re-establishes a
+                // camera of its own — over the top of the one restored above,
+                // which is why restoring it synchronously was not enough. On
+                // the globe what it re-establishes is close in and flat, so
+                // recolouring the planet flattened it.
+                //
+                // Guarded on the style still being the one this call applied,
+                // so a second change made in between wins rather than being
+                // undone by the first one's echo.
+                let applied = style
+                DispatchQueue.main.async { [weak self, weak mapView] in
+                    guard let self = self, let mapView = mapView else { return }
+                    guard self.appliedStyle == applied else { return }
+                    mapView.setCamera(held, animated: false)
+                }
                 return
             }
 

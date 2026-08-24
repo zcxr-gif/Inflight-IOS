@@ -1047,8 +1047,11 @@ struct ContentView: View {
                 )
                 .environmentObject(feed)
             }
-            .padding(.horizontal, 14)
-            .padding(.bottom, 6)
+            // Ten, not fourteen. With the card's own inset and the bar's
+            // inside that, fourteen put twenty-six points of nothing between
+            // the screen edge and the first tool.
+            .padding(.horizontal, 10)
+            .padding(.bottom, MapDock.liftOffSafeArea)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             // The keyboard is the search field's business. Without this the bar
             // rides up on top of it while a query is being typed.
