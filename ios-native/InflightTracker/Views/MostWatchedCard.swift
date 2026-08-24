@@ -69,7 +69,10 @@ struct MostWatchedCard: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .flightInfoSurface(theme, radius: theme.radiusLarge)
+        // 28 rather than `radiusLarge`. Every other surface in the panel is a
+        // card sitting on the window; this one is meant to read as a sheet
+        // somebody has pulled up, and the corner is most of what says so.
+        .flightInfoSurface(theme, radius: 28)
         // The board is asked for once when the panel opens and again whenever
         // the tab changes, and never on a redraw. Closed, the same answer is
         // what names the pilot on the one visible line, so there is nothing to
@@ -89,12 +92,12 @@ struct MostWatchedCard: View {
     private var grabber: some View {
         Capsule()
             .fill(theme.textDim)
-            .frame(width: 38, height: 5)
-            .opacity(isOpen ? 0.55 : 0.9)
+            .frame(width: 52, height: 5)
+            .opacity(isOpen ? 0.6 : 0.95)
             .offset(y: pull)
             .frame(maxWidth: .infinity)
-            .padding(.top, 11)
-            .padding(.bottom, 9)
+            .padding(.top, 13)
+            .padding(.bottom, 12)
             .contentShape(Rectangle())
             .onTapGesture { setOpen(!isOpen) }
             .gesture(pullGesture)
@@ -137,7 +140,7 @@ struct MostWatchedCard: View {
                     PilotAvatar(
                         url: leader.avatarURL,
                         initials: leader.initials,
-                        side: 34,
+                        side: 38,
                         isPro: leader.isPro
                     )
 
@@ -146,7 +149,7 @@ struct MostWatchedCard: View {
 
                         HStack(spacing: 5) {
                             Text(leader.displayName)
-                                .font(.system(size: 15, weight: .bold))
+                                .font(.system(size: 16, weight: .bold))
                                 .foregroundStyle(theme.textPrimary)
                                 .flightInfoLine(minimumScale: 0.7)
 
@@ -160,9 +163,9 @@ struct MostWatchedCard: View {
                     count(weight(leader))
                 } else {
                     Image(systemName: "crown.fill")
-                        .font(.system(size: 15))
+                        .font(.system(size: 16))
                         .foregroundStyle(theme.textSecondary)
-                        .frame(width: 34, height: 34)
+                        .frame(width: 38, height: 38)
                         .background { Circle().fill(theme.elevatedFill) }
 
                     VStack(alignment: .leading, spacing: 3) {
@@ -178,11 +181,11 @@ struct MostWatchedCard: View {
                 }
 
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(theme.textDim)
             }
-            .padding(.horizontal, 14)
-            .padding(.bottom, 13)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 16)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -192,15 +195,15 @@ struct MostWatchedCard: View {
     // MARK: - Pulled out
 
     private var opened: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             header
             tabs
 
             Text(scope.standfirst)
-                .font(.system(size: 10.5, weight: .medium))
+                .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(theme.textDim)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 14)
+                .padding(.horizontal, 16)
 
             board
 
@@ -209,8 +212,8 @@ struct MostWatchedCard: View {
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(theme.textDim)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 14)
-                .padding(.bottom, 13)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 16)
         }
     }
 
@@ -234,27 +237,42 @@ struct MostWatchedCard: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Hide the most watched board")
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 16)
     }
 
     /// The three scopes, as one segmented control.
     ///
-    /// Written by hand rather than as a `Picker(.segmented)`: the system
-    /// control carries no glyphs, sizes its own type, and takes its colours
-    /// from the system rather than from the theme — which is most of the app's
-    /// look given away for a control that is three buttons and a moving chip.
+    /// Written by hand rather than as a `Picker(.segmented)`, which carries no
+    /// glyphs and sizes its own type — and glyph over label, at a size you can
+    /// actually see, is the whole shape of this control.
+    ///
+    /// A stadium rather than a rounded rectangle, hairline-outlined, with the
+    /// picked segment on a filled capsule inside it. Roomy on purpose: this is
+    /// the first thing under the grabber and the thing a thumb goes for, and a
+    /// row of 10pt labels is neither.
     private var tabs: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 6) {
             ForEach(MostWatchedPilot.Scope.allCases) { option in
                 tab(option)
             }
         }
-        .padding(4)
-        .background {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .strokeBorder(theme.stroke, lineWidth: 1)
-        }
+        .padding(5)
+        .background { Capsule().strokeBorder(theme.stroke, lineWidth: 1) }
         .padding(.horizontal, 12)
+    }
+
+    /// The one colour on this card, and the only one in the app's chrome.
+    ///
+    /// The window is monochrome by design and stays that way; a segmented
+    /// control is the exception that earns it, because "which of these three am
+    /// I looking at" is answered by colour instantly and by a slightly lighter
+    /// grey only after a hunt. iOS's own system blue, in both its values, so it
+    /// sits the way the system's controls do rather than like a colour we
+    /// invented.
+    private var pick: Color {
+        theme.isLight
+            ? Color(red: 0.0, green: 0.478, blue: 1.0)
+            : Color(red: 0.039, green: 0.518, blue: 1.0)
     }
 
     private func tab(_ option: MostWatchedPilot.Scope) -> some View {
@@ -264,29 +282,34 @@ struct MostWatchedCard: View {
             guard !isPicked else { return }
             withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { scope = option }
         } label: {
-            VStack(spacing: 5) {
+            VStack(spacing: 6) {
                 Image(systemName: option.symbol)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 21, weight: .semibold))
+                    // Fixed, so a tall glyph and a wide one sit on the same
+                    // line and the three labels agree on where they start.
+                    .frame(height: 24)
 
                 Text(option.label)
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(0.3)
+                    .font(.system(size: 12.5, weight: .bold))
                     .flightInfoLine(minimumScale: 0.6)
             }
-            .foregroundStyle(isPicked ? theme.textPrimary : theme.textSecondary)
+            // Unpicked is full-strength white, not a dimmed grey: these are
+            // three live choices, and two of them greyed out reads as two of
+            // them disabled.
+            .foregroundStyle(isPicked ? pick : theme.textPrimary)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 9)
+            .padding(.vertical, 12)
             .background {
                 // Only the picked tab draws the chip, and it is the same chip
                 // moving rather than one fading out while another fades in —
                 // which is what makes the control read as one control.
                 if isPicked {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    Capsule()
                         .fill(theme.elevatedFill)
                         .matchedGeometryEffect(id: "mostWatchedTab", in: chipSpace)
                 }
             }
-            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(option.label)
@@ -300,12 +323,10 @@ struct MostWatchedCard: View {
         } else if pilots.isEmpty {
             note(scope.emptyDetail)
         } else {
-            let peak = pilots.map(weight).max() ?? 1
-
             VStack(spacing: 0) {
                 ForEach(Array(pilots.enumerated()), id: \.element.id) { index, pilot in
                     if index > 0 { PanelDivider() }
-                    row(pilot, place: index + 1, peak: peak)
+                    row(pilot, place: index + 1)
                 }
             }
         }
@@ -318,38 +339,36 @@ struct MostWatchedCard: View {
         scope == .rising ? pilot.newFollowers : pilot.followerCount
     }
 
-    private func row(_ pilot: MostWatchedPilot, place: Int, peak: Int) -> some View {
+    private func row(_ pilot: MostWatchedPilot, place: Int) -> some View {
         Button { onOpen(.handle(pilot.handle)) } label: {
-            HStack(spacing: 11) {
+            HStack(spacing: 12) {
                 Text("\(place)")
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
                     .foregroundStyle(place <= 3 ? theme.textPrimary : theme.textDim)
-                    .frame(width: 16, alignment: .trailing)
+                    .frame(width: 18, alignment: .trailing)
 
                 PilotAvatar(
                     url: pilot.avatarURL,
                     initials: pilot.initials,
-                    side: 34,
+                    side: 38,
                     isPro: pilot.isPro
                 )
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 3) {
                     nameLine(pilot)
 
                     Text(detail(for: pilot))
-                        .font(.system(size: 10.5, weight: .medium))
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(theme.textSecondary)
                         .flightInfoLine(minimumScale: 0.7)
-
-                    track(fraction: peak > 0 ? Double(weight(pilot)) / Double(peak) : 0)
                 }
 
                 Spacer(minLength: 6)
 
                 count(weight(pilot))
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -369,7 +388,7 @@ struct MostWatchedCard: View {
     private func nameLine(_ pilot: MostWatchedPilot) -> some View {
         HStack(spacing: 5) {
             Text(pilot.displayName)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(theme.textPrimary)
                 .flightInfoLine(minimumScale: 0.7)
 
@@ -420,7 +439,7 @@ struct MostWatchedCard: View {
     private func count(_ value: Int) -> some View {
         VStack(alignment: .trailing, spacing: 2) {
             Text(Format.number(Double(value)))
-                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .font(.system(size: 18, weight: .bold, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
                 .fixedSize()
 
@@ -434,8 +453,8 @@ struct MostWatchedCard: View {
 
     private var proSeal: some View {
         Image(systemName: "checkmark.seal.fill")
-            .font(.system(size: 10))
-            .foregroundStyle(theme.accent)
+            .font(.system(size: 11))
+            .foregroundStyle(pick)
     }
 
     private var flyingChip: some View {
@@ -443,38 +462,23 @@ struct MostWatchedCard: View {
             Image(systemName: "airplane")
                 .font(.system(size: 7, weight: .bold))
             Text("FLYING")
-                .font(.system(size: 8, weight: .bold))
+                .font(.system(size: 8.5, weight: .bold))
                 .tracking(0.6)
         }
-        .foregroundStyle(theme.accent)
-        .padding(.horizontal, 5)
-        .padding(.vertical, 2)
-        .background(Capsule().fill(theme.accent.opacity(0.18)))
+        .foregroundStyle(pick)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2.5)
+        .background(Capsule().fill(pick.opacity(0.18)))
     }
 
     private func mark(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 8, weight: .bold))
+            .font(.system(size: 8.5, weight: .bold))
             .tracking(0.6)
-            .foregroundStyle(theme.accent)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 2)
-            .background(Capsule().fill(theme.accent.opacity(0.18)))
-    }
-
-    /// The same bar the panel's other ranked lists draw, relative to the
-    /// leader rather than to the platform — the leader is what the eye is
-    /// comparing against, and nobody knows how many accounts there are.
-    private func track(fraction: Double) -> some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .leading) {
-                Capsule().fill(theme.trackFill)
-                Capsule()
-                    .fill(theme.accent)
-                    .frame(width: geometry.size.width * min(max(fraction, 0), 1))
-            }
-        }
-        .frame(height: 3)
+            .foregroundStyle(pick)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2.5)
+            .background(Capsule().fill(pick.opacity(0.18)))
     }
 
     private func note(_ text: String) -> some View {
@@ -483,8 +487,8 @@ struct MostWatchedCard: View {
             .foregroundStyle(theme.textSecondary)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
     }
 
     // MARK: - Reading
