@@ -266,22 +266,6 @@ struct TrackerMapView: UIViewRepresentable {
         // where the safe area is known.
         mapView.chromeInset = legalInset
 
-        // Drives MapKit's own light/dark cartography, and with it every dynamic
-        // colour the overlays and annotations resolve — so the map, its route
-        // lines and the chrome floating over it all turn together.
-        let interfaceStyle: UIUserInterfaceStyle = colorScheme == .light ? .light : .dark
-        if mapView.overrideUserInterfaceStyle != interfaceStyle {
-            mapView.overrideUserInterfaceStyle = interfaceStyle
-
-            // A renderer resolves its dynamic stroke colour once and keeps the
-            // resolved one, so the route drawn before the switch would stay the
-            // old theme's until it was rebuilt. Asking each one to redraw is
-            // cheaper than tearing the overlays down and re-adding them.
-            for overlay in mapView.overlays {
-                mapView.renderer(for: overlay)?.setNeedsDisplay()
-            }
-        }
-
         // Weather first: the tiles go under everything else the map draws, and
         // adding them at the bottom of the pass keeps that ordering honest.
         context.coordinator.syncTerminator(on: mapView)
@@ -289,7 +273,13 @@ struct TrackerMapView: UIViewRepresentable {
         context.coordinator.syncWeatherTiles(on: mapView)
         context.coordinator.syncWinds(on: mapView)
         context.coordinator.syncNatTracks(on: mapView)
-        context.coordinator.applyStyle(style, on: mapView)
+
+        // The scheme goes on *after* the style, and is forced whenever the
+        // style actually swapped the map's configuration. See `applyScheme`:
+        // doing it the other way round is what left the cartography sitting on
+        // whatever it was already drawing.
+        let swapped = context.coordinator.applyStyle(style, on: mapView)
+        context.coordinator.applyScheme(colorScheme, on: mapView, force: swapped)
         context.coordinator.applyHighlighting(highlighting, on: mapView)
         // Both of these diff a list against what is drawn, and both are handed
         // the stamp that says whether the list can have changed. Panning is not
@@ -365,8 +355,15 @@ struct TrackerMapView: UIViewRepresentable {
         /// `preferredConfiguration` reloads the map's tiles.
         private var appliedStyle: MapLook?
 
+        /// The scheme the cartography was last told to draw in.
+        ///
+        /// Tracked here rather than read back off `overrideUserInterfaceStyle`,
+        /// because that property reports whatever it was assigned whether or
+        /// not the map ever acted on it — which is exactly the failure the
+        /// forcing below exists to survive.
+        private var appliedScheme: ColorScheme?
+
         /// The black wash under the traffic, while a palette asks for one.
-        private var dimmingOverlay: MKPolygon?
 
         /// Field markers currently on the map, by ICAO.
         private var airportAnnotations: [String: AirportAnnotation] = [:]
@@ -389,8 +386,48 @@ struct TrackerMapView: UIViewRepresentable {
 
         // MARK: Style
 
-        func applyStyle(_ style: MapLook, on mapView: MKMapView) {
-            guard appliedStyle != style else { return }
+        /// Which way round the cartography is drawn.
+        ///
+        /// This used to be done inline in `updateUIView`, *before* the style
+        /// was applied, and only when `overrideUserInterfaceStyle` did not
+        /// already read the value being set. Both halves of that were wrong,
+        /// and together they are why picking a palette could leave the map
+        /// exactly as it was.
+        ///
+        /// Assigning `preferredConfiguration` tears the map's renderer down and
+        /// rebuilds it. Setting the scheme first and swapping the configuration
+        /// immediately afterwards means the rebuild can come back carrying the
+        /// trait the map had *before* the change — and because
+        /// `overrideUserInterfaceStyle` reads back whatever it was assigned,
+        /// whether or not the cartography ever acted on it, the "has it
+        /// changed" guard then guaranteed nothing would ever tell it again. The
+        /// map sat on the old cartography until something else happened to move
+        /// the trait, which from the outside is a setting that does nothing.
+        ///
+        /// So: after the configuration rather than before, forced whenever the
+        /// configuration was swapped, and asserted once more when the swap has
+        /// actually landed.
+        func applyScheme(_ scheme: ColorScheme, on mapView: MKMapView, force: Bool) {
+            guard force || appliedScheme != scheme else { return }
+            appliedScheme = scheme
+
+            mapView.overrideUserInterfaceStyle = scheme == .light ? .light : .dark
+
+            // A renderer resolves its dynamic stroke colour once and keeps the
+            // resolved one, so the route drawn before the switch would stay the
+            // old theme's until it was rebuilt. Asking each one to redraw is
+            // cheaper than tearing the overlays down and re-adding them.
+            for overlay in mapView.overlays {
+                mapView.renderer(for: overlay)?.setNeedsDisplay()
+            }
+        }
+
+        /// Applies a look to the map, and says whether it actually swapped the
+        /// map's configuration — which is what the scheme above needs to know,
+        /// because a swap is the thing that can lose it.
+        @discardableResult
+        func applyStyle(_ style: MapLook, on mapView: MKMapView) -> Bool {
+            guard appliedStyle != style else { return false }
             let previous = appliedStyle
             appliedStyle = style
 
@@ -417,6 +454,16 @@ struct TrackerMapView: UIViewRepresentable {
             mapView.isRotateEnabled = style.isFreeCamera
             mapView.isPitchEnabled = style.isFreeCamera
 
+            // The swap does not finish on the line that starts it. Whatever
+            // scheme this pass settles on is put back once the rebuilt map has
+            // landed, so the cartography cannot come back in the old one.
+            let scheme = parent.colorScheme
+            DispatchQueue.main.async { [weak self, weak mapView] in
+                guard let self = self, let mapView = mapView else { return }
+                guard self.appliedStyle == style else { return }
+                self.applyScheme(scheme, on: mapView, force: true)
+            }
+
             syncDimming(style, on: mapView)
 
             let isNewProjection = previous?.projection != style.projection
@@ -426,7 +473,7 @@ struct TrackerMapView: UIViewRepresentable {
             // left wherever the reload dropped it — and without animation,
             // because as far as anyone watching is concerned it never left.
             guard isNewProjection else {
-                guard heldDistance.isFinite, heldDistance > 0 else { return }
+                guard heldDistance.isFinite, heldDistance > 0 else { return true }
 
                 let held = MKMapCamera(
                     lookingAtCenter: heldCentre,
@@ -456,7 +503,7 @@ struct TrackerMapView: UIViewRepresentable {
                     guard self.appliedStyle == applied else { return }
                     mapView.setCamera(held, animated: false)
                 }
-                return
+                return true
             }
 
             if style.isFreeCamera {
@@ -493,6 +540,8 @@ struct TrackerMapView: UIViewRepresentable {
                 }
                 realign(on: mapView, heading: 0)
             }
+
+            return true
         }
 
         /// The black palette's wash, put on or taken off.
