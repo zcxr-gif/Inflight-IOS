@@ -60,6 +60,9 @@ struct ContentView: View {
     /// out of the way of the card while it is up.
     @State private var isStatsUp = false
 
+    /// Whether the sky view is up: the camera, with the traffic drawn over it.
+    @State private var isShowingSky = false
+
     /// Whether the map is staying with the open aircraft. Lives here rather
     /// than in the map so it can be turned off by the things that contradict
     /// it — framing a whole route, or closing the window entirely.
@@ -275,6 +278,12 @@ struct ContentView: View {
     private var cornerInset: CGFloat {
         MapToolbar.reservedHeight + MapToolbar.legalLane
     }
+
+    /// How tall the map's own control stack is: three rows with a hairline
+    /// between each. Written down because the find-me button stacks on top of
+    /// it, and a control that overlaps the one underneath is the kind of thing
+    /// a fixed offset quietly becomes when a row is added.
+    private static let mapControlsHeight: CGFloat = 42 * 3 + 2
 
     /// A replay is driving the camera down the old track; following the live
     /// aircraft at the same time would be two things fighting over one map.
@@ -523,6 +532,18 @@ struct ContentView: View {
                 selection = SelectedFlight(id: flight.id)
                 focus(on: flight.coordinate, spanMeters: 240_000)
             }
+            .environmentObject(feed)
+        }
+        // Full screen rather than a sheet: it is a camera, and a camera behind
+        // a card with the map showing round the edges is a viewfinder nobody
+        // can aim.
+        .fullScreenCover(isPresented: $isShowingSky) {
+            SkyView(myFlights: myFlights) { id in
+                isShowingSky = false
+                openFlight(id)
+            }
+            // Handed the feed explicitly, like every other thing this view
+            // presents: the sky is drawn from the same packet the map is.
             .environmentObject(feed)
         }
         .sheet(isPresented: $isShowingProPaywall) { ProPanel() }
@@ -1259,11 +1280,21 @@ struct ContentView: View {
     @ViewBuilder
     private var mapStyleControl: some View {
         if selection == nil, !replay.isActive {
-            // Two controls sharing one piece of chrome, the way the flight
+            // Three controls sharing one piece of chrome, the way the flight
             // window's hub does — so this corner reads as the map's own
             // furniture rather than as loose buttons that happen to be near
             // each other.
             VStack(spacing: 0) {
+                // Top of the stack, because it is the one that leaves the map
+                // rather than changing it.
+                mapButton("camera.viewfinder", "Point the camera at the sky") {
+                    isShowingSky = true
+                }
+
+                Rectangle()
+                    .fill(theme.stroke)
+                    .frame(height: 1)
+
                 Menu {
                     // Buttons rather than a `Picker` bound to the setting: some
                     // of these are Pro, and a binding would have already
@@ -1393,8 +1424,8 @@ struct ContentView: View {
             .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .environment(\.colorScheme, theme.colorScheme)
             .padding(.trailing, 16)
-            // Above the style control, which sits in the same corner.
-            .padding(.bottom, cornerInset + 60 + statsLift)
+            // Above the map's own control stack, which sits in the same corner.
+            .padding(.bottom, cornerInset + 8 + Self.mapControlsHeight + 8 + statsLift)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))

@@ -110,6 +110,17 @@
 		</dict>
 	</array>
 
+	<!--
+	    Deliberately absent: the camera, the compass and the fix behind the sky
+	    view. Apple's definition of collected is data transmitted off the
+	    device, and none of the three ever is — the capture session has a
+	    preview layer and no output, and the location is read while the view is
+	    open, used to place aircraft and to resolve true north, and dropped when
+	    it closes. Nothing is stored, cached or sent. If that ever stops being
+	    true, all three belong above and the App Store Connect answers change
+	    with them.
+	-->
+
 	<key>NSPrivacyAccessedAPITypes</key>
 	<array>
 		<dict>

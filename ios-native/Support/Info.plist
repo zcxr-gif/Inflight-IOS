@@ -34,6 +34,23 @@
 	     address by hand goes through this permission alone. -->
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Inflight connects to Infinite Flight running on another device on your Wi-Fi to read your aircraft and record your landings.</string>
+	<!-- The sky view: the camera draws the picture the traffic is laid over.
+	     No frame is captured, kept or sent anywhere — the session has a preview
+	     layer and no output at all. -->
+	<key>NSCameraUsageDescription</key>
+	<string>Inflight draws the traffic over what your camera sees. Nothing is recorded or sent anywhere.</string>
+	<!-- Also the sky view. Two things need this: where you are standing, which
+	     is what the aircraft are placed relative to, and true north — the angle
+	     between the magnetic pole and the real one depends on where you are, so
+	     CoreMotion will not give a true-north reference frame without it. Read
+	     while the view is open and never stored or transmitted. -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Inflight uses your location to point the sky view at the traffic and to work out true north. It stays on your phone.</string>
+	<!-- The gyroscope and compass behind the same view: which way the phone is
+	     pointing is the whole of how an aircraft lands in the right part of the
+	     screen. -->
+	<key>NSMotionUsageDescription</key>
+	<string>Inflight reads the compass and gyroscope to work out which way you are pointing the phone in the sky view.</string>
 	<!-- Live Activities: the "live banner" a watched pilot's takeoff raises. -->
 	<key>NSSupportsLiveActivities</key>
 	<true/>
