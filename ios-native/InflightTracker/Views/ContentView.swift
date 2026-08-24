@@ -60,6 +60,9 @@ struct ContentView: View {
     /// out of the way of the card while it is up.
     @State private var isStatsUp = false
 
+    /// Whether the sky view is up: the camera, with the traffic drawn over it.
+    @State private var isShowingSky = false
+
     /// Whether the map is staying with the open aircraft. Lives here rather
     /// than in the map so it can be turned off by the things that contradict
     /// it — framing a whole route, or closing the window entirely.
@@ -249,8 +252,38 @@ struct ContentView: View {
     /// reasonable time". Every one of these is a separate, trivially solved
     /// expression now.
     private var mapBottomInset: CGFloat {
-        selection == nil ? MapToolbar.reservedHeight : peakHeight
+        selection == nil ? MapDock.reservedHeight : peakHeight
     }
+
+    /// How far up the map has to hold Apple's "Legal" link so the app's own
+    /// chrome is not sitting on it.
+    ///
+    /// The same bottom edge the camera keeps clear of, plus the stats card
+    /// while it is up. The card *is* counted here and deliberately is not
+    /// counted above: framing a route is a one-off the card has no business
+    /// shrinking, but a link hidden behind the card for as long as the card is
+    /// up is a link Apple's terms say has to be visible.
+    ///
+    /// The map reads this as a height above the bottom safe area, which is
+    /// exactly what the toolbar is. The flight window is a sheet and measures
+    /// itself from the edge of the screen instead, so with one open the link
+    /// clears it by the safe area as well — a little generous, and generous is
+    /// the side of this to be wrong on.
+    private var mapLegalInset: CGFloat {
+        mapBottomInset + statsLift
+    }
+
+    /// Where the chrome in the two bottom corners starts: above the bar, and
+    /// above the lane the legal link now sits in.
+    private var cornerInset: CGFloat {
+        MapDock.reservedHeight + MapDock.legalLane
+    }
+
+    /// How tall the map's own control stack is: three rows with a hairline
+    /// between each. Written down because the find-me button stacks on top of
+    /// it, and a control that overlaps the one underneath is the kind of thing
+    /// a fixed offset quietly becomes when a row is added.
+    private static let mapControlsHeight: CGFloat = 42 * 3 + 2
 
     /// A replay is driving the camera down the old track; following the live
     /// aircraft at the same time would be two things fighting over one map.
@@ -272,6 +305,7 @@ struct ContentView: View {
             selection: $selection,
             command: mapCommand,
             bottomInset: mapBottomInset,
+            legalInset: mapLegalInset,
             replayFrame: replay.frame,
             isFollowing: isFollowingLive,
             // The map's own answer, which is the app's until a palette says
@@ -498,6 +532,18 @@ struct ContentView: View {
                 selection = SelectedFlight(id: flight.id)
                 focus(on: flight.coordinate, spanMeters: 240_000)
             }
+            .environmentObject(feed)
+        }
+        // Full screen rather than a sheet: it is a camera, and a camera behind
+        // a card with the map showing round the edges is a viewfinder nobody
+        // can aim.
+        .fullScreenCover(isPresented: $isShowingSky) {
+            SkyView(myFlights: myFlights) { id in
+                isShowingSky = false
+                openFlight(id)
+            }
+            // Handed the feed explicitly, like every other thing this view
+            // presents: the sky is drawn from the same packet the map is.
             .environmentObject(feed)
         }
         .sheet(isPresented: $isShowingProPaywall) { ProPanel() }
@@ -899,7 +945,7 @@ struct ContentView: View {
 
     // MARK: - Bottom chrome
 
-    /// The toolbar, along the bottom while the map is the whole screen. With an
+    /// The dock, along the bottom while the map is the whole screen. With an
     /// aircraft open the info window is sitting over this, so it gives way to
     /// the window's own controls rather than hiding behind it.
     @ViewBuilder
@@ -914,30 +960,28 @@ struct ContentView: View {
                 // something that goes away would be the wrong trade.
                 HintStrip(placement: .map, isFloating: true)
 
-                // The stats tab and the bar are one piece of furniture, so they
-                // sit tight against each other — the tab reads as the top edge
-                // of the bar rather than as a button floating above it.
+                // One card, with the handle on it and the bar inside it. What
+                // the handle pulls up opens within the same card rather than
+                // as a second one floating above — so there is one shape on
+                // the bottom of the screen and it grows when you pull it.
                 //
-                // The card it pulls up is not reserved against, for the same
-                // reason the hint above is not: it is up for as long as it is
-                // being read and then gone, and the corners lift out of its way
-                // while it is.
-                VStack(spacing: 3) {
-                    StatsTip(theme: theme, isUp: $isStatsUp) {
+                // The map's reserved inset is not grown to match, for the same
+                // reason the hint above is not: the stats are up for as long as
+                // they are being read and then gone, and the corners lift out
+                // of their way while they are.
+                MapDock(
+                    theme: theme,
+                    atcCount: feed.atcCount,
+                    activeFilters: filters.activeCount,
+                    friendsAloft: friendsAloft,
+                    isStatsUp: $isStatsUp,
+                    onPanel: { kind in sheet = .panel(kind) },
+                    onOpenStats: {
                         isStatsUp = false
                         sheet = .panel(.stats)
                     }
-                    .environmentObject(feed)
-
-                    MapToolbar(
-                        theme: theme,
-                        atcCount: feed.atcCount,
-                        activeFilters: filters.activeCount,
-                        friendsAloft: friendsAloft
-                    ) { kind in
-                        sheet = .panel(kind)
-                    }
-                }
+                )
+                .environmentObject(feed)
             }
             .padding(.horizontal, 14)
             .padding(.bottom, 6)
@@ -1067,7 +1111,7 @@ struct ContentView: View {
     /// How far the chrome in the bottom corners moves while the stats card is
     /// up, so it sits above the card rather than behind it.
     private var statsLift: CGFloat {
-        isStatsUp && selection == nil && !replay.isActive ? StatsTip.cardHeight + 6 : 0
+        isStatsUp && selection == nil && !replay.isActive ? MapDock.statsLift : 0
     }
 
     /// Weather, on the map's left shoulder.
@@ -1144,7 +1188,7 @@ struct ContentView: View {
             .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .environment(\.colorScheme, theme.colorScheme)
             .padding(.leading, 16)
-            .padding(.bottom, MapToolbar.reservedHeight + 8 + statsLift)
+            .padding(.bottom, cornerInset + 8 + statsLift)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomLeading)))
@@ -1233,11 +1277,21 @@ struct ContentView: View {
     @ViewBuilder
     private var mapStyleControl: some View {
         if selection == nil, !replay.isActive {
-            // Two controls sharing one piece of chrome, the way the flight
+            // Three controls sharing one piece of chrome, the way the flight
             // window's hub does — so this corner reads as the map's own
             // furniture rather than as loose buttons that happen to be near
             // each other.
             VStack(spacing: 0) {
+                // Top of the stack, because it is the one that leaves the map
+                // rather than changing it.
+                mapButton("camera.viewfinder", "Point the camera at the sky") {
+                    isShowingSky = true
+                }
+
+                Rectangle()
+                    .fill(theme.stroke)
+                    .frame(height: 1)
+
                 Menu {
                     // Buttons rather than a `Picker` bound to the setting: some
                     // of these are Pro, and a binding would have already
@@ -1316,7 +1370,7 @@ struct ContentView: View {
             .environment(\.colorScheme, theme.colorScheme)
             .padding(.trailing, 16)
             // Clears the toolbar, and the stats card while it is up.
-            .padding(.bottom, MapToolbar.reservedHeight + 8 + statsLift)
+            .padding(.bottom, cornerInset + 8 + statsLift)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))
@@ -1367,8 +1421,8 @@ struct ContentView: View {
             .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .environment(\.colorScheme, theme.colorScheme)
             .padding(.trailing, 16)
-            // Above the style control, which sits in the same corner.
-            .padding(.bottom, MapToolbar.reservedHeight + 60 + statsLift)
+            // Above the map's own control stack, which sits in the same corner.
+            .padding(.bottom, cornerInset + 8 + Self.mapControlsHeight + 8 + statsLift)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))

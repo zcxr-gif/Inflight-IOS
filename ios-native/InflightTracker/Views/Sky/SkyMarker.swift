@@ -1,0 +1,117 @@
+import SwiftUI
+
+/// One aircraft, drawn where it is in the sky.
+///
+/// The drawing is the same one the map paints its traffic with — the sprite
+/// catalogue, keyed off the aircraft type — so a 380 in the sky view is the
+/// 380 you would have tapped on the map. It is turned to the heading the
+/// aircraft is actually flying, corrected for which way the camera is facing,
+/// the same correction the map applies against its own camera: a jet crossing
+/// left to right is a sprite pointing left to right.
+struct SkyMarker: View {
+
+    let target: SkyTarget
+    let theme: FlightInfoTheme
+
+    /// Which way the phone is facing, so the sprite can be turned relative to
+    /// it rather than to north.
+    let azimuthDegrees: Double
+
+    /// Dimmed with distance, so a screen with forty aircraft in it still reads
+    /// front to back.
+    let prominence: Double
+
+    let action: () -> Void
+
+    /// The sprite as it is drawn on the map, at the size the sky wants it.
+    private static let spriteSize: CGFloat = 30
+
+    /// White rather than the theme's own ink, and the accent for your own
+    /// aircraft. What is behind this is a photograph of the outdoors at
+    /// whatever the weather is doing, not a surface the app chose the colour
+    /// of — a light theme's near-black text would be drawn on a dark plate
+    /// against a bright sky, which is the worst of both.
+    private var tint: Color { target.isMine ? theme.accent : .white }
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                sprite
+
+                reading
+                    .offset(y: 32)
+            }
+            .frame(width: 132, height: 96)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .opacity(prominence)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(voiceOver)
+        .accessibilityHint("Opens this aircraft on the map")
+    }
+
+    @ViewBuilder
+    private var sprite: some View {
+        if let icon = PlaneSprites.shared.rawIcon(forKey: target.spriteKey, pointSize: Self.spriteSize) {
+            Image(uiImage: icon)
+                .resizable()
+                .frame(width: Self.spriteSize, height: Self.spriteSize)
+                // The artwork points north at zero, which is the convention the
+                // map's own annotations are rotated under.
+                .rotationEffect(.degrees(target.headingDegrees - azimuthDegrees))
+                // Your own aircraft keeps the accent, so it is findable in a
+                // sky of identical white shapes.
+                .overlay {
+                    if target.isMine {
+                        Circle()
+                            .strokeBorder(theme.accent, lineWidth: 1.5)
+                            .frame(width: 26, height: 26)
+                    }
+                }
+                .shadow(color: .black.opacity(0.5), radius: 2)
+        } else {
+            // The catalogue has no drawing for this one. A ring is still a
+            // position, which is the half of this that matters.
+            Circle()
+                .strokeBorder(tint, lineWidth: 1.5)
+                .frame(width: 16, height: 16)
+                .shadow(color: .black.opacity(0.55), radius: 2)
+        }
+    }
+
+    private var reading: some View {
+        VStack(spacing: 1) {
+            Text(target.callsign)
+                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .foregroundStyle(tint)
+                .flightInfoLine(minimumScale: 0.7)
+
+            Text(detail)
+                .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.85))
+                .flightInfoLine(minimumScale: 0.7)
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 4)
+        .background {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(.black.opacity(0.45))
+        }
+        .frame(width: 130)
+    }
+
+    /// How far away and how high, which between them is the whole of what a
+    /// shape in the sky is being asked.
+    private var detail: String {
+        "\(Format.number(target.distanceNauticalMiles)) NM · \(Format.number(target.altitudeFeet)) ft"
+    }
+
+    private var voiceOver: String {
+        let bearing = Format.heading(target.bearingDegrees)
+        let distance = Format.number(target.distanceNauticalMiles)
+        let altitude = Format.number(target.altitudeFeet)
+        return "\(target.callsign), \(target.aircraftName), bearing \(bearing), "
+            + "\(distance) nautical miles, \(altitude) feet"
+    }
+}
