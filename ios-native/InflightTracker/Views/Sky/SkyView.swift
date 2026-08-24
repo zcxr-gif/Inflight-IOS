@@ -308,7 +308,7 @@ struct SkyView: View {
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .flightInfoChrome(theme, in: Circle())
+            .flightInfoChrome(theme, in: Circle(), interactive: true)
             .environment(\.colorScheme, theme.colorScheme)
             .accessibilityLabel("Close the sky view")
 

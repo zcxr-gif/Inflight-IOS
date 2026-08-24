@@ -1127,7 +1127,11 @@ struct ContentView: View {
         }
         .buttonStyle(.plain)
         .clipShape(Circle())
-        .flightInfoChrome(theme, in: Circle())
+        // Interactive: one control, so the glass can bend towards the finger
+        // the way the system's own does. The stacks below deliberately do not
+        // — a pane that lights up as a whole for one button in it is a pane
+        // saying the wrong thing about what was pressed.
+        .flightInfoChrome(theme, in: Circle(), interactive: true)
         .environment(\.colorScheme, theme.colorScheme)
         .accessibilityLabel(profileLabel)
         .accessibilityHint(profiles.profile == nil ? "Opens your account" : "Opens your profile")
@@ -1249,7 +1253,11 @@ struct ContentView: View {
             // without this the accent squares off the chip's corners when a
             // layer is on.
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .flightInfoChrome(
+                theme,
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous),
+                interactive: true
+            )
             .environment(\.colorScheme, theme.colorScheme)
             .padding(.leading, 16)
             .padding(.bottom, cornerInset + 8 + statsLift)
@@ -1482,7 +1490,11 @@ struct ContentView: View {
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .flightInfoChrome(
+                theme,
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous),
+                interactive: true
+            )
             .environment(\.colorScheme, theme.colorScheme)
             .padding(.trailing, 16)
             // Above the map's own control stack, which sits in the same corner.

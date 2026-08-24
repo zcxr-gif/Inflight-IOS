@@ -126,10 +126,7 @@ struct PublicProfileView: View {
                         missing
                     }
                 }
-                // The window runs to the bottom of the screen now, so the
-                // clearance the home indicator floats over is this rather than
-                // the sheet's own inset.
-                .padding(.bottom, 34)
+                .padding(.bottom, 24)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .containerRelativeFrame(.horizontal)
             }

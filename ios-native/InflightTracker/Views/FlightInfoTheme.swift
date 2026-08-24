@@ -500,9 +500,17 @@ extension View {
     func flightInfoSurface(
         _ theme: FlightInfoTheme,
         radius: CGFloat,
-        elevated: Bool = false
+        elevated: Bool = false,
+        interactive: Bool = false
     ) -> some View {
-        modifier(FlightInfoSurfaceModifier(theme: theme, radius: radius, elevated: elevated))
+        modifier(
+            FlightInfoSurfaceModifier(
+                theme: theme,
+                radius: radius,
+                elevated: elevated,
+                interactive: interactive
+            )
+        )
     }
 }
 
@@ -511,6 +519,15 @@ struct FlightInfoSurfaceModifier: ViewModifier {
     let theme: FlightInfoTheme
     let radius: CGFloat
     let elevated: Bool
+
+    /// Whether this surface is a control rather than a card.
+    ///
+    /// Interactive glass is the system's own press response: the pane bends
+    /// towards the finger and the light on it moves. It is most of what makes
+    /// a piece of iOS 26 chrome feel like it is made of something, and it is
+    /// free — but only a control should have it. A card that flexes when the
+    /// list under it is scrolled past is a card pretending to be a button.
+    var interactive: Bool = false
 
     private var shape: RoundedRectangle {
         RoundedRectangle(cornerRadius: radius, style: .continuous)
@@ -523,7 +540,9 @@ struct FlightInfoSurfaceModifier: ViewModifier {
     func body(content: Content) -> some View {
         if theme.isGlass {
             content.glassEffect(
-                .regular.tint(elevated ? theme.elevatedTint : theme.surfaceTint),
+                .regular
+                    .tint(elevated ? theme.elevatedTint : theme.surfaceTint)
+                    .interactive(interactive),
                 in: shape
             )
         } else {
@@ -607,9 +626,13 @@ extension View {
     /// with the window's carbon carried in as the tint so the two still read
     /// as one design. Glass-off falls back to the flat carbon surface.
     @ViewBuilder
-    func flightInfoChrome(_ theme: FlightInfoTheme, in shape: some Shape) -> some View {
+    func flightInfoChrome(
+        _ theme: FlightInfoTheme,
+        in shape: some Shape,
+        interactive: Bool = false
+    ) -> some View {
         if theme.isGlass {
-            glassEffect(.regular.tint(theme.chromeTint), in: shape)
+            glassEffect(.regular.tint(theme.chromeTint).interactive(interactive), in: shape)
         } else {
             background { shape.fill(theme.windowFill) }
                 .overlay { shape.stroke(theme.stroke, lineWidth: 1) }

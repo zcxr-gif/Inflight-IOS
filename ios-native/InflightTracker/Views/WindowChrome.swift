@@ -1,43 +1,48 @@
 import SwiftUI
 
-/// How a window is closed.
+/// How a window is closed, and what it is made of.
 ///
-/// Every panel in the app used to close two ways, and neither of them was any
-/// good. There was a cross in the corner — a button, sitting where a button on
-/// a phone has no business being, and the only thing on the panel that had to
-/// be aimed at. And there was the sheet's own pull-down, which worked when the
-/// list underneath happened to be scrolled to the very top and did nothing at
-/// all otherwise: the scroll view swallowed the drag, so a panel scrolled two
-/// rows down could not be pulled shut. The way out of a window depended on
-/// where the window happened to be scrolled to, which is why closing one felt
-/// like it was fighting back.
+/// Closing a panel used to depend on where it happened to be scrolled to. The
+/// header scrolled away with the content, so the only thing left to take hold
+/// of was the list — and a list swallows a downward drag. The sheet's own
+/// pull-to-dismiss worked when the list happened to be at its very top and did
+/// nothing at all otherwise, which is why the cross in the corner ended up
+/// being the real way out: a quarter-inch target in the one place on a phone a
+/// thumb does not reach.
 ///
-/// So the window gets a real handle instead, and the handle is not part of what
-/// scrolls. The grabber and the title are pinned above the content, and a pull
-/// anywhere across them moves the whole window with the finger, one to one, all
-/// the way off the bottom of the screen. Let go past the point of no return and
-/// it goes; let go short of it and it springs back. A flick does it without the
-/// travel, the way a flick closes anything else on the phone.
+/// The fix is structural rather than a gesture of our own. The grabber and the
+/// title are *pinned* — they are not inside the scroll view — so there is
+/// always a band across the top of the window that is not a list. UIKit's own
+/// sheet gesture takes it from there: the window follows the finger one to
+/// one, rubber-bands at the top, closes on a flick, and springs back if you
+/// change your mind, exactly the way every other sheet on the phone behaves.
+/// Nothing here re-implements any of that, because a hand-rolled version of a
+/// system gesture is a gesture that feels almost right.
 ///
-/// Everything below the header still scrolls, and the sheet's own drag still
-/// works there when the list is at its top, so nothing that used to work
-/// stopped working. What changed is that there is now always somewhere to grab.
+/// And the window is glass. It is presented *as* the sheet's background rather
+/// than drawn as a layer inside the content, and that distinction is the whole
+/// game: glass samples what is behind it, and what is behind a layer inside a
+/// sheet is the sheet — so glass drawn there has nothing to lens and comes out
+/// as a flat slab. Hung on the sheet itself it has the map behind it, which is
+/// what makes a panel read as a pane of glass laid over the world instead of a
+/// grey card that happens to be on top of one.
 
 // MARK: - The grabber
 
 /// The pull bar at the top of a window.
 ///
-/// Wider and taller than the system's indicator, because this one is not a
-/// decoration saying "this sheet can move" — it is the control you actually
-/// take hold of, and a five point pill with nothing around it is a target
-/// nobody hits on the first go. The pill is the part you see; the part that
-/// takes the touch is the whole band it sits in.
+/// A little wider and a good deal taller than the system's indicator, because
+/// this one is doing a job: it marks the band that is not a list, which is the
+/// band the sheet's gesture can be started from. The pill is the part you see;
+/// the part that takes the touch is the whole strip it sits in, and the header
+/// under it counts too.
 struct WindowGrabber: View {
 
     let theme: FlightInfoTheme
 
-    /// Held under a finger: the bar swells and brightens, so the window says it
-    /// has the drag before it has moved far enough to be obvious.
+    /// Held under a finger. Only the flight window sets this — it is the one
+    /// place with a gesture of our own, because it has two stops and the system
+    /// will not close it from the upper one.
     var isHeld: Bool = false
 
     /// Drawn over the window's own content — a banner, a photograph — rather
@@ -47,14 +52,13 @@ struct WindowGrabber: View {
     var floating: Bool = false
 
     /// The band the pill sits in, which is what the finger is actually aiming
-    /// at. Comfortably past the 44 point rule once the header under it is
-    /// counted as part of the same surface.
+    /// at.
     static let bandHeight: CGFloat = 26
 
     var body: some View {
         Capsule()
             .fill(fill)
-            .frame(width: isHeld ? 56 : 44, height: isHeld ? 6 : 5)
+            .frame(width: isHeld ? 52 : 40, height: isHeld ? 6 : 5)
             .padding(floating ? 6 : 0)
             .background {
                 if floating {
@@ -69,23 +73,13 @@ struct WindowGrabber: View {
     private var fill: Color {
         floating
             ? Color.white.opacity(isHeld ? 0.95 : 0.72)
-            : theme.textSecondary.opacity(isHeld ? 0.95 : 0.42)
+            : theme.textSecondary.opacity(isHeld ? 0.95 : 0.45)
     }
 }
 
 // MARK: - The window
 
-/// A sheet you close by pulling it down: a pinned header that is the handle,
-/// and content that scrolls underneath it.
-///
-/// The window draws its own ground rather than letting the sheet draw one. That
-/// is what lets it move: the sheet's own background stays where it is — behind
-/// everything, invisible — while the window slides over it, so what you see
-/// coming out from under the top edge is the map rather than a band of empty
-/// sheet. It only works because these panels are opaque. The flight window is
-/// glass, and glass has to be the sheet's own background or it has nothing to
-/// sample; that window keeps the system's detents and is handled where it is
-/// presented.
+/// A window on glass: a pinned handle, and content that scrolls under it.
 struct SheetWindow<Header: View, Content: View>: View {
 
     let theme: FlightInfoTheme
@@ -94,73 +88,49 @@ struct SheetWindow<Header: View, Content: View>: View {
     /// band above it.
     ///
     /// For a window that opens on a full-bleed picture — a pilot's banner —
-    /// where a strip of plain ground above the photograph reads as the
-    /// photograph having been pushed down the window. A floating handle has no
-    /// header under it: the pill is the whole pull surface.
+    /// where a strip of ground above the photograph reads as the photograph
+    /// having been pushed down the window. A floating handle has no header
+    /// under it: the pill is the whole marker.
     var handleFloats: Bool = false
 
-    /// Pinned above the content and part of the pull surface: a drag anywhere
-    /// across it moves the window.
+    /// Pinned above the content, and the reason the window can be pulled shut
+    /// from anywhere in a list: this band is not part of what scrolls.
     @ViewBuilder let header: Header
 
-    /// Everything below. Free to scroll; nothing here is a drag target.
+    /// Everything below. Free to scroll.
     @ViewBuilder let content: Content
 
     @Environment(\.dismiss) private var dismiss
 
-    /// How far the finger has carried the window, downwards positive.
-    @State private var offset: CGFloat = 0
-
-    @GestureState private var isHeld = false
-
-    /// Far enough down that letting go closes it. A little under an inch:
-    /// short enough that closing never feels like a haul, long enough that the
-    /// window is obviously on its way out before it commits.
-    private static let closeDistance: CGFloat = 96
-
-    /// ...or a flick that was going this fast, whatever distance it covered.
-    /// Measured as the travel the drag was *predicted* to add, which is how
-    /// every other flick on the phone is judged.
-    private static let closeFlick: CGFloat = 150
-
-    private var shape: UnevenRoundedRectangle {
-        UnevenRoundedRectangle(
-            topLeadingRadius: 30,
-            bottomLeadingRadius: 0,
-            bottomTrailingRadius: 0,
-            topTrailingRadius: 30,
-            style: .continuous
-        )
-    }
-
     var body: some View {
         stack
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background { shape.fill(theme.windowFill) }
-            // The window is clipped to its own shape rather than left to the
-            // sheet to clip it. It has to be: it moves, and a banner drawn to
-            // the top edge of an unclipped window would carry on out of the top
-            // of it and sit square-cornered over the map.
-            .clipShape(shape)
-            .overlay { shape.strokeBorder(theme.stroke, lineWidth: 1) }
-            // The whole window runs to the bottom of the screen, ground and
-            // clip together, so there is no transparent strip under it and no
-            // seam where the two disagree. Panels carry their own clearance at
-            // the foot of their content, which is what the home indicator
-            // floats over.
-            .ignoresSafeArea(edges: .bottom)
-            .offset(y: offset)
-            // The window paints its own ground, so the sheet must not paint one
-            // of its own behind it — that is the band the window would
-            // otherwise be sliding across.
-            .presentationBackground(Color.clear)
+            // The ground, hung on the sheet rather than drawn inside it. See
+            // the note at the top of the file: this is the difference between
+            // a pane of glass over the map and a grey card.
+            .presentationBackground { theme.sheetBackground }
+            .presentationCornerRadius(theme.radiusLarge + 8)
+            // Our own pill, in the pinned band, instead of the system's
+            // floating one — two indicators in the same place would be one too
+            // many.
             .presentationDragIndicator(.hidden)
             // One stop. With a medium detent underneath, a pull down from the
             // top lands there instead of closing, so shutting a panel took two
             // full gestures — and a panel is a thing you open, read and close.
             .presentationDetents([.large])
-            // VoiceOver's two-finger scrub, which is what a user who cannot
-            // make the gesture reaches for.
+            // And this is what lets the glass be glass.
+            //
+            // iOS lays a dimming view over everything behind a modal sheet, and
+            // a pane of glass with a grey wash behind it has nothing left to
+            // lens: it renders as the flat card the whole design was trying not
+            // to be. Marking the sheet non-modal takes the wash away, so what
+            // is behind the window is the map — which is the only thing that
+            // makes a window read as glass rather than as a card that has been
+            // told it is one. The flight window has always done this; it is why
+            // that one looked like glass and the panels did not.
+            .presentationBackgroundInteraction(.enabled(upThrough: .large))
+            // VoiceOver's two-finger scrub, for anyone who cannot make the
+            // gesture.
             .accessibilityAction(.escape) { dismiss() }
     }
 
@@ -177,10 +147,12 @@ struct SheetWindow<Header: View, Content: View>: View {
         }
     }
 
-    /// The handle: the grabber, the header under it, and the drag over both.
+    /// The pinned band. No gesture of its own — that is the point. It is a
+    /// piece of the window that does not scroll, which is all the sheet's own
+    /// dismissal ever needed.
     private var grip: some View {
         VStack(spacing: 0) {
-            WindowGrabber(theme: theme, isHeld: isHeld, floating: handleFloats)
+            WindowGrabber(theme: theme, floating: handleFloats)
                 .accessibilityElement()
                 .accessibilityLabel("Close")
                 .accessibilityHint("Pull the window down to close it")
@@ -190,57 +162,16 @@ struct SheetWindow<Header: View, Content: View>: View {
             header
         }
         .frame(maxWidth: .infinity)
-        // The gap between the title and the accessory beside it is part of the
-        // handle too — the whole band pulls, not just the pill.
+        // So the gaps in the header — beside the title, around the accessory —
+        // are draggable window rather than holes the gesture falls through.
         .contentShape(Rectangle())
-        .gesture(pull)
-    }
-
-    private var pull: some Gesture {
-        // Global, deliberately. The window moves while the drag is in progress,
-        // and a translation measured in a coordinate space that is itself
-        // sliding is a translation that feeds its own movement back into
-        // itself — which is exactly the shake a window develops the moment it
-        // starts to follow your finger.
-        DragGesture(minimumDistance: 4, coordinateSpace: .global)
-            .updating($isHeld) { _, state, _ in state = true }
-            .onChanged { value in
-                offset = Self.resisted(value.translation.height)
-            }
-            .onEnded { value in
-                let travel = value.translation.height
-                let flick = value.predictedEndTranslation.height - travel
-
-                if travel > Self.closeDistance || flick > Self.closeFlick {
-                    // Left where it is: the sheet's own dismissal carries on
-                    // from here, so the window keeps going the way it was
-                    // already heading rather than snapping back first.
-                    dismiss()
-                } else {
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.84)) {
-                        offset = 0
-                    }
-                }
-            }
-    }
-
-    /// How far a window will lift if it is pulled the wrong way.
-    private static let liftLimit: CGFloat = 40
-
-    /// Down is one to one; up is resisted, so a window pulled upwards gives a
-    /// little and then keeps giving less, rather than lifting off the top of
-    /// the screen or stopping dead as though the gesture had been dropped.
-    private static func resisted(_ travel: CGFloat) -> CGFloat {
-        guard travel < 0 else { return travel }
-        let up = -travel
-        return -(up * liftLimit / (up + 90))
     }
 }
 
 extension SheetWindow where Header == EmptyView {
 
     /// A window whose content carries its own title — the grabber alone is the
-    /// pinned handle.
+    /// pinned band.
     init(
         theme: FlightInfoTheme,
         handleFloats: Bool = false,

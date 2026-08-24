@@ -147,7 +147,9 @@ struct WeatherChip: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .flightInfoChrome(theme, in: Capsule())
+        // One control, so it gets the system's press response: the glass bends
+        // towards the finger and the light on it moves.
+        .flightInfoChrome(theme, in: Capsule(), interactive: true)
         .contentShape(Capsule())
     }
 

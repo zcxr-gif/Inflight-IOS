@@ -43,10 +43,10 @@ struct MapPanel<Content: View>: View {
                     content
                 }
                 .padding(.horizontal, 16)
-                // The window runs to the bottom of the screen, so this is the
-                // whole clearance under the last section: enough for the home
-                // indicator to float over rather than sit on the last row.
-                .padding(.bottom, 34)
+                // The panels are opened from a bar at the bottom of the
+                // screen, so the last section wants clearance from the home
+                // indicator the window is sitting over.
+                .padding(.bottom, 24)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 // Pins the content to exactly the window's width, which is what
                 // stops the panel sliding about sideways.
@@ -68,10 +68,10 @@ struct MapPanel<Content: View>: View {
             // window — and, more to the point, so a short panel hands a
             // downward drag straight to the window instead of eating it.
             .scrollBounceBehavior(.basedOnSize)
-            // On the content rather than on the window. This is a halo behind
-            // text, and hung on the window as a whole it would be a drop
-            // shadow around an opaque card instead — the ground would be
-            // inside the thing being shadowed.
+            // The halo that lifts text off whatever the glass is showing
+            // through it. On the content and the header rather than on the
+            // window, so it is a glow behind glyphs rather than a shadow cast
+            // by the pane they are on.
             .flightInfoLegible(theme)
         }
         .environment(\.colorScheme, theme.colorScheme)

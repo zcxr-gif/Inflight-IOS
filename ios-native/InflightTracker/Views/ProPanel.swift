@@ -59,9 +59,25 @@ struct ProPanel: View {
                 checkout
             }
         }
-        .background { theme.windowFill.ignoresSafeArea() }
+        // Now that the paywall is glass over a live map rather than a slab
+        // over a dimmed one, its text wants the same halo every other window's
+        // does.
+        .flightInfoLegible(theme)
         .environment(\.colorScheme, theme.colorScheme)
+        // Glass, hung on the sheet rather than drawn inside it — the same
+        // ground the flight window and every panel sits on. Drawn as a layer
+        // in the content it would have only the sheet behind it to sample and
+        // would come out as a flat slab.
+        .presentationBackground { theme.sheetBackground }
+        .presentationCornerRadius(theme.radiusLarge + 8)
         .presentationDetents([.large])
+        // No dimming wash behind it, for the same reason as every other
+        // window: glass with a grey sheet behind it has nothing to lens.
+        .presentationBackgroundInteraction(.enabled(upThrough: .large))
+        // The cross stays here, and only here. This is a paywall: it has a
+        // fixed bar of its own at the top and a purchase button pinned at the
+        // bottom, so an obvious, unmissable way out is the point rather than
+        // an admission that the gesture does not work.
         .presentationDragIndicator(.hidden)
         .task { await store.loadProducts() }
         // Bought here, or bought on another device while this was open: either
