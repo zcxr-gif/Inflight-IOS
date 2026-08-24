@@ -252,6 +252,30 @@ struct ContentView: View {
         selection == nil ? MapToolbar.reservedHeight : peakHeight
     }
 
+    /// How far up the map has to hold Apple's "Legal" link so the app's own
+    /// chrome is not sitting on it.
+    ///
+    /// The same bottom edge the camera keeps clear of, plus the stats card
+    /// while it is up. The card *is* counted here and deliberately is not
+    /// counted above: framing a route is a one-off the card has no business
+    /// shrinking, but a link hidden behind the card for as long as the card is
+    /// up is a link Apple's terms say has to be visible.
+    ///
+    /// The map reads this as a height above the bottom safe area, which is
+    /// exactly what the toolbar is. The flight window is a sheet and measures
+    /// itself from the edge of the screen instead, so with one open the link
+    /// clears it by the safe area as well — a little generous, and generous is
+    /// the side of this to be wrong on.
+    private var mapLegalInset: CGFloat {
+        mapBottomInset + statsLift
+    }
+
+    /// Where the chrome in the two bottom corners starts: above the bar, and
+    /// above the lane the legal link now sits in.
+    private var cornerInset: CGFloat {
+        MapToolbar.reservedHeight + MapToolbar.legalLane
+    }
+
     /// A replay is driving the camera down the old track; following the live
     /// aircraft at the same time would be two things fighting over one map.
     private var isFollowingLive: Bool { isFollowing && !replay.isActive }
@@ -272,6 +296,7 @@ struct ContentView: View {
             selection: $selection,
             command: mapCommand,
             bottomInset: mapBottomInset,
+            legalInset: mapLegalInset,
             replayFrame: replay.frame,
             isFollowing: isFollowingLive,
             // The map's own answer, which is the app's until a palette says
@@ -914,9 +939,10 @@ struct ContentView: View {
                 // something that goes away would be the wrong trade.
                 HintStrip(placement: .map, isFloating: true)
 
-                // The stats tab and the bar are one piece of furniture, so they
-                // sit tight against each other — the tab reads as the top edge
-                // of the bar rather than as a button floating above it.
+                // The stats handle and the bar are one piece of furniture, so
+                // they sit tight against each other — the grabber reads as the
+                // top edge of the bar rather than as a button floating above
+                // it.
                 //
                 // The card it pulls up is not reserved against, for the same
                 // reason the hint above is not: it is up for as long as it is
@@ -1144,7 +1170,7 @@ struct ContentView: View {
             .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .environment(\.colorScheme, theme.colorScheme)
             .padding(.leading, 16)
-            .padding(.bottom, MapToolbar.reservedHeight + 8 + statsLift)
+            .padding(.bottom, cornerInset + 8 + statsLift)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomLeading)))
@@ -1316,7 +1342,7 @@ struct ContentView: View {
             .environment(\.colorScheme, theme.colorScheme)
             .padding(.trailing, 16)
             // Clears the toolbar, and the stats card while it is up.
-            .padding(.bottom, MapToolbar.reservedHeight + 8 + statsLift)
+            .padding(.bottom, cornerInset + 8 + statsLift)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))
@@ -1368,7 +1394,7 @@ struct ContentView: View {
             .environment(\.colorScheme, theme.colorScheme)
             .padding(.trailing, 16)
             // Above the style control, which sits in the same corner.
-            .padding(.bottom, MapToolbar.reservedHeight + 60 + statsLift)
+            .padding(.bottom, cornerInset + 60 + statsLift)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))

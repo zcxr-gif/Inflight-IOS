@@ -2,6 +2,66 @@ import MapKit
 import SwiftUI
 import UIKit
 
+/// An `MKMapView` that keeps Apple's "Legal" link out from under the app's own
+/// chrome.
+///
+/// MapKit lays its ornaments out inside the view's layout margins, and that is
+/// the only supported way to move them. The map here runs edge to edge under a
+/// search field, a toolbar, a stats card and the flight window, so left at the
+/// default the link — which Apple's terms require to be visible and tappable —
+/// spends its whole life behind the bar along the bottom.
+///
+/// The margins are worked out at layout time rather than being set from
+/// `updateUIView`, because they depend on the safe area, which arrives with the
+/// window and not with the state that asked for them.
+final class ChromeInsetMapView: MKMapView {
+
+    /// How much of the bottom of the map the app is covering, measured from the
+    /// top of the bottom safe area — the same units the SwiftUI chrome floating
+    /// over the map is laid out in.
+    var chromeInset: CGFloat = 0 {
+        didSet {
+            guard chromeInset != oldValue else { return }
+            setNeedsLayout()
+        }
+    }
+
+    override func layoutSubviews() {
+        // The map ignores the safe area so the cartography reaches the corners
+        // of the screen; the ornaments still have to sit inside it. Read off the
+        // window because that is the one place the real insets survive being
+        // ignored.
+        let safeArea = window?.safeAreaInsets ?? safeAreaInsets
+
+        let margins = UIEdgeInsets(
+            top: safeArea.top,
+            left: safeArea.left + 16,
+            bottom: safeArea.bottom + chromeInset,
+            right: safeArea.right + 16
+        )
+
+        // Assigning margins asks for another layout pass, so this only assigns
+        // when they have actually moved.
+        if layoutMargins != margins { layoutMargins = margins }
+
+        super.layoutSubviews()
+    }
+
+    // The safe area is read above rather than inherited, so the two moments it
+    // can change under us — being put in a window, and the window turning — are
+    // the two that have to ask for another pass.
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        setNeedsLayout()
+    }
+
+    override func safeAreaInsetsDidChange() {
+        super.safeAreaInsetsDidChange()
+        setNeedsLayout()
+    }
+}
+
 /// The live map. A thin SwiftUI wrapper over `MKMapView` — MapKit gives us a
 /// fully native map with no API key, tile budget, or web view involved.
 struct TrackerMapView: UIViewRepresentable {
@@ -16,6 +76,15 @@ struct TrackerMapView: UIViewRepresentable {
     /// How much of the bottom of the map the info window is covering, so a
     /// framed route isn't hidden behind it.
     var bottomInset: CGFloat = 0
+
+    /// How far up MapKit's own ornaments have to sit — which here means Apple's
+    /// "Legal" link, since the compass and the scale are both off.
+    ///
+    /// Separate from the inset above because the two answer different
+    /// questions: that one is how much of the map a camera move should avoid
+    /// framing into, this one is how much of it the app is drawing furniture
+    /// over. The stats card counts towards this and not towards that.
+    var legalInset: CGFloat = 0
 
     /// Where the replay has got to, when one is running. The map draws a
     /// second aircraft at this position, riding the track the selected flight
@@ -113,13 +182,18 @@ struct TrackerMapView: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
-    func makeUIView(context: Context) -> MKMapView {
-        let mapView = MKMapView(frame: .zero)
+    func makeUIView(context: Context) -> ChromeInsetMapView {
+        let mapView = ChromeInsetMapView(frame: .zero)
         mapView.delegate = context.coordinator
         mapView.showsCompass = false
         mapView.showsScale = false
         mapView.showsUserLocation = false
         mapView.pointOfInterestFilter = .excludingAll
+
+        // The map view works its own margins out, safe area included, so UIKit
+        // widening them again on top of that would put Apple's link somewhere
+        // neither of us chose.
+        mapView.insetsLayoutMarginsFromSafeArea = false
 
         // Both are driven by the style from `updateUIView`. A sprite's rotation
         // is its true heading, so anything but north-up means correcting every
@@ -183,8 +257,14 @@ struct TrackerMapView: UIViewRepresentable {
         return mapView
     }
 
-    func updateUIView(_ mapView: MKMapView, context: Context) {
+    func updateUIView(_ mapView: ChromeInsetMapView, context: Context) {
         context.coordinator.parent = self
+
+        // Apple's terms require their link to be visible and tappable, and the
+        // map runs edge to edge underneath a toolbar, a stats card and the
+        // flight window. Told here, applied on the map's own next layout pass,
+        // where the safe area is known.
+        mapView.chromeInset = legalInset
 
         // Drives MapKit's own light/dark cartography, and with it every dynamic
         // colour the overlays and annotations resolve — so the map, its route

@@ -9,8 +9,8 @@ import SwiftUI
 /// Stats and weather are still panels — a widget can link straight to either,
 /// and both are still opened from somewhere — but neither takes a place on the
 /// bar any more. Weather is a chip on the map's left shoulder, beside the map
-/// style and the ruler on its right; the stats come up on a tab above the bar,
-/// where they cost nothing until they are asked for.
+/// style and the ruler on its right; the stats come up on a handle above the
+/// bar, where they cost nothing until they are pulled.
 enum MapPanelKind: String, Identifiable, CaseIterable {
 
     case friends
@@ -63,10 +63,20 @@ enum MapPanelKind: String, Identifiable, CaseIterable {
 struct MapToolbar: View {
 
     /// How much of the bottom of the map the bar covers, including the stats
-    /// tab sitting on top of it and the gap underneath. The map keeps this much
-    /// clear when it frames something, the same way it keeps clear of the
+    /// handle sitting on top of it and the gap underneath. The map keeps this
+    /// much clear when it frames something, the same way it keeps clear of the
     /// flight window.
-    static let reservedHeight: CGFloat = 100
+    static let reservedHeight: CGFloat = 108
+
+    /// The strip immediately above the bar, kept empty for Apple's "Legal"
+    /// link.
+    ///
+    /// MapKit draws the link in the bottom-left corner of whatever the map's
+    /// layout margins leave it, and Apple's terms require it to stay visible
+    /// and tappable — so the map lifts it to just above the bar, and the chrome
+    /// in the two bottom corners starts above this lane rather than on top of
+    /// it.
+    static let legalLane: CGFloat = 20
 
     let theme: FlightInfoTheme
 
