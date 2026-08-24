@@ -364,6 +364,7 @@ struct TrackerMapView: UIViewRepresentable {
         private var appliedScheme: ColorScheme?
 
         /// The black wash under the traffic, while a palette asks for one.
+        private var dimmingOverlay: MKPolygon?
 
         /// Field markers currently on the map, by ICAO.
         private var airportAnnotations: [String: AirportAnnotation] = [:]
