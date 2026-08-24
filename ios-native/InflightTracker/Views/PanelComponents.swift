@@ -9,8 +9,12 @@ import SwiftUI
 
 // MARK: - Scaffold
 
-/// A toolbar panel: title, optional standfirst, a close button, and a scroll
-/// view of sections.
+/// A toolbar panel: a pinned title, a grabber that closes it, and a scroll
+/// view of sections underneath.
+///
+/// There is no cross in the corner any more. The way out is the handle at the
+/// top — see `SheetWindow` — which works wherever the list happens to be
+/// scrolled to, which is the thing the old panel could not manage.
 struct MapPanel<Content: View>: View {
 
     let title: String
@@ -24,7 +28,6 @@ struct MapPanel<Content: View>: View {
     var accessory: AnyView? = nil
 
     @ObservedObject private var appearance = FlightInfoAppearance.shared
-    @Environment(\.dismiss) private var dismiss
 
     // Last, so a panel's contents are the trailing closure.
     @ViewBuilder let content: Content
@@ -32,48 +35,50 @@ struct MapPanel<Content: View>: View {
     private var theme: FlightInfoTheme { appearance.theme }
 
     var body: some View {
-        ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: 14) {
-                header
-                content
+        SheetWindow(theme: theme) {
+            header
+        } content: {
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 14) {
+                    content
+                }
+                .padding(.horizontal, 16)
+                // The window runs to the bottom of the screen, so this is the
+                // whole clearance under the last section: enough for the home
+                // indicator to float over rather than sit on the last row.
+                .padding(.bottom, 34)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                // Pins the content to exactly the window's width, which is what
+                // stops the panel sliding about sideways.
+                //
+                // A vertical `ScrollView` is still a `UIScrollView`, and it
+                // scrolls — with rubber-banding — in *any* direction its
+                // content overflows. Nothing here asks to be wide, but the
+                // panels are full of rows whose two ends are `.fixedSize()`
+                // around feed strings of arbitrary length, and one long airport
+                // name or controller handle is enough to push a row's ideal
+                // width past the window. That made the whole panel draggable
+                // left and right, springing back when let go. Sizing the
+                // content to the container means there is no horizontal
+                // overflow to scroll, whatever a row measures.
+                .containerRelativeFrame(.horizontal)
             }
-            .padding(16)
-            // The panels are opened from a bar at the bottom of the screen, so
-            // the last section wants clearance from the home indicator the
-            // sheet is sitting over.
-            .padding(.bottom, 16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            // Pins the content to exactly the sheet's width, which is what
-            // stops the panel sliding about sideways.
-            //
-            // A vertical `ScrollView` is still a `UIScrollView`, and it scrolls
-            // — with rubber-banding — in *any* direction its content overflows.
-            // Nothing here asks to be wide, but the panels are full of rows
-            // whose two ends are `.fixedSize()` around feed strings of
-            // arbitrary length, and one long airport name or controller handle
-            // is enough to push a row's ideal width past the sheet. That made
-            // the whole panel draggable left and right, springing back when
-            // let go. Sizing the content to the container means there is no
-            // horizontal overflow to scroll, whatever a row measures.
-            .containerRelativeFrame(.horizontal)
+            // ...and this stops the vertical rubber-banding on a short panel,
+            // so a field with nothing on it no longer bounces against a fixed
+            // window — and, more to the point, so a short panel hands a
+            // downward drag straight to the window instead of eating it.
+            .scrollBounceBehavior(.basedOnSize)
+            // On the content rather than on the window. This is a halo behind
+            // text, and hung on the window as a whole it would be a drop
+            // shadow around an opaque card instead — the ground would be
+            // inside the thing being shadowed.
+            .flightInfoLegible(theme)
         }
-        // ...and this stops the vertical rubber-banding on a short panel, so a
-        // field with nothing on it no longer bounces against a fixed sheet.
-        .scrollBounceBehavior(.basedOnSize)
-        .flightInfoLegible(theme)
-        .background { theme.windowFill.ignoresSafeArea() }
         .environment(\.colorScheme, theme.colorScheme)
-        // One detent, not two, and the reason is dismissal rather than looks.
-        // With a medium stop below it, a downward swipe from the top of the
-        // sheet lands on medium instead of closing — so shutting a panel took
-        // two full swipes, and a swipe that did not reach halfway down the
-        // screen sprang back to where it started. A panel is a thing you open,
-        // read and close; there is no reading to be done at half height that
-        // is worth making every close a two-stage gesture.
-        .presentationDetents([.large])
-        .presentationDragIndicator(.visible)
     }
 
+    /// Pinned above the scroll view, and part of the handle: a drag anywhere
+    /// across the title closes the panel.
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
@@ -94,17 +99,11 @@ struct MapPanel<Content: View>: View {
             if let accessory = accessory {
                 accessory
             }
-
-            Button { dismiss() } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(theme.textSecondary)
-                    .frame(width: 30, height: 30)
-                    .background { Circle().fill(theme.surfaceFill) }
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Close")
         }
+        .padding(.horizontal, 16)
+        .padding(.top, 2)
+        .padding(.bottom, 14)
+        .flightInfoLegible(theme)
     }
 }
 

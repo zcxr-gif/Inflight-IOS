@@ -45,6 +45,9 @@ struct ContentView: View {
     /// window once it has measured itself.
     @State private var peakHeight = FlightInfoLayout.basePeakHeight
 
+    /// The flight window's handle, held under a finger.
+    @GestureState private var isWindowHeld = false
+
     /// Which phase the info window is in. Owned here so it can be reset to the
     /// peak state each time a different aircraft is tapped.
     @State private var detent: PresentationDetent = .height(FlightInfoLayout.basePeakHeight)
@@ -279,6 +282,13 @@ struct ContentView: View {
         MapDock.reservedHeight + MapDock.legalLane
     }
 
+    /// How far a pull on the flight window's handle has to be heading to close
+    /// it, and how far the other way to open it out. Judged on where the drag
+    /// was predicted to end rather than where the finger stopped, so a flick
+    /// does it without the travel.
+    private static let windowCloseTravel: CGFloat = 90
+    private static let windowOpenTravel: CGFloat = 44
+
     /// How tall the map's own control stack is: three rows with a hairline
     /// between each. Written down because the find-me button stacks on top of
     /// it, and a control that overlaps the one underneath is the kind of thing
@@ -421,7 +431,9 @@ struct ContentView: View {
         mapStack
         .animation(.easeInOut(duration: 0.22), value: selection?.id)
         .animation(.easeInOut(duration: 0.22), value: replay.isActive)
-        .animation(.easeInOut(duration: 0.24), value: isStatsUp)
+        // The same spring the dock settles its own handle with, so the card
+        // and everything that lifts out of its way move as one thing.
+        .animation(.spring(response: 0.34, dampingFraction: 0.86), value: isStatsUp)
         .onChange(of: selection?.id) { _, id in
             // A replay belongs to the aircraft it was started from, and to the
             // window that drew the track under it. Opening another aircraft,
@@ -652,11 +664,63 @@ struct ContentView: View {
             }
         }
         .presentationDetents([peakDetent, .large], selection: $detent)
-        .presentationDragIndicator(.visible)
+        // The window draws its own handle over the top of itself, so the
+        // system's indicator would be a second pill in the same place.
+        .presentationDragIndicator(.hidden)
+        .overlay(alignment: .top) { flightWindowHandle }
         .flightInfoSheetInteraction(upThrough: peakDetent)
         // Belt and braces: however the sheet came to be on screen, it starts in
         // the peak state.
         .onAppear { detent = peakDetent }
+    }
+
+    /// The flight window's handle.
+    ///
+    /// The window keeps its two stops — the peak it opens in, and the full
+    /// window above that — and the sheet's own drag still moves between them,
+    /// one to one, from anywhere on the window that is not a list. What that
+    /// drag could not do was close: from full height a pull down landed on the
+    /// peak, so shutting the window took two separate gestures, and the second
+    /// only worked if you had not scrolled. This pill is the way through both.
+    /// Pull it and the window collapses as you go and closes when you let go;
+    /// push it and the whole window opens.
+    ///
+    /// Only as wide as the pill it draws. The rest of the top of the window is
+    /// left to the sheet's own gesture, which is better at following a finger
+    /// than anything that can be written on top of it.
+    private var flightWindowHandle: some View {
+        WindowGrabber(theme: theme, isHeld: isWindowHeld)
+            .frame(width: 132)
+            .frame(maxWidth: .infinity)
+            .gesture(flightWindowPull)
+            .accessibilityElement()
+            .accessibilityLabel("Close the flight window")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { sheet = nil }
+            .accessibilityAction(named: "Open the full window") { detent = .large }
+    }
+
+    /// Global, like every other pull in the app: the sheet resizes underneath
+    /// the finger while this is running, and a translation measured against
+    /// something that is itself moving is a translation that fights itself.
+    private var flightWindowPull: some Gesture {
+        DragGesture(minimumDistance: 4, coordinateSpace: .global)
+            .updating($isWindowHeld) { _, state, _ in state = true }
+            .onChanged { value in
+                // Collapses on the way down, so the pull has something to show
+                // for itself before it commits to closing.
+                guard detent == .large, value.translation.height > 44 else { return }
+                detent = peakDetent
+            }
+            .onEnded { value in
+                let landing = value.predictedEndTranslation.height
+
+                if landing > Self.windowCloseTravel {
+                    sheet = nil
+                } else if landing < -Self.windowOpenTravel {
+                    detent = .large
+                }
+            }
     }
 
     /// A field. Resolved here rather than carried in the sheet's case: the
