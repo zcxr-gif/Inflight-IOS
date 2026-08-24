@@ -39,11 +39,16 @@ enum SkyRange: Double, CaseIterable, Identifiable {
 /// Point the camera at the sky and see what is flying in it.
 ///
 /// The camera draws the picture; everything over it is arithmetic. Each packet
-/// the feed lands is turned into a bearing, an elevation and a distance from
-/// wherever the vantage is, and thirty times a second the phone's attitude
-/// turns those into points on the screen. Nothing is anchored, tracked or
-/// recognised — there is no ARKit session here, because a compass, a
-/// gyroscope and a lens are the whole of what a sky full of aeroplanes needs.
+/// the feed lands narrows the server down to the aircraft that could be in
+/// view, and those are carried on along their own headings in between packets,
+/// so the sky moves the way the traffic is actually moving rather than hopping
+/// every few seconds. Which way the phone is pointing arrives thirty times a
+/// second, and turning a direction into a point on the screen is all that
+/// costs.
+///
+/// Nothing is anchored, tracked or recognised — there is no ARKit session here,
+/// because a compass, a gyroscope and a lens are the whole of what a sky full
+/// of aeroplanes needs.
 struct SkyView: View {
 
     @EnvironmentObject private var feed: LiveFeed
@@ -63,15 +68,20 @@ struct SkyView: View {
 
     @State private var vantage: SkyVantage = .device
     @State private var range: SkyRange = .medium
-    @State private var targets: [SkyTarget] = []
+
+    /// The aircraft close enough to be worth drawing, as of the last packet.
+    ///
+    /// The shortlist rather than the finished sky: where each one *is* depends
+    /// on what time it is, and that is worked out per tick from these. Picking
+    /// them is a walk over every aircraft on the server and is worth doing once
+    /// a packet; carrying forty of them forwards a few hundred metres is not.
+    @State private var nearby: [Flight] = []
 
     /// Where the view is being watched from, as of the last packet.
     ///
     /// Held rather than worked out on demand: the attitude redraws this view
     /// thirty times a second, and resolving an aircraft vantage means finding
-    /// it in a packet of several thousand. Once every few seconds is both often
-    /// enough — a vantage moves at knots, not per frame — and thousands of
-    /// times cheaper.
+    /// it in a packet of several thousand.
     @State private var observer: SkyObserver?
 
     /// The field the most aircraft are leaving from, offered as a vantage. The
@@ -83,6 +93,14 @@ struct SkyView: View {
     /// are labels over labels.
     private static let maximumTargets = 40
 
+    /// How often the sky is re-placed from its own clock.
+    ///
+    /// The attitude already redraws this view as fast as anybody could want,
+    /// but a phone lying perfectly still stops producing one — and the traffic
+    /// is still flying. Twice a second moves an airliner about a hundred
+    /// metres, which at any distance worth pointing at is smooth.
+    private static let tick: TimeInterval = 0.5
+
     private var theme: FlightInfoTheme { appearance.theme }
 
     var body: some View {
@@ -91,7 +109,7 @@ struct SkyView: View {
                 Color.black.ignoresSafeArea()
 
                 if camera.access == .granted {
-                    SkyCameraPreview(session: camera.session, rotation: camera.previewRotation)
+                    SkyCameraPreview(session: camera.session, device: camera.device)
                         .ignoresSafeArea()
                 }
 
@@ -152,30 +170,38 @@ struct SkyView: View {
                 theme: theme
             )
         } else if let rotation = pose.rotation, camera.fieldOfViewDegrees > 0 {
-            let focal = SkyGeometry.focalLength(fieldOfViewDegrees: camera.fieldOfViewDegrees, in: size)
-
-            ZStack {
-                ForEach(horizon(rotation: rotation, focal: focal, in: size)) { mark in
-                    Text(mark.label)
-                        .font(.system(size: 15, weight: .heavy, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.7))
-                        .shadow(color: .black.opacity(0.6), radius: 2)
-                        .position(mark.point)
-                }
-
-                ForEach(placed(rotation: rotation, focal: focal, in: size)) { placement in
-                    SkyMarker(
-                        target: placement.target,
-                        theme: theme,
-                        prominence: prominence(of: placement.target)
-                    ) {
-                        onOpen(placement.target.id)
-                    }
-                    .position(placement.point)
-                }
+            TimelineView(.periodic(from: .now, by: Self.tick)) { context in
+                drawn(rotation: rotation, at: context.date, in: size)
             }
-            .allowsHitTesting(notice == nil)
         }
+    }
+
+    private func drawn(rotation: simd_double3x3, at date: Date, in size: CGSize) -> some View {
+        let focal = SkyGeometry.focalLength(fieldOfViewDegrees: camera.fieldOfViewDegrees, in: size)
+        let azimuth = SkyGeometry.azimuth(of: rotation)
+
+        return ZStack {
+            ForEach(horizon(rotation: rotation, focal: focal, in: size)) { mark in
+                Text(mark.label)
+                    .font(.system(size: 15, weight: .heavy, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .shadow(color: .black.opacity(0.6), radius: 2)
+                    .position(mark.point)
+            }
+
+            ForEach(placed(targets(at: date), rotation: rotation, focal: focal, in: size)) { placement in
+                SkyMarker(
+                    target: placement.target,
+                    theme: theme,
+                    azimuthDegrees: azimuth,
+                    prominence: prominence(of: placement.target)
+                ) {
+                    onOpen(placement.target.id)
+                }
+                .position(placement.point)
+            }
+        }
+        .allowsHitTesting(notice == nil)
     }
 
     /// One aircraft, and where on the screen it lands.
@@ -192,9 +218,31 @@ struct SkyView: View {
         var id: String { label }
     }
 
-    private func placed(rotation: simd_double3x3, focal: Double, in size: CGSize) -> [Placement] {
-        // Generous, so a marker whose ring is just off the edge still shows the
-        // half of itself that is on.
+    /// The shortlist, placed in the sky as of now rather than as of the packet.
+    private func targets(at date: Date) -> [SkyTarget] {
+        guard let observer = observer, !nearby.isEmpty else { return [] }
+
+        let age = feed.lastUpdate.map { date.timeIntervalSince($0) } ?? 0
+        let mine = Set(myFlights.map(\.id))
+
+        return nearby.map { flight in
+            SkyGeometry.target(
+                for: flight,
+                from: observer,
+                isMine: mine.contains(flight.id),
+                age: age
+            )
+        }
+    }
+
+    private func placed(
+        _ targets: [SkyTarget],
+        rotation: simd_double3x3,
+        focal: Double,
+        in size: CGSize
+    ) -> [Placement] {
+        // Generous, so a marker whose sprite is just off the edge still shows
+        // the half of itself that is on.
         let margin: CGFloat = 80
 
         return targets.compactMap { target in
@@ -266,29 +314,55 @@ struct SkyView: View {
 
             Spacer(minLength: 0)
 
-            VStack(alignment: .trailing, spacing: 6) {
-                if let rotation = pose.rotation {
-                    SkyChip(
-                        text: heading(of: rotation),
-                        symbol: "location.north.line.fill",
-                        theme: theme
-                    )
-                }
+            brand
 
-                if pose.trouble == .uncalibrated {
-                    SkyChip(
-                        text: "Wave the phone in a figure of eight",
-                        symbol: "arrow.triangle.2.circlepath",
-                        theme: theme
-                    )
-                }
+            Spacer(minLength: 0)
+
+            if let rotation = pose.rotation {
+                SkyChip(
+                    text: heading(of: rotation),
+                    symbol: "location.north.line.fill",
+                    theme: theme
+                )
             }
         }
     }
 
+    /// The app's own mark, where a viewfinder wears one.
+    ///
+    /// This screen is the one people point at the sky and photograph, and it is
+    /// the only one in the app with nothing of the app's own on it — no map, no
+    /// window, no bar. The mark is what says whose view this is.
+    private var brand: some View {
+        HStack(spacing: 6) {
+            Image("InflightLogo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 15, height: 15)
+
+            Text("INFLIGHT")
+                .font(.system(size: 10, weight: .heavy))
+                .tracking(1.6)
+                .foregroundStyle(theme.textPrimary)
+        }
+        .padding(.horizontal, 11)
+        .padding(.vertical, 7)
+        .flightInfoChrome(theme, in: Capsule())
+        .environment(\.colorScheme, theme.colorScheme)
+        .accessibilityHidden(true)
+    }
+
     private var bottomBar: some View {
         VStack(spacing: 8) {
-            if targets.isEmpty, notice == nil {
+            if pose.trouble == .uncalibrated {
+                SkyChip(
+                    text: "Wave the phone in a figure of eight",
+                    symbol: "arrow.triangle.2.circlepath",
+                    theme: theme
+                )
+            }
+
+            if nearby.isEmpty, notice == nil {
                 SkyChip(
                     text: "Nothing flying within \(range.label) of \(vantageName)",
                     symbol: "binoculars.fill",
@@ -300,7 +374,7 @@ struct SkyView: View {
                 vantageMenu
                 rangeMenu
                 Spacer(minLength: 0)
-                SkyChip(text: "\(targets.count)", symbol: "airplane", theme: theme)
+                SkyChip(text: "\(nearby.count)", symbol: "airplane", theme: theme)
             }
         }
     }
@@ -449,25 +523,21 @@ struct SkyView: View {
         }
     }
 
-    /// Turns the packet into a sky.
+    /// Narrows the packet down to the sky.
     ///
-    /// Runs once per packet rather than per frame — the aircraft move at a few
-    /// hundred knots and the phone turns much faster than that, so what is
-    /// redrawn thirty times a second is the projection and not this.
+    /// Runs once per packet. What comes out is a shortlist of aircraft, not
+    /// their positions — those are worked out per tick, because between packets
+    /// they are still flying.
     private func rebuild() {
         let observer = resolvedObserver()
         self.observer = observer
 
         guard let observer = observer else {
-            targets = []
+            nearby = []
             busiestField = busiest(among: feed.flights)
             return
         }
 
-        var tally: [String: Int] = [:]
-        tally.reserveCapacity(256)
-
-        let mine = Set(myFlights.map(\.id))
         let limit = range.rawValue
 
         // A degree of latitude is sixty miles anywhere; a degree of longitude
@@ -478,7 +548,10 @@ struct SkyView: View {
         let scale = max(cos(observer.latitude * .pi / 180), 0.01)
         let longitudeSpan = latitudeSpan / scale
 
-        var found: [SkyTarget] = []
+        var tally: [String: Int] = [:]
+        tally.reserveCapacity(256)
+
+        var found: [(flight: Flight, distance: Double)] = []
         found.reserveCapacity(64)
 
         for flight in feed.flights {
@@ -495,18 +568,14 @@ struct SkyView: View {
             // Standing in something's cockpit, that something is not traffic.
             if case .flight(let id, _) = vantage, flight.id == id { continue }
 
-            let target = SkyGeometry.target(
-                for: flight,
-                from: observer,
-                isMine: mine.contains(flight.id)
-            )
-
+            let target = SkyGeometry.target(for: flight, from: observer, isMine: false)
             guard target.distanceNauticalMiles <= limit else { continue }
-            found.append(target)
+
+            found.append((flight, target.distanceNauticalMiles))
         }
 
-        found.sort { $0.distanceNauticalMiles < $1.distanceNauticalMiles }
-        targets = Array(found.prefix(Self.maximumTargets))
+        found.sort { $0.distance < $1.distance }
+        nearby = found.prefix(Self.maximumTargets).map(\.flight)
         busiestField = tally.max { $0.value < $1.value }?.key
     }
 

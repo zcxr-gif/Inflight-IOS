@@ -2,19 +2,29 @@ import SwiftUI
 
 /// One aircraft, drawn where it is in the sky.
 ///
-/// A ring on the exact point and the reading underneath it. The ring is what
-/// the projection actually places — the label hangs off it, so a name being
-/// long never moves the thing it names.
+/// The drawing is the same one the map paints its traffic with — the sprite
+/// catalogue, keyed off the aircraft type — so a 380 in the sky view is the
+/// 380 you would have tapped on the map. It is turned to the heading the
+/// aircraft is actually flying, corrected for which way the camera is facing,
+/// the same correction the map applies against its own camera: a jet crossing
+/// left to right is a sprite pointing left to right.
 struct SkyMarker: View {
 
     let target: SkyTarget
     let theme: FlightInfoTheme
+
+    /// Which way the phone is facing, so the sprite can be turned relative to
+    /// it rather than to north.
+    let azimuthDegrees: Double
 
     /// Dimmed with distance, so a screen with forty aircraft in it still reads
     /// front to back.
     let prominence: Double
 
     let action: () -> Void
+
+    /// The sprite as it is drawn on the map, at the size the sky wants it.
+    private static let spriteSize: CGFloat = 30
 
     /// White rather than the theme's own ink, and the accent for your own
     /// aircraft. What is behind this is a photograph of the outdoors at
@@ -26,12 +36,12 @@ struct SkyMarker: View {
     var body: some View {
         Button(action: action) {
             ZStack {
-                ring
+                sprite
 
                 reading
-                    .offset(y: 30)
+                    .offset(y: 32)
             }
-            .frame(width: 132, height: 92)
+            .frame(width: 132, height: 96)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -41,19 +51,33 @@ struct SkyMarker: View {
         .accessibilityHint("Opens this aircraft on the map")
     }
 
-    private var ring: some View {
-        ZStack {
+    @ViewBuilder
+    private var sprite: some View {
+        if let icon = PlaneSprites.shared.rawIcon(forKey: target.spriteKey, pointSize: Self.spriteSize) {
+            Image(uiImage: icon)
+                .resizable()
+                .frame(width: Self.spriteSize, height: Self.spriteSize)
+                // The artwork points north at zero, which is the convention the
+                // map's own annotations are rotated under.
+                .rotationEffect(.degrees(target.headingDegrees - azimuthDegrees))
+                // Your own aircraft keeps the accent, so it is findable in a
+                // sky of identical white shapes.
+                .overlay {
+                    if target.isMine {
+                        Circle()
+                            .strokeBorder(theme.accent, lineWidth: 1.5)
+                            .frame(width: 26, height: 26)
+                    }
+                }
+                .shadow(color: .black.opacity(0.5), radius: 2)
+        } else {
+            // The catalogue has no drawing for this one. A ring is still a
+            // position, which is the half of this that matters.
             Circle()
                 .strokeBorder(tint, lineWidth: 1.5)
-                .frame(width: 18, height: 18)
-
-            Circle()
-                .fill(tint)
-                .frame(width: 4, height: 4)
+                .frame(width: 16, height: 16)
+                .shadow(color: .black.opacity(0.55), radius: 2)
         }
-        // The sky behind this is a photograph of whatever is out there, and a
-        // hairline over a bright cloud is a hairline nobody can see.
-        .shadow(color: .black.opacity(0.55), radius: 2)
     }
 
     private var reading: some View {
@@ -78,7 +102,7 @@ struct SkyMarker: View {
     }
 
     /// How far away and how high, which between them is the whole of what a
-    /// dot in the sky is being asked.
+    /// shape in the sky is being asked.
     private var detail: String {
         "\(Format.number(target.distanceNauticalMiles)) NM · \(Format.number(target.altitudeFeet)) ft"
     }

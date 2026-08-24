@@ -27,9 +27,11 @@ final class SkyCamera: NSObject, ObservableObject {
     /// lens would put them in the wrong part of the sky.
     @Published private(set) var fieldOfViewDegrees: Double = 0
 
-    /// How far the picture has to be turned to sit level, which AVFoundation
-    /// works out from the device's own orientation.
-    @Published private(set) var previewRotation: CGFloat = 90
+    /// The camera the session is running on, once there is one. The preview
+    /// takes it to keep itself the right way up: which rotation the picture
+    /// needs is a question about this device and the layer showing it, and the
+    /// layer is the half that only the view has.
+    @Published private(set) var device: AVCaptureDevice?
 
     let session = AVCaptureSession()
 
@@ -38,8 +40,6 @@ final class SkyCamera: NSObject, ObservableObject {
     /// thread.
     private let queue = DispatchQueue(label: "com.tracker.Inflight.sky.camera")
 
-    private var rotation: AVCaptureDevice.RotationCoordinator?
-    private var rotationObserver: NSKeyValueObservation?
     private var isConfigured = false
 
     func start() {
@@ -84,8 +84,8 @@ final class SkyCamera: NSObject, ObservableObject {
         // The wide angle rather than whatever `.default(for:)` picks: the sky
         // view wants as much of the sky in frame as it can get, and the field
         // of view is what the whole projection is built on.
-        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
-              let input = try? AVCaptureDeviceInput(device: device),
+        guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
+              let input = try? AVCaptureDeviceInput(device: camera),
               session.canAddInput(input) else {
             DispatchQueue.main.async { self.access = .unavailable }
             return
@@ -95,34 +95,29 @@ final class SkyCamera: NSObject, ObservableObject {
         session.addInput(input)
         isConfigured = true
 
-        let field = Double(device.activeFormat.videoFieldOfView)
+        let field = Double(camera.activeFormat.videoFieldOfView)
         DispatchQueue.main.async {
             self.fieldOfViewDegrees = field
-            self.watchRotation(of: device)
-        }
-    }
-
-    /// Keeps the preview level as the phone turns. The coordinator is given no
-    /// layer of its own — the one figure wanted here is the angle, and the view
-    /// hands it to whichever layer it has built by then.
-    private func watchRotation(of device: AVCaptureDevice) {
-        let coordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil)
-        rotation = coordinator
-        rotationObserver = coordinator.observe(
-            \.videoRotationAngleForHorizonLevelPreview,
-            options: [.initial, .new]
-        ) { [weak self] coordinator, _ in
-            let angle = coordinator.videoRotationAngleForHorizonLevelPreview
-            DispatchQueue.main.async { self?.previewRotation = angle }
+            self.device = camera
         }
     }
 }
 
 /// The picture itself, filling whatever it is given.
+///
+/// The right way up is the view's own business rather than something passed
+/// down from SwiftUI state. A preview connection does not exist until the
+/// session has an input, which is several async hops after the layer is built,
+/// so an angle applied once on the way past lands on nothing and the picture
+/// stays on its side. Here the view holds the rotation coordinator, applies
+/// what it says the moment it says it, and applies it again on every layout —
+/// by which time the connection is certainly there.
 struct SkyCameraPreview: UIViewRepresentable {
 
     let session: AVCaptureSession
-    let rotation: CGFloat
+
+    /// The camera the session is running on. Nil until it has been opened.
+    let device: AVCaptureDevice?
 
     func makeUIView(context: Context) -> PreviewView {
         let view = PreviewView()
@@ -136,10 +131,8 @@ struct SkyCameraPreview: UIViewRepresentable {
     }
 
     func updateUIView(_ view: PreviewView, context: Context) {
-        guard let connection = view.previewLayer.connection,
-              connection.isVideoRotationAngleSupported(rotation),
-              connection.videoRotationAngle != rotation else { return }
-        connection.videoRotationAngle = rotation
+        guard let device = device else { return }
+        view.follow(device)
     }
 
     final class PreviewView: UIView {
@@ -149,6 +142,49 @@ struct SkyCameraPreview: UIViewRepresentable {
         var previewLayer: AVCaptureVideoPreviewLayer {
             // Guaranteed by `layerClass` above.
             layer as! AVCaptureVideoPreviewLayer
+        }
+
+        private var coordinator: AVCaptureDevice.RotationCoordinator?
+        private var observation: NSKeyValueObservation?
+
+        /// Starts keeping the picture level for this camera. Idempotent: the
+        /// representable's update runs on every redraw and this is only ever
+        /// set up once.
+        func follow(_ device: AVCaptureDevice) {
+            guard coordinator?.device !== device else { return }
+
+            // Handed the layer, not nil: the angle the picture needs depends on
+            // how the layer is sitting on screen as well as on how the phone is
+            // being held, and a coordinator with no layer can only answer half
+            // of that.
+            let coordinator = AVCaptureDevice.RotationCoordinator(
+                device: device,
+                previewLayer: previewLayer
+            )
+            self.coordinator = coordinator
+
+            observation = coordinator.observe(
+                \.videoRotationAngleForHorizonLevelPreview,
+                options: [.initial, .new]
+            ) { [weak self] coordinator, _ in
+                let angle = coordinator.videoRotationAngleForHorizonLevelPreview
+                DispatchQueue.main.async { self?.apply(angle) }
+            }
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            // The connection arrives with the session's input rather than with
+            // the layer, so the angle the coordinator gave earlier may have had
+            // nowhere to land. Laying out is the reliable moment it does.
+            if let angle = coordinator?.videoRotationAngleForHorizonLevelPreview { apply(angle) }
+        }
+
+        private func apply(_ angle: CGFloat) {
+            guard let connection = previewLayer.connection,
+                  connection.isVideoRotationAngleSupported(angle),
+                  connection.videoRotationAngle != angle else { return }
+            connection.videoRotationAngle = angle
         }
     }
 }

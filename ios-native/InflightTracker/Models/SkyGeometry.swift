@@ -36,6 +36,15 @@ struct SkyTarget: Identifiable, Equatable {
     let callsign: String
     let aircraftName: String
 
+    /// Which drawing to put in the sky, from the same catalogue the map paints
+    /// its traffic out of — so an A380 is an A380 in both places.
+    let spriteKey: String
+
+    /// Where it is going, degrees true. Drawn relative to which way the camera
+    /// is facing, so an aircraft crossing left to right is a sprite pointing
+    /// left to right.
+    let headingDegrees: Double
+
     /// Whether this is one of the pilot's own aircraft, which is drawn to be
     /// found rather than to be read past.
     let isMine: Bool
@@ -79,13 +88,20 @@ enum SkyGeometry {
     /// every aircraft on every packet. The vertical is *not* flat: the drop of
     /// the curve is what puts distant traffic under the horizon, which is where
     /// it genuinely is.
-    static func target(for flight: Flight, from observer: SkyObserver, isMine: Bool) -> SkyTarget {
+    static func target(
+        for flight: Flight,
+        from observer: SkyObserver,
+        isMine: Bool,
+        age: TimeInterval = 0
+    ) -> SkyTarget {
+        let moved = flown(flight, for: age)
+
         let originLatitude = observer.latitude * .pi / 180
-        let targetLatitude = flight.latitude * .pi / 180
+        let targetLatitude = moved.latitude * .pi / 180
 
         // Wrapped, so a vantage at Anadyr and traffic at Nome are 300 miles
         // apart rather than most of the way round the world.
-        var deltaLongitude = (flight.longitude - observer.longitude) * .pi / 180
+        var deltaLongitude = (moved.longitude - observer.longitude) * .pi / 180
         if deltaLongitude > .pi { deltaLongitude -= 2 * .pi }
         if deltaLongitude < -.pi { deltaLongitude += 2 * .pi }
 
@@ -93,7 +109,7 @@ enum SkyGeometry {
         let north = (targetLatitude - originLatitude) * earthRadiusMeters
         let ground = (east * east + north * north).squareRoot()
 
-        let climb = (flight.altitudeFeet - observer.altitudeFeet) * metersPerFoot
+        let climb = (moved.altitudeFeet - observer.altitudeFeet) * metersPerFoot
         // The earth falling away underneath the line of sight.
         let drop = (ground * ground) / (2 * earthRadiusMeters)
         let up = climb - drop
@@ -107,12 +123,14 @@ enum SkyGeometry {
             id: flight.id,
             callsign: flight.displayName,
             aircraftName: flight.aircraftName,
+            spriteKey: flight.spriteKey,
+            headingDegrees: flight.heading,
             isMine: isMine,
             bearingDegrees: bearing,
             elevationDegrees: atan2(up, ground) * 180 / .pi,
             distanceNauticalMiles: (ground * ground + up * up).squareRoot() / metersPerNauticalMile,
-            altitudeFeet: flight.altitudeFeet,
-            relativeAltitudeFeet: flight.altitudeFeet - observer.altitudeFeet,
+            altitudeFeet: moved.altitudeFeet,
+            relativeAltitudeFeet: moved.altitudeFeet - observer.altitudeFeet,
             // North, west, up — CoreMotion's frame, not east-north-up, so the
             // attitude matrix can be applied to it without a change of basis
             // thirty times a second.
@@ -146,6 +164,48 @@ enum SkyGeometry {
             y: size.height / 2 - CGFloat(device.y / depth * focalLength)
         )
     }
+
+    /// Where an aircraft has got to since the packet that described it.
+    ///
+    /// The feed lands every few seconds and the sky view is a window onto one
+    /// patch of it, so traffic that only moved when a packet arrived would
+    /// visibly hop. This carries it on along its own heading at its own speed
+    /// in between — which is what it is actually doing.
+    ///
+    /// Capped, because this is extrapolation and extrapolation is only honest
+    /// for as long as the thing it is guessing about has not had a chance to
+    /// turn. Past the cap the aircraft holds its last known position rather
+    /// than flying a straight line into the next country.
+    static func flown(
+        _ flight: Flight,
+        for age: TimeInterval
+    ) -> (latitude: Double, longitude: Double, altitudeFeet: Double) {
+        let seconds = min(max(age, 0), maximumExtrapolation)
+        guard seconds > 0, flight.groundSpeedKnots > 1 else {
+            return (flight.latitude, flight.longitude, flight.altitudeFeet)
+        }
+
+        let travelled = flight.groundSpeedKnots * metersPerNauticalMile / 3600 * seconds
+        let heading = flight.heading * .pi / 180
+
+        let north = travelled * cos(heading)
+        let east = travelled * sin(heading)
+
+        let latitude = flight.latitude + (north / earthRadiusMeters) * 180 / .pi
+        let scale = max(cos(flight.latitude * .pi / 180), 0.000_1)
+        let longitude = flight.longitude + (east / (earthRadiusMeters * scale)) * 180 / .pi
+
+        return (
+            latitude: latitude,
+            longitude: longitude,
+            altitudeFeet: flight.altitudeFeet + flight.verticalSpeedFPM * seconds / 60
+        )
+    }
+
+    /// How long a position is worth carrying forward. Twenty seconds of an
+    /// airliner is about two and a half miles, and two and a half miles of a
+    /// turn it might have started is about as wrong as this is allowed to be.
+    static let maximumExtrapolation: TimeInterval = 20
 
     /// A direction in the reference frame, from a compass bearing and an angle
     /// above the horizon. The horizon marks are built with this.

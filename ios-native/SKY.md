@@ -55,6 +55,49 @@ sides are cropped — which is why the focal length is worked out from the long
 side of the view, and why the projection assumes the device is upright. Held on
 its side, the view says so instead of drawing.
 
+## What is drawn
+
+The same sprite the map paints its traffic with, from the same catalogue, keyed
+off the aircraft type — a 380 in the sky is the 380 you would have tapped on the
+map. The artwork points north at zero rotation, which is the convention
+`TrackerMapView` rotates its annotations under, so the sky turns each one by
+`heading − camera azimuth`: an aircraft crossing left to right is a sprite
+pointing left to right. Your own aircraft keeps the accent ring. Under each one
+is its callsign, distance and altitude, dimmed with distance so forty of them
+still read front to back.
+
+## Staying live
+
+Two clocks, because two things move.
+
+The **feed** lands every few seconds. Each packet re-runs the shortlist: a
+bounding-box test over every aircraft on the server (a degree of latitude is 60
+NM; a degree of longitude is 60 times the cosine of where you are), then the
+real distance for the handful that survive, then the nearest forty. That is the
+expensive pass and it runs once a packet.
+
+Between packets the aircraft are **carried on along their own headings** at
+their own ground speeds, and their altitudes along their vertical speeds. This
+is what stops the sky hopping every few seconds. It is extrapolation, so it is
+capped at 20 seconds — about two and a half miles of an airliner, which is
+about as wrong as a guess about something that might have started a turn is
+allowed to be. Past the cap an aircraft holds its last known position.
+
+The re-placing runs on a `TimelineView` at 2 Hz *as well as* on every attitude
+update. The attitude alone would be enough while the phone is in a hand — it
+arrives thirty times a second — but a phone propped against something stops
+producing one, and the traffic is still flying.
+
+## The picture the right way up
+
+The preview's rotation is the view's own business rather than SwiftUI state
+handed down to it. A preview connection does not exist until the session has an
+input, which is several async hops after the layer is built, so an angle applied
+once on the way past lands on nothing and the picture stays on its side. The
+view holds an `AVCaptureDevice.RotationCoordinator` built with the real preview
+layer, applies what it says the moment it says it, and applies it again on every
+`layoutSubviews` — by which time the connection is certainly there.
+
 ## Permissions
 
 Three, all read while the view is open and stopped when it closes:
@@ -78,11 +121,15 @@ still has to agree with that.
 |---|---|
 | `Models/SkyGeometry.swift` | The positions, the projection, the focal length |
 | `Services/SkyPose.swift` | CoreMotion attitude and CoreLocation, and what is wrong when nothing draws |
-| `Views/Sky/SkyCamera.swift` | The capture session and its preview |
+| `Views/Sky/SkyCamera.swift` | The capture session, and a preview that keeps itself level |
 | `Views/Sky/SkyView.swift` | The screen: vantage, range, what is in the sky |
-| `Views/Sky/SkyMarker.swift` | One aircraft |
+| `Views/Sky/SkyMarker.swift` | One aircraft: its sprite, turned, and what it reads |
 | `Views/Sky/SkyComponents.swift` | The chips, and the card that says why there is no sky |
 
 The way in is the camera button at the top of the map's own control stack, in
 the bottom-right corner. Tapping an aircraft in the sky closes the view and
 opens it on the map.
+
+The app's mark sits at the top of the view, where a viewfinder wears one — this
+is the one screen in the app with nothing of the app's own on it otherwise, and
+it is the one people point at the sky and photograph.
