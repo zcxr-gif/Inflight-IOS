@@ -3,6 +3,15 @@ import CoreMotion
 import Foundation
 import simd
 
+/// The attitude, and nothing else.
+///
+/// Its own object so that the thirty-a-second signal reaches only the thing
+/// that needs it. See the note on `SkyPose.attitude`.
+final class SkyAttitude: ObservableObject {
+
+    @Published fileprivate(set) var rotation: simd_double3x3?
+}
+
 /// Which way the phone is pointing, and where it is.
 ///
 /// Two sensors that only make sense together: the attitude says which way the
@@ -32,9 +41,28 @@ final class SkyPose: NSObject, ObservableObject {
         case uncalibrated
     }
 
-    /// The device's attitude: a matrix that carries a vector in the phone's own
-    /// frame out into the reference frame — X true north, Y west, Z up.
-    @Published private(set) var rotation: simd_double3x3?
+    /// The device's attitude, on an object of its own.
+    ///
+    /// Thirty times a second is a great deal of invalidation, and an
+    /// `ObservableObject` does not publish per property — anything that reads
+    /// *any* part of this object is rebuilt every time the phone moves. With
+    /// the attitude in here that meant the camera preview, the chrome, the
+    /// notices and the whole geometry reader around them were all being
+    /// re-diffed at sensor rate, and the markers drifted behind the camera and
+    /// settled when you stopped moving. Which is what "elastic" looks like.
+    ///
+    /// Split out, only the layer that draws the aeroplanes watches this one.
+    /// Everything else on the view watches the object below, which changes
+    /// when a fix lands or a permission does — a handful of times, ever.
+    let attitude = SkyAttitude()
+
+    /// Whether the attitude has started arriving. Flips once, so the view can
+    /// wait for it without watching every sample.
+    @Published private(set) var hasAttitude = false
+
+    /// The current attitude, for anything that wants a reading rather than a
+    /// subscription.
+    var rotation: simd_double3x3? { attitude.rotation }
 
     @Published private(set) var location: CLLocation?
 
@@ -72,7 +100,7 @@ final class SkyPose: NSObject, ObservableObject {
     var trouble: Trouble? {
         guard hasSensors else { return .noSensors }
         if authorization == .denied || authorization == .restricted { return .locationRefused }
-        guard rotation != nil else { return .waiting }
+        guard hasAttitude else { return .waiting }
         // A negative accuracy is the compass saying it has not answered yet,
         // which is a moment at the start rather than a problem to report.
         if headingAccuracyDegrees > Self.calibrationThreshold { return .uncalibrated }
@@ -100,8 +128,9 @@ final class SkyPose: NSObject, ObservableObject {
             using: .xTrueNorthZVertical,
             to: .main
         ) { [weak self] sample, _ in
-            guard let self = self, let attitude = sample?.attitude else { return }
-            self.rotation = attitude.rotationMatrix.matrix
+            guard let self = self, let sample = sample?.attitude else { return }
+            self.attitude.rotation = sample.rotationMatrix.matrix
+            if !self.hasAttitude { self.hasAttitude = true }
         }
     }
 
@@ -116,7 +145,8 @@ final class SkyPose: NSObject, ObservableObject {
         // Cleared rather than left at the last reading: a stale attitude coming
         // back on screen half a second before the live one arrives is a view
         // that opens pointing the wrong way.
-        rotation = nil
+        attitude.rotation = nil
+        hasAttitude = false
     }
 }
 

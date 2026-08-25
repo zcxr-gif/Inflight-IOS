@@ -45,6 +45,9 @@ struct ContentView: View {
     /// window once it has measured itself.
     @State private var peakHeight = FlightInfoLayout.basePeakHeight
 
+    /// The flight window's handle, held under a finger.
+    @GestureState private var isWindowHeld = false
+
     /// Which phase the info window is in. Owned here so it can be reset to the
     /// peak state each time a different aircraft is tapped.
     @State private var detent: PresentationDetent = .height(FlightInfoLayout.basePeakHeight)
@@ -279,6 +282,13 @@ struct ContentView: View {
         MapDock.reservedHeight + MapDock.legalLane
     }
 
+    /// How far a pull on the flight window's handle has to be heading to close
+    /// it, and how far the other way to open it out. Judged on where the drag
+    /// was predicted to end rather than where the finger stopped, so a flick
+    /// does it without the travel.
+    private static let windowCloseTravel: CGFloat = 90
+    private static let windowOpenTravel: CGFloat = 44
+
     /// How tall the map's own control stack is: three rows with a hairline
     /// between each. Written down because the find-me button stacks on top of
     /// it, and a control that overlaps the one underneath is the kind of thing
@@ -421,7 +431,9 @@ struct ContentView: View {
         mapStack
         .animation(.easeInOut(duration: 0.22), value: selection?.id)
         .animation(.easeInOut(duration: 0.22), value: replay.isActive)
-        .animation(.easeInOut(duration: 0.24), value: isStatsUp)
+        // The same spring the dock settles its own handle with, so the card
+        // and everything that lifts out of its way move as one thing.
+        .animation(.spring(response: 0.34, dampingFraction: 0.86), value: isStatsUp)
         .onChange(of: selection?.id) { _, id in
             // A replay belongs to the aircraft it was started from, and to the
             // window that drew the track under it. Opening another aircraft,
@@ -652,11 +664,63 @@ struct ContentView: View {
             }
         }
         .presentationDetents([peakDetent, .large], selection: $detent)
-        .presentationDragIndicator(.visible)
+        // The window draws its own handle over the top of itself, so the
+        // system's indicator would be a second pill in the same place.
+        .presentationDragIndicator(.hidden)
+        .overlay(alignment: .top) { flightWindowHandle }
         .flightInfoSheetInteraction(upThrough: peakDetent)
         // Belt and braces: however the sheet came to be on screen, it starts in
         // the peak state.
         .onAppear { detent = peakDetent }
+    }
+
+    /// The flight window's handle.
+    ///
+    /// The window keeps its two stops — the peak it opens in, and the full
+    /// window above that — and the sheet's own drag still moves between them,
+    /// one to one, from anywhere on the window that is not a list. What that
+    /// drag could not do was close: from full height a pull down landed on the
+    /// peak, so shutting the window took two separate gestures, and the second
+    /// only worked if you had not scrolled. This pill is the way through both.
+    /// Pull it and the window collapses as you go and closes when you let go;
+    /// push it and the whole window opens.
+    ///
+    /// Only as wide as the pill it draws. The rest of the top of the window is
+    /// left to the sheet's own gesture, which is better at following a finger
+    /// than anything that can be written on top of it.
+    private var flightWindowHandle: some View {
+        WindowGrabber(theme: theme, isHeld: isWindowHeld)
+            .frame(width: 132)
+            .frame(maxWidth: .infinity)
+            .gesture(flightWindowPull)
+            .accessibilityElement()
+            .accessibilityLabel("Close the flight window")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { sheet = nil }
+            .accessibilityAction(named: "Open the full window") { detent = .large }
+    }
+
+    /// Global, like every other pull in the app: the sheet resizes underneath
+    /// the finger while this is running, and a translation measured against
+    /// something that is itself moving is a translation that fights itself.
+    private var flightWindowPull: some Gesture {
+        DragGesture(minimumDistance: 4, coordinateSpace: .global)
+            .updating($isWindowHeld) { _, state, _ in state = true }
+            .onChanged { value in
+                // Collapses on the way down, so the pull has something to show
+                // for itself before it commits to closing.
+                guard detent == .large, value.translation.height > 44 else { return }
+                detent = peakDetent
+            }
+            .onEnded { value in
+                let landing = value.predictedEndTranslation.height
+
+                if landing > Self.windowCloseTravel {
+                    sheet = nil
+                } else if landing < -Self.windowOpenTravel {
+                    detent = .large
+                }
+            }
     }
 
     /// A field. Resolved here rather than carried in the sheet's case: the
@@ -983,8 +1047,11 @@ struct ContentView: View {
                 )
                 .environmentObject(feed)
             }
-            .padding(.horizontal, 14)
-            .padding(.bottom, 6)
+            // Ten, not fourteen. With the card's own inset and the bar's
+            // inside that, fourteen put twenty-six points of nothing between
+            // the screen edge and the first tool.
+            .padding(.horizontal, 10)
+            .padding(.bottom, MapDock.liftOffSafeArea)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             // The keyboard is the search field's business. Without this the bar
             // rides up on top of it while a query is being typed.
@@ -1063,7 +1130,11 @@ struct ContentView: View {
         }
         .buttonStyle(.plain)
         .clipShape(Circle())
-        .flightInfoChrome(theme, in: Circle())
+        // Interactive: one control, so the glass can bend towards the finger
+        // the way the system's own does. The stacks below deliberately do not
+        // — a pane that lights up as a whole for one button in it is a pane
+        // saying the wrong thing about what was pressed.
+        .flightInfoChrome(theme, in: Circle(), interactive: true)
         .environment(\.colorScheme, theme.colorScheme)
         .accessibilityLabel(profileLabel)
         .accessibilityHint(profiles.profile == nil ? "Opens your account" : "Opens your profile")
@@ -1122,10 +1193,11 @@ struct ContentView: View {
     /// drawn — and putting it here makes that decision one tap from the map
     /// instead of a tap, a panel and a scroll.
     ///
-    /// The glyph is whichever layer is on, and the chip fills with the accent
-    /// while anything is, the same way the ruler reads when it is down. The
-    /// panel behind it still exists for the units, the sample and the rest; it
-    /// is the last item in the menu.
+    /// The glyph is the cloud, always, and the cell takes a wash of the accent
+    /// while anything is drawn — the same face the ruler and the map style wear
+    /// on the opposite shoulder, from the same method. The panel behind it
+    /// still exists for the units, the sample and the rest; it is the last item
+    /// in the menu.
     @ViewBuilder
     private var weatherControl: some View {
         if selection == nil, !replay.isActive {
@@ -1169,14 +1241,7 @@ struct ContentView: View {
                     }
                 }
             } label: {
-                Image(systemName: weatherSymbol)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(isWeatherOnMap ? theme.onAccent : theme.textPrimary)
-                    .frame(width: 44, height: 42)
-                    .background {
-                        if isWeatherOnMap { Rectangle().fill(theme.accent) }
-                    }
-                    .contentShape(Rectangle())
+                mapControlFace(weatherSymbol, isOn: isWeatherOnMap)
             }
             .accessibilityLabel(weatherLabel)
             .accessibilityAddTraits(isWeatherOnMap ? .isSelected : [])
@@ -1185,7 +1250,11 @@ struct ContentView: View {
             // without this the accent squares off the chip's corners when a
             // layer is on.
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .flightInfoChrome(
+                theme,
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous),
+                interactive: true
+            )
             .environment(\.colorScheme, theme.colorScheme)
             .padding(.leading, 16)
             .padding(.bottom, cornerInset + 8 + statsLift)
@@ -1213,10 +1282,15 @@ struct ContentView: View {
         weatherPreferences.mapLayer != .off || weatherPreferences.showsWinds
     }
 
-    private var weatherSymbol: String {
-        if weatherPreferences.mapLayer != .off { return weatherPreferences.mapLayer.symbol }
-        return weatherPreferences.showsWinds ? "wind" : "cloud.sun.fill"
-    }
+    /// Always the cloud.
+    ///
+    /// It used to be whichever layer was drawn — rain, then wind, then a sun
+    /// behind a cloud when neither was on — so the control changed shape under
+    /// you and never settled into being one thing. The two beside it on the
+    /// right do not do that: the ruler is a ruler whether it is down or not.
+    /// This is the weather button; what it is showing is the menu's business,
+    /// and the wash behind the glyph already says that something is on.
+    private let weatherSymbol = "cloud.fill"
 
     private var weatherLabel: String {
         switch (weatherPreferences.mapLayer, weatherPreferences.showsWinds) {
@@ -1340,11 +1414,7 @@ struct ContentView: View {
                         .disabled(appearance.resolvedMapStyle.palette.usesImagery)
                     }
                 } label: {
-                    Image(systemName: mapStyleSymbol)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(theme.textPrimary)
-                        .frame(width: 44, height: 42)
-                        .contentShape(Rectangle())
+                    mapControlFace(mapStyleSymbol, isOn: false)
                 }
                 .accessibilityLabel(mapStyleLabel)
 
@@ -1418,7 +1488,11 @@ struct ContentView: View {
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .flightInfoChrome(
+                theme,
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous),
+                interactive: true
+            )
             .environment(\.colorScheme, theme.colorScheme)
             .padding(.trailing, 16)
             // Above the map's own control stack, which sits in the same corner.
@@ -1431,7 +1505,10 @@ struct ContentView: View {
 
     private var findMeLabel: some View {
         Image(systemName: entitlements.has(.findMyAircraft) ? "location.magnifyingglass" : "lock")
-            .font(.system(size: 15, weight: .semibold))
+            // The same fourteen every other glyph over the map is set at. Its
+            // cell is a point taller because it is a card on its own rather
+            // than a row in the stack, but the glyph in it is not.
+            .font(.system(size: 14, weight: .semibold))
             .foregroundStyle(theme.textPrimary)
             .frame(width: 44, height: 44)
             .contentShape(Rectangle())
@@ -1519,18 +1596,42 @@ struct ContentView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(isOn ? theme.onAccent : theme.textPrimary)
-                .frame(width: 44, height: 42)
-                .background {
-                    if isOn { Rectangle().fill(theme.accent) }
-                }
-                .contentShape(Rectangle())
+            mapControlFace(symbol, isOn: isOn)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
         .accessibilityAddTraits(isOn ? .isSelected : [])
+    }
+
+    /// The face of a map control: one glyph, and the way it says it is on.
+    ///
+    /// Written once and used by both corners. The weather control on the left
+    /// and the stack on the right are the same control in two places, and the
+    /// only reason they ever looked like different things is that they were
+    /// written out twice and drifted — a point of type size apart, and one of
+    /// them lit up far more often than the other.
+    private func mapControlFace(_ symbol: String, isOn: Bool) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(theme.textPrimary)
+            .frame(width: 44, height: 42)
+            .background {
+                // On is a wash of the accent, not a block of it.
+                //
+                // The accent is white on the dark themes and near-black on the
+                // light ones, so filling the cell with it turned a piece of
+                // glass into a solid white or solid black tile and flipped the
+                // glyph to match. On the weather control that was almost its
+                // permanent state — it counts as on whenever any layer is
+                // drawn — so the map's left shoulder was a white square sitting
+                // next to three pieces of glass.
+                //
+                // A wash is how a selected control reads on glass: the pane
+                // tints, the glyph stays where it was, and the thing still
+                // looks like it is made of the same material as its neighbours.
+                if isOn { Rectangle().fill(theme.accent.opacity(0.22)) }
+            }
+            .contentShape(Rectangle())
     }
 
 }

@@ -36,9 +36,20 @@ struct SkyTarget: Identifiable, Equatable {
     let callsign: String
     let aircraftName: String
 
-    /// Which drawing to put in the sky, from the same catalogue the map paints
-    /// its traffic out of — so an A380 is an A380 in both places.
+    /// Which drawing to put in the sky when there is no photograph — from the
+    /// same catalogue the map paints its traffic out of, so an A380 is an A380
+    /// in both places.
     let spriteKey: String
+
+    /// What kind of aeroplane this is, which is what a photograph is looked up
+    /// by. The sky shows the picture where there is one: held up at the sky you
+    /// are looking at the side of an aircraft, and a plan-view sprite is the
+    /// wrong drawing for that.
+    let aircraftType: String
+    let liveryName: String
+
+    /// The two of them as the photo store keys its pictures.
+    var photoKey: String { SkyPhotos.key(type: aircraftType, livery: liveryName) }
 
     /// Where it is going, degrees true. Drawn relative to which way the camera
     /// is facing, so an aircraft crossing left to right is a sprite pointing
@@ -124,6 +135,8 @@ enum SkyGeometry {
             callsign: flight.displayName,
             aircraftName: flight.aircraftName,
             spriteKey: flight.spriteKey,
+            aircraftType: flight.aircraftName,
+            liveryName: flight.liveryName,
             headingDegrees: flight.heading,
             isMine: isMine,
             bearingDegrees: bearing,

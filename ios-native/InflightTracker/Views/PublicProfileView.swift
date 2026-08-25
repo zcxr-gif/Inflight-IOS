@@ -96,41 +96,46 @@ struct PublicProfileView: View {
     }
 
     var body: some View {
-        ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: 14) {
-                if let profile = profile {
-                    header(profile)
-                    if let problem = problem { problemLine(problem) }
-                    relationship(profile)
-                    counts(profile)
-                    actions(profile)
-                    if let bio = profile.bio, !bio.isEmpty { bioCard(bio) }
-                    liveCard
-                    simCard
-                    favouriteCard(profile)
-                    statsCard
-                    recordsCard
-                    landingsCard
-                    friendsCard(profile)
-                    badgesCard
-                    logbookCard
-                    footer(profile)
-                } else if isLoading {
-                    loading
-                } else {
-                    missing
+        // Same handle as every other window: pull it down and the profile
+        // goes. Floating rather than stacked, because a profile opens on a
+        // full-width banner and a band of plain ground above it would read as
+        // the banner having been pushed down the window.
+        SheetWindow(theme: theme, handleFloats: true) {
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 14) {
+                    if let profile = profile {
+                        header(profile)
+                        if let problem = problem { problemLine(problem) }
+                        relationship(profile)
+                        counts(profile)
+                        actions(profile)
+                        if let bio = profile.bio, !bio.isEmpty { bioCard(bio) }
+                        liveCard
+                        simCard
+                        favouriteCard(profile)
+                        statsCard
+                        recordsCard
+                        landingsCard
+                        friendsCard(profile)
+                        badgesCard
+                        logbookCard
+                        footer(profile)
+                    } else if isLoading {
+                        loading
+                    } else {
+                        missing
+                    }
                 }
+                .padding(.bottom, 24)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .containerRelativeFrame(.horizontal)
             }
-            .padding(.bottom, 24)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .containerRelativeFrame(.horizontal)
+            .scrollBounceBehavior(.basedOnSize)
+            // On the content, not on the window: this is a halo behind text,
+            // and hung on an opaque card it would be a drop shadow around it.
+            .flightInfoLegible(theme)
         }
-        .scrollBounceBehavior(.basedOnSize)
-        .flightInfoLegible(theme)
-        .background { theme.windowFill.ignoresSafeArea() }
         .environment(\.colorScheme, theme.colorScheme)
-        .presentationDetents([.large])
-        .presentationDragIndicator(.visible)
         .task(id: link) { await load() }
         // AnyView, and not for laziness.
         //
@@ -194,11 +199,10 @@ struct PublicProfileView: View {
                         .accessibilityLabel("Share this profile")
                     }
 
+                    // No cross here either: the window is closed by pulling
+                    // its handle down, which is a gesture rather than a
+                    // quarter-inch target in the corner of a photograph.
                     if !profile.isSelf { overflowMenu(profile) }
-
-                    Button { dismiss() } label: { headerButton("xmark") }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Close")
                 }
                 .padding(.top, 12)
                 .padding(.trailing, 14)
