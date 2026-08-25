@@ -43,6 +43,12 @@ struct FlightDetailView: View {
     /// why the block that draws it is absent rather than empty.
     @State private var sim: PilotLiveStatus?
 
+    /// The virtual airline named under the identity block: the VA whose callsign
+    /// this flight is flying, or — failing that — one hubbed at an end of its
+    /// route. Resolved once here and handed to both phases, so the peak state
+    /// and the full window can't disagree about it or ask for it twice.
+    @State private var vaPartner: VaPartner?
+
     let flightId: String
 
     /// Reported upward so the sheet's peak detent is exactly as tall as the
@@ -69,6 +75,14 @@ struct FlightDetailView: View {
     /// are excluded: their identifier is an FIR rather than an ICAO, so one
     /// could never match an endpoint anyway, and leaving them in would only
     /// invite a coincidence to.
+    /// What the partner lookup actually depends on. The flight itself changes
+    /// several times a minute — a new position is not a new answer.
+    private var partnerKey: String {
+        guard let flight = flight else { return flightId }
+        return [flightId, flight.callsign ?? "", flight.departureIcao ?? "", flight.arrivalIcao ?? ""]
+            .joined(separator: "|")
+    }
+
     private var controlledFields: Set<String> {
         Set(feed.atcStations.filter { !$0.isCenter }.map(\.identifier))
     }
@@ -94,7 +108,8 @@ struct FlightDetailView: View {
                         registration: registration(for: flight),
                         theme: theme,
                         style: appearance.peakStyle,
-                        width: geometry.size.width
+                        width: geometry.size.width,
+                        partner: vaPartner
                     )
                         .background {
                             GeometryReader { peak in
@@ -170,6 +185,15 @@ struct FlightDetailView: View {
                 guard !Task.isCancelled else { return }
                 loadSim()
             }
+        }
+        // Re-asked when the flight's identity or its plan changes, which is
+        // what the answer depends on — not on every packet, which is what a
+        // plain feed observer would have made of it.
+        .task(id: partnerKey) {
+            guard let flight = flight else { return }
+            let resolved = await VaAdsService.shared.partner(for: flight)
+            guard !Task.isCancelled else { return }
+            vaPartner = resolved
         }
         .onChange(of: flight?.liveryName) { _, _ in load(flight) }
         .onChange(of: photoLoader.photo?.url) { _, url in imageLoader.load(url) }
@@ -303,11 +327,18 @@ struct FlightDetailView: View {
                 .id(Self.topAnchor)
 
                 VStack(spacing: 12) {
-                    FlightIdentityBlock(
-                        flight: flight,
-                        registration: registration(for: flight),
-                        theme: theme
-                    )
+                    // Grouped, not two children of the stack: the partner line
+                    // belongs to the identity block above it, and the window's
+                    // outer stack is already at the builder's ten-view ceiling.
+                    VStack(spacing: 12) {
+                        FlightIdentityBlock(
+                            flight: flight,
+                            registration: registration(for: flight),
+                            theme: theme
+                        )
+
+                        VaPartnerLine(partner: vaPartner, theme: theme)
+                    }
 
                     FlightActionRow(
                         flight: flight,

@@ -16,6 +16,10 @@ struct FlightInfoPeak: View {
     let style: FlightInfoPeakStyle
     let width: CGFloat
 
+    /// The VA to name under the identity block, when the flight has one.
+    /// Resolved by the window and handed down — see `VaPartnerLine`.
+    var partner: VaPartner? = nil
+
     /// Width of the photo. Its height follows the photo's own aspect ratio, so
     /// a square shot and a wide airliner shot both sit in the row properly
     /// instead of being cropped to one fixed box.
@@ -39,6 +43,9 @@ struct FlightInfoPeak: View {
         case .compact:
             VStack(alignment: .leading, spacing: 12) {
                 identityRow
+                // Between the identity box and the route card, which is where
+                // the bar had a band of nothing in it.
+                VaPartnerLine(partner: partner, theme: theme)
                 situationCard
             }
             // Clears the drag indicator, which floats over the top of the sheet.
@@ -71,6 +78,7 @@ struct FlightInfoPeak: View {
 
             VStack(spacing: 12) {
                 FlightIdentityBlock(flight: flight, registration: registration, theme: theme)
+                VaPartnerLine(partner: partner, theme: theme)
                 situationCard
             }
             .padding(.horizontal, 14)

@@ -58,6 +58,11 @@ struct AirportPanel: View {
     /// draws its weather immediately, then replaced when the fetch lands.
     @State private var metar: Metar?
 
+    /// The partner virtual airlines that call this field a hub, once the VA-Ads
+    /// directory has answered. Empty covers both "none" and "not asked yet",
+    /// which look the same on the panel: no section at all.
+    @State private var partners: [VaAd] = []
+
     /// Whether the weather service has answered about this field yet.
     ///
     /// Most of the world's strips have never filed a METAR, and from an empty
@@ -161,6 +166,8 @@ struct AirportPanel: View {
 
             frequencies
 
+            AirportPartnersSection(icao: airport.icao, partners: partners)
+
             weather
 
             WeatherForecastSection(key: airport.icao, coordinate: airport.coordinate)
@@ -179,6 +186,14 @@ struct AirportPanel: View {
             loadMetar()
             loadImage()
             gateStore.load(airport)
+        }
+        // Its own task rather than part of `onAppear`: the lookup is a request
+        // over the network, and a panel closed before it lands should take the
+        // request with it.
+        .task(id: airport.icao) {
+            let found = await VaAdsService.shared.partners(hubbedAt: airport.icao)
+            guard !Task.isCancelled else { return }
+            partners = found
         }
         .animation(.easeInOut(duration: 0.25), value: imageLoader.image != nil)
         .onReceive(clock) { tick in
