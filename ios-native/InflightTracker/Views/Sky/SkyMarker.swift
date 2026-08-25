@@ -2,16 +2,26 @@ import SwiftUI
 
 /// One aircraft, drawn where it is in the sky.
 ///
-/// The drawing is the same one the map paints its traffic with — the sprite
-/// catalogue, keyed off the aircraft type — so a 380 in the sky view is the
-/// 380 you would have tapped on the map. It is turned to the heading the
-/// aircraft is actually flying, corrected for which way the camera is facing,
-/// the same correction the map applies against its own camera: a jet crossing
-/// left to right is a sprite pointing left to right.
+/// A photograph of the aircraft, where there is one.
+///
+/// It used to be the map's own sprite — the little white plan-view drawing,
+/// turned to the aircraft's heading. That is exactly right on a map, where you
+/// are looking down at the traffic from above and a shape pointing the way it
+/// is flying is the whole of what you need. Held up at the sky it is the wrong
+/// drawing: you are looking at the *side* of an aeroplane, from underneath, and
+/// a plan view of it tells you nothing you can match against what is up there.
+/// A picture of the type does.
+///
+/// The sprite is still the fallback, for the moment before the photograph
+/// arrives and for the types nobody has photographed. A shape in the right
+/// place beats nothing in the right place.
 struct SkyMarker: View {
 
     let target: SkyTarget
     let theme: FlightInfoTheme
+
+    /// The photograph of this type, when one has been found.
+    let photo: UIImage?
 
     /// Which way the phone is facing, so the sprite can be turned relative to
     /// it rather than to north.
@@ -26,6 +36,12 @@ struct SkyMarker: View {
     /// The sprite as it is drawn on the map, at the size the sky wants it.
     private static let spriteSize: CGFloat = 30
 
+    /// The photograph's frame. Wide, because aeroplanes are: this is roughly
+    /// the shape a side-on shot of an airliner comes in, so the picture fills
+    /// it rather than being cropped to a square.
+    private static let photoWidth: CGFloat = 76
+    private static let photoHeight: CGFloat = 44
+
     /// White rather than the theme's own ink, and the accent for your own
     /// aircraft. What is behind this is a photograph of the outdoors at
     /// whatever the weather is doing, not a surface the app chose the colour
@@ -36,12 +52,12 @@ struct SkyMarker: View {
     var body: some View {
         Button(action: action) {
             ZStack {
-                sprite
+                face
 
                 reading
-                    .offset(y: 32)
+                    .offset(y: photo == nil ? 32 : 40)
             }
-            .frame(width: 132, height: 96)
+            .frame(width: 132, height: 112)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -49,6 +65,30 @@ struct SkyMarker: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(voiceOver)
         .accessibilityHint("Opens this aircraft on the map")
+    }
+
+    /// The photograph, or the sprite until there is one.
+    @ViewBuilder
+    private var face: some View {
+        if let photo = photo {
+            Image(uiImage: photo)
+                .resizable()
+                .scaledToFill()
+                .frame(width: Self.photoWidth, height: Self.photoHeight)
+                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .overlay {
+                    // A hairline, so the picture has an edge against a bright
+                    // sky as well as against a dark one.
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .strokeBorder(
+                            target.isMine ? theme.accent : Color.white.opacity(0.75),
+                            lineWidth: target.isMine ? 2 : 1
+                        )
+                }
+                .shadow(color: .black.opacity(0.5), radius: 3)
+        } else {
+            sprite
+        }
     }
 
     @ViewBuilder

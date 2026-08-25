@@ -58,6 +58,7 @@ struct SkyView: View {
 
     @StateObject private var pose = SkyPose()
     @StateObject private var camera = SkyCamera()
+    @StateObject private var photos = SkyPhotos()
 
     /// The pilot's own aircraft, so one of them can be the vantage and so the
     /// rest are picked out of the traffic.
@@ -151,6 +152,9 @@ struct SkyView: View {
     private func end() {
         camera.stop()
         pose.stop()
+        // The pictures stay in the shared cache; this view's map of them does
+        // not, so reopening over different traffic starts clean.
+        photos.clear()
     }
 
     // MARK: - The sky
@@ -169,53 +173,30 @@ struct SkyView: View {
                 symbol: "rotate.right.fill",
                 theme: theme
             )
-        } else if let rotation = pose.rotation, camera.fieldOfViewDegrees > 0 {
-            TimelineView(.periodic(from: .now, by: Self.tick)) { context in
-                drawn(rotation: rotation, at: context.date, in: size)
-            }
+        } else if pose.hasAttitude, camera.fieldOfViewDegrees > 0 {
+            // The attitude is handed to a child rather than read here.
+            //
+            // It arrives thirty times a second, and an `ObservableObject`
+            // invalidates every view that reads any part of it — so reading it
+            // in this body rebuilt the camera preview, the chrome, the notice
+            // and the geometry reader around them, thirty times a second, for a
+            // change that only ever moves the aeroplanes. That is why they
+            // trailed the camera and settled when you stopped moving.
+            //
+            // Only `SkyField` watches it now.
+            SkyField(
+                attitude: pose.attitude,
+                photos: photos,
+                fieldOfViewDegrees: camera.fieldOfViewDegrees,
+                size: size,
+                theme: theme,
+                tick: Self.tick,
+                targets: targets(at:),
+                prominence: prominence(of:),
+                isInteractive: notice == nil,
+                onOpen: onOpen
+            )
         }
-    }
-
-    private func drawn(rotation: simd_double3x3, at date: Date, in size: CGSize) -> some View {
-        let focal = SkyGeometry.focalLength(fieldOfViewDegrees: camera.fieldOfViewDegrees, in: size)
-        let azimuth = SkyGeometry.azimuth(of: rotation)
-
-        return ZStack {
-            ForEach(horizon(rotation: rotation, focal: focal, in: size)) { mark in
-                Text(mark.label)
-                    .font(.system(size: 15, weight: .heavy, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.7))
-                    .shadow(color: .black.opacity(0.6), radius: 2)
-                    .position(mark.point)
-            }
-
-            ForEach(placed(targets(at: date), rotation: rotation, focal: focal, in: size)) { placement in
-                SkyMarker(
-                    target: placement.target,
-                    theme: theme,
-                    azimuthDegrees: azimuth,
-                    prominence: prominence(of: placement.target)
-                ) {
-                    onOpen(placement.target.id)
-                }
-                .position(placement.point)
-            }
-        }
-        .allowsHitTesting(notice == nil)
-    }
-
-    /// One aircraft, and where on the screen it lands.
-    private struct Placement: Identifiable {
-        let target: SkyTarget
-        let point: CGPoint
-        var id: String { target.id }
-    }
-
-    /// A cardinal point, drawn on the horizon where it actually is.
-    private struct HorizonMark: Identifiable {
-        let label: String
-        let point: CGPoint
-        var id: String { label }
     }
 
     /// The shortlist, placed in the sky as of now rather than as of the packet.
@@ -232,49 +213,6 @@ struct SkyView: View {
                 isMine: mine.contains(flight.id),
                 age: age
             )
-        }
-    }
-
-    private func placed(
-        _ targets: [SkyTarget],
-        rotation: simd_double3x3,
-        focal: Double,
-        in size: CGSize
-    ) -> [Placement] {
-        // Generous, so a marker whose sprite is just off the edge still shows
-        // the half of itself that is on.
-        let margin: CGFloat = 80
-
-        return targets.compactMap { target in
-            guard let point = SkyGeometry.project(
-                target.direction,
-                rotation: rotation,
-                focalLength: focal,
-                in: size
-            ),
-                point.x > -margin, point.x < size.width + margin,
-                point.y > -margin, point.y < size.height + margin
-            else { return nil }
-
-            return Placement(target: target, point: point)
-        }
-    }
-
-    private func horizon(rotation: simd_double3x3, focal: Double, in size: CGSize) -> [HorizonMark] {
-        let cardinals: [(String, Double)] = [("N", 0), ("E", 90), ("S", 180), ("W", 270)]
-
-        return cardinals.compactMap { label, bearing in
-            let direction = SkyGeometry.direction(bearingDegrees: bearing, elevationDegrees: 0)
-            guard let point = SkyGeometry.project(
-                direction,
-                rotation: rotation,
-                focalLength: focal,
-                in: size
-            ),
-                point.x > 0, point.x < size.width, point.y > 0, point.y < size.height
-            else { return nil }
-
-            return HorizonMark(label: label, point: point)
         }
     }
 
@@ -577,6 +515,10 @@ struct SkyView: View {
         found.sort { $0.distance < $1.distance }
         nearby = found.prefix(Self.maximumTargets).map(\.flight)
         busiestField = tally.max { $0.value < $1.value }?.key
+
+        // Once per packet, and de-duplicated by kind inside the store: a sky
+        // with ten 737s in it is one lookup, not ten.
+        photos.load(nearby.map { (type: $0.aircraftName, livery: $0.liveryName) })
     }
 
     /// The busiest field on its own, for the pass that bailed before the sky
@@ -592,5 +534,131 @@ struct SkyView: View {
         }
 
         return tally.max { $0.value < $1.value }?.key
+    }
+}
+
+/// The aeroplanes, and the only thing on the screen that watches the attitude.
+///
+/// This is the whole of the fix for markers that swam about. The attitude
+/// arrives thirty times a second; an `ObservableObject` invalidates every view
+/// that touches it; and the sky used to be read straight out of `SkyView`'s own
+/// body — so the camera preview, the chrome, the notice card and the geometry
+/// reader wrapping all three were rebuilt at sensor rate for a signal that only
+/// ever moves the aircraft. On a phone with forty targets in view that is more
+/// diffing than a frame has time for, and what you see when a frame is late is
+/// the markers lagging the camera and catching up when you hold still.
+///
+/// Scoped to here, a new attitude rebuilds forty positioned markers and nothing
+/// else.
+private struct SkyField: View {
+
+    @ObservedObject var attitude: SkyAttitude
+    @ObservedObject var photos: SkyPhotos
+
+    let fieldOfViewDegrees: Double
+    let size: CGSize
+    let theme: FlightInfoTheme
+
+    /// The view's own clock, for the traffic rather than the camera: a phone
+    /// lying perfectly still stops producing attitude, and the aeroplanes are
+    /// still flying.
+    let tick: TimeInterval
+
+    let targets: (Date) -> [SkyTarget]
+    let prominence: (SkyTarget) -> Double
+    let isInteractive: Bool
+    let onOpen: (String) -> Void
+
+    var body: some View {
+        if let rotation = attitude.rotation {
+            TimelineView(.periodic(from: .now, by: tick)) { context in
+                drawn(rotation: rotation, at: context.date)
+            }
+        }
+    }
+
+    private func drawn(rotation: simd_double3x3, at date: Date) -> some View {
+        let focal = SkyGeometry.focalLength(fieldOfViewDegrees: fieldOfViewDegrees, in: size)
+        let azimuth = SkyGeometry.azimuth(of: rotation)
+
+        return ZStack {
+            ForEach(horizon(rotation: rotation, focal: focal)) { mark in
+                Text(mark.label)
+                    .font(.system(size: 15, weight: .heavy, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .shadow(color: .black.opacity(0.6), radius: 2)
+                    .position(mark.point)
+            }
+
+            ForEach(placed(targets(date), rotation: rotation, focal: focal)) { placement in
+                SkyMarker(
+                    target: placement.target,
+                    theme: theme,
+                    photo: photos.image(for: placement.target.photoKey),
+                    azimuthDegrees: azimuth,
+                    prominence: prominence(placement.target)
+                ) {
+                    onOpen(placement.target.id)
+                }
+                .position(placement.point)
+            }
+        }
+        .allowsHitTesting(isInteractive)
+    }
+
+    /// One aircraft, and where on the screen it lands.
+    private struct Placement: Identifiable {
+        let target: SkyTarget
+        let point: CGPoint
+        var id: String { target.id }
+    }
+
+    /// A cardinal point, drawn on the horizon where it actually is.
+    private struct HorizonMark: Identifiable {
+        let label: String
+        let point: CGPoint
+        var id: String { label }
+    }
+
+    private func placed(
+        _ targets: [SkyTarget],
+        rotation: simd_double3x3,
+        focal: Double
+    ) -> [Placement] {
+        // Generous, so a marker whose picture is just off the edge still shows
+        // the half of itself that is on.
+        let margin: CGFloat = 90
+
+        return targets.compactMap { target in
+            guard let point = SkyGeometry.project(
+                target.direction,
+                rotation: rotation,
+                focalLength: focal,
+                in: size
+            ),
+                point.x > -margin, point.x < size.width + margin,
+                point.y > -margin, point.y < size.height + margin
+            else { return nil }
+
+            return Placement(target: target, point: point)
+        }
+    }
+
+    private func horizon(rotation: simd_double3x3, focal: Double) -> [HorizonMark] {
+        let cardinals: [(String, Double)] = [("N", 0), ("E", 90), ("S", 180), ("W", 270)]
+
+        return cardinals.compactMap { label, bearing in
+            let direction = SkyGeometry.direction(bearingDegrees: bearing, elevationDegrees: 0)
+            guard let point = SkyGeometry.project(
+                direction,
+                rotation: rotation,
+                focalLength: focal,
+                in: size
+            ),
+                point.x > 0, point.x < size.width, point.y > 0, point.y < size.height
+            else { return nil }
+
+            return HorizonMark(label: label, point: point)
+        }
     }
 }
