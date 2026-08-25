@@ -12,15 +12,63 @@ struct VaAd: Identifiable, Equatable {
 
     let id: String
 
-    /// What the VA calls itself. The only thing of theirs that reaches a screen.
+    /// What the VA calls itself.
     let name: String
 
-    /// The callsign template its members fly under — "Air Canada 001VA". Used
-    /// to match flights, never displayed.
+    /// The callsign template its members fly under — "Air Canada 001VA".
     let callsign: String
 
     /// The fields it lists as hubs, as ICAO codes.
     let hubs: [String]
+
+    /// The one-line pitch and the longer write-up, as the VA wrote them.
+    let tagline: String
+    let description: String
+
+    /// How it describes itself in the directory's own vocabulary.
+    let type: String
+    let region: String
+    let tags: [String]
+
+    let isRecruiting: Bool
+    let isFeatured: Bool
+
+    /// Where it can be reached. Only http(s) survives parsing, so an ad cannot
+    /// smuggle some other scheme into a link the app will open.
+    let website: URL?
+    let discord: URL?
+
+    /// Its crew centre's address on the site, when it has one configured. Never
+    /// guessed from the callsign — a VA with a custom slug would 404.
+    let crewCentre: URL?
+
+    /// The airline-name part of its callsign, compacted: "AIRCANADA".
+    var code: String { VaAdsService.code(fromCallsign: callsign) }
+
+    /// Every way there is to reach this VA, in the order the site offers them.
+    var links: [VaLink] {
+        var out: [VaLink] = []
+        if let crewCentre = crewCentre {
+            out.append(VaLink(label: "Crew Centre", symbol: "person.badge.key", url: crewCentre))
+        }
+        if let website = website {
+            out.append(VaLink(label: "Website", symbol: "globe", url: website))
+        }
+        if let discord = discord {
+            out.append(VaLink(label: "Discord", symbol: "bubble.left.and.bubble.right", url: discord))
+        }
+        return out
+    }
+}
+
+/// One way to reach a VA. Identifiable by its label, which is unique within an
+/// ad — there is one crew centre, one website, one Discord.
+struct VaLink: Identifiable, Equatable {
+    let label: String
+    let symbol: String
+    let url: URL
+
+    var id: String { label }
 }
 
 /// A VA shown against a flight, and the reason it is being shown.
@@ -31,9 +79,13 @@ struct VaAd: Identifiable, Equatable {
 struct VaPartner: Equatable {
 
     enum Basis: Equatable {
-        /// The callsign's airline name resolves to this VA.
-        case flying
-        /// No callsign match — this VA is hubbed at the named field.
+        /// The callsign resolves to this VA *and* marks the pilot as one of
+        /// theirs — it carries the VA's tag, or the pilot is on its roster.
+        case member
+        /// The callsign is this VA's airline name without either of those. A
+        /// partner's airline, flown by someone the VA doesn't claim.
+        case callsign
+        /// No callsign match at all — this VA is hubbed at the named field.
         case hubbed(String)
     }
 
@@ -124,7 +176,14 @@ final class VaAdsService {
         await loadDirectory()
 
         if let ad = matched(callsign: flight.callsign) {
-            return VaPartner(ad: ad, basis: .flying)
+            // The tag settles it on its own. Only when it doesn't is the roster
+            // worth a request — most flights never need one.
+            if Self.callsignMarksMember(flight.callsign, of: ad) {
+                return VaPartner(ad: ad, basis: .member)
+            }
+            let roster = await roster(for: ad.id)
+            let handle = Self.normalisedUsername(flight.username)
+            return VaPartner(ad: ad, basis: roster.contains(handle) ? .member : .callsign)
         }
 
         for icao in [flight.arrivalIcao, flight.departureIcao] {
@@ -156,6 +215,178 @@ final class VaAdsService {
         lock.unlock()
 
         return entries.first { compact.hasPrefix($0.code) && bounds.contains($0.code.count) }?.ad
+    }
+
+    // MARK: - Membership
+
+    /// The VAs' rosters, by ad id, once each has answered. A VA with no roster
+    /// published — or one whose feed is unreachable — is an empty set, which
+    /// means the tag alone decides.
+    private var rosterCache: [String: Set<String>] = [:]
+    private var rosterTasks: [String: Task<Set<String>, Never>] = [:]
+
+    /// Everyone this VA claims, keyed the way `normalisedUsername` keys them.
+    func roster(for adId: String) async -> Set<String> {
+        // The id is pasted into a path, so it is checked rather than escaped:
+        // ours are hex object ids, and anything else is not one.
+        let id = adId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !id.isEmpty, id.count <= 64,
+              id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" })
+        else { return [] }
+
+        lock.lock()
+        if let cached = rosterCache[id] {
+            lock.unlock()
+            return cached
+        }
+        if let inFlight = rosterTasks[id] {
+            lock.unlock()
+            return await inFlight.value
+        }
+        let task = Task { await self.fetchRoster(id) }
+        rosterTasks[id] = task
+        lock.unlock()
+
+        return await task.value
+    }
+
+    private func fetchRoster(_ id: String) async -> Set<String> {
+        var handles: Set<String> = []
+        var failed = true
+
+        if var components = URLComponents(
+            string: "\(AppConfig.apiBaseURLString)/api/public/va/\(id)/pilots"
+        ) {
+            components.queryItems = [URLQueryItem(name: "limit", value: "500")]
+
+            if let url = components.url {
+                var request = URLRequest(url: url)
+                request.timeoutInterval = 12
+                request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+                if let result = try? await URLSession.shared.data(for: request),
+                   let http = result.1 as? HTTPURLResponse,
+                   (200..<300).contains(http.statusCode),
+                   let root = try? JSONSerialization.jsonObject(with: result.0) as? [String: Any] {
+                    failed = false
+                    for entry in (root["pilots"] as? [Any]) ?? [] {
+                        guard let row = entry as? [String: Any],
+                              let username = Self.text(row["username"]) else { continue }
+                        handles.insert(Self.normalisedUsername(username))
+                    }
+                }
+            }
+        }
+
+        lock.lock()
+        defer { lock.unlock() }
+        rosterTasks[id] = nil
+        // A roster that never arrived is not the same as a VA with no pilots;
+        // remembering the failure as "nobody" would mark real members as
+        // strangers for the life of the process.
+        if !failed { rosterCache[id] = handles }
+        return handles
+    }
+
+    /// The roster this VA has already answered with, or nil if it has not been
+    /// asked yet. For the synchronous passes over the live packet, which cannot
+    /// wait on a request.
+    private func warmRoster(for adId: String) -> Set<String>? {
+        lock.lock()
+        defer { lock.unlock() }
+        return rosterCache[adId]
+    }
+
+    /// The aircraft this VA has in the air right now, out of the packet the map
+    /// is already holding.
+    ///
+    /// Same rule the site's live-fleet list uses: the callsign must be this
+    /// VA's airline, and the flight must then be claimed either by the VA's tag
+    /// or by its roster. Synchronous, so it reads whatever roster has already
+    /// arrived — call `roster(for:)` first if the answer needs to be complete.
+    func fleet(of ad: VaAd, in flights: [Flight]) -> [Flight] {
+        let roster = warmRoster(for: ad.id) ?? []
+        return flights.filter { flight in
+            guard Self.callsignMatches(flight.callsign, ad: ad) else { return false }
+            if Self.callsignMarksMember(flight.callsign, of: ad) { return true }
+            return roster.contains(Self.normalisedUsername(flight.username))
+        }
+    }
+
+    /// Does this callsign's leading airline word belong to this ad? The same
+    /// word-boundary test `matched(callsign:)` runs, against one ad instead of
+    /// the whole directory — so it needs no warm directory.
+    private static func callsignMatches(_ callsign: String?, ad: VaAd) -> Bool {
+        let code = ad.code
+        guard !code.isEmpty else { return false }
+        return compact(callsign).hasPrefix(code) && boundaries(callsign).contains(code.count)
+    }
+
+    /// The VA's callsign tag — the suffix a member appends to their flight
+    /// number, read off the VA's declared callsign:
+    ///
+    ///   "Ocean XXVA"       → "VA"   (XX is the flight-number placeholder)
+    ///   "United ##UA"      → "UA"
+    ///   "Air Canada 001VA" → "VA"
+    ///   "Delta VA"         → "VA"   (declared as its own word)
+    ///   "Ocean"            → ""     (none declared — membership unknowable)
+    private static func vaTag(of ad: VaAd) -> String {
+        let parts = rawTokens(ad.callsign)
+        guard let last = stripWeightClass(parts).last else { return "" }
+
+        // <number or placeholder run><TAG>
+        let leading = last.prefix { $0.isNumber || $0 == "X" || $0 == "#" }
+        if !leading.isEmpty {
+            let rest = String(last.dropFirst(leading.count))
+            if !rest.isEmpty, rest.allSatisfy({ $0.isLetter }) { return rest }
+        }
+
+        // Declared as a separate short word, and not the airline name itself.
+        if parts.count >= 2, (1...3).contains(last.count), last.allSatisfy({ $0.isLetter }) {
+            return last
+        }
+
+        return ""
+    }
+
+    /// Is `tag` a real tag on this token, rather than letters that happen to end
+    /// it? A bare suffix test is far too greedy — "MOSKVA" and "NOVA" would both
+    /// count for a "VA". It counts only when the tag is the whole token (a
+    /// declared word: "Air Norway 123 NV") or is glued straight onto the flight
+    /// number ("123NV").
+    private static func tokenCarriesTag(_ token: String, tag: String) -> Bool {
+        guard !tag.isEmpty, token.hasSuffix(tag) else { return false }
+        if token == tag { return true }
+        let before = token[token.index(token.endIndex, offsetBy: -tag.count - 1)]
+        return before.isNumber
+    }
+
+    /// Does this callsign mark the pilot as one of the VA's own?
+    ///
+    /// The VA's declared tag when it has one, otherwise the standard "VA"
+    /// suffix. Checked on the last two tokens (weight-class words stripped)
+    /// because pilots often append a second tag after the VA one — "Air Norway
+    /// 123NV EX" — and the tag may be written as its own word.
+    private static func callsignMarksMember(_ callsign: String?, of ad: VaAd) -> Bool {
+        let tag = { let declared = vaTag(of: ad); return declared.isEmpty ? "VA" : declared }()
+        return tokens(callsign).suffix(2).contains { tokenCarriesTag($0, tag: tag) }
+    }
+
+    /// Canonical key for roster ⇆ live-feed username matching.
+    ///
+    /// The roster and the socket feed are two sources for the SAME handle and
+    /// they don't always agree byte for byte: case, stray whitespace, a
+    /// full-width character, a different Unicode composition, or an invisible
+    /// zero-width mark can appear on one side and not the other. Both sides go
+    /// through this, or they do not line up.
+    private static func normalisedUsername(_ username: String?) -> String {
+        let invisible: Set<Character> = ["\u{00AD}", "\u{200B}", "\u{200C}", "\u{200D}", "\u{200E}",
+                                         "\u{200F}", "\u{202A}", "\u{202B}", "\u{202C}", "\u{202D}",
+                                         "\u{202E}", "\u{2060}", "\u{FEFF}"]
+        return (username ?? "")
+            .precomposedStringWithCompatibilityMapping
+            .filter { !invisible.contains($0) && !$0.isWhitespace }
+            .lowercased()
     }
 
     // MARK: - Directory
@@ -278,7 +509,71 @@ final class VaAdsService {
         let callsign = (firstText(in: raw, keys: ["callsign", "callsignCode", "code"]) ?? "").uppercased()
         let identifier = firstText(in: raw, keys: ["id", "_id"]) ?? name
 
-        return VaAd(id: identifier, name: name, callsign: callsign, hubs: hubs(in: raw))
+        return VaAd(
+            id: identifier,
+            name: name,
+            callsign: callsign,
+            hubs: hubs(in: raw),
+            tagline: firstText(in: raw, keys: ["tagline", "slogan"]) ?? "",
+            description: firstText(in: raw, keys: ["description", "desc"]) ?? "",
+            type: (firstText(in: raw, keys: ["type"]) ?? "").uppercased(),
+            region: firstText(in: raw, keys: ["region"]) ?? "",
+            tags: list(in: raw, key: "tags"),
+            isRecruiting: flag(raw["recruiting"]),
+            isFeatured: flag(raw["featured"]),
+            website: safeURL(firstText(in: raw, keys: ["website", "websiteUrl", "website_url", "url", "link"])),
+            discord: safeURL(firstText(in: raw, keys: ["discord", "discordUrl", "discord_url"])),
+            crewCentre: crewCentreURL(firstText(in: raw, keys: ["slug"]))
+        )
+    }
+
+    /// Deliberately absent from everything above: `logo`, `bannerUrl` and the
+    /// rest of the artwork. The VAs own those, and the app has no licence to
+    /// redraw them — so they are never parsed, and there is nothing here for a
+    /// later change to start showing by accident.
+
+    private static func flag(_ value: Any?) -> Bool {
+        if let bool = value as? Bool { return bool }
+        if let string = value as? String { return string.lowercased() == "true" }
+        if let number = value as? NSNumber { return number.boolValue }
+        return false
+    }
+
+    /// An array, or the comma-separated string the backend sometimes sends
+    /// instead.
+    private static func list(in raw: [String: Any], key: String) -> [String] {
+        if let array = raw[key] as? [Any] {
+            return array.compactMap { text($0) }
+        }
+        if let joined = text(raw[key]) {
+            return joined.components(separatedBy: ",")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        }
+        return []
+    }
+
+    /// http(s) only. Anything else — a `javascript:` or a custom scheme — is
+    /// dropped rather than handed to the system to open.
+    private static func safeURL(_ string: String?) -> URL? {
+        guard let string = string?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let url = URL(string: string),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              url.host != nil
+        else { return nil }
+        return url
+    }
+
+    /// The crew centre lives at inflight.info/crew/<slug>. The slug is checked
+    /// against the same shape the site allows before it is pasted into a path.
+    private static func crewCentreURL(_ slug: String?) -> URL? {
+        let value = (slug ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !value.isEmpty, value.count <= 80,
+              value.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "." || $0 == "_" || $0 == "-" }),
+              let first = value.first, first.isLetter || first.isNumber
+        else { return nil }
+        return URL(string: "https://inflight.info/crew/\(value)")
     }
 
     private static func hubs(in raw: [String: Any]) -> [String] {
@@ -331,7 +626,11 @@ final class VaAdsService {
     private static let weightClasses: Set<String> = ["HEAVY", "SUPER"]
 
     private static func tokens(_ callsign: String?) -> [String] {
-        var parts = rawTokens(callsign)
+        stripWeightClass(rawTokens(callsign))
+    }
+
+    private static func stripWeightClass(_ tokens: [String]) -> [String] {
+        var parts = tokens
         while parts.count > 1, let last = parts.last, weightClasses.contains(last) {
             parts.removeLast()
         }
@@ -403,7 +702,7 @@ final class VaAdsService {
     /// A trailing "Virtual" comes off too — members fly "United 123", never
     /// "United Virtual 123", so a VA registered as "United Virtual" must still
     /// resolve to UNITED or it matches nothing that ever flies.
-    private static func code(fromCallsign callsign: String) -> String {
+    fileprivate static func code(fromCallsign callsign: String) -> String {
         var parts = rawTokens(callsign)
         guard !parts.isEmpty else { return "" }
 

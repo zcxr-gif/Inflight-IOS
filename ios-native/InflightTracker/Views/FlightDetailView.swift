@@ -49,6 +49,9 @@ struct FlightDetailView: View {
     /// and the full window can't disagree about it or ask for it twice.
     @State private var vaPartner: VaPartner?
 
+    /// The partner whose own panel is open over this window, when one is.
+    @State private var viewingPartner: VaAd?
+
     let flightId: String
 
     /// Reported upward so the sheet's peak detent is exactly as tall as the
@@ -168,6 +171,12 @@ struct FlightDetailView: View {
         // band of empty sheet the width of that inset.
         .ignoresSafeArea(edges: .bottom)
         .flightInfoLegible(theme)
+        // Handed the feed explicitly, like every other sheet this app presents:
+        // the partner panel counts that VA's aircraft out of the live packet.
+        .sheet(item: $viewingPartner) { ad in
+            VaDetailSheet(ad: ad, basis: vaPartner?.basis)
+                .environmentObject(feed)
+        }
         .modifier(FlightInfoWindowChrome(theme: theme))
         .environment(\.colorScheme, theme.colorScheme)
         .onAppear {
@@ -349,7 +358,15 @@ struct FlightDetailView: View {
                     VStack(spacing: 12) {
                         situationCard(for: flight)
 
-                        VaPartnerLine(partner: vaPartner, theme: theme)
+                        // Tappable here and only here. The peak state above
+                        // is a drag target from edge to edge, and a control in
+                        // it that could take a drag for a tap is how a window
+                        // becomes hard to open.
+                        VaPartnerLine(
+                            partner: vaPartner,
+                            theme: theme,
+                            onOpen: { ad in viewingPartner = ad }
+                        )
                     }
 
                     telemetry(for: flight)

@@ -63,6 +63,9 @@ struct AirportPanel: View {
     /// which look the same on the panel: no section at all.
     @State private var partners: [VaAd] = []
 
+    /// The partner whose own panel is open over this one, when one is.
+    @State private var viewingPartner: VaAd?
+
     /// Whether the weather service has answered about this field yet.
     ///
     /// Most of the world's strips have never filed a METAR, and from an empty
@@ -166,7 +169,11 @@ struct AirportPanel: View {
 
             frequencies
 
-            AirportPartnersSection(icao: airport.icao, partners: partners)
+            AirportPartnersSection(
+                icao: airport.icao,
+                partners: partners,
+                onOpen: { ad in viewingPartner = ad }
+            )
 
             weather
 
@@ -194,6 +201,12 @@ struct AirportPanel: View {
             let found = await VaAdsService.shared.partners(hubbedAt: airport.icao)
             guard !Task.isCancelled else { return }
             partners = found
+        }
+        // Handed the feed explicitly, like every other sheet this app presents:
+        // the partner panel counts that VA's aircraft out of the live packet.
+        .sheet(item: $viewingPartner) { ad in
+            VaDetailSheet(ad: ad)
+                .environmentObject(feed)
         }
         .animation(.easeInOut(duration: 0.25), value: imageLoader.image != nil)
         .onReceive(clock) { tick in
