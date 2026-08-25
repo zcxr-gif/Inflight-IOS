@@ -43,7 +43,7 @@ struct FlightDetailView: View {
     /// why the block that draws it is absent rather than empty.
     @State private var sim: PilotLiveStatus?
 
-    /// The virtual airline named under the identity block: the VA whose callsign
+    /// The virtual airline named under the route card: the VA whose callsign
     /// this flight is flying, or — failing that — one hubbed at an end of its
     /// route. Resolved once here and handed to both phases, so the peak state
     /// and the full window can't disagree about it or ask for it twice.
@@ -327,18 +327,11 @@ struct FlightDetailView: View {
                 .id(Self.topAnchor)
 
                 VStack(spacing: 12) {
-                    // Grouped, not two children of the stack: the partner line
-                    // belongs to the identity block above it, and the window's
-                    // outer stack is already at the builder's ten-view ceiling.
-                    VStack(spacing: 12) {
-                        FlightIdentityBlock(
-                            flight: flight,
-                            registration: registration(for: flight),
-                            theme: theme
-                        )
-
-                        VaPartnerLine(partner: vaPartner, theme: theme)
-                    }
+                    FlightIdentityBlock(
+                        flight: flight,
+                        registration: registration(for: flight),
+                        theme: theme
+                    )
 
                     FlightActionRow(
                         flight: flight,
@@ -349,7 +342,16 @@ struct FlightDetailView: View {
 
                     FlightWatchRow(flight: flight, theme: theme)
 
-                    situationCard(for: flight)
+                    // Grouped, not two children of the stack: the partner
+                    // line sits under the bottom edge of the route card, and
+                    // the window's outer stack is already at the builder's
+                    // ten-view ceiling.
+                    VStack(spacing: 12) {
+                        situationCard(for: flight)
+
+                        VaPartnerLine(partner: vaPartner, theme: theme)
+                    }
+
                     telemetry(for: flight)
 
                     if instruments.isEnabled {

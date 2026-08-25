@@ -12,8 +12,8 @@ import SwiftUI
 
 // MARK: - Flight window
 
-/// The partner line, sitting in the gap between the identity block and the route
-/// card — the strip of window that had nothing in it.
+/// The partner line, sitting under the bottom edge of the route card — the band
+/// between it and the foot of the window, which had nothing in it.
 ///
 /// The line is only ever as strong a claim as the lookup supports. A callsign
 /// that resolves to a partner says the flight is flying with them; a VA that

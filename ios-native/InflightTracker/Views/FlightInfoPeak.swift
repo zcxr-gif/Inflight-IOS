@@ -16,7 +16,7 @@ struct FlightInfoPeak: View {
     let style: FlightInfoPeakStyle
     let width: CGFloat
 
-    /// The VA to name under the identity block, when the flight has one.
+    /// The VA to name under the route card, when the flight has one.
     /// Resolved by the window and handed down — see `VaPartnerLine`.
     var partner: VaPartner? = nil
 
@@ -43,10 +43,11 @@ struct FlightInfoPeak: View {
         case .compact:
             VStack(alignment: .leading, spacing: 12) {
                 identityRow
-                // Between the identity box and the route card, which is where
-                // the bar had a band of nothing in it.
-                VaPartnerLine(partner: partner, theme: theme)
                 situationCard
+                // Under the bottom edge of the card, in the band of sheet
+                // between it and the foot of the window — which is where the
+                // bar had nothing at all.
+                VaPartnerLine(partner: partner, theme: theme)
             }
             // Clears the drag indicator, which floats over the top of the sheet.
             .padding(.top, 18)
@@ -78,8 +79,8 @@ struct FlightInfoPeak: View {
 
             VStack(spacing: 12) {
                 FlightIdentityBlock(flight: flight, registration: registration, theme: theme)
-                VaPartnerLine(partner: partner, theme: theme)
                 situationCard
+                VaPartnerLine(partner: partner, theme: theme)
             }
             .padding(.horizontal, 14)
             .padding(.top, -FlightInfoLayout.heroSeamLift)
