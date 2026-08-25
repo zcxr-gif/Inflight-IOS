@@ -1193,10 +1193,11 @@ struct ContentView: View {
     /// drawn — and putting it here makes that decision one tap from the map
     /// instead of a tap, a panel and a scroll.
     ///
-    /// The glyph is whichever layer is on, and the chip fills with the accent
-    /// while anything is, the same way the ruler reads when it is down. The
-    /// panel behind it still exists for the units, the sample and the rest; it
-    /// is the last item in the menu.
+    /// The glyph is the cloud, always, and the cell takes a wash of the accent
+    /// while anything is drawn — the same face the ruler and the map style wear
+    /// on the opposite shoulder, from the same method. The panel behind it
+    /// still exists for the units, the sample and the rest; it is the last item
+    /// in the menu.
     @ViewBuilder
     private var weatherControl: some View {
         if selection == nil, !replay.isActive {
@@ -1240,14 +1241,7 @@ struct ContentView: View {
                     }
                 }
             } label: {
-                Image(systemName: weatherSymbol)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(isWeatherOnMap ? theme.onAccent : theme.textPrimary)
-                    .frame(width: 44, height: 42)
-                    .background {
-                        if isWeatherOnMap { Rectangle().fill(theme.accent) }
-                    }
-                    .contentShape(Rectangle())
+                mapControlFace(weatherSymbol, isOn: isWeatherOnMap)
             }
             .accessibilityLabel(weatherLabel)
             .accessibilityAddTraits(isWeatherOnMap ? .isSelected : [])
@@ -1288,10 +1282,15 @@ struct ContentView: View {
         weatherPreferences.mapLayer != .off || weatherPreferences.showsWinds
     }
 
-    private var weatherSymbol: String {
-        if weatherPreferences.mapLayer != .off { return weatherPreferences.mapLayer.symbol }
-        return weatherPreferences.showsWinds ? "wind" : "cloud.sun.fill"
-    }
+    /// Always the cloud.
+    ///
+    /// It used to be whichever layer was drawn — rain, then wind, then a sun
+    /// behind a cloud when neither was on — so the control changed shape under
+    /// you and never settled into being one thing. The two beside it on the
+    /// right do not do that: the ruler is a ruler whether it is down or not.
+    /// This is the weather button; what it is showing is the menu's business,
+    /// and the wash behind the glyph already says that something is on.
+    private let weatherSymbol = "cloud.fill"
 
     private var weatherLabel: String {
         switch (weatherPreferences.mapLayer, weatherPreferences.showsWinds) {
@@ -1415,11 +1414,7 @@ struct ContentView: View {
                         .disabled(appearance.resolvedMapStyle.palette.usesImagery)
                     }
                 } label: {
-                    Image(systemName: mapStyleSymbol)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(theme.textPrimary)
-                        .frame(width: 44, height: 42)
-                        .contentShape(Rectangle())
+                    mapControlFace(mapStyleSymbol, isOn: false)
                 }
                 .accessibilityLabel(mapStyleLabel)
 
@@ -1510,7 +1505,10 @@ struct ContentView: View {
 
     private var findMeLabel: some View {
         Image(systemName: entitlements.has(.findMyAircraft) ? "location.magnifyingglass" : "lock")
-            .font(.system(size: 15, weight: .semibold))
+            // The same fourteen every other glyph over the map is set at. Its
+            // cell is a point taller because it is a card on its own rather
+            // than a row in the stack, but the glyph in it is not.
+            .font(.system(size: 14, weight: .semibold))
             .foregroundStyle(theme.textPrimary)
             .frame(width: 44, height: 44)
             .contentShape(Rectangle())
@@ -1598,18 +1596,42 @@ struct ContentView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(isOn ? theme.onAccent : theme.textPrimary)
-                .frame(width: 44, height: 42)
-                .background {
-                    if isOn { Rectangle().fill(theme.accent) }
-                }
-                .contentShape(Rectangle())
+            mapControlFace(symbol, isOn: isOn)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
         .accessibilityAddTraits(isOn ? .isSelected : [])
+    }
+
+    /// The face of a map control: one glyph, and the way it says it is on.
+    ///
+    /// Written once and used by both corners. The weather control on the left
+    /// and the stack on the right are the same control in two places, and the
+    /// only reason they ever looked like different things is that they were
+    /// written out twice and drifted — a point of type size apart, and one of
+    /// them lit up far more often than the other.
+    private func mapControlFace(_ symbol: String, isOn: Bool) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(theme.textPrimary)
+            .frame(width: 44, height: 42)
+            .background {
+                // On is a wash of the accent, not a block of it.
+                //
+                // The accent is white on the dark themes and near-black on the
+                // light ones, so filling the cell with it turned a piece of
+                // glass into a solid white or solid black tile and flipped the
+                // glyph to match. On the weather control that was almost its
+                // permanent state — it counts as on whenever any layer is
+                // drawn — so the map's left shoulder was a white square sitting
+                // next to three pieces of glass.
+                //
+                // A wash is how a selected control reads on glass: the pane
+                // tints, the glyph stays where it was, and the thing still
+                // looks like it is made of the same material as its neighbours.
+                if isOn { Rectangle().fill(theme.accent.opacity(0.22)) }
+            }
+            .contentShape(Rectangle())
     }
 
 }
