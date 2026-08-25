@@ -583,11 +583,18 @@ enum FlightInfoLayout {
     /// window put it in exactly the same place.
     static let heroSeamLift: CGFloat = 30
 
-    /// Space under the peak state's last card, measured from the card to the
-    /// bottom edge of the sheet. The window draws into the bottom safe area,
-    /// so this is the whole gap — the home indicator floats inside it rather
-    /// than claiming its own band underneath.
-    static let peakBottomGap: CGFloat = 12
+    /// Space under the peak state's last line, measured from it to the bottom
+    /// edge of the sheet. The window draws into the bottom safe area, so this
+    /// is the whole gap — the home indicator floats inside it rather than
+    /// claiming its own band underneath.
+    ///
+    /// Deliberately tight. The partner line now sits below the route card, and
+    /// what used to read as a reasonable margin under a card reads as a band of
+    /// nothing under a single line of text. With the peak's own 2pt this leaves
+    /// ten points: close to the edge without touching it, and still clear of
+    /// the indicator, which floats in the lower half of the gap rather than
+    /// sitting on the text.
+    static let peakBottomGap: CGFloat = 8
 
     /// How far above the peak height the phases have finished swapping. The
     /// cross-fade rides the drag rather than the detent, so it wants to be

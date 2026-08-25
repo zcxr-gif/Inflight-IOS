@@ -53,9 +53,9 @@ struct FlightInfoPeak: View {
             .padding(.top, 18)
             .padding(.horizontal, 16)
             // Small: the sheet adds `peakBottomGap` under this, and the two
-            // together are the whole distance from the card to the bottom of
-            // the window. Anything more here is space with nothing in it.
-            .padding(.bottom, 4)
+            // together are the whole distance from the last line to the bottom
+            // of the window. Anything more here is space with nothing in it.
+            .padding(.bottom, 2)
 
         case .rich:
             rich
@@ -85,9 +85,9 @@ struct FlightInfoPeak: View {
             .padding(.horizontal, 14)
             .padding(.top, -FlightInfoLayout.heroSeamLift)
             // As with the compact bar: the sheet's own gap finishes this off,
-            // so the card sits close to the bottom edge instead of above a
+            // so the last line sits close to the bottom edge instead of above a
             // band of empty window.
-            .padding(.bottom, 4)
+            .padding(.bottom, 2)
         }
     }
 
