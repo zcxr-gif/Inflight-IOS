@@ -492,7 +492,22 @@ enum ConnectField: String, CaseIterable {
         .warningStalling, .warningOverspeed,
         .windDirection, .windVelocity, .windGust, .temperature,
         .nearestAirport, .nextWaypoint, .flightTime, .transponderCode,
-        .atcFacility
+        .atcFacility,
+        // Also in `session` below, and read here as well on purpose.
+        //
+        // Which flight this is changes about as rarely as anything in the
+        // manifest, so five seconds is plenty for the logbook. It is not plenty
+        // for anything *attributed* to the flight id, and the controller two
+        // lines up is read every two seconds. Reading them on different clocks
+        // meant a window of a second or three, every time a pilot ended one
+        // flight and spawned another, in which the app held the new aeroplane's
+        // frequency under the old aeroplane's id — and would show it against the
+        // old flight, which is still on the map for its grace period.
+        //
+        // Read in the same pass, they land in the same snapshot and cannot
+        // disagree by more than one. The cost is one extra state read every two
+        // seconds.
+        .flightID
     ]
 
     /// Read once when the connection opens, and again when the flight changes.

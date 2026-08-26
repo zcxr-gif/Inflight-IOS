@@ -1172,29 +1172,25 @@ struct ConnectFrequencyCard: View {
 
     @ObservedObject private var session = ConnectSession.shared
 
-    /// Nil unless the sim is attached, has told us which flight it is, and that
-    /// flight is this one.
-    private var facility: String? {
-        guard session.status.isLive,
-              let mine = session.telemetry.flightID,
-              mine == flightId
-        else { return nil }
-        return session.telemetry.atcFacility
-    }
-
-    /// The transcript, and only when there is one. See the note above.
-    private var log: [ConnectATCMessage] {
-        guard session.status.isLive,
-              let mine = session.telemetry.flightID,
-              mine == flightId
-        else { return [] }
-        return session.atcLog
+    /// Asked of the session rather than worked out here.
+    ///
+    /// This view used to compare the flight ids itself, which was the same
+    /// check and not the same thing: the live-status publisher was making its
+    /// own version of it a few files away, and two copies of "is this the right
+    /// aeroplane" is one copy that will be missing a clause. The session owns
+    /// the question — including the parts a view could not see, like whether
+    /// the transcript was captured under this flight or the one before it.
+    private var atc: (facility: String?, log: [ConnectATCMessage])? {
+        session.atc(for: flightId)
     }
 
     var body: some View {
         // Nothing tuned and nothing said is nothing to draw. The card does not
         // appear at all rather than appearing empty.
-        if facility != nil || !log.isEmpty {
+        if let atc = atc {
+            let facility = atc.facility
+            let log = atc.log
+
             VStack(alignment: .leading, spacing: 10) {
                 header
 
