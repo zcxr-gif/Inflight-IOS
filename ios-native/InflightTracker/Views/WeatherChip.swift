@@ -64,7 +64,7 @@ struct WeatherChip: View {
             if let nearby = model.nearby {
                 if isExpandable {
                     Button {
-                        withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) {
+                        withAnimation(Motion.control) {
                             isExpanded.toggle()
                         }
                     } label: {

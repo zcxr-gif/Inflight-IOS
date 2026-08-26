@@ -122,7 +122,7 @@ struct PilotBanner: View {
         .frame(height: height)
         .frame(maxWidth: .infinity)
         .clipped()
-        .animation(.easeOut(duration: 0.25), value: loader.image != nil)
+        .motion(Motion.content, value: loader.image != nil)
         .onAppear { loader.load(url) }
         .onChange(of: url) { _, new in loader.load(new) }
     }

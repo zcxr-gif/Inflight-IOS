@@ -36,8 +36,8 @@ struct MapSearchField: View {
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .animation(.spring(response: 0.3, dampingFraction: 0.86), value: isSearching)
-        .animation(.easeInOut(duration: 0.16), value: results.map(\.id))
+        .motion(Motion.chrome, value: isSearching)
+        .motion(Motion.row, value: results.map(\.id))
         .environment(\.colorScheme, theme.colorScheme)
     }
 

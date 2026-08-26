@@ -37,6 +37,9 @@ struct FriendsPanel: View {
     @State private var flyingNow: [PilotLiveSummary] = []
     @State private var isShowingLandingBoard = false
 
+    /// The one screen all the switches live on now — see `notificationsSection`.
+    @State private var isShowingNotifications = false
+
     private var theme: FlightInfoTheme { appearance.theme }
 
     /// Watched pilots the feed can currently see, keyed by lowercased name.
@@ -75,9 +78,11 @@ struct FriendsPanel: View {
         let aloft = flying
 
         MapPanel(title: "Friends", subtitle: summary(aloft: aloft.count, flights: aloft.values.reduce(0) { $0 + $1.count })) {
-            if !push.canNotify { permissionSection }
+            // Each section is dealt in a beat after the one above it, so the
+            // panel arrives rather than being there. See Motion.
+            if !push.canNotify { permissionSection.panelEntrance(0) }
 
-            addSection
+            addSection.panelEntrance(1)
 
             if friends.friends.isEmpty {
                 PanelSection(title: "WATCHING") {
@@ -87,6 +92,7 @@ struct FriendsPanel: View {
                         detail: "Add an Infinite Flight display name above, or open an aircraft and add the pilot from its window."
                     )
                 }
+                .panelEntrance(2)
             } else {
                 PanelSection(title: "WATCHING") {
                     ForEach(Array(friends.friends.enumerated()), id: \.element) { index, username in
@@ -117,21 +123,26 @@ struct FriendsPanel: View {
                         }
                     }
                 }
+                .panelEntrance(2)
             }
 
-            flyingNowSection
+            flyingNowSection.panelEntrance(3)
 
-            directorySection
+            directorySection.panelEntrance(4)
 
-            notificationsSection
+            notificationsSection.panelEntrance(5)
 
-            if !friends.friends.isEmpty { widgetSection }
+            if !friends.friends.isEmpty { widgetSection.panelEntrance(6) }
 
             HintStrip(placement: .friends)
+                .panelEntrance(7)
         }
         .task { await refreshFlyingNow() }
         .sheet(isPresented: $isShowingPaywall) { ProPanel(highlighted: .watchlist) }
         .sheet(isPresented: $isShowingLandingBoard) { LandingBoardView() }
+        .sheet(isPresented: $isShowingNotifications) {
+            NotificationsPanel().environmentObject(feed)
+        }
         .sheet(item: $opened) { link in
             PublicProfileView(link: link, onShowFlight: onSelect)
                 .environmentObject(feed)
@@ -395,52 +406,50 @@ struct FriendsPanel: View {
 
     // MARK: - Notifications
 
+    /// A door rather than the switches themselves.
+    ///
+    /// These used to be five toggles right here, and that was right while the
+    /// only thing the app could tell you about was somebody else. It is not any
+    /// more — there are notices about your own aeroplane now, and they have no
+    /// business under a heading called "friends". Two screens carrying five
+    /// switches each, one of them a copy, is also how the two quietly come to
+    /// disagree; there is one screen, and this is the way to it.
     private var notificationsSection: some View {
         PanelSection(title: "TELL ME WHEN") {
-            PanelToggleRow(
-                title: "They take off",
-                symbol: "airplane.departure",
-                detail: "The moment the aircraft actually leaves the ground, not when they spawn in.",
-                isOn: $friends.preferences.takeoff
-            )
+            PanelActionRow(
+                title: "Notifications",
+                symbol: "bell.badge",
+                detail: notificationsDetail
+            ) {
+                isShowingNotifications = true
+            }
+        }
+    }
 
-            PanelDivider()
+    private var notificationsDetail: String {
+        guard push.canNotify else {
+            return "Not allowed yet, so nothing about these pilots can reach you."
+        }
+        if friends.preferences.isSilent {
+            return "Nothing about a watched pilot is switched on."
+        }
+        return watchedSummary
+    }
 
-            PanelToggleRow(
-                title: "They land",
-                symbol: "airplane.arrival",
-                isOn: $friends.preferences.landing
-            )
+    /// Which of the four are on, in the order the panel lists them.
+    private var watchedSummary: String {
+        let preferences = friends.preferences
+        let on = [
+            preferences.takeoff ? "take off" : nil,
+            preferences.landing ? "land" : nil,
+            preferences.online ? "come online" : nil,
+            preferences.offline ? "go offline" : nil
+        ].compactMap { $0 }
 
-            PanelDivider()
-
-            PanelToggleRow(
-                title: "They come online",
-                symbol: "dot.radiowaves.left.and.right",
-                isOn: $friends.preferences.online
-            )
-
-            PanelDivider()
-
-            PanelToggleRow(
-                title: "They go offline",
-                symbol: "moon.zzz",
-                detail: "Off by default — on a busy evening this one talks a lot.",
-                isOn: $friends.preferences.offline
-            )
-
-            PanelDivider()
-
-            PanelToggleRow(
-                title: "Live banner on takeoff",
-                symbol: "rectangle.inset.filled.badge.record",
-                detail: liveActivity.isSupported
-                    ? "Puts the flight on your lock screen and Dynamic Island, and keeps it counting down until they land."
-                    : "Live Activities are switched off for Inflight in iOS Settings.",
-                isOn: $friends.preferences.liveActivity
-            )
-            .disabled(!liveActivity.isSupported)
-            .opacity(liveActivity.isSupported ? 1 : 0.5)
+        switch on.count {
+        case 1: return "When they \(on[0])."
+        case 2: return "When they \(on[0]) and \(on[1])."
+        default: return "When they \(on.dropLast().joined(separator: ", ")) and \(on[on.count - 1])."
         }
     }
 

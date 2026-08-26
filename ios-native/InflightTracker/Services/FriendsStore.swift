@@ -213,9 +213,43 @@ final class FriendsStore: ObservableObject {
         var events: Bool = true
         var liveActivity: Bool = false
         var eventKinds: [String] = []
+
+        /// The same contract for notices about the caller's own aeroplane.
+        ///
+        /// Empty when talking to a backend that predates them, which the
+        /// notifications panel reads as "this server cannot do that yet" and
+        /// says so, rather than offering a switch that governs nothing.
+        var ownFlightEventKinds: [String] = []
+
+        /// Whether the backend is detecting own-flight events at all.
+        var ownFlightAlerts: Bool = true
+
+        /// How far out the arrival notice fires. Read rather than assumed, so
+        /// the sentence in the app comes from the thing that decides it.
+        var approachMinutes: Int = 30
+
+        func knowsOwnFlightEvent(_ key: String) -> Bool {
+            // An older backend sends nothing here and is given the benefit of
+            // the doubt — the same rule the rest of this probe follows.
+            ownFlightEventKinds.isEmpty || ownFlightEventKinds.contains(key)
+        }
     }
 
+    /// Every switch in the notifications panel, in one struct.
+    ///
+    /// Two halves, and they are genuinely different things rather than one list
+    /// with a divider drawn through it. The first four are about **somebody
+    /// else** — a pilot on the watchlist — and are delivered to this device's
+    /// APNs token because the token is what registered the watch. The rest are
+    /// about **your own aeroplane**, are addressed to the account, and reach
+    /// this device because it posted its token against that account.
+    ///
+    /// They share one struct anyway, because they share one wire format and one
+    /// screen, and a person setting them does not care which direction the
+    /// server had to address them from.
     struct NotificationPreferences: Codable, Equatable {
+
+        // MARK: Somebody you are watching
 
         var takeoff: Bool
         var landing: Bool
@@ -225,6 +259,21 @@ final class FriendsStore: ObservableObject {
         /// Whether a watched pilot's takeoff may raise a Live Activity without
         /// the app being opened.
         var liveActivity: Bool
+
+        // MARK: Your own flight
+
+        var ownAirborne: Bool = true
+        var ownDescent: Bool = true
+
+        /// About half an hour from the destination — see `Capabilities.
+        /// approachMinutes` for the number the server actually uses.
+        var ownApproach: Bool = true
+
+        var ownLanded: Bool = true
+
+        /// "Inflight stopped reading your sim." The one notice here that is
+        /// about the app rather than about the flight.
+        var connectDropped: Bool = true
 
         static let `default` = NotificationPreferences(
             takeoff: true,
@@ -236,18 +285,88 @@ final class FriendsStore: ObservableObject {
             liveActivity: true
         )
 
+        /// Decoded leniently on purpose.
+        ///
+        /// The own-flight keys did not exist in the preferences an installed
+        /// app has already written to disk, and a synthesized decoder throws on
+        /// a missing key rather than taking the property's default. Thrown, the
+        /// store falls back to `.default` — which would be right for the new
+        /// switches and would silently undo every choice already made about the
+        /// old ones.
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            func flag(_ key: CodingKeys, _ fallback: Bool) -> Bool {
+                (try? c.decode(Bool.self, forKey: key)) ?? fallback
+            }
+            takeoff = flag(.takeoff, true)
+            landing = flag(.landing, true)
+            online = flag(.online, true)
+            offline = flag(.offline, false)
+            liveActivity = flag(.liveActivity, true)
+            ownAirborne = flag(.ownAirborne, true)
+            ownDescent = flag(.ownDescent, true)
+            ownApproach = flag(.ownApproach, true)
+            ownLanded = flag(.ownLanded, true)
+            connectDropped = flag(.connectDropped, true)
+        }
+
+        init(
+            takeoff: Bool,
+            landing: Bool,
+            online: Bool,
+            offline: Bool,
+            liveActivity: Bool,
+            ownAirborne: Bool = true,
+            ownDescent: Bool = true,
+            ownApproach: Bool = true,
+            ownLanded: Bool = true,
+            connectDropped: Bool = true
+        ) {
+            self.takeoff = takeoff
+            self.landing = landing
+            self.online = online
+            self.offline = offline
+            self.liveActivity = liveActivity
+            self.ownAirborne = ownAirborne
+            self.ownDescent = ownDescent
+            self.ownApproach = ownApproach
+            self.ownLanded = ownLanded
+            self.connectDropped = connectDropped
+        }
+
         var wireFormat: [String: Bool] {
             [
                 "takeoff": takeoff,
                 "landing": landing,
                 "online": online,
                 "offline": offline,
-                "liveActivity": liveActivity
+                "liveActivity": liveActivity,
+                "ownAirborne": ownAirborne,
+                "ownDescent": ownDescent,
+                "ownApproach": ownApproach,
+                "ownLanded": ownLanded,
+                "connectDropped": connectDropped
             ]
         }
 
         /// True when nothing at all is switched on — the UI says so rather
         /// than leaving the user with a friends list that can't speak.
         var isSilent: Bool { !takeoff && !landing && !online && !offline }
+
+        /// The same question for the other direction.
+        var isSilentAboutMyFlight: Bool {
+            !ownAirborne && !ownDescent && !ownApproach && !ownLanded && !connectDropped
+        }
+
+        /// How many of the ten are on. Drawn as a count in the settings row, so
+        /// the panel is worth opening only when it says something you did not
+        /// expect.
+        var enabledCount: Int {
+            [takeoff, landing, online, offline,
+             ownAirborne, ownDescent, ownApproach, ownLanded, connectDropped]
+                .filter { $0 }.count
+        }
+
+        static let totalCount = 9
     }
 }

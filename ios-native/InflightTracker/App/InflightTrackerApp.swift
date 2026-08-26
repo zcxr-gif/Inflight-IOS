@@ -47,7 +47,7 @@ private struct RootView: View {
             // built and warmed by the time the gate goes: agreeing lands you on
             // a map that is drawing rather than on a loading screen.
             if !terms.isAccepted {
-                TermsGateView { withAnimation(.easeOut(duration: 0.35)) { terms.accept() } }
+                TermsGateView { withAnimation(Motion.panel) { terms.accept() } }
                     .transition(.opacity)
                     .zIndex(1)
             }

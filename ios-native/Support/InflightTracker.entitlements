@@ -13,6 +13,19 @@
 	     build where the feature silently does nothing. -->
 	<key>aps-environment</key>
 	<string>development</string>
+	<!-- NOT declared here, deliberately:
+	     com.apple.developer.usernotifications.time-sensitive.
+
+	     The takeoff push is sent at `interruption-level: time-sensitive`, and
+	     without the capability iOS accepts it and quietly demotes it to
+	     `active` — a banner still arrives, it simply does not break through a
+	     Focus. That is a real loss and a small one. Declaring the entitlement
+	     here without first ticking Time Sensitive Notifications on the App ID
+	     is a larger one: a restricted entitlement missing from the provisioning
+	     profile does not degrade, it fails codesign, and every release stops
+	     until somebody opens the portal. So the key goes in once the capability
+	     is on the App ID and the profiles have been regenerated — see
+	     NOTIFICATIONS.md, "Time Sensitive Notifications". -->
 	<!-- Sign in with Apple. Required by Guideline 4.8 for any app that offers
 	     another third-party sign-in, and the capability has to be on the App ID
 	     as well as here or the request fails at runtime with 1000. -->

@@ -19,6 +19,10 @@ struct SettingsPanel: View {
     // Observed so the row underneath says what the link is actually doing
     // rather than only what it is for.
     @ObservedObject private var connect = ConnectSession.shared
+    // Both for the notifications row: whether iOS will draw a banner at all,
+    // and how much has been asked for behind it.
+    @ObservedObject private var push = PushService.shared
+    @ObservedObject private var friends = FriendsStore.shared
 
     /// Both open over this panel rather than replacing it: they are somewhere
     /// you go and come back from, and losing the settings sheet to get to them
@@ -26,12 +30,15 @@ struct SettingsPanel: View {
     @State private var isShowingAccount = false
     @State private var isShowingPaywall = false
     @State private var isShowingConnect = false
+    @State private var isShowingNotifications = false
     @State private var isShowingAcknowledgements = false
 
     private var theme: FlightInfoTheme { appearance.theme }
 
     var body: some View {
         MapPanel(title: "Settings", subtitle: feedSummary) {
+            // Each section is dealt in a beat after the one above it. See Motion:
+            // the stagger is small enough to be felt rather than watched.
             PanelSection(title: "ACCOUNT") {
                 PanelActionRow(
                     title: accounts.account?.handle ?? "Sign in",
@@ -51,6 +58,22 @@ struct SettingsPanel: View {
                     isShowingPaywall = true
                 }
             }
+            .panelEntrance(0)
+
+            // High up, and above everything about how the map is drawn,
+            // because it is the only section here about something that happens
+            // when the app is closed. Everything below this is a preference
+            // about a screen you are already looking at.
+            PanelSection(title: "NOTIFICATIONS") {
+                PanelActionRow(
+                    title: "Notifications",
+                    symbol: "bell.badge",
+                    detail: notificationsDetail
+                ) {
+                    isShowingNotifications = true
+                }
+            }
+            .panelEntrance(1)
 
             // Its own section rather than a row in Appearance: each of these
             // wants a sentence, and some of them are Pro, which a segmented
@@ -75,6 +98,7 @@ struct SettingsPanel: View {
                     }
                 }
             }
+            .panelEntrance(2)
 
             PanelSection(title: "MAP STYLE") {
                 ForEach(MapPalette.allCases) { palette in
@@ -102,6 +126,7 @@ struct SettingsPanel: View {
                 .disabled(appearance.mapPalette.usesImagery)
                 .opacity(appearance.mapPalette.usesImagery ? 0.45 : 1)
             }
+            .panelEntrance(3)
 
             PanelSection(title: "FEED") {
                 ForEach(AppConfig.servers, id: \.self) { server in
@@ -109,6 +134,7 @@ struct SettingsPanel: View {
                     serverRow(server)
                 }
             }
+            .panelEntrance(4)
 
             // Its own section because it is a different kind of thing from the
             // feed: the feed is everybody's flights from the cloud, this is
@@ -122,6 +148,7 @@ struct SettingsPanel: View {
                     isShowingConnect = true
                 }
             }
+            .panelEntrance(5)
 
             // Its own section, above appearance, because it is a feature
             // rather than a finish: this decides whether a whole panel is in
@@ -135,6 +162,9 @@ struct SettingsPanel: View {
                 )
 
                 if instruments.isEnabled {
+                    // Fades rather than sliding: these rows are inside a card
+                    // that is itself changing height, and two movements in the
+                    // same place at the same time read as one thing wobbling.
                     PanelDivider()
 
                     PanelPickerRow(
@@ -169,6 +199,10 @@ struct SettingsPanel: View {
                     )
                 }
             }
+            // The section grows and shrinks as the switch above is flipped, so
+            // the rows below it move rather than jump.
+            .motion(Motion.row, value: instruments.isEnabled)
+            .panelEntrance(6)
 
             PanelSection(title: "APPEARANCE") {
                 // Light is a whole-app setting rather than a flight-window one,
@@ -204,6 +238,7 @@ struct SettingsPanel: View {
                     selection: $appearance.peakStyle
                 )
             }
+            .panelEntrance(7)
 
             PanelSection(title: "HINTS") {
                 PanelToggleRow(
@@ -241,6 +276,9 @@ struct SettingsPanel: View {
                     .opacity(hints.isEnabled ? 1 : 0.45)
                 }
             }
+            .motion(Motion.row, value: hints.retiredCount > 0)
+            .motion(Motion.control, value: hints.isEnabled)
+            .panelEntrance(8)
 
             PanelSection(title: "ABOUT") {
                 aboutRow("Version", value: version)
@@ -261,11 +299,32 @@ struct SettingsPanel: View {
                     isShowingAcknowledgements = true
                 }
             }
+            .panelEntrance(9)
         }
         .sheet(isPresented: $isShowingAccount) { AccountPanel() }
         .sheet(isPresented: $isShowingPaywall) { ProPanel() }
         .sheet(isPresented: $isShowingConnect) { ConnectPanel() }
+        .sheet(isPresented: $isShowingNotifications) {
+            // Handed the feed explicitly, like every other sheet that needs it:
+            // the panel draws the aeroplane it is about, which is one of the
+            // ones on the map.
+            NotificationsPanel().environmentObject(feed)
+        }
         .sheet(isPresented: $isShowingAcknowledgements) { AcknowledgementsPanel() }
+    }
+
+    /// What the notifications row says without being opened.
+    ///
+    /// The state worth surfacing here is the one that makes every switch inside
+    /// meaningless — iOS not being allowed to draw a banner at all. Saying "5 of
+    /// 9 on" to somebody in that position would be true and useless.
+    private var notificationsDetail: String {
+        guard push.canNotify else {
+            return "Not allowed yet — nothing about your flight or the pilots you watch can reach you."
+        }
+        let preferences = friends.preferences
+        if preferences.enabledCount == 0 { return "Everything is switched off." }
+        return "Your own flight, and the pilots you watch. \(preferences.enabledCount) of \(FriendsStore.NotificationPreferences.totalCount) switched on."
     }
 
     /// One line under the Connect row saying where the link stands, so the
