@@ -1134,3 +1134,130 @@ struct SimReadoutCard: View {
             : "\(kilograms) kg"
     }
 }
+
+// MARK: - On frequency
+
+/// Who this aeroplane is talking to, in its own window.
+///
+/// Only ever drawn on the flight the pilot is actually flying, and only while
+/// Infinite Flight Connect is attached to it. That is not a limitation to work
+/// around — it is where the information exists. The public Live API knows which
+/// controllers are *open* on a server, which is what the ATC panel lists, and it
+/// has no idea which of them any particular aeroplane is tuned to. Only the
+/// simulator knows that, and it only tells the device it is linked to.
+///
+/// The match is on the flight id the sim published rather than on a name, so
+/// this cannot end up on somebody else's aircraft: no id, no card.
+///
+/// Two halves, and they are not equally certain:
+///
+///   - **The frequency.** `com_1/atc_name` was observed in a real manifest, is
+///     polled like any other state, and changes when the pilot changes
+///     frequency. It works.
+///   - **The transcript.** A pushed stream whose paths were named from the
+///     developer reference rather than seen, and which this build of Infinite
+///     Flight may well not expose at all. So it is drawn only when messages have
+///     actually arrived. There is no empty state and no explanation here: a
+///     window about an aeroplane is the wrong place for a paragraph about an
+///     API, and the Connect panel already carries that sentence for anyone who
+///     goes looking.
+struct ConnectFrequencyCard: View {
+
+    /// The flight the window is open on. Compared against the id the sim
+    /// published, which is what makes this "your aeroplane" rather than "an
+    /// aeroplane".
+    let flightId: String
+
+    let theme: FlightInfoTheme
+
+    @ObservedObject private var session = ConnectSession.shared
+
+    /// Nil unless the sim is attached, has told us which flight it is, and that
+    /// flight is this one.
+    private var facility: String? {
+        guard session.status.isLive,
+              let mine = session.telemetry.flightID,
+              mine == flightId
+        else { return nil }
+        return session.telemetry.atcFacility
+    }
+
+    /// The transcript, and only when there is one. See the note above.
+    private var log: [ConnectATCMessage] {
+        guard session.status.isLive,
+              let mine = session.telemetry.flightID,
+              mine == flightId
+        else { return [] }
+        return session.atcLog
+    }
+
+    var body: some View {
+        // Nothing tuned and nothing said is nothing to draw. The card does not
+        // appear at all rather than appearing empty.
+        if facility != nil || !log.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                header
+
+                if let facility = facility {
+                    Text(facility)
+                        .font(.system(size: 16, weight: .heavy, design: .rounded))
+                        .foregroundStyle(theme.textPrimary)
+                        .flightInfoLine(minimumScale: 0.6)
+                }
+
+                if !log.isEmpty {
+                    if facility != nil {
+                        Rectangle()
+                            .fill(theme.stroke)
+                            .frame(height: 1)
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(log.prefix(5)) { line in
+                            VStack(alignment: .leading, spacing: 2) {
+                                if let from = line.from {
+                                    Text(from.uppercased())
+                                        .font(.system(size: 8.5, weight: .bold))
+                                        .tracking(0.8)
+                                        .foregroundStyle(theme.accent)
+                                }
+
+                                Text(line.text)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(theme.textSecondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .flightInfoSurface(theme, radius: theme.radiusMedium)
+            // The frequency changes mid-flight and the log grows a line at a
+            // time, so both move rather than jumping.
+            .motion(Motion.row, value: facility)
+            .motion(Motion.row, value: log.count)
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 6) {
+            Text("ON FREQUENCY")
+                .font(.system(size: 9, weight: .bold))
+                .tracking(1)
+                .foregroundStyle(theme.textDim)
+
+            Text("FROM YOUR SIM")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(theme.accent)
+
+            Spacer(minLength: 4)
+
+            Image(systemName: "antenna.radiowaves.left.and.right")
+                .font(.system(size: 10))
+                .foregroundStyle(theme.textDim)
+        }
+    }
+}
