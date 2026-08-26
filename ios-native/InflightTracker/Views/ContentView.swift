@@ -245,6 +245,13 @@ struct ContentView: View {
 
     @State private var sheet: WindowSheet?
 
+    /// Which panel the one panel window is showing.
+    ///
+    /// Separate from `sheet` on purpose — see `WindowSheet.panel`. The sheet's
+    /// identity says *a* panel is open and this says which, so moving between
+    /// them redraws the window's contents instead of replacing the window.
+    @State private var panelKind: MapPanelKind = .friends
+
     /// The traffic the map draws: the packet, narrowed by the filters, with the
     /// open aircraft kept whatever they say.
     private var visibleFlights: [Flight] {
