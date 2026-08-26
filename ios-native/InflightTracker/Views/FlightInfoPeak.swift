@@ -178,6 +178,21 @@ struct FlightInfoPeak: View {
         .padding(.trailing, boardCardInset)
     }
 
+    /// One labelled figure — the flight number, the registration.
+    private func boardField(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(label)
+                .font(.system(size: 8, weight: .bold))
+                .tracking(0.9)
+                .foregroundStyle(theme.textDim)
+
+            Text(value)
+                .font(.system(size: 15, weight: .heavy, design: .rounded))
+                .foregroundStyle(theme.textPrimary)
+                .flightInfoLine(minimumScale: 0.6)
+        }
+    }
+
     /// Where it is going and how far it has got — the one container.
     ///
     /// The route runs beside the photograph rather than under it. Set below, the
