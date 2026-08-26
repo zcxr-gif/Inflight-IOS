@@ -61,12 +61,6 @@ enum MapProjection: String, CaseIterable, Identifiable {
     var openingDistance: CLLocationDistance? {
         self == .globe ? 26_000_000 : nil
     }
-
-    /// Realistic elevation is what makes MapKit round the world off at the
-    /// edges; flat is what keeps it a Mercator sheet.
-    var elevationStyle: MKMapConfiguration.ElevationStyle {
-        self == .globe ? .realistic : .flat
-    }
 }
 
 /// What the map is drawn in.
@@ -163,6 +157,22 @@ struct MapLook: Equatable {
     var projection: MapProjection = .flat
     var palette: MapPalette = .auto
 
+    /// Real elevation under the map: mountains with height in them, and a
+    /// camera that can be tilted down to look along it.
+    ///
+    /// Its own setting rather than a property of the shape, because it is a
+    /// question you can ask of either. The globe has always had it — realistic
+    /// elevation is what rounds the planet off at the edges, so a globe without
+    /// it is not a globe — and the flat map never could, which is why a
+    /// mountain range on it has always been a picture of one rather than a
+    /// shape. Turning it on there gives the ordinary map its terrain back and
+    /// lets the camera pitch over it.
+    ///
+    /// What it does not do is take the flat map's north away. Pitch is a camera
+    /// looking down at something; rotation is the map being turned underneath
+    /// you, and the flat map stays north-up either way — see `isFreeCamera`.
+    var isTerrain: Bool = false
+
     /// Roads, terrain shading and place names at full strength, rather than the
     /// muted cartography the map recedes into behind the traffic. Nothing to do
     /// with imagery, which has no emphasis to set.
@@ -170,6 +180,37 @@ struct MapLook: Equatable {
 
     var isFreeCamera: Bool { projection.isFreeCamera }
     var dimming: CGFloat { palette.dimming }
+
+    /// Whether there is real elevation under this map. Always true on the
+    /// globe, which is what rounds it off.
+    var hasTerrain: Bool { projection == .globe || isTerrain }
+
+    /// Whether the camera can be tilted away from straight down.
+    ///
+    /// Terrain you cannot lean over is terrain you cannot see: the whole of the
+    /// difference between a flat map and an elevated one is visible only from
+    /// an angle.
+    var isPitchEnabled: Bool { isFreeCamera || isTerrain }
+
+    /// Whether a sprite's angle on screen has to be measured rather than
+    /// derived from its heading and the camera's bearing.
+    ///
+    /// The subtraction only holds where north points straight up the screen
+    /// everywhere, which is a flat map viewed from directly above. Spin it,
+    /// tilt it, or round it off into a planet and it stops holding — worst at
+    /// the edges, where a globe's meridians have converged and a pitched map
+    /// has run into perspective. See `TrackerMapView.Coordinator.screenAngle`.
+    ///
+    /// Which is to say: is the camera free to be anywhere but straight above,
+    /// pointing north. Exactly the two switches above.
+    var usesScreenAngles: Bool { isFreeCamera || isPitchEnabled }
+
+    /// Realistic elevation is what makes MapKit round the world off at the
+    /// edges, and what puts height into its terrain; flat is what keeps it a
+    /// Mercator sheet.
+    var elevationStyle: MKMapConfiguration.ElevationStyle {
+        hasTerrain ? .realistic : .flat
+    }
 
     /// MapKit's own configuration for this look.
     ///
@@ -179,7 +220,7 @@ struct MapLook: Equatable {
     /// has no POIs to exclude, which is why it is the one case that doesn't set
     /// the filter.
     func configuration() -> MKMapConfiguration {
-        let elevation = projection.elevationStyle
+        let elevation = elevationStyle
 
         guard palette.usesImagery else {
             let configuration = MKStandardMapConfiguration(elevationStyle: elevation)
@@ -206,10 +247,10 @@ struct MapLook: Equatable {
     /// — nobody's map changes under them on update.
     static func from(legacy stored: String) -> MapLook? {
         switch stored {
-        case "muted": return MapLook(projection: .flat, palette: .auto, isDetailed: false)
+        case "muted": return MapLook(projection: .flat, palette: .auto)
         case "detailed": return MapLook(projection: .flat, palette: .auto, isDetailed: true)
-        case "satellite": return MapLook(projection: .flat, palette: .satellite, isDetailed: false)
-        case "globe": return MapLook(projection: .globe, palette: .satellite, isDetailed: false)
+        case "satellite": return MapLook(projection: .flat, palette: .satellite)
+        case "globe": return MapLook(projection: .globe, palette: .satellite)
         default: return nil
         }
     }

@@ -341,6 +341,20 @@ struct TrackerMapView: UIViewRepresentable {
         private var renderedRouteKey: String?
         private var routeOverlays: [MKPolyline] = []
 
+        /// The flown path currently on the map, and the ramp laid along it.
+        ///
+        /// Held here rather than on the overlay because `MKPolyline` carries
+        /// nothing but a title, and there is only ever one flown path — the
+        /// open aircraft's. The renderer reads it back when MapKit asks for a
+        /// renderer, which is after the overlay has been added.
+        private var flownRamp: FlownPath?
+
+        /// How wide that path is drawn, in points.
+        ///
+        /// Narrower the further back the camera stands. See `FlownPathStyle`:
+        /// a fixed width is a line zoomed in and a filled shape zoomed out.
+        private var flownWidth: CGFloat = FlownPathStyle.closeWidth
+
         /// The fix names on the open flight's filed plan. Kept separately from
         /// `groundLabels` so that turning the plan off, or opening another
         /// aircraft, does not take an airport's runway designators with it.
@@ -388,6 +402,19 @@ struct TrackerMapView: UIViewRepresentable {
         /// rotation is its true heading *minus* this — otherwise turning the
         /// planet turns every aircraft on it, and they all point the wrong way.
         private var appliedCameraHeading: CLLocationDirection = 0
+
+        /// How far ahead of an aircraft the heading probe is put, in metres.
+        /// Refreshed with the camera — see `headingProbe(for:)`.
+        private var headingProbe: CLLocationDistance = 20_000
+
+        /// Where the camera was standing when the sprites were last squared up.
+        ///
+        /// The bearing alone used to be enough, because the bearing was the
+        /// only thing the old correction read. A measured angle depends on
+        /// where the aircraft has ended up in the projection, so panning a
+        /// globe changes it with the bearing never moving — hence all four
+        /// figures.
+        private var alignedCamera: MKMapCamera?
 
         init(_ parent: TrackerMapView) {
             self.parent = parent
@@ -461,7 +488,10 @@ struct TrackerMapView: UIViewRepresentable {
 
             mapView.preferredConfiguration = style.configuration()
             mapView.isRotateEnabled = style.isFreeCamera
-            mapView.isPitchEnabled = style.isFreeCamera
+            // Pitch is the terrain's, not the globe's: elevation you cannot
+            // lean over is elevation you cannot see. Rotation stays the globe's
+            // alone — the flat map is north-up on purpose.
+            mapView.isPitchEnabled = style.isPitchEnabled
 
             // The swap does not finish on the line that starts it. Whatever
             // scheme this pass settles on is put back once the rebuilt map has
@@ -575,31 +605,176 @@ struct TrackerMapView: UIViewRepresentable {
             mapView.insertOverlay(overlay, at: 0, level: .aboveRoads)
         }
 
-        /// Re-applies every drawn sprite's rotation against a new camera
-        /// bearing.
+        /// Whether the camera has moved enough since the last pass to be worth
+        /// squaring the sprites up again.
+        ///
+        /// Not an optimisation for the gesture — through a drag this is true on
+        /// every frame, which is the point — but for everything else that
+        /// happens to land in the region callback without the view actually
+        /// having moved.
+        private func hasCameraMoved(on mapView: MKMapView) -> Bool {
+            let camera = mapView.camera
+            guard let last = alignedCamera else { return true }
+
+            if abs(camera.heading - last.heading) > 0.5 { return true }
+            if abs(camera.pitch - last.pitch) > 0.5 { return true }
+
+            let centre = camera.centerCoordinate
+            let was = last.centerCoordinate
+            // In degrees, and deliberately crude: a tenth of a degree of pan is
+            // several pixels of swing at the limb and nothing at all in the
+            // middle, so the threshold is set by the worse of the two.
+            if abs(centre.latitude - was.latitude) > 0.02 { return true }
+            if abs(centre.longitude - was.longitude) > 0.02 { return true }
+
+            let distance = camera.centerCoordinateDistance
+            let held = last.centerCoordinateDistance
+            guard held > 0 else { return true }
+            return abs(distance - held) / held > 0.02
+        }
+
+        /// Re-applies every drawn sprite's angle for wherever the camera now
+        /// stands.
         ///
         /// Cheap enough to run from the live gesture callback: it walks the
         /// annotations that currently have views — the ones on screen — and
-        /// sets a transform on each. The gate is in the caller, on the bearing
-        /// having actually moved.
+        /// sets a transform on each. It used to be gated on the *bearing*
+        /// having moved, which was right when the angle was derived from the
+        /// bearing; it is gated on the camera having moved at all now, because
+        /// a measured angle changes with a pan the bearing never notices.
         private func realign(on mapView: MKMapView, heading: CLLocationDirection) {
             appliedCameraHeading = heading
+            headingProbe = Self.headingProbe(for: mapView)
+            alignedCamera = mapView.camera
 
             for annotation in mapView.annotations {
                 guard let view = mapView.view(for: annotation) else { continue }
 
                 if let flight = annotation as? FlightAnnotation {
-                    view.transform = rotation(for: flight.flight.heading)
+                    view.transform = rotation(
+                        for: flight.flight.heading,
+                        at: flight.coordinate,
+                        on: mapView
+                    )
                 } else if let replay = annotation as? ReplayAnnotation {
-                    view.transform = rotation(for: replay.heading)
+                    view.transform = rotation(
+                        for: replay.heading,
+                        at: replay.coordinate,
+                        on: mapView
+                    )
                 }
             }
         }
 
-        /// A sprite's transform: its true heading, corrected for wherever the
-        /// camera is pointing.
-        private func rotation(for heading: Double) -> CGAffineTransform {
-            CGAffineTransform(rotationAngle: CGFloat(heading - appliedCameraHeading) * .pi / 180)
+        /// A sprite's transform: which way the aeroplane is actually pointing
+        /// on the screen you are looking at.
+        ///
+        /// ## Why this is not `heading - cameraHeading`
+        ///
+        /// That subtraction is exactly right on a flat north-up map, and it is
+        /// right in the middle of a globe. It is wrong everywhere else on a
+        /// globe, and increasingly wrong the further out you go, because it
+        /// assumes north points the same way on screen wherever you are — and
+        /// on a sphere it does not. Meridians converge. An aircraft out on the
+        /// limb has its local north running across the screen at an angle the
+        /// camera's bearing knows nothing about, so a sprite rotated by the
+        /// camera's bearing sits crooked against the coastline underneath it.
+        /// Which is the report this came from: aeroplanes on the edge of the
+        /// planet not lying flat on it.
+        ///
+        /// So the angle is measured rather than derived. Project the aircraft's
+        /// position, project a point a short way ahead of it along its true
+        /// track, and take the angle between the two on screen. That is correct
+        /// under any projection, any bearing and any tilt, for free, because it
+        /// asks the thing that is actually doing the projecting.
+        ///
+        /// It falls back to the subtraction whenever the projection cannot
+        /// answer — an aircraft round the back of the planet, a probe that
+        /// lands on the same pixel — which is the old behaviour, and no worse
+        /// than it ever was.
+        private func rotation(
+            for heading: Double,
+            at coordinate: CLLocationCoordinate2D,
+            on mapView: MKMapView
+        ) -> CGAffineTransform {
+            CGAffineTransform(
+                rotationAngle: screenAngle(for: heading, at: coordinate, on: mapView)
+            )
+        }
+
+        private func screenAngle(
+            for heading: Double,
+            at coordinate: CLLocationCoordinate2D,
+            on mapView: MKMapView
+        ) -> CGFloat {
+            let derived = CGFloat(heading - appliedCameraHeading) * .pi / 180
+
+            // The flat map is north-up and cannot tilt, so the derived angle is
+            // the measured one and the projection would be pure cost — on every
+            // aircraft on screen, on every frame of a pan.
+            guard parent.style.usesScreenAngles else { return derived }
+            guard CLLocationCoordinate2DIsValid(coordinate) else { return derived }
+
+            let ahead = Self.coordinate(from: coordinate, bearing: heading, metres: headingProbe)
+            guard CLLocationCoordinate2DIsValid(ahead) else { return derived }
+
+            let origin = mapView.convert(coordinate, toPointTo: mapView)
+            let tip = mapView.convert(ahead, toPointTo: mapView)
+
+            let dx = tip.x - origin.x
+            let dy = tip.y - origin.y
+            guard dx.isFinite, dy.isFinite, hypot(dx, dy) >= 1 else { return derived }
+
+            // `atan2` measures from the x axis and the artwork points north,
+            // which on screen is up, which is negative y — so a quarter turn
+            // puts zero where the sprite already is.
+            return atan2(dy, dx) + .pi / 2
+        }
+
+        /// How far ahead of an aircraft to put the probe, in metres.
+        ///
+        /// Worked out once per pass from the camera's own distance rather than
+        /// fixed, and that is the whole trick to making the measurement stable.
+        /// Too short and the two projected points land on the same pixel at
+        /// world zoom, so the angle is rounding noise; too long and the probe
+        /// is a great-circle arc whose far end has swung away from the local
+        /// tangent, so the angle is honest about somewhere the aeroplane is not.
+        /// Two per cent of the camera distance lands the probe fifteen or
+        /// twenty points from the aircraft at every zoom, which is far enough
+        /// to be exact and near enough to be local.
+        private static func headingProbe(for mapView: MKMapView) -> CLLocationDistance {
+            let distance = mapView.camera.centerCoordinateDistance
+            guard distance.isFinite, distance > 0 else { return 20_000 }
+            return min(max(distance * 0.02, 1_000), 400_000)
+        }
+
+        /// The point a given distance from here along a given true bearing.
+        ///
+        /// The inverse of `FlightProgress.bearingDegrees`, and the only thing
+        /// the probe needs.
+        private static func coordinate(
+            from origin: CLLocationCoordinate2D,
+            bearing degrees: Double,
+            metres: CLLocationDistance
+        ) -> CLLocationCoordinate2D {
+            let earthRadius = 6_371_000.0
+            let angular = metres / earthRadius
+            let bearing = degrees * .pi / 180
+            let latitude = origin.latitude * .pi / 180
+            let longitude = origin.longitude * .pi / 180
+
+            let destinationLatitude = asin(
+                sin(latitude) * cos(angular) + cos(latitude) * sin(angular) * cos(bearing)
+            )
+            let destinationLongitude = longitude + atan2(
+                sin(bearing) * sin(angular) * cos(latitude),
+                cos(angular) - sin(latitude) * sin(destinationLatitude)
+            )
+
+            return CLLocationCoordinate2D(
+                latitude: destinationLatitude * 180 / .pi,
+                longitude: (destinationLongitude * 180 / .pi).remainder(dividingBy: 360)
+            )
         }
 
         /// Repaints every drawn sprite when the highlighting changes.
@@ -613,7 +788,12 @@ struct TrackerMapView: UIViewRepresentable {
             for annotation in mapView.annotations {
                 guard let flight = annotation as? FlightAnnotation,
                       let view = mapView.view(for: flight) else { continue }
-                apply(annotation: flight, to: view, selected: flight.flightId == parent.selection?.id)
+                apply(
+                    annotation: flight,
+                    to: view,
+                    selected: flight.flightId == parent.selection?.id,
+                    on: mapView
+                )
             }
         }
 
@@ -880,17 +1060,31 @@ struct TrackerMapView: UIViewRepresentable {
 
         private func refresh(annotation: FlightAnnotation, on mapView: MKMapView) {
             guard let view = mapView.view(for: annotation) else { return }
-            apply(annotation: annotation, to: view, selected: annotation.flightId == parent.selection?.id)
+            apply(
+                annotation: annotation,
+                to: view,
+                selected: annotation.flightId == parent.selection?.id,
+                on: mapView
+            )
         }
 
-        private func apply(annotation: FlightAnnotation, to view: MKAnnotationView, selected: Bool) {
+        private func apply(
+            annotation: FlightAnnotation,
+            to view: MKAnnotationView,
+            selected: Bool,
+            on mapView: MKMapView
+        ) {
             let key = annotation.flight.spriteKey
             view.image = PlaneSprites.shared.icon(
                 forKey: key,
                 selected: selected,
                 tint: appliedHighlighting.tint(for: annotation.flight.username)
             )
-            view.transform = rotation(for: annotation.flight.heading)
+            view.transform = rotation(
+                for: annotation.flight.heading,
+                at: annotation.coordinate,
+                on: mapView
+            )
 
             annotation.renderedSpriteKey = key
             annotation.renderedHeading = annotation.flight.heading
@@ -976,10 +1170,16 @@ struct TrackerMapView: UIViewRepresentable {
                 flown.append(livePoint)
             }
 
-            // Split into runs of constant altitude band so the track is
-            // coloured by height the way the web tracker draws it, without one
-            // overlay per sample.
-            routeOverlays.append(contentsOf: Self.altitudeSegments(of: flown))
+            // One line, coloured by height along its whole length. See
+            // `FlownPath`: it used to be one polyline per run of samples
+            // sharing a band, which stepped the colour six times through a
+            // climb and stacked a round cap on every boundary.
+            flownRamp = FlownPath(
+                points: flown,
+                bands: Self.heightBands(of: flown),
+                title: Self.flownTitle
+            )
+            if let path = flownRamp { routeOverlays.append(path.line) }
 
             // Before we were watching: departure to the first point we have.
             if let departure = AirportStore.shared.airport(flight.departureIcao),
@@ -1028,49 +1228,6 @@ struct TrackerMapView: UIViewRepresentable {
             let line = MKGeodesicPolyline(coordinates: [from, to], count: 2)
             line.title = Self.plannedTitle
             return line
-        }
-
-        /// One polyline per run of samples sharing an altitude band. A real
-        /// flight climbs and descends through them once each, so this is a
-        /// handful of overlays rather than one per point.
-        ///
-        /// Each run is curved through its own samples on the way out. Runs are
-        /// smoothed separately rather than the whole path at once, because a
-        /// run is what becomes one polyline of one colour — and since the
-        /// spline passes through its endpoints, the shared point between two
-        /// bands stays exactly where it was and the colours still meet.
-        private static func altitudeSegments(of points: [TrackPoint]) -> [MKPolyline] {
-            guard points.count >= 2 else { return [] }
-
-            let bands = heightBands(of: points)
-
-            var lines: [MKPolyline] = []
-            var run: [CLLocationCoordinate2D] = [points[0].coordinate]
-            var band = bands[0]
-
-            func close(_ run: [CLLocationCoordinate2D], _ band: Int?) {
-                guard run.count >= 2 else { return }
-                let curve = PathSmoothing.smoothed(run)
-                let line = MKGeodesicPolyline(coordinates: curve, count: curve.count)
-                // A band that is not a number is one the renderer draws as
-                // unknown, which is what an unreadable title falls back to
-                // anyway.
-                line.title = "\(flownTitle):\(band.map { String($0) } ?? "unknown")"
-                lines.append(line)
-            }
-
-            for index in 1..<points.count {
-                run.append(points[index].coordinate)
-                guard bands[index] != band else { continue }
-
-                close(run, band)
-                // The shared point keeps the runs joined.
-                run = [points[index].coordinate]
-                band = bands[index]
-            }
-
-            close(run, band)
-            return lines
         }
 
         /// How far a path can run at exactly zero feet before the zero is read
@@ -1129,6 +1286,7 @@ struct TrackerMapView: UIViewRepresentable {
             }
             mapView.removeOverlays(routeOverlays)
             routeOverlays.removeAll(keepingCapacity: true)
+            flownRamp = nil
             renderedRouteKey = nil
         }
 
@@ -1618,7 +1776,7 @@ struct TrackerMapView: UIViewRepresentable {
                 if let spriteKey = spriteKey { existing.spriteKey = spriteKey }
 
                 if let view = mapView.view(for: existing) {
-                    apply(replay: existing, to: view)
+                    apply(replay: existing, to: view, on: mapView)
                 }
             } else {
                 let annotation = ReplayAnnotation(
@@ -1674,9 +1832,17 @@ struct TrackerMapView: UIViewRepresentable {
             mapView.setVisibleMapRect(rect, edgePadding: edgeInsets(), animated: true)
         }
 
-        private func apply(replay annotation: ReplayAnnotation, to view: MKAnnotationView) {
+        private func apply(
+            replay annotation: ReplayAnnotation,
+            to view: MKAnnotationView,
+            on mapView: MKMapView
+        ) {
             view.image = PlaneSprites.shared.icon(forKey: annotation.spriteKey, selected: true)
-            view.transform = rotation(for: annotation.heading)
+            view.transform = rotation(
+                for: annotation.heading,
+                at: annotation.coordinate,
+                on: mapView
+            )
         }
 
         // MARK: Camera
@@ -1855,6 +2021,10 @@ struct TrackerMapView: UIViewRepresentable {
                 return renderer
             }
 
+            if line.title == Self.flownTitle {
+                return flownRenderer(for: line)
+            }
+
             let renderer = MKPolylineRenderer(polyline: line)
             renderer.lineCap = .round
             renderer.lineJoin = .round
@@ -1879,23 +2049,54 @@ struct TrackerMapView: UIViewRepresentable {
                 }
                 renderer.lineWidth = 2
                 renderer.lineDashPattern = [2, 7]
-            } else {
-                let band = line.title.flatMap { title -> Int? in
-                    guard let raw = title.split(separator: ":").last else { return nil }
-                    return Int(String(raw))
-                }
-                // No band on the line means its height was never known. Held
-                // apart from band 0 on purpose: crimson is a claim about the
-                // aeroplane, and this is an admission about the data.
-                renderer.strokeColor = band.map { AltitudeBand.color(for: $0) } ?? UIColor { traits in
-                    traits.userInterfaceStyle == .light
-                        ? UIColor(white: 0.30, alpha: 0.85)
-                        : UIColor(white: 0.92, alpha: 0.85)
-                }
-                renderer.lineWidth = 3.5
             }
 
             return renderer
+        }
+
+        /// The flown track: one line, one ramp, one cap at each end.
+        ///
+        /// The stops come off `flownRamp` rather than off the overlay, which
+        /// carries only a title. A path on the map without a ramp behind it is
+        /// a path whose heights were all unknown, or one left over from a
+        /// route that has since been rebuilt — grey either way, which is what
+        /// an unreadable title has always fallen back to.
+        private func flownRenderer(for line: MKPolyline) -> MKOverlayRenderer {
+            let renderer = MKGradientPolylineRenderer(polyline: line)
+            renderer.lineCap = .round
+            renderer.lineJoin = .round
+            renderer.lineWidth = flownWidth
+
+            if let ramp = flownRamp, ramp.line === line, ramp.colors.count >= 2 {
+                renderer.setColors(ramp.colors, locations: ramp.locations)
+            } else {
+                renderer.setColors(
+                    [AltitudeBand.unknownColor, AltitudeBand.unknownColor],
+                    locations: [0, 1]
+                )
+            }
+
+            return renderer
+        }
+
+        /// Re-widths the flown path for wherever the camera now stands.
+        ///
+        /// Run from the live region callback, and it has to be cheap enough
+        /// for that: one camera read and one comparison in the ordinary case,
+        /// where the change since the last frame rounds to nothing. Only the
+        /// width is touched — the ramp and the geometry are untouched, so this
+        /// is a repaint rather than a rebuild.
+        private func updateFlownWidth(on mapView: MKMapView) {
+            let width = FlownPathStyle.width(
+                forCameraDistance: mapView.camera.centerCoordinateDistance
+            )
+            guard abs(width - flownWidth) > 0.05 else { return }
+            flownWidth = width
+
+            guard let line = flownRamp?.line else { return }
+            guard let renderer = mapView.renderer(for: line) as? MKPolylineRenderer else { return }
+            renderer.lineWidth = width
+            renderer.setNeedsDisplay()
         }
 
         /// Pavement, drawn like a chart rather than like a photograph.
@@ -2004,7 +2205,7 @@ struct TrackerMapView: UIViewRepresentable {
                 view.zPriority = .max
                 view.isEnabled = false
 
-                apply(replay: replay, to: view)
+                apply(replay: replay, to: view, on: mapView)
                 return view
             }
 
@@ -2021,7 +2222,8 @@ struct TrackerMapView: UIViewRepresentable {
             apply(
                 annotation: flightAnnotation,
                 to: view,
-                selected: flightAnnotation.flightId == parent.selection?.id
+                selected: flightAnnotation.flightId == parent.selection?.id,
+                on: mapView
             )
 
             return view
@@ -2039,7 +2241,7 @@ struct TrackerMapView: UIViewRepresentable {
 
             guard let annotation = view.annotation as? FlightAnnotation else { return }
 
-            apply(annotation: annotation, to: view, selected: true)
+            apply(annotation: annotation, to: view, selected: true, on: mapView)
 
             isApplyingSelection = true
             parent.selection = SelectedFlight(id: annotation.flightId)
@@ -2049,7 +2251,7 @@ struct TrackerMapView: UIViewRepresentable {
         func mapView(_ mapView: MKMapView, didDeselect view: MKAnnotationView) {
             guard let annotation = view.annotation as? FlightAnnotation else { return }
 
-            apply(annotation: annotation, to: view, selected: false)
+            apply(annotation: annotation, to: view, selected: false, on: mapView)
 
             guard parent.selection?.id == annotation.flightId else { return }
 
@@ -2070,11 +2272,25 @@ struct TrackerMapView: UIViewRepresentable {
         /// actually moved — on a north-up map it costs one comparison. Re-culling
         /// walks every aircraft on the server, so it stays on its own throttle.
         func mapViewDidChangeVisibleRegion(_ mapView: MKMapView) {
-            if parent.style.projection.isFreeCamera {
-                let heading = mapView.camera.heading
-                if abs(heading - appliedCameraHeading) > 1 {
-                    realign(on: mapView, heading: heading)
-                }
+            // How wide the track is drawn follows how far back the camera is
+            // standing, so it belongs on the frame clock rather than on the
+            // settle: a pinch that ended two hundred milliseconds ago is a
+            // pinch you watched the line fatten through.
+            updateFlownWidth(on: mapView)
+
+            // Straightening the sprites. On a north-up flat map there is
+            // nothing to straighten — the camera cannot spin or tilt, so a
+            // heading is its own angle on screen — and the gate keeps that
+            // case at one comparison.
+            //
+            // Everywhere else it runs on every frame of the gesture rather
+            // than only when the bearing moves, and that is the globe fix: a
+            // sprite's angle on screen is not `heading - cameraHeading` except
+            // in the middle of the view. Spinning the planet is not the only
+            // thing that changes it — panning an aircraft out towards the limb
+            // does too, with the camera's bearing never moving at all.
+            if parent.style.usesScreenAngles, hasCameraMoved(on: mapView) {
+                realign(on: mapView, heading: mapView.camera.heading)
             }
 
             let now = Date()

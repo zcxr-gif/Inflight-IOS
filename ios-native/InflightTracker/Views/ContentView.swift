@@ -1626,6 +1626,26 @@ struct ContentView: View {
                             )
                         }
                         .disabled(appearance.resolvedMapStyle.palette.usesImagery)
+
+                        // Real height under the map, and a camera free to lean
+                        // over and look along it.
+                        //
+                        // Shown ticked and disabled on the globe rather than
+                        // hidden: elevation is what rounds the planet off at
+                        // the edges, so the globe has always had it and there
+                        // is nothing here to turn off. Hiding the row would
+                        // make it look as though the globe had no terrain.
+                        Button {
+                            appearance.isMapTerrain.toggle()
+                        } label: {
+                            Label(
+                                "3D terrain",
+                                systemImage: appearance.resolvedMapStyle.hasTerrain
+                                    ? "checkmark"
+                                    : "mountain.2.fill"
+                            )
+                        }
+                        .disabled(appearance.mapProjection == .globe)
                     }
                 } label: {
                     mapControlFace(mapStyleSymbol, isOn: false)

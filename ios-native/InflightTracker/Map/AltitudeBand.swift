@@ -23,10 +23,13 @@ import UIKit
 /// actually is, so two aircraft 6,000 ft apart at cruise no longer draw
 /// identically.
 ///
-/// Banded rather than interpolated *for the map*, so a path is a handful of
-/// polylines rather than one per breadcrumb. `color(forFeet:)` interpolates
-/// between the same stops for the profile chart, where a smooth gradient costs
-/// nothing.
+/// ## Bands, and the ramp between them
+///
+/// The bands are what the map *filters* by, and what the legend names — a set
+/// of ranges you can point at. They are no longer what the map draws: a flown
+/// path is one gradient line running through `color(forFeet:)`, the same sweep
+/// the profile chart has always drawn, so a climb reads as a climb rather than
+/// as six steps at heights nobody was thinking about.
 enum AltitudeBand {
 
     /// Every band, low to high. The map filters offer exactly these, so the
@@ -77,6 +80,19 @@ enum AltitudeBand {
         }
     }
 
+    /// What a stretch of path draws in when its height was never sent.
+    ///
+    /// Held apart from band 0 on purpose: crimson is a claim about the
+    /// aeroplane, and this is an admission about the data.
+    ///
+    /// Fixed rather than trait-dependent, for the same reason the bands are and
+    /// one more. A gradient renderer is handed its stops as colours and resolves
+    /// them when it builds the ramp, not per frame against the map's trait — so
+    /// a dynamic colour here would be resolved once, against whatever the map
+    /// happened to be at the time, and then stay that way through a switch to
+    /// light. Mid grey reads on both maps and needs no resolving.
+    static let unknownColor = UIColor(white: 0.62, alpha: 0.95)
+
     /// The height at the middle of a band, used to place its stop on the ramp.
     private static func midpoint(of band: Int) -> Double {
         let low = band == 0 ? 0 : ceilings[band - 1]
@@ -89,9 +105,10 @@ enum AltitudeBand {
     /// A colour interpolated between the band stops, for anything drawing a
     /// continuous scale rather than discrete runs.
     ///
-    /// The map does not use this — it wants whole polylines of one colour — but
-    /// the profile chart does, and it is what makes a climb read as a sweep
-    /// through the ramp instead of six steps.
+    /// Which is both of them now. The profile chart has always drawn the sweep;
+    /// the map used to draw one polyline per band and step between them, six
+    /// hard edges at heights that mean nothing to anyone watching an aeroplane.
+    /// It draws the same ramp along one gradient line now — see `FlownPath`.
     static func color(forFeet feet: Double) -> UIColor {
         guard feet.isFinite else { return color(for: 0) }
 

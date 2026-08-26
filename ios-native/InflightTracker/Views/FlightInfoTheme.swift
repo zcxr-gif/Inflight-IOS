@@ -51,6 +51,7 @@ final class FlightInfoAppearance: ObservableObject {
     private static let mapProjectionKey = "map.projection"
     private static let mapPaletteKey = "map.palette"
     private static let mapDetailKey = "map.detailed"
+    private static let mapTerrainKey = "map.terrain"
 
     @Published var isGlassEnabled: Bool {
         didSet { UserDefaults.standard.set(isGlassEnabled, forKey: Self.glassKey) }
@@ -95,6 +96,17 @@ final class FlightInfoAppearance: ObservableObject {
         didSet { UserDefaults.standard.set(isMapDetailed, forKey: Self.mapDetailKey) }
     }
 
+    /// Real elevation under the map, and a camera that can lean over it.
+    ///
+    /// Off by default, and that is a decision about what the app is rather than
+    /// about what looks best in a screenshot: this is a traffic map, the height
+    /// that matters on it is the aeroplane's, and a mountain range standing up
+    /// out of the paper is one more thing between you and a sprite. It is there
+    /// for the people who want it.
+    @Published var isMapTerrain: Bool {
+        didSet { UserDefaults.standard.set(isMapTerrain, forKey: Self.mapTerrainKey) }
+    }
+
     /// What iOS itself is set to, reported in by the root view.
     ///
     /// Read rather than forced: the app never calls `preferredColorScheme`, so
@@ -129,6 +141,7 @@ final class FlightInfoAppearance: ObservableObject {
         return MapLook(
             projection: mapProjection.isPro && !isPro ? .flat : mapProjection,
             palette: mapPalette.isPro && !isPro ? .auto : mapPalette,
+            isTerrain: isMapTerrain,
             isDetailed: isMapDetailed
         )
     }
@@ -178,6 +191,11 @@ final class FlightInfoAppearance: ObservableObject {
         isMapDetailed = defaults.object(forKey: Self.mapDetailKey) as? Bool
             ?? legacy?.isDetailed
             ?? false
+        // No legacy value to read across: the single stored style never had a
+        // terrain switch in it, and the globe — which is the one look that
+        // always had elevation — gets it from its projection rather than from
+        // here.
+        isMapTerrain = defaults.object(forKey: Self.mapTerrainKey) as? Bool ?? false
     }
 }
 
