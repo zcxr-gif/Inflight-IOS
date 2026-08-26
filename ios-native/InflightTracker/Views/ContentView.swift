@@ -5,6 +5,11 @@ struct ContentView: View {
 
     @EnvironmentObject private var feed: LiveFeed
     @Environment(\.scenePhase) private var scenePhase
+    /// Whether there is room beside the map to put the flight window, rather
+    /// than only underneath it. Read as a size class rather than as an idiom so
+    /// a narrow split of an iPad — where there is no more room than a phone has
+    /// — gets the phone's sheet, and so does a phone.
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @ObservedObject private var filters = MapFilters.shared
     @ObservedObject private var weatherPreferences = WeatherPreferences.shared
@@ -245,6 +250,26 @@ struct ContentView: View {
 
     @State private var sheet: WindowSheet?
 
+    /// What the one sheet is showing, once the flight window has been taken out
+    /// of it.
+    ///
+    /// `sheet` stays the single answer to "which window is open" on every
+    /// device — the pane reads it, the map reads it, and closing either one
+    /// writes to it. This is the narrower question the *presentation* asks:
+    /// is there a sheet to put up. Where the flight window is a pane there is
+    /// not, and the rest of the cases are unaffected.
+    ///
+    /// A binding rather than a branch at the call site because the two have to
+    /// stay in step through a resize: split an iPad down to a phone's width
+    /// with an aircraft open and this starts answering `.flight`, so the sheet
+    /// comes up around the window the pane just gave back.
+    private var presentedSheet: Binding<WindowSheet?> {
+        Binding(
+            get: { usesFlightPane && sheet == .flight ? nil : sheet },
+            set: { sheet = $0 }
+        )
+    }
+
     /// Which panel the one panel window is showing.
     ///
     /// Separate from `sheet` on purpose — see `WindowSheet.panel`. The sheet's
@@ -290,8 +315,51 @@ struct ContentView: View {
     /// a build starts failing with "unable to type-check this expression in
     /// reasonable time". Every one of these is a separate, trivially solved
     /// expression now.
+    /// Whether the flight window is laid out by the app rather than presented
+    /// as a sheet.
+    ///
+    /// The whole iPad difference hangs off this one line. A sheet on a
+    /// regular-width screen is a form sheet, centred by the system in the
+    /// middle of the display with no way to move it, so anywhere there is room
+    /// to make a choice about where the window goes, the window stops being a
+    /// sheet. See `FlightWindowPane`.
+    private var usesFlightPane: Bool { horizontalSizeClass == .regular }
+
+    /// Where the pane goes, when there is one.
+    private var flightPlacement: FlightWindowPlacement { appearance.flightWindowPlacement }
+
+    /// Whether the flight window is on screen as a pane right now.
+    private var isFlightPaneUp: Bool { usesFlightPane && sheet == .flight && selection != nil }
+
+    /// With no aircraft open the dock is what stands at the bottom of the map;
+    /// with one, the window does, whatever shape it is in.
     private var mapBottomInset: CGFloat {
-        selection == nil ? MapDock.reservedHeight : peakHeight
+        selection == nil ? MapDock.reservedHeight : flightWindowBottomInset
+    }
+
+    /// How much of the bottom of the screen the flight window is standing on.
+    ///
+    /// The peak height is the sheet's answer and only the sheet's: it is the
+    /// measured height of a detent, and a pane has none. Every piece of chrome
+    /// that has to sit above the window asks this instead, so the docked column
+    /// — which stands on no part of the bottom at all — stops pushing the
+    /// replay bar and the map's hub a peak's height up the screen for nothing.
+    private var flightWindowBottomInset: CGFloat {
+        if isFlightPaneUp {
+            return FlightWindowPaneMetrics.bottomInset(for: flightPlacement)
+        }
+        return selection == nil ? 0 : peakHeight
+    }
+
+    /// How much of the map's right-hand edge the window is standing on, so a
+    /// framed route is not laid out underneath it.
+    ///
+    /// Zero everywhere but the docked pane. A sheet covers the bottom of the
+    /// map and nothing else, which is why this question has never been asked
+    /// before.
+    private var mapTrailingInset: CGFloat {
+        guard isFlightPaneUp else { return 0 }
+        return FlightWindowPaneMetrics.trailingInset(for: flightPlacement)
     }
 
     /// How far up the map has to hold Apple's "Legal" link so the app's own
@@ -372,6 +440,7 @@ struct ContentView: View {
             selection: $selection,
             command: mapCommand,
             bottomInset: mapBottomInset,
+            trailingInset: mapTrailingInset,
             legalInset: mapLegalInset,
             replayFrame: replay.frame,
             isFollowing: isFollowingLive,
@@ -480,6 +549,45 @@ struct ContentView: View {
             findMeControl
             mapToolbar
             replayBar
+            flightPane
+        }
+    }
+
+    /// The flight window, on a screen wide enough to lay it out beside the map
+    /// rather than present it over the bottom of it.
+    ///
+    /// In the stack over the map rather than in a presentation, which is the
+    /// whole point: the map underneath goes on being pannable, zoomable and
+    /// tappable while the window is up, with nothing dimmed and nothing to
+    /// dismiss around. `FlightWindowPane` is deaf to touches everywhere except
+    /// its own rectangle so the rest of the map still gets them.
+    ///
+    /// Nothing about which aircraft is open changes: `sheet` and `selection`
+    /// mean exactly what they always did, and the close button sets the same
+    /// `sheet = nil` the sheet's own dismissal does — which is what clears the
+    /// selection, further up.
+    @ViewBuilder
+    private var flightPane: some View {
+        if isFlightPaneUp, let selected = selection {
+            FlightWindowPane(
+                theme: theme,
+                placement: flightPlacement,
+                onClose: { sheet = nil }
+            ) {
+                FlightDetailView(
+                    flightId: selected.id,
+                    // No detent to be measured against, so nothing to report.
+                    peakHeight: .constant(FlightInfoLayout.basePeakHeight),
+                    presentation: .pane,
+                    onReplay: { track in startReplay(of: selected.id, track: track) },
+                    onSelectAirport: { field in openAirport(field, from: selected) }
+                )
+                    // Same as the sheet's: a different aircraft resets the
+                    // window's own state without the window going anywhere.
+                    .id(selected.id)
+                    .environmentObject(feed)
+            }
+            .transition(.opacity)
         }
     }
 
@@ -488,6 +596,10 @@ struct ContentView: View {
         mapStack
         .motion(Motion.chrome, value: selection?.id)
         .motion(Motion.chrome, value: replay.isActive)
+        // The pane and everything that steps aside for it move as one thing:
+        // switching the placement in settings slides the window across the map
+        // rather than teleporting it, and the hub in the corner goes with it.
+        .motion(Motion.chrome, value: appearance.flightWindowPlacement)
         // The same spring the dock settles its own handle with, so the card
         // and everything that lifts out of its way move as one thing.
         .motion(Motion.chrome, value: isStatsUp)
@@ -577,7 +689,7 @@ struct ContentView: View {
     /// gives up type-checking.
     var body: some View {
         watchedStack
-        .sheet(item: $sheet) { which in
+        .sheet(item: presentedSheet) { which in
             sheetContent(for: which)
         }
         // The detent set changes with the measurement, so the selection has to
@@ -1076,10 +1188,13 @@ struct ContentView: View {
     private var replayBar: some View {
         if replay.isActive {
             ReplayBar(replay: replay, theme: theme)
-                .padding(.horizontal, 14)
+                .padding(.leading, 14)
+                .padding(.trailing, 14 + mapTrailingInset)
                 // Clears the info window when one is open, and the bottom of
-                // the screen when the replay has outlived it.
-                .padding(.bottom, selection == nil ? 6 : peakHeight + 14)
+                // the screen when the replay has outlived it. Zero is the
+                // second of those: no window, or one standing down the side
+                // rather than across the bottom.
+                .padding(.bottom, flightWindowBottomInset == 0 ? 6 : flightWindowBottomInset + 14)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 .ignoresSafeArea(.keyboard, edges: .bottom)
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -1676,8 +1791,12 @@ struct ContentView: View {
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .environment(\.colorScheme, theme.colorScheme)
-            .padding(.trailing, 16)
-            .padding(.bottom, peakHeight + 14)
+            // Both insets are the window's, not the sheet's. In the corner the
+            // docked column stands in, the hub steps aside by the width of it;
+            // under a sheet, or the low centred pane, it sits above instead —
+            // and one of the two is always zero.
+            .padding(.trailing, 16 + mapTrailingInset)
+            .padding(.bottom, flightWindowBottomInset + 14)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))

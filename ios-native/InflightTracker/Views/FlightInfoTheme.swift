@@ -43,6 +43,7 @@ final class FlightInfoAppearance: ObservableObject {
 
     private static let glassKey = "flightInfoGlassEnabled"
     private static let peakStyleKey = "flightInfoPeakStyle"
+    private static let windowPlacementKey = "flightWindowPlacement"
     private static let modeKey = "appAppearanceMode"
     /// The old single map style, read once so an install that predates the
     /// split lands on the same map it had.
@@ -57,6 +58,17 @@ final class FlightInfoAppearance: ObservableObject {
 
     @Published var peakStyle: FlightInfoPeakStyle {
         didSet { UserDefaults.standard.set(peakStyle.rawValue, forKey: Self.peakStyleKey) }
+    }
+
+    /// Where the flight window sits when there is a screen wide enough to put
+    /// it somewhere — which today means an iPad, and any iPad-sized split of
+    /// one. Stored on every device: the setting is only *offered* where it
+    /// applies, but a phone that is restored onto a tablet should arrive with
+    /// the choice it was given.
+    @Published var flightWindowPlacement: FlightWindowPlacement {
+        didSet {
+            UserDefaults.standard.set(flightWindowPlacement.rawValue, forKey: Self.windowPlacementKey)
+        }
     }
 
     @Published var mode: AppAppearanceMode {
@@ -142,6 +154,9 @@ final class FlightInfoAppearance: ObservableObject {
         // rather than on a case that no longer exists.
         peakStyle = FlightInfoPeakStyle(rawValue: defaults.string(forKey: Self.peakStyleKey) ?? "")
             ?? .compact
+        flightWindowPlacement = FlightWindowPlacement(
+            rawValue: defaults.string(forKey: Self.windowPlacementKey) ?? ""
+        ) ?? .centred
         // Dark was the only look the app had, so an install that predates this
         // setting keeps what it had rather than turning light overnight. New
         // installs follow iOS.
@@ -163,6 +178,50 @@ final class FlightInfoAppearance: ObservableObject {
         isMapDetailed = defaults.object(forKey: Self.mapDetailKey) as? Bool
             ?? legacy?.isDetailed
             ?? false
+    }
+}
+
+/// Where the flight window sits on a screen with room to put it somewhere.
+///
+/// A phone has one answer — the window comes up from the bottom edge and the
+/// map is what is left above it — and there is nothing to choose. A tablet has
+/// most of a desk spare beside the aeroplane you are watching, and which part
+/// of the map you want to keep is a matter of what you are doing: following one
+/// aircraft down an approach wants the field in front of it, where reading a
+/// flight plan wants the width.
+///
+/// Only offered where it means something. The picker is on the iPad's settings
+/// and nowhere else, and the phone ignores this entirely.
+enum FlightWindowPlacement: String, CaseIterable, Identifiable {
+
+    /// Low and centred: the window sits near the bottom edge, the way it does
+    /// on a phone, with the map above and to both sides of it.
+    ///
+    /// Named for where it is across the screen rather than up it, because the
+    /// across is the part that distinguishes it from the other one. It is not
+    /// vertically centred and deliberately never was — a window floating in the
+    /// dead middle of a tablet covers the one part of the map you are looking
+    /// at, which is wherever you just tapped.
+    case centred
+
+    /// The whole window as a column down the right-hand edge, with the map
+    /// running full height beside it.
+    case trailing
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .centred: return "Centre"
+        case .trailing: return "Right"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .centred: return "Low and centred, with the map around it"
+        case .trailing: return "A column down the right, with the map beside it"
+        }
     }
 }
 

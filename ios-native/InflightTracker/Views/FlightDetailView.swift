@@ -47,7 +47,21 @@ struct FlightDetailView: View {
 
     /// Reported upward so the sheet's peak detent is exactly as tall as the
     /// peak state's content, instead of leaving a band of empty sheet below it.
+    ///
+    /// Meaningless in a pane, which has no detent to be as tall as. The pane
+    /// hands in a constant and the writes below go nowhere, which is the right
+    /// outcome rather than a tolerated one: there is nothing on the other end
+    /// of the binding that wants to know.
     @Binding var peakHeight: CGFloat
+
+    /// How this window is on screen.
+    ///
+    /// A sheet on a phone, a pane on anything wide enough to choose where to
+    /// put it. Everything either way is the same view — the difference is the
+    /// three things a sheet has that a pane does not: a detent to travel
+    /// between, a ground the system hangs behind it, and a bottom safe area it
+    /// draws through.
+    var presentation: FlightWindowPresentation = .sheet
 
     /// Asked for from the window, carried out by the map: the replay needs the
     /// sheet out of the way and the map free, neither of which is this view's
@@ -148,12 +162,8 @@ struct FlightDetailView: View {
                 if abs(wanted - peakHeight) > 1 { peakHeight = wanted }
             }
         }
-        // The sheet's own ground already covers the home indicator, and the
-        // peak's card should sit close to the bottom edge rather than above a
-        // band of empty sheet the width of that inset.
-        .ignoresSafeArea(edges: .bottom)
         .flightInfoLegible(theme)
-        .modifier(FlightInfoWindowChrome(theme: theme))
+        .modifier(FlightInfoWindowChrome(theme: theme, presentation: presentation))
         .environment(\.colorScheme, theme.colorScheme)
         .onAppear {
             load(flight)
@@ -195,6 +205,13 @@ struct FlightDetailView: View {
     /// sixth of the way open the moment it appeared: the peak state opened
     /// washed out with the full window's photo showing faintly behind it.
     private func sheetExpansion(for geometry: GeometryProxy) -> Double {
+        // A pane is the full window and nothing else. There is no peak to
+        // collapse to and no drag to ride, so the cross-fade is finished before
+        // it starts — and measuring it would be worse than pointless, because a
+        // pane is whatever height the layout gave it and that height means
+        // nothing about how far open anything is.
+        guard presentation == .sheet else { return 1 }
+
         let height = geometry.size.height + geometry.safeAreaInsets.top
 
         let travelled = (height - peakHeight - FlightInfoLayout.phaseDeadZone)
@@ -511,11 +528,29 @@ struct FlightDetailView: View {
 private struct FlightInfoWindowChrome: ViewModifier {
 
     let theme: FlightInfoTheme
+    let presentation: FlightWindowPresentation
 
+    @ViewBuilder
     func body(content: Content) -> some View {
-        content
-            .presentationBackground { theme.sheetBackground }
-            .presentationCornerRadius(theme.radiusLarge + 6)
+        switch presentation {
+        case .sheet:
+            content
+                // The sheet's own ground already covers the home indicator, and
+                // the peak's card should sit close to the bottom edge rather
+                // than above a band of empty sheet the width of that inset.
+                .ignoresSafeArea(edges: .bottom)
+                .presentationBackground { theme.sheetBackground }
+                .presentationCornerRadius(theme.radiusLarge + 6)
+
+        case .pane:
+            // None of the above applies, and it is not that they are harmless
+            // — the presentation modifiers would be talking to a presentation
+            // that isn't there, and the safe area is one the pane's own layout
+            // has already inset it from. The pane draws its own ground and
+            // clips its own corners, because it knows where its edges are and
+            // a modifier hung on a sheet does not.
+            content
+        }
     }
 }
 

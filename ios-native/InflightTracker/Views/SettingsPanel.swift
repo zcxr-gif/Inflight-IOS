@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Settings, from the toolbar's settings button.
 ///
@@ -34,6 +35,9 @@ struct SettingsPanel: View {
     @State private var isShowingAcknowledgements = false
 
     private var theme: FlightInfoTheme { appearance.theme }
+
+    /// Whether this is a tablet, for the one setting that only exists on one.
+    private var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
 
     var body: some View {
         MapPanel(title: "Settings", subtitle: feedSummary) {
@@ -237,6 +241,28 @@ struct SettingsPanel: View {
                     detail: appearance.peakStyle.detail,
                     selection: $appearance.peakStyle
                 )
+
+                // Only where it means anything. A phone has one place to put
+                // the flight window and no choice to offer about it, and a row
+                // whose two options look identical is worse than no row.
+                //
+                // The idiom rather than the size class, which is the one place
+                // in the app that is the right way round: this panel is itself
+                // in a sheet, and a sheet on an iPad can be handed a compact
+                // width — so asking how wide *this* is would hide the setting
+                // on exactly the device it is for.
+                if isPad {
+                    PanelDivider()
+
+                    PanelPickerRow(
+                        title: "Window",
+                        symbol: "sidebar.right",
+                        options: FlightWindowPlacement.allCases,
+                        label: { $0.label },
+                        detail: appearance.flightWindowPlacement.detail,
+                        selection: $appearance.flightWindowPlacement
+                    )
+                }
             }
             .panelEntrance(7)
 

@@ -77,6 +77,14 @@ struct TrackerMapView: UIViewRepresentable {
     /// framed route isn't hidden behind it.
     var bottomInset: CGFloat = 0
 
+    /// And how much of its right-hand edge, for the same reason.
+    ///
+    /// Only ever non-zero on a screen wide enough to stand the flight window
+    /// down the side of the map instead of across the bottom of it — a sheet
+    /// covers the bottom and nothing else, so until there were panes there was
+    /// only ever one side of this to answer for.
+    var trailingInset: CGFloat = 0
+
     /// How far up MapKit's own ornaments have to sit — which here means Apple's
     /// "Legal" link, since the compass and the scale are both off.
     ///
@@ -1779,7 +1787,12 @@ struct TrackerMapView: UIViewRepresentable {
         }
 
         private func edgeInsets() -> UIEdgeInsets {
-            UIEdgeInsets(top: 96, left: 44, bottom: parent.bottomInset + 28, right: 44)
+            UIEdgeInsets(
+                top: 96,
+                left: 44,
+                bottom: parent.bottomInset + 28,
+                right: 44 + parent.trailingInset
+            )
         }
 
         // MARK: MKMapViewDelegate
