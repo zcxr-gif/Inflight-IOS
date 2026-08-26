@@ -322,8 +322,29 @@ struct ContentView: View {
     /// it, and how far the other way to open it out. Judged on where the drag
     /// was predicted to end rather than where the finger stopped, so a flick
     /// does it without the travel.
-    private static let windowCloseTravel: CGFloat = 90
+    ///
+    /// The close figure was ninety, which was most of the height of the peak
+    /// state: a pull that had visibly dragged the window most of the way off
+    /// the screen still put it back, and asking for twice the travel to close a
+    /// window as to open it out was never the right way round. It is the same
+    /// distance as the other now — both are the same question, has this pull
+    /// committed.
+    private static let windowCloseTravel: CGFloat = 44
     private static let windowOpenTravel: CGFloat = 44
+
+    /// How far down a pull has to be before the full window starts collapsing
+    /// under it, so the pull has something to show for itself on the way.
+    private static let windowCollapseTravel: CGFloat = 44
+
+    /// How far a pull has actually travelled — not where it is predicted to end
+    /// — before the window closes without waiting to be let go.
+    ///
+    /// The safety net rather than the way out, which is why it is well beyond
+    /// the figure above: collapsing resizes the sheet under the finger, and a
+    /// gesture whose view moves that far can be cancelled, taking `onEnded`
+    /// with it. Past this, a pull is heading off the bottom of the screen
+    /// whatever happens next, so there is nothing left worth waiting for.
+    private static let windowCloseCommit: CGFloat = 96
 
     /// How tall the map's own control stack is: three rows with a hairline
     /// between each. Written down because the find-me button stacks on top of
@@ -728,11 +749,25 @@ struct ContentView: View {
     /// Only as wide as the pill it draws. The rest of the top of the window is
     /// left to the sheet's own gesture, which is better at following a finger
     /// than anything that can be written on top of it.
+    ///
+    /// A tap closes it too, and that is the part worth spelling out. Everything
+    /// above describes a pull, and a pull is the one thing this window asks for
+    /// that no other window in the app does: a panel has a single stop, so the
+    /// system closes it on any pull down, while this one has two and lands on
+    /// the peak instead. Somebody who has not found the pill is left dragging
+    /// the body of the window down the screen and watching it stop half way,
+    /// which is the report this came from. The tap is the way out that needs
+    /// nothing discovered — and it is the same action VoiceOver has always had
+    /// on this element, which is why the label already reads as it does.
     private var flightWindowHandle: some View {
         WindowGrabber(theme: theme, isHeld: isWindowHeld)
             .frame(width: 132)
             .frame(maxWidth: .infinity)
             .gesture(flightWindowPull)
+            // After the drag, so a pull is never read as a tap. A tap on its
+            // own still lands here: the pull needs four points of travel before
+            // it claims the touch.
+            .onTapGesture { sheet = nil }
             .accessibilityElement()
             .accessibilityLabel("Close the flight window")
             .accessibilityAddTraits(.isButton)
@@ -747,9 +782,25 @@ struct ContentView: View {
         DragGesture(minimumDistance: 4, coordinateSpace: .global)
             .updating($isWindowHeld) { _, state, _ in state = true }
             .onChanged { value in
+                // Closing is decided here as well as on release. Collapsing
+                // sets the detent, which resizes the sheet under the finger and
+                // moves this pill most of the screen away from it — and a
+                // gesture whose view is pulled out from under it can be
+                // cancelled, in which case `onEnded` never runs and a pull that
+                // was clearly heading off the bottom of the screen leaves the
+                // window sitting at the peak instead. That is the second half
+                // of why closing this window used to take a drag and then
+                // another drag.
+                if value.translation.height > Self.windowCloseCommit {
+                    sheet = nil
+                    return
+                }
+
                 // Collapses on the way down, so the pull has something to show
                 // for itself before it commits to closing.
-                guard detent == .large, value.translation.height > 44 else { return }
+                guard detent == .large, value.translation.height > Self.windowCollapseTravel else {
+                    return
+                }
                 detent = peakDetent
             }
             .onEnded { value in
