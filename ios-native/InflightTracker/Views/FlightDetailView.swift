@@ -135,6 +135,36 @@ struct FlightDetailView: View {
                         .offset(y: CGFloat(-14 * expansion))
                         .scaleEffect(CGFloat(0.985 + 0.015 * peakOpacity), anchor: .top)
                         .opacity(peakOpacity)
+                        // Pinned to the foot of the window rather than hung
+                        // from its top.
+                        //
+                        // Sizing the sheet to the content is a calculation, and
+                        // a calculation can be wrong — the header's height
+                        // follows the photograph's own shape, and the bottom of
+                        // that photograph is masked away to nothing, so what
+                        // the layout reserves and what you can see are not the
+                        // same number. Hung from the top, every point of that
+                        // difference collects under the last line, which is the
+                        // one place it is worth nothing.
+                        //
+                        // Measured before this, so the sheet is still sized to
+                        // the content and not to the frame it is being pinned
+                        // inside; both offset and scale go on before it too, so
+                        // they still work off the content's own top edge. What
+                        // this settles is only where the slack goes if there is
+                        // any: above the identity row, where the drag handle
+                        // already leaves room, instead of under the text.
+                        .padding(.bottom, FlightInfoLayout.peakBottomGap)
+                        // Top-aligned until the first measurement lands. The
+                        // sheet opens at `basePeakHeight`, which is a guess and
+                        // is sometimes shorter than the content; hanging from
+                        // the bottom in that one frame would clip the callsign
+                        // off the top rather than the route off the bottom, and
+                        // of the two that is the worse thing to flash.
+                        .frame(
+                            maxHeight: .infinity,
+                            alignment: peakContentHeight > 0 ? .bottom : .top
+                        )
                         .allowsHitTesting(expansion < 0.3)
 
                     expanded(for: flight, width: geometry.size.width)
