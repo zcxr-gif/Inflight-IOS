@@ -137,6 +137,9 @@ final class FlightInfoAppearance: ObservableObject {
 
         // No stored value means the user has never chosen, which is glass on.
         isGlassEnabled = defaults.object(forKey: Self.glassKey) as? Bool ?? true
+        // The fallback also catches a retired style: the board was a third
+        // option once, and anybody still holding it lands back on the bar
+        // rather than on a case that no longer exists.
         peakStyle = FlightInfoPeakStyle(rawValue: defaults.string(forKey: Self.peakStyleKey) ?? "")
             ?? .compact
         // Dark was the only look the app had, so an install that predates this
@@ -174,28 +177,12 @@ enum FlightInfoPeakStyle: String, CaseIterable, Identifiable {
     /// already there rather than replacing it.
     case rich
 
-    /// A board, with the photograph lifted proud of it.
-    ///
-    /// The other two are both "the window, less of it": the compact bar is the
-    /// identity block shrunk, and the photo peak is literally the full window's
-    /// header. This one is not a smaller anything. It is the four things you
-    /// want at a glance — which flight, which airframe, where it is going, and
-    /// how far it has got — laid out as a strip, with the aircraft photograph
-    /// standing above the top edge rather than sitting inside a card.
-    ///
-    /// The overhang is the whole idea and the reason it needs its own case: a
-    /// photograph that breaks its container reads as a physical thing resting
-    /// on the strip, which is what makes this glanceable in a way a third
-    /// arrangement of the same boxes would not be.
-    case board
-
     var id: String { rawValue }
 
     var label: String {
         switch self {
         case .compact: return "Compact"
         case .rich: return "Photo"
-        case .board: return "Board"
         }
     }
 
@@ -203,7 +190,6 @@ enum FlightInfoPeakStyle: String, CaseIterable, Identifiable {
         switch self {
         case .compact: return "A bar with a thumbnail"
         case .rich: return "Opens on the aircraft photo"
-        case .board: return "A strip with the photo standing proud of it"
         }
     }
 }
