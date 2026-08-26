@@ -12,16 +12,18 @@ import UserNotifications
 /// called "friends" would file the most personal notice the app sends under
 /// somebody else's name.
 ///
-/// The other half of why this is its own screen: notifications are the feature
-/// with the most ways to be switched on and still not arrive. Permission can be
-/// denied, the APNs token can be missing, the backend can be running without a
-/// push key, and an own-flight notice additionally needs an account and a way to
-/// tell which aeroplane on the map is yours. Every one of those fails silently.
-/// A panel that lists the switches and *not* the state of the chain underneath
-/// them is a panel that says "on" to somebody who will never hear a thing —
-/// which is exactly the report this was built to answer. So the chain is drawn,
-/// in order, at the bottom, with the first broken link the one thing offering to
-/// be fixed.
+/// Switches, and nothing else.
+///
+/// It briefly also listed the delivery chain underneath them — permission, the
+/// APNs token, the server's push capability, the account — on the reasoning that
+/// every one of those fails silently and a screen of switches alone can say "on"
+/// to somebody who will never hear a thing. True, and still the wrong screen for
+/// it: five rows of diagnostics under the settings turn a page you visit once
+/// into a status readout you have to scroll past every time, and four green
+/// ticks is what it says on every device where nothing is wrong. What remains is
+/// the part that is actionable — the permission prompt when iOS has not been
+/// asked, and the sign-in or handle an own-flight notice needs, each shown only
+/// when it is the thing standing in the way.
 struct NotificationsPanel: View {
 
     @EnvironmentObject private var feed: LiveFeed
@@ -53,10 +55,6 @@ struct NotificationsPanel: View {
     @State private var isShowingAccount = false
     @State private var isShowingConnect = false
 
-    /// Set for a few seconds after the test notification is sent, so the row
-    /// can say what happened without a sheet or an alert.
-    @State private var testFeedback: String?
-
     private var theme: FlightInfoTheme { appearance.theme }
 
     private var preferences: FriendsStore.NotificationPreferences { friends.preferences }
@@ -74,10 +72,8 @@ struct NotificationsPanel: View {
 
             watchlistSection.panelEntrance(3)
 
-            deliverySection.panelEntrance(4)
-
             HintStrip(placement: .notifications)
-                .panelEntrance(5)
+                .panelEntrance(4)
         }
         .onAppear {
             resolveSubject()
@@ -499,136 +495,6 @@ struct NotificationsPanel: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
             }
-        }
-    }
-
-    // MARK: - Does any of this actually work
-
-    /// The chain, in the order it breaks.
-    ///
-    /// Every link here fails silently on its own, which is the whole reason
-    /// notifications are hard to diagnose from a phone: nothing errors, nothing
-    /// is logged where anybody can read it, and a switch that says "on" is
-    /// telling the truth about a preference and nothing about delivery.
-    private var deliverySection: some View {
-        PanelSection(title: "DELIVERY") {
-            deliveryRow(
-                "iOS permission",
-                ok: push.canNotify,
-                value: push.canNotify ? "Allowed" : "Not allowed"
-            )
-
-            PanelDivider()
-
-            deliveryRow(
-                "This device's address",
-                ok: push.deviceToken != nil,
-                value: push.deviceToken == nil ? "Not registered" : "Registered"
-            )
-
-            PanelDivider()
-
-            deliveryRow(
-                "Server push",
-                ok: friends.capabilities?.push ?? true,
-                // Nil is the probe not having answered, which says nothing
-                // about the server and should not be drawn as a fault.
-                value: friends.capabilities.map { $0.push ? "Ready" : "Unavailable" } ?? "Checking…"
-            )
-
-            PanelDivider()
-
-            deliveryRow(
-                "Your account",
-                ok: accounts.isSignedIn,
-                value: accounts.account?.handle ?? "Signed out"
-            )
-
-            PanelDivider()
-
-            testRow
-        }
-    }
-
-    private func deliveryRow(_ title: String, ok: Bool, value: String) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: ok ? "checkmark.circle.fill" : "exclamationmark.circle")
-                .font(.system(size: 13))
-                .foregroundStyle(ok ? theme.accent : theme.textDim)
-                .frame(width: 20)
-
-            Text(title)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(theme.textSecondary)
-
-            Spacer(minLength: 8)
-
-            Text(value)
-                .font(.system(size: 11.5, weight: .semibold, design: .monospaced))
-                .foregroundStyle(theme.textPrimary)
-                .flightInfoLine(minimumScale: 0.7)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 11)
-        .motion(Motion.content, value: value)
-    }
-
-    /// One notification, from this device, with no server involved.
-    ///
-    /// It proves exactly one thing — that iOS will draw a banner for this app —
-    /// and it is careful not to claim more than that. What it rules out is the
-    /// commonest cause of "I get nothing": notifications switched off for the
-    /// app, or delivered silently to a summary nobody reads.
-    private var testRow: some View {
-        Button {
-            sendTest()
-        } label: {
-            HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 4) {
-                    PanelRowLabel(title: "Send a test banner", symbol: "paperplane")
-
-                    Text(testFeedback
-                         ?? "From this device, so it proves iOS will show one — not that the server can reach you.")
-                        .font(.system(size: 10.5, weight: .medium))
-                        .foregroundStyle(theme.textDim)
-                        .padding(.leading, 30)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer(minLength: 8)
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(theme.textDim)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.pressable)
-        .motion(Motion.row, value: testFeedback)
-    }
-
-    private func sendTest() {
-        guard push.canNotify else {
-            withAnimation(Motion.row) {
-                testFeedback = "Notifications are not allowed yet, so iOS has nowhere to draw this."
-            }
-            return
-        }
-
-        push.post(
-            title: sampleTitle,
-            body: sampleBody,
-            identifier: "notification-settings-test"
-        )
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
-
-        withAnimation(Motion.row) {
-            testFeedback = "Sent — it should appear over the top of this, because the app asks for banners while it is open as well as while it is not."
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
-            withAnimation(Motion.row) { testFeedback = nil }
         }
     }
 

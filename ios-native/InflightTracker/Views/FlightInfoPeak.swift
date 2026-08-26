@@ -51,6 +51,159 @@ struct FlightInfoPeak: View {
 
         case .rich:
             rich
+
+        case .board:
+            board
+                .padding(.top, 18)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 4)
+        }
+    }
+
+    // MARK: - Board
+
+    /// How far the photograph stands above the top edge of the strip.
+    ///
+    /// The one measurement this layout is actually about. Too little and it
+    /// reads as a photo that has been badly cropped by its own card; too much
+    /// and the strip looks like it is falling away from underneath it. Enough
+    /// to be unmistakably deliberate, and no more.
+    private let boardPhotoLift: CGFloat = 26
+
+    private var boardPhotoWidth: CGFloat { 132 }
+
+    /// The photo's own shape, within bounds the strip can carry.
+    private var boardPhotoHeight: CGFloat {
+        guard let image = image, image.size.width > 0, image.size.height > 0 else {
+            return 84
+        }
+        let ratio = image.size.height / image.size.width
+        return min(max(boardPhotoWidth * ratio, 74), 96)
+    }
+
+    private var board: some View {
+        ZStack(alignment: .topLeading) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .bottom, spacing: 12) {
+                    // Sized to the photograph above it, so the two read as one
+                    // column rather than as text that happens to start near a
+                    // picture.
+                    VStack(alignment: .leading, spacing: 5) {
+                        boardField("FLIGHT", flight.displayName)
+                        boardField("TAIL", registration.isEmpty ? "—" : registration)
+                    }
+                    // A maximum rather than a fixed width: it lines up with
+                    // the photograph above on any screen wide enough, and gives
+                    // way before the route does on one that is not.
+                    .frame(maxWidth: boardPhotoWidth, alignment: .leading)
+
+                    Spacer(minLength: 6)
+
+                    boardRoute
+                }
+
+                boardProgress
+            }
+            .padding(.horizontal, 16)
+            // Clears the part of the photograph that overlaps the strip, plus a
+            // gap. Derived rather than written down, so changing the photo's
+            // size or its lift cannot leave the first row underneath it.
+            .padding(.top, boardPhotoHeight - boardPhotoLift + 12)
+            .padding(.bottom, 15)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .flightInfoSurface(theme, radius: theme.radiusMedium)
+            // Pushes the strip down by exactly the overhang, which is what
+            // leaves the photograph standing above it.
+            .padding(.top, boardPhotoLift)
+
+            AircraftPhotoImage(
+                image: image,
+                spriteKey: flight.spriteKey,
+                theme: theme,
+                iconSize: 34,
+                contentMode: .fit
+            )
+            .frame(width: boardPhotoWidth, height: boardPhotoHeight)
+            .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous)
+                    .strokeBorder(theme.strokeStrong, lineWidth: 1)
+            }
+            // Lifts it off the strip rather than decorating it. Without this the
+            // photograph and the surface behind it read as one flat plane and
+            // the overhang stops meaning anything.
+            .shadow(color: .black.opacity(0.28), radius: 10, y: 4)
+            .padding(.leading, 16)
+        }
+    }
+
+    /// One labelled line — the flight number, the registration.
+    private func boardField(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(label)
+                .font(.system(size: 8, weight: .bold))
+                .tracking(0.9)
+                .foregroundStyle(theme.textDim)
+
+            Text(value)
+                .font(.system(size: 15, weight: .heavy, design: .rounded))
+                .foregroundStyle(theme.textPrimary)
+                .flightInfoLine(minimumScale: 0.6)
+        }
+    }
+
+    /// Where it is going, at the size the strip is for.
+    private var boardRoute: some View {
+        HStack(spacing: 9) {
+            boardPort(flight.departureIcao)
+
+            Image(systemName: "arrow.right")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(theme.textDim)
+
+            boardPort(flight.arrivalIcao)
+        }
+    }
+
+    private func boardPort(_ icao: String?) -> some View {
+        VStack(spacing: 2) {
+            Text(icao?.uppercased() ?? "————")
+                .font(.system(size: 25, weight: .heavy, design: .rounded))
+                .foregroundStyle(icao == nil ? theme.textDim : theme.textPrimary)
+                // Two four-letter ICAOs at this size are wider than the strip
+                // on the smallest phone. They shrink rather than being cut in
+                // half by the window's clip, which is the one outcome that
+                // would make the route unreadable.
+                .flightInfoLine(minimumScale: 0.55)
+
+            Image(systemName: "airplane")
+                .font(.system(size: 9))
+                .foregroundStyle(theme.textDim)
+        }
+    }
+
+    /// How far it has got, when there is a route to measure it against.
+    ///
+    /// A parked aircraft and one with no filed destination both land here with
+    /// nothing to draw, and draw nothing — the strip simply ends after the
+    /// route. Padding out an empty bar would be inventing a journey.
+    @ViewBuilder
+    private var boardProgress: some View {
+        if let progress = FlightProgress(flight: flight) {
+            VStack(spacing: 6) {
+                RouteTrack(fraction: progress.fraction, theme: theme)
+
+                HStack(spacing: 8) {
+                    Text("\(Format.number(progress.flownNM)) NM")
+                        .foregroundStyle(theme.textSecondary)
+
+                    Spacer(minLength: 8)
+
+                    Text("\(Format.number(progress.totalNM)) NM")
+                        .foregroundStyle(theme.textDim)
+                }
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            }
         }
     }
 
