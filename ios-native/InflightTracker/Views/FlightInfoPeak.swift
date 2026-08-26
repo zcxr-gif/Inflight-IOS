@@ -52,10 +52,9 @@ struct FlightInfoPeak: View {
             // Clears the drag indicator, which floats over the top of the sheet.
             .padding(.top, 18)
             .padding(.horizontal, 16)
-            // Small: the sheet adds `peakBottomGap` under this, and the two
-            // together are the whole distance from the last line to the bottom
-            // of the window. Anything more here is space with nothing in it.
-            .padding(.bottom, 2)
+            // None: `peakBottomGap` is the whole distance from the last line
+            // to the bottom of the window, and the window is sized to leave
+            // exactly that. Padding here would only be added to it.
 
         case .rich:
             rich
@@ -84,10 +83,8 @@ struct FlightInfoPeak: View {
             }
             .padding(.horizontal, 14)
             .padding(.top, -FlightInfoLayout.heroSeamLift)
-            // As with the compact bar: the sheet's own gap finishes this off,
-            // so the last line sits close to the bottom edge instead of above a
-            // band of empty window.
-            .padding(.bottom, 2)
+            // As with the compact bar: `peakBottomGap` is the whole gap under
+            // the last line, so nothing is added to it here.
         }
     }
 

@@ -49,6 +49,13 @@ struct FlightDetailView: View {
     /// and the full window can't disagree about it or ask for it twice.
     @State private var vaPartner: VaPartner?
 
+    /// The peak state's last measured content height.
+    ///
+    /// Kept rather than only reacted to: a preference reports when it changes,
+    /// and the moment the window needs it again — settling back to the peak —
+    /// is precisely a moment when it has not.
+    @State private var peakContentHeight: CGFloat = 0
+
     /// The partner whose own panel is open over this window, when one is.
     @State private var viewingPartner: VaAd?
 
@@ -146,24 +153,26 @@ struct FlightDetailView: View {
             .clipped()
             // Derived in the layout pass rather than read back off the proxy
             // afterwards, which is not something a GeometryProxy promises.
-            .onChange(of: settled) { _, newValue in isCollapsed = newValue }
+            .onChange(of: settled) { _, newValue in
+                isCollapsed = newValue
+                // Content that changed while the full window was up — a photo
+                // arriving, a plan landing — never reached the sizing below,
+                // because a preference only reports when it changes and it had
+                // already changed. Re-run it against the height the window has
+                // now that it is back at the peak.
+                if newValue { fitPeak(to: peakContentHeight, in: geometry.size.height) }
+            }
             .onPreferenceChange(PeakContentHeightKey.self) { measured in
                 // Zero means the peak state isn't in the tree at all — the
                 // aircraft stopped reporting — which is not a reason to
                 // collapse the sheet around the message that replaced it.
                 guard measured > 80 else { return }
-
-                // The window draws into the bottom safe area — `measured` is
-                // content that already runs down to the screen's edge — so the
-                // peak only wants a small gap under its card. Taking the home
-                // indicator's inset instead put that whole band below the
-                // route block a second time, which was the dead space under
-                // the peak state.
-                let wanted = min(
-                    max(measured + FlightInfoLayout.peakBottomGap, FlightInfoLayout.minimumPeakHeight),
-                    FlightInfoLayout.maximumPeakHeight
-                )
-                if abs(wanted - peakHeight) > 1 { peakHeight = wanted }
+                peakContentHeight = measured
+                // Only at rest. Mid-drag, and at the full window, the container
+                // is the whole sheet rather than the peak's own detent, and
+                // sizing the peak to that would collapse it to nothing.
+                guard settled else { return }
+                fitPeak(to: measured, in: geometry.size.height)
             }
         }
         // The sheet's own ground already covers the home indicator, and the
@@ -233,6 +242,34 @@ struct FlightDetailView: View {
         let travelled = (height - peakHeight - FlightInfoLayout.phaseDeadZone)
             / FlightInfoLayout.phaseTravel
         return Double(min(max(travelled, 0), 1))
+    }
+
+    /// Size the peak's detent from what is actually empty under it, rather than
+    /// from what ought to be.
+    ///
+    /// `measured + peakBottomGap` was an assumption about the sheet: that a
+    /// detent of h hands the window exactly h points to lay out in. It does
+    /// not always. The home indicator's band, a detent set changing underneath
+    /// a bound selection, and plain rounding each put a few points — or a whole
+    /// inset — between the peak's last line and the bottom of the window, and
+    /// none of them are in that sum. Which is why shrinking the constant never
+    /// shrank the band: the constant was not what the band was made of.
+    ///
+    /// `container` is the height the window is really laying out into and
+    /// `measured` is what the peak really needs, so `container - measured` IS
+    /// the empty band. Move the detent by the difference between that and the
+    /// gap we want, and the band becomes the gap — whatever it was made of.
+    /// One pass lands it: the correction is arithmetic, not a search.
+    private func fitPeak(to measured: CGFloat, in container: CGFloat) {
+        guard measured > 80, container > 0 else { return }
+
+        let slack = container - measured
+        let wanted = min(
+            max(peakHeight - (slack - FlightInfoLayout.peakBottomGap),
+                FlightInfoLayout.minimumPeakHeight),
+            FlightInfoLayout.maximumPeakHeight
+        )
+        if abs(wanted - peakHeight) > 1 { peakHeight = wanted }
     }
 
     /// Smoothstep across a slice of the drag. The two slices overlap, so the
