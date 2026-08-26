@@ -154,9 +154,50 @@ Set on the backend:
 | `APNS_TOPIC` | Bundle id. Defaults to `com.tracker.Inflight`. |
 | `APNS_HOST` | `https://api.push.apple.com` (default) or `https://api.sandbox.push.apple.com` for development builds. |
 
-The sandbox host is not optional for TestFlight-adjacent testing: a token
-minted by a development-signed build is rejected by the production host, and
-the rejection looks exactly like a dead token.
+`APNS_HOST` picks which environment is tried **first**, not which one is used.
+A token minted by a development-signed build is rejected by the production host
+with `400 BadDeviceToken` — which is byte for byte the rejection for a token
+that is genuinely rubbish, and `push.cjs` used to believe it. It pruned the
+token, and with it the `device_watch` rows, which that token is the only owner
+of. So the first event a mismatched build should have received deleted its
+watchlist from the server and every later one had nothing to deliver to: the app
+went silent, and the evidence went with it.
+
+It now learns instead. One `BadDeviceToken` is retried against the other host,
+whichever accepts it is remembered per token in `apns_environment`, and a token
+is pruned only when both have refused it. Nothing to configure, and a fleet that
+is a mixture of TestFlight and Xcode builds — which is every fleet during
+development — works without anybody choosing a side.
+
+`/api/admin/diagnostics` counts the ones that turned out to be on the other
+environment, under `push.onAlternateEnvironment`. On a production deployment
+that is a count of builds shipped with `aps-environment: development`, which is
+worth knowing and was invisible before.
+
+## Time Sensitive Notifications
+
+`com.apple.developer.usernotifications.time-sensitive` is **deliberately not**
+in `Support/InflightTracker.entitlements` yet.
+
+The takeoff push is sent at `interruption-level: time-sensitive`, and the
+descent and arrival notices at `active` with priority 10. Without the
+capability iOS accepts them and quietly demotes the time-sensitive one to
+`active` — a banner still arrives, it simply does not break through a Focus.
+That is a real loss and a small one.
+
+Adding the key before the capability exists on the App ID is a larger one. A
+restricted entitlement missing from the provisioning profile does not degrade;
+it fails codesign, and every release stops until somebody opens the portal. So
+the order is:
+
+1. **Identifiers → App IDs → `com.tracker.Inflight`**, enable **Time Sensitive
+   Notifications**.
+2. Regenerate the App Store profile (changing capabilities marks the existing
+   one Invalid) and re-upload it to Codemagic.
+3. Add the key to the entitlements file, and add
+   `--require "com.tracker.Inflight:com.apple.developer.usernotifications.time-sensitive"`
+   to the `check-provisioning.py` call in `codemagic.yaml`, so a profile that
+   loses it again fails in the signing step rather than at archive time.
 
 `GET /api/watchlist/capabilities` reports `push: true` only when the key, key
 id and team id are all present, so it is the fastest way to check the backend
@@ -165,9 +206,15 @@ half is configured.
 ## Entitlements per build type
 
 `Support/InflightTracker.entitlements` ships `aps-environment` as
-`development`. The App Store export rewrites it to `production`. A build
-signed with the wrong one registers for APNs successfully and then never
-receives anything.
+`development`. An App Store export rewrites it to `production` as part of
+re-signing; a build run from Xcode keeps `development` and is handed a sandbox
+token.
+
+Both work now — see the APNs key section above, where the backend learns which
+environment a token belongs to rather than assuming. Getting this wrong used to
+mean a build that registered for APNs successfully and then never received
+anything, and it is still worth getting right: the fallback costs one wasted
+request per token, once.
 
 ## Your own flight, announced to you
 
@@ -197,12 +244,48 @@ it, was the one person nothing was addressed to.
 | --- | --- | --- |
 | **Airborne** | A confirmed ground → air transition | Active, silent |
 | **Top of descent** | Reached a cruise above 12,000 ft, then several consecutive descending samples | Active, with a sound, at APNs priority 10 — it is the moment there is something to do |
+| **30 minutes out** | The distance still to run over the speed being made good falls under `OWN_FLIGHT_APPROACH_MINUTES` | Active, with a sound, at priority 10 — same reasoning |
 | **On the ground** | A confirmed air → ground transition | Passive, silent |
 
 Nothing needing height above ground is announced, and that is a limit rather
 than an omission: the feed carries MSL altitude only, so 2,000 ft over
 Amsterdam and 2,000 ft over Denver are the same number and a different
 situation. "On final" would be wrong in mountains, which is worse than absent.
+
+### Thirty minutes out
+
+The one people plan around: it is the difference between finding out you are on
+approach and deciding to be at the controls for it. It needs no height above
+ground and no filed schedule — only where the arrival field is, where the
+aeroplane is, and how fast it is closing — so unlike "on final" it is derivable
+from what the feed carries, and derivable everywhere.
+
+Three guards, each for a way the naive version announces a moment that never
+happened:
+
+* **The flight must have been seen further out than the window first.** Without
+  it, a redeploy mid-arrival, a short hop that begins inside the window, and a
+  pilot who spawns twenty miles out all get told they are half an hour away when
+  they are not.
+* **A groundspeed floor of 120 kt.** A stationary aeroplane is infinitely far
+  from everywhere, and dividing by a taxi speed says so.
+* **A distance floor of 12 miles.** For the case the speed floor cannot catch —
+  an aeroplane taxiing in four miles from its own destination.
+
+The estimate is deliberately the simplest one there is, distance over the speed
+being made good, because everything better needs a wind model or an arrival
+profile that the feed does not carry. It runs a few minutes optimistic on a
+flight that still has to slow down; the notice says "about", and being early to
+warn somebody is the right direction to be wrong in.
+
+A diversion is the honest limit: the estimate is against the field that was
+filed. That is the same limit the route strip on the map has always had.
+
+`OWN_FLIGHT_APPROACH_MINUTES` moves the window (default 30, clamped to 1–180),
+and the backend reports the number it is actually using in
+`/api/watchlist/capabilities` as `approachMinutes` — so the sentence in the
+app's settings comes from the thing that decides it rather than being written
+down twice.
 
 ### Knowing which aeroplane is yours
 
@@ -243,6 +326,27 @@ by a flight id they published, so both at zero while signed-in pilots are flying
 means the join is missing rather than the detector being broken. `tracking` is
 how many of their flights currently hold state.
 
+## Where the switches live
+
+One screen — `Views/NotificationsPanel.swift`, reached from Settings and from
+the friends panel. Both directions are on it, because a person setting them does
+not care which of the two the server had to address from.
+
+The preferences are held **per device**, in `device_prefs`, keyed by the APNs
+token — including the own-flight ones, which are addressed to an account. That
+looks inconsistent and is not: this is a preference about a notification centre,
+and the phone is what has one. Two phones signed into the same account are two
+sets of opinions, and `notifyAccount` filters per device for that reason.
+
+A kind `push.cjs` does not recognise is not filtered at all, so a client built
+before a switch existed keeps receiving what it always did rather than losing it
+to a preference it never sent.
+
+The panel also draws the delivery chain, in the order it breaks: iOS permission,
+the APNs token, the server's push capability, the account registration. Every
+one of those fails silently on its own, which is exactly why a screen that shows
+only the switches can say "on" to somebody who will never hear a thing.
+
 ## What each piece needs to work
 
 | Feature | Needs |
@@ -250,7 +354,8 @@ how many of their flights currently hold state.
 | Takeoff / landing / online / offline pushes | APNs key on the backend, notification permission on the device |
 | "Inflight stopped reading your sim" | The above, plus being signed in — it is the one push addressed to an account rather than to a device token, so it needs the `/api/push/devices` registration `PushService.syncAccountRegistration` makes on launch and on sign-in |
 | Live banner raised by a friend's takeoff | The above, plus `NSSupportsLiveActivities` (set) and a push-to-start token, which iOS only issues on a real device — never the simulator |
-| Airborne / top of descent / landed, about your own flight | The above, plus either an Infinite Flight username on your profile or one Connect session on the flight — either is enough to join an aeroplane on the map to your account |
+| Airborne / top of descent / 30 minutes out / landed, about your own flight | The above, plus either an Infinite Flight username on your profile or one Connect session on the flight — either is enough to join an aeroplane on the map to your account |
+| 30 minutes out, specifically | Also a destination on the flight plan. Without an arrival field there is nothing to be thirty minutes from, and nothing is announced |
 | Home-screen widgets | The app group on both targets |
 | Aircraft photos on widgets | Nothing extra. The app caches them into the group as it fetches them for the flight window; a widget with no cached photo draws its own sky instead |
 

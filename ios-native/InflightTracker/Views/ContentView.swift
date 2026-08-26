@@ -197,7 +197,24 @@ struct ContentView: View {
     /// peak detent and comes back at full height.
     private enum WindowSheet: Identifiable, Equatable {
         case flight
-        case panel(MapPanelKind)
+
+        /// A toolbar panel — but *which* panel is `panelKind`, not an
+        /// associated value here.
+        ///
+        /// Deliberately shaped like `flight` above, and for the same reason.
+        /// `sheet(item:)` keys a presentation on the item's `id`: same id, same
+        /// window, and the contents are simply redrawn. So both of the cases
+        /// that want to change what they are showing without the window going
+        /// anywhere carry no payload at all, and keep what they are showing in
+        /// a piece of state the content closure reads — which is a dependency
+        /// SwiftUI is guaranteed to redraw for.
+        ///
+        /// The payload version of this looked identical and was not: reaching
+        /// past an open panel to another toolbar button — which the glass
+        /// deliberately allows — changed the id, tore the window off the screen
+        /// and threw a fresh one up from the bottom, for two screens the same
+        /// size and shape made of the same glass.
+        case panel
 
         /// A field — from the search results, the ATC panel, the board, or an
         /// open flight's route card. Carries the ICAO rather than the `Airport`
@@ -205,16 +222,35 @@ struct ContentView: View {
         /// back when the sheet is built.
         case airport(String)
 
+        /// The sheet's identity — and where a case chooses to have only one,
+        /// that is the whole difference between a window that changes and a
+        /// window that is replaced.
+        ///
+        /// `flight` has always had one id for every aircraft, so tapping a
+        /// second aeroplane swaps the contents of the window that is already
+        /// open. `panel` now does the same. It used to be the panel's own name,
+        /// which meant reaching past an open panel to another button on the
+        /// toolbar — which the glass deliberately allows — tore the whole
+        /// window off the screen and threw a fresh one up from the bottom, for
+        /// two screens that are the same size, the same shape and made of the
+        /// same glass. One id, and the panels cross-fade in place.
         var id: String {
             switch self {
             case .flight: return "flight"
-            case .panel(let kind): return kind.rawValue
+            case .panel: return "panel"
             case .airport(let icao): return "airport|\(icao)"
             }
         }
     }
 
     @State private var sheet: WindowSheet?
+
+    /// Which panel the one panel window is showing.
+    ///
+    /// Separate from `sheet` on purpose — see `WindowSheet.panel`. The sheet's
+    /// identity says *a* panel is open and this says which, so moving between
+    /// them redraws the window's contents instead of replacing the window.
+    @State private var panelKind: MapPanelKind = .friends
 
     /// The traffic the map draws: the packet, narrowed by the filters, with the
     /// open aircraft kept whatever they say.
@@ -429,11 +465,11 @@ struct ContentView: View {
     /// The stack, with everything that watches for a change attached.
     private var watchedStack: some View {
         mapStack
-        .animation(.easeInOut(duration: 0.22), value: selection?.id)
-        .animation(.easeInOut(duration: 0.22), value: replay.isActive)
+        .motion(Motion.chrome, value: selection?.id)
+        .motion(Motion.chrome, value: replay.isActive)
         // The same spring the dock settles its own handle with, so the card
         // and everything that lifts out of its way move as one thing.
-        .animation(.spring(response: 0.34, dampingFraction: 0.86), value: isStatsUp)
+        .motion(Motion.chrome, value: isStatsUp)
         .onChange(of: selection?.id) { _, id in
             // A replay belongs to the aircraft it was started from, and to the
             // window that drew the track under it. Opening another aircraft,
@@ -574,8 +610,8 @@ struct ContentView: View {
             refreshMapAirports()
             refreshFriendsAloft()
         }
-        .animation(.easeInOut(duration: 0.22), value: weatherPreferences.mapLayer)
-        .animation(.easeInOut(duration: 0.22), value: measurement)
+        .motion(Motion.chrome, value: weatherPreferences.mapLayer)
+        .motion(Motion.chrome, value: measurement)
         // Pro can end while the app is open, and a tracker is an app people
         // leave open for hours. Coming back to the foreground is the moment to
         // re-ask: a subscription that lapsed overnight, a refund Apple granted,
@@ -641,8 +677,12 @@ struct ContentView: View {
         switch which {
         case .flight:
             flightWindow
-        case .panel(let kind):
-            panel(kind)
+        case .panel:
+            panel(panelKind)
+                // Keyed, so each panel starts with its own scroll position and
+                // its own state rather than inheriting the last one's.
+                .id(panelKind)
+                .transition(.opacity)
         case .airport(let icao):
             airportSheet(icao)
         }
@@ -765,10 +805,10 @@ struct ContentView: View {
             .environmentObject(feed)
 
         // Both of these hand off to the field's own panel rather than closing
-        // and moving the map, which the field's first row does anyway. The
-        // sheet's identity changes, so this dismisses and re-presents — fine
-        // between panels, which carry no detent to lose, and the reason the
-        // flight case deliberately keeps one id for every aircraft.
+        // and moving the map, which the field's first row does anyway. A field
+        // carries its ICAO in the sheet's identity, so this one does dismiss and
+        // re-present — which is right: it is a different kind of window, not the
+        // same window showing something else.
         case .atc:
             AtcPanel { airport in
                 openAirport(airport)
@@ -867,7 +907,15 @@ struct ContentView: View {
         case .panel(let name):
             guard let kind = MapPanelKind(rawValue: name) else { return }
             selection = nil
-            sheet = .panel(kind)
+            openPanel(kind)
+        }
+    }
+
+    /// Opens the panel window on `kind`, or swaps what an open one is showing.
+    private func openPanel(_ kind: MapPanelKind) {
+        withAnimation(Motion.content) {
+            panelKind = kind
+            sheet = .panel
         }
     }
 
@@ -1039,10 +1087,10 @@ struct ContentView: View {
                     activeFilters: filters.activeCount,
                     friendsAloft: friendsAloft,
                     isStatsUp: $isStatsUp,
-                    onPanel: { kind in sheet = .panel(kind) },
+                    onPanel: { kind in openPanel(kind) },
                     onOpenStats: {
                         isStatsUp = false
-                        sheet = .panel(.stats)
+                        openPanel(.stats)
                     }
                 )
                 .environmentObject(feed)
@@ -1235,7 +1283,7 @@ struct ContentView: View {
                     }
 
                     Button {
-                        sheet = .panel(.weather)
+                        openPanel(.weather)
                     } label: {
                         Label("Weather settings", systemImage: "slider.horizontal.3")
                     }

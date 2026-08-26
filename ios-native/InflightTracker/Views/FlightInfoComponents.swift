@@ -484,7 +484,7 @@ struct FlightHero: View {
                 .padding(.trailing, 12)
                 // The credit belongs to the photograph, so it changes with it
                 // rather than being replaced under a stationary label.
-                .animation(.easeInOut(duration: 0.18), value: currentContributor)
+                .motion(Motion.content, value: currentContributor)
         }
     }
 
@@ -504,7 +504,7 @@ struct FlightHero: View {
             .flightInfoSurface(theme, radius: 8, elevated: true)
             .padding(.leading, 12)
             .padding(.bottom, 10)
-            .animation(.easeInOut(duration: 0.18), value: page)
+            .motion(Motion.content, value: page)
             .accessibilityLabel("Photo \(page + 1) of \(photos.count)")
         }
     }
@@ -1132,5 +1132,128 @@ struct SimReadoutCard: View {
         kilograms >= 1000
             ? String(format: "%.1f t", Double(kilograms) / 1000)
             : "\(kilograms) kg"
+    }
+}
+
+// MARK: - On frequency
+
+/// Who this aeroplane is talking to, in its own window.
+///
+/// Only ever drawn on the flight the pilot is actually flying, and only while
+/// Infinite Flight Connect is attached to it. That is not a limitation to work
+/// around — it is where the information exists. The public Live API knows which
+/// controllers are *open* on a server, which is what the ATC panel lists, and it
+/// has no idea which of them any particular aeroplane is tuned to. Only the
+/// simulator knows that, and it only tells the device it is linked to.
+///
+/// The match is on the flight id the sim published rather than on a name, so
+/// this cannot end up on somebody else's aircraft: no id, no card.
+///
+/// Two halves, and they are not equally certain:
+///
+///   - **The frequency.** `com_1/atc_name` was observed in a real manifest, is
+///     polled like any other state, and changes when the pilot changes
+///     frequency. It works.
+///   - **The transcript.** A pushed stream whose paths were named from the
+///     developer reference rather than seen, and which this build of Infinite
+///     Flight may well not expose at all. So it is drawn only when messages have
+///     actually arrived. There is no empty state and no explanation here: a
+///     window about an aeroplane is the wrong place for a paragraph about an
+///     API, and the Connect panel already carries that sentence for anyone who
+///     goes looking.
+struct ConnectFrequencyCard: View {
+
+    /// The flight the window is open on. Compared against the id the sim
+    /// published, which is what makes this "your aeroplane" rather than "an
+    /// aeroplane".
+    let flightId: String
+
+    let theme: FlightInfoTheme
+
+    @ObservedObject private var session = ConnectSession.shared
+
+    /// Asked of the session rather than worked out here.
+    ///
+    /// This view used to compare the flight ids itself, which was the same
+    /// check and not the same thing: the live-status publisher was making its
+    /// own version of it a few files away, and two copies of "is this the right
+    /// aeroplane" is one copy that will be missing a clause. The session owns
+    /// the question — including the parts a view could not see, like whether
+    /// the transcript was captured under this flight or the one before it.
+    private var atc: (facility: String?, log: [ConnectATCMessage])? {
+        session.atc(for: flightId)
+    }
+
+    var body: some View {
+        // Nothing tuned and nothing said is nothing to draw. The card does not
+        // appear at all rather than appearing empty.
+        if let atc = atc {
+            let facility = atc.facility
+            let log = atc.log
+
+            VStack(alignment: .leading, spacing: 10) {
+                header
+
+                if let facility = facility {
+                    Text(facility)
+                        .font(.system(size: 16, weight: .heavy, design: .rounded))
+                        .foregroundStyle(theme.textPrimary)
+                        .flightInfoLine(minimumScale: 0.6)
+                }
+
+                if !log.isEmpty {
+                    if facility != nil {
+                        Rectangle()
+                            .fill(theme.stroke)
+                            .frame(height: 1)
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(log.prefix(5)) { line in
+                            VStack(alignment: .leading, spacing: 2) {
+                                if let from = line.from {
+                                    Text(from.uppercased())
+                                        .font(.system(size: 8.5, weight: .bold))
+                                        .tracking(0.8)
+                                        .foregroundStyle(theme.accent)
+                                }
+
+                                Text(line.text)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(theme.textSecondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .flightInfoSurface(theme, radius: theme.radiusMedium)
+            // The frequency changes mid-flight and the log grows a line at a
+            // time, so both move rather than jumping.
+            .motion(Motion.row, value: facility)
+            .motion(Motion.row, value: log.count)
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 6) {
+            Text("ON FREQUENCY")
+                .font(.system(size: 9, weight: .bold))
+                .tracking(1)
+                .foregroundStyle(theme.textDim)
+
+            Text("FROM YOUR SIM")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(theme.accent)
+
+            Spacer(minLength: 4)
+
+            Image(systemName: "antenna.radiowaves.left.and.right")
+                .font(.system(size: 10))
+                .foregroundStyle(theme.textDim)
+        }
     }
 }

@@ -180,7 +180,7 @@ struct AirportPanel: View {
             loadImage()
             gateStore.load(airport)
         }
-        .animation(.easeInOut(duration: 0.25), value: imageLoader.image != nil)
+        .motion(Motion.content, value: imageLoader.image != nil)
         .onReceive(clock) { tick in
             now = tick
             // The service holds a report for ten minutes, so this costs a

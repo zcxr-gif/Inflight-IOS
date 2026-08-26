@@ -273,14 +273,19 @@ struct PanelCheckRow<Trailing: View>: View {
                 Image(systemName: isOn ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 16))
                     .foregroundStyle(isOn ? theme.textPrimary : theme.textDim)
+                    .contentTransition(.symbolEffect(.replace))
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        // Barely a scale, because a whole row moving is a row that looks
+        // broken — but a row that acknowledges nothing at all is a row people
+        // tap twice.
+        .buttonStyle(.pressable(scale: 0.985))
         // Off reads as off at a glance, without colour doing the work.
         .opacity(isOn ? 1 : 0.55)
+        .motion(Motion.control, value: isOn)
     }
 }
 
@@ -382,7 +387,7 @@ struct PanelActionRow: View {
             .padding(.vertical, 12)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable(scale: 0.985))
     }
 }
 

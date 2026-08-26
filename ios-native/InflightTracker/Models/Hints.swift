@@ -12,6 +12,7 @@ enum HintPlacement: String {
     case airports
     case atc
     case friends
+    case notifications
     case filters
     case weather
     case stats
@@ -210,6 +211,19 @@ struct Hint: Identifiable, Equatable {
             id: "friends.device",
             placement: .friends,
             text: "A live banner raised by someone's takeoff needs a real device — the token it starts from is one the simulator never issues."
+        ),
+
+        // MARK: Notifications
+
+        Hint(
+            id: "notifications.own",
+            placement: .notifications,
+            text: "The notices about your own flight are worked out from the feed by the server, so they arrive with Inflight closed and the simulator in front of you."
+        ),
+        Hint(
+            id: "notifications.chain",
+            placement: .notifications,
+            text: "Every link under DELIVERY has to be green. Each one of them fails quietly on its own, which is why they are listed rather than assumed."
         ),
 
         // MARK: Filters

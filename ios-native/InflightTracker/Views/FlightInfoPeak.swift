@@ -51,6 +51,248 @@ struct FlightInfoPeak: View {
 
         case .rich:
             rich
+
+        case .board:
+            board
+                .padding(.top, 18)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 4)
+        }
+    }
+
+    // MARK: - Board
+
+    /// How far the photograph lies over the top edge of the route card.
+    ///
+    /// The one measurement this layout is actually about. Too little and it
+    /// reads as a photo that happens to be near a card; too much and the card
+    /// looks like it is sliding out from under it.
+    private let boardPhotoOverlap: CGFloat = 22
+
+    private var boardPhotoWidth: CGFloat { 118 }
+
+    /// The photograph's leading inset, measured from the card's own edge.
+    private let boardPhotoInset: CGFloat = 12
+
+    /// The card's content inset.
+    private let boardCardInset: CGFloat = 14
+
+    /// The gap after the photograph, on both of the rows that sit beside it.
+    private let boardPhotoGap: CGFloat = 16
+
+    /// How much of the card's first row the photograph is lying across.
+    ///
+    /// Derived from the numbers above rather than measured off a screenshot,
+    /// and that is what makes the column line up: the flight number in the
+    /// header and the departure ICAO in the card are laid out by two different
+    /// containers with two different insets, so the only way their left edges
+    /// agree — and go on agreeing when the photo changes size — is for both to
+    /// be computed from the same three figures.
+    private var boardPhotoLane: CGFloat {
+        boardPhotoInset + boardPhotoWidth + boardPhotoGap - boardCardInset
+    }
+
+    /// The photo's own shape, within bounds the peak can carry.
+    private var boardPhotoHeight: CGFloat {
+        guard let image = image, image.size.width > 0, image.size.height > 0 else {
+            return 84
+        }
+        let ratio = image.size.height / image.size.width
+        return min(max(boardPhotoWidth * ratio, 74), 94)
+    }
+
+    /// The board.
+    ///
+    /// One container, and it holds the route — nothing else. The window is
+    /// already a pane of glass laid over the map, so a surface behind the whole
+    /// peak was a card drawn on a card: two edges, two corner radii and two
+    /// shadows for one object, which is what made it look boxed in rather than
+    /// laid out. The photograph and the aeroplane's identity sit straight on the
+    /// glass now, the way the compact peak's identity row always has, and the
+    /// only thing with a border round it is the part that earns one — where the
+    /// flight is going and how far it has got, which is a readout rather than a
+    /// caption.
+    ///
+    /// The overhang survives, and is better for it: standing proud of a whole
+    /// strip the photograph was breaking a box that had nothing to do with it,
+    /// where resting on the route card it is one object lying on another.
+    ///
+    /// The negative spacing is what does that, and it is deliberately not an
+    /// offset or a computed position. Pulling the card up into the header means
+    /// the overlap is measured from whatever the header actually turns out to
+    /// be — a taller photograph, a longer registration, a larger accessibility
+    /// font — rather than from a number written here that any of those would
+    /// make wrong. `zIndex` is the other half: without it the card is the later
+    /// sibling and draws over the picture it is supposed to lie under.
+    private var board: some View {
+        VStack(alignment: .leading, spacing: -boardPhotoOverlap) {
+            boardHeader
+                .zIndex(1)
+
+            boardCard
+        }
+    }
+
+    /// The photograph, and which flight it is — bare on the window's glass.
+    ///
+    /// The two fields run side by side rather than stacked, and that is
+    /// structural rather than stylistic. Stacked, the column is about sixty
+    /// points tall and the card's top edge crosses the header well above that,
+    /// so the registration would sit over the card's border on exactly the
+    /// aircraft whose photograph is shortest. One row is a single field high and
+    /// clears it whatever the picture does.
+    private var boardHeader: some View {
+        HStack(alignment: .top, spacing: boardPhotoGap) {
+            AircraftPhotoImage(
+                image: image,
+                spriteKey: flight.spriteKey,
+                theme: theme,
+                iconSize: 34,
+                contentMode: .fit
+            )
+            .frame(width: boardPhotoWidth, height: boardPhotoHeight)
+            .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous)
+                    .strokeBorder(theme.strokeStrong, lineWidth: 1)
+            }
+            // Lifts it off the card rather than decorating it. Without this the
+            // photograph and the surface it lies on read as one flat plane and
+            // the overlap stops meaning anything.
+            .shadow(color: .black.opacity(0.3), radius: 12, y: 5)
+
+            HStack(alignment: .top, spacing: 18) {
+                boardField("FLIGHT", flight.displayName)
+                boardField("TAIL", registration.isEmpty ? "—" : registration)
+            }
+            // Nudged onto the photograph's own top edge: the label is small and
+            // its cap height sits well below the line box, so aligning the
+            // boxes leaves the text looking dropped.
+            .padding(.top, 3)
+
+            Spacer(minLength: 0)
+        }
+        // Inset from the card's corner, so the photograph reads as lying on it
+        // rather than as being pinned to it.
+        .padding(.leading, boardPhotoInset)
+        .padding(.trailing, boardCardInset)
+    }
+
+    /// One labelled figure — the flight number, the registration.
+    private func boardField(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(label)
+                .font(.system(size: 8, weight: .bold))
+                .tracking(0.9)
+                .foregroundStyle(theme.textDim)
+
+            Text(value)
+                .font(.system(size: 15, weight: .heavy, design: .rounded))
+                .foregroundStyle(theme.textPrimary)
+                .flightInfoLine(minimumScale: 0.6)
+        }
+    }
+
+    /// Where it is going and how far it has got — the one container.
+    ///
+    /// The route runs beside the photograph rather than under it. Set below, the
+    /// card carries a band of nothing across its whole top edge with a picture
+    /// resting on one corner of it, which is a lot of empty card to buy one
+    /// alignment. Beside it, the corner the photo covers is the only part of
+    /// that row it was ever going to occupy.
+    private var boardCard: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 0) {
+                // The lane the photograph is lying in. Held open rather than
+                // left to a leading padding, so the route is a sibling of the
+                // space the picture takes rather than an inset that has to be
+                // kept in step with it by hand.
+                Color.clear
+                    .frame(width: boardPhotoLane, height: 0)
+
+                boardRoute
+
+                Spacer(minLength: 0)
+            }
+
+            boardProgress
+
+            Text(boardAircraftLine)
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(theme.textDim)
+                .flightInfoLine(minimumScale: 0.7)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, boardCardInset)
+        .padding(.top, 12)
+        .padding(.bottom, 14)
+        .frame(maxWidth: .infinity)
+        .flightInfoSurface(theme, radius: theme.radiusMedium)
+    }
+
+    /// The airframe, and its colours where the feed names them.
+    private var boardAircraftLine: String {
+        let type = flight.aircraftName.trimmingCharacters(in: .whitespaces)
+        let livery = flight.liveryName.trimmingCharacters(in: .whitespaces)
+
+        if type.isEmpty { return livery.isEmpty ? "Unknown aircraft" : livery }
+        // A livery that merely repeats the type says nothing twice.
+        if livery.isEmpty || livery.caseInsensitiveCompare(type) == .orderedSame { return type }
+        return "\(type) · \(livery)"
+    }
+
+    /// Where it is going, at the size the strip is for.
+    private var boardRoute: some View {
+        HStack(spacing: 9) {
+            boardPort(flight.departureIcao)
+
+            Image(systemName: "arrow.right")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(theme.textDim)
+
+            boardPort(flight.arrivalIcao)
+        }
+    }
+
+    private func boardPort(_ icao: String?) -> some View {
+        VStack(spacing: 2) {
+            Text(icao?.uppercased() ?? "————")
+                .font(.system(size: 22, weight: .heavy, design: .rounded))
+                .foregroundStyle(icao == nil ? theme.textDim : theme.textPrimary)
+                // Two four-letter ICAOs at this size are wider than the strip
+                // on the smallest phone. They shrink rather than being cut in
+                // half by the window's clip, which is the one outcome that
+                // would make the route unreadable.
+                .flightInfoLine(minimumScale: 0.55)
+
+            Image(systemName: "airplane")
+                .font(.system(size: 9))
+                .foregroundStyle(theme.textDim)
+        }
+    }
+
+    /// How far it has got, when there is a route to measure it against.
+    ///
+    /// A parked aircraft and one with no filed destination both land here with
+    /// nothing to draw, and draw nothing — the strip simply ends after the
+    /// route. Padding out an empty bar would be inventing a journey.
+    @ViewBuilder
+    private var boardProgress: some View {
+        if let progress = FlightProgress(flight: flight) {
+            VStack(spacing: 6) {
+                RouteTrack(fraction: progress.fraction, theme: theme)
+
+                HStack(spacing: 8) {
+                    Text("\(Format.number(progress.flownNM)) NM")
+                        .foregroundStyle(theme.textSecondary)
+
+                    Spacer(minLength: 8)
+
+                    Text("\(Format.number(progress.totalNM)) NM")
+                        .foregroundStyle(theme.textDim)
+                }
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            }
         }
     }
 

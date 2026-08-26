@@ -84,9 +84,87 @@ final class ConnectSession: ObservableObject {
     /// Capped hard. This is a live view of a conversation, not an archive: the
     /// panel shows a handful, the live row carries a handful, and nothing keeps
     /// the rest — which is the whole reason this feature costs no storage.
+    ///
+    /// Read it through `atc(for:)` rather than directly. What is in here is
+    /// only meaningful alongside `atcFlightID`, and a caller that takes one
+    /// without the other is a caller that will eventually show one flight's
+    /// transcript against another.
     @Published private(set) var atcLog: [ConnectATCMessage] = []
 
+    /// Which flight the ATC state above belongs to.
+    ///
+    /// Recorded rather than inferred, and that distinction is the whole point.
+    /// A pilot who ends a flight and spawns another keeps the same Connect
+    /// session: the socket never drops, so nothing that keys off connecting and
+    /// disconnecting notices anything happened. `telemetry.flightID` does
+    /// change — but it is re-read every five seconds rather than every pass, so
+    /// for up to five seconds it names the flight before last, and the
+    /// transcript hanging off it was never cleared at all.
+    ///
+    /// Both of those become the same failure, and it is a specific and
+    /// embarrassing one: your previous flight is still on the map for its grace
+    /// period, you open it, and it shows you the frequency and the transcript
+    /// from the aeroplane you are sitting in now.
+    ///
+    /// So the ATC state carries the id it was captured under, and anything that
+    /// wants it has to say which flight it is asking about.
+    @Published private(set) var atcFlightID: String?
+
     private static let atcLogLimit = 12
+
+    /// How stale the sim's readings may be and still be presented as current.
+    ///
+    /// The link can stop producing without the socket closing — the sim in the
+    /// background, a phone that slept, a Wi-Fi hiccup — and `status` is about
+    /// the socket. A frequency from four minutes ago drawn with no qualification
+    /// is worse than no frequency: it reads as current, and there is nothing on
+    /// screen to suggest otherwise.
+    private static let atcFreshness: TimeInterval = 90
+
+    /// The ATC state for one particular flight, or nil when the sim is not
+    /// attached to that flight.
+    ///
+    /// The single place the question "is this the right aeroplane" is answered,
+    /// so the flight window and the live-status publisher cannot answer it
+    /// differently. Four things have to hold, and they are four separate ways
+    /// of being wrong:
+    ///
+    ///   1. the sim is attached at all;
+    ///   2. it has told us which flight it is in — no id is not a licence to
+    ///      guess, it is a reason to show nothing;
+    ///   3. that flight is the one being asked about; and
+    ///   4. the readings are recent enough to be presented as current.
+    ///
+    /// The transcript additionally has to have been captured under this same
+    /// flight, which is what `atcFlightID` is for.
+    func atc(for flightId: String) -> (facility: String?, log: [ConnectATCMessage])? {
+        guard status.isLive, Self.isSameFlight(telemetry.flightID, flightId) else { return nil }
+
+        // `sampledAt` starts at `.distantPast`, so a session that has connected
+        // but not yet read anything fails this — which is right. There is a
+        // socket, and there is not yet a reading.
+        guard Date().timeIntervalSince(telemetry.sampledAt) <= Self.atcFreshness else { return nil }
+
+        let log = Self.isSameFlight(atcFlightID, flightId) ? atcLog : []
+        guard telemetry.atcFacility != nil || !log.isEmpty else { return nil }
+
+        return (telemetry.atcFacility, log)
+    }
+
+    /// Whether two flight ids name the same flight.
+    ///
+    /// Case-insensitive, because these are GUIDs and a GUID's case is
+    /// formatting rather than identity — the sim and the public API are two
+    /// different pieces of software printing the same value. Two genuinely
+    /// different flights cannot collide here: they do not differ only in case.
+    ///
+    /// A nil on either side is not a match. "We do not know which flight this
+    /// is" has to mean showing nothing, never showing it against whichever
+    /// aeroplane happens to be open.
+    private static func isSameFlight(_ lhs: String?, _ rhs: String?) -> Bool {
+        guard let lhs, let rhs, !lhs.isEmpty, !rhs.isEmpty else { return false }
+        return lhs.compare(rhs, options: .caseInsensitive) == .orderedSame
+    }
 
     /// A one-line summary of what the connected aircraft publishes, shown in
     /// the settings screen so a pilot can see the link is real.
@@ -335,6 +413,7 @@ final class ConnectSession: ObservableObject {
         landingBaseline = nil
         hasCaughtUpThisRun = false
         atcLog = []
+        atcFlightID = nil
         lastCatchUp = nil
         // Turning it off is not waiting for it. Only `stop()` clears this —
         // `suspend()` deliberately does not, because being suspended IS the
@@ -726,7 +805,7 @@ final class ConnectSession: ObservableObject {
             }
 
             next.sampledAt = Date()
-            telemetry = next
+            commit(next)
 
             // The first pass is the first moment there is a position to share,
             // and on one device it may also be one of the few. Publishing on it
@@ -765,6 +844,37 @@ final class ConnectSession: ObservableObject {
         return ConnectProtocol.decode(entry.type, from: payload)
     }
 
+    /// The one place `telemetry` is written after a reading.
+    ///
+    /// A funnel rather than three assignments, because there is now something
+    /// that has to happen on *every* write and would otherwise have to be
+    /// remembered at each of them: noticing that the aeroplane has changed
+    /// underneath us.
+    ///
+    /// A poll pass starts from the previous snapshot and overwrites what it
+    /// read, which is right — most fields are read every few passes and holding
+    /// the last value between reads is the whole reason the panel does not
+    /// flicker. It is also why nothing here ever noticed a new flight: the
+    /// session does not reconnect between them, so every piece of state simply
+    /// carried across, including a transcript belonging to an aeroplane that had
+    /// been parked and left.
+    private func commit(_ next: ConnectTelemetry) {
+        let previous = telemetry.flightID
+        telemetry = next
+
+        guard let current = next.flightID, !current.isEmpty,
+              !Self.isSameFlight(previous, current)
+        else { return }
+
+        // A different aeroplane. Everything scoped to a flight starts again —
+        // and the facility explicitly, rather than waiting for the next
+        // periodic read to overwrite it, because between here and there it
+        // would be the last flight's controller shown against this one.
+        atcLog = []
+        atcFlightID = current
+        telemetry.atcFacility = nil
+    }
+
     private func readPeriodic() async throws {
         var next = telemetry
         for field in ConnectField.periodic {
@@ -773,7 +883,7 @@ final class ConnectSession: ObservableObject {
             apply(field, value, to: &next)
         }
         next.sampledAt = Date()
-        telemetry = next
+        commit(next)
     }
 
     private func readSession() async throws {
@@ -784,7 +894,7 @@ final class ConnectSession: ObservableObject {
             apply(field, value, to: &next)
         }
         next.sampledAt = Date()
-        telemetry = next
+        commit(next)
 
         adoptIdentity(from: next)
     }
@@ -989,7 +1099,12 @@ final class ConnectSession: ObservableObject {
     // an altitude was expected.
 
     private func attachATC() async {
+        // Stated rather than left to the ordering of the connect sequence. The
+        // session read runs first and `commit` will already have set this, but
+        // a log with no owner is exactly the state this whole mechanism exists
+        // to make impossible, so it is written where the log is emptied.
         atcLog = []
+        atcFlightID = telemetry.flightID
 
         guard let message = resolved[.atcMessage] else { return }
 

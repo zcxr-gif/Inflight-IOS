@@ -337,6 +337,13 @@ struct FlightDetailView: View {
                         FiledRouteCard(flight: flight, waypoints: plan, theme: theme)
                     }
 
+                    // Above the sim readout because it is the same source and
+                    // the more perishable half of it: which controller you are
+                    // working changes on the way in, and the fuel does not.
+                    // Draws nothing at all unless this is the aeroplane the
+                    // pilot is flying and Connect is attached to it.
+                    ConnectFrequencyCard(flightId: flight.id, theme: theme)
+
                     if let sim = sim {
                         SimReadoutCard(status: sim, theme: theme)
                     }

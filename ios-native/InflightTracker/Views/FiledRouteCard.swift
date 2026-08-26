@@ -91,7 +91,7 @@ struct FiledRouteCard: View {
             .scrollIndicators(.hidden)
             .onChange(of: leg?.waypoint.id) { _, id in
                 guard let id = id else { return }
-                withAnimation(.easeInOut(duration: 0.25)) {
+                withAnimation(Motion.row) {
                     proxy.scrollTo(id, anchor: .center)
                 }
             }

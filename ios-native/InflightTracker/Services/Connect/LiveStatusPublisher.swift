@@ -246,7 +246,16 @@ final class LiveStatusPublisher: ObservableObject {
         // enforced in both places on purpose — this one keeps the write valid,
         // and the server's keeps it valid whatever version of the app is
         // running.
-        let log = ConnectSession.shared.atcLog.prefix(12).map(\.wireRepresentation)
+        //
+        // Asked for by flight rather than read off the session, and this is the
+        // one place it matters most. This row is keyed on `flight_id`: taking
+        // whatever the log happened to hold would, for the few seconds after a
+        // pilot ends one flight and spawns another, write the old aeroplane's
+        // transcript into the new aeroplane's row — where, unlike anything on
+        // screen, it would be read by everybody following that pilot. Nothing
+        // for this flight means null, which is the honest answer.
+        let atc = telemetry.flightID.flatMap { ConnectSession.shared.atc(for: $0) }
+        let log = (atc?.log ?? []).prefix(12).map(\.wireRepresentation)
         if log.isEmpty {
             row["atc_messages"] = NSNull()
         } else {

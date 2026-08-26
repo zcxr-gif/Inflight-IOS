@@ -65,7 +65,7 @@ struct TermsGateView: View {
                 hasArrived = true
             } else {
                 try? await Task.sleep(nanoseconds: UInt64(Self.approach * 1_000_000_000))
-                withAnimation(.spring(response: 0.55, dampingFraction: 0.86)) {
+                withAnimation(Motion.panel) {
                     hasArrived = true
                 }
             }

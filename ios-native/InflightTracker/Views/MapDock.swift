@@ -47,7 +47,7 @@ struct MapDock: View {
     /// How far the finger has carried the dock open, upwards positive. Reset
     /// the instant the drag ends — with the spring below, so a dock let go of
     /// halfway settles rather than snapping.
-    @GestureState(resetTransaction: Transaction(animation: .spring(response: 0.3, dampingFraction: 0.86)))
+    @GestureState(resetTransaction: Transaction(animation: Motion.chrome))
     private var pull: CGFloat = 0
 
     @GestureState private var isHeld = false
@@ -202,7 +202,7 @@ struct MapDock: View {
                 .fill(theme.textSecondary.opacity(isHeld || isStatsUp ? 0.9 : 0.45))
                 .frame(width: isHeld ? 56 : 44, height: isHeld ? 6 : 5)
                 .opacity(1 - cue)
-                .animation(.spring(response: 0.26, dampingFraction: 0.78), value: isHeld)
+                .motion(Motion.control, value: isHeld)
 
             // Only once the finger is past the top of the travel: the dock has
             // stopped growing by then, so without this the last inch of the
@@ -281,7 +281,7 @@ struct MapDock: View {
     }
 
     private func settle(to open: Bool) {
-        withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
+        withAnimation(Motion.chrome) {
             isStatsUp = open
         }
     }
