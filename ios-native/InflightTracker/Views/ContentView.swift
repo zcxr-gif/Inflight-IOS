@@ -1536,17 +1536,21 @@ struct ContentView: View {
     /// than hidden — you cannot want something you have never seen.
     private func locked(_ isPro: Bool) -> Bool { isPro && !entitlements.isPro }
 
+    /// Whether the map is the planet, which is the one look that decides what
+    /// it is drawn in for itself.
+    private var isGlobe: Bool { appearance.resolvedMapStyle.projection == .globe }
+
     /// The glyph on the corner button: the shape of the map when it is the
     /// planet, since that is the bigger fact about it, and otherwise whatever
     /// it is drawn in.
     private var mapStyleSymbol: String {
         let style = appearance.resolvedMapStyle
-        return style.projection == .globe ? style.projection.symbol : style.palette.symbol
+        return style.projection == .globe ? style.projection.symbol : style.resolvedPalette.symbol
     }
 
     private var mapStyleLabel: String {
         let style = appearance.resolvedMapStyle
-        return "Map style, \(style.projection.label.lowercased()), \(style.palette.label.lowercased())"
+        return "Map style, \(style.projection.label.lowercased()), \(style.resolvedPalette.label.lowercased())"
     }
 
     /// How the map is drawn, in the corner that holds the map's controls.
@@ -1601,16 +1605,29 @@ struct ContentView: View {
                         }
                     }
 
-                    Section("Map") {
+                    // The flat map's finish, and only its. The globe is one
+                    // look — see `MapLook.palette` — so on the planet these are
+                    // shown ticked on Satellite and switched off rather than
+                    // taken away: a section that vanishes reads as a feature
+                    // that has gone missing, where a disabled one that agrees
+                    // with what is on screen reads as an answer.
+                    Section(isGlobe ? "Map (flat only)" : "Map") {
                         ForEach(MapPalette.allCases) { palette in
                             Button {
                                 select(palette)
                             } label: {
                                 Label(
                                     locked(palette.isPro) ? "\(palette.label) (Pro)" : palette.label,
-                                    systemImage: appearance.mapPalette == palette ? "checkmark" : palette.symbol
+                                    // What is drawn rather than what is stored,
+                                    // so the tick is on Satellite while the
+                                    // globe is up and back on the stored choice
+                                    // the moment it is not.
+                                    systemImage: appearance.resolvedMapStyle.resolvedPalette == palette
+                                        ? "checkmark"
+                                        : palette.symbol
                                 )
                             }
+                            .disabled(isGlobe)
                         }
                     }
 
@@ -1625,7 +1642,7 @@ struct ContentView: View {
                                 systemImage: appearance.isMapDetailed ? "checkmark" : "map.fill"
                             )
                         }
-                        .disabled(appearance.resolvedMapStyle.palette.usesImagery)
+                        .disabled(appearance.resolvedMapStyle.resolvedPalette.usesImagery)
 
                         // Real height under the map, and a camera free to lean
                         // over and look along it.

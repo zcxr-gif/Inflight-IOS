@@ -80,10 +80,14 @@ final class FlightInfoAppearance: ObservableObject {
     /// the filters are about *which traffic* is on the map, and this is about
     /// what the map looks like — the same question as light and dark.
     ///
-    /// Three settings rather than one style, because they are three separate
-    /// questions: what shape the world is, what it is drawn in, and how much of
-    /// it is drawn. Every combination is legal — a black globe, a satellite flat
-    /// map, a detailed light one.
+    /// Separate settings rather than one style, because they are separate
+    /// questions: what shape the world is, what it is drawn in, how much of it
+    /// is drawn, and whether there is height under it. A satellite flat map and
+    /// a detailed light one are both things you can ask for.
+    ///
+    /// The one pairing that is not free is the globe's palette: the planet is
+    /// imagery, always. What is stored here is untouched by that — see
+    /// `MapLook.palette` for why, and for what comes back when you land.
     @Published var mapProjection: MapProjection {
         didSet { UserDefaults.standard.set(mapProjection.rawValue, forKey: Self.mapProjectionKey) }
     }
@@ -136,6 +140,11 @@ final class FlightInfoAppearance: ObservableObject {
     /// cartographic map without forgetting that you liked the globe, so it is
     /// there again the moment Pro is. Each axis falls back on its own: losing
     /// Pro takes the imagery away but leaves a black map black.
+    ///
+    /// Note this hands the *stored* palette through even on the globe, where it
+    /// is not what gets drawn. That is deliberate and the reason
+    /// `MapLook.resolvedPalette` exists: the look carries the choice, and
+    /// answers separately for what is on screen.
     var resolvedMapStyle: MapLook {
         let isPro = Entitlements.shared.isPro
         return MapLook(
@@ -149,7 +158,7 @@ final class FlightInfoAppearance: ObservableObject {
     /// Which appearance the map itself draws in — the palette's, or the app's
     /// own when the palette follows along.
     var resolvedMapScheme: ColorScheme {
-        resolvedMapStyle.palette.scheme ?? resolvedScheme
+        resolvedMapStyle.resolvedPalette.scheme ?? resolvedScheme
     }
 
     func adopt(systemScheme scheme: ColorScheme) {

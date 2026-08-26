@@ -13,8 +13,11 @@ enum MapProjection: String, CaseIterable, Identifiable {
     /// The flat, north-up map. What the app has always opened on.
     case flat
 
-    /// The planet: realistic elevation, free to rotate and tilt, and a sphere
-    /// once the camera is far enough back.
+    /// The planet: imagery over realistic elevation, free to rotate and tilt,
+    /// and a sphere once the camera is far enough back.
+    ///
+    /// One look, and only one. The cartography palettes are the flat map's —
+    /// see `MapLook.palette`.
     case globe
 
     var id: String { rawValue }
@@ -29,7 +32,7 @@ enum MapProjection: String, CaseIterable, Identifiable {
     var detail: String {
         switch self {
         case .flat: return "The ordinary map, north up."
-        case .globe: return "The whole planet, free to spin and tilt. Pull back to see it."
+        case .globe: return "The whole planet in imagery, free to spin and tilt. Pull back to see it."
         }
     }
 
@@ -63,11 +66,11 @@ enum MapProjection: String, CaseIterable, Identifiable {
     }
 }
 
-/// What the map is drawn in.
+/// What the flat map is drawn in.
 ///
-/// Every one of these works under either projection, which is the point of
-/// splitting them: a black globe and a satellite flat map are both now things
-/// you can ask for.
+/// The flat map's, and deliberately only the flat map's. The globe is one look
+/// — imagery over real elevation — and the cartography palettes are not offered
+/// on it: see `MapLook.palette`, which is where that is decided and why.
 enum MapPalette: String, CaseIterable, Identifiable {
 
     /// Follows the app's own light and dark. The default, and what the map did
@@ -84,8 +87,10 @@ enum MapPalette: String, CaseIterable, Identifiable {
     /// staying out of the way of the traffic at cruise.
     case black
 
-    /// Imagery. Flat it carries no labels at all, which makes the sprites the
-    /// only legible thing on screen; on the globe it keeps coastline names,
+    /// Imagery. It carries no labels at all, which makes the sprites the only
+    /// legible thing on screen.
+    ///
+    /// Also what the globe is, always — though there it keeps coastline names,
     /// because a hemisphere with nothing written on it is a hemisphere you
     /// cannot identify.
     case satellite
@@ -155,6 +160,22 @@ enum MapPalette: String, CaseIterable, Identifiable {
 struct MapLook: Equatable {
 
     var projection: MapProjection = .flat
+
+    /// What the map is drawn in — on the flat map.
+    ///
+    /// The globe ignores this, and that is the one place the two settings are
+    /// not independent. It was worth trying: a black planet is a nice idea, and
+    /// the split that made the palettes their own axis is what let anybody ask
+    /// for one. What comes back is not a black planet. MapKit's cartography is
+    /// drawn for a sheet you are looking down at — coastlines, graticule, a
+    /// flat ground colour — and wrapped round a sphere lit by real elevation it
+    /// reads as a paper globe rather than as the planet, so the one thing the
+    /// globe is for is the thing it stops doing.
+    ///
+    /// So the globe is imagery, always, and the palettes stay what they have
+    /// always effectively been: the flat map's finish. The stored choice is
+    /// left alone rather than overwritten — see `resolvedPalette` — so a black
+    /// map is still black when you come back down.
     var palette: MapPalette = .auto
 
     /// Real elevation under the map: mountains with height in them, and a
@@ -178,8 +199,16 @@ struct MapLook: Equatable {
     /// with imagery, which has no emphasis to set.
     var isDetailed: Bool = false
 
+    /// What the map is actually drawn in, which on the globe is imagery
+    /// whatever the palette says.
+    ///
+    /// Everything downstream reads this rather than `palette`: the
+    /// configuration, the scheme, the black wash, and the menu's own
+    /// checkmarks. One property, so the setting and the map cannot disagree.
+    var resolvedPalette: MapPalette { projection == .globe ? .satellite : palette }
+
     var isFreeCamera: Bool { projection.isFreeCamera }
-    var dimming: CGFloat { palette.dimming }
+    var dimming: CGFloat { resolvedPalette.dimming }
 
     /// Whether there is real elevation under this map. Always true on the
     /// globe, which is what rounds it off.
@@ -222,7 +251,7 @@ struct MapLook: Equatable {
     func configuration() -> MKMapConfiguration {
         let elevation = elevationStyle
 
-        guard palette.usesImagery else {
+        guard resolvedPalette.usesImagery else {
             let configuration = MKStandardMapConfiguration(elevationStyle: elevation)
             configuration.emphasisStyle = isDetailed ? .default : .muted
             configuration.pointOfInterestFilter = .excludingAll
