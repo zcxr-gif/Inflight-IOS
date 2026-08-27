@@ -26,12 +26,18 @@ import UIKit
 enum FlownPathStyle {
 
     /// Wide enough to read as a drawn line over cartography and imagery both.
-    static let closeWidth: CGFloat = 3.4
+    ///
+    /// This is the width at the field, where the track is being read against
+    /// runway edges and taxiway centrelines — things Apple draws a couple of
+    /// points wide. A track thinner than the pavement it is crossing reads as
+    /// part of the basemap rather than as the flight.
+    static let closeWidth: CGFloat = 5
 
     /// Narrow enough that a long-haul's turns are still separate lines rather
     /// than one shape, and no narrower: a hairline over satellite imagery is a
-    /// line nobody can see.
-    static let farWidth: CGFloat = 1.3
+    /// line nobody can see, and at arm's length on a phone a point and a bit
+    /// of translucent colour is exactly that.
+    static let farWidth: CGFloat = 2.4
 
     /// The camera distances the two widths belong to, in metres. Below the
     /// first you are looking at a circuit, above the second at the planet.
@@ -51,19 +57,21 @@ enum FlownPathStyle {
     ///
     /// A halo rather than a second line: wide enough that its edge is nowhere
     /// near the core's, so the two read as one soft-edged thing rather than as
-    /// a stripe with a border. Three and a bit is where a round cap on the core
-    /// disappears entirely inside the glow's own cap, which is what stops the
-    /// ends looking like buttons.
-    static let glowSpread: CGFloat = 3.2
+    /// a stripe with a border. A multiplier rather than a margin, so the halo
+    /// keeps its proportions as the core narrows with the zoom — and kept just
+    /// clear of two and a half, which is where a round cap on the core stops
+    /// disappearing inside the glow's own cap and the ends start looking like
+    /// buttons.
+    static let glowSpread: CGFloat = 2.6
 
     /// And how much of it there is.
     ///
     /// Low, and it has to be: this is a wash of the path's own colour laid over
     /// the map, so every point of opacity is a point of cartography lost. At a
-    /// fifth it lifts the line off a dark map and is very nearly invisible on a
-    /// light one, which is the right way round — a glow is a thing you notice
+    /// quarter it lifts the line off a dark map and is very nearly invisible on
+    /// a light one, which is the right way round — a glow is a thing you notice
     /// against darkness.
-    static let glowOpacity: CGFloat = 0.2
+    static let glowOpacity: CGFloat = 0.26
 
     static func glowWidth(forCameraDistance distance: CLLocationDistance) -> CGFloat {
         width(forCameraDistance: distance) * glowSpread

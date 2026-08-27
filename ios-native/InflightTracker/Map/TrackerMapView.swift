@@ -1737,8 +1737,34 @@ struct TrackerMapView: UIViewRepresentable {
 
             // Under the traffic and under the flown path: this is the ground
             // the aircraft are on, not something to read over them.
-            mapView.addOverlays(groundOverlays, level: .aboveRoads)
+            //
+            // Which means inserting rather than adding. Overlays draw in the
+            // order they sit in their level, and `addOverlays` puts them on
+            // top of it — so the pavement landed over the track that had been
+            // added before it, and a taxi out was a coloured line disappearing
+            // under every stand and apron it crossed. These go in at the
+            // bottom of the level instead, in the order the concrete stacks,
+            // and everything laid over them — the plan, the track, the night —
+            // stays laid over them.
+            let base = Self.bottomOfRoadsLevel(on: mapView)
+            for (offset, overlay) in groundOverlays.enumerated() {
+                mapView.insertOverlay(overlay, at: base + offset, level: .aboveRoads)
+            }
             mapView.addAnnotations(groundLabels)
+        }
+
+        /// The first slot in `.aboveRoads` that anything but the dimming wash
+        /// may occupy.
+        ///
+        /// The wash is inserted at zero precisely so it sits under the whole
+        /// level and darkens the cartography rather than the things drawn on
+        /// it; sliding the pavement in beneath it would put the airport under
+        /// the dimmer and back at basemap brightness. Read off the map rather
+        /// than assumed to be one, so the answer stays right whether the wash
+        /// is up or not.
+        private static func bottomOfRoadsLevel(on mapView: MKMapView) -> Int {
+            let overlays = mapView.overlays(in: .aboveRoads)
+            return overlays.firstIndex { !($0 is MapDimming.Overlay) } ?? overlays.count
         }
 
         private func clearGround(on mapView: MKMapView) {
