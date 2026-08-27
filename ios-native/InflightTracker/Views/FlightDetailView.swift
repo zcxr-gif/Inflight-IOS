@@ -73,6 +73,11 @@ struct FlightDetailView: View {
     /// remembering the way back here.
     var onSelectAirport: (Airport) -> Void = { _ in }
 
+    /// Opening the partner VA this flight is flying for, in the partner
+    /// directory. Swapping one window for another is the presenter's business,
+    /// the same as it is for a field.
+    var onSelectPartner: (VirtualAirline) -> Void = { _ in }
+
     private var theme: FlightInfoTheme { appearance.theme }
 
     private var flight: Flight? {
@@ -341,6 +346,12 @@ struct FlightDetailView: View {
                     )
 
                     FlightWatchRow(flight: flight, theme: theme)
+
+                    // Under the ways to keep hold of the flight rather than up
+                    // by its identity: who the airline is is context on the
+                    // callsign, not part of it. Absent for every flight whose
+                    // callsign is not a partner's, which is most of them.
+                    FlightPartnerCard(flight: flight, theme: theme, onSelect: onSelectPartner)
 
                     situationCard(for: flight)
                     telemetry(for: flight)

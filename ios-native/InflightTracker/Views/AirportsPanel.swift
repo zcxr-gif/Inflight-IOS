@@ -13,6 +13,11 @@ import SwiftUI
 /// had in mind and no use at all for finding one.
 struct AirportsPanel: View {
 
+    /// Open the partner directory. Every other way into it starts at a field
+    /// that happens to have a VA based there, which is a poor way to find one —
+    /// this is the entry that does not depend on already being somewhere.
+    let onShowPartners: () -> Void
+
     /// Open one of the fields. Declared last so it is the panel's trailing
     /// closure at the call site.
     let onSelect: (Airport) -> Void
@@ -55,6 +60,16 @@ struct AirportsPanel: View {
                         if entry.id != board.first?.id { PanelDivider() }
                         row(entry)
                     }
+                }
+            }
+
+            PanelSection(title: "VIRTUAL AIRLINES") {
+                PanelActionRow(
+                    title: "Browse virtual airlines",
+                    symbol: "building.2",
+                    detail: "The VAs partnered with Inflight, and the fields they fly from"
+                ) {
+                    onShowPartners()
                 }
             }
 

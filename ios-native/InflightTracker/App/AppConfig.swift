@@ -224,6 +224,15 @@ enum AppConfig {
         URL(string: "https://inflight.info/pilot/\(handle)")
     }
 
+    /// A partner VA's crew centre on the website.
+    ///
+    /// The slug is the VA's own, never derived from its callsign — a VA with a
+    /// custom slug would 404 — so this is only ever called with one the ad
+    /// actually filed. `/crew/<slug>` is what the site rewrites to crew.html.
+    static func crewCentreURL(slug: String) -> URL? {
+        URL(string: "https://inflight.info/crew/\(slug)")
+    }
+
     /// The subscription terms, as App Store Review requires them to be
     /// reachable from the paywall itself.
     ///

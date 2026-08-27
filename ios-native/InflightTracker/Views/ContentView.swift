@@ -281,6 +281,11 @@ struct ContentView: View {
     /// them redraws the window's contents instead of replacing the window.
     @State private var panelKind: MapPanelKind = .friends
 
+    /// The virtual airline the partner panel should open on, when it was
+    /// reached by tapping one rather than from the directory itself. Read once
+    /// as that panel appears, so it never overrides where you navigate to next.
+    @State private var partnerFocus: VirtualAirline?
+
     /// The traffic the map draws: the packet, narrowed by the filters, with the
     /// open aircraft kept whatever they say.
     private var visibleFlights: [Flight] {
@@ -585,7 +590,8 @@ struct ContentView: View {
                     peakHeight: .constant(FlightInfoLayout.basePeakHeight),
                     presentation: .pane,
                     onReplay: { track in startReplay(of: selected.id, track: track) },
-                    onSelectAirport: { field in openAirport(field, from: selected) }
+                    onSelectAirport: { field in openAirport(field, from: selected) },
+                    onSelectPartner: { ad in openPanel(.partners, partner: ad) }
                 )
                     // Same as the sheet's: a different aircraft resets the
                     // window's own state without the window going anywhere.
@@ -833,7 +839,12 @@ struct ContentView: View {
                     flightId: selected.id,
                     peakHeight: $peakHeight,
                     onReplay: { track in startReplay(of: selected.id, track: track) },
-                    onSelectAirport: { field in openAirport(field, from: selected) }
+                    onSelectAirport: { field in openAirport(field, from: selected) },
+                    // No `selection = nil` alongside it: changing the sheet's
+                    // identity is what lets go of the aircraft, and doing both
+                    // races the watcher that does it into closing the panel
+                    // again.
+                    onSelectPartner: { ad in openPanel(.partners, partner: ad) }
                 )
                     // Resets the window's own state per aircraft without taking
                     // the sheet down with it.
@@ -951,6 +962,10 @@ struct ContentView: View {
                     selection = SelectedFlight(id: flight.id)
                     focus(on: flight.coordinate, spanMeters: 240_000)
                 },
+                // Straight to the panel: the sheet's identity changing is what
+                // takes this window down, and closing it first only makes the
+                // same move twice.
+                onShowPartner: { ad in openPanel(.partners, partner: ad) },
                 origin: airportReturn
             )
             .environmentObject(feed)
@@ -984,7 +999,7 @@ struct ContentView: View {
             .environmentObject(feed)
 
         case .airports:
-            AirportsPanel { airport in
+            AirportsPanel(onShowPartners: { openPanel(.partners) }) { airport in
                 openAirport(airport)
             }
             .environmentObject(feed)
@@ -998,6 +1013,15 @@ struct ContentView: View {
                 openAirport(airport)
             }
             .environmentObject(feed)
+
+        case .partners:
+            PartnersPanel(focus: partnerFocus) { airport in
+                // Same order as everywhere else that hands off to a field:
+                // close first, then open it, so the field is not framed under
+                // the panel it was picked in.
+                sheet = nil
+                openAirport(airport)
+            }
 
         case .filters:
             FiltersPanel()
@@ -1080,7 +1104,14 @@ struct ContentView: View {
     }
 
     /// Opens the panel window on `kind`, or swaps what an open one is showing.
-    private func openPanel(_ kind: MapPanelKind) {
+    ///
+    /// `partner` is only meaningful for `.partners`, and it is assigned on every
+    /// call rather than only when one is supplied — otherwise the VA somebody
+    /// tapped on a field last week would still be what the directory opens on
+    /// the next time it is reached from the toolbar or a widget.
+    private func openPanel(_ kind: MapPanelKind, partner: VirtualAirline? = nil) {
+        partnerFocus = partner
+
         withAnimation(Motion.content) {
             panelKind = kind
             sheet = .panel

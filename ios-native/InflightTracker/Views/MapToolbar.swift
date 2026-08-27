@@ -6,9 +6,9 @@ import SwiftUI
 /// where everyone is, then what the map is showing, then the app itself.
 /// Friends leads because it is the only one that is about a person.
 ///
-/// Stats and weather are still panels — a widget can link straight to either,
-/// and both are still opened from somewhere — but neither takes a place on the
-/// bar any more. Weather is a chip on the map's left shoulder, beside the map
+/// Stats, weather and the partner directory are still panels — a widget can
+/// link straight to any of them, and each is opened from somewhere — but none
+/// takes a place on the bar. Weather is a chip on the map's left shoulder, beside the map
 /// style and the ruler on its right; the stats come up on a handle above the
 /// bar, where they cost nothing until they are pulled.
 enum MapPanelKind: String, Identifiable, CaseIterable {
@@ -17,6 +17,7 @@ enum MapPanelKind: String, Identifiable, CaseIterable {
     case atc
     case airports
     case stats
+    case partners
     case filters
     case weather
     case settings
@@ -32,6 +33,7 @@ enum MapPanelKind: String, Identifiable, CaseIterable {
         case .atc: return "ATC"
         case .airports: return "Airports"
         case .stats: return "Stats"
+        case .partners: return "Virtual airlines"
         case .filters: return "Filters"
         case .weather: return "Weather"
         case .settings: return "Settings"
@@ -46,6 +48,9 @@ enum MapPanelKind: String, Identifiable, CaseIterable {
         // ways into a field look like the same thing.
         case .airports: return "mappin.and.ellipse"
         case .stats: return "chart.bar.fill"
+        // The glyph the airport panel marks its VA section with, so the
+        // directory and the fields that lead into it look like one thing.
+        case .partners: return "building.2.fill"
         case .filters: return "line.3.horizontal.decrease"
         case .weather: return "cloud.sun.fill"
         case .settings: return "gearshape.fill"
