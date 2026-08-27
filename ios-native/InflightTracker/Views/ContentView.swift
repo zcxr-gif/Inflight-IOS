@@ -22,6 +22,10 @@ struct ContentView: View {
     /// nothing for several seconds.
     @ObservedObject private var winds = WindsAloftStore.shared
     @ObservedObject private var friends = FriendsStore.shared
+    /// Observed for one thing: a flight's backend history landing. Without it
+    /// the map draws the path on whatever pass happens next, which is the next
+    /// packet — see `FlightTrailStore.seedRevision`.
+    @ObservedObject private var trails = FlightTrailStore.shared
     @ObservedObject private var push = PushService.shared
     @ObservedObject private var entitlements = Entitlements.shared
     @ObservedObject private var accounts = AccountStore.shared
@@ -439,6 +443,7 @@ struct ContentView: View {
             flights: visibleFlights,
             selection: $selection,
             command: mapCommand,
+            trailRevision: trails.seedRevision,
             bottomInset: mapBottomInset,
             trailingInset: mapTrailingInset,
             legalInset: mapLegalInset,

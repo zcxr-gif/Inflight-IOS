@@ -1,3 +1,4 @@
+import Combine
 import CoreLocation
 import Foundation
 
@@ -13,9 +14,24 @@ import Foundation
 /// Points are thinned by distance, and a trail that fills up is halved and its
 /// spacing doubled instead of dropping its oldest points, so a long-haul keeps
 /// a complete if coarser path rather than a recent fragment.
-final class FlightTrailStore {
+final class FlightTrailStore: ObservableObject {
 
     static let shared = FlightTrailStore()
+
+    /// Bumped when a backend history is merged in.
+    ///
+    /// The only thing this class publishes, and deliberately: `record` runs on
+    /// the feed's decode queue several times a second for every aircraft on the
+    /// server, and a store that announced that would redraw the whole map on
+    /// every packet. A seed is the opposite — once per flight you open, on the
+    /// main queue, and it is the moment a path goes from a fragment to the
+    /// whole trip.
+    ///
+    /// Without it nothing knows: the map reads this store on its own layout
+    /// pass, so a history that landed a moment after the window opened sat
+    /// there until the next packet happened to redraw something. Which is why
+    /// the path used to take its time appearing.
+    @Published private(set) var seedRevision: Int = 0
 
     private struct Trail {
         var points: [TrackPoint]
@@ -160,6 +176,13 @@ final class FlightTrailStore {
             isSeeded: true,
             firstSeen: began
         )
+
+        // Announced on the main queue and outside the lock, because what it
+        // sets off is a layout pass — and a layout pass that reads this store
+        // is not a thing to start from inside its own mutex.
+        DispatchQueue.main.async { [weak self] in
+            self?.seedRevision &+= 1
+        }
     }
 
     func hasHistory(for flightId: String) -> Bool {

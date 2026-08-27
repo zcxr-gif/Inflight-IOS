@@ -46,6 +46,28 @@ enum FlownPathStyle {
         let travel = log(distance / closeDistance) / log(farDistance / closeDistance)
         return closeWidth + (farWidth - closeWidth) * CGFloat(travel)
     }
+
+    /// How much wider the glow is than the line inside it.
+    ///
+    /// A halo rather than a second line: wide enough that its edge is nowhere
+    /// near the core's, so the two read as one soft-edged thing rather than as
+    /// a stripe with a border. Three and a bit is where a round cap on the core
+    /// disappears entirely inside the glow's own cap, which is what stops the
+    /// ends looking like buttons.
+    static let glowSpread: CGFloat = 3.2
+
+    /// And how much of it there is.
+    ///
+    /// Low, and it has to be: this is a wash of the path's own colour laid over
+    /// the map, so every point of opacity is a point of cartography lost. At a
+    /// fifth it lifts the line off a dark map and is very nearly invisible on a
+    /// light one, which is the right way round — a glow is a thing you notice
+    /// against darkness.
+    static let glowOpacity: CGFloat = 0.2
+
+    static func glowWidth(forCameraDistance distance: CLLocationDistance) -> CGFloat {
+        width(forCameraDistance: distance) * glowSpread
+    }
 }
 
 /// The flown path: one line, and the ramp of colour laid along it.
@@ -69,10 +91,24 @@ struct FlownPath {
 
     let line: MKPolyline
 
+    /// The same geometry again, drawn wider and fainter underneath.
+    ///
+    /// A second overlay rather than a shadow on the first, because
+    /// `MKOverlayRenderer` has no shadow and a Core Graphics one would be cast
+    /// by the line's stroke — an offset copy, not a halo. Two strokes of the
+    /// same path, one wide and washed out and one narrow and solid, is how a
+    /// glow is drawn when the only tool is a stroke.
+    let glow: MKPolyline
+
     /// The stops, and where along the line each one sits. Handed straight to
     /// the renderer.
     let colors: [UIColor]
     let locations: [CGFloat]
+
+    /// The same stops, washed down for the halo. Held rather than computed at
+    /// draw time: the renderer is rebuilt on every pan across a tile boundary
+    /// and this is a couple of hundred colour conversions.
+    let glowColors: [UIColor]
 
     /// At most this many stops.
     ///
@@ -96,7 +132,7 @@ struct FlownPath {
     /// never sent — those stops take the unknown grey, so a path that starts
     /// without heights and picks them up mid-flight fades into its colours
     /// rather than switching into them.
-    init?(points: [TrackPoint], bands: [Int?], title: String) {
+    init?(points: [TrackPoint], bands: [Int?], title: String, glowTitle: String) {
         guard points.count >= 2, bands.count == points.count else { return nil }
 
         let coordinates = points.map(\.coordinate)
@@ -152,8 +188,18 @@ struct FlownPath {
         let line = MKGeodesicPolyline(coordinates: curve, count: curve.count)
         line.title = title
 
+        // Built from the same curve rather than sharing the object: an overlay
+        // can only be on the map once, and the glow has to be added first so it
+        // is drawn underneath.
+        let glow = MKGeodesicPolyline(coordinates: curve, count: curve.count)
+        glow.title = glowTitle
+
         self.line = line
+        self.glow = glow
         self.colors = colors
+        self.glowColors = colors.map {
+            $0.withAlphaComponent($0.cgColor.alpha * FlownPathStyle.glowOpacity)
+        }
         self.locations = locations
     }
 

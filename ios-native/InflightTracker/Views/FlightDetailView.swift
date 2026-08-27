@@ -266,6 +266,13 @@ struct FlightDetailView: View {
     private func loadTrack() {
         track = FlightTrailStore.shared.points(for: flightId)
 
+        // The map asks for this too, and asks first — it gets a layout pass the
+        // moment the aeroplane is tapped, where this runs once the sheet has
+        // appeared. So by the time the window is up the history is often
+        // already in the store, and re-fetching it would be a second identical
+        // request for a path that is on screen behind the sheet.
+        guard !FlightTrailStore.shared.hasHistory(for: flightId) else { return }
+
         FlightHistoryService.shared.load(flightId: flightId) { history in
             FlightTrailStore.shared.seed(history, for: flightId)
             track = FlightTrailStore.shared.points(for: flightId)

@@ -73,6 +73,11 @@ struct TrackerMapView: UIViewRepresentable {
     /// token so the same request isn't replayed on every feed tick.
     var command: MapCommand?
 
+    /// Bumped when a flight's backend history lands, so the pass that draws the
+    /// path happens the moment there is a path rather than on the next packet.
+    /// See `FlightTrailStore.seedRevision`.
+    var trailRevision: Int = 0
+
     /// How much of the bottom of the map the info window is covering, so a
     /// framed route isn't hidden behind it.
     var bottomInset: CGFloat = 0
@@ -341,6 +346,9 @@ struct TrackerMapView: UIViewRepresentable {
         private var renderedRouteKey: String?
         private var routeOverlays: [MKPolyline] = []
 
+        /// Flights whose backend history this map has already asked for.
+        private var requestedHistory: Set<String> = []
+
         /// The flown path currently on the map, and the ramp laid along it.
         ///
         /// Held here rather than on the overlay because `MKPolyline` carries
@@ -386,7 +394,7 @@ struct TrackerMapView: UIViewRepresentable {
         private var appliedScheme: ColorScheme?
 
         /// The black wash under the traffic, while a palette asks for one.
-        private var dimmingOverlay: MKPolygon?
+        private var dimmingOverlay: MapDimming.Overlay?
 
         /// Field markers currently on the map, by ICAO.
         private var airportAnnotations: [String: AirportAnnotation] = [:]
@@ -598,11 +606,18 @@ struct TrackerMapView: UIViewRepresentable {
                 return
             }
 
-            guard dimmingOverlay == nil else { return }
+            guard let overlay = dimmingOverlay else {
+                let overlay = MapDimming.overlay()
+                dimmingOverlay = overlay
+                mapView.insertOverlay(overlay, at: 0, level: .aboveRoads)
+                return
+            }
 
-            let overlay = MapDimming.overlay()
-            dimmingOverlay = overlay
-            mapView.insertOverlay(overlay, at: 0, level: .aboveRoads)
+            // Already up, so this is a change of depth rather than of state —
+            // which today only happens on the way in and out of black, but the
+            // renderer repaints for it either way rather than holding whatever
+            // it was built with.
+            (mapView.renderer(for: overlay) as? MapDimming.Renderer)?.dimming = style.dimming
         }
 
         /// Whether the camera has moved enough since the last pass to be worth
@@ -1125,6 +1140,30 @@ struct TrackerMapView: UIViewRepresentable {
                 return
             }
 
+            // Asked for here as well as by the window, and asked for first:
+            // this runs on the map's very next pass after the aeroplane is
+            // tapped, which is before the sheet has finished coming up. The
+            // window's own request is the one that used to start the clock, and
+            // half a second of sheet animation is half a second of a path that
+            // could already have been on its way.
+            //
+            // Once per flight, tracked here rather than in the service, because
+            // a history that comes back empty — a flight that has only just
+            // pushed back — leaves `hasHistory` false forever, and a condition
+            // that stays true on a method called every layout pass is a request
+            // storm.
+            if !FlightTrailStore.shared.hasHistory(for: flight.id),
+               requestedHistory.insert(flight.id).inserted {
+                // Nothing worth remembering about the ones before: this exists
+                // to stop a repeat, and an id that has not been asked for in a
+                // hundred aircraft is not about to be asked for twice.
+                if requestedHistory.count > 200 { requestedHistory = [flight.id] }
+
+                FlightHistoryService.shared.load(flightId: flight.id) { history in
+                    FlightTrailStore.shared.seed(history, for: flight.id)
+                }
+            }
+
             let trail = FlightTrailStore.shared.points(for: flight.id)
 
             // Read before the key is built, because asking is also what starts
@@ -1136,6 +1175,12 @@ struct TrackerMapView: UIViewRepresentable {
             let key = [
                 flight.id,
                 String(trail.count),
+                // In the key as well as on the view, which looks redundant and
+                // is not: the seed is the reason this pass is running at all,
+                // and a count that happened to come back the same — a history
+                // exactly as long as the fragment it replaced — would otherwise
+                // leave the old fragment drawn.
+                String(parent.trailRevision),
                 // The band the aircraft is in, so a climb through a boundary
                 // redraws the path. The trail thins its own samples and stops
                 // growing at all once it is full, so counting points alone
@@ -1177,9 +1222,15 @@ struct TrackerMapView: UIViewRepresentable {
             flownRamp = FlownPath(
                 points: flown,
                 bands: Self.heightBands(of: flown),
-                title: Self.flownTitle
+                title: Self.flownTitle,
+                glowTitle: Self.flownGlowTitle
             )
-            if let path = flownRamp { routeOverlays.append(path.line) }
+            if let path = flownRamp {
+                // The halo first. Overlays draw in the order they are added
+                // within a level, so this is what puts it underneath.
+                routeOverlays.append(path.glow)
+                routeOverlays.append(path.line)
+            }
 
             // Before we were watching: departure to the first point we have.
             if let departure = AirportStore.shared.airport(flight.departureIcao),
@@ -1748,6 +1799,7 @@ struct TrackerMapView: UIViewRepresentable {
         static let planTitle = "plan"
 
         static let flownTitle = "flown"
+        static let flownGlowTitle = "flown.glow"
         static let plannedTitle = "planned"
 
         // MARK: Replay
@@ -1973,15 +2025,11 @@ struct TrackerMapView: UIViewRepresentable {
                 return renderer
             }
 
-            if let area = overlay as? MKPolygon {
-                if area.title == MapDimming.title {
-                    let renderer = MKPolygonRenderer(polygon: area)
-                    renderer.fillColor = UIColor.black.withAlphaComponent(parent.style.dimming)
-                    renderer.strokeColor = .clear
-                    renderer.lineWidth = 0
-                    return renderer
-                }
+            if overlay is MapDimming.Overlay {
+                return MapDimming.Renderer(overlay: overlay, dimming: parent.style.dimming)
+            }
 
+            if let area = overlay as? MKPolygon {
                 if Terminator.isBand(area.title) {
                     let renderer = MKPolygonRenderer(polygon: area)
                     renderer.fillColor = Terminator.fill(for: area.title)
@@ -2021,8 +2069,12 @@ struct TrackerMapView: UIViewRepresentable {
                 return renderer
             }
 
+            if line.title == Self.flownGlowTitle {
+                return flownRenderer(for: line, glowing: true)
+            }
+
             if line.title == Self.flownTitle {
-                return flownRenderer(for: line)
+                return flownRenderer(for: line, glowing: false)
             }
 
             let renderer = MKPolylineRenderer(polyline: line)
@@ -2061,19 +2113,25 @@ struct TrackerMapView: UIViewRepresentable {
         /// a path whose heights were all unknown, or one left over from a
         /// route that has since been rebuilt — grey either way, which is what
         /// an unreadable title has always fallen back to.
-        private func flownRenderer(for line: MKPolyline) -> MKOverlayRenderer {
+        private func flownRenderer(for line: MKPolyline, glowing: Bool) -> MKOverlayRenderer {
             let renderer = MKGradientPolylineRenderer(polyline: line)
             renderer.lineCap = .round
             renderer.lineJoin = .round
-            renderer.lineWidth = flownWidth
+            renderer.lineWidth = glowing ? flownWidth * FlownPathStyle.glowSpread : flownWidth
 
-            if let ramp = flownRamp, ramp.line === line, ramp.colors.count >= 2 {
-                renderer.setColors(ramp.colors, locations: ramp.locations)
-            } else {
+            let ramp = flownRamp
+            let matches = ramp.map { glowing ? $0.glow === line : $0.line === line } ?? false
+
+            if let ramp = ramp, matches, ramp.colors.count >= 2 {
                 renderer.setColors(
-                    [AltitudeBand.unknownColor, AltitudeBand.unknownColor],
-                    locations: [0, 1]
+                    glowing ? ramp.glowColors : ramp.colors,
+                    locations: ramp.locations
                 )
+            } else {
+                let fallback = glowing
+                    ? AltitudeBand.unknownColor.withAlphaComponent(FlownPathStyle.glowOpacity)
+                    : AltitudeBand.unknownColor
+                renderer.setColors([fallback, fallback], locations: [0, 1])
             }
 
             return renderer
@@ -2093,10 +2151,18 @@ struct TrackerMapView: UIViewRepresentable {
             guard abs(width - flownWidth) > 0.05 else { return }
             flownWidth = width
 
-            guard let line = flownRamp?.line else { return }
-            guard let renderer = mapView.renderer(for: line) as? MKPolylineRenderer else { return }
-            renderer.lineWidth = width
-            renderer.setNeedsDisplay()
+            guard let path = flownRamp else { return }
+
+            for (overlay, drawn) in [
+                (path.glow, width * FlownPathStyle.glowSpread),
+                (path.line, width)
+            ] {
+                guard let renderer = mapView.renderer(for: overlay) as? MKPolylineRenderer else {
+                    continue
+                }
+                renderer.lineWidth = drawn
+                renderer.setNeedsDisplay()
+            }
         }
 
         /// Pavement, drawn like a chart rather than like a photograph.

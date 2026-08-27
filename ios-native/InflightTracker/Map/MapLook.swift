@@ -1,5 +1,6 @@
 import MapKit
 import SwiftUI
+import UIKit
 
 /// Which shape the map is.
 ///
@@ -153,7 +154,12 @@ enum MapPalette: String, CaseIterable, Identifiable {
     /// MapKit has no blacker configuration than its own dark cartography, so
     /// this is the rest of the way: an overlay under everything the app draws,
     /// which dims the map without touching a single aircraft on it.
-    var dimming: CGFloat { self == .black ? 0.42 : 0 }
+    ///
+    /// Half rather than the old 0.42. The wash used to stop at the edges of one
+    /// copy of the world — see `MapDimming` — so it was tuned against a map
+    /// that was only ever partly dark, and a figure that looked right beside an
+    /// undimmed neighbour is too timid once the whole thing goes down.
+    var dimming: CGFloat { self == .black ? 0.5 : 0 }
 }
 
 /// The map's whole look: its shape, its colour, and how much of it is drawn.
@@ -285,30 +291,64 @@ struct MapLook: Equatable {
     }
 }
 
-/// The black wash, as an overlay.
+/// The black wash: an overlay under everything the app draws, which takes the
+/// cartography the rest of the way down without touching a single aircraft on
+/// it.
 ///
-/// A polygon over the whole world rather than a view over the map: overlays
-/// draw under every annotation MapKit has, so this dims the cartography and
-/// leaves the traffic, the route lines and the field markers at full strength.
-/// It is inserted at the bottom of its level, under the weather and the night,
-/// so neither of those is dimmed by it either.
+/// ## Why this is not a polygon any more
+///
+/// It was four corners at ±85° and ±180°, which is the whole world as a
+/// rectangle and sounds like exactly the right shape. It is not, for two
+/// reasons, and between them they are why the black map never quite worked.
+///
+/// A polygon is a *shape on the map*, so it exists once, in one copy of the
+/// world. MapKit's map does not: pan east past the antimeridian and there is
+/// another Pacific, and the wash does not follow you into it — so the map goes
+/// half dark and half not, along a seam that moves as you scroll. And ±85° is
+/// where Mercator gives up on latitude, not where the *drawable* map ends, so
+/// even inside its own copy the polygon left a band across the top and the
+/// bottom.
+///
+/// A renderer has neither problem, because it is not asked to draw a shape. It
+/// is handed a rectangle and told to fill it, over and over, for every piece of
+/// map on screen — every world copy, right to the edges. Filling what you are
+/// given is the whole implementation.
 enum MapDimming {
 
-    static let title = "map.dimming"
-
-    /// Mercator cannot draw the last five degrees at either pole, so the
-    /// corners stop where the map itself does.
-    private static let limit: Double = 85
-
-    static func overlay() -> MKPolygon {
-        let corners = [
-            CLLocationCoordinate2D(latitude: limit, longitude: -180),
-            CLLocationCoordinate2D(latitude: limit, longitude: 180),
-            CLLocationCoordinate2D(latitude: -limit, longitude: 180),
-            CLLocationCoordinate2D(latitude: -limit, longitude: -180)
-        ]
-        let polygon = MKPolygon(coordinates: corners, count: corners.count)
-        polygon.title = title
-        return polygon
+    /// The overlay itself. Nothing but a claim on the entire map.
+    final class Overlay: NSObject, MKOverlay {
+        let coordinate = CLLocationCoordinate2D(latitude: 0, longitude: 0)
+        let boundingMapRect = MKMapRect.world
     }
+
+    /// And the renderer, which fills whatever rectangle of that it is asked
+    /// about.
+    final class Renderer: MKOverlayRenderer {
+
+        /// Read on every draw rather than baked in, so changing the palette
+        /// repaints the wash instead of tearing it down and building another.
+        var dimming: CGFloat {
+            didSet {
+                guard dimming != oldValue else { return }
+                setNeedsDisplay()
+            }
+        }
+
+        init(overlay: MKOverlay, dimming: CGFloat) {
+            self.dimming = dimming
+            super.init(overlay: overlay)
+        }
+
+        override func draw(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in context: CGContext) {
+            guard dimming > 0 else { return }
+            context.setFillColor(UIColor.black.withAlphaComponent(dimming).cgColor)
+            // Slightly proud of the rect it was given. MapKit tiles these, and
+            // adjacent fills that meet exactly on a fractional boundary leave a
+            // seam a fraction of a pixel wide — which on a black map over light
+            // cartography is a visible grid.
+            context.fill(rect(for: mapRect).insetBy(dx: -1 / zoomScale, dy: -1 / zoomScale))
+        }
+    }
+
+    static func overlay() -> Overlay { Overlay() }
 }
