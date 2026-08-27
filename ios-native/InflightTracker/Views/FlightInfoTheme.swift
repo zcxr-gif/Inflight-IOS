@@ -30,6 +30,61 @@ enum AppAppearanceMode: String, CaseIterable, Identifiable {
     }
 }
 
+/// What the app is coloured in, under whichever way round it is drawn.
+///
+/// A separate question from light and dark, the way the map's shape is separate
+/// from its palette: `AppAppearanceMode` decides which end of the scale the
+/// window sits at, and this decides what the scale is made of.
+enum AppPalette: String, CaseIterable, Identifiable {
+
+    /// Black and white, and a blue for the few things that have to be picked
+    /// out of it. The default.
+    ///
+    /// Carbon was already close to this — the whole design has been monochrome
+    /// from the start — but close to black is not black, and the difference
+    /// shows up everywhere at once: a window whose ground is a dark grey reads
+    /// as a *card* over the map, where one that goes to black reads as a hole
+    /// cut in it. The ink goes the same way, to white rather than to
+    /// ninety-eight per cent of it.
+    ///
+    /// What that costs is the one thing carbon had that pure monochrome does
+    /// not: somewhere for a highlight to live. With every surface and every
+    /// glyph on the same grey axis, the only way to say "this one" was to make
+    /// it brighter, which on a scale that already ends at white is no room at
+    /// all. So there is a blue, and only a blue, in only the places that were
+    /// already reaching for `accent` — the fill on a progress track, the badge
+    /// on a route, a primary button, a pilot state worth noticing. Everything
+    /// that states a fact rather than making a claim stays black and white.
+    ///
+    /// The map is untouched by this. The altitude ramp on a flown path is data
+    /// rather than decoration, the amber on a selected sprite has to read over
+    /// ocean and forest alike, and neither of them is the app's palette to
+    /// spend.
+    case mono
+
+    /// The app as it was: carbon rather than black, and white as the accent.
+    ///
+    /// Kept because it is a real look and some people will prefer it, not as a
+    /// compatibility shim — nothing behaves differently under it.
+    case carbon
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .mono: return "Mono"
+        case .carbon: return "Carbon"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .mono: return "Black and white, with blue where something has to stand out."
+        case .carbon: return "The older look: carbon rather than black, and white for the accent."
+        }
+    }
+}
+
 /// Runtime appearance switches for the app.
 ///
 /// Every surface in the window — and every piece of chrome over the map — is
@@ -45,6 +100,7 @@ final class FlightInfoAppearance: ObservableObject {
     private static let peakStyleKey = "flightInfoPeakStyle"
     private static let windowPlacementKey = "flightWindowPlacement"
     private static let modeKey = "appAppearanceMode"
+    private static let paletteKey = "appPalette"
     /// The old single map style, read once so an install that predates the
     /// split lands on the same map it had.
     private static let legacyMapStyleKey = "mapStyleMode"
@@ -74,6 +130,16 @@ final class FlightInfoAppearance: ObservableObject {
 
     @Published var mode: AppAppearanceMode {
         didSet { UserDefaults.standard.set(mode.rawValue, forKey: Self.modeKey) }
+    }
+
+    /// What the app is coloured in. See `AppPalette`.
+    ///
+    /// Everybody gets the new default, including installs that predate it —
+    /// which is a change people will see on update, and deliberately so: this
+    /// is what the app looks like now, and the old one is a switch away rather
+    /// than a thing you have to have noticed to keep.
+    @Published var palette: AppPalette {
+        didSet { UserDefaults.standard.set(palette.rawValue, forKey: Self.paletteKey) }
     }
 
     /// How the map itself is drawn. Lives here rather than under the filters:
@@ -130,7 +196,7 @@ final class FlightInfoAppearance: ObservableObject {
     }
 
     var theme: FlightInfoTheme {
-        FlightInfoTheme.resolved(scheme: resolvedScheme, glass: isGlassEnabled)
+        FlightInfoTheme.resolved(palette: palette, scheme: resolvedScheme, glass: isGlassEnabled)
     }
 
     /// What the map should actually draw.
@@ -184,6 +250,11 @@ final class FlightInfoAppearance: ObservableObject {
         // installs follow iOS.
         mode = AppAppearanceMode(rawValue: defaults.string(forKey: Self.modeKey) ?? "")
             ?? (defaults.object(forKey: Self.glassKey) == nil ? .system : .dark)
+        // No read-across from anything: carbon was not a choice anybody made,
+        // it was the only thing there was, so there is nothing stored that
+        // means "I picked it". An install that predates this lands on mono like
+        // a new one.
+        palette = AppPalette(rawValue: defaults.string(forKey: Self.paletteKey) ?? "") ?? .mono
         // The map the app has always drawn, so nobody's map changes under them
         // on update. An install from before the style was split has one stored
         // style rather than three settings, and it is read across to whichever
@@ -434,18 +505,151 @@ struct FlightInfoTheme {
         .environment(\.colorScheme, colorScheme)
     }
 
-    /// The four shipping looks, from the two switches that pick between them.
+    /// The shipping looks, from the three switches that pick between them.
     ///
     /// Adding a look means adding a `static let` and a case here — nothing
     /// downstream branches on which theme is in use.
-    static func resolved(scheme: ColorScheme, glass: Bool) -> FlightInfoTheme {
-        switch (scheme, glass) {
-        case (.light, true): return .lightGlass
-        case (.light, false): return .lightSolid
-        case (_, true): return .glass
-        case (_, false): return .solid
+    static func resolved(palette: AppPalette, scheme: ColorScheme, glass: Bool) -> FlightInfoTheme {
+        switch (palette, scheme, glass) {
+        case (.mono, .light, true): return .monoLightGlass
+        case (.mono, .light, false): return .monoLightSolid
+        case (.mono, _, true): return .monoGlass
+        case (.mono, _, false): return .monoSolid
+        case (.carbon, .light, true): return .lightGlass
+        case (.carbon, .light, false): return .lightSolid
+        case (.carbon, _, true): return .glass
+        case (.carbon, _, false): return .solid
         }
     }
+
+    // MARK: - Mono
+
+    /// The blue, and the only one.
+    ///
+    /// Two of it, because a hue that reads on black does not read on paper: a
+    /// blue bright enough to pick itself out of a black window is a blue that
+    /// vanishes into a white one. Same hue, different lightness — so the accent
+    /// is recognisably the same colour whichever way round the app is, which is
+    /// the whole reason for naming it once here rather than twice below.
+    ///
+    /// Both are picked against what has to sit on top of them. `monoInk` is
+    /// nearly six to one on the light blue and the dark blue carries white at
+    /// better than five, so the glyph inside a badge is legible either way
+    /// without the badge having to shout.
+    private static let monoBlue = Color(red: 0.29, green: 0.58, blue: 1.0)
+    private static let monoBlueDeep = Color(red: 0.06, green: 0.36, blue: 0.80)
+
+    /// Black with the faintest lean towards blue, and paper with the same.
+    ///
+    /// Not neutral, and only just not: a hair of the accent's own hue in the
+    /// ground is what keeps a window full of white text from reading as a
+    /// screenshot of a terminal. At this distance from grey nobody could name
+    /// the colour, which is the intention — "a hint" is a thing you feel and do
+    /// not see.
+    private static let monoGround = Color(red: 0.012, green: 0.016, blue: 0.028)
+    private static let monoPaper = Color(red: 0.975, green: 0.978, blue: 0.992)
+    private static let monoInk = Color(red: 0.04, green: 0.045, blue: 0.06)
+
+    static let monoGlass = FlightInfoTheme(
+        isGlass: true,
+        isLight: false,
+        windowFill: Self.monoGround,
+        scrim: .clear,
+        chromeTint: Self.monoGround.opacity(0.14),
+        surfaceTint: Color.white.opacity(0.04),
+        elevatedTint: Color.white.opacity(0.09),
+        surfaceFill: Color.white.opacity(0.08),
+        elevatedFill: Color.white.opacity(0.14),
+        stroke: Color.white.opacity(0.16),
+        strokeStrong: Color.white.opacity(0.26),
+        textPrimary: .white,
+        textSecondary: Color(white: 0.72),
+        textDim: Color(white: 0.50),
+        accent: Self.monoBlue,
+        onAccent: Self.monoGround,
+        trackFill: Color.white.opacity(0.16),
+        groundOpacity: 0,
+        textHalo: Color.black.opacity(0.55)
+    )
+
+    static let monoSolid = FlightInfoTheme(
+        isGlass: false,
+        isLight: false,
+        windowFill: Self.monoGround,
+        scrim: .clear,
+        chromeTint: .clear,
+        surfaceTint: .clear,
+        elevatedTint: .clear,
+        // A shade lighter than carbon's cards at the same step, because they
+        // are sitting on black rather than on carbon and have further to come
+        // up before they read as a surface at all.
+        surfaceFill: Color(white: 0.13),
+        elevatedFill: Color(white: 0.19),
+        stroke: Color.white.opacity(0.10),
+        strokeStrong: Color.white.opacity(0.16),
+        textPrimary: .white,
+        textSecondary: Color(white: 0.72),
+        textDim: Color(white: 0.50),
+        accent: Self.monoBlue,
+        onAccent: Self.monoGround,
+        trackFill: Color.white.opacity(0.14),
+        groundOpacity: 1,
+        textHalo: .clear
+    )
+
+    /// Inverted, not recoloured — the same note as the carbon light themes,
+    /// with one addition: the accent goes *deeper* rather than flipping to ink.
+    ///
+    /// Carbon's light themes have no accent hue at all; their accent is very
+    /// nearly black, because in a look whose only accent is white there is
+    /// nothing to invert white to but black. Mono has a colour, so it keeps it,
+    /// and what changes is the lightness. A blue that reads on black is lost on
+    /// paper and the other way round; the hue is the constant.
+    static let monoLightGlass = FlightInfoTheme(
+        isGlass: true,
+        isLight: true,
+        windowFill: Self.monoPaper,
+        scrim: Color.white.opacity(0.28),
+        chromeTint: Color.white.opacity(0.30),
+        surfaceTint: Color.black.opacity(0.035),
+        elevatedTint: Color.black.opacity(0.075),
+        surfaceFill: Color.black.opacity(0.055),
+        elevatedFill: Color.black.opacity(0.10),
+        stroke: Color.black.opacity(0.10),
+        strokeStrong: Color.black.opacity(0.18),
+        textPrimary: Self.monoInk,
+        textSecondary: Color(white: 0.34),
+        textDim: Color(white: 0.54),
+        accent: Self.monoBlueDeep,
+        onAccent: .white,
+        trackFill: Color.black.opacity(0.14),
+        groundOpacity: 0.85,
+        textHalo: Color.white.opacity(0.5)
+    )
+
+    static let monoLightSolid = FlightInfoTheme(
+        isGlass: false,
+        isLight: true,
+        windowFill: Self.monoPaper,
+        scrim: .clear,
+        chromeTint: .clear,
+        surfaceTint: .clear,
+        elevatedTint: .clear,
+        surfaceFill: .white,
+        elevatedFill: Color(white: 0.93),
+        stroke: Color.black.opacity(0.09),
+        strokeStrong: Color.black.opacity(0.15),
+        textPrimary: Self.monoInk,
+        textSecondary: Color(white: 0.34),
+        textDim: Color(white: 0.54),
+        accent: Self.monoBlueDeep,
+        onAccent: .white,
+        trackFill: Color.black.opacity(0.12),
+        groundOpacity: 1,
+        textHalo: .clear
+    )
+
+    // MARK: - Carbon
 
     /// Tuned to let the map through.
     ///

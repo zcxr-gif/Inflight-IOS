@@ -222,6 +222,20 @@ struct SettingsPanel: View {
 
                 PanelDivider()
 
+                // Under the light switch, because it is the same kind of
+                // question one step in: that one says which end of the scale
+                // the app sits at, and this says what the scale is made of.
+                PanelPickerRow(
+                    title: "Colours",
+                    symbol: "paintpalette",
+                    options: AppPalette.allCases,
+                    label: { $0.label },
+                    detail: appearance.palette.detail,
+                    selection: $appearance.palette
+                )
+
+                PanelDivider()
+
                 PanelToggleRow(
                     title: "Glass flight info",
                     symbol: "square.on.square.dashed",
