@@ -344,7 +344,12 @@ struct TrackerMapView: UIViewRepresentable {
         /// What the drawn route currently represents, so overlays are only
         /// rebuilt when the trail actually grows.
         private var renderedRouteKey: String?
-        private var routeOverlays: [MKPolyline] = []
+
+        /// Everything drawn for the open aircraft's route, added and removed as
+        /// one set. `MKOverlay` rather than `MKPolyline`: the filed plan and the
+        /// dashed ends are polylines, and the flown track is a `FlownPathOverlay`
+        /// that draws itself.
+        private var routeOverlays: [MKOverlay] = []
 
         /// Flights whose backend history this map has already asked for.
         private var requestedHistory: Set<String> = []
