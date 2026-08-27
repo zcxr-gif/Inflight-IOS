@@ -23,22 +23,50 @@ import Foundation
 /// so it would pull the drawn line off the samples we actually have, and the
 /// aircraft would sit beside its own track in a turn. Passing through the data
 /// is the whole requirement here.
+///
+/// ## Centripetal, and why not uniform
+///
+/// The uniform basis — which is what this was — spaces its parameter evenly
+/// whatever the points do, and breadcrumbs are not evenly spaced. A trail is
+/// thinned by *distance*, so a hold or a slow taxi puts several samples close
+/// together and a cruise leg puts the next one eight miles away, and a uniform
+/// spline through that overshoots: it swings wide of the short segment,
+/// sometimes far enough to loop back over itself. A cusp in a flight path is a
+/// claim the aeroplane turned inside out.
+///
+/// The centripetal parameterisation (alpha = 0.5) is the standard answer, and
+/// it is provably free of both cusps and self-intersections. It costs four
+/// square roots per segment and it is the reason the curve now reads as a
+/// flight rather than as a ribbon someone shook.
 enum PathSmoothing {
 
     /// How many points are generated between each pair of samples.
     ///
-    /// Four is enough to read as a curve at any zoom the map offers and keeps
-    /// the overlay's point count to five times the trail's, which for a thinned
-    /// long-haul is still a few thousand — well inside what MapKit draws
-    /// without complaint.
-    private static let subdivisions = 4
+    /// Chosen against the size of the input rather than fixed, so a short trail
+    /// gets a genuinely smooth curve and a long one does not turn into fifty
+    /// thousand points. Four was the old figure for every case; on the tracks
+    /// this actually draws — the store thins to a few hundred samples — it left
+    /// the corners visibly faceted at any zoom close enough to see one.
+    private static let minimumSubdivisions = 4
+    private static let maximumSubdivisions = 14
+
+    /// Roughly how many points the smoothed path should come out at.
+    ///
+    /// A budget rather than a limit: the subdivision count is this divided by
+    /// the sample count, clamped. Three thousand is a few frames' work for
+    /// MapKit and finer than any screen can resolve a curve at.
+    private static let pointBudget = 3_000
 
     /// Above this many input points the path is left alone.
     ///
     /// A trail this long is a fourteen-hour flight whose samples are already
     /// four or eight miles apart; at that spacing the corners are gentle, and
     /// the smoothing would cost more than it shows.
-    private static let maximumInput = 2_000
+    private static let maximumInput = 4_000
+
+    /// The exponent that makes this centripetal. Uniform is 0, chordal is 1,
+    /// and a half is the one that behaves.
+    private static let alpha = 0.5
 
     /// Longitude jump that means the pair straddles the antimeridian rather
     /// than describing a turn. Interpolating across one would draw a line all
@@ -51,6 +79,11 @@ enum PathSmoothing {
     /// three points is already exactly the line between them.
     static func smoothed(_ coordinates: [CLLocationCoordinate2D]) -> [CLLocationCoordinate2D] {
         guard coordinates.count >= 3, coordinates.count <= maximumInput else { return coordinates }
+
+        let subdivisions = min(
+            max(pointBudget / coordinates.count, minimumSubdivisions),
+            maximumSubdivisions
+        )
 
         var output: [CLLocationCoordinate2D] = []
         output.reserveCapacity(coordinates.count * subdivisions)
@@ -75,29 +108,89 @@ enum PathSmoothing {
                 continue
             }
 
-            for step in 1...subdivisions {
-                let t = Double(step) / Double(subdivisions)
-                output.append(
-                    CLLocationCoordinate2D(
-                        latitude: catmullRom(p0.latitude, p1.latitude, p2.latitude, p3.latitude, t),
-                        longitude: catmullRom(p0.longitude, p1.longitude, p2.longitude, p3.longitude, t)
-                    )
-                )
-            }
+            append(
+                segmentFrom: p0, p1, p2, p3,
+                subdivisions: subdivisions,
+                into: &output
+            )
         }
 
         return output
     }
 
-    /// The uniform Catmull-Rom basis, evaluated on one axis.
-    private static func catmullRom(_ p0: Double, _ p1: Double, _ p2: Double, _ p3: Double, _ t: Double) -> Double {
-        let t2 = t * t
-        let t3 = t2 * t
-        return 0.5 * (
-            (2 * p1)
-            + (-p0 + p2) * t
-            + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2
-            + (-p0 + 3 * p1 - 3 * p2 + p3) * t3
-        )
+    /// One segment of the curve — the piece between `p1` and `p2`, shaped by
+    /// its neighbours.
+    private static func append(
+        segmentFrom p0: CLLocationCoordinate2D,
+        _ p1: CLLocationCoordinate2D,
+        _ p2: CLLocationCoordinate2D,
+        _ p3: CLLocationCoordinate2D,
+        subdivisions: Int,
+        into output: inout [CLLocationCoordinate2D]
+    ) {
+        // The knots: each one further along than the last by the distance
+        // between its points, raised to alpha. This is the whole difference
+        // between centripetal and uniform — uniform is these four being 0, 1,
+        // 2, 3 whatever the points do.
+        let t0 = 0.0
+        let t1 = t0 + knotSpan(p0, p1)
+        let t2 = t1 + knotSpan(p1, p2)
+        let t3 = t2 + knotSpan(p2, p3)
+
+        // Coincident samples collapse a span to nothing, and a zero span is a
+        // division by zero two lines further down. Two points in the same place
+        // have no curve between them anyway.
+        guard t1 > t0, t2 > t1, t3 > t2 else {
+            output.append(p2)
+            return
+        }
+
+        for step in 1...subdivisions {
+            let t = t1 + (t2 - t1) * Double(step) / Double(subdivisions)
+            output.append(
+                CLLocationCoordinate2D(
+                    latitude: interpolate(
+                        p0.latitude, p1.latitude, p2.latitude, p3.latitude,
+                        t0, t1, t2, t3, t
+                    ),
+                    longitude: interpolate(
+                        p0.longitude, p1.longitude, p2.longitude, p3.longitude,
+                        t0, t1, t2, t3, t
+                    )
+                )
+            )
+        }
+    }
+
+    /// How far along the knot vector one segment carries: its length, raised to
+    /// alpha. In degrees, which is not a distance — but it is the same scale on
+    /// both axes at the latitudes traffic actually flies, and the parameter
+    /// only has to be monotonic and roughly proportional for the curve to
+    /// behave.
+    private static func knotSpan(
+        _ from: CLLocationCoordinate2D,
+        _ to: CLLocationCoordinate2D
+    ) -> Double {
+        let dx = to.longitude - from.longitude
+        let dy = to.latitude - from.latitude
+        return pow((dx * dx + dy * dy).squareRoot(), alpha)
+    }
+
+    /// Barry-Goldman: three rounds of linear interpolation up the knot vector,
+    /// which evaluates the non-uniform Catmull-Rom spline without ever building
+    /// its basis matrix. One axis at a time.
+    private static func interpolate(
+        _ p0: Double, _ p1: Double, _ p2: Double, _ p3: Double,
+        _ t0: Double, _ t1: Double, _ t2: Double, _ t3: Double,
+        _ t: Double
+    ) -> Double {
+        let a1 = (t1 - t) / (t1 - t0) * p0 + (t - t0) / (t1 - t0) * p1
+        let a2 = (t2 - t) / (t2 - t1) * p1 + (t - t1) / (t2 - t1) * p2
+        let a3 = (t3 - t) / (t3 - t2) * p2 + (t - t2) / (t3 - t2) * p3
+
+        let b1 = (t2 - t) / (t2 - t0) * a1 + (t - t0) / (t2 - t0) * a2
+        let b2 = (t3 - t) / (t3 - t1) * a2 + (t - t1) / (t3 - t1) * a3
+
+        return (t2 - t) / (t2 - t1) * b1 + (t - t1) / (t2 - t1) * b2
     }
 }
