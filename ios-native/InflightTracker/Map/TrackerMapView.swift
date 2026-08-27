@@ -422,7 +422,34 @@ struct TrackerMapView: UIViewRepresentable {
         /// where the aircraft has ended up in the projection, so panning a
         /// globe changes it with the bearing never moving — hence all four
         /// figures.
-        private var alignedCamera: MKMapCamera?
+        ///
+        /// Held as figures rather than as the `MKMapCamera` they were read
+        /// from, and that is the whole of it: `MKMapCamera` is a class, and
+        /// `mapView.camera` hands back the map's own object rather than a
+        /// snapshot of it — which this file already says out loud, a few
+        /// hundred lines up, where it refuses to mutate one in place. Keeping
+        /// the object here meant keeping a reference to the live camera, so
+        /// every figure `hasCameraMoved` compared was being compared against
+        /// itself. It never once said yes. The sprites were squared up on the
+        /// first pass and never again, which is why spinning the planet took
+        /// every aeroplane on it round too.
+        private struct CameraStand {
+            var heading: CLLocationDirection
+            var pitch: CGFloat
+            var latitude: CLLocationDegrees
+            var longitude: CLLocationDegrees
+            var distance: CLLocationDistance
+
+            init(_ camera: MKMapCamera) {
+                heading = camera.heading
+                pitch = camera.pitch
+                latitude = camera.centerCoordinate.latitude
+                longitude = camera.centerCoordinate.longitude
+                distance = camera.centerCoordinateDistance
+            }
+        }
+
+        private var alignedCamera: CameraStand?
 
         init(_ parent: TrackerMapView) {
             self.parent = parent
@@ -628,24 +655,20 @@ struct TrackerMapView: UIViewRepresentable {
         /// happens to land in the region callback without the view actually
         /// having moved.
         private func hasCameraMoved(on mapView: MKMapView) -> Bool {
-            let camera = mapView.camera
+            let camera = CameraStand(mapView.camera)
             guard let last = alignedCamera else { return true }
 
             if abs(camera.heading - last.heading) > 0.5 { return true }
             if abs(camera.pitch - last.pitch) > 0.5 { return true }
 
-            let centre = camera.centerCoordinate
-            let was = last.centerCoordinate
             // In degrees, and deliberately crude: a tenth of a degree of pan is
             // several pixels of swing at the limb and nothing at all in the
             // middle, so the threshold is set by the worse of the two.
-            if abs(centre.latitude - was.latitude) > 0.02 { return true }
-            if abs(centre.longitude - was.longitude) > 0.02 { return true }
+            if abs(camera.latitude - last.latitude) > 0.02 { return true }
+            if abs(camera.longitude - last.longitude) > 0.02 { return true }
 
-            let distance = camera.centerCoordinateDistance
-            let held = last.centerCoordinateDistance
-            guard held > 0 else { return true }
-            return abs(distance - held) / held > 0.02
+            guard last.distance > 0 else { return true }
+            return abs(camera.distance - last.distance) / last.distance > 0.02
         }
 
         /// Re-applies every drawn sprite's angle for wherever the camera now
@@ -660,7 +683,7 @@ struct TrackerMapView: UIViewRepresentable {
         private func realign(on mapView: MKMapView, heading: CLLocationDirection) {
             appliedCameraHeading = heading
             headingProbe = Self.headingProbe(for: mapView)
-            alignedCamera = mapView.camera
+            alignedCamera = CameraStand(mapView.camera)
 
             for annotation in mapView.annotations {
                 guard let view = mapView.view(for: annotation) else { continue }
@@ -2395,6 +2418,21 @@ struct TrackerMapView: UIViewRepresentable {
         private static let liveCullInterval: TimeInterval = 0.25
 
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
+            // And square the sprites up once more, now the map has stopped.
+            //
+            // The live callback above is what keeps them with the finger, and
+            // on a gesture it has already done this. This is for the moves that
+            // are not gestures: `setCamera(animated:)` centring on an aircraft,
+            // fitting a route, restoring the camera after a style swap. Those
+            // do not reliably report a changing region on their way past, and
+            // one that slipped through left every sprite corrected against
+            // wherever the camera used to be. Gated the same way, so on a
+            // north-up map and on a settle that only re-culled it is one
+            // comparison.
+            if parent.style.usesScreenAngles, hasCameraMoved(on: mapView) {
+                realign(on: mapView, heading: mapView.camera.heading)
+            }
+
             // Re-cull for the new viewport using the traffic we already have.
             // Coalesced because this fires repeatedly through a pan or a
             // pinch, and each pass walks every aircraft on the server.
