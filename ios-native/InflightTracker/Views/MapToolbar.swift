@@ -248,6 +248,6 @@ private struct ToolbarItemStyle: ButtonStyle {
                     .opacity(configuration.isPressed ? 1 : 0)
             }
             .scaleEffect(configuration.isPressed ? 0.94 : 1)
-            .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
+            .animation(FlightInfoMotion.press, value: configuration.isPressed)
     }
 }

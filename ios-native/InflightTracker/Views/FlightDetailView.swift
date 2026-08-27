@@ -142,10 +142,16 @@ struct FlightDetailView: View {
                 // route block a second time, which was the dead space under
                 // the peak state.
                 let wanted = min(
-                    max(measured + FlightInfoLayout.peakBottomGap, FlightInfoLayout.minimumPeakHeight),
+                    max(measured + FlightInfoLayout.peakBottomGap, appearance.peakStyle.minimumPeakHeight),
                     FlightInfoLayout.maximumPeakHeight
                 )
-                if abs(wanted - peakHeight) > 1 { peakHeight = wanted }
+                // Animated at the source, so everything reading this height
+                // moves as one: the sheet's detent, and the map chrome that
+                // sits clear of it. Set bare, the chrome jumped a frame before
+                // the sheet did.
+                if abs(wanted - peakHeight) > 1 {
+                    withAnimation(FlightInfoMotion.panel) { peakHeight = wanted }
+                }
             }
         }
         // The sheet's own ground already covers the home indicator, and the

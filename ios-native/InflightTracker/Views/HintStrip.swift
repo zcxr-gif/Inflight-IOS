@@ -72,7 +72,7 @@ struct HintStrip: View {
             .accessibilityLabel("Hint: \(hint.text)")
 
             Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
+                withAnimation(FlightInfoMotion.panel) {
                     hints.dismiss(hint)
                 }
             } label: {

@@ -61,7 +61,7 @@ struct FlightActionRow: View {
     /// readout, so it carries the row the way the callsign carries the header.
     private var timeTile: some View {
         Button {
-            withAnimation(.easeInOut(duration: 0.18)) { showsRemaining.toggle() }
+            withAnimation(FlightInfoMotion.control) { showsRemaining.toggle() }
         } label: {
             tile(
                 symbol: showsRemaining ? "flag.pattern.checkered" : "airplane",

@@ -67,7 +67,7 @@ struct WindowGrabber: View {
             }
             .frame(maxWidth: .infinity, minHeight: Self.bandHeight)
             .contentShape(Rectangle())
-            .animation(.spring(response: 0.26, dampingFraction: 0.78), value: isHeld)
+            .animation(FlightInfoMotion.control, value: isHeld)
     }
 
     private var fill: Color {

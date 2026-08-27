@@ -164,7 +164,16 @@ final class FlightInfoAppearance: ObservableObject {
 }
 
 /// How much the info window shows before it is opened.
+///
+/// Declared smallest first, because that is the order the segmented control
+/// draws them in and the choice being made is how much of the map to give up.
 enum FlightInfoPeakStyle: String, CaseIterable, Identifiable {
+
+    /// A boarding-pass strip: the aeroplane's photograph raised clear of a
+    /// single band carrying its number, its registration, its route and how
+    /// far through it is. The shortest of the three by some way — the point of
+    /// it is that the map is still the thing you are looking at.
+    case strip
 
     /// A bar: identity beside a thumbnail, then the route.
     case compact
@@ -178,6 +187,7 @@ enum FlightInfoPeakStyle: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
+        case .strip: return "Strip"
         case .compact: return "Compact"
         case .rich: return "Photo"
         }
@@ -185,8 +195,24 @@ enum FlightInfoPeakStyle: String, CaseIterable, Identifiable {
 
     var detail: String {
         switch self {
+        case .strip: return "A boarding pass, and most of the map"
         case .compact: return "A bar with a thumbnail"
         case .rich: return "Opens on the aircraft photo"
+        }
+    }
+
+    /// The floor the sheet will not measure below, per style.
+    ///
+    /// One number could not serve all three. The floor exists to catch a
+    /// broken layout pass, so it has to sit under what the style really lays
+    /// out to — and the strip lays out to a little over half what the compact
+    /// bar does. Left at the shared 180 it became the strip's height, and the
+    /// mode's whole reason for existing is the band of map that padding would
+    /// have eaten.
+    var minimumPeakHeight: CGFloat {
+        switch self {
+        case .strip: return 118
+        case .compact, .rich: return 180
         }
     }
 }
@@ -554,6 +580,46 @@ struct FlightInfoSurfaceModifier: ViewModifier {
     }
 }
 
+/// The app's motion, in four named curves.
+///
+/// Before this there were fourteen. Every place something animated had picked
+/// its own spring or its own ease — 0.18, 0.2, 0.22, 0.25, 0.35, and five
+/// different springs — and no two of them were quite the same. That is not
+/// something anybody catches one control at a time; it is what makes a whole
+/// app feel unresolved, because two panels opened a second apart travel at two
+/// different speeds for no reason the eye can find.
+///
+/// Springs for anything that MOVES or RESIZES. A spring is described by where
+/// it is going rather than by how long it takes, so one retargeted part way
+/// through — a sheet grabbed while it is still opening, a panel resized by a
+/// setting changed behind it — carries its current velocity into the new
+/// animation instead of stopping dead and starting again. That is the whole
+/// difference between motion that feels physical and motion that feels
+/// scripted, and it is why the eases that were doing this job had to go.
+///
+/// Eases are kept for cross-fades, where there is no position to preserve and
+/// a spring's overshoot would only be clamped against opacity's ceiling.
+enum FlightInfoMotion {
+
+    /// Panels, sheets, and anything else that arrives over the map or changes
+    /// its size. The slowest of the four, because it is the largest thing
+    /// moving and a big surface that hurries looks flung rather than placed.
+    static let panel = Animation.spring(response: 0.42, dampingFraction: 0.88)
+
+    /// A control answering a finger — a toggle, a chip, a tile swapping what
+    /// it reads. Quicker and slightly looser than a panel: a small thing that
+    /// moves at a panel's pace reads as sluggish.
+    static let control = Animation.spring(response: 0.28, dampingFraction: 0.82)
+
+    /// The press itself, going down and coming back up. Short and eased on
+    /// purpose — a spring here wobbles under the finger that is still on it.
+    static let press = Animation.easeOut(duration: 0.14)
+
+    /// A cross-fade: one thing replacing another inside a box that does not
+    /// move. A photograph arriving, a label swapping, a list reordering.
+    static let fade = Animation.easeInOut(duration: 0.22)
+}
+
 /// Measurements the window and its sheet have to agree on.
 enum FlightInfoLayout {
 
@@ -564,15 +630,10 @@ enum FlightInfoLayout {
     /// indicator, and no single constant fits all of them.
     static let basePeakHeight: CGFloat = 300
 
-    /// Bounds on that measurement, so a bad layout pass can't produce an
-    /// unusable sheet.
-    ///
-    /// The floor is deliberately below anything the peak actually lays out to:
-    /// it is a guard against a broken measurement, not a target. Set close to
-    /// the real content height it becomes the height, and a short peak — a
-    /// parked aircraft, with no route strip to draw — pads itself back out
-    /// with the empty band it was measured to avoid.
-    static let minimumPeakHeight: CGFloat = 180
+    /// The floor on that measurement moved to `FlightInfoPeakStyle
+    /// .minimumPeakHeight` when the strip arrived: one number could not sit
+    /// under all three styles' real content heights, and a floor that is not
+    /// under the content becomes the content's height. See the note there.
 
     /// Generous enough for the photo peak, which is the full window's header
     /// plus its route card.

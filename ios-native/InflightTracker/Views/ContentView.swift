@@ -429,11 +429,11 @@ struct ContentView: View {
     /// The stack, with everything that watches for a change attached.
     private var watchedStack: some View {
         mapStack
-        .animation(.easeInOut(duration: 0.22), value: selection?.id)
-        .animation(.easeInOut(duration: 0.22), value: replay.isActive)
+        .animation(FlightInfoMotion.panel, value: selection?.id)
+        .animation(FlightInfoMotion.panel, value: replay.isActive)
         // The same spring the dock settles its own handle with, so the card
         // and everything that lifts out of its way move as one thing.
-        .animation(.spring(response: 0.34, dampingFraction: 0.86), value: isStatsUp)
+        .animation(FlightInfoMotion.panel, value: isStatsUp)
         .onChange(of: selection?.id) { _, id in
             // A replay belongs to the aircraft it was started from, and to the
             // window that drew the track under it. Opening another aircraft,
@@ -527,7 +527,14 @@ struct ContentView: View {
         // move to the new value or the sheet snaps to whatever is left.
         .onChange(of: peakHeight) { _, height in
             guard detent != .large else { return }
-            detent = .height(height)
+            // Animated, because this fires on every re-measurement of the peak
+            // — a photograph arriving and giving the bar its real height, a
+            // route card appearing once the plan is fetched, the peek style
+            // being changed with the window already open. Assigned bare, the
+            // sheet jumped to the new stop; the whole point of a spring here is
+            // that a second measurement arriving mid-travel retargets it rather
+            // than restarting it.
+            withAnimation(FlightInfoMotion.panel) { detent = .height(height) }
         }
         .sheet(isPresented: $isShowingAccount) {
             // Handed the feed explicitly rather than left to inherit it: the
@@ -574,8 +581,8 @@ struct ContentView: View {
             refreshMapAirports()
             refreshFriendsAloft()
         }
-        .animation(.easeInOut(duration: 0.22), value: weatherPreferences.mapLayer)
-        .animation(.easeInOut(duration: 0.22), value: measurement)
+        .animation(FlightInfoMotion.fade, value: weatherPreferences.mapLayer)
+        .animation(FlightInfoMotion.fade, value: measurement)
         // Pro can end while the app is open, and a tracker is an app people
         // leave open for hours. Coming back to the foreground is the moment to
         // re-ask: a subscription that lapsed overnight, a refund Apple granted,

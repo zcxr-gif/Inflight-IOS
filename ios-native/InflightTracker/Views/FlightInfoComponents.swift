@@ -484,7 +484,7 @@ struct FlightHero: View {
                 .padding(.trailing, 12)
                 // The credit belongs to the photograph, so it changes with it
                 // rather than being replaced under a stationary label.
-                .animation(.easeInOut(duration: 0.18), value: currentContributor)
+                .animation(FlightInfoMotion.fade, value: currentContributor)
         }
     }
 
@@ -504,7 +504,7 @@ struct FlightHero: View {
             .flightInfoSurface(theme, radius: 8, elevated: true)
             .padding(.leading, 12)
             .padding(.bottom, 10)
-            .animation(.easeInOut(duration: 0.18), value: page)
+            .animation(FlightInfoMotion.fade, value: page)
             .accessibilityLabel("Photo \(page + 1) of \(photos.count)")
         }
     }
