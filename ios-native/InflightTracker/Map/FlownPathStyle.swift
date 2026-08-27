@@ -47,26 +47,53 @@ enum FlownPathStyle {
         return closeWidth + (farWidth - closeWidth) * CGFloat(travel)
     }
 
-    /// How much wider the glow is than the line inside it.
-    ///
-    /// A halo rather than a second line: wide enough that its edge is nowhere
-    /// near the core's, so the two read as one soft-edged thing rather than as
-    /// a stripe with a border. Three and a bit is where a round cap on the core
-    /// disappears entirely inside the glow's own cap, which is what stops the
-    /// ends looking like buttons.
-    static let glowSpread: CGFloat = 3.2
+    // MARK: - The casing
 
-    /// And how much of it there is.
+    /// How much wider the casing under the line is than the line itself.
     ///
-    /// Low, and it has to be: this is a wash of the path's own colour laid over
-    /// the map, so every point of opacity is a point of cartography lost. At a
-    /// fifth it lifts the line off a dark map and is very nearly invisible on a
-    /// light one, which is the right way round — a glow is a thing you notice
-    /// against darkness.
-    static let glowOpacity: CGFloat = 0.2
+    /// ## Why this is not a glow
+    ///
+    /// It was. The under-layer used to be the path's own colours at a fifth of
+    /// their opacity, three and a bit times as wide, on the reasoning that a
+    /// wide faint wash of the same colour reads as a halo. It does not, and the
+    /// arithmetic says why: at the close width that is a band nearly eleven
+    /// points across, and a stroke of uniform opacity has a **hard edge**
+    /// wherever it ends. So what got drawn was not a glow but a flat-topped
+    /// stripe with a visible border down each side — two extra lines running
+    /// parallel to the track, worst exactly where the line is widest, which is
+    /// zoomed in. And because the stripe was the line's own colour, the line
+    /// inside it had nothing to contrast against: the crisp track vanished into
+    /// the middle of a fat soft-coloured ribbon.
+    ///
+    /// A glow needs a falloff, and a falloff needs either a blur or a stack of
+    /// strokes. What the line actually needs is neither — it needs to be
+    /// legible over cartography, over labels and over satellite imagery, and
+    /// the answer to that is the one the aircraft marks on the same map already
+    /// use: a dark casing, barely proud of the line, in a colour the line can
+    /// never be.
+    ///
+    /// A ratio rather than a fixed number of points, so it tracks the width
+    /// ramp above: about a point either side when the line is at its widest,
+    /// about a third of one when it is at its narrowest. A fixed casing would
+    /// be right at one end of the zoom range and a blob at the other.
+    static let casingSpread: CGFloat = 1.55
 
-    static func glowWidth(forCameraDistance distance: CLLocationDistance) -> CGFloat {
-        width(forCameraDistance: distance) * glowSpread
+    /// The casing's colour: the same near-black the plane icons are outlined
+    /// in, so an aircraft and the track behind it read as one drawing rather
+    /// than as two things that happen to meet.
+    ///
+    /// Held back from opaque so cartography still shows through a track laid
+    /// over a city, and dark in both appearances for the same reason the icon
+    /// outline is: it is contrast against the *line*, not against the map, and
+    /// the altitude ramp is light at every height it draws.
+    static let casingColor = UIColor(red: 0.07, green: 0.08, blue: 0.11, alpha: 0.65)
+
+    /// The casing under a line of this width. Taken from the line rather than
+    /// from the camera so the two can never be computed from different frames:
+    /// the width ramp is read once per region change, and both strokes are set
+    /// from that one answer.
+    static func casingWidth(under lineWidth: CGFloat) -> CGFloat {
+        lineWidth * casingSpread
     }
 }
 
@@ -91,24 +118,30 @@ struct FlownPath {
 
     let line: MKPolyline
 
-    /// The same geometry again, drawn wider and fainter underneath.
+    /// The same geometry again, drawn a little wider and dark, underneath.
     ///
-    /// A second overlay rather than a shadow on the first, because
-    /// `MKOverlayRenderer` has no shadow and a Core Graphics one would be cast
-    /// by the line's stroke — an offset copy, not a halo. Two strokes of the
-    /// same path, one wide and washed out and one narrow and solid, is how a
-    /// glow is drawn when the only tool is a stroke.
-    let glow: MKPolyline
+    /// A second overlay rather than one renderer drawing twice, because the two
+    /// have to be laid down in two complete passes: casing along the whole
+    /// track first, then colour along the whole track over it. Stroking them
+    /// segment by segment would put the casing of a later leg on top of the
+    /// colour of an earlier one wherever a track crosses itself — which is
+    /// every circuit, hold and go-around, and is exactly where somebody is
+    /// zoomed in far enough to see it.
+    ///
+    /// See `FlownPathStyle.casingSpread` for why this is a casing and not the
+    /// glow it started as.
+    let casing: MKPolyline
 
     /// The stops, and where along the line each one sits. Handed straight to
     /// the renderer.
+    ///
+    /// Only the line carries them. The casing is one flat colour, which is what
+    /// lets it be drawn by a plain `MKPolylineRenderer` — the cheapest renderer
+    /// MapKit has, against the gradient renderer, which is among the dearest.
+    /// Halving the number of gradient passes is most of what makes a long track
+    /// bearable to zoom around in.
     let colors: [UIColor]
     let locations: [CGFloat]
-
-    /// The same stops, washed down for the halo. Held rather than computed at
-    /// draw time: the renderer is rebuilt on every pan across a tile boundary
-    /// and this is a couple of hundred colour conversions.
-    let glowColors: [UIColor]
 
     /// At most this many stops.
     ///
@@ -132,7 +165,7 @@ struct FlownPath {
     /// never sent — those stops take the unknown grey, so a path that starts
     /// without heights and picks them up mid-flight fades into its colours
     /// rather than switching into them.
-    init?(points: [TrackPoint], bands: [Int?], title: String, glowTitle: String) {
+    init?(points: [TrackPoint], bands: [Int?], title: String, casingTitle: String) {
         guard points.count >= 2, bands.count == points.count else { return nil }
 
         let coordinates = points.map(\.coordinate)
@@ -189,17 +222,14 @@ struct FlownPath {
         line.title = title
 
         // Built from the same curve rather than sharing the object: an overlay
-        // can only be on the map once, and the glow has to be added first so it
-        // is drawn underneath.
-        let glow = MKGeodesicPolyline(coordinates: curve, count: curve.count)
-        glow.title = glowTitle
+        // can only be on the map once, and the casing has to be added first so
+        // it is drawn underneath.
+        let casing = MKGeodesicPolyline(coordinates: curve, count: curve.count)
+        casing.title = casingTitle
 
         self.line = line
-        self.glow = glow
+        self.casing = casing
         self.colors = colors
-        self.glowColors = colors.map {
-            $0.withAlphaComponent($0.cgColor.alpha * FlownPathStyle.glowOpacity)
-        }
         self.locations = locations
     }
 

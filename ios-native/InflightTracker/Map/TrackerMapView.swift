@@ -1223,12 +1223,14 @@ struct TrackerMapView: UIViewRepresentable {
                 points: flown,
                 bands: Self.heightBands(of: flown),
                 title: Self.flownTitle,
-                glowTitle: Self.flownGlowTitle
+                casingTitle: Self.flownCasingTitle
             )
             if let path = flownRamp {
-                // The halo first. Overlays draw in the order they are added
-                // within a level, so this is what puts it underneath.
-                routeOverlays.append(path.glow)
+                // The casing first. Overlays draw in the order they are added
+                // within a level, so this is what puts it underneath — and it
+                // has to be a complete pass of its own, or a track that crosses
+                // itself paints casing over colour at the crossing.
+                routeOverlays.append(path.casing)
                 routeOverlays.append(path.line)
             }
 
@@ -1799,7 +1801,7 @@ struct TrackerMapView: UIViewRepresentable {
         static let planTitle = "plan"
 
         static let flownTitle = "flown"
-        static let flownGlowTitle = "flown.glow"
+        static let flownCasingTitle = "flown.casing"
         static let plannedTitle = "planned"
 
         // MARK: Replay
@@ -2069,12 +2071,12 @@ struct TrackerMapView: UIViewRepresentable {
                 return renderer
             }
 
-            if line.title == Self.flownGlowTitle {
-                return flownRenderer(for: line, glowing: true)
+            if line.title == Self.flownCasingTitle {
+                return flownCasingRenderer(for: line)
             }
 
             if line.title == Self.flownTitle {
-                return flownRenderer(for: line, glowing: false)
+                return flownRenderer(for: line)
             }
 
             let renderer = MKPolylineRenderer(polyline: line)
@@ -2113,27 +2115,35 @@ struct TrackerMapView: UIViewRepresentable {
         /// a path whose heights were all unknown, or one left over from a
         /// route that has since been rebuilt — grey either way, which is what
         /// an unreadable title has always fallen back to.
-        private func flownRenderer(for line: MKPolyline, glowing: Bool) -> MKOverlayRenderer {
+        private func flownRenderer(for line: MKPolyline) -> MKOverlayRenderer {
             let renderer = MKGradientPolylineRenderer(polyline: line)
             renderer.lineCap = .round
             renderer.lineJoin = .round
-            renderer.lineWidth = glowing ? flownWidth * FlownPathStyle.glowSpread : flownWidth
+            renderer.lineWidth = flownWidth
 
-            let ramp = flownRamp
-            let matches = ramp.map { glowing ? $0.glow === line : $0.line === line } ?? false
-
-            if let ramp = ramp, matches, ramp.colors.count >= 2 {
-                renderer.setColors(
-                    glowing ? ramp.glowColors : ramp.colors,
-                    locations: ramp.locations
-                )
+            if let ramp = flownRamp, ramp.line === line, ramp.colors.count >= 2 {
+                renderer.setColors(ramp.colors, locations: ramp.locations)
             } else {
-                let fallback = glowing
-                    ? AltitudeBand.unknownColor.withAlphaComponent(FlownPathStyle.glowOpacity)
-                    : AltitudeBand.unknownColor
+                let fallback = AltitudeBand.unknownColor
                 renderer.setColors([fallback, fallback], locations: [0, 1])
             }
 
+            return renderer
+        }
+
+        /// The dark casing under the track.
+        ///
+        /// A plain polyline renderer in one flat colour, which is the whole
+        /// point of it: the gradient renderer is expensive, and the under-layer
+        /// has nothing to say that needs a gradient. See
+        /// `FlownPathStyle.casingSpread` for why this is a casing rather than
+        /// the wide translucent wash of the line's own colour it used to be.
+        private func flownCasingRenderer(for line: MKPolyline) -> MKOverlayRenderer {
+            let renderer = MKPolylineRenderer(polyline: line)
+            renderer.lineCap = .round
+            renderer.lineJoin = .round
+            renderer.lineWidth = FlownPathStyle.casingWidth(under: flownWidth)
+            renderer.strokeColor = FlownPathStyle.casingColor
             return renderer
         }
 
@@ -2154,7 +2164,7 @@ struct TrackerMapView: UIViewRepresentable {
             guard let path = flownRamp else { return }
 
             for (overlay, drawn) in [
-                (path.glow, width * FlownPathStyle.glowSpread),
+                (path.casing, FlownPathStyle.casingWidth(under: width)),
                 (path.line, width)
             ] {
                 guard let renderer = mapView.renderer(for: overlay) as? MKPolylineRenderer else {
