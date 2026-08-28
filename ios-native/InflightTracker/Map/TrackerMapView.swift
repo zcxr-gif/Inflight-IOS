@@ -734,15 +734,109 @@ struct TrackerMapView: UIViewRepresentable {
         /// answer — an aircraft round the back of the planet, a probe that
         /// lands on the same pixel — which is the old behaviour, and no worse
         /// than it ever was.
+        ///
+        /// ## Why an angle is not enough either
+        ///
+        /// Turning the sprite the right way round is only half of lying flat on
+        /// something. The other half is foreshortening, and a rotation has none
+        /// in it: whatever the angle, the sprite is still drawn at full size and
+        /// perfectly square. In the middle of the view that is correct, because
+        /// there the ground is square-on to the camera. Out at the limb it is
+        /// not — the surface there is turning away almost edge-on, a circle
+        /// painted on it projects to a thin ellipse, and a sprite that stays a
+        /// full-size square on top of that reads as a cardboard cut-out
+        /// standing up and facing you rather than as an aeroplane lying on the
+        /// planet.
+        ///
+        /// So measure the whole local frame rather than one direction of it.
+        /// Two probes — one along the aircraft's track, one ninety degrees off
+        /// it — give the two vectors the ground's own axes project to, and
+        /// those two vectors *are* the transform. Near the middle they come out
+        /// the same length and the result is exactly the rotation this used to
+        /// return; out at the limb the one pointing at the horizon collapses
+        /// and the sprite lies down with the surface.
+        ///
+        /// Which axis to keep at full size is not a choice: the one along the
+        /// limb is not foreshortened at all, so both are divided by the longer
+        /// of the two. That leaves scale alone everywhere it should be left
+        /// alone, and takes it out of the one direction that has genuinely got
+        /// shorter.
         private func rotation(
             for heading: Double,
             at coordinate: CLLocationCoordinate2D,
             on mapView: MKMapView
         ) -> CGAffineTransform {
-            CGAffineTransform(
-                rotationAngle: screenAngle(for: heading, at: coordinate, on: mapView)
+            // Worked out only where it is wanted. This runs on every drawn
+            // aircraft on every frame of a spin, and the measured angle costs a
+            // probe and two projections of its own — so the frame below, which
+            // already carries the rotation inside it, never pays for one.
+            func turned() -> CGAffineTransform {
+                CGAffineTransform(
+                    rotationAngle: screenAngle(for: heading, at: coordinate, on: mapView)
+                )
+            }
+
+            guard parent.style.usesScreenAngles else { return turned() }
+            guard CLLocationCoordinate2DIsValid(coordinate) else { return turned() }
+
+            let ahead = Self.coordinate(from: coordinate, bearing: heading, metres: headingProbe)
+            let beside = Self.coordinate(from: coordinate, bearing: heading + 90, metres: headingProbe)
+            guard CLLocationCoordinate2DIsValid(ahead), CLLocationCoordinate2DIsValid(beside) else {
+                return turned()
+            }
+
+            let origin = mapView.convert(coordinate, toPointTo: mapView)
+            let tip = mapView.convert(ahead, toPointTo: mapView)
+            let side = mapView.convert(beside, toPointTo: mapView)
+
+            let forward = CGPoint(x: tip.x - origin.x, y: tip.y - origin.y)
+            let right = CGPoint(x: side.x - origin.x, y: side.y - origin.y)
+            guard forward.x.isFinite, forward.y.isFinite, right.x.isFinite, right.y.isFinite else {
+                return turned()
+            }
+
+            let along = hypot(forward.x, forward.y)
+            let across = hypot(right.x, right.y)
+            let longer = max(along, across)
+            // Both probes landing within a pixel is a projection with nothing
+            // to say — the same condition the angle falls back on.
+            guard longer >= 1 else { return turned() }
+
+            // The far side of the planet, where east and north come out mirrored
+            // and the frame would flip the sprite. MapKit usually culls these
+            // before they are drawn; this is what happens when it does not.
+            let winding = right.x * forward.y - right.y * forward.x
+            guard winding < 0 else { return turned() }
+
+            let axes = [forward, right].map { axis -> CGPoint in
+                let scaled = CGPoint(x: axis.x / longer, y: axis.y / longer)
+                let length = hypot(scaled.x, scaled.y)
+                // Floored, because a sprite is a thing that has to be seen and
+                // pressed. Taken to its honest limit an aeroplane on the very
+                // edge is a line a fraction of a pixel across, which is
+                // realistic and useless.
+                guard length > 0.0001, length < Self.minimumFlatten else { return scaled }
+                let lift = Self.minimumFlatten / length
+                return CGPoint(x: scaled.x * lift, y: scaled.y * lift)
+            }
+
+            // The artwork points north, which on screen is up, which is
+            // negative y — so the sprite's own up axis is what maps onto the
+            // track, and its right axis onto the ground's right.
+            return CGAffineTransform(
+                a: axes[1].x, b: axes[1].y,
+                c: -axes[0].x, d: -axes[0].y,
+                tx: 0, ty: 0
             )
         }
+
+        /// How flat a sprite is allowed to get before it stops flattening.
+        ///
+        /// At the limb the true figure goes to nothing, and a sprite drawn to
+        /// it would be invisible and impossible to press. Two fifths is squashed
+        /// hard enough to read as lying on a surface turning away, and still
+        /// leaves an aeroplane there to tap.
+        private static let minimumFlatten: CGFloat = 0.4
 
         private func screenAngle(
             for heading: Double,
