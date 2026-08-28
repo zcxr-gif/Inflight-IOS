@@ -349,13 +349,13 @@ struct TrackerMapView: UIViewRepresentable {
         /// Flights whose backend history this map has already asked for.
         private var requestedHistory: Set<String> = []
 
-        /// The flown path currently on the map, and the ramp laid along it.
+        /// The flown path currently on the map.
         ///
-        /// Held here rather than on the overlay because `MKPolyline` carries
-        /// nothing but a title, and there is only ever one flown path — the
-        /// open aircraft's. The renderer reads it back when MapKit asks for a
-        /// renderer, which is after the overlay has been added.
-        private var flownRamp: FlownPath?
+        /// One overlay now, carrying its own points and their colours — the
+        /// renderer needs nothing looked up on the side. It used to be a pair,
+        /// a halo polyline and a line polyline, with the colour ramp held here
+        /// because `MKPolyline` can carry nothing but a title.
+        private var flownOverlay: FlownPathOverlay?
 
         /// How wide that path is drawn, in points.
         ///
@@ -1238,21 +1238,17 @@ struct TrackerMapView: UIViewRepresentable {
                 flown.append(livePoint)
             }
 
-            // One line, coloured by height along its whole length. See
-            // `FlownPath`: it used to be one polyline per run of samples
-            // sharing a band, which stepped the colour six times through a
-            // climb and stacked a round cap on every boundary.
-            flownRamp = FlownPath(
+            // One overlay, coloured by height along its whole length, drawing
+            // its own halo underneath itself. See `FlownPath` for what this
+            // replaced and why none of it survived.
+            let path = FlownPath(
                 points: flown,
                 bands: Self.heightBands(of: flown),
-                title: Self.flownTitle,
-                glowTitle: Self.flownGlowTitle
+                title: Self.flownTitle
             )
-            if let path = flownRamp {
-                // The halo first. Overlays draw in the order they are added
-                // within a level, so this is what puts it underneath.
-                routeOverlays.append(path.glow)
-                routeOverlays.append(path.line)
+            flownOverlay = path?.overlay
+            if let overlay = path?.overlay {
+                routeOverlays.append(overlay)
             }
 
             // Before we were watching: departure to the first point we have.
@@ -1360,7 +1356,7 @@ struct TrackerMapView: UIViewRepresentable {
             }
             mapView.removeOverlays(routeOverlays)
             routeOverlays.removeAll(keepingCapacity: true)
-            flownRamp = nil
+            flownOverlay = nil
             renderedRouteKey = nil
         }
 
@@ -1848,7 +1844,6 @@ struct TrackerMapView: UIViewRepresentable {
         static let planTitle = "plan"
 
         static let flownTitle = "flown"
-        static let flownGlowTitle = "flown.glow"
         static let plannedTitle = "planned"
 
         // MARK: Replay
@@ -2092,6 +2087,16 @@ struct TrackerMapView: UIViewRepresentable {
                 return Self.groundRenderer(for: area, title: area.title)
             }
 
+            // Matched by type rather than by title: the flown path is its own
+            // overlay now and carries its own points and colours, so there is
+            // nothing to look up and nothing to fall back to when the lookup
+            // misses — which is what used to paint a whole track grey.
+            if let flown = overlay as? FlownPathOverlay {
+                let renderer = FlownPathRenderer(overlay: flown)
+                renderer.apply(width: flownWidth)
+                return renderer
+            }
+
             guard let line = overlay as? MKPolyline else {
                 return MKOverlayRenderer(overlay: overlay)
             }
@@ -2116,14 +2121,6 @@ struct TrackerMapView: UIViewRepresentable {
                 renderer.strokeColor = NatTrackStyle.colour(for: track).withAlphaComponent(0.75)
                 renderer.lineWidth = 2.6
                 return renderer
-            }
-
-            if line.title == Self.flownGlowTitle {
-                return flownRenderer(for: line, glowing: true)
-            }
-
-            if line.title == Self.flownTitle {
-                return flownRenderer(for: line, glowing: false)
             }
 
             let renderer = MKPolylineRenderer(polyline: line)
@@ -2155,37 +2152,6 @@ struct TrackerMapView: UIViewRepresentable {
             return renderer
         }
 
-        /// The flown track: one line, one ramp, one cap at each end.
-        ///
-        /// The stops come off `flownRamp` rather than off the overlay, which
-        /// carries only a title. A path on the map without a ramp behind it is
-        /// a path whose heights were all unknown, or one left over from a
-        /// route that has since been rebuilt — grey either way, which is what
-        /// an unreadable title has always fallen back to.
-        private func flownRenderer(for line: MKPolyline, glowing: Bool) -> MKOverlayRenderer {
-            let renderer = MKGradientPolylineRenderer(polyline: line)
-            renderer.lineCap = .round
-            renderer.lineJoin = .round
-            renderer.lineWidth = glowing ? flownWidth * FlownPathStyle.glowSpread : flownWidth
-
-            let ramp = flownRamp
-            let matches = ramp.map { glowing ? $0.glow === line : $0.line === line } ?? false
-
-            if let ramp = ramp, matches, ramp.colors.count >= 2 {
-                renderer.setColors(
-                    glowing ? ramp.glowColors : ramp.colors,
-                    locations: ramp.locations
-                )
-            } else {
-                let fallback = glowing
-                    ? AltitudeBand.unknownColor.withAlphaComponent(FlownPathStyle.glowOpacity)
-                    : AltitudeBand.unknownColor
-                renderer.setColors([fallback, fallback], locations: [0, 1])
-            }
-
-            return renderer
-        }
-
         /// Re-widths the flown path for wherever the camera now stands.
         ///
         /// Run from the live region callback, and it has to be cheap enough
@@ -2200,18 +2166,14 @@ struct TrackerMapView: UIViewRepresentable {
             guard abs(width - flownWidth) > 0.05 else { return }
             flownWidth = width
 
-            guard let path = flownRamp else { return }
+            guard let overlay = flownOverlay,
+                  let renderer = mapView.renderer(for: overlay) as? FlownPathRenderer
+            else { return }
 
-            for (overlay, drawn) in [
-                (path.glow, width * FlownPathStyle.glowSpread),
-                (path.line, width)
-            ] {
-                guard let renderer = mapView.renderer(for: overlay) as? MKPolylineRenderer else {
-                    continue
-                }
-                renderer.lineWidth = drawn
-                renderer.setNeedsDisplay()
-            }
+            // The halo follows from the core inside the renderer, so this is
+            // the one number, and the renderer decides whether it is worth a
+            // repaint.
+            renderer.apply(width: width)
         }
 
         /// Pavement, drawn like a chart rather than like a photograph.

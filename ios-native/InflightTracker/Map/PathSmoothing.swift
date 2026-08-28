@@ -73,12 +73,28 @@ enum PathSmoothing {
     /// the way around the world.
     private static let dateLineJump: CLLocationDegrees = 180
 
-    /// A denser version of `coordinates`, curved through every original point.
+    /// A denser version of `coordinates`, curved through every original point,
+    /// and which original point each one of them came from.
     ///
+    /// The origins are what let the track be coloured exactly. Smoothing
+    /// inserts points *between* samples, so a drawn point is not a sample and
+    /// has no height of its own — but it does belong to a known piece of track,
+    /// the one running from sample `origin` to the next. Colouring by that is
+    /// exact, and it is the thing the old gradient could not do: it was handed
+    /// fractions along the line and had to guess where on the curve they fell.
+    ///
+    /// `origins[i]` is an index into the *input*, and is non-decreasing.
+    struct Curve {
+        var coordinates: [CLLocationCoordinate2D]
+        var origins: [Int]
+    }
+
     /// Returns the input unchanged when there is nothing to gain: fewer than
     /// three points is already exactly the line between them.
-    static func smoothed(_ coordinates: [CLLocationCoordinate2D]) -> [CLLocationCoordinate2D] {
-        guard coordinates.count >= 3, coordinates.count <= maximumInput else { return coordinates }
+    static func smoothedWithOrigins(_ coordinates: [CLLocationCoordinate2D]) -> Curve {
+        guard coordinates.count >= 3, coordinates.count <= maximumInput else {
+            return Curve(coordinates: coordinates, origins: Array(coordinates.indices))
+        }
 
         let subdivisions = min(
             max(pointBudget / coordinates.count, minimumSubdivisions),
@@ -86,8 +102,11 @@ enum PathSmoothing {
         )
 
         var output: [CLLocationCoordinate2D] = []
+        var origins: [Int] = []
         output.reserveCapacity(coordinates.count * subdivisions)
+        origins.reserveCapacity(coordinates.count * subdivisions)
         output.append(coordinates[0])
+        origins.append(0)
 
         for index in 0..<(coordinates.count - 1) {
             let p1 = coordinates[index]
@@ -105,17 +124,23 @@ enum PathSmoothing {
                 || abs(p2.longitude - p3.longitude) > dateLineJump
             guard !straddles else {
                 output.append(p2)
+                origins.append(index)
                 continue
             }
 
+            let before = output.count
             append(
                 segmentFrom: p0, p1, p2, p3,
                 subdivisions: subdivisions,
                 into: &output
             )
+            // Everything this segment produced belongs to the piece of track
+            // that starts at `index`, whether it emitted a whole curve or gave
+            // up and emitted one point.
+            origins.append(contentsOf: repeatElement(index, count: output.count - before))
         }
 
-        return output
+        return Curve(coordinates: output, origins: origins)
     }
 
     /// One segment of the curve — the piece between `p1` and `p2`, shaped by
