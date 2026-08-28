@@ -529,7 +529,7 @@ private struct FriendRow: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(theme.textSecondary)
                     .frame(width: 30, height: 30)
-                    .background { Circle().fill(theme.surfaceFill) }
+                    .flightInfoSurface(theme, in: Circle(), interactive: true)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Open \(username)'s Inflight profile")
@@ -540,9 +540,8 @@ private struct FriendRow: View {
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(isTracking ? theme.onAccent : theme.textSecondary)
                         .frame(width: 30, height: 30)
-                        .background {
-                            Circle().fill(isTracking ? theme.accent : theme.surfaceFill)
-                        }
+                        .background { if isTracking { Circle().fill(theme.accent) } }
+                        .flightInfoSurface(theme, in: Circle(), interactive: true)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(isTracking ? "Stop the live banner" : "Show a live banner for this flight")
@@ -553,7 +552,7 @@ private struct FriendRow: View {
                     .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(theme.textDim)
                     .frame(width: 30, height: 30)
-                    .background { Circle().fill(theme.surfaceFill) }
+                    .flightInfoSurface(theme, in: Circle(), interactive: true)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Stop watching \(username)")

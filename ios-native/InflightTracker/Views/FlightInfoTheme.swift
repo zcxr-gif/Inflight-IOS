@@ -847,6 +847,40 @@ extension View {
             )
         )
     }
+
+    /// The same, in whatever shape the thing actually is.
+    ///
+    /// The rounded-rectangle version above is the common case and stays the
+    /// short spelling. This one is why every round button and every pill in the
+    /// app can be glass: they were all writing `.background { Circle().fill(
+    /// theme.surfaceFill) }` by hand, which is the *fallback* — so they stayed
+    /// flat fills while everything that went through the helper turned to
+    /// glass, and the app came out glassy in patches.
+    ///
+    /// `interactive` is worth passing on anything you can press. It is the
+    /// system's own press response, where the pane bends towards the finger,
+    /// and it is most of what makes a control feel like it is made of
+    /// something.
+    @ViewBuilder
+    func flightInfoSurface(
+        _ theme: FlightInfoTheme,
+        in shape: some Shape,
+        elevated: Bool = false,
+        interactive: Bool = false
+    ) -> some View {
+        if theme.isGlass {
+            glassEffect(
+                .regular
+                    .tint(elevated ? theme.elevatedTint : theme.surfaceTint)
+                    .interactive(interactive),
+                in: shape
+            )
+        } else {
+            background { shape.fill(elevated ? theme.elevatedFill : theme.surfaceFill) }
+                .overlay { shape.stroke(elevated ? theme.strokeStrong : theme.stroke, lineWidth: 1) }
+                .clipShape(shape)
+        }
+    }
 }
 
 struct FlightInfoSurfaceModifier: ViewModifier {

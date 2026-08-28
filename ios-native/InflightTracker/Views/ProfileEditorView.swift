@@ -93,7 +93,7 @@ struct ProfileEditorView: View {
                     .foregroundStyle(theme.textSecondary)
                     .padding(.horizontal, 11)
                     .padding(.vertical, 6)
-                    .background { Capsule().fill(theme.surfaceFill) }
+                    .flightInfoSurface(theme, in: Capsule(), interactive: true)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("See your profile as others do")

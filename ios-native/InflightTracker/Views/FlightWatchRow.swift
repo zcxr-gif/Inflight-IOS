@@ -148,15 +148,13 @@ struct FlightWatchRow: View {
             .foregroundStyle(isOn ? theme.onAccent : theme.textSecondary)
             .padding(.vertical, 8)
             .frame(maxWidth: .infinity)
+            // On is a solid accent and stays one: a control that is *doing*
+            // something says so by being filled, and glass is the resting
+            // state either side of that.
             .background {
-                let shape = Capsule(style: .continuous)
-                if isOn {
-                    shape.fill(theme.accent)
-                } else {
-                    shape.fill(theme.surfaceFill)
-                        .overlay { shape.strokeBorder(theme.stroke, lineWidth: 1) }
-                }
+                if isOn { Capsule(style: .continuous).fill(theme.accent) }
             }
+            .flightInfoSurface(theme, in: Capsule(style: .continuous), interactive: true)
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
