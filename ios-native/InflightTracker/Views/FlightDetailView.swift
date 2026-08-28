@@ -547,7 +547,6 @@ private struct FlightInfoWindowChrome: ViewModifier {
                 // than above a band of empty sheet the width of that inset.
                 .ignoresSafeArea(edges: .bottom)
                 .presentationBackground { theme.sheetBackground }
-                .flightInfoGlassGround(theme)
                 .presentationCornerRadius(theme.radiusLarge + 6)
 
         case .pane:

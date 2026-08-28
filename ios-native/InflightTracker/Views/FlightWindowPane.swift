@@ -135,7 +135,6 @@ struct FlightWindowPane<Content: View>: View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background { theme.sheetBackground }
-            .flightInfoGlassGround(theme)
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)

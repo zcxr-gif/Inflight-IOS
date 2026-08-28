@@ -109,11 +109,6 @@ struct SheetWindow<Header: View, Content: View>: View {
             // the note at the top of the file: this is the difference between
             // a pane of glass over the map and a grey card.
             .presentationBackground { theme.sheetBackground }
-            // The ground above is hung on the sheet, not drawn around the
-            // content, so nothing inside can see that it is standing on glass.
-            // Told here instead — otherwise every card in the panel draws a
-            // second pane on top of this one and none of them lens.
-            .flightInfoGlassGround(theme)
             .presentationCornerRadius(theme.radiusLarge + 8)
             // Our own pill, in the pinned band, instead of the system's
             // floating one — two indicators in the same place would be one too

@@ -69,7 +69,6 @@ struct ProPanel: View {
         // in the content it would have only the sheet behind it to sample and
         // would come out as a flat slab.
         .presentationBackground { theme.sheetBackground }
-        .flightInfoGlassGround(theme)
         .presentationCornerRadius(theme.radiusLarge + 8)
         .presentationDetents([.large])
         // No dimming wash behind it, for the same reason as every other

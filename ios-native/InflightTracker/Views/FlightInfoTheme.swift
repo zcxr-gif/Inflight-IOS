@@ -435,13 +435,14 @@ struct FlightInfoTheme {
     /// thing read as a slab. Legibility is `textHalo`'s job now, which costs
     /// the map nothing.
     ///
-    /// Mono's dark themes carry a little again, and it is the opposite errand.
-    /// The wash that was removed was there to *darken*; this one is a slate
-    /// laid on glass that in a dark scheme is already very close to black, and
-    /// what it does is lift the floor. A quarter is enough to be a grey rather
-    /// than a void and little enough that the map still reads through it —
-    /// which is the number to watch if a window ever starts looking like a
-    /// slab again.
+    /// It stayed zero there. Lifting mono's ground off black was worth doing,
+    /// and a wash of the new slate under the glass was the obvious way to make
+    /// the lift visible in the theme that actually ships — but it cost exactly
+    /// what the paragraph above says it costs. A quarter of anything under the
+    /// glass is a quarter less map showing through it, and a window that does
+    /// not show the map through it is not glass, whatever it is made of. The
+    /// lift lives in `chromeTint` instead, which is a colour *in* the glass
+    /// rather than a layer behind it, and so does not cloud it.
     ///
     /// Light still needs a real ground. The system's glass *dims* what is behind
     /// it, which helps white text and hurts black, so black ink on it has to sit
@@ -606,7 +607,7 @@ struct FlightInfoTheme {
         accent: Self.monoBlue,
         onAccent: Self.monoDeep,
         trackFill: Color.white.opacity(0.16),
-        groundOpacity: 0.25,
+        groundOpacity: 0,
         textHalo: Color.black.opacity(0.55)
     )
 
@@ -848,54 +849,6 @@ extension View {
     }
 }
 
-/// Whether the thing being drawn is already sitting on glass.
-///
-/// ## Why anything needs to know
-///
-/// Liquid Glass lenses whatever is behind it. Put a pane of it directly on the
-/// map and it has the map to work with, which is the whole effect. Put a second
-/// pane on top of the first and the only thing the inner one can sample is
-/// glass that has already blurred and dimmed the map — there is no detail left
-/// in it to bend, so the inner pane renders as a flat tinted rectangle. Apple's
-/// own guidance is the one line: do not put Liquid Glass on Liquid Glass.
-///
-/// The app had been doing exactly that in the two places anybody would notice.
-/// The dock is a glass card with the toolbar drawn as glass inside it, and the
-/// windows are a glass ground with every card in them drawn as glass on top of
-/// it — so the two biggest pieces of chrome in the app were the two that looked
-/// least like glass, while a lone weather chip floating on the map looked
-/// exactly right.
-///
-/// So a surface asks where it is. On the map it is glass; on glass it is a
-/// fill — which is what the theme's `surfaceFill` and `elevatedFill` already
-/// are in the glass themes: translucent whites, meant to lift off a ground
-/// rather than to replace one. The layering is the same one iOS uses. Only one
-/// pane in a stack is ever made of glass, and it is the one at the bottom, with
-/// the map behind it.
-private struct FlightInfoOnGlassKey: EnvironmentKey {
-    static let defaultValue = false
-}
-
-extension EnvironmentValues {
-    var flightInfoOnGlass: Bool {
-        get { self[FlightInfoOnGlassKey.self] }
-        set { self[FlightInfoOnGlassKey.self] = newValue }
-    }
-}
-
-extension View {
-
-    /// Marks everything inside as sitting on a pane of glass.
-    ///
-    /// For the grounds that are hung on a presentation rather than drawn in the
-    /// tree — `sheetBackground` behind a sheet, and the pane's own copy of it.
-    /// The glass is not an ancestor of the content in those cases, so it cannot
-    /// stamp this itself and the content has to be told.
-    func flightInfoGlassGround(_ theme: FlightInfoTheme) -> some View {
-        environment(\.flightInfoOnGlass, theme.isGlass)
-    }
-}
-
 struct FlightInfoSurfaceModifier: ViewModifier {
 
     let theme: FlightInfoTheme
@@ -911,27 +864,30 @@ struct FlightInfoSurfaceModifier: ViewModifier {
     /// list under it is scrolled past is a card pretending to be a button.
     var interactive: Bool = false
 
-    /// Set by whichever glass this surface is standing on, if any.
-    @Environment(\.flightInfoOnGlass) private var onGlass
-
     private var shape: RoundedRectangle {
         RoundedRectangle(cornerRadius: radius, style: .continuous)
     }
 
-    /// A card on the map is the same glass as the chrome floating beside it, so
-    /// the two halves of the app look like one thing. A card already standing
-    /// on glass is a fill instead — see `FlightInfoOnGlassKey` for why a second
-    /// pane cannot lens anything and lands as a flat rectangle.
+    /// Cards in the window are the same glass as the chrome floating over the
+    /// map, so the two halves of the app look like one thing. Only the tint
+    /// differs: these already sit on the window's ground, so they need much
+    /// less of it.
+    ///
+    /// They were briefly drawn as flat fills instead, on the theory that glass
+    /// cannot lens glass. The theory is right and the conclusion was wrong: a
+    /// fill at eight per cent of white is not a quieter piece of glass, it is a
+    /// grey rectangle, and a window full of them reads as a form. What actually
+    /// needed fixing was the one place a pane was laid over a pane of nearly
+    /// its own size — the toolbar inside the dock — and that is fixed where it
+    /// happens, by the toolbar no longer drawing a surface at all.
     func body(content: Content) -> some View {
-        if theme.isGlass, !onGlass {
-            content
-                .environment(\.flightInfoOnGlass, true)
-                .glassEffect(
-                    .regular
-                        .tint(elevated ? theme.elevatedTint : theme.surfaceTint)
-                        .interactive(interactive),
-                    in: shape
-                )
+        if theme.isGlass {
+            content.glassEffect(
+                .regular
+                    .tint(elevated ? theme.elevatedTint : theme.surfaceTint)
+                    .interactive(interactive),
+                in: shape
+            )
         } else {
             content
                 .background { shape.fill(elevated ? theme.elevatedFill : theme.surfaceFill) }
@@ -1019,12 +975,7 @@ extension View {
         interactive: Bool = false
     ) -> some View {
         if theme.isGlass {
-            // Stamped on the way past, so anything drawn inside this pane draws
-            // itself as a fill rather than as a second pane on top of it. The
-            // dock is the case that matters: a glass card with a glass toolbar
-            // in it, where the toolbar is the part you actually look at.
-            environment(\.flightInfoOnGlass, true)
-                .glassEffect(.regular.tint(theme.chromeTint).interactive(interactive), in: shape)
+            glassEffect(.regular.tint(theme.chromeTint).interactive(interactive), in: shape)
         } else {
             background { shape.fill(theme.windowFill) }
                 .overlay { shape.stroke(theme.stroke, lineWidth: 1) }
