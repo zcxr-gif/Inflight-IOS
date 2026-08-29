@@ -1081,7 +1081,10 @@ enum FlightInfoLayout {
 struct FlightPeakDetent: CustomPresentationDetent {
 
     static func height(in context: Context) -> CGFloat? {
-        let wanted = context[FlightPeakHeightKey.self]
+        // Read by dynamic member lookup on `EnvironmentValues`, which is the
+        // whole of how a custom detent talks to the view it belongs to — the
+        // context is not an environment you can subscript by key.
+        let wanted = context.flightPeakHeight
 
         // Against the screen as well as against the constants: a peak taller
         // than the sheet can be is a peak with its last card cut off, and the
@@ -1092,8 +1095,9 @@ struct FlightPeakDetent: CustomPresentationDetent {
     }
 }
 
-/// How tall the peak has measured itself, read by the detent above.
-struct FlightPeakHeightKey: EnvironmentKey {
+/// How tall the peak has measured itself, read by the detent above through
+/// `EnvironmentValues.flightPeakHeight`.
+private struct FlightPeakHeightKey: EnvironmentKey {
     static let defaultValue: CGFloat = FlightInfoLayout.basePeakHeight
 }
 
