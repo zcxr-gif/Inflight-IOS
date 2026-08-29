@@ -342,6 +342,12 @@ struct FlightDetailView: View {
 
                     FlightWatchRow(flight: flight, theme: theme)
 
+                    // Who this callsign flies for, when it flies for anybody.
+                    // Words only — see `VirtualAirlineCard`. Absent for the
+                    // great majority of flights, which is why it is a view
+                    // that draws nothing rather than a card that says "none".
+                    VirtualAirlineCard(callsign: flight.callsign ?? "", theme: theme)
+
                     situationCard(for: flight)
                     telemetry(for: flight)
 

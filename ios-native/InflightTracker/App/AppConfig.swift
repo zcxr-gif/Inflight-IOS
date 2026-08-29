@@ -32,6 +32,25 @@ enum AppConfig {
         return URL(string: "\(socketURLString)/api/flights/\(encoded)/plan")
     }
 
+    /// The VA-Ads directory — the partner virtual airlines the web tracker
+    /// matches live callsigns against (`tracker/vaAds.js`, `API_BASE`).
+    ///
+    /// Read-only and unauthenticated. The app takes the **text** of an ad and
+    /// nothing else: no banner, no logo, no artwork of any kind. A partner VA
+    /// is a fact about the flight you are looking at, and a fact reads as a
+    /// line of type — a picture in the middle of the flight window would be an
+    /// advertisement, which is not what this is for.
+    static func vaAdsURL(page: Int, limit: Int) -> URL? {
+        guard var components = URLComponents(string: "\(apiBaseURLString)/api/va-ads") else {
+            return nil
+        }
+        components.queryItems = [
+            URLQueryItem(name: "page", value: String(page)),
+            URLQueryItem(name: "limit", value: String(limit))
+        ]
+        return components.url
+    }
+
     /// The North Atlantic organised track system, republished twice a day.
     /// The same endpoint the web tracker read — see `old/www/natTracksLayer.js`.
     static var natTracksURL: URL? {

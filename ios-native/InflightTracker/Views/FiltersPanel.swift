@@ -59,6 +59,15 @@ struct FiltersPanel: View {
                 PanelDivider()
 
                 PanelToggleRow(
+                    title: "Flown path",
+                    symbol: "point.topleft.down.to.point.bottomright.curvepath",
+                    detail: "Draws the track an open flight has actually flown, coloured by the height it was at. Fetched from the server so it reaches back to departure, not just to when you opened the app.",
+                    isOn: $filters.showsFlownPath
+                )
+
+                PanelDivider()
+
+                PanelToggleRow(
                     title: "Filed route",
                     symbol: "point.topleft.down.curvedto.point.filled.bottomright.up",
                     detail: "Draws an open flight's filed plan on the map — the line through it, and every fix on it named. Procedures are expanded to the fixes they contain. Most pilots file nothing, and nothing is drawn when they haven't.",

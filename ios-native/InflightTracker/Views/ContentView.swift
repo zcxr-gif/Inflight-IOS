@@ -460,6 +460,7 @@ struct ContentView: View {
             airportsRevision: airportsRevision,
             showsGroundLayout: filters.showsGroundLayout,
             showsFlightPlan: filters.showsFlightPlan,
+            showsFlownPath: filters.showsFlownPath,
             weatherTiles: mapWeather.tiles,
             onWeatherLegibility: { mapWeather.report(legible: $0) },
             measurement: $measurement,
@@ -1286,12 +1287,11 @@ struct ContentView: View {
     /// nobody should have to go three taps deep to find out whether they are
     /// signed in.
     ///
-    /// It shows the pilot's actual profile picture once they have claimed a
-    /// handle and uploaded one. It used to draw initials whatever was set,
-    /// which meant the one place the avatar is always on screen was the one
-    /// place it was never their avatar. `PilotAvatar` is the same component the
-    /// profile screens use, so the picture here is loaded through the same
-    /// cache and falls back to the same initials-on-accent when there is none.
+    /// Signed in, it is the pilot's own face: their profile picture when they
+    /// have uploaded one, their initials on the accent when they have not.
+    /// `PilotAvatar` is the same component the profile screens use, so the
+    /// picture here comes through the same cache and falls back the same way.
+    /// The app's mark is only ever shown to somebody with no account at all.
     ///
     /// The state reading survives: a picture or initials means signed in, a
     /// glyph means not, and a dot marks Pro.
@@ -1315,22 +1315,35 @@ struct ContentView: View {
             }
         } label: {
             Group {
-                if let account = accounts.account, profiles.profile?.avatarURL != nil {
+                if let account = accounts.account {
+                    // Signed in is signed in: the avatar is the pilot's, and
+                    // it is theirs from the moment they have an account rather
+                    // than from the moment they have uploaded a picture. It
+                    // used to require an `avatarURL` before it would draw one,
+                    // which meant the corner of the map showed the *app's* logo
+                    // to everybody who had signed in and not got round to
+                    // picking a photograph — i.e. the one place the avatar is
+                    // permanently on screen was the one place it was somebody
+                    // else's mark.
+                    //
+                    // `PilotAvatar` already falls back to initials on the
+                    // accent when the URL is nil or the picture has not landed,
+                    // which is a face rather than a placeholder, so there is
+                    // nothing left for the logo to stand in for.
                     PilotAvatar(
                         url: profiles.profile?.avatarURL,
                         // The profile's initials when there is one, because
                         // that is the name other pilots see; the account's
-                        // otherwise. Only ever seen for the moment the picture
-                        // takes to load, since this branch has one.
+                        // otherwise — and the account's is what shows in the
+                        // moment between signing in and the profile landing.
                         initials: profiles.profile?.initials ?? account.initials,
                         side: 38
                     )
                 } else {
                     // The app's own mark, in the corner it has always kept for
-                    // an account. It stands in for the system person glyph
-                    // signed out, and for the initials-on-accent circle signed
-                    // in without a picture — a pilot who has uploaded one still
-                    // gets their own face above.
+                    // an account — and now only when there is no account, where
+                    // it reads as "this is Inflight, sign in" rather than as a
+                    // stand-in for a face.
                     inflightMark
                 }
             }
@@ -1810,6 +1823,38 @@ struct ContentView: View {
 
                 mapButton("location.fill", "Centre on aircraft") {
                     mapCommand = MapCommand(kind: .centerOnFlight)
+                }
+
+                Rectangle()
+                    .fill(theme.stroke)
+                    .frame(height: 1)
+
+                // The flown track: on or off, and framed the moment it goes on.
+                //
+                // There was nothing here for it before. The track was simply
+                // always drawn, with no way to ask for it and no way to be
+                // shown it — the nearest thing was the button below, which
+                // frames the whole route including both airports, so on a
+                // long-haul it answers "where has this been" with an ocean and
+                // a line across a corner of it. Somebody looking for the path
+                // pressed that, got a view of the Atlantic, and reasonably
+                // concluded the button did nothing.
+                //
+                // So the switch is here, beside the aeroplane it applies to,
+                // and turning it on takes the map to the path rather than
+                // leaving it to be found.
+                mapButton(
+                    "point.topleft.down.to.point.bottomright.curvepath",
+                    filters.showsFlownPath ? "Hide the flown path" : "Show the flown path",
+                    isOn: filters.showsFlownPath
+                ) {
+                    filters.showsFlownPath.toggle()
+                    guard filters.showsFlownPath else { return }
+                    // Framing the track and staying glued to the aeroplane pull
+                    // the camera in opposite directions, so following stands
+                    // down — the same bargain the route button below makes.
+                    isFollowing = false
+                    mapCommand = MapCommand(kind: .fitFlownPath)
                 }
 
                 Rectangle()

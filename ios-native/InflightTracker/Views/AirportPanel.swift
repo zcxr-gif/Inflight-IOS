@@ -180,6 +180,10 @@ struct AirportPanel: View {
 
             gates(activity)
 
+            // The partner virtual airlines that call this field home. Names
+            // and callsigns, no artwork — see `VirtualAirlineHubSection`.
+            VirtualAirlineHubSection(icao: airport.icao)
+
             diagram
 
             traffic(activity)

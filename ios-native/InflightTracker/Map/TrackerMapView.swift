@@ -143,6 +143,12 @@ struct TrackerMapView: UIViewRepresentable {
     var showsGroundLayout = true
     var showsFlightPlan = false
 
+    /// Whether the open aircraft's flown track is drawn. See
+    /// `MapFilters.showsFlownPath` — the dashed leg back to the departure
+    /// field goes with it, since that leg is an inference about the same
+    /// flown path rather than a separate thing.
+    var showsFlownPath = true
+
     /// The weather tiles to draw under the traffic, if any. Nil is the layer
     /// switched off, or switched on and still waiting for the frame index.
     var weatherTiles: MapWeatherTiles?
@@ -350,8 +356,23 @@ struct TrackerMapView: UIViewRepresentable {
         private var renderedRouteKey: String?
         private var routeOverlays: [MKOverlay] = []
 
-        /// Flights whose backend history this map has already asked for.
-        private var requestedHistory: Set<String> = []
+        /// Flights whose backend history this map has asked for, and when.
+        ///
+        /// A set of ids was not enough, and the failure was the quiet kind. The
+        /// trail store drops the trail of any aircraft missing from a packet —
+        /// right, since trails are the expensive part — and the feed does blink:
+        /// one short packet or a reconnect and a nine-hour flight's seeded
+        /// history is gone. With an id already in the set the map would never
+        /// ask again, so the path silently collapsed to the fragment recorded
+        /// since the blink and stayed that way for as long as the window was
+        /// open. A date lets the request come back, while still holding off the
+        /// storm the set existed to prevent: a flight that has only just pushed
+        /// back has an empty history, `hasHistory` stays false for it forever,
+        /// and this method runs on every layout pass.
+        private var requestedHistory: [String: Date] = [:]
+
+        /// How long a history request holds the door shut behind it.
+        private static let historyRetryInterval: TimeInterval = 45
 
         /// The flown path currently on the map.
         ///
@@ -1279,17 +1300,21 @@ struct TrackerMapView: UIViewRepresentable {
             // half a second of sheet animation is half a second of a path that
             // could already have been on its way.
             //
-            // Once per flight, tracked here rather than in the service, because
-            // a history that comes back empty — a flight that has only just
-            // pushed back — leaves `hasHistory` false forever, and a condition
-            // that stays true on a method called every layout pass is a request
-            // storm.
+            // Rate-limited here rather than in the service, because a history
+            // that comes back empty — a flight that has only just pushed back —
+            // leaves `hasHistory` false forever, and a condition that stays
+            // true on a method called every layout pass is a request storm.
+            // Rate-limited rather than once-only: see `requestedHistory`.
+            let now = Date()
             if !FlightTrailStore.shared.hasHistory(for: flight.id),
-               requestedHistory.insert(flight.id).inserted {
+               now.timeIntervalSince(requestedHistory[flight.id] ?? .distantPast)
+                   > Self.historyRetryInterval {
+                requestedHistory[flight.id] = now
+
                 // Nothing worth remembering about the ones before: this exists
                 // to stop a repeat, and an id that has not been asked for in a
                 // hundred aircraft is not about to be asked for twice.
-                if requestedHistory.count > 200 { requestedHistory = [flight.id] }
+                if requestedHistory.count > 200 { requestedHistory = [flight.id: now] }
 
                 FlightHistoryService.shared.load(flightId: flight.id) { history in
                     FlightTrailStore.shared.seed(history, for: flight.id)
@@ -1324,7 +1349,11 @@ struct TrackerMapView: UIViewRepresentable {
                 // when first asked for — so its arrival has to be able to
                 // invalidate the key, or the route is drawn once without it and
                 // never again.
-                parent.showsFlightPlan ? String(plan.count) : "off"
+                parent.showsFlightPlan ? String(plan.count) : "off",
+                // The layer switch is in the key for the same reason the plan's
+                // count is: turning it off has to be able to invalidate a route
+                // that is already drawn.
+                parent.showsFlownPath ? "path" : "nopath"
             ].joined(separator: "|")
 
             guard key != renderedRouteKey else { return }
@@ -1347,24 +1376,28 @@ struct TrackerMapView: UIViewRepresentable {
                 flown.append(livePoint)
             }
 
-            // One overlay, coloured by height along its whole length, drawing
-            // its own halo underneath itself. See `FlownPath` for what this
-            // replaced and why none of it survived.
-            let path = FlownPath(
-                points: flown,
-                bands: Self.heightBands(of: flown),
-                title: Self.flownTitle
-            )
-            flownOverlay = path?.overlay
-            if let overlay = path?.overlay {
-                routeOverlays.append(overlay)
-            }
+            flownOverlay = nil
 
-            // Before we were watching: departure to the first point we have.
-            if let departure = AirportStore.shared.airport(flight.departureIcao),
-               let first = flown.first,
-               FlightProgress.distanceNM(from: departure.coordinate, to: first.coordinate) > 1 {
-                routeOverlays.append(dashed(from: departure.coordinate, to: first.coordinate))
+            if parent.showsFlownPath {
+                // One overlay, coloured by height along its whole length,
+                // drawing its own halo underneath itself. See `FlownPath` for
+                // what this replaced and why none of it survived.
+                let path = FlownPath(
+                    points: flown,
+                    bands: Self.heightBands(of: flown),
+                    title: Self.flownTitle
+                )
+                flownOverlay = path?.overlay
+                if let overlay = path?.overlay {
+                    routeOverlays.append(overlay)
+                }
+
+                // Before we were watching: departure to the first point we have.
+                if let departure = AirportStore.shared.airport(flight.departureIcao),
+                   let first = flown.first,
+                   FlightProgress.distanceNM(from: departure.coordinate, to: first.coordinate) > 1 {
+                    routeOverlays.append(dashed(from: departure.coordinate, to: first.coordinate))
+                }
             }
 
             // Still to come.
@@ -2071,27 +2104,34 @@ struct TrackerMapView: UIViewRepresentable {
         /// Pans to bring a moving aircraft back, but only once it has left the
         /// middle of the map. Re-centring on every frame would take the map
         /// away from wherever the user had just dragged it.
+        ///
+        /// Measured against the part of the map that is actually *visible* —
+        /// the bounds less the info window and the chrome — rather than against
+        /// the whole map rect. The middle half of the whole rect includes a
+        /// good deal of what the sheet is sitting on, so an aircraft could be
+        /// comfortably "in view" and completely hidden behind the window it was
+        /// being followed from.
         private func keepInView(_ coordinate: CLLocationCoordinate2D, on mapView: MKMapView) {
-            let point = MKMapPoint(coordinate)
-            let visible = mapView.visibleMapRect
+            guard CLLocationCoordinate2DIsValid(coordinate) else { return }
 
-            // The middle half. Inside it, the aircraft is comfortably on
-            // screen and the map is left alone.
-            let comfortable = visible.insetBy(
-                dx: visible.width * 0.25,
-                dy: visible.height * 0.25
-            )
+            let bounds = mapView.bounds
+            guard bounds.width > 1, bounds.height > 1 else { return }
 
-            guard !comfortable.contains(point) else { return }
+            let clear = bounds.inset(by: edgeInsets())
+            guard clear.width > 1, clear.height > 1 else {
+                pan(to: coordinate, on: mapView)
+                return
+            }
 
-            let rect = MKMapRect(
-                x: point.x - visible.width / 2,
-                y: point.y - visible.height / 2,
-                width: visible.width,
-                height: visible.height
-            )
+            // The middle half of what is not covered. Inside it, the aircraft
+            // is comfortably on screen and the map is left alone.
+            let comfortable = clear.insetBy(dx: clear.width * 0.25, dy: clear.height * 0.25)
 
-            mapView.setVisibleMapRect(rect, edgePadding: edgeInsets(), animated: true)
+            let here = mapView.convert(coordinate, toPointTo: mapView)
+            guard here.x.isFinite, here.y.isFinite else { return }
+            guard !comfortable.contains(here) else { return }
+
+            pan(to: coordinate, on: mapView)
         }
 
         private func apply(
@@ -2118,6 +2158,8 @@ struct TrackerMapView: UIViewRepresentable {
                 center(on: mapView)
             case .fitRoute:
                 fitRoute(on: mapView)
+            case .fitFlownPath:
+                fitFlownPath(on: mapView)
             case .focus(let latitude, let longitude, let spanMeters):
                 focus(
                     on: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
@@ -2175,17 +2217,77 @@ struct TrackerMapView: UIViewRepresentable {
         /// the info window isn't covering.
         private func center(on mapView: MKMapView) {
             guard let flight = selectedFlight() else { return }
+            pan(to: flight.coordinate, on: mapView)
+        }
 
-            let visible = mapView.visibleMapRect
-            let point = MKMapPoint(flight.coordinate)
-            let rect = MKMapRect(
-                x: point.x - visible.width / 2,
-                y: point.y - visible.height / 2,
-                width: visible.width,
-                height: visible.height
+        /// Moves the camera so a coordinate lands in the middle of whatever
+        /// part of the map nothing is standing on — without touching the zoom,
+        /// the heading or the pitch.
+        ///
+        /// ## Why this is not `setVisibleMapRect(_:edgePadding:)`
+        ///
+        /// It was, and that was the bug behind "the centre button doesn't
+        /// work". `edgePadding` does not *offset* a rect; it **fits** it inside
+        /// the view's bounds inset by that padding. Handing it a rect the size
+        /// of the current view therefore asks the map to squeeze a whole
+        /// screen's worth of world into a smaller box — which it does, by
+        /// zooming out. Every tap of "centre on aircraft" pulled the camera
+        /// back another notch, and follow mode, which went through the same
+        /// call, zoomed out a little every time the aeroplane drifted. Neither
+        /// ever *looked* broken enough to name; both were simply the map going
+        /// the wrong way.
+        ///
+        /// So the chrome is accounted for as an offset instead. The middle of
+        /// the uncovered box sits `(left - right) / 2` across and
+        /// `(top - bottom) / 2` down from the middle of the view; putting the
+        /// aircraft there means moving the camera's centre the opposite way by
+        /// the same amount. Done in view points and converted back through the
+        /// map's own projection, so it is correct on the flat map and on the
+        /// globe, whatever the camera has been spun to.
+        private func pan(to coordinate: CLLocationCoordinate2D, on mapView: MKMapView) {
+            guard CLLocationCoordinate2DIsValid(coordinate) else { return }
+
+            let bounds = mapView.bounds
+            guard bounds.width > 1, bounds.height > 1 else { return }
+
+            let insets = edgeInsets()
+            let target = CGPoint(
+                x: bounds.midX + (insets.left - insets.right) / 2,
+                y: bounds.midY + (insets.top - insets.bottom) / 2
             )
 
-            mapView.setVisibleMapRect(rect, edgePadding: edgeInsets(), animated: true)
+            let here = mapView.convert(coordinate, toPointTo: mapView)
+            guard here.x.isFinite, here.y.isFinite else { return }
+
+            // The view point that has to become the middle of the map for the
+            // aircraft to land on `target`.
+            let wanted = CGPoint(
+                x: bounds.midX + (here.x - target.x),
+                y: bounds.midY + (here.y - target.y)
+            )
+            let centre = mapView.convert(wanted, toCoordinateFrom: mapView)
+
+            let camera = mapView.camera
+            let distance = camera.centerCoordinateDistance
+
+            // Over the horizon on a pitched globe, the projection has no answer
+            // and hands back nonsense. Putting the camera straight on the
+            // aircraft is a little less considerate of the chrome and is still
+            // the right place to be looking.
+            guard CLLocationCoordinate2DIsValid(centre), distance.isFinite, distance > 0 else {
+                mapView.setCenter(coordinate, animated: true)
+                return
+            }
+
+            mapView.setCamera(
+                MKMapCamera(
+                    lookingAtCenter: centre,
+                    fromDistance: distance,
+                    pitch: camera.pitch,
+                    heading: camera.heading
+                ),
+                animated: true
+            )
         }
 
         /// Frames everything the route touches: the flown track, both
@@ -2210,6 +2312,41 @@ struct TrackerMapView: UIViewRepresentable {
             }
 
             guard !rect.isNull, rect.width.isFinite, rect.height.isFinite else { return }
+
+            mapView.setVisibleMapRect(rect, edgePadding: edgeInsets(), animated: true)
+        }
+
+        /// Frames the flown track alone — every breadcrumb we hold plus where
+        /// the aircraft is now.
+        ///
+        /// Falls back to centring when there is no track yet to frame, so the
+        /// button always does something legible: an aircraft that pushed back a
+        /// minute ago has one sample, and framing a single point would either
+        /// do nothing or zoom to a hundred metres of apron.
+        private func fitFlownPath(on mapView: MKMapView) {
+            guard let flight = selectedFlight() else { return }
+
+            var rect = MKMapRect.null
+
+            func include(_ coordinate: CLLocationCoordinate2D) {
+                let point = MKMapPoint(coordinate)
+                rect = rect.union(MKMapRect(x: point.x, y: point.y, width: 0.01, height: 0.01))
+            }
+
+            let trail = FlightTrailStore.shared.points(for: flight.id)
+            guard trail.count >= 2 else {
+                pan(to: flight.coordinate, on: mapView)
+                return
+            }
+
+            for point in trail { include(point.coordinate) }
+            include(flight.coordinate)
+
+            guard !rect.isNull, rect.width.isFinite, rect.height.isFinite,
+                  rect.width > 0 || rect.height > 0 else {
+                pan(to: flight.coordinate, on: mapView)
+                return
+            }
 
             mapView.setVisibleMapRect(rect, edgePadding: edgeInsets(), animated: true)
         }
@@ -2609,6 +2746,13 @@ struct MapCommand: Equatable {
     enum Kind: Equatable {
         case centerOnFlight
         case fitRoute
+
+        /// Frames the track the aircraft has actually flown, and nothing else
+        /// — not the departure field it left hours ago, not the arrival field
+        /// it has not reached. `fitRoute` frames all of that, which on a
+        /// long-haul means the flown path is a fifth of a view mostly full of
+        /// ocean. This is the one to reach for when the path is the question.
+        case fitFlownPath
 
         /// Somewhere on the map by position rather than by aircraft — what a
         /// search result or an open tower resolves to. Carried as plain

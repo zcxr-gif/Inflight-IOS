@@ -86,13 +86,34 @@ final class FlightHistoryService {
             )
         }
 
-        // Oldest first, so the path reads departure to now.
-        return points.sorted { lhs, rhs in
-            switch (lhs.date, rhs.date) {
-            case let (left?, right?): return left < right
-            default: return false
+        // Oldest first, so the path reads departure to now — but only when
+        // every breadcrumb actually carries a date to sort on.
+        //
+        // The old comparator answered `false` for every pair where either side
+        // had no date, and that is not a strict weak ordering: with a mixture
+        // of dated and undated points it produces cycles — a before b, b before
+        // c, c before a — and `sorted(by:)` given a cycle returns an arbitrary
+        // permutation. A path whose points come back in an arbitrary order is
+        // drawn as a scribble across the map, which is what a history with any
+        // missing timestamps looked like. Patching the comparator to fall back
+        // on the index does not fix it; it just moves where the cycle forms.
+        //
+        // So the two cases are separated. Fully dated: sort on the date, with
+        // the index breaking ties so equal timestamps keep the order they
+        // arrived in. Anything missing: leave the list exactly as the server
+        // sent it, which it already sends in order — an untouched path is
+        // right far more often than a re-ordered one, and it can never be
+        // nonsense.
+        guard points.allSatisfy({ $0.date != nil }) else { return points }
+
+        return points.enumerated()
+            .sorted { lhs, rhs in
+                guard let left = lhs.element.date, let right = rhs.element.date else {
+                    return lhs.offset < rhs.offset
+                }
+                return left == right ? lhs.offset < rhs.offset : left < right
             }
-        }
+            .map(\.element)
     }
 
     private static func number(_ value: Any?) -> Double? {
