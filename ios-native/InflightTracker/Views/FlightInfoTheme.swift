@@ -104,6 +104,7 @@ final class FlightInfoAppearance: ObservableObject {
     private static let glassKey = "flightInfoGlassEnabled"
     private static let peakStyleKey = "flightInfoPeakStyle"
     private static let airlineAccentKey = "flightInfoAirlineAccent"
+    private static let smoothTrafficKey = "map.smoothTraffic"
     private static let windowPlacementKey = "flightWindowPlacement"
     private static let modeKey = "appAppearanceMode"
     private static let paletteKey = "appPalette"
@@ -132,6 +133,19 @@ final class FlightInfoAppearance: ObservableObject {
     /// look of the app, so it is a switch and not a fact.
     @Published var showsAirlineAccent: Bool {
         didSet { UserDefaults.standard.set(showsAirlineAccent, forKey: Self.airlineAccentKey) }
+    }
+
+    /// Whether airborne traffic flies between packets instead of jumping on
+    /// each one. See `FlightMotion`.
+    ///
+    /// On by default: it is what the map has always been trying to show, and
+    /// the packet rate is an implementation detail of the feed rather than
+    /// something anybody chose to watch. It is a switch because it is a
+    /// *prediction* — a few seconds of an aeroplane's position between packets
+    /// is arithmetic rather than a report, and somebody who wants to see only
+    /// what the server actually said is entitled to.
+    @Published var smoothsTraffic: Bool {
+        didSet { UserDefaults.standard.set(smoothsTraffic, forKey: Self.smoothTrafficKey) }
     }
 
     /// Where the flight window sits when there is a screen wide enough to put
@@ -260,6 +274,7 @@ final class FlightInfoAppearance: ObservableObject {
         peakStyle = FlightInfoPeakStyle(rawValue: defaults.string(forKey: Self.peakStyleKey) ?? "")
             ?? .compact
         showsAirlineAccent = defaults.object(forKey: Self.airlineAccentKey) as? Bool ?? true
+        smoothsTraffic = defaults.object(forKey: Self.smoothTrafficKey) as? Bool ?? true
         flightWindowPlacement = FlightWindowPlacement(
             rawValue: defaults.string(forKey: Self.windowPlacementKey) ?? ""
         ) ?? .centred

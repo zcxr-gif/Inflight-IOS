@@ -122,8 +122,12 @@ struct FlightInfoPeak: View {
                     // the space here the way AWAY or AP+ does.
                     if flight.pilotState.isNoteworthy {
                         PilotStateChip(state: flight.pilotState, theme: theme)
+                            .transition(.opacity.combined(with: .scale(scale: 0.85, anchor: .leading)))
                     }
                 }
+                // A pilot walking away from their aeroplane puts a chip on this
+                // row from nothing. Arriving is a movement like any other.
+                .motion(Motion.control, value: flight.pilotState)
 
                 // The aircraft and its livery live at the foot of the route
                 // card now, which is where the empty space was.
@@ -131,6 +135,9 @@ struct FlightInfoPeak: View {
                     .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
                     .foregroundStyle(theme.textDim)
                     .flightInfoLine()
+                    // Blank until the photo lookup finds a tail number, which
+                    // lands a second after the window opens.
+                    .motionWords(registration)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 

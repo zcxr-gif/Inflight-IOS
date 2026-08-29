@@ -11,6 +11,11 @@ struct ContentView: View {
     /// — gets the phone's sheet, and so does a phone.
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @ObservedObject private var appearance = FlightInfoAppearance.shared
+
+    /// Somebody who has asked iOS for less movement gets the map back exactly
+    /// as it was: aircraft on their reported positions, moving when a packet
+    /// says they have.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject private var filters = MapFilters.shared
     @ObservedObject private var weatherPreferences = WeatherPreferences.shared
     /// Which tile layers are actually being served, for the chip's menu.
@@ -470,6 +475,11 @@ struct ContentView: View {
             legalInset: mapLegalInset,
             replayFrame: replay.frame,
             isFollowing: isFollowingLive,
+            // The setting, and the system's own request for less movement —
+            // which is the one audience a map full of gliding aeroplanes is
+            // actively worse for. Resolved here rather than in the map: the map
+            // draws what it is told, and Reduce Motion is not its business.
+            smoothsTraffic: appearance.smoothsTraffic && !reduceMotion,
             // The map's own answer, which is the app's until a palette says
             // otherwise. The chrome over the map keeps the app's either way: a
             // light map under a dark app is a choice about the cartography,

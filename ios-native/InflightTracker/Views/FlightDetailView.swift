@@ -624,16 +624,38 @@ struct FlightDetailView: View {
                 columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 2),
                 spacing: 8
             ) {
-                metric("ALTITUDE", "cloud", Format.number(flight.altitudeFeet), "ft")
-                metric("GND SPEED", "speedometer", Format.number(flight.groundSpeedKnots), "kts")
-                metric("VERTICAL", "arrow.up.arrow.down", Format.signed(flight.verticalSpeedFPM), "fpm")
-                metric("HEADING", "safari", Format.heading(flight.heading), "°")
+                metric(
+                    "ALTITUDE", "cloud",
+                    Format.number(flight.altitudeFeet), "ft",
+                    figure: flight.altitudeFeet
+                )
+                metric(
+                    "GND SPEED", "speedometer",
+                    Format.number(flight.groundSpeedKnots), "kts",
+                    figure: flight.groundSpeedKnots
+                )
+                metric(
+                    "VERTICAL", "arrow.up.arrow.down",
+                    Format.signed(flight.verticalSpeedFPM), "fpm",
+                    figure: flight.verticalSpeedFPM
+                )
+                metric(
+                    "HEADING", "safari",
+                    Format.heading(flight.heading), "°",
+                    figure: flight.heading
+                )
             }
         }
         .padding(.top, 2)
     }
 
-    private func metric(_ title: String, _ symbol: String, _ value: String, _ unit: String) -> some View {
+    private func metric(
+        _ title: String,
+        _ symbol: String,
+        _ value: String,
+        _ unit: String,
+        figure: Double
+    ) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 6) {
                 Text(title)
@@ -654,6 +676,7 @@ struct FlightDetailView: View {
                     .font(.system(size: 17, weight: .semibold, design: .monospaced))
                     .foregroundStyle(theme.textPrimary)
                     .flightInfoLine(minimumScale: 0.6)
+                    .motionFigure(figure)
 
                 Text(unit)
                     .font(.system(size: 9, weight: .medium))

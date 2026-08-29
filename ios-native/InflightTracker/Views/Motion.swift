@@ -131,6 +131,72 @@ private struct MotionValue<V: Equatable>: ViewModifier {
     }
 }
 
+// MARK: - Changing in place
+
+/// A figure that changes without being replaced.
+///
+/// Almost everything in this app is a readout of something that is still
+/// happening: an altitude, a distance to run, how many aircraft are on the
+/// server. The feed hands over a new value every few seconds, and a `Text` given
+/// a new string simply *is* the new string on the next frame — the old one
+/// never leaves, it was only ever the same view with different pixels in it. On
+/// a screen of eight such figures that reads as the whole panel twitching.
+///
+/// `numericText` is the platform's own answer: the digits that changed roll to
+/// their new values in the direction they moved, and the digits that did not
+/// stay put. It is worth being precise about what that is *not* — it is not the
+/// figure counting through every value in between, which would be an animation
+/// making a claim about numbers nothing ever reported.
+///
+/// The value is passed separately from the string because the transition needs
+/// to know which way the number went, and "34,000" is a piece of text.
+struct FigureChange: ViewModifier {
+
+    let value: Double
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .contentTransition(reduceMotion ? .identity : .numericText(value: value))
+            .animation(reduceMotion ? nil : Motion.content, value: value)
+    }
+}
+
+/// Words that change without being replaced.
+///
+/// The same problem as `FigureChange` and a different answer: an ICAO, an
+/// aircraft type or a phase has no direction to roll in, so one crosses into
+/// the other. Keyed on a value rather than on the string itself so a caller can
+/// say what "changed" means — a card that redraws on every packet should not
+/// dissolve its own labels four times a minute because a distance moved.
+struct WordChange<V: Equatable>: ViewModifier {
+
+    let value: V
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .contentTransition(reduceMotion ? .identity : .opacity)
+            .animation(reduceMotion ? nil : Motion.content, value: value)
+    }
+}
+
+extension View {
+
+    /// A figure that rolls to its new value rather than cutting to it. Hand it
+    /// the number the text was made from.
+    func motionFigure(_ value: Double) -> some View {
+        modifier(FigureChange(value: value.isFinite ? value : 0))
+    }
+
+    /// Words that cross-fade to their new value rather than cutting to it.
+    func motionWords<V: Equatable>(_ value: V) -> some View {
+        modifier(WordChange(value: value))
+    }
+}
+
 // MARK: - Pressing
 
 /// The give under a thumb.

@@ -1,4 +1,5 @@
 import MapKit
+import QuartzCore
 
 /// A single aircraft on the map.
 ///
@@ -34,6 +35,20 @@ final class FlightAnnotation: NSObject, MKAnnotation {
     /// Heading currently applied as a rotation, for the same reason.
     var renderedHeading: Double?
 
+    /// Dead reckoning between packets, while this aircraft is being smoothed.
+    ///
+    /// Nil is the ordinary case and the old behaviour exactly: the annotation
+    /// sits where the last packet put it. See `FlightMotion`, and `beginMotion`
+    /// below for when one is worth having.
+    private var motion: FlightMotion?
+
+    /// Whether the drawn position is currently being carried forward.
+    var isSmoothing: Bool { motion != nil }
+
+    /// The bearing to turn the sprite to: the smoothed one while this aircraft
+    /// is being carried, and the reported one otherwise.
+    var drawnHeading: Double { motion?.drawnHeading ?? flight.heading }
+
     init(flight: Flight) {
         self.flight = flight
         self.storedCoordinate = flight.coordinate
@@ -43,21 +58,80 @@ final class FlightAnnotation: NSObject, MKAnnotation {
     /// Applies a fresh packet. Returns `true` when the icon or rotation needs
     /// to be refreshed on screen.
     @discardableResult
-    func update(with flight: Flight) -> Bool {
+    func update(with flight: Flight, now: CFTimeInterval) -> Bool {
         self.flight = flight
 
-        // Only when it has actually moved. Setting the coordinate posts two KVO
-        // notifications and asks MapKit to reposition the view, and a good
-        // share of a busy server is sitting still at a gate — those would be
-        // several hundred repositions a packet, all of them to the same place.
+        if motion != nil {
+            // Handed to the smoothing rather than drawn. The drawn position is
+            // the ticker's to write, and writing the reported one here would be
+            // precisely the jump the ticker exists to spend a second removing.
+            motion?.report(flight, now: now)
+        } else if storedCoordinate.latitude != flight.latitude
+            || storedCoordinate.longitude != flight.longitude {
+            // Only when it has actually moved. Setting the coordinate posts two
+            // KVO notifications and asks MapKit to reposition the view, and a
+            // good share of a busy server is sitting still at a gate — those
+            // would be several hundred repositions a packet, all of them to the
+            // same place.
+            coordinate = flight.coordinate
+        }
+
+        let headingChanged = abs((renderedHeading ?? -999) - drawnHeading) > 0.5
+        let spriteChanged = renderedSpriteKey != flight.spriteKey
+        return headingChanged || spriteChanged
+    }
+
+    // MARK: - Motion
+
+    /// Starts carrying this aircraft between packets, from where it is drawn
+    /// now.
+    func beginMotion(now: CFTimeInterval) {
+        guard motion == nil else { return }
+        motion = FlightMotion(flight: flight, drawnAt: storedCoordinate, now: now)
+    }
+
+    /// Stops, and puts the aircraft back on the position it was last reported
+    /// at — which is where it belongs when nothing is animating it.
+    func endMotion() {
+        guard motion != nil else { return }
+        motion = nil
         if storedCoordinate.latitude != flight.latitude
             || storedCoordinate.longitude != flight.longitude {
             coordinate = flight.coordinate
         }
+    }
 
-        let headingChanged = abs((renderedHeading ?? -999) - flight.heading) > 0.5
-        let spriteChanged = renderedSpriteKey != flight.spriteKey
-        return headingChanged || spriteChanged
+    /// Advances one frame, and writes the new position only if it is far enough
+    /// from the last one to be seen.
+    ///
+    /// The threshold is the whole reason this scales. Repositioning an
+    /// annotation is the expensive half of a frame — two KVO notifications and
+    /// a layout, per aircraft — so it is spent on movement somebody can
+    /// actually see, and an aeroplane whose progress this frame is a hundredth
+    /// of a point simply banks it until it adds up to something.
+    ///
+    /// Returns whether the sprite's rotation wants refreshing too.
+    @discardableResult
+    func advanceMotion(to now: CFTimeInterval, pointsPerMetre: Double) -> Bool {
+        guard motion != nil else { return false }
+
+        let position = motion?.advance(to: now) ?? storedCoordinate
+
+        let moved = FlightMotion.pointsApart(
+            storedCoordinate,
+            position,
+            pointsPerMetre: pointsPerMetre
+        )
+        if moved >= 0.1 { coordinate = position }
+
+        return abs((renderedHeading ?? -999) - drawnHeading) > 0.5
+    }
+
+    /// How far this aircraft travels in a second, in points on the map as it is
+    /// currently scaled. Below a fraction of one, there is nothing to animate
+    /// and the smoothing is not worth running.
+    func drawnPointsPerSecond(pointsPerMetre: Double) -> Double {
+        flight.groundSpeedKnots * 0.514444 * pointsPerMetre
     }
 }
 

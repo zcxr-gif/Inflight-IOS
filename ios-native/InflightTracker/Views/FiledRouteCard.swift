@@ -60,7 +60,8 @@ struct FiledRouteCard: View {
                 label: "DISTANCE",
                 value: "\(Format.number(leg.distanceNM)) NM",
                 theme: theme,
-                alignment: .center
+                alignment: .center,
+                figure: leg.distanceNM
             )
 
             MiniStat(

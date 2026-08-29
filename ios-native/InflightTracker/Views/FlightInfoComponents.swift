@@ -25,6 +25,7 @@ struct FlightPhaseChip: View {
                 .foregroundStyle(theme.textPrimary)
                 .lineLimit(1)
                 .fixedSize()
+                .motionWords(phase)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
@@ -32,6 +33,9 @@ struct FlightPhaseChip: View {
         // Never allowed to shrink: it sits next to a callsign that may be long,
         // and the callsign is the piece that gives way.
         .fixedSize()
+        // The dot as well as the word: levelling off is one event, and the
+        // colour and the label are two halves of reporting it.
+        .motion(Motion.content, value: phase)
     }
 }
 
@@ -134,14 +138,19 @@ struct RouteCard: View {
                     MiniStat(
                         label: "FLOWN",
                         value: "\(Format.number(progress.flownNM)) NM",
-                        theme: theme
+                        theme: theme,
+                        figure: progress.flownNM
                     )
                     MiniStat(
                         label: "REMAINING",
                         value: "\(Format.number(progress.remainingNM)) NM",
                         theme: theme,
-                        alignment: .center
+                        alignment: .center,
+                        figure: progress.remainingNM
                     )
+                    // A clock rather than a quantity: "04:12" has two figures
+                    // in it and a colon, and it is an em dash when the aircraft
+                    // is too slow to estimate from. Crossed rather than rolled.
                     MiniStat(
                         label: "ETE",
                         value: eteLabel,
@@ -156,6 +165,7 @@ struct RouteCard: View {
                 .foregroundStyle(theme.textDim)
                 .flightInfoLine(minimumScale: 0.7)
                 .frame(maxWidth: .infinity)
+                .motionWords(aircraftLine)
         }
         .padding(inset)
         .flightInfoSurface(theme, radius: theme.radiusMedium)
@@ -283,6 +293,11 @@ struct RouteTrack: View {
                     .offset(x: min(max(0, width * clamped - planeSize / 2), max(0, width - planeSize)))
             }
             .frame(height: geometry.size.height, alignment: .center)
+            // The fill and the glyph on it are a distance, not a readout: they
+            // have somewhere to travel, so they travel. This is the one place
+            // in the window where a packet's worth of progress is a movement
+            // you can watch rather than a digit that has changed.
+            .motion(Motion.content, value: clamped)
         }
         .frame(height: planeSize + 3)
     }
@@ -329,22 +344,30 @@ struct PlaceCard: View {
                 .background(Circle().fill(theme.accent))
 
             VStack(alignment: .leading, spacing: 3) {
+                // "PARKED AT" becomes "TAXIING AT" the moment an aeroplane
+                // starts rolling, and the field under it changes as one passes
+                // from one to the next. Both are words about the same thing, so
+                // both cross rather than cut.
                 Text(kicker)
                     .font(.system(size: 8.5, weight: .bold))
                     .tracking(0.7)
                     .foregroundStyle(theme.textDim)
                     .flightInfoLine(minimumScale: 0.8)
+                    .motionWords(kicker)
 
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(airport?.icao ?? "———")
                         .font(.system(size: icaoSize, weight: .heavy, design: .rounded))
                         .foregroundStyle(theme.textPrimary)
                         .flightInfoLine(minimumScale: 0.6)
+                        .motionWords(airport?.icao ?? "")
 
                     if let airport = airport, controlledFields.contains(airport.icao) {
                         AtcOnlineBadge(theme: theme)
+                            .transition(.opacity.combined(with: .scale(scale: 0.8)))
                     }
                 }
+                .motion(Motion.control, value: airport.map { controlledFields.contains($0.icao) })
 
                 HStack(spacing: 4) {
                     if let flag = airport?.flag, !flag.isEmpty {
@@ -765,18 +788,25 @@ struct AltitudeProfileCard: View {
                 .frame(height: 62)
 
             HStack(spacing: 8) {
-                MiniStat(label: "PEAK", value: "\(Format.number(peakAltitude)) ft", theme: theme)
+                MiniStat(
+                    label: "PEAK",
+                    value: "\(Format.number(peakAltitude)) ft",
+                    theme: theme,
+                    figure: peakAltitude
+                )
                 MiniStat(
                     label: "TOP SPEED",
                     value: "\(Format.number(topSpeed)) kts",
                     theme: theme,
-                    alignment: .center
+                    alignment: .center,
+                    figure: topSpeed
                 )
                 MiniStat(
                     label: "TRACKED",
                     value: "\(Format.number(trackedNM)) NM",
                     theme: theme,
-                    alignment: .trailing
+                    alignment: .trailing,
+                    figure: trackedNM
                 )
             }
         }
@@ -922,6 +952,13 @@ struct MiniStat: View {
     let theme: FlightInfoTheme
     var alignment: HorizontalAlignment = .leading
 
+    /// The number the value was made from, when it was made from one.
+    ///
+    /// Optional because not every mini stat is a figure — "NOT FILED" is a
+    /// mini stat — and rolling digits on a word is worse than not animating it
+    /// at all. Given one, the value rolls; without one, it cross-fades.
+    var figure: Double? = nil
+
     var body: some View {
         VStack(alignment: alignment, spacing: 3) {
             Text(label)
@@ -930,12 +967,22 @@ struct MiniStat: View {
                 .foregroundStyle(theme.textDim)
                 .flightInfoLine(minimumScale: 0.8)
 
-            Text(value)
-                .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                .foregroundStyle(theme.textPrimary)
-                .flightInfoLine(minimumScale: 0.6)
+            reading
         }
         .frame(maxWidth: .infinity, alignment: Alignment(horizontal: alignment, vertical: .center))
+    }
+
+    @ViewBuilder
+    private var reading: some View {
+        let text = Text(value)
+            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+            .foregroundStyle(theme.textPrimary)
+
+        if let figure = figure {
+            text.flightInfoLine(minimumScale: 0.6).motionFigure(figure)
+        } else {
+            text.flightInfoLine(minimumScale: 0.6).motionWords(value)
+        }
     }
 }
 

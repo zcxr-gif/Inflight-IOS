@@ -159,13 +159,15 @@ struct PulsePanel: View {
                     MiniStat(
                         label: "MEDIAN",
                         value: "\(Format.number(pulse.medianAltitudeFeet)) ft",
-                        theme: theme
+                        theme: theme,
+                        figure: pulse.medianAltitudeFeet
                     )
                     MiniStat(
                         label: "AVERAGE SPEED",
                         value: "\(Format.number(pulse.averageGroundSpeedKnots)) kts",
                         theme: theme,
-                        alignment: .trailing
+                        alignment: .trailing,
+                        figure: pulse.averageGroundSpeedKnots
                     )
                 }
                 .padding(.horizontal, 14)

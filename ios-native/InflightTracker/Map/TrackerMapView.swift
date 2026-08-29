@@ -1,4 +1,5 @@
 import MapKit
+import QuartzCore
 import SwiftUI
 import UIKit
 
@@ -109,6 +110,14 @@ struct TrackerMapView: UIViewRepresentable {
     /// Distinct from the centre button beside it, which is a single move: this
     /// is a mode, and it keeps acting on every packet for as long as it is on.
     var isFollowing = false
+
+    /// Whether airborne traffic is carried between packets rather than jumping
+    /// on each one. See `FlightMotion`.
+    ///
+    /// Passed in rather than read from the setting here, because the setting is
+    /// not the only thing that can turn it off: Reduce Motion does too, and the
+    /// map has no business knowing about either. It is told.
+    var smoothsTraffic = true
 
     /// Which way round the map is drawn: the palette's own answer when it has
     /// one, and the app's appearance setting when it hasn't. Passed in rather
@@ -273,7 +282,19 @@ struct TrackerMapView: UIViewRepresentable {
         tap.delegate = context.coordinator
         mapView.addGestureRecognizer(tap)
 
+        // The clock the traffic flies on. Nothing to do with the feed, which
+        // arrives when it arrives; this is the screen's own tick, and on a
+        // frame where nothing is being smoothed it costs one comparison.
+        context.coordinator.startFlying(on: mapView)
+
         return mapView
+    }
+
+    /// SwiftUI is finished with the map. The display link holds the coordinator,
+    /// and a display link that is never invalidated is a retain cycle that goes
+    /// on ticking after the view it draws into is gone.
+    static func dismantleUIView(_ mapView: ChromeInsetMapView, coordinator: Coordinator) {
+        coordinator.stopFlying()
     }
 
     func updateUIView(_ mapView: ChromeInsetMapView, context: Context) {
@@ -811,8 +832,8 @@ struct TrackerMapView: UIViewRepresentable {
             guard parent.style.usesScreenAngles else { return turned() }
             guard CLLocationCoordinate2DIsValid(coordinate) else { return turned() }
 
-            let ahead = Self.coordinate(from: coordinate, bearing: heading, metres: headingProbe)
-            let beside = Self.coordinate(from: coordinate, bearing: heading + 90, metres: headingProbe)
+            let ahead = GreatCircle.coordinate(from: coordinate, bearing: heading, metres: headingProbe)
+            let beside = GreatCircle.coordinate(from: coordinate, bearing: heading + 90, metres: headingProbe)
             guard CLLocationCoordinate2DIsValid(ahead), CLLocationCoordinate2DIsValid(beside) else {
                 return turned()
             }
@@ -883,7 +904,7 @@ struct TrackerMapView: UIViewRepresentable {
             guard parent.style.usesScreenAngles else { return derived }
             guard CLLocationCoordinate2DIsValid(coordinate) else { return derived }
 
-            let ahead = Self.coordinate(from: coordinate, bearing: heading, metres: headingProbe)
+            let ahead = GreatCircle.coordinate(from: coordinate, bearing: heading, metres: headingProbe)
             guard CLLocationCoordinate2DIsValid(ahead) else { return derived }
 
             let origin = mapView.convert(coordinate, toPointTo: mapView)
@@ -920,30 +941,6 @@ struct TrackerMapView: UIViewRepresentable {
         ///
         /// The inverse of `FlightProgress.bearingDegrees`, and the only thing
         /// the probe needs.
-        private static func coordinate(
-            from origin: CLLocationCoordinate2D,
-            bearing degrees: Double,
-            metres: CLLocationDistance
-        ) -> CLLocationCoordinate2D {
-            let earthRadius = 6_371_000.0
-            let angular = metres / earthRadius
-            let bearing = degrees * .pi / 180
-            let latitude = origin.latitude * .pi / 180
-            let longitude = origin.longitude * .pi / 180
-
-            let destinationLatitude = asin(
-                sin(latitude) * cos(angular) + cos(latitude) * sin(angular) * cos(bearing)
-            )
-            let destinationLongitude = longitude + atan2(
-                sin(bearing) * sin(angular) * cos(latitude),
-                cos(angular) - sin(latitude) * sin(destinationLatitude)
-            )
-
-            return CLLocationCoordinate2D(
-                latitude: destinationLatitude * 180 / .pi,
-                longitude: (destinationLongitude * 180 / .pi).remainder(dividingBy: 360)
-            )
-        }
 
         /// Repaints every drawn sprite when the highlighting changes.
         ///
@@ -1104,6 +1101,10 @@ struct TrackerMapView: UIViewRepresentable {
 
         func sync(flights: [Flight], on mapView: MKMapView) {
             let now = Date()
+            // The other clock: the one the smoothing runs on, which is the
+            // screen's rather than the wall's. Taken once for the whole packet
+            // rather than once per aircraft.
+            let frameNow = CACurrentMediaTime()
             let visible = cull(flights: flights, to: mapView)
             var seen = Set<String>()
             seen.reserveCapacity(visible.count)
@@ -1114,7 +1115,7 @@ struct TrackerMapView: UIViewRepresentable {
                 lastSeen[flight.id] = now
 
                 if let existing = annotations[flight.id] {
-                    if existing.update(with: flight) {
+                    if existing.update(with: flight, now: frameNow) {
                         refresh(annotation: existing, on: mapView)
                     }
                 } else {
@@ -1249,13 +1250,13 @@ struct TrackerMapView: UIViewRepresentable {
                 tint: appliedHighlighting.tint(for: annotation.flight.username)
             )
             view.transform = rotation(
-                for: annotation.flight.heading,
+                for: annotation.drawnHeading,
                 at: annotation.coordinate,
                 on: mapView
             )
 
             annotation.renderedSpriteKey = key
-            annotation.renderedHeading = annotation.flight.heading
+            annotation.renderedHeading = annotation.drawnHeading
         }
 
         // MARK: Selection
@@ -2098,8 +2099,30 @@ struct TrackerMapView: UIViewRepresentable {
         /// they put it until the aircraft genuinely leaves it.
         func followSelection(on mapView: MKMapView) {
             guard parent.isFollowing, let flight = selectedFlight() else { return }
-            keepInView(flight.coordinate, on: mapView)
+
+            // Once, and then not again for a moment.
+            //
+            // This is called on every frame now rather than on every packet,
+            // because the aircraft it follows moves on every frame. A pan is an
+            // animated camera move of its own, though, and one issued thirty
+            // times a second is thirty animations each cancelling the last —
+            // the camera would crawl, and would go on crawling for as long as
+            // the aeroplane stayed outside the middle. So a move is allowed to
+            // finish before another is considered.
+            let now = CACurrentMediaTime()
+            guard now - lastFollowMove > Self.followCooldown else { return }
+
+            if keepInView(drawnCoordinate(for: flight), on: mapView) {
+                lastFollowMove = now
+            }
         }
+
+        private var lastFollowMove: CFTimeInterval = 0
+
+        /// Long enough for an animated camera move to land, and short enough
+        /// that an aeroplane leaving the middle of the map is brought back
+        /// before it reaches the edge of it.
+        private static let followCooldown: CFTimeInterval = 0.9
 
         /// Pans to bring a moving aircraft back, but only once it has left the
         /// middle of the map. Re-centring on every frame would take the map
@@ -2111,16 +2134,19 @@ struct TrackerMapView: UIViewRepresentable {
         /// good deal of what the sheet is sitting on, so an aircraft could be
         /// comfortably "in view" and completely hidden behind the window it was
         /// being followed from.
-        private func keepInView(_ coordinate: CLLocationCoordinate2D, on mapView: MKMapView) {
-            guard CLLocationCoordinate2DIsValid(coordinate) else { return }
+        @discardableResult
+        private func keepInView(
+            _ coordinate: CLLocationCoordinate2D,
+            on mapView: MKMapView
+        ) -> Bool {
+            guard CLLocationCoordinate2DIsValid(coordinate) else { return false }
 
             let bounds = mapView.bounds
-            guard bounds.width > 1, bounds.height > 1 else { return }
+            guard bounds.width > 1, bounds.height > 1 else { return false }
 
             let clear = bounds.inset(by: edgeInsets())
             guard clear.width > 1, clear.height > 1 else {
-                pan(to: coordinate, on: mapView)
-                return
+                return pan(to: coordinate, on: mapView)
             }
 
             // The middle half of what is not covered. Inside it, the aircraft
@@ -2128,10 +2154,10 @@ struct TrackerMapView: UIViewRepresentable {
             let comfortable = clear.insetBy(dx: clear.width * 0.25, dy: clear.height * 0.25)
 
             let here = mapView.convert(coordinate, toPointTo: mapView)
-            guard here.x.isFinite, here.y.isFinite else { return }
-            guard !comfortable.contains(here) else { return }
+            guard here.x.isFinite, here.y.isFinite else { return false }
+            guard !comfortable.contains(here) else { return false }
 
-            pan(to: coordinate, on: mapView)
+            return pan(to: coordinate, on: mapView)
         }
 
         private func apply(
@@ -2145,6 +2171,163 @@ struct TrackerMapView: UIViewRepresentable {
                 at: annotation.coordinate,
                 on: mapView
             )
+        }
+
+        // MARK: Flying
+
+        /// The map this coordinator draws into, for the one caller that does
+        /// not have it handed to it: the display link, which is woken by the
+        /// screen rather than by SwiftUI.
+        private weak var flyingMapView: MKMapView?
+
+        private var flightLink: CADisplayLink?
+        private var lastFlightTick: CFTimeInterval = 0
+
+        /// How many aircraft the last frame was actually carrying.
+        ///
+        /// The switch being off is not on its own a reason to skip the frame —
+        /// the aeroplanes that were flying a moment ago have to be put back
+        /// where they were reported. It is a reason to skip every frame after
+        /// that one, which on a map of two thousand annotations is the
+        /// difference between a feature somebody turned off and a loop they are
+        /// still paying for.
+        private var flyingCount = 0
+
+        /// Slower than the screen, on purpose.
+        ///
+        /// Thirty is past the rate at which a sprite crossing the map at a
+        /// point a second reads as continuous, and half the work of a hundred
+        /// and twenty. Nothing here is under a finger, so there is nothing to
+        /// be gained from matching a ProMotion panel and a good deal of battery
+        /// to be lost.
+        private static let flightFrameRate: Float = 30
+
+        /// Below this an aircraft's own progress is under a fifth of a point a
+        /// second — a movement nobody can see, on a map standing far enough
+        /// back that a whole airline is a handful of pixels. Those are left
+        /// exactly where their packets put them, which is both correct and
+        /// free.
+        private static let visibleMotion: Double = 0.2
+
+        func startFlying(on mapView: MKMapView) {
+            flyingMapView = mapView
+            guard flightLink == nil else { return }
+
+            let link = CADisplayLink(target: self, selector: #selector(flyOneFrame))
+            link.preferredFrameRateRange = CAFrameRateRange(
+                minimum: 15,
+                maximum: Self.flightFrameRate,
+                preferred: Self.flightFrameRate
+            )
+            // Common, so the traffic keeps flying while a sheet is being
+            // dragged over the top of it — the default mode is suspended for
+            // the length of a tracking loop, and a map that freezes whenever
+            // somebody touches the window in front of it is the jank with an
+            // extra step.
+            link.add(to: .main, forMode: .common)
+            flightLink = link
+        }
+
+        func stopFlying() {
+            flightLink?.invalidate()
+            flightLink = nil
+            flyingMapView = nil
+        }
+
+        @objc private func flyOneFrame(_ link: CADisplayLink) {
+            let now = link.timestamp
+            let elapsed = now - lastFlightTick
+            lastFlightTick = now
+
+            let smoothing = parent.smoothsTraffic
+            guard smoothing || flyingCount > 0 else { return }
+
+            guard let mapView = flyingMapView, mapView.window != nil else { return }
+            guard !annotations.isEmpty else { return }
+
+            // A frame, rather than a resume: coming back from the background
+            // hands us however long the app was away, and the whole fleet
+            // integrating that in one step is the teleport this exists to
+            // prevent. The aircraft are put back on their reported positions
+            // and start again from there.
+            guard elapsed > 0, elapsed < 1 else {
+                for (_, annotation) in annotations { annotation.endMotion() }
+                flyingCount = 0
+                return
+            }
+
+            let scale = Self.pointsPerMetre(on: mapView)
+            guard scale > 0 else { return }
+
+            var flying = 0
+
+            for (_, annotation) in annotations {
+                // Three questions, cheapest first: is the feature on, is this
+                // aeroplane flying, and would any of it be visible at this
+                // zoom. Only the last changes as the map moves, which is why it
+                // is asked every frame rather than once when the packet landed.
+                let wanted = smoothing
+                    && annotation.flight.isWorthSmoothing
+                    && annotation.drawnPointsPerSecond(pointsPerMetre: scale) >= Self.visibleMotion
+
+                if wanted != annotation.isSmoothing {
+                    if wanted {
+                        annotation.beginMotion(now: now)
+                    } else {
+                        annotation.endMotion()
+                    }
+                }
+
+                guard annotation.isSmoothing else { continue }
+                flying += 1
+
+                if annotation.advanceMotion(to: now, pointsPerMetre: scale) {
+                    refresh(annotation: annotation, on: mapView)
+                }
+            }
+
+            flyingCount = flying
+
+            // The camera goes with them. Follow acts on the position being
+            // drawn rather than the one last reported, or the aeroplane it is
+            // following would be the one thing on the map it never quite
+            // catches up with.
+            followSelection(on: mapView)
+        }
+
+        /// The map's scale, as points per metre.
+        ///
+        /// Measured across the middle of the view rather than taken from the
+        /// region's span, which is a rectangle in degrees and says nothing
+        /// useful about a globe that may be spun, tilted, or standing over a
+        /// pole.
+        private static func pointsPerMetre(on mapView: MKMapView) -> Double {
+            let bounds = mapView.bounds
+            guard bounds.width > 120, bounds.height > 1 else { return 0 }
+
+            let left = mapView.convert(
+                CGPoint(x: bounds.midX - 50, y: bounds.midY),
+                toCoordinateFrom: mapView
+            )
+            let right = mapView.convert(
+                CGPoint(x: bounds.midX + 50, y: bounds.midY),
+                toCoordinateFrom: mapView
+            )
+            guard CLLocationCoordinate2DIsValid(left), CLLocationCoordinate2DIsValid(right) else {
+                return 0
+            }
+
+            let metres = MKMapPoint(left).distance(to: MKMapPoint(right))
+            guard metres.isFinite, metres > 0 else { return 0 }
+
+            return 100 / metres
+        }
+
+        /// Where an aircraft is being *drawn*, which is what the camera and the
+        /// buttons beside the window should be acting on. Falls back to what
+        /// the feed said for anything not currently being carried.
+        private func drawnCoordinate(for flight: Flight) -> CLLocationCoordinate2D {
+            annotations[flight.id]?.coordinate ?? flight.coordinate
         }
 
         // MARK: Camera
@@ -2241,7 +2424,7 @@ struct TrackerMapView: UIViewRepresentable {
         @discardableResult
         private func center(on mapView: MKMapView) -> Bool {
             guard let flight = selectedFlight() else { return false }
-            return pan(to: flight.coordinate, on: mapView)
+            return pan(to: drawnCoordinate(for: flight), on: mapView)
         }
 
         /// Moves the camera so a coordinate lands in the middle of whatever
