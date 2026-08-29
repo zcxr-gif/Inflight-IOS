@@ -1849,7 +1849,31 @@ struct TrackerMapView: UIViewRepresentable {
 
             for runway in layout.runways {
                 guard let ref = runway.ref, let centre = Self.midpoint(of: runway.coordinates) else { continue }
-                groundLabels.append(GroundLabel(coordinate: centre, text: ref))
+                groundLabels.append(GroundLabel(coordinate: centre, text: ref, kind: .runway))
+            }
+
+            // And the alphabet between them, which is the thing a ground chart
+            // is *for* and which this layer has been downloading and throwing
+            // away since it was written: `ref` is parsed off every taxiway and
+            // only the runways were ever labelled.
+            //
+            // One per way rather than one per name, which is what puts the
+            // letter along the taxiway rather than once in the middle of it —
+            // OSM splits a taxiway at every junction, so the ways *are* roughly
+            // the intervals a chart repeats the letter at. Short stubs are
+            // skipped: a ten-metre link between two stands is not a piece of
+            // taxiway anybody navigates by, and labelling it only crowds out
+            // the letter on the run it joins.
+            var lettered = 0
+            for taxiway in layout.taxiways {
+                guard lettered < Self.maximumTaxiwayLabels else { break }
+                guard let ref = taxiway.ref,
+                      let centre = Self.midpoint(of: taxiway.coordinates),
+                      Self.length(of: taxiway.coordinates) >= Self.shortestLetteredTaxiway
+                else { continue }
+
+                groundLabels.append(GroundLabel(coordinate: centre, text: ref, kind: .taxiway))
+                lettered += 1
             }
 
             // Under the traffic and under the flown path: this is the ground
@@ -1906,6 +1930,35 @@ struct TrackerMapView: UIViewRepresentable {
         }
 
         /// The point halfway *along* the way rather than the average of its
+        /// How short a taxiway can be and still be worth a letter, in nautical
+        /// miles. About a hundred metres.
+        ///
+        /// Below this it is a link between two stands or a corner OSM happened
+        /// to split, not a run anybody taxis along, and its letter would only
+        /// collide with the one on the taxiway it joins.
+        private static let shortestLetteredTaxiway: Double = 0.054
+
+        /// And how many letters a field gets at most.
+        ///
+        /// A guard rather than a target: the collision rules already thin these
+        /// on screen, and the busiest fields in the world do not come near it.
+        /// It is here so that a mis-tagged import cannot put four thousand
+        /// annotations on the map.
+        private static let maximumTaxiwayLabels = 240
+
+        /// How long a run of pavement is, in nautical miles.
+        private static func length(of coordinates: [CLLocationCoordinate2D]) -> Double {
+            guard coordinates.count >= 2 else { return 0 }
+            var total = 0.0
+            for index in 1..<coordinates.count {
+                total += FlightProgress.distanceNM(
+                    from: coordinates[index - 1],
+                    to: coordinates[index]
+                )
+            }
+            return total
+        }
+
         /// nodes: a runway mapped with a cluster of nodes at one end would
         /// otherwise carry its label off-centre.
         private static func midpoint(of coordinates: [CLLocationCoordinate2D]) -> CLLocationCoordinate2D? {
@@ -2305,6 +2358,22 @@ struct TrackerMapView: UIViewRepresentable {
             let renderer = MKPolylineRenderer(polyline: line)
             renderer.lineCap = .butt
             renderer.lineJoin = .round
+
+            // The hold bar, and it is the one thing on this layer drawn in a
+            // colour rather than in the map's own greys.
+            //
+            // Everything else here is pavement, and pavement is background —
+            // it is drawn to be read past. A hold bar is the opposite: it is
+            // the line you are told to stop at, it is yellow on the actual
+            // taxiway, and a chart that renders it in the same grey as the
+            // concrete has drawn it and hidden it in one move. Narrow and
+            // fully opaque, because it is short and has to survive being drawn
+            // over imagery.
+            if kind == AirportLayout.Piece.Kind.holdShort.rawValue {
+                renderer.lineWidth = 2.6
+                renderer.strokeColor = UIColor(red: 0.98, green: 0.78, blue: 0.16, alpha: 0.95)
+                return renderer
+            }
 
             let isRunway = kind == AirportLayout.Piece.Kind.runway.rawValue
             renderer.lineWidth = isRunway ? 7 : 2.5

@@ -209,12 +209,26 @@ final class AirportAnnotationView: MKAnnotationView {
 /// are looking at.
 final class GroundLabel: NSObject, MKAnnotation {
 
+    /// Which piece of pavement is being named, which is the whole of how it is
+    /// drawn.
+    ///
+    /// A chart does not letter its taxiways the way it numbers its runways. The
+    /// designator is the biggest thing on the field and the taxiway letters are
+    /// a quiet alphabet threaded between them — so runways get the weight, and
+    /// taxiways get a smaller mark that gives way first when they collide.
+    enum Kind {
+        case runway
+        case taxiway
+    }
+
     let coordinate: CLLocationCoordinate2D
     let text: String
+    let kind: Kind
 
-    init(coordinate: CLLocationCoordinate2D, text: String) {
+    init(coordinate: CLLocationCoordinate2D, text: String, kind: Kind = .runway) {
         self.coordinate = coordinate
         self.text = text
+        self.kind = kind
         super.init()
     }
 }
@@ -232,15 +246,14 @@ final class GroundLabelView: MKAnnotationView {
         isEnabled = false
 
         // The pavement is context for the traffic, so it gives way to it — and
-        // to the field markers, which are what a tap is looking for.
-        displayPriority = .defaultLow
+        // to the field markers, which are what a tap is looking for. Which of
+        // the two ground labels gives way first is set in `apply`.
         zPriority = .min
         collisionMode = .circle
 
         frame = CGRect(x: 0, y: 0, width: 64, height: 16)
         label.frame = bounds
         label.textAlignment = .center
-        label.font = .systemFont(ofSize: 10.5, weight: .heavy)
         label.adjustsFontSizeToFitWidth = true
         label.minimumScaleFactor = 0.7
         // Legible on a light map, a dark one and imagery alike, which is the
@@ -260,5 +273,22 @@ final class GroundLabelView: MKAnnotationView {
 
     func apply(_ annotation: GroundLabel) {
         label.text = annotation.text
+
+        switch annotation.kind {
+        case .runway:
+            label.font = .systemFont(ofSize: 10.5, weight: .heavy)
+            label.alpha = 1
+            // Still under the traffic, and above the alphabet between them.
+            displayPriority = .defaultLow
+
+        case .taxiway:
+            // A letter rather than a designator: smaller, lighter, and the
+            // first thing dropped when two labels want the same patch of
+            // pavement. A field has a handful of runways and a hundred
+            // taxiways, so this is what keeps the map from silting up.
+            label.font = .systemFont(ofSize: 9, weight: .bold)
+            label.alpha = 0.85
+            displayPriority = MKFeatureDisplayPriority(rawValue: MKFeatureDisplayPriority.defaultLow.rawValue - 100)
+        }
     }
 }

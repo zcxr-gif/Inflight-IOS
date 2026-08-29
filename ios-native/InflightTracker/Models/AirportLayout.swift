@@ -17,6 +17,15 @@ struct AirportLayout {
             case apron
             case terminal
 
+            /// The painted bar across a taxiway where it meets a runway.
+            ///
+            /// OpenStreetMap calls it `holding_position` and usually records it
+            /// as a single node — a point on the taxiway, with no extent and no
+            /// direction. What a chart shows is a bar *across* the taxiway, so
+            /// the store works the geometry out from the pavement it sits on;
+            /// see `AirportLayoutStore.holdShort`.
+            case holdShort = "holding_position"
+
             /// Areas are filled; the rest are drawn as lines down their centre.
             var isArea: Bool { self == .apron || self == .terminal }
         }
@@ -39,7 +48,13 @@ struct AirportLayout {
 
     var runways: [Piece] { pieces.filter { $0.kind == .runway } }
 
+    var taxiways: [Piece] { pieces.filter { $0.kind == .taxiway } }
+
     /// Drawn in this order, so a taxiway sits on its apron rather than under
     /// it and a runway sits on top of everything.
-    static let drawingOrder: [Piece.Kind] = [.apron, .terminal, .taxiway, .runway]
+    ///
+    /// Hold bars come last of all. They are painted on the taxiway in the real
+    /// world and they are the one piece of a ground chart you are looking for
+    /// under pressure, so nothing gets to cover them.
+    static let drawingOrder: [Piece.Kind] = [.apron, .terminal, .taxiway, .runway, .holdShort]
 }
