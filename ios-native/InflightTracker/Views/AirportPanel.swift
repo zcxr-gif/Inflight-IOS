@@ -70,6 +70,14 @@ struct AirportPanel: View {
     /// draws its weather immediately, then replaced when the fetch lands.
     @State private var metar: Metar?
 
+    /// The partner virtual airlines that call this field a hub, once the VA-Ads
+    /// directory has answered. Empty covers both "none" and "not asked yet",
+    /// which look the same on the panel: no section at all.
+    @State private var partners: [VaAd] = []
+
+    /// The partner whose own panel is open over this one, when one is.
+    @State private var viewingPartner: VaAd?
+
     /// Whether the weather service has answered about this field yet.
     ///
     /// Most of the world's strips have never filed a METAR, and from an empty
@@ -174,6 +182,12 @@ struct AirportPanel: View {
 
             frequencies
 
+            AirportPartnersSection(
+                icao: airport.icao,
+                partners: partners,
+                onOpen: { ad in viewingPartner = ad }
+            )
+
             weather
 
             WeatherForecastSection(key: airport.icao, coordinate: airport.coordinate)
@@ -196,8 +210,22 @@ struct AirportPanel: View {
             gateStore.load(airport)
             chartStore.load(airport.icao)
         }
+        // Its own task rather than part of `onAppear`: the lookup is a request
+        // over the network, and a panel closed before it lands should take the
+        // request with it.
+        .task(id: airport.icao) {
+            let found = await VaAdsService.shared.partners(hubbedAt: airport.icao)
+            guard !Task.isCancelled else { return }
+            partners = found
+        }
         .sheet(item: $chart) { open in
             AirportChartView(icao: airport.icao, url: open.url)
+        }
+        // Handed the feed explicitly, like every other sheet this app presents:
+        // the partner panel counts that VA's aircraft out of the live packet.
+        .sheet(item: $viewingPartner) { ad in
+            VaDetailSheet(ad: ad)
+                .environmentObject(feed)
         }
         .motion(Motion.content, value: imageLoader.image != nil)
         .onReceive(clock) { tick in

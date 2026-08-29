@@ -116,6 +116,11 @@ struct Hint: Identifiable, Equatable {
             text: "The viewfinder button beside the window keeps the map with this aircraft as it flies, instead of you re-centring it."
         ),
         Hint(
+            id: "flight.path",
+            placement: .flight,
+            text: "The curved-line button beside the window draws the track this aircraft has actually flown, back to departure rather than to when you opened the app — and puts the map on it."
+        ),
+        Hint(
             id: "flight.replay",
             placement: .flight,
             text: "Replay flies the track this aircraft has already covered, at whatever speed you set."
