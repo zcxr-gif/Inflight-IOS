@@ -38,6 +38,11 @@ struct AirportLayout {
 
         let coordinates: [CLLocationCoordinate2D]
 
+        /// How wide this pavement really is, in metres, where OpenStreetMap
+        /// says so. Nil falls back to what the type usually is — see
+        /// `AirportGroundStyle.defaultWidth`.
+        let widthMetres: Double?
+
         let id: String
     }
 

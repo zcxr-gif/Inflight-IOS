@@ -495,6 +495,11 @@ struct TrackerMapView: UIViewRepresentable {
             for overlay in mapView.overlays {
                 mapView.renderer(for: overlay)?.setNeedsDisplay()
             }
+
+            // The pavement's areas hold their fill rather than reading it, so
+            // a repaint is not enough for them. Light to dark is exactly the
+            // switch this is for.
+            refreshGroundLook(on: mapView)
         }
 
         /// Applies a look to the map, and says whether it actually swapped the
@@ -505,6 +510,12 @@ struct TrackerMapView: UIViewRepresentable {
             guard appliedStyle != style else { return false }
             let previous = appliedStyle
             appliedStyle = style
+
+            // Pavement is coloured against the ground under it, and the ground
+            // has just changed. Cartography to imagery is the case that matters:
+            // the concrete is in the photograph now, so the layer stops painting
+            // it and starts outlining it instead.
+            defer { refreshGroundLook(on: mapView) }
 
             // Where the camera was standing before the map underneath it was
             // swapped. Assigning `preferredConfiguration` tears the map down and
@@ -1924,6 +1935,10 @@ struct TrackerMapView: UIViewRepresentable {
                 polygon.title = "\(groundTitle):\(piece.kind.rawValue)"
                 return polygon
             }
+            // A run of pavement carries its own kind and its own real width —
+            // see `GroundOverlay`. The title is kept for the areas, which are
+            // still polygons and still say what they are that way.
+            if let pavement = GroundOverlay(piece: piece) { return pavement }
             let line = MKPolyline(coordinates: coordinates, count: coordinates.count)
             line.title = "\(groundTitle):\(piece.kind.rawValue)"
             return line
@@ -2235,7 +2250,7 @@ struct TrackerMapView: UIViewRepresentable {
                     return renderer
                 }
 
-                return Self.groundRenderer(for: area, title: area.title)
+                return groundRenderer(for: area, title: area.title)
             }
 
             // Matched by type rather than by title: the flown path is its own
@@ -2248,12 +2263,12 @@ struct TrackerMapView: UIViewRepresentable {
                 return renderer
             }
 
-            guard let line = overlay as? MKPolyline else {
-                return MKOverlayRenderer(overlay: overlay)
+            if let pavement = overlay as? GroundOverlay {
+                return GroundRenderer(overlay: pavement, ground: groundLook)
             }
 
-            if line.title?.hasPrefix(Self.groundTitle) == true {
-                return Self.groundRenderer(for: line, title: line.title)
+            guard let line = overlay as? MKPolyline else {
+                return MKOverlayRenderer(overlay: overlay)
             }
 
             if line.title == MeasureStyle.title {
@@ -2327,63 +2342,56 @@ struct TrackerMapView: UIViewRepresentable {
             renderer.apply(width: width)
         }
 
-        /// Pavement, drawn like a chart rather than like a photograph.
+        /// What the map underneath the pavement is made of.
         ///
-        /// Widths are in points and so do not grow with the zoom: a runway
-        /// drawn to scale is a hairline from the edge of the field and a slab
-        /// from the threshold, and the point of this layer is to be readable
-        /// at both. Everything is translucent enough to sit over imagery
-        /// without hiding the concrete underneath it.
-        private static func groundRenderer(for overlay: MKOverlay, title: String?) -> MKOverlayRenderer {
-            let kind = title?.split(separator: ":").last.map(String.init)
+        /// Read off the live style rather than baked into the overlay, so
+        /// switching from cartography to imagery restyles the field that is
+        /// already drawn — see `refreshGroundLook`.
+        private var groundLook: AirportGroundStyle.Ground {
+            AirportGroundStyle.Ground(parent.style, isLight: parent.colorScheme == .light)
+        }
 
-            if let area = overlay as? MKPolygon {
-                let renderer = MKPolygonRenderer(polygon: area)
-                let isTerminal = kind == AirportLayout.Piece.Kind.terminal.rawValue
-                renderer.fillColor = UIColor { traits in
-                    let alpha = isTerminal ? 0.20 : 0.12
-                    return traits.userInterfaceStyle == .light
-                        ? UIColor(white: 0.25, alpha: alpha)
-                        : UIColor(white: 0.95, alpha: alpha)
-                }
-                renderer.strokeColor = .clear
-                renderer.lineWidth = 0
-                return renderer
-            }
+        /// Aprons and terminals, which are areas rather than runs of pavement.
+        ///
+        /// Runways and taxiways are drawn by `GroundRenderer` now, to their
+        /// real widths. These stay polygons because that is what they are: an
+        /// apron is a shape, not a line with a thickness.
+        private func groundRenderer(for overlay: MKOverlay, title: String?) -> MKOverlayRenderer {
+            let kind = title?.split(separator: ":").last
+                .map(String.init)
+                .flatMap(AirportLayout.Piece.Kind.init(rawValue:))
 
-            guard let line = overlay as? MKPolyline else {
+            guard let area = overlay as? MKPolygon, let kind = kind else {
                 return MKOverlayRenderer(overlay: overlay)
             }
 
-            let renderer = MKPolylineRenderer(polyline: line)
-            renderer.lineCap = .butt
-            renderer.lineJoin = .round
-
-            // The hold bar, and it is the one thing on this layer drawn in a
-            // colour rather than in the map's own greys.
-            //
-            // Everything else here is pavement, and pavement is background —
-            // it is drawn to be read past. A hold bar is the opposite: it is
-            // the line you are told to stop at, it is yellow on the actual
-            // taxiway, and a chart that renders it in the same grey as the
-            // concrete has drawn it and hidden it in one move. Narrow and
-            // fully opaque, because it is short and has to survive being drawn
-            // over imagery.
-            if kind == AirportLayout.Piece.Kind.holdShort.rawValue {
-                renderer.lineWidth = 2.6
-                renderer.strokeColor = UIColor(red: 0.98, green: 0.78, blue: 0.16, alpha: 0.95)
-                return renderer
-            }
-
-            let isRunway = kind == AirportLayout.Piece.Kind.runway.rawValue
-            renderer.lineWidth = isRunway ? 7 : 2.5
-            renderer.strokeColor = UIColor { traits in
-                let alpha = isRunway ? 0.72 : 0.42
-                return traits.userInterfaceStyle == .light
-                    ? UIColor(white: 0.18, alpha: alpha)
-                    : UIColor(white: 0.92, alpha: alpha)
-            }
+            let renderer = MKPolygonRenderer(polygon: area)
+            renderer.fillColor = AirportGroundStyle.area(for: kind, on: groundLook)
+            renderer.strokeColor = .clear
+            renderer.lineWidth = 0
             return renderer
+        }
+
+        /// Repaints the field for a map it is now lying on something else.
+        ///
+        /// Pavement is coloured against the ground under it, and that ground
+        /// changes without the pavement moving: a switch from the light map to
+        /// the dark one, or to imagery, which wants an outline where the others
+        /// want a fill. The overlays are unchanged and only their renderers
+        /// have anything to say, so this repaints rather than rebuilding.
+        private func refreshGroundLook(on mapView: MKMapView) {
+            for overlay in groundOverlays {
+                mapView.renderer(for: overlay)?.setNeedsDisplay()
+            }
+            // The polygon renderers hold their fill as a property rather than
+            // reading it per frame, so those are rebuilt rather than repainted.
+            let areas = groundOverlays.filter { $0 is MKPolygon }
+            guard !areas.isEmpty else { return }
+            let base = Self.bottomOfRoadsLevel(on: mapView)
+            mapView.removeOverlays(areas)
+            for (offset, area) in areas.enumerated() {
+                mapView.insertOverlay(area, at: base + offset, level: .aboveRoads)
+            }
         }
 
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {

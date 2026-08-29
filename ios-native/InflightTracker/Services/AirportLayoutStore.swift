@@ -153,6 +153,7 @@ final class AirportLayoutStore: ObservableObject {
                     kind: kind,
                     ref: (ref?.isEmpty == false) ? ref : nil,
                     coordinates: coordinates,
+                    widthMetres: Self.width(tags["width"]),
                     id: identifier
                 )
             )
@@ -216,6 +217,7 @@ final class AirportLayoutStore: ObservableObject {
                 offset(coordinate, bearing: across, metres: -half),
                 offset(coordinate, bearing: across, metres: half)
             ],
+            widthMetres: nil,
             id: id
         )
     }
@@ -227,6 +229,21 @@ final class AirportLayoutStore: ObservableObject {
     /// the width most of them are, and drawing every bar the same width is what
     /// a chart does — the paint is a symbol here, not a survey.
     private static let holdBarMetres: CLLocationDistance = 26
+
+    /// OpenStreetMap's `width`, in metres, when it is a number we believe.
+    ///
+    /// The tag is free text and carries whatever the mapper typed: bare metres
+    /// most of the time, sometimes a unit, occasionally a range or a note. A
+    /// leading number is taken and anything else left alone — a runway with an
+    /// unparseable width falls back to what a runway usually is, which beats a
+    /// runway a hundred and eighty metres across because somebody put the
+    /// length in the wrong box.
+    private static func width(_ tag: Any?) -> Double? {
+        guard let text = tag as? String else { return nil }
+        let leading = text.prefix { $0.isNumber || $0 == "." }
+        guard let value = Double(leading), value > 1, value < 120 else { return nil }
+        return value
+    }
 
     private static func metres(
         _ from: CLLocationCoordinate2D,
@@ -325,6 +342,7 @@ final class AirportLayoutStore: ObservableObject {
                 kind: kind,
                 ref: row["ref"] as? String,
                 coordinates: coordinates,
+                widthMetres: row["width"] as? Double,
                 id: id
             )
         }
@@ -345,6 +363,7 @@ final class AirportLayoutStore: ObservableObject {
                 "points": piece.coordinates.flatMap { [$0.latitude, $0.longitude] },
             ]
             if let ref = piece.ref { row["ref"] = ref }
+            if let width = piece.widthMetres { row["width"] = width }
             return row
         }
 
