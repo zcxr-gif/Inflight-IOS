@@ -106,7 +106,8 @@ struct AirportPanel: View {
         MapPanel(
             title: airport.icao,
             subtitle: subtitle(for: activity),
-            accessory: airport.flag.isEmpty ? nil : AnyView(flag)
+            accessory: airport.flag.isEmpty ? nil : AnyView(flag),
+            peakHeight: Self.peakHeight
         ) {
             hero
 
@@ -380,6 +381,19 @@ struct AirportPanel: View {
         if let visibility = metar.visibilityLabel { parts.append(visibility) }
         return parts.joined(separator: " · ")
     }
+
+    /// Where the field rests before it is pulled open.
+    ///
+    /// Enough for the header and the picture under it, which between them
+    /// carry the identity, the conditions line and how busy the field is —
+    /// the three things a field is usually opened to check. Everything below
+    /// is a pull away and none of it is hidden.
+    ///
+    /// Fixed rather than measured. The flight window measures its peak because
+    /// its content genuinely changes height — a parked aircraft has no route
+    /// strip — where a field always has the same top, so a constant is honest
+    /// here and one fewer layout pass.
+    private static let peakHeight: CGFloat = 340
 
     private var isPinned: Bool { widgets.isAirportPinned(airport.icao) }
 
