@@ -28,6 +28,7 @@ The previous Capacitor/web build is preserved untouched in [`old/`](old/).
 - Your profile is one tap from anywhere on the map — the avatar top right stays put while you are watching an aeroplane, and opens your page as other pilots see it. Hold it for your account and for Pro.
 - An optional account, on the same Supabase project the web tracker uses, so an account made on inflight.info signs in here. **Sign in with Apple**, or an email and password. Sign up, reset a password, delete the account.
 - Inflight Pro, sold in the app and only in the app: a year or a month. (The one-off lifetime unlock earlier builds sold is retired, and still honoured for everyone who bought one.) A web subscription (or the grandfathered `legacy_pro` flag) unlocks the same things, for anyone who already has one, and a purchase made here unlocks Pro on inflight.info too. Setup that has to happen outside the repo is in [`ios-native/PRO.md`](ios-native/PRO.md).
+- **Partner virtual airlines**, as text: the VA a flight is flying under and whether that pilot is registered with it, the partners based at a field, and a searchable directory of every VA partnered with Inflight — what they fly, where from, what they have coming up, and how to join. No banners and no logos, deliberately; see [`ios-native/PARTNERS.md`](ios-native/PARTNERS.md).
 - Connection status and live aircraft count.
 
 ## Layout

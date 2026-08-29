@@ -245,6 +245,15 @@ struct SettingsPanel: View {
 
                 PanelDivider()
 
+                PanelToggleRow(
+                    title: "Airline colour",
+                    symbol: "paintbrush.pointed",
+                    detail: "Edges the flight window in the operator's own colour, and puts it on the few things that were already picked out. Off, the window is the same for every aeroplane. Liveries the app has no colour for are uncoloured either way.",
+                    isOn: $appearance.isAirlineAccentEnabled
+                )
+
+                PanelDivider()
+
                 // The peak measures itself, so switching this resizes the sheet
                 // even while it is on screen.
                 PanelPickerRow(

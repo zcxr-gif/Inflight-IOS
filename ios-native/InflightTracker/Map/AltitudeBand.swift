@@ -108,7 +108,8 @@ enum AltitudeBand {
     /// Which is both of them now. The profile chart has always drawn the sweep;
     /// the map used to draw one polyline per band and step between them, six
     /// hard edges at heights that mean nothing to anyone watching an aeroplane.
-    /// It draws the same ramp along one gradient line now — see `FlownPath`.
+    /// It mixes the same ramp along the track now, per drawn segment — see
+    /// `FlownPathOverlay`.
     static func color(forFeet feet: Double) -> UIColor {
         guard feet.isFinite else { return color(for: 0) }
 

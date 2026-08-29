@@ -73,7 +73,21 @@ struct FlightDetailView: View {
     /// remembering the way back here.
     var onSelectAirport: (Airport) -> Void = { _ in }
 
-    private var theme: FlightInfoTheme { appearance.theme }
+    /// Opening the partner VA this flight is flying for, in the partner
+    /// directory. Swapping one window for another is the presenter's business,
+    /// the same as it is for a field.
+    var onSelectPartner: (VirtualAirline) -> Void = { _ in }
+
+    /// The window's own theme: the app's, with the palette's blue taken out and
+    /// a hint of the operator's colour put on the edges in its place.
+    ///
+    /// See `FlightInfoAppearance.windowTheme(forLivery:)`. Every part of the
+    /// window, the peak included, is handed this rather than the appearance's,
+    /// which is why it is the only place the choice is made — and why the
+    /// window recolours the moment another aeroplane is opened.
+    private var theme: FlightInfoTheme {
+        appearance.windowTheme(forLivery: flight?.liveryName)
+    }
 
     private var flight: Flight? {
         feed.flights.first { $0.id == flightId }
@@ -341,6 +355,12 @@ struct FlightDetailView: View {
                     )
 
                     FlightWatchRow(flight: flight, theme: theme)
+
+                    // Under the ways to keep hold of the flight rather than up
+                    // by its identity: who the airline is is context on the
+                    // callsign, not part of it. Absent for every flight whose
+                    // callsign is not a partner's, which is most of them.
+                    FlightPartnerCard(flight: flight, theme: theme, onSelect: onSelectPartner)
 
                     situationCard(for: flight)
                     telemetry(for: flight)

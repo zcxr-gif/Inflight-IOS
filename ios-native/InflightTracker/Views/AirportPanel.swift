@@ -26,6 +26,10 @@ struct AirportPanel: View {
     /// Open one of the aircraft listed here.
     let onSelectFlight: (Flight) -> Void
 
+    /// Open the partner directory — on one virtual airline when a row here was
+    /// tapped, or at the top of the list when the section's last row was.
+    let onShowPartner: (VirtualAirline?) -> Void
+
     /// The flight this field was reached from, when it was reached from one.
     ///
     /// Opening a field replaces whatever sheet was up, so arriving here from an
@@ -69,6 +73,11 @@ struct AirportPanel: View {
     /// The field's own report. Seeded from the cache so a field looked at twice
     /// draws its weather immediately, then replaced when the fetch lands.
     @State private var metar: Metar?
+
+    /// The partner virtual airlines advertising at this field, once the VA-Ads
+    /// service has answered about it. Seeded synchronously from the directory
+    /// already in memory so the section draws on the first frame when it can.
+    @State private var partners: [VirtualAirline] = []
 
     /// Whether the weather service has answered about this field yet.
     ///
@@ -184,7 +193,17 @@ struct AirportPanel: View {
 
             traffic(activity)
 
+            virtualAirlines
+
             HintStrip(placement: .airport)
+        }
+        .task(id: airport.icao) {
+            // What the directory already knows, immediately — then whatever the
+            // field's own endpoint says, which is the authoritative list and may
+            // include a VA advertising here without being hubbed here.
+            partners = VaAdsService.shared.partners(hubbedAt: airport.icao)
+            let advertised = await VaAdsService.shared.partners(advertisingAt: airport.icao)
+            if !advertised.isEmpty { partners = advertised }
         }
         .onAppear {
             if let cached = WeatherService.shared.cached(airport.icao) {
@@ -258,6 +277,84 @@ struct AirportPanel: View {
         Text(airport.flag)
             .font(.system(size: 22))
             .accessibilityHidden(true)
+    }
+
+    // MARK: - Virtual airlines
+
+    /// The partners based at this field.
+    ///
+    /// Text, and only text. The web tracker paints a banner here — an uploaded
+    /// image, sometimes an animated one — and that is the one thing this
+    /// deliberately does not carry over. A VA gets a row in the field's own
+    /// voice, the same as its frequencies and its gates do, and it says the
+    /// things a pilot at this field would actually want: who they are, what
+    /// they fly under, and whether they are taking anybody on.
+    ///
+    /// Absent entirely when no partner is based here, which is most fields.
+    @ViewBuilder
+    private var virtualAirlines: some View {
+        if !partners.isEmpty {
+            PanelSection(title: partners.count == 1 ? "VIRTUAL AIRLINE" : "VIRTUAL AIRLINES") {
+                ForEach(partners) { ad in
+                    if ad.id != partners.first?.id { PanelDivider() }
+                    partnerRow(ad)
+                }
+
+                PanelDivider()
+
+                PanelActionRow(
+                    title: "All virtual airlines",
+                    symbol: "building.2",
+                    detail: "Every VA partnered with Inflight"
+                ) {
+                    onShowPartner(nil)
+                }
+            }
+        }
+    }
+
+    private func partnerRow(_ ad: VirtualAirline) -> some View {
+        Button {
+            onShowPartner(ad)
+        } label: {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 7) {
+                        Text(ad.name)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(theme.textPrimary)
+                            .flightInfoLine(minimumScale: 0.8)
+
+                        if ad.isRecruiting {
+                            PartnerChip(text: "HIRING", theme: theme, filled: true)
+                        }
+                    }
+
+                    Text(partnerLine(ad))
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(theme.textDim)
+                        .flightInfoLine(minimumScale: 0.75)
+                }
+
+                Spacer(minLength: 8)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(theme.textDim)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.pressable(scale: 0.985))
+        .onAppear { VaAdsService.shared.track(.impression, for: ad.id) }
+    }
+
+    private func partnerLine(_ ad: VirtualAirline) -> String {
+        var parts: [String] = []
+        if !ad.callsign.isEmpty { parts.append(ad.callsign) }
+        if !ad.blurb.isEmpty { parts.append(ad.blurb) }
+        return parts.joined(separator: " · ")
     }
 
     // MARK: - On frequency

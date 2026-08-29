@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Which way round the app is drawn.
 ///
@@ -102,6 +103,7 @@ final class FlightInfoAppearance: ObservableObject {
     static let shared = FlightInfoAppearance()
 
     private static let glassKey = "flightInfoGlassEnabled"
+    private static let airlineAccentKey = "flightInfoAirlineAccent"
     private static let peakStyleKey = "flightInfoPeakStyle"
     private static let windowPlacementKey = "flightWindowPlacement"
     private static let modeKey = "appAppearanceMode"
@@ -116,6 +118,15 @@ final class FlightInfoAppearance: ObservableObject {
 
     @Published var isGlassEnabled: Bool {
         didSet { UserDefaults.standard.set(isGlassEnabled, forKey: Self.glassKey) }
+    }
+
+    /// Whether the flight window takes a hint of the operator's own colour.
+    ///
+    /// On by default: it is the kind of thing that has to be seen to be judged,
+    /// and a switch nobody finds is a feature nobody has. Off puts the window
+    /// back to the accentless one — see `FlightInfoTheme.withoutAccent`.
+    @Published var isAirlineAccentEnabled: Bool {
+        didSet { UserDefaults.standard.set(isAirlineAccentEnabled, forKey: Self.airlineAccentKey) }
     }
 
     @Published var peakStyle: FlightInfoPeakStyle {
@@ -204,6 +215,24 @@ final class FlightInfoAppearance: ObservableObject {
         FlightInfoTheme.resolved(palette: palette, scheme: resolvedScheme, glass: isGlassEnabled)
     }
 
+    /// The theme a flight window draws in, which is not quite the app's.
+    ///
+    /// Two departures from `theme`, and both of them are about the same thing:
+    /// a window full of numbers about one aeroplane does not want a colour of
+    /// its own running through it. The palette's blue comes out, and in its
+    /// place — when the switch is on and the livery names an airline anybody
+    /// has a table entry for — goes a hint of that operator's colour, on the
+    /// edges and the few things that were already the accent.
+    ///
+    /// One method rather than the same three lines in the window and again in
+    /// its full-screen instruments, which is how the two would come to disagree.
+    func windowTheme(forLivery livery: String?) -> FlightInfoTheme {
+        guard isAirlineAccentEnabled, let brand = AirlineColour.brand(forLivery: livery) else {
+            return theme.withoutAccent
+        }
+        return theme.tinted(with: brand)
+    }
+
     /// What the map should actually draw.
     ///
     /// The choice is kept exactly as made even when part of it is Pro and Pro
@@ -242,6 +271,7 @@ final class FlightInfoAppearance: ObservableObject {
 
         // No stored value means the user has never chosen, which is glass on.
         isGlassEnabled = defaults.object(forKey: Self.glassKey) as? Bool ?? true
+        isAirlineAccentEnabled = defaults.object(forKey: Self.airlineAccentKey) as? Bool ?? true
         // The fallback also catches a retired style: the board was a third
         // option once, and anybody still holding it lands back on the bar
         // rather than on a case that no longer exists.
@@ -410,18 +440,25 @@ struct FlightInfoTheme {
     /// One step brighter, for chips that sit on top of a photo or a card.
     let elevatedFill: Color
 
-    let stroke: Color
-    let strokeStrong: Color
+    /// The hairline on a card, and the stronger one on the window itself.
+    ///
+    /// `var` for the same reason `accent` is: `tinted(with:)` hands back a copy
+    /// with the airline's colour in them. Nothing mutates a theme in place.
+    var stroke: Color
+    var strokeStrong: Color
 
     let textPrimary: Color
     let textSecondary: Color
     let textDim: Color
 
     /// The single accent: progress fill, plane glyphs, phase dot.
-    let accent: Color
+    ///
+    /// `var` rather than `let` only so `withoutAccent` can hand back a copy
+    /// with it changed. Nothing mutates a theme in place.
+    var accent: Color
 
     /// Drawn on top of `accent` — the glyph inside the route's plane badge.
-    let onAccent: Color
+    var onAccent: Color
 
     /// Unfilled part of a progress track.
     let trackFill: Color
@@ -458,6 +495,108 @@ struct FlightInfoTheme {
     /// glyphs off a busy background, not a drop shadow, and at this opacity it
     /// is invisible until the thing underneath is bright.
     let textHalo: Color
+
+    /// The same theme with no accent colour in it — the accent becomes the
+    /// text's own colour, and what sits on the accent becomes the window's
+    /// ground.
+    ///
+    /// The mono palette introduced a blue for the handful of things that were
+    /// already reaching for `accent`, because a design with every surface and
+    /// every glyph on one grey axis has nowhere for a highlight to live. That
+    /// reasoning holds for the panels and it is not wanted in the flight
+    /// window, which is a window full of numbers about one aeroplane and reads
+    /// better without a second colour in it.
+    ///
+    /// The substitution is not invented for the occasion: white on dark and ink
+    /// on light is exactly what the carbon palette's own accent is, so a
+    /// window under this is a window in a palette the app already ships rather
+    /// than a third answer nobody chose.
+    ///
+    /// What it costs is real and worth writing down: the things that used the
+    /// accent to say *this one* — the next fix on a route, an armed toggle, the
+    /// flown part of a progress track — now say it by being brighter than their
+    /// neighbours rather than by being a different colour. That is a weaker
+    /// signal, and it is the trade being made deliberately.
+    var withoutAccent: FlightInfoTheme {
+        var copy = self
+        copy.accent = textPrimary
+        copy.onAccent = windowFill
+        return copy
+    }
+
+    /// The same theme with a hint of an airline's own colour in it.
+    ///
+    /// Small, and on purpose. The colour goes on the **edges** — the hairline
+    /// around every card and the stronger one around the window — and on the
+    /// handful of things that were already the accent: the fill on a progress
+    /// track, the plane on a route, the next fix, an armed toggle. Nothing that
+    /// states a fact changes colour, and no ground or body of text is touched.
+    /// A window in an airline's colour would be a poster; a window *edged* in
+    /// it is a window that tells you whose aeroplane you are looking at
+    /// without being asked.
+    ///
+    /// ## Why the brand colour is not used as published
+    ///
+    /// Because half of them are unreadable where they have to go. Airlines
+    /// pick colours to sit on white paper and on a tailfin, and this has to
+    /// work on a near-black window and a near-white one with the same table.
+    /// United's navy is 0x002244 — on black that is not a colour, it is an
+    /// absence — and Spirit's yellow on paper is the same problem inverted. So
+    /// the hue is kept, which is the part anybody recognises, and the
+    /// brightness is pushed over a floor or under a ceiling depending on which
+    /// way the window is drawn.
+    func tinted(with brand: Color) -> FlightInfoTheme {
+        var copy = self
+        let colour = Self.legible(brand, onLight: isLight)
+
+        copy.accent = colour
+        copy.onAccent = Self.ink(against: colour)
+
+        // Enough to be seen as a colour rather than as a rendering artefact,
+        // and nowhere near enough to become the border of a box. The neutral
+        // strokes these replace sit around a tenth to a quarter; a hue needs
+        // more than a grey to register at the same weight.
+        copy.stroke = colour.opacity(isLight ? 0.30 : 0.34)
+        copy.strokeStrong = colour.opacity(isLight ? 0.46 : 0.52)
+
+        return copy
+    }
+
+    /// A brand colour moved to where it can be seen, keeping its hue.
+    private static func legible(_ colour: Color, onLight: Bool) -> Color {
+        var hue: CGFloat = 0, saturation: CGFloat = 0, brightness: CGFloat = 0, alpha: CGFloat = 0
+        guard UIColor(colour).getHue(&hue, saturation: &saturation,
+                                     brightness: &brightness, alpha: &alpha) else { return colour }
+
+        if onLight {
+            brightness = min(brightness, 0.62)
+        } else {
+            brightness = max(brightness, 0.72)
+            // Full saturation at that brightness glares on a black ground.
+            saturation = min(saturation, 0.82)
+        }
+
+        // A grey stays grey. Raising the saturation of something achromatic
+        // would read its hue as 0 and turn it red, which is how a monochrome
+        // livery would have come out wearing somebody else's colour.
+        if saturation > 0.05 { saturation = max(saturation, 0.30) }
+
+        return Color(uiColor: UIColor(hue: hue, saturation: saturation,
+                                      brightness: brightness, alpha: 1))
+    }
+
+    /// What to draw *on* a filled accent, so a badge's glyph survives whatever
+    /// the airline's colour turned out to be.
+    private static func ink(against colour: Color) -> Color {
+        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+        guard UIColor(colour).getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
+            return .white
+        }
+        // Rec. 709 luma — green carries most of what the eye reads as
+        // brightness, and a flat average would put black text on Ryanair blue.
+        let luma = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+        return luma > 0.6 ? Color(white: 0.06) : .white
+    }
 
     let radiusSmall: CGFloat = 12
     let radiusMedium: CGFloat = 16
