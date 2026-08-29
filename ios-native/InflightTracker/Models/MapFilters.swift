@@ -89,6 +89,22 @@ final class MapFilters: ObservableObject {
         didSet { UserDefaults.standard.set(showsFlightPlan, forKey: Self.planKey) }
     }
 
+    /// Whether the open aircraft's flown track is drawn on the map — the
+    /// coloured line behind it showing where it has actually been.
+    ///
+    /// Uncounted as a filter, like the layers around it: it adds to the map
+    /// rather than narrowing it. On by default, because the track is most of
+    /// what makes an open flight worth opening — the numbers say where it is,
+    /// and only the path says what it has done to get there.
+    ///
+    /// Separate from `showsFlightPlan` and deliberately so. The plan is what
+    /// the pilot *intends*; this is what they have *flown*, which on most
+    /// flights is a visibly different line. Having one switch for both meant
+    /// there was no way to look at either on its own.
+    @Published var showsFlownPath: Bool {
+        didSet { UserDefaults.standard.set(showsFlownPath, forKey: Self.flownKey) }
+    }
+
     /// Whether the North Atlantic organised tracks are drawn.
     ///
     /// Uncounted as a filter, like the layers above it, and off by default —
@@ -112,12 +128,14 @@ final class MapFilters: ObservableObject {
     }
 
     private static let planKey = "map.showsFlightPlan"
+    private static let flownKey = "map.showsFlownPath"
     private static let natKey = "map.showsNatTracks"
     private static let terminatorKey = "map.showsTerminator"
 
     private init() {
         let defaults = UserDefaults.standard
         showsFlightPlan = defaults.object(forKey: Self.planKey) as? Bool ?? true
+        showsFlownPath = defaults.object(forKey: Self.flownKey) as? Bool ?? true
         showsNatTracks = defaults.bool(forKey: Self.natKey)
         showsTerminator = defaults.object(forKey: Self.terminatorKey) as? Bool ?? true
         // On by default: the fields being worked are the most useful thing on
