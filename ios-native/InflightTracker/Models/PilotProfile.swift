@@ -239,6 +239,135 @@ struct PilotSummary: Decodable, Equatable, Identifiable, Hashable {
     }
 }
 
+/// One pilot on the most-watched board.
+///
+/// Not a `PilotSummary`, and the difference is the whole feature: this row
+/// carries the two counts the board is ranked on, whether the pilot is flying
+/// as far as this reader is allowed to know, and where the reader stands with
+/// them. `public.pilot_summary` is a fixed composite type shared by the friends
+/// list, the followers list and search, and widening it to carry a leaderboard's
+/// columns would put four nulls on every row of those three.
+struct MostWatchedPilot: Decodable, Equatable, Identifiable {
+
+    let handle: String
+    let displayName: String
+    let avatarPath: String?
+
+    /// The name on an aeroplane, when the pilot has claimed one. Unverified —
+    /// anybody may type any Infinite Flight name into their profile — so
+    /// nothing here presents it as proof of who is flying what.
+    let ifUsername: String?
+
+    let isPro: Bool
+
+    /// Everybody who follows this pilot, ever.
+    let followerCount: Int
+
+    /// How many of those arrived inside the window the server was asked about.
+    /// Carried on every row rather than only on the rising board, so a row can
+    /// say "and this many this week" wherever it appears.
+    let newFollowers: Int
+
+    /// Whether their simulator is reporting *and* this reader may know that.
+    /// False for a stranger looking at a pilot who broadcasts to followers
+    /// only, which is not the same as false for a pilot who is parked — the
+    /// server deliberately does not distinguish them.
+    let isFlying: Bool
+
+    let viewerFollows: Bool
+    let isSelf: Bool
+
+    var id: String { handle }
+
+    enum CodingKeys: String, CodingKey {
+        case handle
+        case displayName = "display_name"
+        case avatarPath = "avatar_path"
+        case ifUsername = "if_username"
+        case isPro = "is_pro"
+        case followerCount = "follower_count"
+        case newFollowers = "new_followers"
+        case isFlying = "is_flying"
+        case viewerFollows = "viewer_follows"
+        case isSelf = "is_self"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        handle = (try? c.decode(String.self, forKey: .handle)) ?? ""
+        displayName = (try? c.decode(String.self, forKey: .displayName)) ?? handle
+        avatarPath = try? c.decode(String.self, forKey: .avatarPath)
+        ifUsername = try? c.decode(String.self, forKey: .ifUsername)
+        isPro = (try? c.decode(Bool.self, forKey: .isPro)) ?? false
+        followerCount = (try? c.decode(Int.self, forKey: .followerCount)) ?? 0
+        newFollowers = (try? c.decode(Int.self, forKey: .newFollowers)) ?? 0
+        isFlying = (try? c.decode(Bool.self, forKey: .isFlying)) ?? false
+        viewerFollows = (try? c.decode(Bool.self, forKey: .viewerFollows)) ?? false
+        isSelf = (try? c.decode(Bool.self, forKey: .isSelf)) ?? false
+    }
+
+    var avatarURL: URL? { AppConfig.profileImageURL(bucket: "pilot-avatars", path: avatarPath) }
+
+    var initials: String {
+        let letters = displayName.filter { $0.isLetter || $0.isNumber }
+        return String(letters.prefix(2)).uppercased()
+    }
+
+    /// How the board is being asked for. The three cases are the server's three
+    /// scopes, spelled exactly as it expects them, so the picker and the
+    /// ranking cannot drift apart.
+    enum Scope: String, CaseIterable, Identifiable {
+
+        /// Everybody, by the followers they have collected since they joined.
+        case all
+
+        /// Re-ranked by the followers that arrived inside the window — who is
+        /// being noticed now rather than who was noticed years ago.
+        case rising
+
+        /// The same board, narrowed to the pilots whose simulator is reporting
+        /// to a reader allowed to see it.
+        case flying
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .all: return "All time"
+            case .rising: return "This week"
+            case .flying: return "Flying"
+            }
+        }
+
+        var symbol: String {
+            switch self {
+            case .all: return "crown.fill"
+            case .rising: return "chart.line.uptrend.xyaxis"
+            case .flying: return "airplane"
+            }
+        }
+
+        /// What the board says about itself under the tabs.
+        var standfirst: String {
+            switch self {
+            case .all: return "Ranked by everyone following them here."
+            case .rising: return "Ranked by the followers picked up in the last seven days."
+            case .flying: return "The most followed pilots whose simulator is reporting right now."
+            }
+        }
+
+        /// What an empty board of this kind means, which is different in all
+        /// three cases and never "something went wrong".
+        var emptyDetail: String {
+            switch self {
+            case .all: return "Nobody has been followed here yet. The first pilot with a follower tops this board."
+            case .rising: return "Nobody has picked up a follower this week."
+            case .flying: return "None of the most followed pilots is broadcasting from the sim at the moment."
+            }
+        }
+    }
+}
+
 /// One flight the tracker watched to its end.
 struct LogbookEntry: Decodable, Equatable, Identifiable {
 
