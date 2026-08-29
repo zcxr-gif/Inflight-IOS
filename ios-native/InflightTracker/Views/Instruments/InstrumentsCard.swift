@@ -74,10 +74,7 @@ struct InstrumentsCard: View {
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(theme.textPrimary)
                     .frame(width: 26, height: 24)
-                    .background {
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .fill(theme.surfaceFill)
-                    }
+                    .flightInfoSurface(theme, radius: 7, interactive: true)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Open the instruments full screen")
@@ -246,10 +243,7 @@ struct InstrumentDisplaySwitch: View {
             }
         }
         .padding(2)
-        .background {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(theme.surfaceFill)
-        }
+        .flightInfoSurface(theme, radius: 8)
     }
 }
 
@@ -305,10 +299,7 @@ struct InstrumentRangeControls: View {
                 .font(.system(size: 11, weight: .bold))
                 .foregroundStyle(theme.textPrimary)
                 .frame(width: 30, height: 26)
-                .background {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(theme.surfaceFill)
-                }
+                .flightInfoSurface(theme, radius: 7, interactive: true)
         }
         .buttonStyle(.plain)
         .disabled(!available)

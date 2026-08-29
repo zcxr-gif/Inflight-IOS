@@ -40,22 +40,6 @@ import Foundation
 /// flight rather than as a ribbon someone shook.
 enum PathSmoothing {
 
-    /// A point on the drawn curve, and where it came from.
-    ///
-    /// `progress` is the position in the *input*: the index of the sample this
-    /// point follows, plus how far along to the next one. 3.25 is a quarter of
-    /// the way from sample 3 to sample 4.
-    ///
-    /// Carried because the curve is denser than the samples and everything
-    /// drawn along it — the altitude colour above all — is known only at the
-    /// samples. Without this the colour has to be snapped to the nearest
-    /// sample, which puts a step every two miles back into a ramp whose whole
-    /// point is that it does not step.
-    struct Point {
-        let coordinate: CLLocationCoordinate2D
-        let progress: Double
-    }
-
     /// How many points are generated between each pair of samples.
     ///
     /// Chosen against the size of the input rather than fixed, so a short trail
@@ -64,26 +48,14 @@ enum PathSmoothing {
     /// this actually draws — the store thins to a few hundred samples — it left
     /// the corners visibly faceted at any zoom close enough to see one.
     private static let minimumSubdivisions = 4
-    private static let maximumSubdivisions = 36
+    private static let maximumSubdivisions = 14
 
     /// Roughly how many points the smoothed path should come out at.
     ///
     /// A budget rather than a limit: the subdivision count is this divided by
-    /// the sample count, clamped.
-    ///
-    /// It was three thousand, on the reasoning that a denser curve is more for
-    /// MapKit to stroke. That reasoning belonged to a renderer that stroked
-    /// every point it was given, however little of the track was on screen.
-    /// `FlownPathRenderer` resamples to about a point of screen per segment
-    /// before it draws anything, so density here costs memory and the walk that
-    /// discards it — a few hundred kilobytes and some tens of microseconds a
-    /// tile — and costs nothing at all in drawing.
-    ///
-    /// Which is worth spending, because the old figure was the reason a track
-    /// went faceted when you looked at one turn closely: a point every fifth of
-    /// a mile is a corner every hundred pixels once you are close enough. This
-    /// is a point every sixteenth of one on the trails that actually draw.
-    private static let pointBudget = 9_000
+    /// the sample count, clamped. Three thousand is a few frames' work for
+    /// MapKit and finer than any screen can resolve a curve at.
+    private static let pointBudget = 3_000
 
     /// Above this many input points the path is left alone.
     ///
@@ -101,15 +73,27 @@ enum PathSmoothing {
     /// the way around the world.
     private static let dateLineJump: CLLocationDegrees = 180
 
-    /// A denser version of `coordinates`, curved through every original point.
+    /// A denser version of `coordinates`, curved through every original point,
+    /// and which original point each one of them came from.
     ///
+    /// The origins are what let the track be coloured exactly. Smoothing
+    /// inserts points *between* samples, so a drawn point is not a sample and
+    /// has no height of its own — but it does belong to a known piece of track,
+    /// the one running from sample `origin` to the next. Colouring by that is
+    /// exact, and it is the thing the old gradient could not do: it was handed
+    /// fractions along the line and had to guess where on the curve they fell.
+    ///
+    /// `origins[i]` is an index into the *input*, and is non-decreasing.
+    struct Curve {
+        var coordinates: [CLLocationCoordinate2D]
+        var origins: [Int]
+    }
+
     /// Returns the input unchanged when there is nothing to gain: fewer than
     /// three points is already exactly the line between them.
-    static func smoothed(_ coordinates: [CLLocationCoordinate2D]) -> [Point] {
+    static func smoothedWithOrigins(_ coordinates: [CLLocationCoordinate2D]) -> Curve {
         guard coordinates.count >= 3, coordinates.count <= maximumInput else {
-            return coordinates.enumerated().map {
-                Point(coordinate: $0.element, progress: Double($0.offset))
-            }
+            return Curve(coordinates: coordinates, origins: Array(coordinates.indices))
         }
 
         let subdivisions = min(
@@ -117,9 +101,12 @@ enum PathSmoothing {
             maximumSubdivisions
         )
 
-        var output: [Point] = []
+        var output: [CLLocationCoordinate2D] = []
+        var origins: [Int] = []
         output.reserveCapacity(coordinates.count * subdivisions)
-        output.append(Point(coordinate: coordinates[0], progress: 0))
+        origins.reserveCapacity(coordinates.count * subdivisions)
+        output.append(coordinates[0])
+        origins.append(0)
 
         for index in 0..<(coordinates.count - 1) {
             let p1 = coordinates[index]
@@ -136,19 +123,24 @@ enum PathSmoothing {
                 || abs(p1.longitude - p2.longitude) > dateLineJump
                 || abs(p2.longitude - p3.longitude) > dateLineJump
             guard !straddles else {
-                output.append(Point(coordinate: p2, progress: Double(index + 1)))
+                output.append(p2)
+                origins.append(index)
                 continue
             }
 
+            let before = output.count
             append(
                 segmentFrom: p0, p1, p2, p3,
-                index: index,
                 subdivisions: subdivisions,
                 into: &output
             )
+            // Everything this segment produced belongs to the piece of track
+            // that starts at `index`, whether it emitted a whole curve or gave
+            // up and emitted one point.
+            origins.append(contentsOf: repeatElement(index, count: output.count - before))
         }
 
-        return output
+        return Curve(coordinates: output, origins: origins)
     }
 
     /// One segment of the curve — the piece between `p1` and `p2`, shaped by
@@ -158,9 +150,8 @@ enum PathSmoothing {
         _ p1: CLLocationCoordinate2D,
         _ p2: CLLocationCoordinate2D,
         _ p3: CLLocationCoordinate2D,
-        index: Int,
         subdivisions: Int,
-        into output: inout [Point]
+        into output: inout [CLLocationCoordinate2D]
     ) {
         // The knots: each one further along than the last by the distance
         // between its points, raised to alpha. This is the whole difference
@@ -175,31 +166,22 @@ enum PathSmoothing {
         // division by zero two lines further down. Two points in the same place
         // have no curve between them anyway.
         guard t1 > t0, t2 > t1, t3 > t2 else {
-            output.append(Point(coordinate: p2, progress: Double(index + 1)))
+            output.append(p2)
             return
         }
 
         for step in 1...subdivisions {
-            let fraction = Double(step) / Double(subdivisions)
-            let t = t1 + (t2 - t1) * fraction
+            let t = t1 + (t2 - t1) * Double(step) / Double(subdivisions)
             output.append(
-                Point(
-                    coordinate: CLLocationCoordinate2D(
-                        latitude: interpolate(
-                            p0.latitude, p1.latitude, p2.latitude, p3.latitude,
-                            t0, t1, t2, t3, t
-                        ),
-                        longitude: interpolate(
-                            p0.longitude, p1.longitude, p2.longitude, p3.longitude,
-                            t0, t1, t2, t3, t
-                        )
+                CLLocationCoordinate2D(
+                    latitude: interpolate(
+                        p0.latitude, p1.latitude, p2.latitude, p3.latitude,
+                        t0, t1, t2, t3, t
                     ),
-                    // The knot parameter is not the fraction — that is the
-                    // whole point of the centripetal basis — but the samples
-                    // either side of this point are still `index` and
-                    // `index + 1`, and the step count is even between them.
-                    // That is what the colour needs, and it is all it needs.
-                    progress: Double(index) + fraction
+                    longitude: interpolate(
+                        p0.longitude, p1.longitude, p2.longitude, p3.longitude,
+                        t0, t1, t2, t3, t
+                    )
                 )
             )
         }

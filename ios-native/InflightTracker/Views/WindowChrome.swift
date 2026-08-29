@@ -93,6 +93,20 @@ struct SheetWindow<Header: View, Content: View>: View {
     /// under it: the pill is the whole marker.
     var handleFloats: Bool = false
 
+    /// A resting height below `.large`, or nil for one stop.
+    ///
+    /// Off by default, and the note on `presentationDetents` below says why: a
+    /// second detent means a pull down from the top lands on it rather than
+    /// closing, so a panel you open, read and close costs two gestures instead
+    /// of one. That is the right trade for most of them.
+    ///
+    /// It is the wrong trade for a window you open to *glance* at. A field is
+    /// the case: most of the time the question is the weather and how busy it
+    /// is, both of which fit in the top of the panel, and the rest — gates,
+    /// traffic, the chart — is there for the times you want it. A peak answers
+    /// the common question without covering the map the field is on.
+    var peakHeight: CGFloat? = nil
+
     /// Pinned above the content, and the reason the window can be pulled shut
     /// from anywhere in a list: this band is not part of what scrolls.
     @ViewBuilder let header: Header
@@ -101,6 +115,12 @@ struct SheetWindow<Header: View, Content: View>: View {
     @ViewBuilder let content: Content
 
     @Environment(\.dismiss) private var dismiss
+
+    /// Where the sheet is allowed to rest.
+    private var detents: Set<PresentationDetent> {
+        guard let peak = peakHeight else { return [.large] }
+        return [.height(peak), .large]
+    }
 
     var body: some View {
         stack
@@ -114,10 +134,11 @@ struct SheetWindow<Header: View, Content: View>: View {
             // floating one — two indicators in the same place would be one too
             // many.
             .presentationDragIndicator(.hidden)
-            // One stop. With a medium detent underneath, a pull down from the
-            // top lands there instead of closing, so shutting a panel took two
-            // full gestures — and a panel is a thing you open, read and close.
-            .presentationDetents([.large])
+            // One stop unless a panel asks for two. See `peakHeight`: with a
+            // detent underneath, a pull down from the top lands there instead
+            // of closing, so shutting a panel takes two full gestures — which
+            // is worth it only where the panel is something you glance at.
+            .presentationDetents(detents)
             // And this is what lets the glass be glass.
             //
             // iOS lays a dimming view over everything behind a modal sheet, and

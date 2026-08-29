@@ -27,6 +27,10 @@ struct MapPanel<Content: View>: View {
     /// Sits opposite the title: a live count, a reset button.
     var accessory: AnyView? = nil
 
+    /// A resting height below full, for the panels worth glancing at rather
+    /// than reading. Passed straight through — see `SheetWindow.peakHeight`.
+    var peakHeight: CGFloat? = nil
+
     @ObservedObject private var appearance = FlightInfoAppearance.shared
 
     // Last, so a panel's contents are the trailing closure.
@@ -35,7 +39,7 @@ struct MapPanel<Content: View>: View {
     private var theme: FlightInfoTheme { appearance.theme }
 
     var body: some View {
-        SheetWindow(theme: theme) {
+        SheetWindow(theme: theme, peakHeight: peakHeight) {
             header
         } content: {
             ScrollView(.vertical) {

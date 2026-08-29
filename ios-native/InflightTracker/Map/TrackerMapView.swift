@@ -343,12 +343,11 @@ struct TrackerMapView: UIViewRepresentable {
 
         /// What the drawn route currently represents, so overlays are only
         /// rebuilt when the trail actually grows.
+        ///
+        /// `MKOverlay` rather than `MKPolyline` since the flown track stopped
+        /// being one: it is drawn by hand now and arrives as its own overlay,
+        /// alongside the dashed legs and the filed plan, which are still lines.
         private var renderedRouteKey: String?
-
-        /// Everything drawn for the open aircraft's route, added and removed as
-        /// one set. `MKOverlay` rather than `MKPolyline`: the filed plan and the
-        /// dashed ends are polylines, and the flown track is a `FlownPathOverlay`
-        /// that draws itself.
         private var routeOverlays: [MKOverlay] = []
 
         /// Flights whose backend history this map has already asked for.
@@ -356,10 +355,17 @@ struct TrackerMapView: UIViewRepresentable {
 
         /// The flown path currently on the map.
         ///
-        /// One overlay that draws itself — the geometry, the colours and the
-        /// taper all live on it, and the renderer reads them straight off. It
-        /// is held here only so `clearRoute` can let go of it.
-        private var flownPath: FlownPathOverlay?
+        /// One overlay now, carrying its own points and their colours — the
+        /// renderer needs nothing looked up on the side. It used to be a pair,
+        /// a halo polyline and a line polyline, with the colour ramp held here
+        /// because `MKPolyline` can carry nothing but a title.
+        private var flownOverlay: FlownPathOverlay?
+
+        /// How wide that path is drawn, in points.
+        ///
+        /// Narrower the further back the camera stands. See `FlownPathStyle`:
+        /// a fixed width is a line zoomed in and a filled shape zoomed out.
+        private var flownWidth: CGFloat = FlownPathStyle.closeWidth
 
         /// The fix names on the open flight's filed plan. Kept separately from
         /// `groundLabels` so that turning the plan off, or opening another
@@ -420,7 +426,34 @@ struct TrackerMapView: UIViewRepresentable {
         /// where the aircraft has ended up in the projection, so panning a
         /// globe changes it with the bearing never moving — hence all four
         /// figures.
-        private var alignedCamera: MKMapCamera?
+        ///
+        /// Held as figures rather than as the `MKMapCamera` they were read
+        /// from, and that is the whole of it: `MKMapCamera` is a class, and
+        /// `mapView.camera` hands back the map's own object rather than a
+        /// snapshot of it — which this file already says out loud, a few
+        /// hundred lines up, where it refuses to mutate one in place. Keeping
+        /// the object here meant keeping a reference to the live camera, so
+        /// every figure `hasCameraMoved` compared was being compared against
+        /// itself. It never once said yes. The sprites were squared up on the
+        /// first pass and never again, which is why spinning the planet took
+        /// every aeroplane on it round too.
+        private struct CameraStand {
+            var heading: CLLocationDirection
+            var pitch: CGFloat
+            var latitude: CLLocationDegrees
+            var longitude: CLLocationDegrees
+            var distance: CLLocationDistance
+
+            init(_ camera: MKMapCamera) {
+                heading = camera.heading
+                pitch = camera.pitch
+                latitude = camera.centerCoordinate.latitude
+                longitude = camera.centerCoordinate.longitude
+                distance = camera.centerCoordinateDistance
+            }
+        }
+
+        private var alignedCamera: CameraStand?
 
         init(_ parent: TrackerMapView) {
             self.parent = parent
@@ -462,6 +495,11 @@ struct TrackerMapView: UIViewRepresentable {
             for overlay in mapView.overlays {
                 mapView.renderer(for: overlay)?.setNeedsDisplay()
             }
+
+            // The pavement's areas hold their fill rather than reading it, so
+            // a repaint is not enough for them. Light to dark is exactly the
+            // switch this is for.
+            refreshGroundLook(on: mapView)
         }
 
         /// Applies a look to the map, and says whether it actually swapped the
@@ -472,6 +510,12 @@ struct TrackerMapView: UIViewRepresentable {
             guard appliedStyle != style else { return false }
             let previous = appliedStyle
             appliedStyle = style
+
+            // Pavement is coloured against the ground under it, and the ground
+            // has just changed. Cartography to imagery is the case that matters:
+            // the concrete is in the photograph now, so the layer stops painting
+            // it and starts outlining it instead.
+            defer { refreshGroundLook(on: mapView) }
 
             // Where the camera was standing before the map underneath it was
             // swapped. Assigning `preferredConfiguration` tears the map down and
@@ -626,24 +670,20 @@ struct TrackerMapView: UIViewRepresentable {
         /// happens to land in the region callback without the view actually
         /// having moved.
         private func hasCameraMoved(on mapView: MKMapView) -> Bool {
-            let camera = mapView.camera
+            let camera = CameraStand(mapView.camera)
             guard let last = alignedCamera else { return true }
 
             if abs(camera.heading - last.heading) > 0.5 { return true }
             if abs(camera.pitch - last.pitch) > 0.5 { return true }
 
-            let centre = camera.centerCoordinate
-            let was = last.centerCoordinate
             // In degrees, and deliberately crude: a tenth of a degree of pan is
             // several pixels of swing at the limb and nothing at all in the
             // middle, so the threshold is set by the worse of the two.
-            if abs(centre.latitude - was.latitude) > 0.02 { return true }
-            if abs(centre.longitude - was.longitude) > 0.02 { return true }
+            if abs(camera.latitude - last.latitude) > 0.02 { return true }
+            if abs(camera.longitude - last.longitude) > 0.02 { return true }
 
-            let distance = camera.centerCoordinateDistance
-            let held = last.centerCoordinateDistance
-            guard held > 0 else { return true }
-            return abs(distance - held) / held > 0.02
+            guard last.distance > 0 else { return true }
+            return abs(camera.distance - last.distance) / last.distance > 0.02
         }
 
         /// Re-applies every drawn sprite's angle for wherever the camera now
@@ -658,7 +698,7 @@ struct TrackerMapView: UIViewRepresentable {
         private func realign(on mapView: MKMapView, heading: CLLocationDirection) {
             appliedCameraHeading = heading
             headingProbe = Self.headingProbe(for: mapView)
-            alignedCamera = mapView.camera
+            alignedCamera = CameraStand(mapView.camera)
 
             for annotation in mapView.annotations {
                 guard let view = mapView.view(for: annotation) else { continue }
@@ -705,15 +745,109 @@ struct TrackerMapView: UIViewRepresentable {
         /// answer — an aircraft round the back of the planet, a probe that
         /// lands on the same pixel — which is the old behaviour, and no worse
         /// than it ever was.
+        ///
+        /// ## Why an angle is not enough either
+        ///
+        /// Turning the sprite the right way round is only half of lying flat on
+        /// something. The other half is foreshortening, and a rotation has none
+        /// in it: whatever the angle, the sprite is still drawn at full size and
+        /// perfectly square. In the middle of the view that is correct, because
+        /// there the ground is square-on to the camera. Out at the limb it is
+        /// not — the surface there is turning away almost edge-on, a circle
+        /// painted on it projects to a thin ellipse, and a sprite that stays a
+        /// full-size square on top of that reads as a cardboard cut-out
+        /// standing up and facing you rather than as an aeroplane lying on the
+        /// planet.
+        ///
+        /// So measure the whole local frame rather than one direction of it.
+        /// Two probes — one along the aircraft's track, one ninety degrees off
+        /// it — give the two vectors the ground's own axes project to, and
+        /// those two vectors *are* the transform. Near the middle they come out
+        /// the same length and the result is exactly the rotation this used to
+        /// return; out at the limb the one pointing at the horizon collapses
+        /// and the sprite lies down with the surface.
+        ///
+        /// Which axis to keep at full size is not a choice: the one along the
+        /// limb is not foreshortened at all, so both are divided by the longer
+        /// of the two. That leaves scale alone everywhere it should be left
+        /// alone, and takes it out of the one direction that has genuinely got
+        /// shorter.
         private func rotation(
             for heading: Double,
             at coordinate: CLLocationCoordinate2D,
             on mapView: MKMapView
         ) -> CGAffineTransform {
-            CGAffineTransform(
-                rotationAngle: screenAngle(for: heading, at: coordinate, on: mapView)
+            // Worked out only where it is wanted. This runs on every drawn
+            // aircraft on every frame of a spin, and the measured angle costs a
+            // probe and two projections of its own — so the frame below, which
+            // already carries the rotation inside it, never pays for one.
+            func turned() -> CGAffineTransform {
+                CGAffineTransform(
+                    rotationAngle: screenAngle(for: heading, at: coordinate, on: mapView)
+                )
+            }
+
+            guard parent.style.usesScreenAngles else { return turned() }
+            guard CLLocationCoordinate2DIsValid(coordinate) else { return turned() }
+
+            let ahead = Self.coordinate(from: coordinate, bearing: heading, metres: headingProbe)
+            let beside = Self.coordinate(from: coordinate, bearing: heading + 90, metres: headingProbe)
+            guard CLLocationCoordinate2DIsValid(ahead), CLLocationCoordinate2DIsValid(beside) else {
+                return turned()
+            }
+
+            let origin = mapView.convert(coordinate, toPointTo: mapView)
+            let tip = mapView.convert(ahead, toPointTo: mapView)
+            let side = mapView.convert(beside, toPointTo: mapView)
+
+            let forward = CGPoint(x: tip.x - origin.x, y: tip.y - origin.y)
+            let right = CGPoint(x: side.x - origin.x, y: side.y - origin.y)
+            guard forward.x.isFinite, forward.y.isFinite, right.x.isFinite, right.y.isFinite else {
+                return turned()
+            }
+
+            let along = hypot(forward.x, forward.y)
+            let across = hypot(right.x, right.y)
+            let longer = max(along, across)
+            // Both probes landing within a pixel is a projection with nothing
+            // to say — the same condition the angle falls back on.
+            guard longer >= 1 else { return turned() }
+
+            // The far side of the planet, where east and north come out mirrored
+            // and the frame would flip the sprite. MapKit usually culls these
+            // before they are drawn; this is what happens when it does not.
+            let winding = right.x * forward.y - right.y * forward.x
+            guard winding < 0 else { return turned() }
+
+            let axes = [forward, right].map { axis -> CGPoint in
+                let scaled = CGPoint(x: axis.x / longer, y: axis.y / longer)
+                let length = hypot(scaled.x, scaled.y)
+                // Floored, because a sprite is a thing that has to be seen and
+                // pressed. Taken to its honest limit an aeroplane on the very
+                // edge is a line a fraction of a pixel across, which is
+                // realistic and useless.
+                guard length > 0.0001, length < Self.minimumFlatten else { return scaled }
+                let lift = Self.minimumFlatten / length
+                return CGPoint(x: scaled.x * lift, y: scaled.y * lift)
+            }
+
+            // The artwork points north, which on screen is up, which is
+            // negative y — so the sprite's own up axis is what maps onto the
+            // track, and its right axis onto the ground's right.
+            return CGAffineTransform(
+                a: axes[1].x, b: axes[1].y,
+                c: -axes[0].x, d: -axes[0].y,
+                tx: 0, ty: 0
             )
         }
+
+        /// How flat a sprite is allowed to get before it stops flattening.
+        ///
+        /// At the limb the true figure goes to nothing, and a sprite drawn to
+        /// it would be invisible and impossible to press. Two fifths is squashed
+        /// hard enough to read as lying on a surface turning away, and still
+        /// leaves an aeroplane there to tap.
+        private static let minimumFlatten: CGFloat = 0.4
 
         private func screenAngle(
             for heading: Double,
@@ -1213,14 +1347,17 @@ struct TrackerMapView: UIViewRepresentable {
                 flown.append(livePoint)
             }
 
-            // One overlay that draws its own casing, colour and taper, over
-            // only the part of the track that is on screen. See
-            // `FlownPathOverlay` for what it replaced and why — the short
-            // version is that a polyline renderer re-strokes the whole flight
-            // for every tile, however little of it you are looking at.
-            flownPath = FlownPathOverlay(points: flown, bands: Self.heightBands(of: flown))
-            if let path = flownPath {
-                routeOverlays.append(path)
+            // One overlay, coloured by height along its whole length, drawing
+            // its own halo underneath itself. See `FlownPath` for what this
+            // replaced and why none of it survived.
+            let path = FlownPath(
+                points: flown,
+                bands: Self.heightBands(of: flown),
+                title: Self.flownTitle
+            )
+            flownOverlay = path?.overlay
+            if let overlay = path?.overlay {
+                routeOverlays.append(overlay)
             }
 
             // Before we were watching: departure to the first point we have.
@@ -1328,7 +1465,7 @@ struct TrackerMapView: UIViewRepresentable {
             }
             mapView.removeOverlays(routeOverlays)
             routeOverlays.removeAll(keepingCapacity: true)
-            flownPath = nil
+            flownOverlay = nil
             renderedRouteKey = nil
         }
 
@@ -1723,13 +1860,63 @@ struct TrackerMapView: UIViewRepresentable {
 
             for runway in layout.runways {
                 guard let ref = runway.ref, let centre = Self.midpoint(of: runway.coordinates) else { continue }
-                groundLabels.append(GroundLabel(coordinate: centre, text: ref))
+                groundLabels.append(GroundLabel(coordinate: centre, text: ref, kind: .runway))
+            }
+
+            // And the alphabet between them, which is the thing a ground chart
+            // is *for* and which this layer has been downloading and throwing
+            // away since it was written: `ref` is parsed off every taxiway and
+            // only the runways were ever labelled.
+            //
+            // One per way rather than one per name, which is what puts the
+            // letter along the taxiway rather than once in the middle of it —
+            // OSM splits a taxiway at every junction, so the ways *are* roughly
+            // the intervals a chart repeats the letter at. Short stubs are
+            // skipped: a ten-metre link between two stands is not a piece of
+            // taxiway anybody navigates by, and labelling it only crowds out
+            // the letter on the run it joins.
+            var lettered = 0
+            for taxiway in layout.taxiways {
+                guard lettered < Self.maximumTaxiwayLabels else { break }
+                guard let ref = taxiway.ref,
+                      let centre = Self.midpoint(of: taxiway.coordinates),
+                      Self.length(of: taxiway.coordinates) >= Self.shortestLetteredTaxiway
+                else { continue }
+
+                groundLabels.append(GroundLabel(coordinate: centre, text: ref, kind: .taxiway))
+                lettered += 1
             }
 
             // Under the traffic and under the flown path: this is the ground
             // the aircraft are on, not something to read over them.
-            mapView.addOverlays(groundOverlays, level: .aboveRoads)
+            //
+            // Which means inserting rather than adding. Overlays draw in the
+            // order they sit in their level, and `addOverlays` puts them on
+            // top of it — so the pavement landed over the track that had been
+            // added before it, and a taxi out was a coloured line disappearing
+            // under every stand and apron it crossed. These go in at the
+            // bottom of the level instead, in the order the concrete stacks,
+            // and everything laid over them — the plan, the track, the night —
+            // stays laid over them.
+            let base = Self.bottomOfRoadsLevel(on: mapView)
+            for (offset, overlay) in groundOverlays.enumerated() {
+                mapView.insertOverlay(overlay, at: base + offset, level: .aboveRoads)
+            }
             mapView.addAnnotations(groundLabels)
+        }
+
+        /// The first slot in `.aboveRoads` that anything but the dimming wash
+        /// may occupy.
+        ///
+        /// The wash is inserted at zero precisely so it sits under the whole
+        /// level and darkens the cartography rather than the things drawn on
+        /// it; sliding the pavement in beneath it would put the airport under
+        /// the dimmer and back at basemap brightness. Read off the map rather
+        /// than assumed to be one, so the answer stays right whether the wash
+        /// is up or not.
+        private static func bottomOfRoadsLevel(on mapView: MKMapView) -> Int {
+            let overlays = mapView.overlays(in: .aboveRoads)
+            return overlays.firstIndex { !($0 is MapDimming.Overlay) } ?? overlays.count
         }
 
         private func clearGround(on mapView: MKMapView) {
@@ -1748,12 +1935,45 @@ struct TrackerMapView: UIViewRepresentable {
                 polygon.title = "\(groundTitle):\(piece.kind.rawValue)"
                 return polygon
             }
+            // A run of pavement carries its own kind and its own real width —
+            // see `GroundOverlay`. The title is kept for the areas, which are
+            // still polygons and still say what they are that way.
+            if let pavement = GroundOverlay(piece: piece) { return pavement }
             let line = MKPolyline(coordinates: coordinates, count: coordinates.count)
             line.title = "\(groundTitle):\(piece.kind.rawValue)"
             return line
         }
 
         /// The point halfway *along* the way rather than the average of its
+        /// How short a taxiway can be and still be worth a letter, in nautical
+        /// miles. About a hundred metres.
+        ///
+        /// Below this it is a link between two stands or a corner OSM happened
+        /// to split, not a run anybody taxis along, and its letter would only
+        /// collide with the one on the taxiway it joins.
+        private static let shortestLetteredTaxiway: Double = 0.054
+
+        /// And how many letters a field gets at most.
+        ///
+        /// A guard rather than a target: the collision rules already thin these
+        /// on screen, and the busiest fields in the world do not come near it.
+        /// It is here so that a mis-tagged import cannot put four thousand
+        /// annotations on the map.
+        private static let maximumTaxiwayLabels = 240
+
+        /// How long a run of pavement is, in nautical miles.
+        private static func length(of coordinates: [CLLocationCoordinate2D]) -> Double {
+            guard coordinates.count >= 2 else { return 0 }
+            var total = 0.0
+            for index in 1..<coordinates.count {
+                total += FlightProgress.distanceNM(
+                    from: coordinates[index - 1],
+                    to: coordinates[index]
+                )
+            }
+            return total
+        }
+
         /// nodes: a runway mapped with a cluster of nodes at one end would
         /// otherwise carry its label off-centre.
         private static func midpoint(of coordinates: [CLLocationCoordinate2D]) -> CLLocationCoordinate2D? {
@@ -1789,6 +2009,7 @@ struct TrackerMapView: UIViewRepresentable {
         /// rather than as track.
         static let planTitle = "plan"
 
+        static let flownTitle = "flown"
         static let plannedTitle = "planned"
 
         // MARK: Replay
@@ -2018,10 +2239,6 @@ struct TrackerMapView: UIViewRepresentable {
                 return MapDimming.Renderer(overlay: overlay, dimming: parent.style.dimming)
             }
 
-            if overlay is FlownPathOverlay {
-                return FlownPathRenderer(overlay: overlay)
-            }
-
             if let area = overlay as? MKPolygon {
                 if Terminator.isBand(area.title) {
                     let renderer = MKPolygonRenderer(polygon: area)
@@ -2033,15 +2250,25 @@ struct TrackerMapView: UIViewRepresentable {
                     return renderer
                 }
 
-                return Self.groundRenderer(for: area, title: area.title)
+                return groundRenderer(for: area, title: area.title)
+            }
+
+            // Matched by type rather than by title: the flown path is its own
+            // overlay now and carries its own points and colours, so there is
+            // nothing to look up and nothing to fall back to when the lookup
+            // misses — which is what used to paint a whole track grey.
+            if let flown = overlay as? FlownPathOverlay {
+                let renderer = FlownPathRenderer(overlay: flown)
+                renderer.apply(width: flownWidth)
+                return renderer
+            }
+
+            if let pavement = overlay as? GroundOverlay {
+                return GroundRenderer(overlay: pavement, ground: groundLook)
             }
 
             guard let line = overlay as? MKPolyline else {
                 return MKOverlayRenderer(overlay: overlay)
-            }
-
-            if line.title?.hasPrefix(Self.groundTitle) == true {
-                return Self.groundRenderer(for: line, title: line.title)
             }
 
             if line.title == MeasureStyle.title {
@@ -2091,47 +2318,80 @@ struct TrackerMapView: UIViewRepresentable {
             return renderer
         }
 
-        /// Pavement, drawn like a chart rather than like a photograph.
+        /// Re-widths the flown path for wherever the camera now stands.
         ///
-        /// Widths are in points and so do not grow with the zoom: a runway
-        /// drawn to scale is a hairline from the edge of the field and a slab
-        /// from the threshold, and the point of this layer is to be readable
-        /// at both. Everything is translucent enough to sit over imagery
-        /// without hiding the concrete underneath it.
-        private static func groundRenderer(for overlay: MKOverlay, title: String?) -> MKOverlayRenderer {
-            let kind = title?.split(separator: ":").last.map(String.init)
+        /// Run from the live region callback, and it has to be cheap enough
+        /// for that: one camera read and one comparison in the ordinary case,
+        /// where the change since the last frame rounds to nothing. Only the
+        /// width is touched — the ramp and the geometry are untouched, so this
+        /// is a repaint rather than a rebuild.
+        private func updateFlownWidth(on mapView: MKMapView) {
+            let width = FlownPathStyle.width(
+                forCameraDistance: mapView.camera.centerCoordinateDistance
+            )
+            guard abs(width - flownWidth) > 0.05 else { return }
+            flownWidth = width
 
-            if let area = overlay as? MKPolygon {
-                let renderer = MKPolygonRenderer(polygon: area)
-                let isTerminal = kind == AirportLayout.Piece.Kind.terminal.rawValue
-                renderer.fillColor = UIColor { traits in
-                    let alpha = isTerminal ? 0.20 : 0.12
-                    return traits.userInterfaceStyle == .light
-                        ? UIColor(white: 0.25, alpha: alpha)
-                        : UIColor(white: 0.95, alpha: alpha)
-                }
-                renderer.strokeColor = .clear
-                renderer.lineWidth = 0
-                return renderer
-            }
+            guard let overlay = flownOverlay,
+                  let renderer = mapView.renderer(for: overlay) as? FlownPathRenderer
+            else { return }
 
-            guard let line = overlay as? MKPolyline else {
+            // The halo follows from the core inside the renderer, so this is
+            // the one number, and the renderer decides whether it is worth a
+            // repaint.
+            renderer.apply(width: width)
+        }
+
+        /// What the map underneath the pavement is made of.
+        ///
+        /// Read off the live style rather than baked into the overlay, so
+        /// switching from cartography to imagery restyles the field that is
+        /// already drawn — see `refreshGroundLook`.
+        private var groundLook: AirportGroundStyle.Ground {
+            AirportGroundStyle.Ground(parent.style, isLight: parent.colorScheme == .light)
+        }
+
+        /// Aprons and terminals, which are areas rather than runs of pavement.
+        ///
+        /// Runways and taxiways are drawn by `GroundRenderer` now, to their
+        /// real widths. These stay polygons because that is what they are: an
+        /// apron is a shape, not a line with a thickness.
+        private func groundRenderer(for overlay: MKOverlay, title: String?) -> MKOverlayRenderer {
+            let kind = title?.split(separator: ":").last
+                .map(String.init)
+                .flatMap(AirportLayout.Piece.Kind.init(rawValue:))
+
+            guard let area = overlay as? MKPolygon, let kind = kind else {
                 return MKOverlayRenderer(overlay: overlay)
             }
 
-            let renderer = MKPolylineRenderer(polyline: line)
-            renderer.lineCap = .butt
-            renderer.lineJoin = .round
-
-            let isRunway = kind == AirportLayout.Piece.Kind.runway.rawValue
-            renderer.lineWidth = isRunway ? 7 : 2.5
-            renderer.strokeColor = UIColor { traits in
-                let alpha = isRunway ? 0.72 : 0.42
-                return traits.userInterfaceStyle == .light
-                    ? UIColor(white: 0.18, alpha: alpha)
-                    : UIColor(white: 0.92, alpha: alpha)
-            }
+            let renderer = MKPolygonRenderer(polygon: area)
+            renderer.fillColor = AirportGroundStyle.area(for: kind, on: groundLook)
+            renderer.strokeColor = .clear
+            renderer.lineWidth = 0
             return renderer
+        }
+
+        /// Repaints the field for a map it is now lying on something else.
+        ///
+        /// Pavement is coloured against the ground under it, and that ground
+        /// changes without the pavement moving: a switch from the light map to
+        /// the dark one, or to imagery, which wants an outline where the others
+        /// want a fill. The overlays are unchanged and only their renderers
+        /// have anything to say, so this repaints rather than rebuilding.
+        private func refreshGroundLook(on mapView: MKMapView) {
+            for overlay in groundOverlays {
+                mapView.renderer(for: overlay)?.setNeedsDisplay()
+            }
+            // The polygon renderers hold their fill as a property rather than
+            // reading it per frame, so those are rebuilt rather than repainted.
+            let areas = groundOverlays.filter { $0 is MKPolygon }
+            guard !areas.isEmpty else { return }
+            let base = Self.bottomOfRoadsLevel(on: mapView)
+            mapView.removeOverlays(areas)
+            for (offset, area) in areas.enumerated() {
+                mapView.insertOverlay(area, at: base + offset, level: .aboveRoads)
+            }
         }
 
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
@@ -2264,6 +2524,12 @@ struct TrackerMapView: UIViewRepresentable {
         /// actually moved — on a north-up map it costs one comparison. Re-culling
         /// walks every aircraft on the server, so it stays on its own throttle.
         func mapViewDidChangeVisibleRegion(_ mapView: MKMapView) {
+            // How wide the track is drawn follows how far back the camera is
+            // standing, so it belongs on the frame clock rather than on the
+            // settle: a pinch that ended two hundred milliseconds ago is a
+            // pinch you watched the line fatten through.
+            updateFlownWidth(on: mapView)
+
             // Straightening the sprites. On a north-up flat map there is
             // nothing to straighten — the camera cannot spin or tilt, so a
             // heading is its own angle on screen — and the gate keeps that
@@ -2289,6 +2555,21 @@ struct TrackerMapView: UIViewRepresentable {
         private static let liveCullInterval: TimeInterval = 0.25
 
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
+            // And square the sprites up once more, now the map has stopped.
+            //
+            // The live callback above is what keeps them with the finger, and
+            // on a gesture it has already done this. This is for the moves that
+            // are not gestures: `setCamera(animated:)` centring on an aircraft,
+            // fitting a route, restoring the camera after a style swap. Those
+            // do not reliably report a changing region on their way past, and
+            // one that slipped through left every sprite corrected against
+            // wherever the camera used to be. Gated the same way, so on a
+            // north-up map and on a settle that only re-culled it is one
+            // comparison.
+            if parent.style.usesScreenAngles, hasCameraMoved(on: mapView) {
+                realign(on: mapView, heading: mapView.camera.heading)
+            }
+
             // Re-cull for the new viewport using the traffic we already have.
             // Coalesced because this fires repeatedly through a pan or a
             // pinch, and each pass walks every aircraft on the server.

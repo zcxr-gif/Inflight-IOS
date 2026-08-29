@@ -238,14 +238,7 @@ struct AccountPanel: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 11)
-                .background {
-                    RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous)
-                        .fill(theme.surfaceFill)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous)
-                                .strokeBorder(theme.stroke, lineWidth: 1)
-                        }
-                }
+                .flightInfoSurface(theme, radius: theme.radiusSmall)
 
                 if let problem = handleProblem {
                     message(problem, symbol: "exclamationmark.triangle", isProblem: true)
@@ -809,13 +802,13 @@ struct AccountPanel: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 11)
-        .background {
+        .flightInfoSurface(theme, radius: theme.radiusSmall)
+        // The focus ring rides on top of the surface rather than being part of
+        // it: the surface's own edge is the same on every field, and this is
+        // the one that says which one the keyboard is pointed at.
+        .overlay {
             RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous)
-                .fill(theme.surfaceFill)
-                .overlay {
-                    RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous)
-                        .strokeBorder(focus == field ? theme.strokeStrong : theme.stroke, lineWidth: 1)
-                }
+                .strokeBorder(focus == field ? theme.strokeStrong : theme.stroke, lineWidth: 1)
         }
     }
 

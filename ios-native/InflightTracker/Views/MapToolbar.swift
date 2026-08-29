@@ -133,6 +133,15 @@ struct MapToolbar: View {
     static let itemHeight: CGFloat = iconRow + rowGap + labelRow + itemPadding * 2
     static let height: CGFloat = itemHeight + inset * 2
 
+    /// The row, and nothing behind it.
+    ///
+    /// The bar used to draw itself a surface here, which was the single worst
+    /// thing in the app's glass. The dock around it is already a pane of glass
+    /// lying on the map, and this covered nearly all of it with a second one —
+    /// so the part of the screen you actually look at was a pane that had
+    /// nothing left to lens, and read as a flat rectangle over a nice piece of
+    /// glass nobody could see. The dock's glass *is* the bar's background. The
+    /// items still light up individually when pressed; see `ToolbarItemStyle`.
     var body: some View {
         HStack(spacing: 0) {
             ForEach(MapPanelKind.barItems) { kind in
@@ -149,7 +158,6 @@ struct MapToolbar: View {
         // Stated rather than left to the content, so the dock knows how tall
         // its own bar is before either of them has drawn.
         .frame(height: Self.height)
-        .flightInfoSurface(theme, radius: Self.radius, elevated: true)
     }
 
     private func item(_ kind: MapPanelKind) -> some View {
