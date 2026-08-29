@@ -2149,36 +2149,58 @@ struct TrackerMapView: UIViewRepresentable {
 
         // MARK: Camera
 
+        /// Carries out a camera move, once.
+        ///
+        /// A command is ticked off when the move has actually happened, not
+        /// when it has been read — and that is the difference between a button
+        /// that works and one that works on the second press. This runs inside
+        /// a layout pass, and a layout pass can arrive at a moment when there
+        /// is nothing to move to: the map has no size yet because the window
+        /// around it is still coming up, or the open aircraft is missing from
+        /// the packet that happens to be current, which the feed does for a
+        /// beat on a reconnect. Every one of those used to mark the command
+        /// handled on the way past and then quietly do nothing. Left unticked
+        /// it is carried out on the next pass instead, which is a few
+        /// milliseconds later and is the whole of the difference.
         func handle(_ command: MapCommand?, on mapView: MKMapView) {
             guard let command = command, command.id != handledCommand else { return }
-            handledCommand = command.id
 
+            // No map to move. Nothing about the request is wrong, so it waits.
+            guard mapView.bounds.width > 1, mapView.bounds.height > 1 else { return }
+
+            let carried: Bool
             switch command.kind {
             case .centerOnFlight:
-                center(on: mapView)
+                carried = center(on: mapView)
             case .fitRoute:
-                fitRoute(on: mapView)
+                carried = fitRoute(on: mapView)
             case .fitFlownPath:
-                fitFlownPath(on: mapView)
+                carried = fitFlownPath(on: mapView)
             case .focus(let latitude, let longitude, let spanMeters):
-                focus(
+                carried = focus(
                     on: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
                     spanMeters: spanMeters,
                     on: mapView
                 )
             }
+
+            // Or there is nothing left to wait for: the three moves above are
+            // all about the open aircraft, and there isn't one. Ticked off so a
+            // stale request cannot fire at whatever is opened next.
+            if carried || parent.selection == nil { handledCommand = command.id }
         }
 
         /// Takes the map to somewhere it isn't currently looking — a search
         /// result, a field with a tower open. Unlike `center`, this sets the
         /// zoom as well as the position: the whole point is that whatever was
         /// picked may be nowhere near the current view.
+        @discardableResult
         private func focus(
             on coordinate: CLLocationCoordinate2D,
             spanMeters: Double,
             on mapView: MKMapView
-        ) {
-            guard coordinate.latitude.isFinite, coordinate.longitude.isFinite else { return }
+        ) -> Bool {
+            guard coordinate.latitude.isFinite, coordinate.longitude.isFinite else { return false }
 
             let region = MKCoordinateRegion(
                 center: coordinate,
@@ -2194,6 +2216,7 @@ struct TrackerMapView: UIViewRepresentable {
                 edgePadding: edgeInsets(),
                 animated: true
             )
+            return true
         }
 
         private static func mapRect(for region: MKCoordinateRegion) -> MKMapRect {
@@ -2215,9 +2238,10 @@ struct TrackerMapView: UIViewRepresentable {
 
         /// Keeps the current zoom and puts the aircraft in the part of the map
         /// the info window isn't covering.
-        private func center(on mapView: MKMapView) {
-            guard let flight = selectedFlight() else { return }
-            pan(to: flight.coordinate, on: mapView)
+        @discardableResult
+        private func center(on mapView: MKMapView) -> Bool {
+            guard let flight = selectedFlight() else { return false }
+            return pan(to: flight.coordinate, on: mapView)
         }
 
         /// Moves the camera so a coordinate lands in the middle of whatever
@@ -2244,11 +2268,12 @@ struct TrackerMapView: UIViewRepresentable {
         /// the same amount. Done in view points and converted back through the
         /// map's own projection, so it is correct on the flat map and on the
         /// globe, whatever the camera has been spun to.
-        private func pan(to coordinate: CLLocationCoordinate2D, on mapView: MKMapView) {
-            guard CLLocationCoordinate2DIsValid(coordinate) else { return }
+        @discardableResult
+        private func pan(to coordinate: CLLocationCoordinate2D, on mapView: MKMapView) -> Bool {
+            guard CLLocationCoordinate2DIsValid(coordinate) else { return false }
 
             let bounds = mapView.bounds
-            guard bounds.width > 1, bounds.height > 1 else { return }
+            guard bounds.width > 1, bounds.height > 1 else { return false }
 
             let insets = edgeInsets()
             let target = CGPoint(
@@ -2257,7 +2282,7 @@ struct TrackerMapView: UIViewRepresentable {
             )
 
             let here = mapView.convert(coordinate, toPointTo: mapView)
-            guard here.x.isFinite, here.y.isFinite else { return }
+            guard here.x.isFinite, here.y.isFinite else { return false }
 
             // The view point that has to become the middle of the map for the
             // aircraft to land on `target`.
@@ -2276,7 +2301,7 @@ struct TrackerMapView: UIViewRepresentable {
             // the right place to be looking.
             guard CLLocationCoordinate2DIsValid(centre), distance.isFinite, distance > 0 else {
                 mapView.setCenter(coordinate, animated: true)
-                return
+                return true
             }
 
             mapView.setCamera(
@@ -2288,12 +2313,14 @@ struct TrackerMapView: UIViewRepresentable {
                 ),
                 animated: true
             )
+            return true
         }
 
         /// Frames everything the route touches: the flown track, both
         /// endpoints, and where the aircraft is now.
-        private func fitRoute(on mapView: MKMapView) {
-            guard let flight = selectedFlight() else { return }
+        @discardableResult
+        private func fitRoute(on mapView: MKMapView) -> Bool {
+            guard let flight = selectedFlight() else { return false }
 
             var rect = MKMapRect.null
 
@@ -2311,9 +2338,16 @@ struct TrackerMapView: UIViewRepresentable {
                 include(arrival.coordinate)
             }
 
-            guard !rect.isNull, rect.width.isFinite, rect.height.isFinite else { return }
+            guard isFramable(rect, at: flight.coordinate.latitude) else {
+                // Nothing worth framing — an aircraft that has just pushed back
+                // with no filed route is a rect a few metres across. Put the
+                // map on it at the zoom it is already at instead, which is the
+                // useful answer to "show me this" and not a view of apron.
+                return pan(to: flight.coordinate, on: mapView)
+            }
 
             mapView.setVisibleMapRect(rect, edgePadding: edgeInsets(), animated: true)
+            return true
         }
 
         /// Frames the flown track alone — every breadcrumb we hold plus where
@@ -2323,8 +2357,9 @@ struct TrackerMapView: UIViewRepresentable {
         /// button always does something legible: an aircraft that pushed back a
         /// minute ago has one sample, and framing a single point would either
         /// do nothing or zoom to a hundred metres of apron.
-        private func fitFlownPath(on mapView: MKMapView) {
-            guard let flight = selectedFlight() else { return }
+        @discardableResult
+        private func fitFlownPath(on mapView: MKMapView) -> Bool {
+            guard let flight = selectedFlight() else { return false }
 
             var rect = MKMapRect.null
 
@@ -2335,20 +2370,34 @@ struct TrackerMapView: UIViewRepresentable {
 
             let trail = FlightTrailStore.shared.points(for: flight.id)
             guard trail.count >= 2 else {
-                pan(to: flight.coordinate, on: mapView)
-                return
+                return pan(to: flight.coordinate, on: mapView)
             }
 
             for point in trail { include(point.coordinate) }
             include(flight.coordinate)
 
-            guard !rect.isNull, rect.width.isFinite, rect.height.isFinite,
-                  rect.width > 0 || rect.height > 0 else {
-                pan(to: flight.coordinate, on: mapView)
-                return
+            guard isFramable(rect, at: flight.coordinate.latitude) else {
+                return pan(to: flight.coordinate, on: mapView)
             }
 
             mapView.setVisibleMapRect(rect, edgePadding: edgeInsets(), animated: true)
+            return true
+        }
+
+        /// Whether a rect is big enough to frame rather than to fall into.
+        ///
+        /// `setVisibleMapRect` will fit a fifty-metre box to the screen as
+        /// happily as an ocean, and a track a minute old is a fifty-metre box.
+        /// Zooming to it answers "where has this been" with a photograph of
+        /// some tarmac, which is indistinguishable from the button having
+        /// thrown the map away.
+        private func isFramable(_ rect: MKMapRect, at latitude: CLLocationDegrees) -> Bool {
+            guard !rect.isNull, rect.width.isFinite, rect.height.isFinite else { return false }
+
+            let perMetre = MKMapPointsPerMeterAtLatitude(latitude)
+            guard perMetre > 0, perMetre.isFinite else { return false }
+
+            return max(rect.width, rect.height) >= perMetre * 800
         }
 
         private func edgeInsets() -> UIEdgeInsets {

@@ -394,6 +394,10 @@ struct FlightHero: View {
     /// gallery. Left empty it draws exactly the single photo it always did.
     var photos: [AircraftPhoto] = []
 
+    /// The tallest this header may be drawn. See `height(for:image:ceiling:)`:
+    /// the peak state sets one, the full window leaves it open.
+    var maxHeight: CGFloat = .greatestFiniteMagnitude
+
     @State private var page = 0
 
     private var isGallery: Bool { photos.count > 1 }
@@ -406,13 +410,26 @@ struct FlightHero: View {
     /// fitted into the height it sets. A header that resized itself under your
     /// thumb as you paged through shots of different shapes would be a worse
     /// thing than a little letterboxing.
-    static func height(for width: CGFloat, image: UIImage?) -> CGFloat {
+    ///
+    /// The peak state hands in a ceiling; the full window does not.
+    ///
+    /// A window that scrolls can afford whatever shape the photograph is. The
+    /// peak cannot: it does not scroll, so every point the header takes comes
+    /// out of the route card underneath it, and a portrait shot took enough of
+    /// them to push the card off the bottom of the sheet. Clamped here rather
+    /// than by cutting the picture, so what is shown is the whole aeroplane at
+    /// a height the rest of the peak can live with.
+    static func height(
+        for width: CGFloat,
+        image: UIImage?,
+        ceiling: CGFloat = .greatestFiniteMagnitude
+    ) -> CGFloat {
         guard let image = image, image.size.width > 0, image.size.height > 0 else {
-            return min(max(width * 0.56, 190), 250)
+            return min(min(max(width * 0.56, 190), 250), ceiling)
         }
 
         let ratio = image.size.height / image.size.width
-        return min(max(width * ratio, 180), 300)
+        return min(min(max(width * ratio, 180), 300), ceiling)
     }
 
     var body: some View {
@@ -446,7 +463,7 @@ struct FlightHero: View {
                 )
             }
         }
-        .frame(width: width, height: Self.height(for: width, image: image))
+        .frame(width: width, height: Self.height(for: width, image: image, ceiling: maxHeight))
         .overlay { PhotoScrim(theme: theme) }
         // The photo's own alpha is faded out at the bottom, so it melts into
         // the window's ground rather than ending on a black band.

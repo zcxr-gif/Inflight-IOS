@@ -980,25 +980,32 @@ struct FlightInfoSurfaceModifier: ViewModifier {
 /// Measurements the window and its sheet have to agree on.
 enum FlightInfoLayout {
 
-    /// Starting height for the peak state, used until the window has measured
-    /// what its own content actually needs. The real detent follows that
-    /// measurement, so the peak never opens with a band of empty sheet under
-    /// it — content height varies with the photo's shape and the device's home
-    /// indicator, and no single constant fits all of them.
-    static let basePeakHeight: CGFloat = 300
+    /// The height the peak opens at, before it has measured itself.
+    ///
+    /// Deliberately *under* anything the peak actually lays out to, and that is
+    /// the whole point of the number. The first correction is therefore always
+    /// upward: the sheet grows the last few points into place, which reads as a
+    /// sheet arriving. Guess high instead and the correction is downward — the
+    /// sheet shrinks out from under content that was already drawn, which is
+    /// the band of empty window this window has been chasing for four attempts.
+    static func openingHeight(for style: FlightInfoPeakStyle) -> CGFloat {
+        switch style {
+        case .compact: return 200
+        case .rich: return 300
+        }
+    }
 
-    /// Bounds on that measurement, so a bad layout pass can't produce an
+    /// Where the sheet starts before anything knows which style is on — the
+    /// pane's constant, and the state's initial value.
+    static let basePeakHeight: CGFloat = 200
+
+    /// Bounds on the measurement, so a bad layout pass can't produce an
     /// unusable sheet.
     ///
-    /// The floor is deliberately below anything the peak actually lays out to:
-    /// it is a guard against a broken measurement, not a target. Set close to
-    /// the real content height it becomes the height, and a short peak — a
-    /// parked aircraft, with no route strip to draw — pads itself back out
-    /// with the empty band it was measured to avoid.
-    static let minimumPeakHeight: CGFloat = 180
-
-    /// Generous enough for the photo peak, which is the full window's header
-    /// plus its route card.
+    /// Both are guards rather than targets: the floor is below anything the
+    /// peak lays out to, and the ceiling above anything it does. The detent
+    /// clamps against the screen as well — see `FlightPeakDetent`.
+    static let minimumPeakHeight: CGFloat = 140
     static let maximumPeakHeight: CGFloat = 560
 
     /// How far the identity block is pulled up into the photo above it, so it
@@ -1006,21 +1013,31 @@ enum FlightInfoLayout {
     /// window put it in exactly the same place.
     static let heroSeamLift: CGFloat = 30
 
-    /// Space left under the peak state's last line, measured to the bottom of
-    /// the window itself.
+    /// The tallest the photo may be drawn in the peak state.
     ///
-    /// This is the whole band, and now genuinely so: `fitPeak` sizes the detent
-    /// against what is actually empty under the peak rather than assuming the
-    /// sheet hands back exactly the height it was asked for, so whatever the
-    /// band used to be made of — an ignored safe-area inset, a stale detent,
-    /// rounding — it is this number now.
+    /// The full window's header is free to take the shape of the photograph
+    /// because the window scrolls. The peak does not scroll: every point the
+    /// header takes is a point the route card has to come out of, and past a
+    /// certain height the card is pushed off the bottom of the sheet
+    /// altogether. A portrait shot is where that happened.
+    static let peakHeroCeiling: CGFloat = 260
+
+    /// Breathing room under the peak state's last line.
     ///
-    /// Which is why it is eighteen rather than the eight that a line of text
-    /// wants on its own. The window draws over the home indicator, and the
-    /// indicator's bar reaches about thirteen points up from the bottom edge;
-    /// text ending any closer sits on it. Eighteen is as near the edge as this
-    /// can go and still be readable.
+    /// Part of what the peak *measures*, not something the sheet is trusted to
+    /// add afterwards: the peak lays out its content, then this, and reports
+    /// the sum. The detent is that sum. So the band under the last line is this
+    /// number by construction rather than by correction — there is no second
+    /// quantity for a safe-area inset or a stale detent to hide in.
+    ///
+    /// Eighteen rather than the eight a line of text wants on its own: the
+    /// window draws over the home indicator, whose bar reaches about thirteen
+    /// points up from the bottom edge, and text ending any closer sits on it.
     static let peakBottomGap: CGFloat = 18
+
+    /// Room at the top of the compact bar for the window's own grabber, which
+    /// floats over the sheet rather than taking a band of its own.
+    static let peakHandleClearance: CGFloat = 22
 
     /// How far above the peak height the phases have finished swapping. The
     /// cross-fade rides the drag rather than the detent, so it wants to be
@@ -1030,25 +1047,87 @@ enum FlightInfoLayout {
 
     /// Travel that doesn't count as a drag at all.
     ///
-    /// The sheet's measured height and its detent agree to within a point or
-    /// two, not exactly — rounding, and the resize animation settling. Without
-    /// a dead band at the foot of the travel that difference reads as the
-    /// window being fractionally open, which washes the peak out and ghosts
-    /// the full window's photo in behind it while the sheet is sitting still.
+    /// The sheet's measured height and its resting height agree to within a
+    /// point or two, not exactly — rounding, and the resize settling. Without a
+    /// dead band at the foot of the travel that difference reads as the window
+    /// being fractionally open, which washes the peak out and ghosts the full
+    /// window's photo in behind it while the sheet is sitting still.
     static let phaseDeadZone: CGFloat = 8
+}
+
+/// The peak state's detent.
+///
+/// A *type*, not a height — and that is the fix rather than a detail of it.
+///
+/// The peak is as tall as its own content, which is not known until the content
+/// has been laid out, so the height has to be able to change after the sheet is
+/// already up. Expressed as `.height(x)` that means the set of detents changes
+/// every time the measurement lands, and a sheet whose detent set changes
+/// underneath a bound selection is a sheet that argues with itself: the
+/// selection points at a value that is no longer in the set, UIKit keeps the
+/// height it already had, and everything downstream that compares against the
+/// detent — the phase cross-fade, the map's bottom inset, the interaction
+/// threshold that decides whether anything behind the window can be touched —
+/// is comparing against a number the sheet is not actually at. A window three
+/// hundred points tall, insisting it is a hundred and eighty, with the
+/// difference sitting on screen as a hole and the controls beside it quietly
+/// unpressable.
+///
+/// A custom detent has one identity for the life of the window and resolves its
+/// height from the environment. So the set never changes, the sheet takes the
+/// new height rather than declining the resize, and the selection cannot go
+/// stale because there is nothing for it to go stale against. The height moves;
+/// nothing that has to be compared does.
+struct FlightPeakDetent: CustomPresentationDetent {
+
+    static func height(in context: Context) -> CGFloat? {
+        let wanted = context[FlightPeakHeightKey.self]
+
+        // Against the screen as well as against the constants: a peak taller
+        // than the sheet can be is a peak with its last card cut off, and the
+        // system will clamp the detent without telling the content about it.
+        let ceiling = min(FlightInfoLayout.maximumPeakHeight, context.maxDetentValue - 44)
+
+        return min(max(wanted, FlightInfoLayout.minimumPeakHeight), max(ceiling, 120))
+    }
+}
+
+/// How tall the peak has measured itself, read by the detent above.
+struct FlightPeakHeightKey: EnvironmentKey {
+    static let defaultValue: CGFloat = FlightInfoLayout.basePeakHeight
+}
+
+extension EnvironmentValues {
+
+    /// Set on the sheet's content by whoever presents it, so the detent — which
+    /// is a type and holds no state of its own — has somewhere to read the
+    /// window's own measurement from.
+    var flightPeakHeight: CGFloat {
+        get { self[FlightPeakHeightKey.self] }
+        set { self[FlightPeakHeightKey.self] = newValue }
+    }
 }
 
 extension View {
 
-    /// Keeps the map live behind the peak state: the sheet stops being modal
-    /// up through that detent, so panning and zooming still reach the map —
-    /// and the system stops dimming everything behind the sheet, which is what
-    /// put a dark wash over the map as soon as the window opened.
+    /// Keeps the map live behind the window: the sheet is never modal, so
+    /// panning, zooming and the controls beside the window all still get their
+    /// touches — and the system stops dimming what is behind the sheet, which
+    /// is what makes the glass read as glass rather than as a grey card.
     ///
-    /// The detent is passed in rather than assumed: it has to be the same
-    /// value the sheet is actually using, or the system quietly ignores this.
-    func flightInfoSheetInteraction(upThrough detent: PresentationDetent) -> some View {
-        presentationBackgroundInteraction(.enabled(upThrough: detent))
+    /// Unconditional, and that is deliberate. `upThrough:` sounds tidier — be
+    /// interactive at the peak, modal at full height — but it makes hit testing
+    /// depend on the sheet's height matching a detent value exactly, and the
+    /// one thing this window's height does is change. Every disagreement of a
+    /// point, every frame during a resize, and every stale detent turned the
+    /// controls beside the window into decoration. Nothing is reachable behind
+    /// the full window anyway — the window is covering it — so the condition
+    /// was buying nothing and costing the buttons.
+    ///
+    /// The same thing every panel in the app does; see `SheetWindow`, which has
+    /// never had this problem.
+    func flightInfoSheetInteraction() -> some View {
+        presentationBackgroundInteraction(.enabled)
     }
 
     /// Chrome that floats over the map — the weather chip, the controls hub,
