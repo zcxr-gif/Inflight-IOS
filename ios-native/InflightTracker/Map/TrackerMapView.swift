@@ -1227,6 +1227,24 @@ struct TrackerMapView: UIViewRepresentable {
             return delta > 180 ? 360 - delta : delta
         }
 
+        /// The rotation alone.
+        ///
+        /// A smoothed heading moves continuously, so an aircraft in a turn
+        /// crosses the half-degree that counts as a change on most frames of
+        /// it. `refresh` would reassign the sprite each time — the same image,
+        /// looked up and set again, and a redraw of the view around it — for a
+        /// picture that has not changed. The transform is the whole of what a
+        /// frame of a turn actually needs.
+        private func turn(annotation: FlightAnnotation, on mapView: MKMapView) {
+            guard let view = mapView.view(for: annotation) else { return }
+            view.transform = rotation(
+                for: annotation.drawnHeading,
+                at: annotation.coordinate,
+                on: mapView
+            )
+            annotation.renderedHeading = annotation.drawnHeading
+        }
+
         private func refresh(annotation: FlightAnnotation, on mapView: MKMapView) {
             guard let view = mapView.view(for: annotation) else { return }
             apply(
@@ -2282,7 +2300,7 @@ struct TrackerMapView: UIViewRepresentable {
                 flying += 1
 
                 if annotation.advanceMotion(to: now, pointsPerMetre: scale) {
-                    refresh(annotation: annotation, on: mapView)
+                    turn(annotation: annotation, on: mapView)
                 }
             }
 
