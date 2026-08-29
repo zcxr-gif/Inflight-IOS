@@ -103,6 +103,7 @@ final class FlightInfoAppearance: ObservableObject {
 
     private static let glassKey = "flightInfoGlassEnabled"
     private static let peakStyleKey = "flightInfoPeakStyle"
+    private static let airlineAccentKey = "flightInfoAirlineAccent"
     private static let windowPlacementKey = "flightWindowPlacement"
     private static let modeKey = "appAppearanceMode"
     private static let paletteKey = "appPalette"
@@ -120,6 +121,17 @@ final class FlightInfoAppearance: ObservableObject {
 
     @Published var peakStyle: FlightInfoPeakStyle {
         didSet { UserDefaults.standard.set(peakStyle.rawValue, forKey: Self.peakStyleKey) }
+    }
+
+    /// Whether the flight window's edges and small accents take the colour of
+    /// the airline whose aeroplane is open. See `AirlineAccent`.
+    ///
+    /// On by default. It is a small change to a window most people will look at
+    /// more than any other screen in the app, and one that answers "whose is
+    /// this" before you have read anything — but it is also a change to the
+    /// look of the app, so it is a switch and not a fact.
+    @Published var showsAirlineAccent: Bool {
+        didSet { UserDefaults.standard.set(showsAirlineAccent, forKey: Self.airlineAccentKey) }
     }
 
     /// Where the flight window sits when there is a screen wide enough to put
@@ -247,6 +259,7 @@ final class FlightInfoAppearance: ObservableObject {
         // rather than on a case that no longer exists.
         peakStyle = FlightInfoPeakStyle(rawValue: defaults.string(forKey: Self.peakStyleKey) ?? "")
             ?? .compact
+        showsAirlineAccent = defaults.object(forKey: Self.airlineAccentKey) as? Bool ?? true
         flightWindowPlacement = FlightWindowPlacement(
             rawValue: defaults.string(forKey: Self.windowPlacementKey) ?? ""
         ) ?? .centred
@@ -410,18 +423,18 @@ struct FlightInfoTheme {
     /// One step brighter, for chips that sit on top of a photo or a card.
     let elevatedFill: Color
 
-    let stroke: Color
-    let strokeStrong: Color
+    var stroke: Color
+    var strokeStrong: Color
 
     let textPrimary: Color
     let textSecondary: Color
     let textDim: Color
 
     /// The single accent: progress fill, plane glyphs, phase dot.
-    let accent: Color
+    var accent: Color
 
     /// Drawn on top of `accent` — the glyph inside the route's plane badge.
-    let onAccent: Color
+    var onAccent: Color
 
     /// Unfilled part of a progress track.
     let trackFill: Color
@@ -462,6 +475,39 @@ struct FlightInfoTheme {
     let radiusSmall: CGFloat = 12
     let radiusMedium: CGFloat = 16
     let radiusLarge: CGFloat = 22
+
+    /// The same theme wearing an airline's colour.
+    ///
+    /// Four tokens move and no more: the accent, what is written on it, and the
+    /// two strokes. Everything the flight window draws its edges and its small
+    /// accents from already reads those — the hairline round every card, the
+    /// dividers, the filled action tile, the progress fill, the badge on the
+    /// route — so tinting them here colours exactly those things and nothing
+    /// else, without a single view having to know this happened.
+    ///
+    /// The grounds, the surfaces and the type are untouched on purpose. Those
+    /// are what the window is made of, and a window *made of* an airline's
+    /// colours is a poster; this is a window with an airline's colour on its
+    /// edges, which is a different thing and the thing that was asked for.
+    ///
+    /// Nil hands back the theme unchanged, so "no colour for this airline" and
+    /// "the setting is off" are one code path and both are simply the app's own
+    /// accent, exactly as before.
+    ///
+    /// The strokes are set at a heavier alpha than the neutral ones they
+    /// replace. A hairline of white at 0.16 and a hairline of colour at 0.16
+    /// are not equally visible — the neutral one is pure lightness against the
+    /// ground, where a hue at the same alpha mostly washes into it.
+    func accented(by colours: AirlineAccent.Colours?) -> FlightInfoTheme {
+        guard let colours = colours else { return self }
+
+        var tinted = self
+        tinted.accent = colours.tint
+        tinted.onAccent = colours.ink
+        tinted.stroke = colours.tint.opacity(isLight ? 0.32 : 0.36)
+        tinted.strokeStrong = colours.tint.opacity(isLight ? 0.50 : 0.55)
+        return tinted
+    }
 
     /// Phase accent. Deliberately the neutral accent for both shipping themes —
     /// a theme that wants per-phase colour changes this one method.

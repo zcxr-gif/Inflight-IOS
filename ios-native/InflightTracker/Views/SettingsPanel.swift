@@ -245,6 +245,15 @@ struct SettingsPanel: View {
 
                 PanelDivider()
 
+                PanelToggleRow(
+                    title: "Airline colours",
+                    symbol: "paintpalette",
+                    detail: "Puts the airline's own colour on the flight window's edges, its dividers and the few pieces already drawn in the accent — the window itself stays as it is. Nothing is drawn for a livery we hold no colour for.",
+                    isOn: $appearance.showsAirlineAccent
+                )
+
+                PanelDivider()
+
                 // The peak measures itself, so switching this resizes the sheet
                 // even while it is on screen.
                 PanelPickerRow(

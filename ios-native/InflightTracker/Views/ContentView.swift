@@ -102,6 +102,19 @@ struct ContentView: View {
 
     private var theme: FlightInfoTheme { appearance.theme }
 
+    /// The airline colours for one open flight, or nil when there is no livery,
+    /// none held for it, or the setting is off.
+    ///
+    /// The flight window works this out for itself from the same call — it has
+    /// to, since it re-reads the flight from the feed by id and this view does
+    /// not hand it one. Both go through `AirlineAccent`, which caches, so the
+    /// second answer costs a dictionary lookup.
+    private func airlineAccent(forFlightId id: String) -> AirlineAccent.Colours? {
+        guard appearance.showsAirlineAccent,
+              let flight = feed.flights.first(where: { $0.id == id }) else { return nil }
+        return AirlineAccent.colours(forLivery: flight.liveryName, isLight: theme.isLight)
+    }
+
     private var peakDetent: PresentationDetent { .height(peakHeight) }
 
     /// Rebuilt each redraw, and compared by value inside the map — so watching
@@ -576,7 +589,11 @@ struct ContentView: View {
     private var flightPane: some View {
         if isFlightPaneUp, let selected = selection {
             FlightWindowPane(
-                theme: theme,
+                // The pane draws the window's outer edge itself, so it needs
+                // the same airline colour the cards inside it are getting —
+                // otherwise the one edge that is actually *around* the window
+                // is the only one that stays neutral.
+                theme: theme.accented(by: airlineAccent(forFlightId: selected.id)),
                 placement: flightPlacement,
                 onClose: { sheet = nil }
             ) {

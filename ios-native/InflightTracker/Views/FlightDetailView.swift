@@ -89,7 +89,28 @@ struct FlightDetailView: View {
     /// remembering the way back here.
     var onSelectAirport: (Airport) -> Void = { _ in }
 
-    private var theme: FlightInfoTheme { appearance.theme }
+    /// The window's palette, wearing the airline's colour on its edges when
+    /// there is one and the setting is on.
+    ///
+    /// Resolved here and here only: every part of this window — the peak state,
+    /// the cards, the sheet's own chrome — is handed `theme` rather than
+    /// reaching for `appearance.theme` itself, so one line puts the airline's
+    /// colour on all of them and the two phases can never disagree about what
+    /// colour they are.
+    private var theme: FlightInfoTheme {
+        appearance.theme.accented(by: airlineAccent)
+    }
+
+    /// The airline's colours for the aircraft that is open, or nil — no livery,
+    /// none we hold a colour for, or the switch turned off. All three are the
+    /// same outcome: the app's own accent, exactly as it was.
+    private var airlineAccent: AirlineAccent.Colours? {
+        guard appearance.showsAirlineAccent, let flight = flight else { return nil }
+        return AirlineAccent.colours(
+            forLivery: flight.liveryName,
+            isLight: appearance.theme.isLight
+        )
+    }
 
     private var flight: Flight? {
         feed.flights.first { $0.id == flightId }
@@ -226,7 +247,13 @@ struct FlightDetailView: View {
             VaDetailSheet(ad: ad, basis: vaPartner?.basis)
                 .environmentObject(feed)
         }
-        .modifier(FlightInfoWindowChrome(theme: theme, presentation: presentation))
+        .modifier(
+            FlightInfoWindowChrome(
+                theme: theme,
+                presentation: presentation,
+                accent: airlineAccent
+            )
+        )
         .environment(\.colorScheme, theme.colorScheme)
         .onAppear {
             load(flight)
@@ -654,6 +681,18 @@ private struct FlightInfoWindowChrome: ViewModifier {
     let theme: FlightInfoTheme
     let presentation: FlightWindowPresentation
 
+    /// Drawn as a hairline round the sheet itself when the open aircraft has an
+    /// airline colour. Nil is the ordinary case and draws nothing at all: the
+    /// sheet has never had an outline and is not getting one by default.
+    ///
+    /// The pane needs no equivalent — it draws its own border, from the same
+    /// tinted theme, and knows where its edges are.
+    var accent: AirlineAccent.Colours? = nil
+
+    /// The radius the sheet is actually rounded to, so the outline traces the
+    /// sheet's edge rather than sitting a couple of points off it.
+    private var cornerRadius: CGFloat { theme.radiusLarge + 6 }
+
     @ViewBuilder
     func body(content: Content) -> some View {
         switch presentation {
@@ -663,8 +702,21 @@ private struct FlightInfoWindowChrome: ViewModifier {
                 // the peak's card should sit close to the bottom edge rather
                 // than above a band of empty sheet the width of that inset.
                 .ignoresSafeArea(edges: .bottom)
+                .overlay {
+                    if let accent = accent {
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            // A stroke *border* rather than a stroke: it is laid
+                            // inside the shape, so none of it is cut off by the
+                            // sheet's own clip.
+                            .strokeBorder(accent.tint.opacity(0.55), lineWidth: 1)
+                            .ignoresSafeArea(edges: .bottom)
+                            // Over the whole window, including its scroll view.
+                            // Nothing here is meant to be pressed.
+                            .allowsHitTesting(false)
+                    }
+                }
                 .presentationBackground { theme.sheetBackground }
-                .presentationCornerRadius(theme.radiusLarge + 6)
+                .presentationCornerRadius(cornerRadius)
 
         case .pane:
             // None of the above applies, and it is not that they are harmless
