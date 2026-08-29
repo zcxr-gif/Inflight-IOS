@@ -155,7 +155,7 @@ struct FlightWindowPane<Content: View>: View {
                 .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(theme.textSecondary)
                 .frame(width: 30, height: 30)
-                .background { Circle().fill(theme.elevatedFill) }
+                .flightInfoSurface(theme, in: Circle(), elevated: true, interactive: true)
         }
         .buttonStyle(.plain)
         .padding(10)

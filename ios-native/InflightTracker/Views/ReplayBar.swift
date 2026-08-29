@@ -54,7 +54,7 @@ struct ReplayBar: View {
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(theme.textSecondary)
                     .frame(width: 24, height: 24)
-                    .background { Circle().fill(theme.surfaceFill) }
+                    .flightInfoSurface(theme, in: Circle(), interactive: true)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("End replay")
@@ -84,10 +84,7 @@ struct ReplayBar: View {
                     .font(.system(size: 11, weight: .bold, design: .rounded))
                     .foregroundStyle(theme.textPrimary)
                     .frame(width: 38, height: 30)
-                    .background {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(theme.surfaceFill)
-                    }
+                    .flightInfoSurface(theme, radius: 10, interactive: true)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Playback pace, \(replay.pace.label)")

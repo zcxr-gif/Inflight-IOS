@@ -46,6 +46,18 @@ struct AirportPanel: View {
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @ObservedObject private var widgets = WidgetBridge.shared
     @ObservedObject private var gateStore = GateStore.shared
+    @ObservedObject private var chartStore = AirportChartStore.shared
+
+    /// The diagram, once it is open. Nil is closed.
+    @State private var chart: OpenChart?
+
+    /// A sheet is presented by identity and a `URL` has none of its own, so
+    /// the file gets a wrapper rather than `URL` being given a conformance it
+    /// would then carry everywhere in the app.
+    private struct OpenChart: Identifiable {
+        let url: URL
+        var id: String { url.path }
+    }
     @StateObject private var imageLoader = RemoteImageLoader()
 
     /// The field's photograph, once the backend has answered about it. Nil
@@ -94,7 +106,8 @@ struct AirportPanel: View {
         MapPanel(
             title: airport.icao,
             subtitle: subtitle(for: activity),
-            accessory: airport.flag.isEmpty ? nil : AnyView(flag)
+            accessory: airport.flag.isEmpty ? nil : AnyView(flag),
+            peakHeight: Self.peakHeight
         ) {
             hero
 
@@ -167,6 +180,8 @@ struct AirportPanel: View {
 
             gates(activity)
 
+            diagram
+
             traffic(activity)
 
             HintStrip(placement: .airport)
@@ -179,6 +194,10 @@ struct AirportPanel: View {
             loadMetar()
             loadImage()
             gateStore.load(airport)
+            chartStore.load(airport.icao)
+        }
+        .sheet(item: $chart) { open in
+            AirportChartView(icao: airport.icao, url: open.url)
         }
         .motion(Motion.content, value: imageLoader.image != nil)
         .onReceive(clock) { tick in
@@ -363,6 +382,19 @@ struct AirportPanel: View {
         return parts.joined(separator: " · ")
     }
 
+    /// Where the field rests before it is pulled open.
+    ///
+    /// Enough for the header and the picture under it, which between them
+    /// carry the identity, the conditions line and how busy the field is —
+    /// the three things a field is usually opened to check. Everything below
+    /// is a pull away and none of it is hidden.
+    ///
+    /// Fixed rather than measured. The flight window measures its peak because
+    /// its content genuinely changes height — a parked aircraft has no route
+    /// strip — where a field always has the same top, so a constant is honest
+    /// here and one fewer layout pass.
+    private static let peakHeight: CGFloat = 340
+
     private var isPinned: Bool { widgets.isAirportPinned(airport.icao) }
 
     private var isDaylight: Bool { SolarPosition.isDaylight(at: airport.coordinate) }
@@ -402,6 +434,58 @@ struct AirportPanel: View {
     /// The feed says nothing about stands, so this is worked out the only way
     /// available: OpenStreetMap says where the field's stands are, and an
     /// aircraft parked on one is at it. Which means the answer is only as good
+    /// The FAA's own airport diagram, for the fields that have one.
+    ///
+    /// Shown only where there *is* one, rather than as a row that is present
+    /// and dead at four fields in five. The FAA publishes charts for United
+    /// States fields and nobody else's are free to redistribute, so most of
+    /// the world resolves to `.unavailable` and simply has no row here — which
+    /// is quieter and more honest than a button that always disappoints.
+    ///
+    /// `.failed` is kept apart from `.unavailable` for that reason: one means
+    /// the field has no diagram and the other means we never got to ask, and
+    /// telling somebody their airport has no chart because their signal
+    /// dropped would be a lie the app could easily avoid.
+    @ViewBuilder
+    private var diagram: some View {
+        switch chartStore.state(for: airport.icao) {
+        case .idle, .unavailable:
+            EmptyView()
+
+        case .loading:
+            PanelSection(title: "CHART") {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Looking for an airport diagram…")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(theme.textSecondary)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+            }
+
+        case .failed:
+            PanelSection(title: "CHART") {
+                PanelEmptyState(
+                    symbol: "doc.questionmark",
+                    title: "Chart lookup unavailable",
+                    detail: "The FAA chart index could not be reached. Reopen this field to try again."
+                )
+            }
+
+        case .ready(let url):
+            PanelSection(title: "CHART") {
+                PanelActionRow(
+                    title: "Airport diagram",
+                    symbol: "map",
+                    detail: "The FAA's published ground chart for \(airport.icao)."
+                ) {
+                    chart = OpenChart(url: url)
+                }
+            }
+        }
+    }
+
     /// as the mapping — a field nobody has mapped shows nothing, and says so
     /// rather than looking broken.
     @ViewBuilder

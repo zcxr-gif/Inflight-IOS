@@ -37,15 +37,20 @@ enum AppAppearanceMode: String, CaseIterable, Identifiable {
 /// window sits at, and this decides what the scale is made of.
 enum AppPalette: String, CaseIterable, Identifiable {
 
-    /// Black and white, and a blue for the few things that have to be picked
+    /// Slate and white, and a blue for the few things that have to be picked
     /// out of it. The default.
     ///
-    /// Carbon was already close to this — the whole design has been monochrome
-    /// from the start — but close to black is not black, and the difference
-    /// shows up everywhere at once: a window whose ground is a dark grey reads
-    /// as a *card* over the map, where one that goes to black reads as a hole
-    /// cut in it. The ink goes the same way, to white rather than to
-    /// ninety-eight per cent of it.
+    /// This started out as black and white, literally: a ground at a bit over
+    /// one per cent, on the argument that a window which goes all the way down
+    /// reads as a hole cut in the map where a dark grey one reads as a card
+    /// lying on it. That effect is real, and it turned out to be the wrong one
+    /// to chase, because it does not happen in isolation. The map under a dark
+    /// scheme is dark, the system's glass over it is close to black, and a
+    /// window that goes to black as well leaves nothing on screen that is not
+    /// nearly black — the app stopped reading as chrome over cartography and
+    /// started reading as a terminal. So the ground is a slate, the ink is
+    /// still white, and it is the *separation* that does the work rather than
+    /// the depth.
     ///
     /// What that costs is the one thing carbon had that pure monochrome does
     /// not: somewhere for a highlight to live. With every surface and every
@@ -423,11 +428,21 @@ struct FlightInfoTheme {
 
     /// How much of `windowFill` is laid under the glass on the sheet's ground.
     ///
-    /// Zero in the dark themes. It used to be a wash of carbon under the glass,
-    /// there to keep white text legible over snow and daylight ocean, and it did
-    /// that by making the window darker than the glass wanted to be — the map
-    /// went muddy behind it and the whole thing read as a slab. Legibility is
-    /// `textHalo`'s job now, which costs the map nothing.
+    /// This was zero in the dark themes, and for a good reason: it used to be a
+    /// wash of carbon under the glass, there to keep white text legible over
+    /// snow and daylight ocean, and it bought that by making the window darker
+    /// than the glass wanted to be — the map went muddy behind it and the whole
+    /// thing read as a slab. Legibility is `textHalo`'s job now, which costs
+    /// the map nothing.
+    ///
+    /// It stayed zero there. Lifting mono's ground off black was worth doing,
+    /// and a wash of the new slate under the glass was the obvious way to make
+    /// the lift visible in the theme that actually ships — but it cost exactly
+    /// what the paragraph above says it costs. A quarter of anything under the
+    /// glass is a quarter less map showing through it, and a window that does
+    /// not show the map through it is not glass, whatever it is made of. The
+    /// lift lives in `chromeTint` instead, which is a colour *in* the glass
+    /// rather than a layer behind it, and so does not cloud it.
     ///
     /// Light still needs a real ground. The system's glass *dims* what is behind
     /// it, which helps white text and hurts black, so black ink on it has to sit
@@ -539,23 +554,47 @@ struct FlightInfoTheme {
     private static let monoBlue = Color(red: 0.29, green: 0.58, blue: 1.0)
     private static let monoBlueDeep = Color(red: 0.06, green: 0.36, blue: 0.80)
 
-    /// Black with the faintest lean towards blue, and paper with the same.
+    /// Slate with the faintest lean towards blue, and paper with the same.
     ///
     /// Not neutral, and only just not: a hair of the accent's own hue in the
     /// ground is what keeps a window full of white text from reading as a
     /// screenshot of a terminal. At this distance from grey nobody could name
     /// the colour, which is the intention — "a hint" is a thing you feel and do
     /// not see.
-    private static let monoGround = Color(red: 0.012, green: 0.016, blue: 0.028)
+    ///
+    /// ## Why this is no longer black
+    ///
+    /// It was, at a bit over one per cent: the whole point of mono was that
+    /// close to black is not black, and a window that goes all the way down
+    /// reads as a hole cut in the map rather than as a card lying on it. That
+    /// is a good effect and it is also a lot of black — on a dark map, in a
+    /// dark scheme, with dark glass on top, there was nothing on screen that
+    /// was not nearly black, and the app read as a light-on-void terminal
+    /// rather than as chrome over cartography. Lifted to a slate that is
+    /// unmistakably a grey. White text still clears fourteen to one on it, so
+    /// nothing about the type has to move.
+    private static let monoGround = Color(red: 0.17, green: 0.175, blue: 0.195)
     private static let monoPaper = Color(red: 0.975, green: 0.978, blue: 0.992)
     private static let monoInk = Color(red: 0.04, green: 0.045, blue: 0.06)
+
+    /// The bottom of the scale, kept for the one job that still wants it.
+    ///
+    /// A glyph sitting *on* the accent needs the deepest thing in the palette
+    /// behind it, not the ground colour — those were the same value only for as
+    /// long as the ground was black. On the light blue the old near-black
+    /// carries close to seven to one where the lifted slate would manage under
+    /// five, so the badge keeps the black and the window takes the grey.
+    private static let monoDeep = Color(red: 0.012, green: 0.016, blue: 0.028)
 
     static let monoGlass = FlightInfoTheme(
         isGlass: true,
         isLight: false,
         windowFill: Self.monoGround,
         scrim: .clear,
-        chromeTint: Self.monoGround.opacity(0.14),
+        // Heavier than it looks, and lighter than it was. This is a pour of
+        // slate now rather than of near-black, so raising it lifts the chrome
+        // off the map instead of pressing it further into shadow.
+        chromeTint: Self.monoGround.opacity(0.22),
         surfaceTint: Color.white.opacity(0.04),
         elevatedTint: Color.white.opacity(0.09),
         surfaceFill: Color.white.opacity(0.08),
@@ -566,7 +605,7 @@ struct FlightInfoTheme {
         textSecondary: Color(white: 0.72),
         textDim: Color(white: 0.50),
         accent: Self.monoBlue,
-        onAccent: Self.monoGround,
+        onAccent: Self.monoDeep,
         trackFill: Color.white.opacity(0.16),
         groundOpacity: 0,
         textHalo: Color.black.opacity(0.55)
@@ -580,18 +619,21 @@ struct FlightInfoTheme {
         chromeTint: .clear,
         surfaceTint: .clear,
         elevatedTint: .clear,
-        // A shade lighter than carbon's cards at the same step, because they
-        // are sitting on black rather than on carbon and have further to come
-        // up before they read as a surface at all.
-        surfaceFill: Color(white: 0.13),
-        elevatedFill: Color(white: 0.19),
+        // A step above the ground rather than a fixed value, which is the only
+        // thing a card has to be. These used to be 0.13 and 0.19 against a
+        // ground of 0.012 — a long way up, because the ground was black. Now
+        // that it is a slate at 0.17 the old numbers put the cards *under* it,
+        // and a surface darker than the window it is lying on is a hole. Same
+        // separation as before, measured from where the ground actually is.
+        surfaceFill: Color(white: 0.25),
+        elevatedFill: Color(white: 0.32),
         stroke: Color.white.opacity(0.10),
         strokeStrong: Color.white.opacity(0.16),
         textPrimary: .white,
         textSecondary: Color(white: 0.72),
         textDim: Color(white: 0.50),
         accent: Self.monoBlue,
-        onAccent: Self.monoGround,
+        onAccent: Self.monoDeep,
         trackFill: Color.white.opacity(0.14),
         groundOpacity: 1,
         textHalo: .clear
@@ -805,6 +847,40 @@ extension View {
             )
         )
     }
+
+    /// The same, in whatever shape the thing actually is.
+    ///
+    /// The rounded-rectangle version above is the common case and stays the
+    /// short spelling. This one is why every round button and every pill in the
+    /// app can be glass: they were all writing `.background { Circle().fill(
+    /// theme.surfaceFill) }` by hand, which is the *fallback* — so they stayed
+    /// flat fills while everything that went through the helper turned to
+    /// glass, and the app came out glassy in patches.
+    ///
+    /// `interactive` is worth passing on anything you can press. It is the
+    /// system's own press response, where the pane bends towards the finger,
+    /// and it is most of what makes a control feel like it is made of
+    /// something.
+    @ViewBuilder
+    func flightInfoSurface(
+        _ theme: FlightInfoTheme,
+        in shape: some Shape,
+        elevated: Bool = false,
+        interactive: Bool = false
+    ) -> some View {
+        if theme.isGlass {
+            glassEffect(
+                .regular
+                    .tint(elevated ? theme.elevatedTint : theme.surfaceTint)
+                    .interactive(interactive),
+                in: shape
+            )
+        } else {
+            background { shape.fill(elevated ? theme.elevatedFill : theme.surfaceFill) }
+                .overlay { shape.stroke(elevated ? theme.strokeStrong : theme.stroke, lineWidth: 1) }
+                .clipShape(shape)
+        }
+    }
 }
 
 struct FlightInfoSurfaceModifier: ViewModifier {
@@ -830,6 +906,14 @@ struct FlightInfoSurfaceModifier: ViewModifier {
     /// map, so the two halves of the app look like one thing. Only the tint
     /// differs: these already sit on the window's ground, so they need much
     /// less of it.
+    ///
+    /// They were briefly drawn as flat fills instead, on the theory that glass
+    /// cannot lens glass. The theory is right and the conclusion was wrong: a
+    /// fill at eight per cent of white is not a quieter piece of glass, it is a
+    /// grey rectangle, and a window full of them reads as a form. What actually
+    /// needed fixing was the one place a pane was laid over a pane of nearly
+    /// its own size — the toolbar inside the dock — and that is fixed where it
+    /// happens, by the toolbar no longer drawing a surface at all.
     func body(content: Content) -> some View {
         if theme.isGlass {
             content.glassEffect(

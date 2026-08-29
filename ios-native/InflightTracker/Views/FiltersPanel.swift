@@ -162,7 +162,7 @@ struct FiltersPanel: View {
                 .foregroundStyle(theme.textPrimary)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 7)
-                .background { Capsule().fill(theme.elevatedFill) }
+                .flightInfoSurface(theme, in: Capsule(), elevated: true, interactive: true)
         }
         .buttonStyle(.plain)
     }

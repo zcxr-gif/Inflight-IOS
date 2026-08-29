@@ -100,7 +100,7 @@ struct ProPanel: View {
                     .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(theme.textSecondary)
                     .frame(width: 34, height: 34)
-                    .background { Circle().fill(theme.surfaceFill) }
+                    .flightInfoSurface(theme, in: Circle(), interactive: true)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Close")
@@ -116,7 +116,7 @@ struct ProPanel: View {
                         .foregroundStyle(theme.textSecondary)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 9)
-                        .background { Capsule().fill(theme.surfaceFill) }
+                        .flightInfoSurface(theme, in: Capsule(), interactive: true)
                 }
                 .buttonStyle(.plain)
                 .disabled(store.isRestoring || store.purchasing != nil)
@@ -291,16 +291,14 @@ struct ProPanel: View {
             }
             .padding(.horizontal, 15)
             .padding(.vertical, 13)
-            .background {
+            .flightInfoSurface(theme, radius: theme.radiusMedium, interactive: true)
+            // The chosen plan's ring, over the surface rather than in it.
+            .overlay {
                 RoundedRectangle(cornerRadius: theme.radiusMedium, style: .continuous)
-                    .fill(theme.surfaceFill)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: theme.radiusMedium, style: .continuous)
-                            .strokeBorder(
-                                isSelected ? theme.accent : theme.stroke,
-                                lineWidth: isSelected ? 2 : 1
-                            )
-                    }
+                    .strokeBorder(
+                        isSelected ? theme.accent : theme.stroke,
+                        lineWidth: isSelected ? 2 : 1
+                    )
             }
             .contentShape(RoundedRectangle(cornerRadius: theme.radiusMedium, style: .continuous))
         }

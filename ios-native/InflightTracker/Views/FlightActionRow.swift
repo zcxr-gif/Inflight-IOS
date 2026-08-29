@@ -138,16 +138,15 @@ struct FlightActionRow: View {
         // Height as well as width: the row is as tall as its tallest tile and
         // each one grows into that, so all three backgrounds are one size.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // A filled action is a solid accent and stays one — that is what makes
+        // it the primary of the row. Everything else is glass.
         .background {
-            let shape = RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous)
-
             if filled {
-                shape.fill(theme.accent)
-            } else {
-                shape.fill(theme.surfaceFill)
-                    .overlay { shape.strokeBorder(theme.stroke, lineWidth: 1) }
+                RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous)
+                    .fill(theme.accent)
             }
         }
+        .flightInfoSurface(theme, radius: theme.radiusSmall, interactive: true)
         .contentShape(Rectangle())
     }
 
