@@ -43,6 +43,22 @@ struct FlightDetailView: View {
     /// why the block that draws it is absent rather than empty.
     @State private var sim: PilotLiveStatus?
 
+    /// The virtual airline named under the route card: the VA whose callsign
+    /// this flight is flying, or — failing that — one hubbed at an end of its
+    /// route. Resolved once here and handed to both phases, so the peak state
+    /// and the full window can't disagree about it or ask for it twice.
+    @State private var vaPartner: VaPartner?
+
+    /// The peak state's last measured content height.
+    ///
+    /// Kept rather than only reacted to: a preference reports when it changes,
+    /// and the moment the window needs it again — settling back to the peak —
+    /// is precisely a moment when it has not.
+    @State private var peakContentHeight: CGFloat = 0
+
+    /// The partner whose own panel is open over this window, when one is.
+    @State private var viewingPartner: VaAd?
+
     let flightId: String
 
     /// Reported upward so the sheet's peak detent is exactly as tall as the
@@ -79,6 +95,14 @@ struct FlightDetailView: View {
         feed.flights.first { $0.id == flightId }
     }
 
+    /// What the partner lookup actually depends on. The flight itself changes
+    /// several times a minute — a new position is not a new answer.
+    private var partnerKey: String {
+        guard let flight = flight else { return flightId }
+        return [flightId, flight.callsign ?? "", flight.departureIcao ?? "", flight.arrivalIcao ?? ""]
+            .joined(separator: "|")
+    }
+
     /// Fields with somebody on frequency, for the route card's marker. Centres
     /// are excluded: their identifier is an FIR rather than an ICAO, so one
     /// could never match an endpoint anyway, and leaving them in would only
@@ -108,7 +132,8 @@ struct FlightDetailView: View {
                         registration: registration(for: flight),
                         theme: theme,
                         style: appearance.peakStyle,
-                        width: geometry.size.width
+                        width: geometry.size.width,
+                        partner: vaPartner
                     )
                         .background {
                             GeometryReader { peak in
@@ -124,6 +149,36 @@ struct FlightDetailView: View {
                         .offset(y: CGFloat(-14 * expansion))
                         .scaleEffect(CGFloat(0.985 + 0.015 * peakOpacity), anchor: .top)
                         .opacity(peakOpacity)
+                        // Pinned to the foot of the window rather than hung
+                        // from its top.
+                        //
+                        // Sizing the sheet to the content is a calculation, and
+                        // a calculation can be wrong — the header's height
+                        // follows the photograph's own shape, and the bottom of
+                        // that photograph is masked away to nothing, so what
+                        // the layout reserves and what you can see are not the
+                        // same number. Hung from the top, every point of that
+                        // difference collects under the last line, which is the
+                        // one place it is worth nothing.
+                        //
+                        // Measured before this, so the sheet is still sized to
+                        // the content and not to the frame it is being pinned
+                        // inside; both offset and scale go on before it too, so
+                        // they still work off the content's own top edge. What
+                        // this settles is only where the slack goes if there is
+                        // any: above the identity row, where the drag handle
+                        // already leaves room, instead of under the text.
+                        .padding(.bottom, FlightInfoLayout.peakBottomGap)
+                        // Top-aligned until the first measurement lands. The
+                        // sheet opens at `basePeakHeight`, which is a guess and
+                        // is sometimes shorter than the content; hanging from
+                        // the bottom in that one frame would clip the callsign
+                        // off the top rather than the route off the bottom, and
+                        // of the two that is the worse thing to flash.
+                        .frame(
+                            maxHeight: .infinity,
+                            alignment: peakContentHeight > 0 ? .bottom : .top
+                        )
                         .allowsHitTesting(expansion < 0.3)
 
                     expanded(for: flight, width: geometry.size.width)
@@ -142,27 +197,35 @@ struct FlightDetailView: View {
             .clipped()
             // Derived in the layout pass rather than read back off the proxy
             // afterwards, which is not something a GeometryProxy promises.
-            .onChange(of: settled) { _, newValue in isCollapsed = newValue }
+            .onChange(of: settled) { _, newValue in
+                isCollapsed = newValue
+                // Content that changed while the full window was up — a photo
+                // arriving, a plan landing — never reached the sizing below,
+                // because a preference only reports when it changes and it had
+                // already changed. Re-run it against the height the window has
+                // now that it is back at the peak.
+                if newValue { fitPeak(to: peakContentHeight, in: geometry.size.height) }
+            }
             .onPreferenceChange(PeakContentHeightKey.self) { measured in
                 // Zero means the peak state isn't in the tree at all — the
                 // aircraft stopped reporting — which is not a reason to
                 // collapse the sheet around the message that replaced it.
                 guard measured > 80 else { return }
-
-                // The window draws into the bottom safe area — `measured` is
-                // content that already runs down to the screen's edge — so the
-                // peak only wants a small gap under its card. Taking the home
-                // indicator's inset instead put that whole band below the
-                // route block a second time, which was the dead space under
-                // the peak state.
-                let wanted = min(
-                    max(measured + FlightInfoLayout.peakBottomGap, FlightInfoLayout.minimumPeakHeight),
-                    FlightInfoLayout.maximumPeakHeight
-                )
-                if abs(wanted - peakHeight) > 1 { peakHeight = wanted }
+                peakContentHeight = measured
+                // Only at rest. Mid-drag, and at the full window, the container
+                // is the whole sheet rather than the peak's own detent, and
+                // sizing the peak to that would collapse it to nothing.
+                guard settled else { return }
+                fitPeak(to: measured, in: geometry.size.height)
             }
         }
         .flightInfoLegible(theme)
+        // Handed the feed explicitly, like every other sheet this app presents:
+        // the partner panel counts that VA's aircraft out of the live packet.
+        .sheet(item: $viewingPartner) { ad in
+            VaDetailSheet(ad: ad, basis: vaPartner?.basis)
+                .environmentObject(feed)
+        }
         .modifier(FlightInfoWindowChrome(theme: theme, presentation: presentation))
         .environment(\.colorScheme, theme.colorScheme)
         .onAppear {
@@ -180,6 +243,15 @@ struct FlightDetailView: View {
                 guard !Task.isCancelled else { return }
                 loadSim()
             }
+        }
+        // Re-asked when the flight's identity or its plan changes, which is
+        // what the answer depends on — not on every packet, which is what a
+        // plain feed observer would have made of it.
+        .task(id: partnerKey) {
+            guard let flight = flight else { return }
+            let resolved = await VaAdsService.shared.partner(for: flight)
+            guard !Task.isCancelled else { return }
+            vaPartner = resolved
         }
         .onChange(of: flight?.liveryName) { _, _ in load(flight) }
         .onChange(of: photoLoader.photo?.url) { _, url in imageLoader.load(url) }
@@ -217,6 +289,34 @@ struct FlightDetailView: View {
         let travelled = (height - peakHeight - FlightInfoLayout.phaseDeadZone)
             / FlightInfoLayout.phaseTravel
         return Double(min(max(travelled, 0), 1))
+    }
+
+    /// Size the peak's detent from what is actually empty under it, rather than
+    /// from what ought to be.
+    ///
+    /// `measured + peakBottomGap` was an assumption about the sheet: that a
+    /// detent of h hands the window exactly h points to lay out in. It does
+    /// not always. The home indicator's band, a detent set changing underneath
+    /// a bound selection, and plain rounding each put a few points — or a whole
+    /// inset — between the peak's last line and the bottom of the window, and
+    /// none of them are in that sum. Which is why shrinking the constant never
+    /// shrank the band: the constant was not what the band was made of.
+    ///
+    /// `container` is the height the window is really laying out into and
+    /// `measured` is what the peak really needs, so `container - measured` IS
+    /// the empty band. Move the detent by the difference between that and the
+    /// gap we want, and the band becomes the gap — whatever it was made of.
+    /// One pass lands it: the correction is arithmetic, not a search.
+    private func fitPeak(to measured: CGFloat, in container: CGFloat) {
+        guard measured > 80, container > 0 else { return }
+
+        let slack = container - measured
+        let wanted = min(
+            max(peakHeight - (slack - FlightInfoLayout.peakBottomGap),
+                FlightInfoLayout.minimumPeakHeight),
+            FlightInfoLayout.maximumPeakHeight
+        )
+        if abs(wanted - peakHeight) > 1 { peakHeight = wanted }
     }
 
     /// Smoothstep across a slice of the drag. The two slices overlap, so the
@@ -342,13 +442,24 @@ struct FlightDetailView: View {
 
                     FlightWatchRow(flight: flight, theme: theme)
 
-                    // Who this callsign flies for, when it flies for anybody.
-                    // Words only — see `VirtualAirlineCard`. Absent for the
-                    // great majority of flights, which is why it is a view
-                    // that draws nothing rather than a card that says "none".
-                    VirtualAirlineCard(callsign: flight.callsign ?? "", theme: theme)
+                    // Grouped, not two children of the stack: the partner
+                    // line sits under the bottom edge of the route card, and
+                    // the window's outer stack is already at the builder's
+                    // ten-view ceiling.
+                    VStack(spacing: 12) {
+                        situationCard(for: flight)
 
-                    situationCard(for: flight)
+                        // Tappable here and only here. The peak state above
+                        // is a drag target from edge to edge, and a control in
+                        // it that could take a drag for a tap is how a window
+                        // becomes hard to open.
+                        VaPartnerLine(
+                            partner: vaPartner,
+                            theme: theme,
+                            onOpen: { ad in viewingPartner = ad }
+                        )
+                    }
+
                     telemetry(for: flight)
 
                     if instruments.isEnabled {

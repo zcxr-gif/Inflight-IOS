@@ -16,6 +16,10 @@ struct FlightInfoPeak: View {
     let style: FlightInfoPeakStyle
     let width: CGFloat
 
+    /// The VA to name under the route card, when the flight has one.
+    /// Resolved by the window and handed down — see `VaPartnerLine`.
+    var partner: VaPartner? = nil
+
     /// Width of the photo. Its height follows the photo's own aspect ratio, so
     /// a square shot and a wide airliner shot both sit in the row properly
     /// instead of being cropped to one fixed box.
@@ -40,14 +44,17 @@ struct FlightInfoPeak: View {
             VStack(alignment: .leading, spacing: 12) {
                 identityRow
                 situationCard
+                // Under the bottom edge of the card, in the band of sheet
+                // between it and the foot of the window — which is where the
+                // bar had nothing at all.
+                VaPartnerLine(partner: partner, theme: theme)
             }
             // Clears the drag indicator, which floats over the top of the sheet.
             .padding(.top, 18)
             .padding(.horizontal, 16)
-            // Small: the sheet adds `peakBottomGap` under this, and the two
-            // together are the whole distance from the card to the bottom of
-            // the window. Anything more here is space with nothing in it.
-            .padding(.bottom, 4)
+            // None: `peakBottomGap` is the whole distance from the last line
+            // to the bottom of the window, and the window is sized to leave
+            // exactly that. Padding here would only be added to it.
 
         case .rich:
             rich
@@ -72,13 +79,12 @@ struct FlightInfoPeak: View {
             VStack(spacing: 12) {
                 FlightIdentityBlock(flight: flight, registration: registration, theme: theme)
                 situationCard
+                VaPartnerLine(partner: partner, theme: theme)
             }
             .padding(.horizontal, 14)
             .padding(.top, -FlightInfoLayout.heroSeamLift)
-            // As with the compact bar: the sheet's own gap finishes this off,
-            // so the card sits close to the bottom edge instead of above a
-            // band of empty window.
-            .padding(.bottom, 4)
+            // As with the compact bar: `peakBottomGap` is the whole gap under
+            // the last line, so nothing is added to it here.
         }
     }
 
