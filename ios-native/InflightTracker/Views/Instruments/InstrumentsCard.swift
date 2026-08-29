@@ -101,7 +101,11 @@ struct InstrumentsPanel: View {
 
     let flightId: String
 
-    private var theme: FlightInfoTheme { appearance.theme }
+    /// The same accentless theme the flight window uses. This is that
+    /// window's own card given the whole screen, reached from nowhere else,
+    /// so the switch pills and range buttons must not change colour on the
+    /// way here.
+    private var theme: FlightInfoTheme { appearance.theme.withoutAccent }
 
     private var flight: Flight? {
         feed.flights.first { $0.id == flightId }

@@ -413,10 +413,13 @@ struct FlightInfoTheme {
     let textDim: Color
 
     /// The single accent: progress fill, plane glyphs, phase dot.
-    let accent: Color
+    ///
+    /// `var` rather than `let` only so `withoutAccent` can hand back a copy
+    /// with it changed. Nothing mutates a theme in place.
+    var accent: Color
 
     /// Drawn on top of `accent` — the glyph inside the route's plane badge.
-    let onAccent: Color
+    var onAccent: Color
 
     /// Unfilled part of a progress track.
     let trackFill: Color
@@ -443,6 +446,34 @@ struct FlightInfoTheme {
     /// glyphs off a busy background, not a drop shadow, and at this opacity it
     /// is invisible until the thing underneath is bright.
     let textHalo: Color
+
+    /// The same theme with no accent colour in it — the accent becomes the
+    /// text's own colour, and what sits on the accent becomes the window's
+    /// ground.
+    ///
+    /// The mono palette introduced a blue for the handful of things that were
+    /// already reaching for `accent`, because a design with every surface and
+    /// every glyph on one grey axis has nowhere for a highlight to live. That
+    /// reasoning holds for the panels and it is not wanted in the flight
+    /// window, which is a window full of numbers about one aeroplane and reads
+    /// better without a second colour in it.
+    ///
+    /// The substitution is not invented for the occasion: white on dark and ink
+    /// on light is exactly what the carbon palette's own accent is, so a
+    /// window under this is a window in a palette the app already ships rather
+    /// than a third answer nobody chose.
+    ///
+    /// What it costs is real and worth writing down: the things that used the
+    /// accent to say *this one* — the next fix on a route, an armed toggle, the
+    /// flown part of a progress track — now say it by being brighter than their
+    /// neighbours rather than by being a different colour. That is a weaker
+    /// signal, and it is the trade being made deliberately.
+    var withoutAccent: FlightInfoTheme {
+        var copy = self
+        copy.accent = textPrimary
+        copy.onAccent = windowFill
+        return copy
+    }
 
     let radiusSmall: CGFloat = 12
     let radiusMedium: CGFloat = 16

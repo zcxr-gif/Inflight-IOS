@@ -78,7 +78,13 @@ struct FlightDetailView: View {
     /// the same as it is for a field.
     var onSelectPartner: (VirtualAirline) -> Void = { _ in }
 
-    private var theme: FlightInfoTheme { appearance.theme }
+    /// The window's own theme: the app's, with the accent taken out of it.
+    /// See `FlightInfoTheme.withoutAccent` — the flight window reads better
+    /// as numbers on a ground than as numbers with a colour running through
+    /// them. Every part of the window, the peak included, is handed this
+    /// rather than the appearance's, which is why it is the only place the
+    /// choice is made.
+    private var theme: FlightInfoTheme { appearance.theme.withoutAccent }
 
     private var flight: Flight? {
         feed.flights.first { $0.id == flightId }
