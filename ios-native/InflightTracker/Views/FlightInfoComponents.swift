@@ -494,13 +494,23 @@ struct FlightHero: View {
         // shot, a portrait frame among landscape ones — is allowed to reach
         // past this and sit over the page beside it or the window below it.
         .clipped()
-        .overlay { PhotoScrim(theme: theme) }
+        // Shading, not a surface. An overlay is hit-testable by default, and
+        // this one covers the photograph from edge to edge — so left alone it
+        // swallows every touch that lands on the picture, and the swipe that
+        // is supposed to page the gallery never reaches the pager underneath
+        // it. The gradient has nothing to do with a finger; it says so.
+        .overlay { PhotoScrim(theme: theme).allowsHitTesting(false) }
         // The photo's own alpha is faded out at the bottom, so it melts into
         // the window's ground rather than ending on a black band.
         .mask { PhotoFadeMask() }
         // Both of these go on after the mask, so neither fades out with the
         // bottom of the photograph.
-        .overlay(alignment: .topTrailing) { credit }
+        //
+        // The credit stands aside from touches for the same reason as the
+        // scrim: it is a label, and a swipe that happens to start on the
+        // photographer's name is still a swipe. The dots below it are the one
+        // thing here that *is* a control.
+        .overlay(alignment: .topTrailing) { credit.allowsHitTesting(false) }
         .overlay(alignment: .bottomLeading) { pageDots }
         // A shorter list arriving — another aircraft's photos, or a failed
         // reload — must not leave the playhead past the end of it.
@@ -593,8 +603,15 @@ struct FlightHero: View {
 /// the `task`'s own lifetime: the identity below includes the page, so any
 /// change — the dwell's own, a swipe, a tap on the dots — cancels the pending
 /// advance and starts the wait again. There is no clock to fall out of step
-/// with, and a photograph you have just swiped to gets a full turn on screen
+/// with, and a photograph you have just swiped to gets a whole turn on screen
 /// rather than whatever was left of the last one's.
+///
+/// A turn you asked for is longer than one you did not: five seconds when the
+/// gallery moved itself, seven when a finger did. Somebody swiping is somebody
+/// looking, and taking the picture away on the automatic clock is the carousel
+/// talking over them — but stopping outright would mean a gallery that never
+/// starts again for anyone who touched it once, so it is a pause rather than a
+/// halt.
 struct AircraftPhotoPager: View {
 
     let photos: [AircraftPhoto]
@@ -614,12 +631,42 @@ struct AircraftPhotoPager: View {
 
     @Binding var page: Int
 
-    /// How long each photograph is up for.
+    /// How long each photograph is up for when the gallery is turning itself
+    /// over.
     ///
     /// Long enough to look at an aeroplane, short enough that a set of five is
     /// through in under half a minute — and slow is the side of this to be
     /// wrong on, because the window underneath is being read at the same time.
     static let dwell: TimeInterval = 5
+
+    /// ...and how long it stays put after somebody has turned it themselves.
+    ///
+    /// Longer than the dwell, and that is the whole point of it being its own
+    /// figure. Swiping to a photograph is asking to look at that photograph;
+    /// having it slide away on whatever was left of the automatic clock is the
+    /// carousel talking over you. Seven seconds is one turn, not a new speed —
+    /// the next photograph after it goes back to five.
+    static let interruption: TimeInterval = 7
+
+    /// The page this pager last turned to on its own — the way it tells its
+    /// own clock from a finger.
+    ///
+    /// Everything that moves the gallery moves the same binding: the paging
+    /// scroll view under a swipe, the dots in the corner, and the advance
+    /// below. So the advance writes its answer here *before* it writes the
+    /// page, and the turn that finds its own answer waiting is the turn nobody
+    /// asked for. It is consumed when it is read, so swiping back to that same
+    /// photograph later is read as what it is.
+    ///
+    /// Seeded to the first page so the photograph the window opens on gets an
+    /// ordinary dwell rather than being treated as somebody's choice.
+    ///
+    /// Read where the decision is made rather than reported by an `onChange`,
+    /// and that is the point: a swipe and the task's own re-arm are two
+    /// callbacks off the same state change, in no guaranteed order, so a flag
+    /// set by one and read by the other is a coin toss between five seconds
+    /// and seven. This is set inside the task itself, one turn earlier.
+    @State private var advanced: Int? = 0
 
     /// A carousel is movement nobody asked for, which is the exact thing this
     /// setting turns off. Swiping and the dots still work; the photographs just
@@ -658,17 +705,29 @@ struct AircraftPhotoPager: View {
         .onChange(of: photos.count) { _, count in
             if page >= count { page = 0 }
         }
-        // Restarted by any change of page, however it was made. See the note
-        // above: the wait is the task, so there is no clock to reset.
+        // Restarted by any change of page, however it was made — a swipe, the
+        // dots, or its own advance. The wait *is* the task, so there is no
+        // clock to reset and no half-spent turn for the next photograph to
+        // inherit: whoever moves the gallery, the picture they land on starts
+        // its turn from the beginning.
         .task(id: "\(page)|\(photos.count)|\(isPaging)") {
             guard isPaging else { return }
 
-            try? await Task.sleep(nanoseconds: UInt64(Self.dwell * 1_000_000_000))
+            // Whose turn this is. See `advanced` — a page this pager put here
+            // itself gets the ordinary dwell; one a finger put here gets the
+            // longer look, and then the gallery carries on as before.
+            let isMine = page == advanced
+            if isMine { advanced = nil }
+
+            let turn = isMine ? Self.dwell : Self.interruption
+            try? await Task.sleep(nanoseconds: UInt64(turn * 1_000_000_000))
             guard !Task.isCancelled, photos.count > 1 else { return }
 
-            withAnimation(Motion.content) {
-                page = (page + 1) % photos.count
-            }
+            // Written before the page it describes, so the turn that follows
+            // finds it already there.
+            let next = (page + 1) % photos.count
+            advanced = next
+            withAnimation(Motion.content) { page = next }
         }
         .accessibilityLabel("Photo \(min(page, max(photos.count - 1, 0)) + 1) of \(photos.count)")
     }
