@@ -155,8 +155,22 @@ struct FlightDetailView: View {
                         theme: theme,
                         style: appearance.peakStyle,
                         width: geometry.size.width,
+                        heroCeiling: heroCeiling,
                         partner: vaPartner
                     )
+                        // The peak lays out to the height it *wants*, not to
+                        // the height the sheet currently is — and that is the
+                        // whole of why the measurement below can be believed.
+                        //
+                        // Without it the peak is offered the window's own
+                        // height, so what it reports back can never be more
+                        // than the window already is: a peak that does not fit
+                        // measures itself as fitting, the sheet is told it is
+                        // the right size, and the route card stays underneath
+                        // the bottom of the screen for ever. A measurement that
+                        // is allowed to come back larger than the thing being
+                        // measured is the only kind worth taking.
+                        .fixedSize(horizontal: false, vertical: true)
                         .background {
                             GeometryReader { peak in
                                 Color.clear.preference(
@@ -308,20 +322,45 @@ struct FlightDetailView: View {
     /// nothing touching the screen. Measured against what the peak actually
     /// needs, a sheet that is still settling is simply a sheet at rest, which
     /// is what it is.
+    ///
+    /// Through the same clamp the detent is asked for, not the raw
+    /// measurement: on the rare peak tall enough to be capped, the two are
+    /// different numbers, and the one the sheet is actually resting at is this
+    /// one. Comparing against the uncapped measurement would leave a window at
+    /// its ceiling permanently reading as "not yet open", which is the drag
+    /// never starting.
     private var restingHeight: CGFloat {
         peakContentHeight > 80
-            ? peakContentHeight
+            ? clampedPeakHeight(for: peakContentHeight)
             : FlightInfoLayout.openingHeight(for: appearance.peakStyle)
+    }
+
+    /// The tallest the peak's photograph may be drawn here.
+    ///
+    /// Answered against the display: on a large phone this is the flat ceiling
+    /// it has always been, and on a small one the photograph gives its room to
+    /// the route card underneath it rather than pushing it off the sheet.
+    private var heroCeiling: CGFloat {
+        presentation == .sheet
+            ? FlightInfoLayout.peakHeroCeiling(inScreenHeight: FlightInfoLayout.screenHeight)
+            : FlightInfoLayout.peakHeroCap
+    }
+
+    /// What the sheet may actually be asked for, given what the peak measured.
+    private func clampedPeakHeight(for measured: CGFloat) -> CGFloat {
+        let ceiling = FlightInfoLayout.peakCeiling(inScreenHeight: FlightInfoLayout.screenHeight)
+        return min(max(measured, FlightInfoLayout.minimumPeakHeight), ceiling)
     }
 
     /// Report the height the peak needs, which is the height the sheet becomes.
     ///
     /// One assignment, no correction and no second pass — and the reason it can
     /// be that simple is upstream of here. The peak lays out its own bottom gap
-    /// rather than trusting the window to leave one, so `measured` is the whole
-    /// thing it wants; and the detent it feeds is a type rather than a height
-    /// (`FlightPeakDetent`), so the set of stops never changes and the sheet
-    /// actually takes the new number instead of quietly keeping the old one.
+    /// rather than trusting the window to leave one, and it lays out at its own
+    /// ideal height rather than at the sheet's, so `measured` is the whole
+    /// thing it wants and is free to be larger than the window it is currently
+    /// in. The sheet takes the number because the stop it is bound to is built
+    /// from that number in the same pass — see `ContentView.windowDetent`.
     ///
     /// What was here before was arithmetic against the *container*: work out
     /// what is empty under the peak, and move the detent by the difference. It
@@ -334,10 +373,7 @@ struct FlightDetailView: View {
     private func fitPeak(to measured: CGFloat) {
         guard measured > 80 else { return }
 
-        let wanted = min(
-            max(measured, FlightInfoLayout.minimumPeakHeight),
-            FlightInfoLayout.maximumPeakHeight
-        )
+        let wanted = clampedPeakHeight(for: measured)
         if abs(wanted - peakHeight) > 0.5 { peakHeight = wanted }
     }
 
