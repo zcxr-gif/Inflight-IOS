@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Which way round the app is drawn.
 ///
@@ -103,6 +104,7 @@ final class FlightInfoAppearance: ObservableObject {
 
     private static let glassKey = "flightInfoGlassEnabled"
     private static let peakStyleKey = "flightInfoPeakStyle"
+    private static let windowStyleKey = "flightInfoWindowStyle"
     private static let airlineAccentKey = "flightInfoAirlineAccent"
     private static let smoothTrafficKey = "map.smoothTraffic"
     private static let windowPlacementKey = "flightWindowPlacement"
@@ -122,6 +124,11 @@ final class FlightInfoAppearance: ObservableObject {
 
     @Published var peakStyle: FlightInfoPeakStyle {
         didSet { UserDefaults.standard.set(peakStyle.rawValue, forKey: Self.peakStyleKey) }
+    }
+
+    /// How the window is laid out once it is open. See `FlightInfoWindowStyle`.
+    @Published var windowStyle: FlightInfoWindowStyle {
+        didSet { UserDefaults.standard.set(windowStyle.rawValue, forKey: Self.windowStyleKey) }
     }
 
     /// Whether the flight window's edges and small accents take the colour of
@@ -273,6 +280,8 @@ final class FlightInfoAppearance: ObservableObject {
         // rather than on a case that no longer exists.
         peakStyle = FlightInfoPeakStyle(rawValue: defaults.string(forKey: Self.peakStyleKey) ?? "")
             ?? .compact
+        windowStyle = FlightInfoWindowStyle(rawValue: defaults.string(forKey: Self.windowStyleKey) ?? "")
+            ?? .cards
         showsAirlineAccent = defaults.object(forKey: Self.airlineAccentKey) as? Bool ?? true
         smoothsTraffic = defaults.object(forKey: Self.smoothTrafficKey) as? Bool ?? true
         flightWindowPlacement = FlightWindowPlacement(
@@ -380,6 +389,50 @@ enum FlightInfoPeakStyle: String, CaseIterable, Identifiable {
         switch self {
         case .compact: return "A bar with a thumbnail"
         case .rich: return "Opens on the aircraft photo"
+        }
+    }
+}
+
+/// How the window is laid out once it is open.
+///
+/// Two answers to the same question, and they are genuinely different
+/// questions underneath. `cards` is the app's own: a stack of cards, each one a
+/// subject — where it is, what it is doing, what the pilot's simulator says —
+/// which is the right shape for a window somebody scrolls through while
+/// watching an aeroplane.
+///
+/// `board` is the shape every other tracker uses, and it is the right shape for
+/// a different reason: the departure, the arrival, when it left and when it
+/// gets in, all above the fold and all readable at a glance. Somebody meeting a
+/// flight wants that and nothing else. The cards are still under it — this
+/// changes the head of the window, not what the window knows.
+enum FlightInfoWindowStyle: String, CaseIterable, Identifiable {
+
+    case cards
+    case board
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .cards: return "Cards"
+        case .board: return "Board"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .cards: return "rectangle.grid.1x2"
+        case .board: return "arrow.left.arrow.right"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .cards:
+            return "The app's own: the photo, then a card for each thing worth knowing."
+        case .board:
+            return "Both ends of the route, the times either side of them, and how far is left — the way a departures board reads. The cards follow underneath."
         }
     }
 }
@@ -1003,39 +1056,106 @@ enum FlightInfoLayout {
     /// sheet arriving. Guess high instead and the correction is downward — the
     /// sheet shrinks out from under content that was already drawn, which is
     /// the band of empty window this window has been chasing for four attempts.
+    ///
+    /// Under, but not by much, and that is the change worth noting. They used
+    /// to be two hundred and three hundred, against styles that lay out to
+    /// nearer three hundred and four hundred and fifty — a guess a whole route
+    /// card short of the truth. That was survivable only while the sheet was
+    /// never corrected at all, which is exactly what was wrong: the guess *was*
+    /// the window. These are close estimates of what each style lays out to on
+    /// a phone before the photograph has landed, so the correction is the last
+    /// few dozen points rather than the last two hundred.
     static func openingHeight(for style: FlightInfoPeakStyle) -> CGFloat {
         switch style {
-        case .compact: return 200
-        case .rich: return 300
+        case .compact: return 272
+        case .rich: return 400
         }
     }
 
     /// Where the sheet starts before anything knows which style is on — the
     /// pane's constant, and the state's initial value.
-    static let basePeakHeight: CGFloat = 200
+    static let basePeakHeight: CGFloat = 272
 
     /// Bounds on the measurement, so a bad layout pass can't produce an
     /// unusable sheet.
     ///
     /// Both are guards rather than targets: the floor is below anything the
-    /// peak lays out to, and the ceiling above anything it does. The detent
-    /// clamps against the screen as well — see `FlightPeakDetent`.
+    /// peak lays out to, and the ceiling above anything it does.
+    ///
+    /// The ceiling is answered against the display too — a peak may take a good
+    /// deal of a phone but never most of it, and never more of it than there
+    /// is. It is a last line rather than the working limit: the photograph has
+    /// already yielded by then, at `peakHeroCeiling(inScreenHeight:)`, which is
+    /// where a peak that would be too tall is actually made shorter. Clamping
+    /// here without that would only move the clipping from the bottom of the
+    /// screen to the bottom of the sheet.
     static let minimumPeakHeight: CGFloat = 140
     static let maximumPeakHeight: CGFloat = 560
+
+    /// The tallest the sheet may be asked for on a screen of a given height.
+    static func peakCeiling(inScreenHeight height: CGFloat) -> CGFloat {
+        min(maximumPeakHeight, max(minimumPeakHeight, height * 0.66))
+    }
 
     /// How far the identity block is pulled up into the photo above it, so it
     /// rides the seam where the two meet. Shared, so the peak and the full
     /// window put it in exactly the same place.
     static let heroSeamLift: CGFloat = 30
 
-    /// The tallest the photo may be drawn in the peak state.
+    /// The tallest the photo may be drawn in the peak state, on a screen of a
+    /// given height.
     ///
     /// The full window's header is free to take the shape of the photograph
     /// because the window scrolls. The peak does not scroll: every point the
     /// header takes is a point the route card has to come out of, and past a
     /// certain height the card is pushed off the bottom of the sheet
     /// altogether. A portrait shot is where that happened.
-    static let peakHeroCeiling: CGFloat = 260
+    ///
+    /// So the ceiling is answered against the display rather than fixed. What
+    /// sits under the photograph — the identity block, the route card, the gap
+    /// beneath it — is `peakFurniture` tall and is the part that has to be on
+    /// screen; the photograph is what yields. On a large phone that arithmetic
+    /// never bites and the ceiling is the flat 260 it always was. On a small
+    /// one it is the difference between a peak with a route card and a peak
+    /// that is a photograph with the card underneath the screen.
+    static func peakHeroCeiling(inScreenHeight height: CGFloat) -> CGFloat {
+        min(peakHeroCap, max(150, height * 0.52 - peakFurniture))
+    }
+
+    /// Roughly what the peak lays out under its header: the identity block, the
+    /// route card, the gaps between them and the gap under the last line, less
+    /// the seam the block is lifted into the photograph by.
+    ///
+    /// An estimate, and only ever used to work out how much of the screen is
+    /// left for the photograph. Nothing is laid out to it — the peak measures
+    /// itself for that, and the measurement is what the sheet takes.
+    static let peakFurniture: CGFloat = 229
+
+    /// The tallest the peak's photo is ever drawn, whatever the screen.
+    static let peakHeroCap: CGFloat = 260
+
+    /// The height of the display this app is on.
+    ///
+    /// The one measurement the window cannot take for itself. Everything else
+    /// here is answered against the sheet, and the sheet is exactly as tall as
+    /// the peak asks for — so asking the sheet how much room there is returns
+    /// the peak's own answer back to it. How much of the *screen* a peak may
+    /// take has to come from outside that loop.
+    static var screenHeight: CGFloat {
+        let windowScenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+
+        // The one in front, when there is one. A backgrounded scene is still
+        // connected, and on iPad there can be several — asking any of them for
+        // the display would answer, but only this one is the display somebody
+        // is looking at.
+        let scene = windowScenes.first { $0.activationState == .foregroundActive }
+            ?? windowScenes.first
+
+        // A phone's, if the question somehow cannot be answered. It is a bound
+        // on a photograph, not a layout: nothing is cut off by it being a
+        // little wrong, and the peak measures its own height regardless.
+        return scene?.screen.bounds.height ?? 852
+    }
 
     /// Breathing room under the peak state's last line.
     ///
@@ -1067,65 +1187,40 @@ enum FlightInfoLayout {
     /// dead band at the foot of the travel that difference reads as the window
     /// being fractionally open, which washes the peak out and ghosts the full
     /// window's photo in behind it while the sheet is sitting still.
-    static let phaseDeadZone: CGFloat = 8
+    ///
+    /// Wide enough to swallow a safe area, not just a rounding error. A detent
+    /// is a height the system resolves, and the room it then hands the window
+    /// is that height plus whatever it reserves along the bottom edge — a band
+    /// the width of the home indicator on most phones, nothing at all on some.
+    /// The window is in no position to know which, and it does not need to: a
+    /// dead zone wider than the widest of them makes a sheet sitting at its
+    /// peak read as a sheet sitting at its peak either way. It costs the first
+    /// forty points of a drag, out of two hundred and twenty.
+    static let phaseDeadZone: CGFloat = 44
 }
 
-/// The peak state's detent.
+/// Why the peak state has no detent type of its own any more.
 ///
-/// A *type*, not a height — and that is the fix rather than a detail of it.
+/// It had one, and the window it produced is the bug this file has been
+/// chasing. A `CustomPresentationDetent` is a *type*: it holds no state, so the
+/// height it resolves has to be read out of the environment, and the
+/// environment a detent resolves against is not the one the sheet's content is
+/// handed. Written on the content, the value never reached the resolver — which
+/// duly returned the environment key's *default* on every pass. The window was
+/// therefore two hundred points tall no matter what the peak measured, with the
+/// rest of the peak — the route card, the last line of the identity block —
+/// laid out underneath the bottom of the screen and clipped away silently.
 ///
-/// The peak is as tall as its own content, which is not known until the content
-/// has been laid out, so the height has to be able to change after the sheet is
-/// already up. Expressed as `.height(x)` that means the set of detents changes
-/// every time the measurement lands, and a sheet whose detent set changes
-/// underneath a bound selection is a sheet that argues with itself: the
-/// selection points at a value that is no longer in the set, UIKit keeps the
-/// height it already had, and everything downstream that compares against the
-/// detent — the phase cross-fade, the map's bottom inset, the interaction
-/// threshold that decides whether anything behind the window can be touched —
-/// is comparing against a number the sheet is not actually at. A window three
-/// hundred points tall, insisting it is a hundred and eighty, with the
-/// difference sitting on screen as a hole and the controls beside it quietly
-/// unpressable.
-///
-/// A custom detent has one identity for the life of the window and resolves its
-/// height from the environment. So the set never changes, the sheet takes the
-/// new height rather than declining the resize, and the selection cannot go
-/// stale because there is nothing for it to go stale against. The height moves;
-/// nothing that has to be compared does.
-struct FlightPeakDetent: CustomPresentationDetent {
-
-    static func height(in context: Context) -> CGFloat? {
-        // Read by dynamic member lookup on `EnvironmentValues`, which is the
-        // whole of how a custom detent talks to the view it belongs to — the
-        // context is not an environment you can subscript by key.
-        let wanted = context.flightPeakHeight
-
-        // Against the screen as well as against the constants: a peak taller
-        // than the sheet can be is a peak with its last card cut off, and the
-        // system will clamp the detent without telling the content about it.
-        let ceiling = min(FlightInfoLayout.maximumPeakHeight, context.maxDetentValue - 44)
-
-        return min(max(wanted, FlightInfoLayout.minimumPeakHeight), max(ceiling, 120))
-    }
-}
-
-/// How tall the peak has measured itself, read by the detent above through
-/// `EnvironmentValues.flightPeakHeight`.
-private struct FlightPeakHeightKey: EnvironmentKey {
-    static let defaultValue: CGFloat = FlightInfoLayout.basePeakHeight
-}
-
-extension EnvironmentValues {
-
-    /// Set on the sheet's content by whoever presents it, so the detent — which
-    /// is a type and holds no state of its own — has somewhere to read the
-    /// window's own measurement from.
-    var flightPeakHeight: CGFloat {
-        get { self[FlightPeakHeightKey.self] }
-        set { self[FlightPeakHeightKey.self] = newValue }
-    }
-}
+/// The fix is the ordinary detent. `.height(x)` takes the number rather than
+/// going looking for it, so there is nothing to fail to find. The reason it was
+/// abandoned was that changing `x` changes the *set* of detents, and a bound
+/// selection pointing at `.height(oldValue)` is then pointing at a stop that no
+/// longer exists — the sheet keeps the height it had and everything comparing
+/// against the detent is comparing against a lie. That is real, and it is
+/// solved where it happens rather than avoided: the selection is derived from
+/// the same measurement the set is built from (see `ContentView`), so the two
+/// change in the same pass and the selection cannot go stale against a set it
+/// is computed from.
 
 extension View {
 

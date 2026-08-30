@@ -16,6 +16,13 @@ struct FlightInfoPeak: View {
     let style: FlightInfoPeakStyle
     let width: CGFloat
 
+    /// The tallest the photo peak's header may be drawn, worked out by the
+    /// window against the display it is on. See
+    /// `FlightInfoLayout.peakHeroCeiling(inScreenHeight:)`: the peak does not
+    /// scroll, so on a short screen the photograph is what gives up its room
+    /// rather than the route card underneath it.
+    var heroCeiling: CGFloat = FlightInfoLayout.peakHeroCap
+
     /// The VA to name under the route card, when the flight has one.
     /// Resolved by the window and handed down — see `VaPartnerLine`.
     var partner: VaPartner? = nil
@@ -79,10 +86,10 @@ struct FlightInfoPeak: View {
                 width: width,
                 // The one place the peak's header and the full window's differ,
                 // and only for a photograph tall enough to need it. See
-                // `peakHeroCeiling`: the peak has no scroll view to put the
+                // `heroCeiling`: the peak has no scroll view to put the
                 // overflow in, so the picture yields before the route card
                 // does.
-                maxHeight: FlightInfoLayout.peakHeroCeiling
+                maxHeight: heroCeiling
             )
 
             VStack(spacing: 12) {

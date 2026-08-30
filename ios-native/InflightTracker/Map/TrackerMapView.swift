@@ -395,6 +395,16 @@ struct TrackerMapView: UIViewRepresentable {
         /// How long a history request holds the door shut behind it.
         private static let historyRetryInterval: TimeInterval = 45
 
+        /// How close to a field a slow sample has to be for that field's
+        /// pavement to be worth fetching, so the flown path can be matched to
+        /// it.
+        ///
+        /// Wider than an aerodrome and narrower than a circuit: an aircraft
+        /// four miles out at taxi speed is a light aeroplane on final, not
+        /// something on a taxiway, and asking OpenStreetMap about every field a
+        /// slow flight passes would be a request per airport in the county.
+        private static let taxiFieldRadiusNM: Double = 4
+
         /// The flown path currently on the map.
         ///
         /// One overlay now, carrying its own points and their colours — the
@@ -1348,6 +1358,12 @@ struct TrackerMapView: UIViewRepresentable {
             let plan = parent.showsFlightPlan
                 ? FlightPlanStore.shared.waypoints(for: flight.id)
                 : []
+
+            // The pavement the ground part of this track will be laid on, where
+            // the track has a ground part at all. Asked for on the same terms
+            // as the plan and the history: asking is what starts the fetch, and
+            // the answer is nothing until it lands.
+            let taxiways = groundNetworks(for: flight, along: trail)
             let key = [
                 flight.id,
                 String(trail.count),
@@ -1372,7 +1388,12 @@ struct TrackerMapView: UIViewRepresentable {
                 // The layer switch is in the key for the same reason the plan's
                 // count is: turning it off has to be able to invalidate a route
                 // that is already drawn.
-                parent.showsFlownPath ? "path" : "nopath"
+                parent.showsFlownPath ? "path" : "nopath",
+                // And the pavement, for the third time the same reason: a
+                // field's taxiways are fetched from OpenStreetMap when the
+                // track first turns out to need them, which is well after the
+                // path has been drawn once without them.
+                taxiways.map { "\($0.icao)/\($0.edgeCount)" }.joined(separator: "+")
             ].joined(separator: "|")
 
             guard key != renderedRouteKey else { return }
@@ -1398,12 +1419,22 @@ struct TrackerMapView: UIViewRepresentable {
             flownOverlay = nil
 
             if parent.showsFlownPath {
+                // On the ground, the track goes the way the concrete goes.
+                //
+                // Every sample near a taxiway is put on it, and the line
+                // between two of them is the route along the pavement rather
+                // than the chord across it — which is what a taxi thinned to
+                // two breadcrumbs used to be drawn as. Segments with no
+                // pavement under them, and the whole airborne length of every
+                // flight, come back untouched: the fallback is per segment.
+                let drawn = GroundTrack.following(flown, on: taxiways)
+
                 // One overlay, coloured by height along its whole length,
                 // drawing its own halo underneath itself. See `FlownPath` for
                 // what this replaced and why none of it survived.
                 let path = FlownPath(
-                    points: flown,
-                    bands: Self.heightBands(of: flown),
+                    points: drawn,
+                    bands: Self.heightBands(of: drawn),
                     title: Self.flownTitle
                 )
                 flownOverlay = path?.overlay
@@ -1453,6 +1484,82 @@ struct TrackerMapView: UIViewRepresentable {
                 planLabels = plan.map { PlanWaypointAnnotation(waypoint: $0) }
                 mapView.addAnnotations(planLabels)
             }
+        }
+
+        /// The fields whose taxiways this track needs, and their graphs.
+        ///
+        /// Two questions, and the order matters. First, does this track have a
+        /// ground part at a field at all — a sample slow enough and close
+        /// enough to be taxiing rather than overflying? Only then is the
+        /// field's pavement asked for, because asking is a request to
+        /// OpenStreetMap and the answer is cached for a month; a flight that is
+        /// enroute for eleven hours should not be fetching aerodromes it passes
+        /// over.
+        ///
+        /// Both ends of the route and both ends of the track, because a flight
+        /// window is opened at every stage of a trip: the departure it pushed
+        /// back from is where the history begins, the arrival is where it is
+        /// taxiing in now, and a track that starts mid-flight has neither of
+        /// them filed.
+        private func groundNetworks(for flight: Flight, along trail: [TrackPoint]) -> [TaxiNetwork] {
+            guard parent.showsFlownPath else { return [] }
+
+            // The whole test, up front and in one cheap pass: a track with
+            // nothing slow in it has no ground part, which is every flight in
+            // the cruise and so almost every flight on the map. Everything
+            // below only ever runs for the handful of samples that are left.
+            let slow = trail.filter { $0.groundSpeedKnots <= GroundTrack.taxiSpeedCeiling }
+            guard !slow.isEmpty else { return [] }
+
+            let store = AirportStore.shared
+            var fields: [Airport] = []
+
+            func consider(_ airport: Airport?) {
+                guard let airport = airport, !fields.contains(where: { $0.icao == airport.icao }) else {
+                    return
+                }
+                let taxiing = slow.contains { point in
+                    FlightProgress.distanceNM(from: point.coordinate, to: airport.coordinate)
+                        <= Self.taxiFieldRadiusNM
+                }
+                guard taxiing else { return }
+                fields.append(airport)
+            }
+
+            consider(store.airport(flight.departureIcao))
+            consider(store.airport(flight.arrivalIcao))
+            if let first = slow.first {
+                consider(store.nearestAirport(to: first.coordinate, withinNM: Self.taxiFieldRadiusNM))
+            }
+            if let last = slow.last {
+                consider(store.nearestAirport(to: last.coordinate, withinNM: Self.taxiFieldRadiusNM))
+            }
+
+            guard !fields.isEmpty else { return [] }
+
+            let layouts = AirportLayoutStore.shared
+            var networks: [TaxiNetwork] = []
+            for field in fields {
+                // Asked for off the layout pass rather than inside it.
+                //
+                // `load` moves the field to `.loading`, and that is a published
+                // change — made, if it were called from here, while the view
+                // observing the store is in the middle of updating, which is
+                // the warning SwiftUI exists to give. Nothing is lost by the
+                // hop: the answer is a network round trip away either way, and
+                // its arrival is what redraws the path.
+                if case .idle = layouts.state(for: field.icao) {
+                    DispatchQueue.main.async { layouts.load(field) }
+                }
+
+                guard let layout = layouts.layout(for: field.icao), !layout.isEmpty else { continue }
+                guard let network = TaxiNetworkStore.shared.network(
+                    for: layout,
+                    centre: field.coordinate
+                ) else { continue }
+                networks.append(network)
+            }
+            return networks
         }
 
         private func dashed(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) -> MKPolyline {
@@ -2257,10 +2364,20 @@ struct TrackerMapView: UIViewRepresentable {
             let elapsed = now - lastFlightTick
             lastFlightTick = now
 
+            guard let mapView = flyingMapView, mapView.window != nil else { return }
+
+            let scale = Self.pointsPerMetre(on: mapView)
+            guard scale > 0 else { return }
+
+            // Before the smoothing gate rather than after it. The track's head
+            // follows wherever the open aircraft is *drawn*, which is a
+            // question with an answer whether the aeroplane is being carried
+            // between packets or is sitting exactly where its last one put it —
+            // and with the switch off, the second is the only case there is.
+            updateFlownHead(on: mapView, pointsPerMetre: scale)
+
             let smoothing = parent.smoothsTraffic
             guard smoothing || flyingCount > 0 else { return }
-
-            guard let mapView = flyingMapView, mapView.window != nil else { return }
             guard !annotations.isEmpty else { return }
 
             // A frame, rather than a resume: coming back from the background
@@ -2273,9 +2390,6 @@ struct TrackerMapView: UIViewRepresentable {
                 flyingCount = 0
                 return
             }
-
-            let scale = Self.pointsPerMetre(on: mapView)
-            guard scale > 0 else { return }
 
             var flying = 0
 
@@ -2339,6 +2453,71 @@ struct TrackerMapView: UIViewRepresentable {
             guard metres.isFinite, metres > 0 else { return 0 }
 
             return 100 / metres
+        }
+
+        /// Grows the flown path to wherever the open aircraft is drawn.
+        ///
+        /// The track ends at the newest breadcrumb the store holds, and
+        /// breadcrumbs are thinned by distance — two nautical miles apart at
+        /// best. So the aeroplane spends most of its time flying off the end of
+        /// its own path, with the line catching up in one jump each time a
+        /// sample lands. Here the last segment is redrawn on the frame clock
+        /// instead, to the same position the aircraft itself is being moved to,
+        /// so the two travel together.
+        ///
+        /// Cheap by construction, and it has to be at thirty frames a second:
+        /// the geometry is untouched, only one point moves, and the repaint is
+        /// scoped to the strip that point moved through rather than to the few
+        /// thousand that have not.
+        private func updateFlownHead(on mapView: MKMapView, pointsPerMetre: Double) {
+            guard let overlay = flownOverlay else { return }
+
+            guard let id = parent.selection?.id,
+                  let annotation = annotations[id] else {
+                retreatFlownHead(of: overlay, on: mapView)
+                return
+            }
+
+            let point = MKMapPoint(annotation.coordinate)
+
+            // Outside the room the overlay reserved, which means the aeroplane
+            // has flown further since the last rebuild than the path was built
+            // to allow for. Drawn, it would be cut off at the edge of the rect
+            // MapKit is willing to ask about; the honest answer is to stop
+            // extending and wait for the rebuild the next breadcrumb brings.
+            guard overlay.canReach(point) else {
+                retreatFlownHead(of: overlay, on: mapView)
+                return
+            }
+
+            let existing = overlay.head
+            let previous = existing ?? overlay.tail
+
+            // Under a fifth of a point is a move nobody can see, and a repaint
+            // for it is a tile rasterised for nothing. The first head is worth
+            // one at any distance: without it there is a gap rather than a
+            // slightly stale line.
+            let moved = previous.distance(to: point) * pointsPerMetre
+            guard existing == nil ? moved > 0 : moved >= 0.2 else { return }
+
+            overlay.head = point
+            renderer(forFlownPath: overlay, on: mapView)?
+                .refreshHead(from: previous, to: point)
+        }
+
+        /// Takes the head back off, and repaints where it was.
+        private func retreatFlownHead(of overlay: FlownPathOverlay, on mapView: MKMapView) {
+            guard let previous = overlay.head else { return }
+            overlay.head = nil
+            renderer(forFlownPath: overlay, on: mapView)?
+                .refreshHead(from: overlay.tail, to: previous)
+        }
+
+        private func renderer(
+            forFlownPath overlay: FlownPathOverlay,
+            on mapView: MKMapView
+        ) -> FlownPathRenderer? {
+            mapView.renderer(for: overlay) as? FlownPathRenderer
         }
 
         /// Where an aircraft is being *drawn*, which is what the camera and the

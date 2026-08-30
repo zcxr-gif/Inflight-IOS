@@ -64,7 +64,16 @@ struct ContentView: View {
 
     /// Which phase the info window is in. Owned here so it can be reset to the
     /// peak state each time a different aircraft is tapped.
-    @State private var detent: PresentationDetent = .custom(FlightPeakDetent.self)
+    ///
+    /// A flag rather than a `PresentationDetent`, and that is what keeps the
+    /// window honest. The peak's stop is `.height(peakHeight)` and that height
+    /// changes — a photograph lands, a route card grows a line — so a stored
+    /// detent would be a stored *old* height, pointing at a stop that is no
+    /// longer in the set the moment the peak measures itself again. Held as
+    /// "which of the two", the selection is computed from the same number the
+    /// set is built from, in the same pass, and cannot fall out of step with
+    /// it.
+    @State private var isWindowExpanded = false
 
     /// Latest camera request from the chrome around the map.
     @State private var mapCommand: MapCommand?
@@ -120,15 +129,27 @@ struct ContentView: View {
         return AirlineAccent.colours(forLivery: flight.liveryName, isLight: theme.isLight)
     }
 
-    /// The stop the window opens at.
+    /// The stop the window opens at: exactly as tall as the peak measured
+    /// itself, and nothing else.
     ///
-    /// One value for the life of the app, because it is a type rather than a
-    /// height: `FlightPeakDetent` reads how tall the peak measured itself from
-    /// the environment below. That is what lets the height change without the
-    /// *detent* changing, and everything that has to be compared against a
-    /// detent — the selection binding, the sheet's own resize, the interaction
-    /// threshold — compares against something that stands still.
-    private var peakDetent: PresentationDetent { .custom(FlightPeakDetent.self) }
+    /// Rebuilt from `peakHeight` every pass rather than stored, so it is always
+    /// the current measurement. See `windowDetent` for the half of this that
+    /// used to go wrong.
+    private var peakDetent: PresentationDetent { .height(peakHeight) }
+
+    /// Which stop the window is at, as the sheet's selection binding wants it.
+    ///
+    /// Derived, not stored. Reading it builds the peak's stop from today's
+    /// measurement — the same expression `presentationDetents` is handed — so
+    /// the selection is a member of the set by construction. Writing it records
+    /// only *which* stop was landed on, which is the part that survives the
+    /// height changing underneath it.
+    private var windowDetent: Binding<PresentationDetent> {
+        Binding<PresentationDetent>(
+            get: { self.isWindowExpanded ? .large : self.peakDetent },
+            set: { self.isWindowExpanded = ($0 == .large) }
+        )
+    }
 
     /// Rebuilt each redraw, and compared by value inside the map — so watching
     /// a new pilot, picking a colour, or Pro lapsing all repaint the traffic
@@ -655,7 +676,7 @@ struct ContentView: View {
             // something to carry the mode over to.
             isFollowing = false
 
-            detent = peakDetent
+            isWindowExpanded = false
 
             // Back to the opening guess for the new aircraft rather than the
             // last one's measured height. The guess is under anything the peak
@@ -880,7 +901,7 @@ struct ContentView: View {
                     .environmentObject(feed)
             }
         }
-        .presentationDetents([peakDetent, .large], selection: $detent)
+        .presentationDetents([peakDetent, .large], selection: windowDetent)
         // The window draws its own handle over the top of itself, so the
         // system's indicator would be a second pill in the same place.
         .presentationDragIndicator(.hidden)
@@ -888,15 +909,7 @@ struct ContentView: View {
         .flightInfoSheetInteraction()
         // Belt and braces: however the sheet came to be on screen, it starts in
         // the peak state.
-        .onAppear { detent = peakDetent }
-        // Where the peak detent gets its height from.
-        //
-        // Outermost, so it is in scope both for the window inside the sheet and
-        // for the presentation modifiers above it — a custom detent resolves
-        // against the environment of the thing being presented, and an
-        // environment written underneath those modifiers would only reach half
-        // of it.
-        .environment(\.flightPeakHeight, peakHeight)
+        .onAppear { isWindowExpanded = false }
     }
 
     /// The flight window's handle.
@@ -936,7 +949,7 @@ struct ContentView: View {
             .accessibilityLabel("Close the flight window")
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { sheet = nil }
-            .accessibilityAction(named: "Open the full window") { detent = .large }
+            .accessibilityAction(named: "Open the full window") { isWindowExpanded = true }
     }
 
     /// Global, like every other pull in the app: the sheet resizes underneath
@@ -962,10 +975,10 @@ struct ContentView: View {
 
                 // Collapses on the way down, so the pull has something to show
                 // for itself before it commits to closing.
-                guard detent == .large, value.translation.height > Self.windowCollapseTravel else {
+                guard isWindowExpanded, value.translation.height > Self.windowCollapseTravel else {
                     return
                 }
-                detent = peakDetent
+                isWindowExpanded = false
             }
             .onEnded { value in
                 let landing = value.predictedEndTranslation.height
@@ -973,7 +986,7 @@ struct ContentView: View {
                 if landing > Self.windowCloseTravel {
                     sheet = nil
                 } else if landing < -Self.windowOpenTravel {
-                    detent = .large
+                    isWindowExpanded = true
                 }
             }
     }
@@ -1229,7 +1242,7 @@ struct ContentView: View {
         // like a replay that started and then did nothing.
         guard replay.start(flightId: flightId, title: title, points: track) else { return }
 
-        detent = peakDetent
+        isWindowExpanded = false
 
         if let first = track.first {
             focus(on: first.coordinate, spanMeters: 320_000)

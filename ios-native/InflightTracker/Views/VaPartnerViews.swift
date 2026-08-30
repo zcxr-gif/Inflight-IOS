@@ -81,18 +81,25 @@ struct VaPartnerLine: View {
         .contentShape(Rectangle())
     }
 
+    /// Every one of these carries "VA", and that is the point of them.
+    ///
+    /// The name beside it is often the name of a real airline, because a
+    /// virtual airline that flies a livery usually calls itself after it. On a
+    /// line that read only "FLYING WITH", the aeroplane looked like it belonged
+    /// to that airline. Two letters is all the room there is here, and two
+    /// letters is enough to say which kind of airline this is.
     private func kicker(for basis: VaPartner.Basis) -> String {
         switch basis {
-        case .member:            return "FLYING WITH"
+        case .member:            return "FLYING WITH VA"
         case .callsign:          return "PARTNER VA"
-        case .hubbed(let icao):  return "PARTNER AT \(icao)"
+        case .hubbed(let icao):  return "PARTNER VA AT \(icao)"
         }
     }
 
     private func accessibilityLabel(for partner: VaPartner) -> String {
         switch partner.basis {
         case .member:
-            return "Flying with \(partner.ad.name)."
+            return "Flying with \(partner.ad.name), a partner virtual airline."
         case .callsign:
             return "\(partner.ad.name), the partner virtual airline whose callsign this flight is using."
         case .hubbed(let icao):
@@ -146,7 +153,11 @@ struct AirportPartnersSection: View {
 
                 PanelDivider()
 
-                Text("Partner virtual airlines that call \(icao) a hub.")
+                Text("""
+                Virtual airlines — groups of Infinite Flight pilots who fly \
+                together — that call \(icao) a hub. Not real airlines, and not \
+                affiliated with any.
+                """)
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .fixedSize(horizontal: false, vertical: true)
@@ -238,15 +249,33 @@ struct VaDetailSheet: View {
         }
     }
 
+    /// Always says "virtual airline", even when the VA has written its own
+    /// tagline — that line is theirs and may say anything, and the one thing
+    /// this panel has to establish before anything else is what kind of thing
+    /// is being described.
     private var subtitle: String? {
-        let parts = [ad.tagline, ad.region].filter { !$0.isEmpty }
-        return parts.isEmpty ? "Partner virtual airline" : parts.joined(separator: " · ")
+        let parts = ["Virtual airline"] + [ad.tagline, ad.region].filter { !$0.isEmpty }
+        return parts.joined(separator: " · ")
     }
 
     // MARK: Identity
 
     private var identity: some View {
         PanelSection(title: "PARTNER") {
+            Text("""
+            A group of Infinite Flight pilots who fly together in the \
+            simulator. Not a real airline, and not affiliated with one — \
+            including whichever one it may be named after.
+            """)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(theme.textDim)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 11)
+
+            PanelDivider()
+
             if let basis = basis {
                 detailRow(title: membershipTitle(basis), detail: membershipDetail(basis))
                 PanelDivider()
