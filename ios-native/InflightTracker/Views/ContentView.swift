@@ -516,6 +516,7 @@ struct ContentView: View {
             airportsRevision: airportsRevision,
             showsGroundLayout: filters.showsGroundLayout,
             showsFlightPlan: filters.showsFlightPlan,
+            showsDirectLine: filters.showsDirectLine,
             showsFlownPath: filters.showsFlownPath,
             weatherTiles: mapWeather.tiles,
             onWeatherLegibility: { mapWeather.report(legible: $0) },

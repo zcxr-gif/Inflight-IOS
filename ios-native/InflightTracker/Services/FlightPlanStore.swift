@@ -24,11 +24,32 @@ final class FlightPlanStore {
     private struct Entry {
         let waypoints: [PlanWaypoint]
         let fetchedAt: Date
+
+        /// How long this particular answer is worth keeping. Not a constant,
+        /// because not every answer is an answer — see `retryTTL`.
+        let ttl: TimeInterval
     }
 
     /// Long enough that tapping around the map costs one request per aircraft,
     /// short enough that a plan filed after pushback appears within a leg.
     private static let ttl: TimeInterval = 10 * 60
+
+    /// How long a *failure* is remembered for.
+    ///
+    /// The distinction this draws is the one that matters here. "This pilot
+    /// filed nothing" is an answer, and holding it for ten minutes is the whole
+    /// point of the cache. "We could not ask" — the request timed out, the
+    /// backend was restarting, the aeroplane was between sessions — is not an
+    /// answer, and holding *that* for ten minutes is a route missing from the
+    /// map for ten minutes with nothing to say why.
+    ///
+    /// Both used to be stored identically, because the fetch never looked at
+    /// the response at all: anything that failed to parse became an empty
+    /// plan, indistinguishable from a real one. That is exactly how a wrong URL
+    /// hid — every request 404'd, every 404 parsed as "filed nothing", and the
+    /// map drew no route for any flight and never said why. Long enough to stop
+    /// a retry storm, short enough that a flight recovers within a leg.
+    private static let retryTTL: TimeInterval = 45
 
     /// Bounded so a long session panning across a busy server cannot grow this
     /// without limit. Oldest fetch is evicted, which is the one least likely to
@@ -48,7 +69,7 @@ final class FlightPlanStore {
     func waypoints(for flightId: String) -> [PlanWaypoint] {
         lock.lock()
         let entry = plans[flightId]
-        let fresh = entry.map { Date().timeIntervalSince($0.fetchedAt) < Self.ttl } ?? false
+        let fresh = entry.map { Date().timeIntervalSince($0.fetchedAt) < $0.ttl } ?? false
         lock.unlock()
 
         if fresh, let entry = entry { return entry.waypoints }
@@ -69,15 +90,39 @@ final class FlightPlanStore {
 
         guard !alreadyRunning else { return }
 
-        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+        URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
             guard let self = self else { return }
-            let waypoints = Self.parse(data)
+
+            // Only a 2xx is the backend telling us about this flight. Anything
+            // else — a transport error, a 404 for an aeroplane that has left
+            // the live sessions, a 500 while the Infinite Flight API is
+            // refusing — is a question we failed to ask, and it is remembered
+            // only long enough to keep a retry from becoming a storm.
+            let status = (response as? HTTPURLResponse)?.statusCode
+            let answered = error == nil && (200...299).contains(status ?? 0)
+
+            // Parsed before the lock is taken, not under it. The other side of
+            // this lock is `MKMapView` laying out on the main thread, and a
+            // hundred-fix plan is not a thing to make it wait on.
+            let parsed = answered ? Self.parse(data) : nil
 
             self.lock.lock()
             self.inFlight.remove(flightId)
+
+            // A failure never destroys a plan we already had. The route key on
+            // the map counts the fixes it is drawing, so replacing ten with
+            // none would erase a drawn route on one bad request and put it back
+            // when the retry landed — a flicker caused entirely by the cache,
+            // about a route that never changed.
+            let waypoints = parsed ?? self.plans[flightId]?.waypoints ?? []
+
             // Stored even when empty: "this pilot filed nothing" is an answer,
             // and re-asking for it on every packet is what this exists to stop.
-            self.plans[flightId] = Entry(waypoints: waypoints, fetchedAt: Date())
+            self.plans[flightId] = Entry(
+                waypoints: waypoints,
+                fetchedAt: Date(),
+                ttl: answered ? Self.ttl : Self.retryTTL
+            )
             if self.plans.count > Self.capacity {
                 let oldest = self.plans.min { $0.value.fetchedAt < $1.value.fetchedAt }
                 if let key = oldest?.key { self.plans.removeValue(forKey: key) }
