@@ -2269,7 +2269,7 @@ struct TrackerMapView: UIViewRepresentable {
             let bounds = mapView.bounds
             guard bounds.width > 1, bounds.height > 1 else { return false }
 
-            let clear = bounds.inset(by: edgeInsets())
+            let clear = bounds.inset(by: edgeInsets(in: bounds))
             guard clear.width > 1, clear.height > 1 else {
                 return pan(to: coordinate, on: mapView)
             }
@@ -2593,7 +2593,7 @@ struct TrackerMapView: UIViewRepresentable {
             // what the target must not land behind.
             mapView.setVisibleMapRect(
                 Self.mapRect(for: region),
-                edgePadding: edgeInsets(),
+                edgePadding: edgeInsets(in: mapView.bounds),
                 animated: true
             )
             return true
@@ -2630,24 +2630,46 @@ struct TrackerMapView: UIViewRepresentable {
         ///
         /// ## Why this is not `setVisibleMapRect(_:edgePadding:)`
         ///
-        /// It was, and that was the bug behind "the centre button doesn't
+        /// It was, and that was the first bug behind "the centre button doesn't
         /// work". `edgePadding` does not *offset* a rect; it **fits** it inside
         /// the view's bounds inset by that padding. Handing it a rect the size
         /// of the current view therefore asks the map to squeeze a whole
         /// screen's worth of world into a smaller box — which it does, by
         /// zooming out. Every tap of "centre on aircraft" pulled the camera
         /// back another notch, and follow mode, which went through the same
-        /// call, zoomed out a little every time the aeroplane drifted. Neither
-        /// ever *looked* broken enough to name; both were simply the map going
-        /// the wrong way.
+        /// call, zoomed out a little every time the aeroplane drifted.
         ///
-        /// So the chrome is accounted for as an offset instead. The middle of
-        /// the uncovered box sits `(left - right) / 2` across and
-        /// `(top - bottom) / 2` down from the middle of the view; putting the
-        /// aircraft there means moving the camera's centre the opposite way by
-        /// the same amount. Done in view points and converted back through the
-        /// map's own projection, so it is correct on the flat map and on the
-        /// globe, whatever the camera has been spun to.
+        /// ## ...and why it is not the projection either, where it can be
+        /// helped
+        ///
+        /// The answer to that was to work in view points: project the aircraft,
+        /// work out which view point has to become the middle of the map, and
+        /// unproject *that*. Correct arithmetic, and the second bug behind the
+        /// same report — because the point it unprojects is, by construction,
+        /// as far from the middle of the view as the aircraft is from the
+        /// target. Open a window on an aeroplane the sheet is sitting on and
+        /// that point is off the bottom of the screen; open one on an aeroplane
+        /// the map has since been dragged away from and it is off the screen
+        /// entirely. `convert(_:toCoordinateFrom:)` is only asked about points
+        /// inside the view, and outside it — on a renderer that is drawing a
+        /// tilted, curved planet — what comes back is a coordinate near the
+        /// horizon rather than the one the arithmetic wanted. Which is a centre
+        /// button that lands nowhere near the aeroplane, and the further away
+        /// it was, the further away it lands.
+        ///
+        /// So on the flat north-up map — which is every map the app opens on —
+        /// the move is made in Mercator space, where it is exact and where a
+        /// point off the edge of the screen is no different from one on it: the
+        /// visible rect is slid so the aircraft's own map point falls at the
+        /// same fraction across and down it as the target does across and down
+        /// the view. Same size of rect in, same size out, so the zoom is
+        /// untouched by construction rather than by asking.
+        ///
+        /// The globe cannot be done that way — `visibleMapRect` means nothing
+        /// on a sphere — so it keeps the projection, guarded now: if the point
+        /// that would have to be unprojected is outside the view, the camera
+        /// goes straight to the aircraft instead. A little less considerate of
+        /// the chrome, and the right place to be looking.
         @discardableResult
         private func pan(to coordinate: CLLocationCoordinate2D, on mapView: MKMapView) -> Bool {
             guard CLLocationCoordinate2DIsValid(coordinate) else { return false }
@@ -2655,11 +2677,14 @@ struct TrackerMapView: UIViewRepresentable {
             let bounds = mapView.bounds
             guard bounds.width > 1, bounds.height > 1 else { return false }
 
-            let insets = edgeInsets()
-            let target = CGPoint(
-                x: bounds.midX + (insets.left - insets.right) / 2,
-                y: bounds.midY + (insets.top - insets.bottom) / 2
-            )
+            // The middle of what nothing is standing on, which on a phone with
+            // the flight window up is well above the middle of the screen.
+            let clear = bounds.inset(by: edgeInsets(in: bounds))
+            let target = CGPoint(x: clear.midX, y: clear.midY)
+
+            if isPlanar(mapView), slide(to: coordinate, landingOn: target, in: bounds, on: mapView) {
+                return true
+            }
 
             let here = mapView.convert(coordinate, toPointTo: mapView)
             guard here.x.isFinite, here.y.isFinite else { return false }
@@ -2670,16 +2695,18 @@ struct TrackerMapView: UIViewRepresentable {
                 x: bounds.midX + (here.x - target.x),
                 y: bounds.midY + (here.y - target.y)
             )
-            let centre = mapView.convert(wanted, toCoordinateFrom: mapView)
 
             let camera = mapView.camera
             let distance = camera.centerCoordinateDistance
+            let centre = mapView.convert(wanted, toCoordinateFrom: mapView)
 
-            // Over the horizon on a pitched globe, the projection has no answer
-            // and hands back nonsense. Putting the camera straight on the
-            // aircraft is a little less considerate of the chrome and is still
-            // the right place to be looking.
-            guard CLLocationCoordinate2DIsValid(centre), distance.isFinite, distance > 0 else {
+            // Off the view, over the horizon, or a camera with no usable
+            // height: none of those have an answer worth trusting.
+            guard bounds.insetBy(dx: -1, dy: -1).contains(wanted),
+                  CLLocationCoordinate2DIsValid(centre),
+                  distance.isFinite,
+                  distance > 0
+            else {
                 mapView.setCenter(coordinate, animated: true)
                 return true
             }
@@ -2691,6 +2718,63 @@ struct TrackerMapView: UIViewRepresentable {
                     pitch: camera.pitch,
                     heading: camera.heading
                 ),
+                animated: true
+            )
+            return true
+        }
+
+        /// Whether the map is the flat sheet seen from straight above, north
+        /// up — the one case where the view and `visibleMapRect` are the same
+        /// rectangle under an affine transform, and the slide below is exact.
+        private func isPlanar(_ mapView: MKMapView) -> Bool {
+            guard !parent.style.isFreeCamera else { return false }
+
+            let camera = mapView.camera
+            guard camera.pitch < 0.5 else { return false }
+            return camera.heading < 0.5 || camera.heading > 359.5
+        }
+
+        /// Slides the visible rect, keeping its size, so `coordinate` lands on
+        /// `target`.
+        ///
+        /// Everything is a fraction of the rect: where the target sits in the
+        /// view is where the aircraft has to sit in the rect. Off-screen is not
+        /// a special case — a map point is a map point wherever the camera
+        /// happens to be looking — which is the whole reason this exists.
+        private func slide(
+            to coordinate: CLLocationCoordinate2D,
+            landingOn target: CGPoint,
+            in bounds: CGRect,
+            on mapView: MKMapView
+        ) -> Bool {
+            let rect = mapView.visibleMapRect
+            guard rect.width.isFinite, rect.height.isFinite, rect.width > 0, rect.height > 0
+            else { return false }
+
+            let point = MKMapPoint(coordinate)
+            guard point.x.isFinite, point.y.isFinite else { return false }
+
+            let across = (target.x - bounds.minX) / bounds.width
+            let down = (target.y - bounds.minY) / bounds.height
+
+            var x = point.x - rect.width * across
+            let y = point.y - rect.height * down
+
+            // The world repeats sideways, and a rect that has walked off one
+            // end of it is the same view one world over. Wrapped rather than
+            // clamped: an aeroplane a few degrees west of the antimeridian is a
+            // short pan from one a few degrees east of it, not a flight across
+            // the entire planet.
+            let world = MKMapRect.world.size.width
+            if world > 0 {
+                x = x.truncatingRemainder(dividingBy: world)
+                if x < 0 { x += world }
+            }
+
+            guard x.isFinite, y.isFinite else { return false }
+
+            mapView.setVisibleMapRect(
+                MKMapRect(x: x, y: y, width: rect.width, height: rect.height),
                 animated: true
             )
             return true
@@ -2726,7 +2810,11 @@ struct TrackerMapView: UIViewRepresentable {
                 return pan(to: flight.coordinate, on: mapView)
             }
 
-            mapView.setVisibleMapRect(rect, edgePadding: edgeInsets(), animated: true)
+            mapView.setVisibleMapRect(
+                rect,
+                edgePadding: edgeInsets(in: mapView.bounds),
+                animated: true
+            )
             return true
         }
 
@@ -2760,7 +2848,11 @@ struct TrackerMapView: UIViewRepresentable {
                 return pan(to: flight.coordinate, on: mapView)
             }
 
-            mapView.setVisibleMapRect(rect, edgePadding: edgeInsets(), animated: true)
+            mapView.setVisibleMapRect(
+                rect,
+                edgePadding: edgeInsets(in: mapView.bounds),
+                animated: true
+            )
             return true
         }
 
@@ -2780,12 +2872,35 @@ struct TrackerMapView: UIViewRepresentable {
             return max(rect.width, rect.height) >= perMetre * 800
         }
 
-        private func edgeInsets() -> UIEdgeInsets {
-            UIEdgeInsets(
+        /// What the app is standing on, as a padding to keep a camera move
+        /// clear of: the search field and the weather chip along the top, the
+        /// flight window across the bottom or down one side, and a margin so
+        /// nothing that is framed ends up hard against an edge.
+        ///
+        /// Clamped against the view it is for, and that is not defensive
+        /// tidying. `bottomInset` is the flight window's own measured height,
+        /// and on a short screen with a photo peek up it can be most of the
+        /// display; add the top inset and the two can meet or cross. A padding
+        /// taller than the view leaves `setVisibleMapRect(_:edgePadding:)`
+        /// fitting a rect into a box of negative height — which is a camera
+        /// somewhere else entirely — and leaves the middle of the "clear" box
+        /// above the top of the screen. Held to two thirds of the view from
+        /// each side, so the box being centred in is always a real one.
+        private func edgeInsets(in bounds: CGRect) -> UIEdgeInsets {
+            let wanted = UIEdgeInsets(
                 top: 96,
                 left: 44,
                 bottom: parent.bottomInset + 28,
                 right: 44 + parent.trailingInset
+            )
+
+            guard bounds.width > 1, bounds.height > 1 else { return wanted }
+
+            return UIEdgeInsets(
+                top: min(wanted.top, bounds.height * 2 / 3),
+                left: min(wanted.left, bounds.width * 2 / 3),
+                bottom: min(wanted.bottom, bounds.height * 2 / 3),
+                right: min(wanted.right, bounds.width * 2 / 3)
             )
         }
 

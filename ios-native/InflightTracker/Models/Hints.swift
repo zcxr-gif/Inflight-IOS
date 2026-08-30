@@ -113,7 +113,7 @@ struct Hint: Identifiable, Equatable {
         Hint(
             id: "flight.follow",
             placement: .flight,
-            text: "The viewfinder button beside the window keeps the map with this aircraft as it flies, instead of you re-centring it."
+            text: "The arrow button beside the window puts the map on this aircraft and keeps it there as it flies. The viewfinder above it frames the whole flight instead — both ends of the route and everything flown so far."
         ),
         Hint(
             id: "flight.path",

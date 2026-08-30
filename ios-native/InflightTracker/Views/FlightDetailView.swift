@@ -155,6 +155,12 @@ struct FlightDetailView: View {
                         theme: theme,
                         style: appearance.peakStyle,
                         width: geometry.size.width,
+                        // The peak pages the whole set now, the same as the
+                        // window above it. See `FlightInfoPeak.photos`.
+                        photos: photoLoader.photos,
+                        // Both halves are mounted the whole time; only the one
+                        // actually on screen turns its photographs over.
+                        isAutoplaying: settled,
                         heroCeiling: heroCeiling,
                         partner: vaPartner
                     )
@@ -478,9 +484,9 @@ struct FlightDetailView: View {
                     contributor: photoLoader.photo?.contributor,
                     theme: theme,
                     width: width,
-                    // The full window pages through everything the lookup
-                    // found; the peak state above deliberately does not.
-                    photos: photoLoader.photos
+                    photos: photoLoader.photos,
+                    // Only while the full window is the half being looked at.
+                    isAutoplaying: !isCollapsed
                 )
                 .id(Self.topAnchor)
 
