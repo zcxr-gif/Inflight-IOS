@@ -521,15 +521,17 @@ struct GateMapPicker: View {
     }
 
     private var footnote: String {
+        guard let pick = pick else {
+            return isMapped
+                ? "Every marker is a gate, stand or parking position somebody has mapped at \(airport.icao)."
+                : "Pick the stand you want for your \(role.word)."
+        }
+
         switch pick {
         case .mapped(let gate):
             return Self.describe(gate)
         case .named:
             return "From the community stand list. Its name goes on the plan; nobody has recorded where it is."
-        case .none:
-            return isMapped
-                ? "Every marker is a gate, stand or parking position somebody has mapped at \(airport.icao)."
-                : "Pick the stand you want for your \(role.word)."
         }
     }
 

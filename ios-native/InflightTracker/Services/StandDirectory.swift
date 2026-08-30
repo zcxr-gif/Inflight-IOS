@@ -28,7 +28,10 @@ import Foundation
 /// backend rather than a polite ration of somebody's donated Overpass mirror,
 /// and the dataset behind it is edited far more often than a terminal is
 /// rebuilt.
-@MainActor
+///
+/// Reads and writes on the main thread, like `GateStore` and
+/// `AirportLayoutStore` beside it: the picker asks on appearance and the answer
+/// lands in a `@Published`.
 final class StandDirectory: ObservableObject {
 
     static let shared = StandDirectory()

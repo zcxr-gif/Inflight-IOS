@@ -276,7 +276,7 @@ struct FlightPlanEditor: View {
                 title: "Livery",
                 symbol: "paintbrush",
                 placeholder: "British Airways",
-                autocapitalisation: .words,
+                kind: .name,
                 text: $draft.livery
             )
         }
@@ -288,7 +288,7 @@ struct FlightPlanEditor: View {
                 title: "Notes",
                 symbol: "text.alignleft",
                 placeholder: "Anything worth remembering",
-                autocapitalisation: .sentences,
+                kind: .prose,
                 text: $draft.remarks
             )
         }
@@ -377,11 +377,14 @@ struct FlightPlanEditor: View {
         hasDeparture = draft.scheduledOut != nil
         hasArrival = draft.scheduledIn != nil
 
-        let nextHour = Calendar.current.date(
-            bySetting: .minute,
-            value: 0,
-            of: Date().addingTimeInterval(3600)
-        ) ?? Date().addingTimeInterval(3600)
+        // Truncated to the hour and then advanced, rather than
+        // `date(bySetting:)`, which searches *forward* for the next time the
+        // minute reads zero — so seeding it from "an hour from now" landed
+        // anywhere up to two hours out depending on what o'clock it happened
+        // to be.
+        let calendar = Calendar.current
+        let thisHour = calendar.dateInterval(of: .hour, for: Date())?.start ?? Date()
+        let nextHour = calendar.date(byAdding: .hour, value: 1, to: thisHour) ?? thisHour
 
         departureTime = draft.scheduledOut ?? nextHour
         arrivalTime = draft.scheduledIn ?? departureTime.addingTimeInterval(90 * 60)
@@ -390,6 +393,16 @@ struct FlightPlanEditor: View {
     private func save() {
         draft.scheduledOut = hasDeparture ? departureTime : nil
         draft.scheduledIn = hasArrival ? arrivalTime : nil
+
+        // Caught here as well as by the table's own constraint. The database
+        // is what makes it true; this is what makes it *readable* — a
+        // check-constraint violation reaches the panel as
+        // `pilot_flight_plans_arrives_after_departing`, which is the right
+        // answer written for nobody.
+        if let out = draft.scheduledOut, let arrive = draft.scheduledIn, arrive < out {
+            book.problem = "That lands before it leaves. Check the two times."
+            return
+        }
 
         Task {
             if await book.save(draft) { dismiss() }
@@ -417,8 +430,23 @@ private struct FieldRow: View {
     let symbol: String
     let placeholder: String
     var detail: String? = nil
-    var autocapitalisation: TextInputAutocapitalization = .characters
+
+    /// What is being typed, which decides three things at once rather than
+    /// three flags that could disagree: the face, the shift key and whether
+    /// autocorrect gets an opinion.
+    var kind: Kind = .code
     @Binding var text: String
+
+    enum Kind {
+        /// An ICAO, a callsign, a type. Read a character at a time — a
+        /// proportional zero beside a proportional O is how a typo survives
+        /// being looked at.
+        case code
+        /// A livery, an airline.
+        case name
+        /// Remarks.
+        case prose
+    }
 
     @ObservedObject private var appearance = FlightInfoAppearance.shared
 
@@ -432,11 +460,11 @@ private struct FieldRow: View {
                 Spacer(minLength: 12)
 
                 TextField(placeholder, text: $text)
-                    .font(.system(size: 14, weight: .semibold, design: monospaced ? .monospaced : .default))
+                    .font(.system(size: 14, weight: .semibold, design: kind == .code ? .monospaced : .default))
                     .foregroundStyle(theme.textPrimary)
                     .multilineTextAlignment(.trailing)
-                    .textInputAutocapitalization(autocapitalisation)
-                    .autocorrectionDisabled(monospaced)
+                    .textInputAutocapitalization(capitalisation)
+                    .autocorrectionDisabled(kind == .code)
                     .submitLabel(.done)
             }
 
@@ -452,10 +480,13 @@ private struct FieldRow: View {
         .padding(.vertical, 11)
     }
 
-    /// Codes get the monospaced face; prose does not. An ICAO and a callsign
-    /// are read a character at a time, and a proportional zero next to a
-    /// proportional O is how a typo survives being looked at.
-    private var monospaced: Bool { autocapitalisation == .characters }
+    private var capitalisation: TextInputAutocapitalization {
+        switch kind {
+        case .code: return .characters
+        case .name: return .words
+        case .prose: return .sentences
+        }
+    }
 }
 
 /// One end's stand: the name, and the way to the map.
