@@ -79,58 +79,7 @@ struct SettingsPanel: View {
             }
             .panelEntrance(1)
 
-            // Its own section rather than a row in Appearance: each of these
-            // wants a sentence, and some of them are Pro, which a segmented
-            // control has nowhere to say.
-            //
-            // Two lists rather than one, because they are two questions. The
-            // shape of the world and what it is drawn in used to be a single
-            // list of four styles, which is why the planet only ever came in
-            // satellite imagery.
-            PanelSection(title: "MAP SHAPE") {
-                ForEach(MapProjection.allCases) { projection in
-                    if projection != MapProjection.allCases.first { PanelDivider() }
-
-                    mapChoiceRow(
-                        title: projection.label,
-                        symbol: projection.symbol,
-                        detail: projection.detail,
-                        isPro: projection.isPro,
-                        isSelected: appearance.mapProjection == projection
-                    ) {
-                        appearance.mapProjection = projection
-                    }
-                }
-            }
-            .panelEntrance(2)
-
-            PanelSection(title: "MAP STYLE") {
-                ForEach(MapPalette.allCases) { palette in
-                    if palette != MapPalette.allCases.first { PanelDivider() }
-
-                    mapChoiceRow(
-                        title: palette.label,
-                        symbol: palette.symbol,
-                        detail: palette.detail,
-                        isPro: palette.isPro,
-                        isSelected: appearance.mapPalette == palette
-                    ) {
-                        appearance.mapPalette = palette
-                    }
-                }
-
-                PanelDivider()
-
-                PanelToggleRow(
-                    title: "Full detail",
-                    symbol: "map.fill",
-                    detail: "Roads, terrain shading and place names at full strength, rather than the muted cartography the map recedes into behind the traffic. Imagery has none of it to turn up.",
-                    isOn: $appearance.isMapDetailed
-                )
-                .disabled(appearance.mapPalette.usesImagery)
-                .opacity(appearance.mapPalette.usesImagery ? 0.45 : 1)
-            }
-            .panelEntrance(3)
+            mapSections
 
             PanelSection(title: "FEED") {
                 ForEach(AppConfig.servers, id: \.self) { server in
@@ -338,26 +287,7 @@ struct SettingsPanel: View {
             .motion(Motion.control, value: hints.isEnabled)
             .panelEntrance(8)
 
-            PanelSection(title: "ABOUT") {
-                aboutRow("Version", value: version)
-                PanelDivider()
-                // Surfaces a packaging problem that otherwise just looks like an
-                // empty map, which is hard to diagnose from a TestFlight build.
-                aboutRow("Aircraft icons", value: PlaneSprites.shared.isReady ? "Vector" : "Missing")
-                PanelDivider()
-                aboutRow("Traffic", value: "\(feed.flights.count) aircraft")
-                PanelDivider()
-                // The marks on the map are other people's work, under licences
-                // that ask to be carried with the app.
-                PanelActionRow(
-                    title: "Acknowledgements",
-                    symbol: "doc.text",
-                    detail: "Where the aircraft marks come from"
-                ) {
-                    isShowingAcknowledgements = true
-                }
-            }
-            .panelEntrance(9)
+            footer
         }
         .sheet(isPresented: $isShowingAccount) { AccountPanel() }
         .sheet(isPresented: $isShowingPaywall) { ProPanel() }
@@ -369,6 +299,139 @@ struct SettingsPanel: View {
             NotificationsPanel().environmentObject(feed)
         }
         .sheet(isPresented: $isShowingAcknowledgements) { AcknowledgementsPanel() }
+    }
+
+    /// How the world is shaped, and what it is drawn in.
+    ///
+    /// Two sections handed over as one child, which is a fact about SwiftUI
+    /// rather than about settings: a view builder takes ten children and this
+    /// panel has more sections than that. Grouped here rather than anywhere
+    /// else because these two are already a pair — see the note inside.
+    @ViewBuilder
+    private var mapSections: some View {
+        // Its own section rather than a row in Appearance: each of these
+        // wants a sentence, and some of them are Pro, which a segmented
+        // control has nowhere to say.
+        //
+        // Two lists rather than one, because they are two questions. The
+        // shape of the world and what it is drawn in used to be a single
+        // list of four styles, which is why the planet only ever came in
+        // satellite imagery.
+        PanelSection(title: "MAP SHAPE") {
+            ForEach(MapProjection.allCases) { projection in
+                if projection != MapProjection.allCases.first { PanelDivider() }
+
+                mapChoiceRow(
+                    title: projection.label,
+                    symbol: projection.symbol,
+                    detail: projection.detail,
+                    isPro: projection.isPro,
+                    isSelected: appearance.mapProjection == projection
+                ) {
+                    appearance.mapProjection = projection
+                }
+            }
+        }
+        .panelEntrance(2)
+
+        PanelSection(title: "MAP STYLE") {
+            ForEach(MapPalette.allCases) { palette in
+                if palette != MapPalette.allCases.first { PanelDivider() }
+
+                mapChoiceRow(
+                    title: palette.label,
+                    symbol: palette.symbol,
+                    detail: palette.detail,
+                    isPro: palette.isPro,
+                    isSelected: appearance.mapPalette == palette
+                ) {
+                    appearance.mapPalette = palette
+                }
+            }
+
+            PanelDivider()
+
+            PanelToggleRow(
+                title: "Full detail",
+                symbol: "map.fill",
+                detail: "Roads, terrain shading and place names at full strength, rather than the muted cartography the map recedes into behind the traffic. Imagery has none of it to turn up.",
+                isOn: $appearance.isMapDetailed
+            )
+            .disabled(appearance.mapPalette.usesImagery)
+            .opacity(appearance.mapPalette.usesImagery ? 0.45 : 1)
+        }
+        .panelEntrance(3)
+    }
+
+    /// The tail of the panel: what a partner VA is, what the build is, and the
+    /// documents. Also one child rather than three, for the reason above.
+    @ViewBuilder
+    private var footer: some View {
+        // What a partner VA actually is, said once, in the place somebody
+        // goes to find out.
+        //
+        // The window and the airport panel name virtual airlines beside
+        // real aircraft, and a good number of those VAs have chosen names
+        // that read like the airline they fly the livery of. Whoever wrote
+        // the name meant "we fly this airline's routes in the simulator";
+        // somebody who has just opened the app has no reason to read it
+        // that way. So it is spelled out rather than left to be inferred,
+        // and the disclaimer is the app's rather than the VA's — nothing
+        // shown here is endorsed by anyone.
+        PanelSection(title: "PARTNER VIRTUAL AIRLINES") {
+            note(
+                """
+                A virtual airline is a group of Infinite Flight pilots who \
+                fly together inside the simulator. Everything shown against \
+                one — its name, its callsign, its hubs, its write-up — is \
+                what that group published about itself to the VA-Ads \
+                directory.
+                """
+            )
+
+            PanelDivider()
+
+            note(
+                """
+                They are not airlines. Inflight is not affiliated with, \
+                endorsed by, sponsored by or connected to any real-world \
+                airline, and neither is any virtual airline listed in this \
+                app, whichever real one its name or its livery resembles. \
+                Airline names and marks belong to their owners.
+                """
+            )
+        }
+        .panelEntrance(9)
+
+        PanelSection(title: "ABOUT") {
+            aboutRow("Version", value: version)
+            PanelDivider()
+            // Surfaces a packaging problem that otherwise just looks like an
+            // empty map, which is hard to diagnose from a TestFlight build.
+            aboutRow("Aircraft icons", value: PlaneSprites.shared.isReady ? "Vector" : "Missing")
+            PanelDivider()
+            aboutRow("Traffic", value: "\(feed.flights.count) aircraft")
+            PanelDivider()
+            // The marks on the map are other people's work, under licences
+            // that ask to be carried with the app.
+            PanelActionRow(
+                title: "Acknowledgements",
+                symbol: "doc.text",
+                detail: "Where the aircraft marks come from"
+            ) {
+                isShowingAcknowledgements = true
+            }
+        }
+        .panelEntrance(10)
+
+        // Reachable from the app rather than only from the screen that
+        // asked for them once, on a first launch nobody remembers.
+        PanelSection(title: "LEGAL") {
+            legalLink("Terms of Service", symbol: "doc.plaintext", url: AppConfig.termsURL)
+            PanelDivider()
+            legalLink("Privacy Policy", symbol: "hand.raised", url: AppConfig.privacyURL)
+        }
+        .panelEntrance(11)
     }
 
     /// What the notifications row says without being opened.
@@ -545,5 +608,41 @@ struct SettingsPanel: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
+    }
+
+    /// A paragraph in a section, for the places where the answer is a sentence
+    /// rather than a control.
+    private func note(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 11.5, weight: .medium))
+            .foregroundStyle(theme.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+    }
+
+    /// A row that leaves the app for a document.
+    ///
+    /// A `Link` rather than a sheet with a web view in it: these are documents
+    /// somebody may want to keep, print or read with the text size they use
+    /// everywhere else, and Safari does all three better than anything this
+    /// panel could put them in.
+    private func legalLink(_ title: String, symbol: String, url: URL?) -> some View {
+        Link(destination: url ?? AppConfig.siteURL) {
+            HStack(spacing: 10) {
+                PanelRowLabel(title: title, symbol: symbol)
+
+                Spacer(minLength: 8)
+
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(theme.textDim)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .accessibilityLabel("\(title). Opens outside the app.")
     }
 }

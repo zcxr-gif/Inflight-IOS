@@ -234,6 +234,13 @@ enum AppConfig {
 
     static let privacyURL = URL(string: "https://inflight.info/privacy")
 
+    /// The app's own front door, and the fallback for any link above that has
+    /// somehow failed to parse. Force-unwrapped, unlike the rest: a literal
+    /// this short either parses or the build is broken, and a link row with an
+    /// optional destination is a row that has to decide what to do with
+    /// nothing.
+    static let siteURL = URL(string: "https://inflight.info")!
+
     /// Where iOS lets someone change or cancel a subscription. Apple's own
     /// deep link, so it lands on the right screen of Settings rather than on
     /// the App Store's front page.
