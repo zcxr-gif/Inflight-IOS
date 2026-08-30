@@ -152,6 +152,11 @@ struct TrackerMapView: UIViewRepresentable {
     var showsGroundLayout = true
     var showsFlightPlan = false
 
+    /// Whether the open aircraft gets a straight line to its destination,
+    /// travelling with it. Mutually exclusive with the filed plan above — see
+    /// `RouteLineMode` for why the two are a choice rather than two switches.
+    var showsDirectLine = false
+
     /// Whether the open aircraft's flown track is drawn. See
     /// `MapFilters.showsFlownPath` — the dashed leg back to the departure
     /// field goes with it, since that leg is an inference about the same
@@ -423,6 +428,44 @@ struct TrackerMapView: UIViewRepresentable {
         /// `groundLabels` so that turning the plan off, or opening another
         /// aircraft, does not take an airport's runway designators with it.
         private var planLabels: [MKAnnotation] = []
+
+        /// The line from the open aircraft to where it is going, and what it
+        /// was drawn from.
+        ///
+        /// Held apart from `routeOverlays` deliberately, and that separation is
+        /// the whole fix. Everything in that array is rebuilt together, when
+        /// the route key changes — and the key is a statement about the *shape*
+        /// of the route: how many breadcrumbs, which airports, how long the
+        /// plan is. An aeroplane flying along its route changes none of that.
+        ///
+        /// So this line, which starts at the aeroplane, used to be pinned to
+        /// wherever it happened to be standing at the last rebuild and stay
+        /// there — while the aircraft flew out from under it. The trail store
+        /// thins its own samples and stops growing once it is full, so on a
+        /// long flight the count stopped changing too and the line stopped
+        /// moving altogether, leaving an aeroplane trailing a line anchored an
+        /// ocean behind it.
+        ///
+        /// Updated on the frame clock instead, from the position the aircraft
+        /// is *drawn* at, so the two travel together.
+        private var directOverlay: MKPolyline?
+        private var directOrigin: MKMapPoint?
+        private var directDestination: CLLocationCoordinate2D?
+        private var directDrawnAt: CFTimeInterval = 0
+
+        /// How far the aeroplane has to have moved, on screen, before the line
+        /// ahead of it is worth redrawing. Under a point is a move nobody can
+        /// see; standing far enough back, a whole leg is under a point.
+        private static let directStep: Double = 1
+
+        /// And how often that redraw may happen at most.
+        ///
+        /// The step alone is not a bound: zoomed in on an aircraft on final,
+        /// a point of movement is a fraction of a second, and this is the one
+        /// overlay whose bounding rect can be a continent wide. Twelve a second
+        /// is past what reads as continuous for a line with one end nailed
+        /// down, and it is a ceiling the cruise never comes near.
+        private static let directInterval: CFTimeInterval = 1.0 / 12
 
         /// The field whose pavement is currently drawn, and what was drawn for
         /// it. One field at a time: two are never both close enough to matter,
@@ -1450,10 +1493,9 @@ struct TrackerMapView: UIViewRepresentable {
                 }
             }
 
-            // Still to come.
-            if let arrival = AirportStore.shared.airport(flight.arrivalIcao) {
-                routeOverlays.append(dashed(from: flight.coordinate, to: arrival.coordinate))
-            }
+            // What is still to come is not drawn here. It starts at the
+            // aeroplane, and the aeroplane moves between rebuilds of this
+            // array — see `directOverlay`, which follows it on the frame clock.
 
             // MARK: The filed plan
             //
@@ -1484,6 +1526,92 @@ struct TrackerMapView: UIViewRepresentable {
                 planLabels = plan.map { PlanWaypointAnnotation(waypoint: $0) }
                 mapView.addAnnotations(planLabels)
             }
+
+            // Guarded by its own step, so this is a comparison on every pass
+            // that is not the first one.
+            syncDirectLine(on: mapView, pointsPerMetre: Self.pointsPerMetre(on: mapView))
+        }
+
+        /// Draws the line from the open aircraft to its destination, and keeps
+        /// it under the aeroplane as it flies.
+        ///
+        /// `MKPolyline` cannot be moved — its points are fixed at construction
+        /// — so following the aircraft means replacing the overlay, which is
+        /// why this is fenced by both a distance and a rate. Neither fence is
+        /// theoretical: in the cruise the distance is what bites, redrawing
+        /// about once a second, and the rate is there for the other end of it —
+        /// an aeroplane on short final under a close camera, crossing a point
+        /// of screen every few frames.
+        private func syncDirectLine(on mapView: MKMapView, pointsPerMetre: Double) {
+            guard parent.showsDirectLine else {
+                clearDirectLine(on: mapView)
+                return
+            }
+
+            // The rate gate is asked first because it is the cheapest question
+            // here and it puts a ceiling on all the rest: with a line already
+            // drawn, everything below this runs twelve times a second rather
+            // than thirty. What it can cost is a twelfth of a second's delay
+            // clearing a line whose flight has just been closed, which is not
+            // a thing anybody can see.
+            let now = CACurrentMediaTime()
+            if directOverlay != nil, now - directDrawnAt < Self.directInterval { return }
+
+            // Stamped here rather than where the line is drawn, because this is
+            // the moment being rationed: an aeroplane sitting still fails the
+            // distance test below on every look, and without a stamp it would
+            // be looked at on every frame for as long as it sat there.
+            directDrawnAt = now
+
+            guard let flight = selectedFlight(),
+                  let arrival = AirportStore.shared.airport(flight.arrivalIcao)
+            else {
+                clearDirectLine(on: mapView)
+                return
+            }
+
+            // Where it is being *drawn*, not where its last packet put it. The
+            // sprite is carried between packets, and a line that starts at the
+            // reported position would come adrift from the aeroplane it is
+            // supposed to be attached to for most of every interval.
+            let origin = drawnCoordinate(for: flight)
+            let destination = arrival.coordinate
+            let point = MKMapPoint(origin)
+
+            if let existing = directOverlay,
+               let anchor = directOrigin,
+               let previous = directDestination,
+               previous.latitude == destination.latitude,
+               previous.longitude == destination.longitude {
+
+                // A scale of zero is a map with no size yet — nothing to
+                // measure the move against, so leave the line where it is.
+                guard pointsPerMetre > 0 else { return }
+                guard anchor.distance(to: point) * pointsPerMetre >= Self.directStep else {
+                    return
+                }
+
+                mapView.removeOverlay(existing)
+            } else if let existing = directOverlay {
+                // A different destination — the pilot amended it, or another
+                // aeroplane was opened. Nothing of the old line survives.
+                mapView.removeOverlay(existing)
+            }
+
+            let line = dashed(from: origin, to: destination)
+            mapView.addOverlay(line, level: .aboveRoads)
+
+            directOverlay = line
+            directOrigin = point
+            directDestination = destination
+        }
+
+        private func clearDirectLine(on mapView: MKMapView) {
+            guard let existing = directOverlay else { return }
+            mapView.removeOverlay(existing)
+            directOverlay = nil
+            directOrigin = nil
+            directDestination = nil
         }
 
         /// The fields whose taxiways this track needs, and their graphs.
@@ -1613,6 +1741,8 @@ struct TrackerMapView: UIViewRepresentable {
         }
 
         private func clearRoute(on mapView: MKMapView) {
+            clearDirectLine(on: mapView)
+
             if !planLabels.isEmpty {
                 mapView.removeAnnotations(planLabels)
                 planLabels.removeAll(keepingCapacity: true)
@@ -2376,6 +2506,11 @@ struct TrackerMapView: UIViewRepresentable {
             // and with the switch off, the second is the only case there is.
             updateFlownHead(on: mapView, pointsPerMetre: scale)
 
+            // For the same reason and on the same terms: the line ahead of the
+            // aeroplane starts where the aeroplane is drawn, which is a
+            // question with a new answer on every frame it is being carried on.
+            syncDirectLine(on: mapView, pointsPerMetre: scale)
+
             let smoothing = parent.smoothsTraffic
             guard smoothing || flyingCount > 0 else { return }
             guard !annotations.isEmpty else { return }
@@ -2975,13 +3110,27 @@ struct TrackerMapView: UIViewRepresentable {
             renderer.lineJoin = .round
 
             if line.title == Self.planTitle {
-                // The route as filed: solid but faint, and thin. It is a
-                // statement of intent sitting underneath a track that actually
-                // happened, and it should read as the quieter of the two. The
-                // colour is shared with the fixes drawn along it, so the line
-                // and the diamonds on it are visibly one route.
+                // The route as filed: dashed, and faint. It is a statement of
+                // intent sitting underneath a track that actually happened, and
+                // it should read as the quieter of the two. The colour is
+                // shared with the fixes drawn along it, so the line and the
+                // diamonds on it are visibly one route.
+                //
+                // Long dashes with tight gaps, which is deliberately not the
+                // dash the inferred legs wear. `plannedTitle` below — the leg
+                // back to a departure field nobody watched, the line drawn
+                // straight at a destination because the route is unknown — is
+                // short marks with wide gaps, and reads as hesitant because it
+                // is a guess. A filed plan is the one thing on the map the
+                // pilot actually declared, so it gets the confident dash: more
+                // ink than gap, closer to a line than to a series of marks.
+                //
+                // The two can be on screen together — the inferred leg belongs
+                // to the flown path, which has its own switch — so telling them
+                // apart at a glance is the whole point of the difference.
                 renderer.strokeColor = PlanStyle.line
                 renderer.lineWidth = 1.8
+                renderer.lineDashPattern = [7, 4]
                 return renderer
             }
 

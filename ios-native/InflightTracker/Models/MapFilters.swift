@@ -1,6 +1,58 @@
 import Foundation
 import SwiftUI
 
+/// Which line an open flight gets drawn ahead of it — and it is one line or
+/// the other, never both.
+///
+/// The two answer the same question, "where is this aeroplane going", and they
+/// answer it differently: the plan is the route as filed, bending through every
+/// fix on it, and the direct line is the great circle to the destination
+/// ignoring all of that. Drawn together they cross each other repeatedly on any
+/// route with a dogleg in it, and the picture is two claims about the same
+/// flight with nothing to say which is which.
+///
+/// So this is a choice rather than a pair of switches, which is also the honest
+/// shape of it: nobody wants both.
+enum RouteLineMode: String, CaseIterable, Identifiable {
+
+    /// Neither. The flown track behind the aeroplane is a separate switch and
+    /// is untouched by this — what it has done is not a claim about where it is
+    /// going.
+    case off
+
+    /// The great circle from the aeroplane to its filed destination, moving
+    /// with it. Nothing to fetch, and it is drawn for every flight with a
+    /// destination filed, which is most of them.
+    case direct
+
+    /// The plan as filed: the line through every fix, and the fixes named.
+    /// Fetched per aircraft, and there is nothing to draw for the many pilots
+    /// who file no plan at all.
+    case filedPlan
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .off: return "Off"
+        case .direct: return "Direct"
+        case .filedPlan: return "Filed"
+        }
+    }
+
+    /// What the panel says under the picker once this one is chosen.
+    var detail: String {
+        switch self {
+        case .off:
+            return "No line ahead of the aeroplane. The flown path behind it has its own switch below."
+        case .direct:
+            return "A dashed great-circle line from the aeroplane straight to its destination, moving with it as it flies. Drawn for any flight with a destination filed."
+        case .filedPlan:
+            return "The route as filed — a dashed line through every fix, and each one named. Procedures are expanded to the fixes they contain. Most pilots file nothing, and nothing is drawn when they haven't."
+        }
+    }
+}
+
 /// What of the server's traffic the map is drawing.
 ///
 /// The feed is whole — every filter here is a view onto the aircraft already
@@ -72,22 +124,29 @@ final class MapFilters: ObservableObject {
         didSet { UserDefaults.standard.set(showsGroundLayout, forKey: Self.groundKey) }
     }
 
-    /// Whether the fixes on an open flight's filed plan are drawn.
+    /// Which line is drawn ahead of an open flight — the filed plan, the
+    /// direct line to its destination, or neither.
     ///
     /// Uncounted as a filter for the same reason as the two above: it adds to
-    /// the map rather than narrowing it. On by default, like them, and that is
-    /// a deliberate change from how this shipped: off, it was a feature nobody
-    /// found, and the first thing people looked for on the map and could not
-    /// see was the route. It costs one request per aircraft whose window is
-    /// opened, cached for ten minutes, and nothing at all for the many pilots
-    /// who file no plan.
+    /// the map rather than narrowing it. Defaults to the filed plan, which is
+    /// the more informative of the two where there is one to draw.
+    ///
     /// Only the map's layer, and only the map's. The plan store behind it is
-    /// shared now — the flight window's route card and the navigation display
-    /// both read it — so turning the map layer off no longer throws the cache
-    /// away with it.
-    @Published var showsFlightPlan: Bool {
-        didSet { UserDefaults.standard.set(showsFlightPlan, forKey: Self.planKey) }
+    /// shared — the flight window's route card and the navigation display both
+    /// read it — so choosing anything here never throws that cache away.
+    @Published var routeLine: RouteLineMode {
+        didSet { UserDefaults.standard.set(routeLine.rawValue, forKey: Self.routeLineKey) }
     }
+
+    /// Whether the fixes on an open flight's filed plan are drawn.
+    ///
+    /// It costs one request per aircraft whose window is opened, cached for ten
+    /// minutes, and nothing at all for the many pilots who file no plan.
+    var showsFlightPlan: Bool { routeLine == .filedPlan }
+
+    /// Whether the great circle from the open aircraft to its destination is
+    /// drawn. Costs nothing — it is two coordinates the feed already carries.
+    var showsDirectLine: Bool { routeLine == .direct }
 
     /// Whether the open aircraft's flown track is drawn on the map — the
     /// coloured line behind it showing where it has actually been.
@@ -127,14 +186,30 @@ final class MapFilters: ObservableObject {
         didSet { UserDefaults.standard.set(showsTerminator, forKey: Self.terminatorKey) }
     }
 
-    private static let planKey = "map.showsFlightPlan"
+    private static let routeLineKey = "map.routeLine"
+
+    /// The switch this replaced, read once so an upgrade lands on the setting
+    /// the pilot already had. It said whether the filed plan was drawn, and the
+    /// direct line was drawn underneath it either way — so somebody who turned
+    /// it off had asked, as clearly as the old panel let them, for the direct
+    /// line on its own.
+    private static let legacyPlanKey = "map.showsFlightPlan"
     private static let flownKey = "map.showsFlownPath"
     private static let natKey = "map.showsNatTracks"
     private static let terminatorKey = "map.showsTerminator"
 
     private init() {
         let defaults = UserDefaults.standard
-        showsFlightPlan = defaults.object(forKey: Self.planKey) as? Bool ?? true
+        if let stored = defaults.string(forKey: Self.routeLineKey),
+           let mode = RouteLineMode(rawValue: stored) {
+            routeLine = mode
+        } else {
+            // Nothing stored: either a fresh install, which gets the plan, or
+            // an upgrade, which gets whichever line it was already looking at.
+            routeLine = (defaults.object(forKey: Self.legacyPlanKey) as? Bool ?? true)
+                ? .filedPlan
+                : .direct
+        }
         showsFlownPath = defaults.object(forKey: Self.flownKey) as? Bool ?? true
         showsNatTracks = defaults.bool(forKey: Self.natKey)
         showsTerminator = defaults.object(forKey: Self.terminatorKey) as? Bool ?? true

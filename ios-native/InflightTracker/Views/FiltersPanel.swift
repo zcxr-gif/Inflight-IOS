@@ -67,11 +67,13 @@ struct FiltersPanel: View {
 
                 PanelDivider()
 
-                PanelToggleRow(
-                    title: "Filed route",
+                PanelPickerRow(
+                    title: "Route ahead",
                     symbol: "point.topleft.down.curvedto.point.filled.bottomright.up",
-                    detail: "Draws an open flight's filed plan on the map — the line through it, and every fix on it named. Procedures are expanded to the fixes they contain. Most pilots file nothing, and nothing is drawn when they haven't.",
-                    isOn: $filters.showsFlightPlan
+                    options: RouteLineMode.allCases,
+                    label: { $0.label },
+                    detail: filters.routeLine.detail,
+                    selection: $filters.routeLine
                 )
 
                 PanelDivider()

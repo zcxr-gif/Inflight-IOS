@@ -7,12 +7,45 @@ import SwiftUI
 /// running it *is* the toolbar: play, scrub, pace, and a way out.
 struct ReplayBar: View {
 
+    /// The tallest thing in the header row: the button that ends the replay.
+    static let headerHeight: CGFloat = 24
+
+    /// A small slider's track and thumb, with a little room around them —
+    /// this is applied to the slider as well as counted, so the sum below is
+    /// the bar's real height rather than an estimate of it.
+    static let sliderHeight: CGFloat = 30
+
+    /// The play and pace buttons, which set the height of the bottom row.
+    static let controlsHeight: CGFloat = 30
+
+    static let rowGap: CGFloat = 8
+    static let verticalPadding: CGFloat = 12
+
+    /// The gap the bar leaves under itself, above the safe area.
+    static let liftOffSafeArea: CGFloat = 6
+
+    /// How much of the map's bottom edge this bar covers, including the gap
+    /// underneath it.
+    ///
+    /// While a replay is running this is the *only* thing standing on the
+    /// bottom of the map — the dock steps aside for it, and so now does the
+    /// flight window — so it is what the map keeps clear of when it frames the
+    /// route. Added up from the parts rather than rounded up from a guess, the
+    /// same way `MapDock.reservedHeight` is, so it cannot drift the next time
+    /// one of them changes.
+    static let reservedHeight: CGFloat =
+        verticalPadding * 2
+            + headerHeight + rowGap
+            + sliderHeight + rowGap
+            + controlsHeight
+            + liftOffSafeArea
+
     @ObservedObject var replay: FlightReplay
 
     let theme: FlightInfoTheme
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: Self.rowGap) {
             header
 
             Slider(
@@ -24,11 +57,12 @@ struct ReplayBar: View {
             )
             .tint(theme.accent)
             .controlSize(.small)
+            .frame(height: Self.sliderHeight)
 
             controls
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.vertical, Self.verticalPadding)
         .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .environment(\.colorScheme, theme.colorScheme)
     }
@@ -53,7 +87,7 @@ struct ReplayBar: View {
                 Image(systemName: "xmark")
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(theme.textSecondary)
-                    .frame(width: 24, height: 24)
+                    .frame(width: Self.headerHeight, height: Self.headerHeight)
                     .flightInfoSurface(theme, in: Circle(), interactive: true)
             }
             .buttonStyle(.plain)
@@ -69,7 +103,7 @@ struct ReplayBar: View {
                 Image(systemName: replay.isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(theme.onAccent)
-                    .frame(width: 34, height: 30)
+                    .frame(width: 34, height: Self.controlsHeight)
                     .background {
                         RoundedRectangle(cornerRadius: 10, style: .continuous).fill(theme.accent)
                     }
@@ -83,7 +117,7 @@ struct ReplayBar: View {
                 Text(replay.pace.label)
                     .font(.system(size: 11, weight: .bold, design: .rounded))
                     .foregroundStyle(theme.textPrimary)
-                    .frame(width: 38, height: 30)
+                    .frame(width: 38, height: Self.controlsHeight)
                     .flightInfoSurface(theme, radius: 10, interactive: true)
             }
             .buttonStyle(.plain)

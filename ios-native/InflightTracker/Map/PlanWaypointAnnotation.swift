@@ -10,6 +10,12 @@ import UIKit
 /// one that gives way.
 enum PlanStyle {
 
+    /// The line through the fixes, drawn dashed.
+    ///
+    /// Well under the fixes, which are full strength: the diamonds are what you
+    /// read, and the line is what joins them. The dash is long and the gap
+    /// short, so this keeps most of the ink a solid line would have had and
+    /// wants no compensating for.
     static let line = UIColor { traits in
         traits.userInterfaceStyle == .light
             ? UIColor(red: 0.15, green: 0.40, blue: 0.75, alpha: 0.55)
