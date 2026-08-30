@@ -316,8 +316,22 @@ struct ContentView: View {
     /// comes up around the window the pane just gave back.
     private var presentedSheet: Binding<WindowSheet?> {
         Binding(
-            get: { usesFlightPane && sheet == .flight ? nil : sheet },
-            set: { sheet = $0 }
+            get: {
+                guard sheet == .flight else { return sheet }
+                // Two reasons the flight window is not a sheet: it is being
+                // drawn as a pane beside the map instead, or a replay is
+                // running and it has stepped aside. `sheet` stays `.flight`
+                // through both — see `isFlightWindowHidden`.
+                return usesFlightPane || isFlightWindowHidden ? nil : sheet
+            },
+            set: { value in
+                // A nil arriving while the window is only *hidden* is the
+                // dismissal we asked for coming back to us, not somebody
+                // closing the window. Writing it through would clear the
+                // selection, which would stop the replay.
+                if value == nil, sheet == .flight, isFlightWindowHidden { return }
+                sheet = value
+            }
         )
     }
 
@@ -379,13 +393,38 @@ struct ContentView: View {
     /// Where the pane goes, when there is one.
     private var flightPlacement: FlightWindowPlacement { appearance.flightWindowPlacement }
 
+    /// Whether the flight window is being held off the screen rather than
+    /// closed.
+    ///
+    /// A replay is the map's own thing to watch: the aeroplane flying its old
+    /// track, over the route it actually flew. The flight window is the one
+    /// piece of chrome big enough to be in the way of that, and it was in the
+    /// way of it — dropped to its peak and still covering the bottom of the
+    /// screen, which on a short display is most of the route. So it steps
+    /// aside for the length of the playback and comes back when the replay
+    /// ends.
+    ///
+    /// **Held off rather than closed**, and the distinction is load-bearing.
+    /// `sheet` stays `.flight` and `selection` stays set, because the selection
+    /// is what the map draws the track from, what the replay reads its sprite
+    /// off, and what the replay is keyed to — closing the window would clear
+    /// it and stop the very replay this is getting out of the way of.
+    private var isFlightWindowHidden: Bool { replay.isActive }
+
     /// Whether the flight window is on screen as a pane right now.
-    private var isFlightPaneUp: Bool { usesFlightPane && sheet == .flight && selection != nil }
+    private var isFlightPaneUp: Bool {
+        usesFlightPane && sheet == .flight && selection != nil && !isFlightWindowHidden
+    }
 
     /// With no aircraft open the dock is what stands at the bottom of the map;
     /// with one, the window does, whatever shape it is in.
     private var mapBottomInset: CGFloat {
-        selection == nil ? MapDock.reservedHeight : flightWindowBottomInset
+        // A replay clears the bottom of the map of everything else — the dock
+        // steps aside for it, and so does the flight window — so the bar is
+        // the only thing left to keep clear of. It has to be counted, or the
+        // route framed at the start of a playback runs underneath it.
+        if replay.isActive { return ReplayBar.reservedHeight }
+        return selection == nil ? MapDock.reservedHeight : flightWindowBottomInset
     }
 
     /// How much of the bottom of the screen the flight window is standing on.
@@ -396,6 +435,14 @@ struct ContentView: View {
     /// — which stands on no part of the bottom at all — stops pushing the
     /// replay bar and the map's hub a peak's height up the screen for nothing.
     private var flightWindowBottomInset: CGFloat {
+        // A window that is not on the screen is standing on no part of it. Said
+        // before the pane is asked about, because the pane's own answer is
+        // already nil-gated by this and the sheet's is not: without this, a
+        // hidden sheet would go on reporting the peak height it had when it was
+        // last drawn, and the replay bar would float that far up the screen
+        // over nothing.
+        if isFlightWindowHidden { return 0 }
+
         if isFlightPaneUp {
             return FlightWindowPaneMetrics.bottomInset(for: flightPlacement)
         }
@@ -1258,9 +1305,21 @@ struct ContentView: View {
 
     // MARK: - Replay
 
-    /// Starts playback and gets out of its way: the window drops back to its
-    /// peak so the map — which is the thing being watched — is most of the
-    /// screen, and the camera is put on the start of the track.
+    /// Starts playback and gets out of its way: the window comes off the
+    /// screen entirely, and the camera pulls back to the whole track.
+    ///
+    /// Both of those replaced something narrower. The window used to drop to
+    /// its peak and stay there, covering the bottom of the map through the
+    /// playback; it is hidden outright now, which is what `isFlightWindowHidden`
+    /// is for. And the camera used to be put on the *first* point of the track
+    /// at a fixed 320 km span — a view of the departure field, from which the
+    /// aeroplane promptly flew off, on any flight longer than about an hour.
+    ///
+    /// Framing the flown path instead opens on the shape of the whole flight,
+    /// which is the thing somebody pressed replay to see. From there it is the
+    /// viewer's map: pinching in to follow the aeroplane along works, because
+    /// the replay only ever pans to keep it on screen and never touches the
+    /// zoom (see `keepInView`).
     private func startReplay(of flightId: String, track: [TrackPoint]) {
         guard track.count >= FlightReplay.minimumPoints else { return }
 
@@ -1274,9 +1333,12 @@ struct ContentView: View {
 
         isWindowExpanded = false
 
-        if let first = track.first {
-            focus(on: first.coordinate, spanMeters: 320_000)
-        }
+        // The same command the window's own "frame the path" button issues, and
+        // it reads the same trail this replay is playing — `FlightDetailView`
+        // hands us `FlightTrailStore`'s points, which is exactly what it
+        // frames. So it is chrome-aware for free: the padding it fits inside
+        // already counts the replay bar, by way of `mapBottomInset` above.
+        mapCommand = MapCommand(kind: .fitFlownPath)
     }
 
     @ViewBuilder
@@ -1285,11 +1347,18 @@ struct ContentView: View {
             ReplayBar(replay: replay, theme: theme)
                 .padding(.leading, 14)
                 .padding(.trailing, 14 + mapTrailingInset)
-                // Clears the info window when one is open, and the bottom of
-                // the screen when the replay has outlived it. Zero is the
-                // second of those: no window, or one standing down the side
-                // rather than across the bottom.
-                .padding(.bottom, flightWindowBottomInset == 0 ? 6 : flightWindowBottomInset + 14)
+                // Straight onto the bottom of the screen, because for the
+                // length of a replay there is nothing under it: the flight
+                // window steps aside (`isFlightWindowHidden`) and the dock is
+                // already gone. This used to clear whichever of the two was
+                // standing there, back when the window stayed up through a
+                // playback — that arm of it is now unreachable, so it is gone
+                // rather than left to read as a case that can still happen.
+                //
+                // The same gap the bar's own reserved height accounts for, so
+                // what the map keeps clear and what the bar sits on are one
+                // number.
+                .padding(.bottom, ReplayBar.liftOffSafeArea)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 .ignoresSafeArea(.keyboard, edges: .bottom)
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
