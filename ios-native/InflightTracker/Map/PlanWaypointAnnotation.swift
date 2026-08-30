@@ -10,10 +10,18 @@ import UIKit
 /// one that gives way.
 enum PlanStyle {
 
+    /// The line through the fixes, drawn dotted.
+    ///
+    /// Carried at 0.55 while that line was solid. A dotted line of the same
+    /// colour reads considerably fainter than a solid one — most of its length
+    /// is now gap — so the alpha went up with the dotting to keep the route
+    /// about as present on the map as it was before. Still well under the
+    /// fixes, which are full strength: the diamonds are what you read, and the
+    /// line is what joins them.
     static let line = UIColor { traits in
         traits.userInterfaceStyle == .light
-            ? UIColor(red: 0.15, green: 0.40, blue: 0.75, alpha: 0.55)
-            : UIColor(red: 0.55, green: 0.75, blue: 1.00, alpha: 0.55)
+            ? UIColor(red: 0.15, green: 0.40, blue: 0.75, alpha: 0.70)
+            : UIColor(red: 0.55, green: 0.75, blue: 1.00, alpha: 0.70)
     }
 
     /// The fixes themselves, at full strength — a mark you are meant to pick

@@ -46,9 +46,9 @@ enum RouteLineMode: String, CaseIterable, Identifiable {
         case .off:
             return "No line ahead of the aeroplane. The flown path behind it has its own switch below."
         case .direct:
-            return "A straight great-circle line from the aeroplane to its destination, moving with it as it flies. Drawn for any flight with a destination filed."
+            return "A dashed great-circle line from the aeroplane straight to its destination, moving with it as it flies. Drawn for any flight with a destination filed."
         case .filedPlan:
-            return "The route as filed — the line through every fix, and each one named. Procedures are expanded to the fixes they contain. Most pilots file nothing, and nothing is drawn when they haven't."
+            return "The route as filed — a dotted line through every fix, and each one named. Procedures are expanded to the fixes they contain. Most pilots file nothing, and nothing is drawn when they haven't."
         }
     }
 }

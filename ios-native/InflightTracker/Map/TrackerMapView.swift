@@ -3110,13 +3110,31 @@ struct TrackerMapView: UIViewRepresentable {
             renderer.lineJoin = .round
 
             if line.title == Self.planTitle {
-                // The route as filed: solid but faint, and thin. It is a
-                // statement of intent sitting underneath a track that actually
-                // happened, and it should read as the quieter of the two. The
-                // colour is shared with the fixes drawn along it, so the line
-                // and the diamonds on it are visibly one route.
+                // The route as filed: dotted, and faint. It is a statement of
+                // intent sitting underneath a track that actually happened, and
+                // it should read as the quieter of the two. The colour is
+                // shared with the fixes drawn along it, so the line and the
+                // diamonds on it are visibly one route.
+                //
+                // Dots rather than dashes, and that is the distinction being
+                // drawn: the dashed line on this map already means something —
+                // an inferred leg, the part of a route nobody watched (see
+                // `plannedTitle` below, and the leg back to the departure
+                // field). A filed plan is the opposite of an inference. It is
+                // the one thing on the map the pilot actually declared, so it
+                // gets a mark of its own.
+                //
+                // A dash length near zero under a round cap *is* a dot: the cap
+                // extends half the line width past each end, so what lands is a
+                // disc the width of the stroke. Hence the 0.1 — a zero-length
+                // segment is a degenerate path, and this is the shortest thing
+                // that reliably is not one.
                 renderer.strokeColor = PlanStyle.line
-                renderer.lineWidth = 1.8
+                // Wider than the 1.8 this was while it was solid. Dotting
+                // removes most of the ink from a line, and matching the old
+                // weight by eye means each surviving dot has to carry more.
+                renderer.lineWidth = 2.2
+                renderer.lineDashPattern = [0.1, 5]
                 return renderer
             }
 
