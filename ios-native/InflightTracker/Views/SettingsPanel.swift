@@ -36,6 +36,9 @@ struct SettingsPanel: View {
     // and how much has been asked for behind it.
     @ObservedObject private var push = PushService.shared
     @ObservedObject private var friends = FriendsStore.shared
+    // Observed so the row below says what is on the home screen right now
+    // rather than what was there when this panel opened.
+    @ObservedObject private var widgets = WidgetBridge.shared
 
     /// Every one of these opens over this panel rather than replacing it: they
     /// are somewhere you go and come back from, and losing the settings sheet
@@ -50,6 +53,7 @@ struct SettingsPanel: View {
     @State private var isShowingAppearance = false
     @State private var isShowingFeed = false
     @State private var isShowingAbout = false
+    @State private var isShowingWidgets = false
 
     var body: some View {
         MapPanel(title: "Settings", subtitle: feedSummary) {
@@ -150,6 +154,21 @@ struct SettingsPanel: View {
                 ) {
                     isShowingAppearance = true
                 }
+
+                PanelDivider()
+
+                // The home screen is a screen you are looking at too, even
+                // when the app is closed — and until now the only way to
+                // change what was on it was to find the aeroplane it was
+                // showing and open it, which is impossible once that flight
+                // has landed.
+                PanelActionRow(
+                    title: "Widgets",
+                    symbol: "square.grid.2x2",
+                    detail: widgetsDetail
+                ) {
+                    isShowingWidgets = true
+                }
             }
             .panelEntrance(3)
 
@@ -203,6 +222,9 @@ struct SettingsPanel: View {
         .sheet(isPresented: $isShowingAppearance) { AppearanceSettingsPanel() }
         .sheet(isPresented: $isShowingFeed) { FeedSettingsPanel().environmentObject(feed) }
         .sheet(isPresented: $isShowingAbout) { AboutSettingsPanel().environmentObject(feed) }
+        // Handed the feed because the panel offers what is flying right now,
+        // which is a question only the packet can answer.
+        .sheet(isPresented: $isShowingWidgets) { WidgetsPanel().environmentObject(feed) }
     }
 
     // MARK: - What each door says without being opened
@@ -247,6 +269,25 @@ struct SettingsPanel: View {
     private var feedDetail: String {
         guard feed.status.isLive else { return feed.status.label }
         return "\(feed.server) · \(feed.flights.count) aircraft"
+    }
+
+    /// What the home screen is currently pointed at, without opening the
+    /// screen that says so at length.
+    private var widgetsDetail: String {
+        var parts: [String] = []
+
+        if let id = widgets.pinnedFlightId {
+            let pinned = feed.flights.first { $0.id == id }
+            parts.append(pinned.map { "showing \($0.displayName)" } ?? "pinned flight has ended")
+        }
+        if let icao = widgets.pinnedAirportIcao {
+            parts.append(icao)
+        }
+
+        guard !parts.isEmpty else {
+            return "Nothing pinned — the tile follows whoever is flying."
+        }
+        return parts.joined(separator: " · ")
     }
 
     private var aboutDetail: String {

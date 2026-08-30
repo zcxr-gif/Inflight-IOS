@@ -90,19 +90,32 @@ final class WidgetBridge: ObservableObject {
     /// time for it; the widget process only ever reads finished numbers.
     func update(flights: [Flight], atcStations: [AtcStation] = []) {
         let friendUsernames = Set(FriendsStore.shared.friends)
+        let identity = PilotIdentity.shared
 
         var pinned: WidgetFlight?
         var friends: [WidgetFlight] = []
+        var mine: [WidgetFlight] = []
 
         for flight in flights {
             let isPinned = flight.id == pinnedFlightId
             let isFriend = flight.username.map { friendUsernames.contains($0.lowercased()) } ?? false
-            guard isPinned || isFriend else { continue }
+            // Carried so a widget can be pointed at "whatever I am flying"
+            // without anybody having to pin anything — see the configuration
+            // intent in the widget extension. The name check is the same one
+            // the map's find-me button makes, and costs nothing at all for the
+            // many people who have not filled a name in.
+            let isMine = identity.isSet && identity.isMe(flight.username)
+            guard isPinned || isFriend || isMine else { continue }
 
             let converted = widgetFlight(from: flight)
             if isPinned { pinned = converted }
             if isFriend { friends.append(converted) }
+            if isMine { mine.append(converted) }
         }
+
+        // Highest first, which for somebody flying two aeroplanes at once is
+        // the one they are actually in.
+        mine.sort { $0.altitudeFt > $1.altitudeFt }
 
         // Airborne first, then whoever is furthest along — the friend about to
         // land is the one worth the top row of a small widget.
@@ -116,6 +129,7 @@ final class WidgetBridge: ObservableObject {
         let snapshot = WidgetSnapshot(
             pinned: pinned,
             friends: Array(friends.prefix(Self.friendCapacity)),
+            mine: mine,
             friendCount: FriendsStore.shared.count,
             airport: pinnedAirport(in: flights, atcStations: atcStations),
             updatedAt: Date()
@@ -204,6 +218,9 @@ final class WidgetBridge: ObservableObject {
     private func prefetchPhotos(for snapshot: WidgetSnapshot) {
         var wanted: [WidgetFlight] = []
         if let pinned = snapshot.pinned { wanted.append(pinned) }
+        // My own aeroplane is a thing a widget can be pointed at directly, so
+        // its photograph has to be in the cache whether or not it is pinned.
+        wanted.append(contentsOf: snapshot.myFlights.prefix(1))
         // Only the friends a widget could actually show. Fetching all eight
         // would fill the cache with backgrounds nothing draws.
         wanted.append(contentsOf: snapshot.friends.prefix(3))
@@ -251,6 +268,9 @@ final class WidgetBridge: ObservableObject {
             snapshot.pinned?.id ?? "-",
             snapshot.pinned?.phaseLabel ?? "-",
             snapshot.friends.map { "\($0.id):\($0.phaseLabel)" }.joined(separator: ","),
+            // In the signature for the same reason the friends are: a widget
+            // can be pointed at my own aircraft, so my own take-off is news.
+            snapshot.myFlights.map { "\($0.id):\($0.phaseLabel)" }.joined(separator: ","),
             String(snapshot.friendCount),
             snapshot.airport.map { "\($0.icao):\($0.movementCount):\($0.atcPositions.joined())" } ?? "-"
         ].joined(separator: "|")
