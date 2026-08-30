@@ -153,6 +153,17 @@ struct InstrumentsSettingsPanel: View {
         // the sections below it move rather than appear.
         .motion(Motion.row, value: instruments.isEnabled)
     }
+
+    /// What the chosen display actually shows, and — for the PFD — the one
+    /// thing about it worth knowing before it is read.
+    private var displayDetail: String {
+        switch instruments.display {
+        case .pfd:
+            return "Attitude, speed, height and heading. Pitch and bank are read from the simulator when the pilot is broadcasting through Connect, and worked out from the flight path and the rate of turn when they are not — the display says which."
+        case .navigation:
+            return "The filed route, both ends of it, and the traffic around the aircraft, heading up."
+        }
+    }
 }
 
 // MARK: - Appearance
@@ -556,6 +567,11 @@ enum SettingsSummary {
 
     /// Where the simulator link stands, so the row is worth opening only when
     /// there is something to do behind it.
+    ///
+    /// Isolated because what it reads is: `ConnectSession` is `@MainActor`, so
+    /// its state can only be looked at from the main actor. Every caller is a
+    /// view body, which is already there.
+    @MainActor
     static func connect(_ session: ConnectSession) -> String {
         switch session.status {
         case .off:

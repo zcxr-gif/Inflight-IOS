@@ -220,7 +220,7 @@ struct SettingsPanel: View {
         guard instruments.isEnabled else {
             return "Off — no flight deck in the flight window."
         }
-        return "On — opens on the \(instruments.display.label.lowercased())."
+        return "On — opens on the \(instruments.display.longLabel.lowercased())."
     }
 
     private var appearanceDetail: String {
