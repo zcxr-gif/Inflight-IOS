@@ -270,6 +270,10 @@ final class AccountStore: ObservableObject {
         // next one.
         ProfileStore.shared.accountChanged()
         PilotDirectory.shared.accountChanged()
+        // And the flight plans, for exactly the same reason: they are one
+        // pilot's intentions, and the next person to sign in on this phone
+        // must not find them sitting in the panel.
+        FlightPlanBook.shared.clear()
 
         // Carries an agreement made before there was an account onto the
         // account. Not awaited, for the same reason as the profile: it is

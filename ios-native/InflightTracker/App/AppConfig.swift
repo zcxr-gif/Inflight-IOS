@@ -13,6 +13,21 @@ enum AppConfig {
     /// REST backend behind the community aircraft photos.
     static let apiBaseURLString = "https://site--indgo-backend--6dmjph8ltlhv.code.run"
 
+    /// The community stand list for one field.
+    ///
+    /// The backend has carried this dataset for years — it is what the web
+    /// tracker's gate board falls back to when every Overpass mirror refuses —
+    /// and it is *names without positions*: somebody's export of a field's
+    /// stand numbering, not a survey. That is exactly the right shape for the
+    /// one job it does here, which is to give a field OpenStreetMap has never
+    /// mapped a list of real stand names to pick from.
+    static func airportGatesURL(icao: String) -> URL? {
+        let code = icao.uppercased()
+        guard code.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }), (3...4).contains(code.count)
+        else { return nil }
+        return URL(string: "\(apiBaseURLString)/api/gates/\(code)")
+    }
+
     /// Breadcrumb history for one flight — the path it has already flown.
     /// Same endpoint the Capacitor build fetches (`old/www/flight.js`, where
     /// `LIVE_FLIGHTS_API_URL` has `/flights` swapped for `/api/flights`).

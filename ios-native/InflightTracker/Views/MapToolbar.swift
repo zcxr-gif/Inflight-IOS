@@ -21,6 +21,16 @@ enum MapPanelKind: String, Identifiable, CaseIterable {
     case weather
     case settings
 
+    /// The pilot's own planned flights.
+    ///
+    /// Off the bar for the same reason stats and weather are: the bar is five
+    /// places you go while you are looking at traffic, and this is somewhere
+    /// you go once, before a flight. It is reached from Settings and from a
+    /// field's own panel — where "plan a flight out of here" is the thought
+    /// somebody is already having — and, like the rest of these, from a deep
+    /// link.
+    case plans
+
     var id: String { rawValue }
 
     /// What the bar itself shows, in order.
@@ -35,6 +45,7 @@ enum MapPanelKind: String, Identifiable, CaseIterable {
         case .filters: return "Filters"
         case .weather: return "Weather"
         case .settings: return "Settings"
+        case .plans: return "Flight plans"
         }
     }
 
@@ -49,6 +60,7 @@ enum MapPanelKind: String, Identifiable, CaseIterable {
         case .filters: return "line.3.horizontal.decrease"
         case .weather: return "cloud.sun.fill"
         case .settings: return "gearshape.fill"
+        case .plans: return "calendar"
         }
     }
 }

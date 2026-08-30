@@ -26,6 +26,13 @@ struct AirportPanel: View {
     /// Open one of the aircraft listed here.
     let onSelectFlight: (Flight) -> Void
 
+    /// Start a flight plan out of this field.
+    ///
+    /// Optional, and defaulted to nothing, so a field opened somewhere that has
+    /// no planner behind it simply does not offer the row rather than offering
+    /// one that does nothing.
+    var onPlanFlight: ((Airport) -> Void)? = nil
+
     /// The flight this field was reached from, when it was reached from one.
     ///
     /// Opening a field replaces whatever sheet was up, so arriving here from an
@@ -129,6 +136,22 @@ struct AirportPanel: View {
                         symbol: "chevron.backward",
                         action: origin.action
                     )
+
+                    PanelDivider()
+                }
+
+                if let onPlanFlight = onPlanFlight {
+                    // Above the map row and below the way back: somebody
+                    // reading a field's stands is a keystroke away from
+                    // wanting to leave from one of them, and the ICAO they
+                    // would otherwise have to type is the title of this panel.
+                    PanelActionRow(
+                        title: "Plan a flight from here",
+                        symbol: "calendar.badge.plus",
+                        detail: "Set your gate at each end, and when you mean to go."
+                    ) {
+                        onPlanFlight(airport)
+                    }
 
                     PanelDivider()
                 }

@@ -39,11 +39,15 @@ struct SettingsPanel: View {
     // Observed so the row below says what is on the home screen right now
     // rather than what was there when this panel opened.
     @ObservedObject private var widgets = WidgetBridge.shared
+    // Observed so the flight-plans row says what is actually next rather than
+    // only what the screen is for.
+    @ObservedObject private var plans = FlightPlanBook.shared
 
     /// Every one of these opens over this panel rather than replacing it: they
     /// are somewhere you go and come back from, and losing the settings sheet
     /// to get to one would make coming back a matter of finding it again.
     @State private var isShowingAccount = false
+    @State private var isShowingPlans = false
     @State private var isShowingPaywall = false
     @State private var isShowingConnect = false
     @State private var isShowingNotifications = false
@@ -98,6 +102,20 @@ struct SettingsPanel: View {
             }
             .panelEntrance(1)
 
+            // Under the account, because that is what a plan belongs to: it is
+            // not a preference about this phone, it is something you wrote down
+            // that has to be there on the next one.
+            PanelSection(title: "FLYING") {
+                PanelActionRow(
+                    title: "Flight plans",
+                    symbol: "calendar",
+                    detail: plansDetail
+                ) {
+                    isShowingPlans = true
+                }
+            }
+            .panelEntrance(2)
+
             // High up, and above everything about how the app is drawn, because
             // it is the only section here about something that happens when the
             // app is closed. Everything below this is a preference about a
@@ -111,7 +129,7 @@ struct SettingsPanel: View {
                     isShowingNotifications = true
                 }
             }
-            .panelEntrance(2)
+            .panelEntrance(3)
 
             // The three screens about what you are looking at, in the order you
             // meet them: the map underneath everything, the window that opens
@@ -170,7 +188,7 @@ struct SettingsPanel: View {
                     isShowingWidgets = true
                 }
             }
-            .panelEntrance(3)
+            .panelEntrance(4)
 
             // Where the aeroplanes come from — the cloud, and the simulator on
             // the next device along. Two rows rather than one screen with both
@@ -194,7 +212,7 @@ struct SettingsPanel: View {
                     isShowingConnect = true
                 }
             }
-            .panelEntrance(4)
+            .panelEntrance(5)
 
             PanelSection(title: "ABOUT") {
                 PanelActionRow(
@@ -205,9 +223,14 @@ struct SettingsPanel: View {
                     isShowingAbout = true
                 }
             }
-            .panelEntrance(5)
+            .panelEntrance(6)
         }
+        // Read once so the row above can say what is actually next rather than
+        // only what the screen is for. Cheap, capped at 200 small rows, and a
+        // no-op on every visit after the first — see `loadIfNeeded`.
+        .task { await plans.loadIfNeeded() }
         .sheet(isPresented: $isShowingAccount) { AccountPanel() }
+        .sheet(isPresented: $isShowingPlans) { FlightPlansPanel() }
         .sheet(isPresented: $isShowingPaywall) { ProPanel() }
         .sheet(isPresented: $isShowingConnect) { ConnectPanel() }
         .sheet(isPresented: $isShowingNotifications) {
@@ -311,6 +334,24 @@ struct SettingsPanel: View {
     private var feedSummary: String {
         guard feed.status.isLive else { return feed.status.label }
         return "\(feed.flights.count) aircraft · \(feed.server)"
+    }
+
+    /// What the row says under its title.
+    ///
+    /// The next flight rather than a count, because "EGLL → KJFK, Friday 18:00"
+    /// is the thing somebody opened Settings to check, and a hub that answers
+    /// the question without being opened has already done its job.
+    private var plansDetail: String {
+        guard accounts.isSignedIn else { return "Sign in to keep your plans." }
+
+        guard let next = plans.next else {
+            return plans.hasAnswered
+                ? "Nothing planned. Set your gates and your times."
+                : "Your gates and times for the flights ahead."
+        }
+
+        guard let out = next.scheduledOut else { return next.routeLabel }
+        return "\(next.routeLabel) · \(out.formatted(.dateTime.weekday(.abbreviated).hour().minute()))"
     }
 
     private var accountDetail: String {
