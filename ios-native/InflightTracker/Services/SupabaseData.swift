@@ -161,12 +161,148 @@ enum SupabaseData {
         )
     }
 
+    /// Adds a row the caller owns, and hands back the row the server stored.
+    ///
+    /// Not `upsert`: there is no natural key to merge on here. A pilot may
+    /// plan the same leg on the same evening twice, and a client that turned
+    /// the second one into an edit of the first would be deciding, on their
+    /// behalf, that they did not mean it.
+    @discardableResult
+    static func insert(
+        table: String,
+        row: [String: Any],
+        accessToken: String
+    ) async throws -> Data {
+        guard let url = AppConfig.tableURL(table) else {
+            throw Failure(message: "Bad request URL.")
+        }
+        return try await send(
+            url: url,
+            method: "POST",
+            body: row,
+            accessToken: accessToken,
+            extraHeaders: ["Prefer": "return=representation"]
+        )
+    }
+
+    /// Reads rows the caller owns, straight off a table.
+    ///
+    /// The counterpart to `upsert` above, and used under the same rule: a table
+    /// is read directly only where row-level security already answers "which of
+    /// these may this reader see" without needing to know anything about the
+    /// reader beyond who they are. Anything with a visibility *setting* behind
+    /// it — a profile, somebody else's logbook, a live position — goes through
+    /// a `security definer` function instead, because that rule is not one a
+    /// policy on a table can express.
+    ///
+    /// `filters` are PostgREST's own operator spellings, given whole:
+    /// `["user_id": "eq.\(id)"]`. Passing them through rather than building
+    /// them here keeps this the transport it is, and means a caller that needs
+    /// `in.(…)` or `is.null` does not have to come back and widen an enum.
+    static func select<T: Decodable>(
+        table: String,
+        columns: String = "*",
+        filters: [String: String] = [:],
+        order: String? = nil,
+        limit: Int? = nil,
+        accessToken: String?
+    ) async throws -> [T] {
+        guard let base = AppConfig.tableURL(table),
+              var components = URLComponents(url: base, resolvingAgainstBaseURL: false)
+        else { throw Failure(message: "Bad request URL.") }
+
+        var items = [URLQueryItem(name: "select", value: columns)]
+        for (column, predicate) in filters {
+            items.append(URLQueryItem(name: column, value: predicate))
+        }
+        if let order = order { items.append(URLQueryItem(name: "order", value: order)) }
+        if let limit = limit { items.append(URLQueryItem(name: "limit", value: String(limit))) }
+        components.queryItems = items
+
+        guard let url = components.url else { throw Failure(message: "Bad request URL.") }
+
+        let data = try await send(url: url, method: "GET", body: nil, accessToken: accessToken)
+        guard !data.isEmpty else { return [] }
+        do {
+            return try JSONDecoder().decode([T].self, from: data)
+        } catch {
+            throw Failure(message: "The server sent something this app couldn't read.")
+        }
+    }
+
+    /// Deletes rows the caller owns.
+    ///
+    /// `filters` is not defaulted and not allowed to be empty, which is the
+    /// only guard worth having here: PostgREST reads a `DELETE` with no
+    /// predicate as "every row you are allowed to delete", and the difference
+    /// between that and one row is a forgotten dictionary.
+    @discardableResult
+    static func delete(
+        table: String,
+        filters: [String: String],
+        accessToken: String
+    ) async throws -> Data {
+        guard !filters.isEmpty else {
+            throw Failure(message: "Refusing to delete without saying which rows.")
+        }
+        guard let base = AppConfig.tableURL(table),
+              var components = URLComponents(url: base, resolvingAgainstBaseURL: false)
+        else { throw Failure(message: "Bad request URL.") }
+
+        components.queryItems = filters.map { URLQueryItem(name: $0.key, value: $0.value) }
+        guard let url = components.url else { throw Failure(message: "Bad request URL.") }
+
+        return try await send(
+            url: url,
+            method: "DELETE",
+            body: nil,
+            accessToken: accessToken,
+            extraHeaders: ["Prefer": "return=minimal"]
+        )
+    }
+
+    /// Changes rows the caller owns, in place.
+    ///
+    /// Separate from `upsert` because the two answer different questions. An
+    /// upsert is "there is one row for this key and here is what it should
+    /// say"; this is "these particular rows, identified by their own id".
+    /// Sending an upsert where a patch belongs means sending every column,
+    /// including the ones this client has no opinion about.
+    @discardableResult
+    static func patch(
+        table: String,
+        filters: [String: String],
+        row: [String: Any],
+        accessToken: String
+    ) async throws -> Data {
+        guard !filters.isEmpty else {
+            throw Failure(message: "Refusing to update without saying which rows.")
+        }
+        guard let base = AppConfig.tableURL(table),
+              var components = URLComponents(url: base, resolvingAgainstBaseURL: false)
+        else { throw Failure(message: "Bad request URL.") }
+
+        components.queryItems = filters.map { URLQueryItem(name: $0.key, value: $0.value) }
+        guard let url = components.url else { throw Failure(message: "Bad request URL.") }
+
+        return try await send(
+            url: url,
+            method: "PATCH",
+            body: row,
+            accessToken: accessToken,
+            extraHeaders: ["Prefer": "return=representation"]
+        )
+    }
+
     // MARK: - Plumbing
 
+    /// A nil `body` is a request that carries none — a `GET`, a `DELETE`. Not
+    /// the same as an empty dictionary, which PostgREST reads as an empty JSON
+    /// object and a `GET` has no business sending at all.
     private static func send(
         url: URL,
         method: String,
-        body: [String: Any],
+        body: [String: Any]?,
         accessToken: String?,
         extraHeaders: [String: String] = [:]
     ) async throws -> Data {
@@ -177,9 +313,11 @@ enum SupabaseData {
             "Bearer \(accessToken ?? AppConfig.supabaseAnonKey)",
             forHTTPHeaderField: "Authorization"
         )
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         for (key, value) in extraHeaders { request.setValue(value, forHTTPHeaderField: key) }
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        if let body = body {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        }
         request.timeoutInterval = 20
 
         let (data, response) = try await URLSession.shared.data(for: request)

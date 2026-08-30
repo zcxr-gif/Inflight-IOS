@@ -342,6 +342,12 @@ struct ContentView: View {
     /// them redraws the window's contents instead of replacing the window.
     @State private var panelKind: MapPanelKind = .friends
 
+    /// The ICAO a new plan should start from, when the plans panel was reached
+    /// from a field rather than from Settings. Cleared on every other way in,
+    /// so a plan started from the toolbar does not quietly inherit whichever
+    /// airport was last looked at.
+    @State private var planningFrom: String?
+
     /// The traffic the map draws: the packet, narrowed by the filters, with the
     /// open aircraft kept whatever they say.
     private var visibleFlights: [Flight] {
@@ -1088,6 +1094,9 @@ struct ContentView: View {
                     selection = SelectedFlight(id: flight.id)
                     focus(on: flight.coordinate, spanMeters: 240_000)
                 },
+                onPlanFlight: { field in
+                    openPlans(from: field)
+                },
                 origin: airportReturn
             )
             .environmentObject(feed)
@@ -1146,6 +1155,14 @@ struct ContentView: View {
         case .settings:
             SettingsPanel()
                 .environmentObject(feed)
+
+        case .plans:
+            // The field it was opened from, when it was opened from one — see
+            // `planningFrom`. Read here rather than carried in `panelKind` for
+            // the same reason the panel's identity carries nothing: a payload
+            // on the case would change the sheet's id and replace the window
+            // instead of redrawing it.
+            FlightPlansPanel(startingFrom: planningFrom)
         }
     }
 
@@ -1218,8 +1235,26 @@ struct ContentView: View {
 
     /// Opens the panel window on `kind`, or swaps what an open one is showing.
     private func openPanel(_ kind: MapPanelKind) {
+        // Every way in but the field's own resets this. A plan opened from the
+        // toolbar starts blank, which is the only thing it can honestly start
+        // as.
+        if kind != .plans { planningFrom = nil }
+
         withAnimation(Motion.content) {
             panelKind = kind
+            sheet = .panel
+        }
+    }
+
+    /// Opens the plans panel with a field already filled in.
+    ///
+    /// Reached from a field's own panel, where "plan a flight out of here" is
+    /// the thought somebody is already having and typing the ICAO they are
+    /// looking at would be a small rudeness.
+    private func openPlans(from airport: Airport?) {
+        planningFrom = airport?.icao
+        withAnimation(Motion.content) {
+            panelKind = .plans
             sheet = .panel
         }
     }

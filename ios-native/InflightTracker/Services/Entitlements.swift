@@ -41,6 +41,15 @@ enum ProFeature: String, CaseIterable, Identifiable {
     /// most recent stretch.
     case logbook
 
+    /// The airport map behind gate selection.
+    ///
+    /// Planning a flight is free, all of it: both ends, the schedule, and the
+    /// stand at each end typed in by hand. What Pro buys is not the *record* —
+    /// the row a free account writes is identical — it is the way of finding
+    /// the gate: the field drawn from its own mapping, every stand on it, and
+    /// a tap instead of a guess at whether the pier you want is called B or 2B.
+    case gateMap
+
     /// How many pilots a free account can watch. Low enough to be a real
     /// difference, high enough that the feature is genuinely usable free —
     /// nobody should have to pay to find out whether the list works.
@@ -69,6 +78,7 @@ enum ProFeature: String, CaseIterable, Identifiable {
         case .findMyAircraft: return "Jump to your aircraft"
         case .profileBanner: return "Your profile, your way"
         case .logbook: return "Every flight you've made"
+        case .gateMap: return "Pick your gate off the map"
         }
     }
 
@@ -88,6 +98,8 @@ enum ProFeature: String, CaseIterable, Identifiable {
             return "A photograph across the top of your profile, in a colour you pick. Free profiles get a painted one."
         case .logbook:
             return "Your whole logbook, not just the last \(Self.freeLogbookEntries) flights — with the fields, fleet and hours behind it."
+        case .gateMap:
+            return "Open the field, see every stand it has, and tap the one you want. Planning a flight — both gates, both times — is free either way."
         }
     }
 
@@ -100,6 +112,7 @@ enum ProFeature: String, CaseIterable, Identifiable {
         case .findMyAircraft: return "location.magnifyingglass"
         case .profileBanner: return "photo.on.rectangle.angled"
         case .logbook: return "book.closed"
+        case .gateMap: return "map.circle.fill"
         }
     }
 }
