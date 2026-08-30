@@ -155,6 +155,12 @@ struct FlightDetailView: View {
                         theme: theme,
                         style: appearance.peakStyle,
                         width: geometry.size.width,
+                        // The peak pages the whole set now, the same as the
+                        // window above it. See `FlightInfoPeak.photos`.
+                        photos: photoLoader.photos,
+                        // Both halves are mounted the whole time; only the one
+                        // actually on screen turns its photographs over.
+                        isAutoplaying: settled,
                         heroCeiling: heroCeiling,
                         partner: vaPartner
                     )
@@ -272,6 +278,8 @@ struct FlightDetailView: View {
             guard !Task.isCancelled else { return }
             vaPartner = resolved
         }
+        // Another aircraft, in the same window. See `resetForNewFlight()`.
+        .onChange(of: flightId) { _, _ in resetForNewFlight() }
         .onChange(of: flight?.liveryName) { _, _ in load(flight) }
         .onChange(of: photoLoader.photo?.url) { _, url in imageLoader.load(url) }
         // Live samples extend the path between packets, and the filed plan —
@@ -392,6 +400,51 @@ struct FlightDetailView: View {
         imageLoader.load(photoLoader.photo?.url)
     }
 
+    /// When the board's DEPARTED tile should say this flight left.
+    ///
+    /// The moment the wheels came off the ground, read off the path — which is
+    /// what the word means, and what the tile did not used to show. It showed
+    /// the first sample we hold, which on a flight the backend's history covers
+    /// is nearly the same thing and on one the app found at cruise is the
+    /// moment somebody opened the app.
+    ///
+    /// The old answer is still the fallback, for the flight whose path holds no
+    /// ground sample at all. It is wrong in the same way it always was, and the
+    /// alternative is a dash where there used to be an approximate time.
+    private var departed: Date? {
+        TrackPoint.lastTakeoff(in: track)
+            ?? FlightTrailStore.shared.firstSeen(for: flightId)
+    }
+
+    /// Another aircraft has been tapped while this window was open.
+    ///
+    /// The window is not rebuilt for it — see the note where it is presented —
+    /// so what would have been thrown away by a fresh view has to be put down
+    /// deliberately here. Everything cleared below is a statement about the
+    /// aeroplane that has just left: its path, its filed plan, whatever its
+    /// pilot's simulator was saying, the VA it was flying for, and a partner
+    /// panel opened from it. Carrying any of them across for the second or two
+    /// before the new answers land would be the window telling you something
+    /// untrue about the aircraft you just tapped.
+    ///
+    /// What is deliberately *not* cleared is the peak's measured height. It is
+    /// not a fact about the aircraft, it is a fact about the layout — and the
+    /// layout is the same layout, within a few points, whichever aeroplane is
+    /// in it. Clearing it is what made the sheet collapse to a guess and grow
+    /// back on every tap.
+    private func resetForNewFlight() {
+        track = []
+        plan = []
+        sim = nil
+        vaPartner = nil
+        viewingPartner = nil
+
+        load(flight)
+        loadTrack()
+        loadSim()
+        loadPlan()
+    }
+
     /// Pulls the flown path the backend already has for this flight, which
     /// covers it from departure rather than from whenever the app happened to
     /// start watching.
@@ -478,9 +531,9 @@ struct FlightDetailView: View {
                     contributor: photoLoader.photo?.contributor,
                     theme: theme,
                     width: width,
-                    // The full window pages through everything the lookup
-                    // found; the peak state above deliberately does not.
-                    photos: photoLoader.photos
+                    photos: photoLoader.photos,
+                    // Only while the full window is the half being looked at.
+                    isAutoplaying: !isCollapsed
                 )
                 .id(Self.topAnchor)
 
@@ -592,10 +645,7 @@ struct FlightDetailView: View {
                 registration: registration(for: flight),
                 theme: theme,
                 progress: progress,
-                // The backend's history reaches back to the push-back for most
-                // flights, so this is usually when it actually left rather than
-                // when this app first looked.
-                began: FlightTrailStore.shared.firstSeen(for: flight.id),
+                began: departed,
                 onSelectAirport: onSelectAirport
             )
         } else {
@@ -842,6 +892,17 @@ final class AircraftPhotoLoader: ObservableObject {
     func load(type: String, livery: String) {
         let key = "\(type)|\(livery)"
         guard requestedKey != key else { return }
+
+        // A different aeroplane, so the pictures of the last one are wrong
+        // rather than merely stale — and the lookup is a round trip, which is
+        // long enough for somebody who has just tapped a 737 to be looking at
+        // an A380 under its callsign. Emptied now; the sprite placeholder is
+        // the honest thing to show for the moment in between.
+        //
+        // Only on a *change* of key: re-asking for the same type and livery is
+        // the common case, answered from the cache, and clearing there would
+        // blink a photograph that was already correct.
+        if requestedKey != nil { photos = [] }
         requestedKey = key
 
         AircraftPhotoService.shared.photos(type: type, livery: livery) { [weak self] resolved in

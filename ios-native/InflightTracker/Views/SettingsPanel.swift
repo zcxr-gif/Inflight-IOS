@@ -3,9 +3,24 @@ import UIKit
 
 /// Settings, from the toolbar's settings button.
 ///
-/// The app's own preferences: which server the feed is joined to, and how the
-/// flight window looks. What the *map* is showing lives under filters, and how
-/// weather reads lives under weather — this panel is everything else.
+/// The app's own preferences: your account, what reaches you when the app is
+/// closed, where the traffic comes from, and how all of it is drawn. What the
+/// *map* is filtering lives under filters, and how weather reads lives under
+/// weather — this panel is everything else.
+///
+/// ## Why this is a list of doors
+///
+/// It used to be the settings themselves: twelve sections in one scroll,
+/// everything at the same level, so the switch you came in for was somewhere in
+/// a column of forty rows and finding it again meant reading past all of them.
+/// A settings screen that is one long list is a settings screen you search
+/// rather than navigate.
+///
+/// So the panel is short now, and every row is a place. Each carries a line
+/// saying what it is currently set to — which is the whole point of grouping
+/// them: the common visit is a check rather than a change, and a hub that
+/// answers "what is my map set to" without being opened has already done the
+/// job. The screens themselves are in `SettingsSubpanels`.
 struct SettingsPanel: View {
 
     @EnvironmentObject private var feed: LiveFeed
@@ -14,9 +29,6 @@ struct SettingsPanel: View {
     @ObservedObject private var instruments = InstrumentPreferences.shared
     @ObservedObject private var accounts = AccountStore.shared
     @ObservedObject private var entitlements = Entitlements.shared
-    // Observed for the price alone: it arrives from the App Store a moment
-    // after launch, and the row that quotes it has to redraw when it does.
-    @ObservedObject private var store = ProStore.shared
     // Observed so the row underneath says what the link is actually doing
     // rather than only what it is for.
     @ObservedObject private var connect = ConnectSession.shared
@@ -24,23 +36,41 @@ struct SettingsPanel: View {
     // and how much has been asked for behind it.
     @ObservedObject private var push = PushService.shared
     @ObservedObject private var friends = FriendsStore.shared
+    // Observed so the row below says what is on the home screen right now
+    // rather than what was there when this panel opened.
+    @ObservedObject private var widgets = WidgetBridge.shared
 
-    /// Both open over this panel rather than replacing it: they are somewhere
-    /// you go and come back from, and losing the settings sheet to get to them
-    /// would make coming back a matter of finding it again.
+    /// Every one of these opens over this panel rather than replacing it: they
+    /// are somewhere you go and come back from, and losing the settings sheet
+    /// to get to one would make coming back a matter of finding it again.
     @State private var isShowingAccount = false
     @State private var isShowingPaywall = false
     @State private var isShowingConnect = false
     @State private var isShowingNotifications = false
-    @State private var isShowingAcknowledgements = false
     @State private var isShowingFlightWindow = false
-
-    private var theme: FlightInfoTheme { appearance.theme }
+    @State private var isShowingMap = false
+    @State private var isShowingInstruments = false
+    @State private var isShowingAppearance = false
+    @State private var isShowingFeed = false
+    @State private var isShowingAbout = false
+    @State private var isShowingWidgets = false
 
     var body: some View {
         MapPanel(title: "Settings", subtitle: feedSummary) {
-            // Each section is dealt in a beat after the one above it. See Motion:
-            // the stagger is small enough to be felt rather than watched.
+            // Each section is dealt in a beat after the one above it. See
+            // Motion: the stagger is small enough to be felt rather than
+            // watched.
+            //
+            // First, above the account and above everything else — and only
+            // for somebody who has not bought it. See `ProPromoCard`: an
+            // account that is already Pro is not shown this at all, because the
+            // one thing worse than not mentioning a subscription is mentioning
+            // it to the person already paying for it.
+            if !entitlements.isPro {
+                ProPromoCard { isShowingPaywall = true }
+                    .panelEntrance(0)
+            }
+
             PanelSection(title: "ACCOUNT") {
                 PanelActionRow(
                     title: accounts.account?.handle ?? "Sign in",
@@ -50,22 +80,28 @@ struct SettingsPanel: View {
                     isShowingAccount = true
                 }
 
-                PanelDivider()
+                // The status of a subscription somebody holds, which is a fact
+                // about their account and belongs here. The *offer* is the card
+                // above, and the two are never on screen together: this row is
+                // built only when the card is not.
+                if entitlements.isPro {
+                    PanelDivider()
 
-                PanelActionRow(
-                    title: entitlements.isPro ? "Inflight Pro" : "Get Inflight Pro",
-                    symbol: entitlements.isPro ? "checkmark.seal.fill" : "sparkles",
-                    detail: proDetail
-                ) {
-                    isShowingPaywall = true
+                    PanelActionRow(
+                        title: "Inflight Pro",
+                        symbol: "checkmark.seal.fill",
+                        detail: proDetail
+                    ) {
+                        isShowingPaywall = true
+                    }
                 }
             }
-            .panelEntrance(0)
+            .panelEntrance(1)
 
-            // High up, and above everything about how the map is drawn,
-            // because it is the only section here about something that happens
-            // when the app is closed. Everything below this is a preference
-            // about a screen you are already looking at.
+            // High up, and above everything about how the app is drawn, because
+            // it is the only section here about something that happens when the
+            // app is closed. Everything below this is a preference about a
+            // screen you are already looking at.
             PanelSection(title: "NOTIFICATIONS") {
                 PanelActionRow(
                     title: "Notifications",
@@ -75,140 +111,22 @@ struct SettingsPanel: View {
                     isShowingNotifications = true
                 }
             }
-            .panelEntrance(1)
+            .panelEntrance(2)
 
-            mapSections
-
-            PanelSection(title: "FEED") {
-                ForEach(AppConfig.servers, id: \.self) { server in
-                    if server != AppConfig.servers.first { PanelDivider() }
-                    serverRow(server)
-                }
-            }
-            .panelEntrance(4)
-
-            // Its own section because it is a different kind of thing from the
-            // feed: the feed is everybody's flights from the cloud, this is
-            // your own aircraft from the sim on the next device along.
-            PanelSection(title: "THE SIM") {
+            // The three screens about what you are looking at, in the order you
+            // meet them: the map underneath everything, the window that opens
+            // on top of it, and the instruments inside that window.
+            PanelSection(title: "WHAT YOU SEE") {
                 PanelActionRow(
-                    title: "Infinite Flight Connect",
-                    symbol: "antenna.radiowaves.left.and.right",
-                    detail: connectDetail
+                    title: "Map",
+                    symbol: appearance.mapProjection.symbol,
+                    detail: mapDetail
                 ) {
-                    isShowingConnect = true
+                    isShowingMap = true
                 }
-            }
-            .panelEntrance(5)
-
-            // Its own section, above appearance, because it is a feature
-            // rather than a finish: this decides whether a whole panel is in
-            // the flight window, not what colour it is.
-            PanelSection(title: "INSTRUMENTS") {
-                PanelToggleRow(
-                    title: "Flight instruments",
-                    symbol: "gauge.open.with.lines.needle.33percent",
-                    detail: "Puts a primary flight display and a navigation display in every flight window — attitude, speed and height on one, the filed route and the traffic around it on the other.",
-                    isOn: $instruments.isEnabled
-                )
-
-                if instruments.isEnabled {
-                    // Fades rather than sliding: these rows are inside a card
-                    // that is itself changing height, and two movements in the
-                    // same place at the same time read as one thing wobbling.
-                    PanelDivider()
-
-                    PanelPickerRow(
-                        title: "Opens on",
-                        symbol: "rectangle.on.rectangle",
-                        options: InstrumentDisplay.allCases,
-                        label: { $0.label },
-                        detail: instrumentsDetail,
-                        selection: $instruments.display
-                    )
-
-                    PanelDivider()
-
-                    PanelPickerRow(
-                        title: "Navigation display",
-                        symbol: "location.north.line",
-                        options: NavigationDisplayMode.allCases,
-                        label: { $0.label },
-                        detail: instruments.navigationMode == .arc
-                            ? "The fan in front of the aircraft, which is what you would fly with."
-                            : "The full compass, which shows what is behind you as well.",
-                        selection: $instruments.navigationMode
-                    )
-
-                    PanelDivider()
-
-                    PanelToggleRow(
-                        title: "Traffic on the ND",
-                        symbol: "airplane.circle",
-                        detail: "Draws the nearest aircraft from the feed, with how far above or below they are in hundreds of feet. Anything within two thousand feet is picked out.",
-                        isOn: $instruments.showsTraffic
-                    )
-                }
-            }
-            // The section grows and shrinks as the switch above is flipped, so
-            // the rows below it move rather than jump.
-            .motion(Motion.row, value: instruments.isEnabled)
-            .panelEntrance(6)
-
-            PanelSection(title: "APPEARANCE") {
-                // Light is a whole-app setting rather than a flight-window one,
-                // so it leads the section the window's own switches sit in.
-                PanelPickerRow(
-                    title: "Theme",
-                    symbol: "circle.lefthalf.filled",
-                    options: AppAppearanceMode.allCases,
-                    label: { $0.label },
-                    detail: appearance.mode.detail,
-                    selection: $appearance.mode
-                )
 
                 PanelDivider()
 
-                // Under the light switch, because it is the same kind of
-                // question one step in: that one says which end of the scale
-                // the app sits at, and this says what the scale is made of.
-                PanelPickerRow(
-                    title: "Colours",
-                    symbol: "paintpalette",
-                    options: AppPalette.allCases,
-                    label: { $0.label },
-                    detail: appearance.palette.detail,
-                    selection: $appearance.palette
-                )
-
-                PanelDivider()
-
-                PanelToggleRow(
-                    title: "Glass flight info",
-                    symbol: "square.on.square.dashed",
-                    detail: "Frosts the window and its chrome. Off, everything draws flat.",
-                    isOn: $appearance.isGlassEnabled
-                )
-
-                PanelDivider()
-
-                PanelToggleRow(
-                    title: "Fly the traffic",
-                    symbol: "airplane.departure",
-                    detail: "Airborne aircraft keep flying between the server's updates, at the heading and speed they last reported, instead of jumping each time one lands. Off, every aeroplane sits exactly where it was last reported. Aircraft on the ground never move on their own either way.",
-                    isOn: $appearance.smoothsTraffic
-                )
-
-                PanelDivider()
-
-                // The peek style, the open window's layout, the airline colour
-                // and — on a tablet — where the window sits, all moved to one
-                // screen with a drawing of the window on it.
-                //
-                // Each of those was a row describing in a sentence something
-                // you can only judge by looking at it. Together, above a
-                // preview that changes as they are touched, they are a choice
-                // rather than four descriptions.
                 PanelActionRow(
                     title: "Flight window",
                     symbol: "airplane.circle",
@@ -216,50 +134,78 @@ struct SettingsPanel: View {
                 ) {
                     isShowingFlightWindow = true
                 }
-            }
-            .panelEntrance(7)
 
-            PanelSection(title: "HINTS") {
-                PanelToggleRow(
-                    title: "Show hints",
-                    symbol: "lightbulb",
-                    detail: "A line of guidance at the foot of a screen, about that screen. Each one retires after you have seen it a few times.",
-                    isOn: $hints.isEnabled
-                )
+                PanelDivider()
 
-                // Only offered once there is something to bring back, so the
-                // section is a switch and nothing else until it has earned the
-                // second row.
-                if hints.retiredCount > 0 {
-                    PanelDivider()
+                PanelActionRow(
+                    title: "Instruments",
+                    symbol: "gauge.open.with.lines.needle.33percent",
+                    detail: instrumentsDetail
+                ) {
+                    isShowingInstruments = true
+                }
 
-                    Button {
-                        hints.restoreAll()
-                    } label: {
-                        HStack(spacing: 10) {
-                            PanelRowLabel(title: "Show them all again", symbol: "arrow.counterclockwise")
+                PanelDivider()
 
-                            Spacer(minLength: 8)
+                PanelActionRow(
+                    title: "Appearance",
+                    symbol: "circle.lefthalf.filled",
+                    detail: appearanceDetail
+                ) {
+                    isShowingAppearance = true
+                }
 
-                            Text("\(hints.retiredCount) read")
-                                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                                .foregroundStyle(theme.textDim)
-                                .fixedSize()
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 12)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!hints.isEnabled)
-                    .opacity(hints.isEnabled ? 1 : 0.45)
+                PanelDivider()
+
+                // The home screen is a screen you are looking at too, even
+                // when the app is closed — and until now the only way to
+                // change what was on it was to find the aeroplane it was
+                // showing and open it, which is impossible once that flight
+                // has landed.
+                PanelActionRow(
+                    title: "Widgets",
+                    symbol: "square.grid.2x2",
+                    detail: widgetsDetail
+                ) {
+                    isShowingWidgets = true
                 }
             }
-            .motion(Motion.row, value: hints.retiredCount > 0)
-            .motion(Motion.control, value: hints.isEnabled)
-            .panelEntrance(8)
+            .panelEntrance(3)
 
-            footer
+            // Where the aeroplanes come from — the cloud, and the simulator on
+            // the next device along. Two rows rather than one screen with both
+            // on it, because the sim link is the one people go looking for.
+            PanelSection(title: "WHERE THE TRAFFIC COMES FROM") {
+                PanelActionRow(
+                    title: "Feed",
+                    symbol: "dot.radiowaves.left.and.right",
+                    detail: feedDetail
+                ) {
+                    isShowingFeed = true
+                }
+
+                PanelDivider()
+
+                PanelActionRow(
+                    title: "Infinite Flight Connect",
+                    symbol: "antenna.radiowaves.left.and.right",
+                    detail: SettingsSummary.connect(connect)
+                ) {
+                    isShowingConnect = true
+                }
+            }
+            .panelEntrance(4)
+
+            PanelSection(title: "ABOUT") {
+                PanelActionRow(
+                    title: "About Inflight",
+                    symbol: "info.circle",
+                    detail: aboutDetail
+                ) {
+                    isShowingAbout = true
+                }
+            }
+            .panelEntrance(5)
         }
         .sheet(isPresented: $isShowingAccount) { AccountPanel() }
         .sheet(isPresented: $isShowingPaywall) { ProPanel() }
@@ -270,151 +216,82 @@ struct SettingsPanel: View {
             // ones on the map.
             NotificationsPanel().environmentObject(feed)
         }
-        .sheet(isPresented: $isShowingAcknowledgements) { AcknowledgementsPanel() }
         .sheet(isPresented: $isShowingFlightWindow) { FlightWindowPanel() }
+        .sheet(isPresented: $isShowingMap) { MapStyleSettingsPanel() }
+        .sheet(isPresented: $isShowingInstruments) { InstrumentsSettingsPanel() }
+        .sheet(isPresented: $isShowingAppearance) { AppearanceSettingsPanel() }
+        .sheet(isPresented: $isShowingFeed) { FeedSettingsPanel().environmentObject(feed) }
+        .sheet(isPresented: $isShowingAbout) { AboutSettingsPanel().environmentObject(feed) }
+        // Handed the feed because the panel offers what is flying right now,
+        // which is a question only the packet can answer.
+        .sheet(isPresented: $isShowingWidgets) { WidgetsPanel().environmentObject(feed) }
     }
 
-    /// How the world is shaped, and what it is drawn in.
-    ///
-    /// Two sections handed over as one child, which is a fact about SwiftUI
-    /// rather than about settings: a view builder takes ten children and this
-    /// panel has more sections than that. Grouped here rather than anywhere
-    /// else because these two are already a pair — see the note inside.
-    @ViewBuilder
-    private var mapSections: some View {
-        // Its own section rather than a row in Appearance: each of these
-        // wants a sentence, and some of them are Pro, which a segmented
-        // control has nowhere to say.
-        //
-        // Two lists rather than one, because they are two questions. The
-        // shape of the world and what it is drawn in used to be a single
-        // list of four styles, which is why the planet only ever came in
-        // satellite imagery.
-        PanelSection(title: "MAP SHAPE") {
-            ForEach(MapProjection.allCases) { projection in
-                if projection != MapProjection.allCases.first { PanelDivider() }
+    // MARK: - What each door says without being opened
 
-                mapChoiceRow(
-                    title: projection.label,
-                    symbol: projection.symbol,
-                    detail: projection.detail,
-                    isPro: projection.isPro,
-                    isSelected: appearance.mapProjection == projection
-                ) {
-                    appearance.mapProjection = projection
-                }
-            }
-        }
-        .panelEntrance(2)
-
-        PanelSection(title: "MAP STYLE") {
-            ForEach(MapPalette.allCases) { palette in
-                if palette != MapPalette.allCases.first { PanelDivider() }
-
-                mapChoiceRow(
-                    title: palette.label,
-                    symbol: palette.symbol,
-                    detail: palette.detail,
-                    isPro: palette.isPro,
-                    isSelected: appearance.mapPalette == palette
-                ) {
-                    appearance.mapPalette = palette
-                }
-            }
-
-            PanelDivider()
-
-            PanelToggleRow(
-                title: "Full detail",
-                symbol: "map.fill",
-                detail: "Roads, terrain shading and place names at full strength, rather than the muted cartography the map recedes into behind the traffic. Imagery has none of it to turn up.",
-                isOn: $appearance.isMapDetailed
-            )
-            .disabled(appearance.mapPalette.usesImagery)
-            .opacity(appearance.mapPalette.usesImagery ? 0.45 : 1)
-        }
-        .panelEntrance(3)
-    }
-
-    /// The tail of the panel: what a partner VA is, what the build is, and the
-    /// documents. Also one child rather than three, for the reason above.
-    @ViewBuilder
-    private var footer: some View {
-        // What a partner VA actually is, said once, in the place somebody
-        // goes to find out.
-        //
-        // The window and the airport panel name virtual airlines beside
-        // real aircraft, and a good number of those VAs have chosen names
-        // that read like the airline they fly the livery of. Whoever wrote
-        // the name meant "we fly this airline's routes in the simulator";
-        // somebody who has just opened the app has no reason to read it
-        // that way. So it is spelled out rather than left to be inferred,
-        // and the disclaimer is the app's rather than the VA's — nothing
-        // shown here is endorsed by anyone.
-        PanelSection(title: "PARTNER VIRTUAL AIRLINES") {
-            note(
-                """
-                A virtual airline is a group of Infinite Flight pilots who \
-                fly together inside the simulator. Everything shown against \
-                one — its name, its callsign, its hubs, its write-up — is \
-                what that group published about itself to the VA-Ads \
-                directory.
-                """
-            )
-
-            PanelDivider()
-
-            note(
-                """
-                They are not airlines. Inflight is not affiliated with, \
-                endorsed by, sponsored by or connected to any real-world \
-                airline, and neither is any virtual airline listed in this \
-                app, whichever real one its name or its livery resembles. \
-                Airline names and marks belong to their owners.
-                """
-            )
-        }
-        .panelEntrance(9)
-
-        PanelSection(title: "ABOUT") {
-            aboutRow("Version", value: version)
-            PanelDivider()
-            // Surfaces a packaging problem that otherwise just looks like an
-            // empty map, which is hard to diagnose from a TestFlight build.
-            aboutRow("Aircraft icons", value: PlaneSprites.shared.isReady ? "Vector" : "Missing")
-            PanelDivider()
-            aboutRow("Traffic", value: "\(feed.flights.count) aircraft")
-            PanelDivider()
-            // The marks on the map are other people's work, under licences
-            // that ask to be carried with the app.
-            PanelActionRow(
-                title: "Acknowledgements",
-                symbol: "doc.text",
-                detail: "Where the aircraft marks come from"
-            ) {
-                isShowingAcknowledgements = true
-            }
-        }
-        .panelEntrance(10)
-
-        // Reachable from the app rather than only from the screen that
-        // asked for them once, on a first launch nobody remembers.
-        PanelSection(title: "LEGAL") {
-            legalLink("Terms of Service", symbol: "doc.plaintext", url: AppConfig.termsURL)
-            PanelDivider()
-            legalLink("Privacy Policy", symbol: "hand.raised", url: AppConfig.privacyURL)
-        }
-        .panelEntrance(11)
+    /// The map's row: the shape of the world and what it is drawn in, which is
+    /// the whole of what is behind it.
+    private var mapDetail: String {
+        let shape = appearance.mapProjection.label.lowercased()
+        let style = appearance.mapPalette.label.lowercased()
+        let detail = appearance.isMapDetailed && !appearance.mapPalette.usesImagery
+            ? ", full detail"
+            : ""
+        return "\(shape), \(style)\(detail)"
     }
 
     /// The flight window's row, saying what it is currently set to rather than
-    /// what it is for — the row is the only place the two choices behind it are
+    /// what it is for — the row is the only place the choices behind it are
     /// visible without opening anything.
     private var windowDetail: String {
         let peek = appearance.peakStyle.label.lowercased()
         let open = appearance.windowStyle.label.lowercased()
         let colour = appearance.showsAirlineAccent ? "airline colours" : "no airline colours"
         return "\(peek) peek, \(open) layout, \(colour)"
+    }
+
+    /// Off is the honest answer and the common one, so it is the whole line
+    /// rather than a qualifier on a sentence about displays nobody has.
+    private var instrumentsDetail: String {
+        guard instruments.isEnabled else {
+            return "Off — no flight deck in the flight window."
+        }
+        return "On — opens on the \(instruments.display.longLabel.lowercased())."
+    }
+
+    private var appearanceDetail: String {
+        let mode = appearance.mode.label.lowercased()
+        let palette = appearance.palette.label.lowercased()
+        let hint = hints.isEnabled ? "hints on" : "hints off"
+        return "\(mode), \(palette), \(hint)"
+    }
+
+    private var feedDetail: String {
+        guard feed.status.isLive else { return feed.status.label }
+        return "\(feed.server) · \(feed.flights.count) aircraft"
+    }
+
+    /// What the home screen is currently pointed at, without opening the
+    /// screen that says so at length.
+    private var widgetsDetail: String {
+        var parts: [String] = []
+
+        if let id = widgets.pinnedFlightId {
+            let pinned = feed.flights.first { $0.id == id }
+            parts.append(pinned.map { "showing \($0.displayName)" } ?? "pinned flight has ended")
+        }
+        if let icao = widgets.pinnedAirportIcao {
+            parts.append(icao)
+        }
+
+        guard !parts.isEmpty else {
+            return "Nothing pinned — the tile follows whoever is flying."
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private var aboutDetail: String {
+        "Version \(SettingsSummary.version), credits and the documents"
     }
 
     /// What the notifications row says without being opened.
@@ -431,33 +308,6 @@ struct SettingsPanel: View {
         return "Your own flight, and the pilots you watch. \(preferences.enabledCount) of \(FriendsStore.NotificationPreferences.totalCount) switched on."
     }
 
-    /// One line under the Connect row saying where the link stands, so the
-    /// panel is worth opening only when there is something to do in it.
-    private var connectDetail: String {
-        switch connect.status {
-        case .off:
-            return connect.isEnabled
-                ? "Waiting for Infinite Flight."
-                : "Read your landing rate and your own aircraft straight from the sim."
-        case .searching:            return "Looking for Infinite Flight on this network…"
-        case .connecting:           return "Connecting…"
-        case .syncing:              return "Reading what this aircraft publishes…"
-        case let .live(host):       return "Connected to \(host)."
-        case let .waiting(reason):  return "Waiting — \(reason)"
-        }
-    }
-
-    /// What the chosen display actually shows, and — for the PFD — the one
-    /// thing about it worth knowing before it is read.
-    private var instrumentsDetail: String {
-        switch instruments.display {
-        case .pfd:
-            return "Attitude, speed, height and heading. Pitch and bank are read from the simulator when the pilot is broadcasting through Connect, and worked out from the flight path and the rate of turn when they are not — the display says which."
-        case .navigation:
-            return "The filed route, both ends of it, and the traffic around the aircraft, heading up."
-        }
-    }
-
     private var feedSummary: String {
         guard feed.status.isLive else { return feed.status.label }
         return "\(feed.flights.count) aircraft · \(feed.server)"
@@ -470,162 +320,18 @@ struct SettingsPanel: View {
         return account.email
     }
 
+    /// Where a Pro account's Pro came from.
+    ///
+    /// Only ever read by the row that is built for accounts that have it, so
+    /// there is no longer a sales pitch on the other side of this — that moved
+    /// to `ProPromoCard`, which is a card rather than a sentence because it had
+    /// something to show.
     private var proDetail: String {
-        if entitlements.isPro {
-            switch entitlements.source {
-            case .appStore: return "Active — through the App Store."
-            case .subscription: return "Active — from your inflight.info subscription."
-            case .legacy: return "Active on your account."
-            case .free: return "Active."
-            }
+        switch entitlements.source {
+        case .appStore:     return "Active — through the App Store."
+        case .subscription: return "Active — from your inflight.info subscription."
+        case .legacy:       return "Active on your account."
+        case .free:         return "Active."
         }
-
-        guard let price = store.displayPrice else {
-            return "Flight replay, the whole watchlist, and the globe."
-        }
-        return "From \(price) a year. Flight replay, the whole watchlist, and the globe."
-    }
-
-    private var version: String {
-        let info = Bundle.main.infoDictionary
-        let short = info?["CFBundleShortVersionString"] as? String ?? "—"
-        let build = info?["CFBundleVersion"] as? String ?? "—"
-        return "\(short) (\(build))"
-    }
-
-    private func serverRow(_ server: String) -> some View {
-        Button {
-            feed.select(server: server)
-        } label: {
-            HStack(spacing: 10) {
-                PanelRowLabel(
-                    title: server.replacingOccurrences(of: " Server", with: ""),
-                    symbol: "dot.radiowaves.left.and.right"
-                )
-
-                Spacer(minLength: 8)
-
-                if feed.server == server {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(theme.textPrimary)
-                }
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    /// One choice about how the map is drawn — its shape, or its palette.
-    ///
-    /// Locked choices are shown, not hidden — you cannot want something you
-    /// have never seen — and tapping one opens the paywall rather than silently
-    /// doing nothing. The choice is still stored either way, so buying Pro from
-    /// there leaves you on the thing you picked.
-    private func mapChoiceRow(
-        title: String,
-        symbol: String,
-        detail: String,
-        isPro: Bool,
-        isSelected: Bool,
-        select: @escaping () -> Void
-    ) -> some View {
-        let locked = isPro && !entitlements.isPro
-
-        return Button {
-            select()
-            if locked { isShowingPaywall = true }
-        } label: {
-            HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 4) {
-                    PanelRowLabel(title: title, symbol: symbol)
-
-                    Text(detail)
-                        .font(.system(size: 10.5, weight: .medium))
-                        .foregroundStyle(theme.textDim)
-                        .padding(.leading, 30)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer(minLength: 8)
-
-                if locked {
-                    Text("PRO")
-                        .font(.system(size: 8.5, weight: .bold))
-                        .tracking(0.8)
-                        .foregroundStyle(theme.onAccent)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background { Capsule().fill(theme.accent) }
-                        .fixedSize()
-                } else if isSelected {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(theme.textPrimary)
-                }
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        // Dimmed rather than disabled: it is still tappable, because the tap is
-        // how you find out what it costs.
-        .opacity(locked ? 0.6 : 1)
-    }
-
-    private func aboutRow(_ title: String, value: String) -> some View {
-        HStack(spacing: 10) {
-            Text(title)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(theme.textSecondary)
-
-            Spacer(minLength: 8)
-
-            Text(value)
-                .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                .foregroundStyle(theme.textPrimary)
-                .flightInfoLine(minimumScale: 0.7)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-    }
-
-    /// A paragraph in a section, for the places where the answer is a sentence
-    /// rather than a control.
-    private func note(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 11.5, weight: .medium))
-            .foregroundStyle(theme.textSecondary)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-    }
-
-    /// A row that leaves the app for a document.
-    ///
-    /// A `Link` rather than a sheet with a web view in it: these are documents
-    /// somebody may want to keep, print or read with the text size they use
-    /// everywhere else, and Safari does all three better than anything this
-    /// panel could put them in.
-    private func legalLink(_ title: String, symbol: String, url: URL?) -> some View {
-        Link(destination: url ?? AppConfig.siteURL) {
-            HStack(spacing: 10) {
-                PanelRowLabel(title: title, symbol: symbol)
-
-                Spacer(minLength: 8)
-
-                Image(systemName: "arrow.up.right")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(theme.textDim)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .contentShape(Rectangle())
-        }
-        .accessibilityLabel("\(title). Opens outside the app.")
     }
 }

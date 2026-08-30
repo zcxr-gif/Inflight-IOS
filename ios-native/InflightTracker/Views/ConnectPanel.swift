@@ -411,35 +411,6 @@ struct ConnectPanel: View {
         }
     }
 
-    /// The sim says one name and the profile says another.
-    ///
-    /// Worth a whole block because it is the likeliest reason a pilot who has
-    /// set everything up correctly hears nothing about their own flight: the
-    /// server looks for the name on the profile, the map shows the name in the
-    /// sim, and when they differ the join between the two simply does not
-    /// exist. Not fixed silently — a profile is public, and the handle on it is
-    /// the pilot's to choose.
-    private func identityMismatch(_ name: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Your profile says @\(profiles.profile?.ifUsername ?? "") and the sim says "
-               + "\(name). Announcements about your own flight are addressed by the name on "
-               + "your profile, so while these differ they cannot reach you.")
-                .font(.system(size: 11.5, weight: .medium))
-                .foregroundStyle(.orange)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Button {
-                Task { await profiles.replaceIFUsername(with: name) }
-            } label: {
-                Text("Use \(name)")
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(theme.accent)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.top, 2)
-    }
-
     // MARK: - Sharing
 
     private var sharingSection: some View {
@@ -551,62 +522,9 @@ struct ConnectPanel: View {
 
     // MARK: - Live telemetry
 
-    private var liveSection: some View {
-        PanelSection(title: "FROM THE SIM") {
-            VStack(alignment: .leading, spacing: 9) {
-                if let username = session.telemetry.username {
-                    reading("Pilot", username)
-                }
-                if let mismatch = session.simUsernameMismatch { identityMismatch(mismatch) }
-                if let server = session.telemetry.serverName {
-                    reading("Server", server)
-                }
-                if let flight = session.telemetry.flightID {
-                    // Shown truncated: it is a uuid, it is not for reading, and
-                    // it being present at all is the point — it is what ties
-                    // this session to the aeroplane on the map.
-                    reading("Flight", String(flight.prefix(8)) + "…")
-                }
-                if let altitude = session.telemetry.altitudeMSL {
-                    reading("Altitude", "\(Int(altitude.rounded())) ft")
-                }
-                if let speed = session.telemetry.groundSpeed {
-                    reading("Ground speed", "\(Int(speed.rounded())) kt")
-                }
-                if let rate = session.telemetry.verticalSpeed {
-                    reading("Vertical speed", "\(Int(rate.rounded())) fpm")
-                }
-                if let fuel = session.telemetry.fuelRemainingKg, fuel > 0 {
-                    reading("Fuel", fuel >= 1000
-                            ? String(format: "%.1f t", fuel / 1000)
-                            : "\(Int(fuel.rounded())) kg")
-                }
-                if let n1 = session.telemetry.engineN1, n1 > 0 {
-                    reading("N1", "\(Int(n1.rounded()))%")
-                }
-                if let wind = session.telemetry.windSummary {
-                    reading("Wind", wind)
-                }
-                if let squawk = session.telemetry.transponderCode {
-                    reading("Squawk", String(format: "%04d", squawk))
-                }
-                if let atc = session.telemetry.atcFacility {
-                    reading("On frequency", atc)
-                }
-                // Only when true. A panel that says "Stalling: no" is a panel
-                // nobody reads the day it says yes.
-                if session.telemetry.isStalling == true {
-                    reading("Warning", "Stalling")
-                }
-                if session.telemetry.isOverspeeding == true {
-                    reading("Warning", "Overspeed")
-                }
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 11)
-        }
-    }
-
+    /// One name and one value, right-aligned. Used by the sharing row and the
+    /// landing card; the live readout has its own copy inside
+    /// `ConnectLiveReadings`, because that one animates and these do not.
     private func reading(_ name: String, _ value: String) -> some View {
         HStack {
             Text(name)
@@ -617,6 +535,17 @@ struct ConnectPanel: View {
                 .font(.system(size: 13, weight: .semibold, design: .monospaced))
                 .foregroundStyle(theme.textPrimary)
         }
+    }
+
+    /// A view of its own, and that is the fix rather than a tidy-up.
+    ///
+    /// The sim publishes a fresh sample several times a second, and this panel
+    /// observes the session — so every one of those samples re-ran the whole
+    /// body: nine sections, every switch, every explanatory paragraph, and the
+    /// glass under all of them. Pushed down into the one section that actually
+    /// reads telemetry, a sample redraws a dozen rows instead of the screen.
+    private var liveSection: some View {
+        ConnectLiveReadings(theme: theme)
     }
 
     // MARK: - The landing
@@ -792,5 +721,159 @@ struct ConnectPanel: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
+    }
+}
+
+
+/// The rows the simulator is filling in, drawn on their own.
+///
+/// ## Why this is not a `private var` on the panel like everything else here
+///
+/// `ConnectSession` republishes its telemetry every time the sim answers,
+/// which while a flight is attached is several times a second. `ConnectPanel`
+/// observes the session, so each of those samples re-ran the panel's whole
+/// body: nine sections, every switch and its paragraph of explanation, the
+/// address field, the landing card — and the glass behind all of it, which is
+/// the expensive part and the part that shows when it is rebuilt at the rate
+/// an aeroplane reports its altitude.
+///
+/// Split out, the sample redraws twelve rows. Everything above and below it is
+/// driven by things that change when somebody throws a switch, and now redraws
+/// when somebody throws a switch.
+///
+/// The rows themselves move rather than appear: a field the sim happens to
+/// omit for one sample used to take its row out of the stack and put it back on
+/// the next one, which slides everything under it up and down. It fades now,
+/// and the height it costs is animated, so a gap in the data reads as a gap
+/// rather than as the panel twitching.
+private struct ConnectLiveReadings: View {
+
+    let theme: FlightInfoTheme
+
+    @ObservedObject private var session = ConnectSession.shared
+    @ObservedObject private var profiles = ProfileStore.shared
+
+    /// One line of the readout. Equatable so the stack animates on what the
+    /// rows actually say rather than on every sample that arrives carrying the
+    /// same numbers.
+    private struct Reading: Equatable, Identifiable {
+        let name: String
+        let value: String
+        var id: String { name }
+    }
+
+    var body: some View {
+        PanelSection(title: "FROM THE SIM") {
+            VStack(alignment: .leading, spacing: 9) {
+                ForEach(readings) { reading in
+                    row(reading)
+                        .transition(.opacity)
+                }
+
+                if let mismatch = session.simUsernameMismatch {
+                    identityMismatch(mismatch)
+                        .transition(.opacity)
+                }
+
+                // Only when true. A panel that says "Stalling: no" is a panel
+                // nobody reads the day it says yes.
+                if session.telemetry.isStalling == true {
+                    row(Reading(name: "Warning", value: "Stalling"))
+                        .transition(.opacity)
+                }
+                if session.telemetry.isOverspeeding == true {
+                    row(Reading(name: "Warning", value: "Overspeed"))
+                        .transition(.opacity)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .motion(Motion.row, value: readings)
+            .motion(Motion.row, value: session.simUsernameMismatch)
+        }
+    }
+
+    /// What the sim is currently reporting, in the order it is worth reading:
+    /// who and where first, then how the aeroplane is flying, then what it is
+    /// talking to.
+    private var readings: [Reading] {
+        let telemetry = session.telemetry
+        var out: [Reading] = []
+
+        func add(_ name: String, _ value: String?) {
+            guard let value = value else { return }
+            out.append(Reading(name: name, value: value))
+        }
+
+        add("Pilot", telemetry.username)
+        add("Server", telemetry.serverName)
+        // Shown truncated: it is a uuid, it is not for reading, and it being
+        // present at all is the point — it is what ties this session to the
+        // aeroplane on the map.
+        add("Flight", telemetry.flightID.map { String($0.prefix(8)) + "…" })
+        add("Altitude", telemetry.altitudeMSL.map { "\(Int($0.rounded())) ft" })
+        add("Ground speed", telemetry.groundSpeed.map { "\(Int($0.rounded())) kt" })
+        add("Vertical speed", telemetry.verticalSpeed.map { "\(Int($0.rounded())) fpm" })
+
+        if let fuel = telemetry.fuelRemainingKg, fuel > 0 {
+            add("Fuel", fuel >= 1000
+                ? String(format: "%.1f t", fuel / 1000)
+                : "\(Int(fuel.rounded())) kg")
+        }
+        if let n1 = telemetry.engineN1, n1 > 0 {
+            add("N1", "\(Int(n1.rounded()))%")
+        }
+
+        add("Wind", telemetry.windSummary)
+        add("Squawk", telemetry.transponderCode.map { String(format: "%04d", $0) })
+        add("On frequency", telemetry.atcFacility)
+
+        return out
+    }
+
+    private func row(_ reading: Reading) -> some View {
+        HStack {
+            Text(reading.name)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(theme.textSecondary)
+            Spacer(minLength: 12)
+            Text(reading.value)
+                .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                .foregroundStyle(theme.textPrimary)
+                // The figures change several times a second. They roll to their
+                // new value in place rather than being cut to it, which is the
+                // difference between a readout and a flickering one.
+                .motionWords(reading.value)
+        }
+    }
+
+    /// The pilot's own name, in the sim and on their profile, when the two
+    /// disagree.
+    ///
+    /// Worth a whole block because it is the likeliest reason a pilot who has
+    /// set everything up correctly hears nothing about their own flight: the
+    /// server looks for the name on the profile, the map shows the name in the
+    /// sim, and when they differ the join between the two simply does not
+    /// exist. Not fixed silently — a profile is public, and the handle on it is
+    /// the pilot's to choose.
+    private func identityMismatch(_ name: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Your profile says @\(profiles.profile?.ifUsername ?? "") and the sim says "
+               + "\(name). Announcements about your own flight are addressed by the name on "
+               + "your profile, so while these differ they cannot reach you.")
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button {
+                Task { await profiles.replaceIFUsername(with: name) }
+            } label: {
+                Text("Use \(name)")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(theme.accent)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.top, 2)
     }
 }

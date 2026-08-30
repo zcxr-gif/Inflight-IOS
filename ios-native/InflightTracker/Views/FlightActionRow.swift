@@ -35,7 +35,7 @@ struct FlightActionRow: View {
     /// window on every frame.
     @State private var now = Date()
 
-    private let clock = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
+    private let ticker = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
 
     private var canReplay: Bool { track.count >= FlightReplay.minimumPoints }
 
@@ -51,7 +51,7 @@ struct FlightActionRow: View {
             shareTile
         }
         .fixedSize(horizontal: false, vertical: true)
-        .onReceive(clock) { now = $0 }
+        .onReceive(ticker) { now = $0 }
         .sheet(isPresented: $isShowingPaywall) { ProPanel(highlighted: .replay) }
     }
 
@@ -64,14 +64,14 @@ struct FlightActionRow: View {
             withAnimation(Motion.content) { showsRemaining.toggle() }
         } label: {
             tile(
-                symbol: showsRemaining ? "flag.pattern.checkered" : "airplane",
-                title: showsRemaining ? remainingLabel : elapsedLabel,
-                caption: showsRemaining ? "TO RUN" : "ELAPSED",
+                symbol: showsRemaining ? "flag.pattern.checkered" : clock.symbol,
+                title: showsRemaining ? remainingLabel : clock.value(now: now),
+                caption: showsRemaining ? "TO RUN" : clock.caption,
                 filled: true
             )
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(showsRemaining ? "Time to run" : "Time elapsed")
+        .accessibilityLabel(showsRemaining ? "Time to run" : clock.accessibilityLabel)
         .accessibilityHint("Switches between elapsed and remaining")
     }
 
@@ -150,12 +150,114 @@ struct FlightActionRow: View {
         .contentShape(Rectangle())
     }
 
+    // MARK: - The clock
+
+    /// What the first tile is counting, and why.
+    ///
+    /// It used to count one thing and call it ELAPSED: the time since the first
+    /// sample we hold. On a flight the backend's history covers that is the
+    /// departure and the label is nearly right; on one the app happened to find
+    /// at cruise it is the moment somebody opened the app, which is a number
+    /// about the observer rather than about the aeroplane. And on an aircraft
+    /// that has already landed and taxied for twenty minutes it kept counting,
+    /// which is the case that reads as simply broken.
+    ///
+    /// So the tile says which of three questions it is answering, and the
+    /// caption is part of the readout rather than a fixed word above it.
+    private enum Clock {
+
+        /// Time since the wheels left, read off the path. The answer somebody
+        /// asking "how long has this been flying" actually wants.
+        case airborne(since: Date)
+
+        /// Time since it touched down — for an aeroplane on the ground, which
+        /// has no airborne leg to measure.
+        case onGround(since: Date)
+
+        /// Time since we first saw it. The honest fallback: the aircraft is
+        /// flying and the path holds no ground sample, so nothing here knows
+        /// when it left.
+        case watching(since: Date)
+
+        /// Nothing to count at all.
+        case unknown
+
+        var symbol: String {
+            switch self {
+            case .airborne, .watching: return "airplane"
+            case .onGround:            return "airplane.arrival"
+            case .unknown:             return "clock"
+            }
+        }
+
+        var caption: String {
+            switch self {
+            case .airborne:  return "AIRBORNE"
+            case .onGround:  return "ON GROUND"
+            case .watching:  return "ELAPSED"
+            case .unknown:   return "ELAPSED"
+            }
+        }
+
+        var accessibilityLabel: String {
+            switch self {
+            case .airborne:  return "Time since take-off"
+            case .onGround:  return "Time on the ground"
+            case .watching:  return "Time elapsed"
+            case .unknown:   return "Time elapsed"
+            }
+        }
+
+        private var start: Date? {
+            switch self {
+            case .airborne(let since), .onGround(let since), .watching(let since):
+                return since
+            case .unknown:
+                return nil
+            }
+        }
+
+        func value(now: Date) -> String {
+            guard let start = start else { return "—:—" }
+            let interval = now.timeIntervalSince(start)
+            // Under a minute rounds to 00:00 through `Format.duration` anyway;
+            // the guard is here to refuse a negative one, which a clock that
+            // disagrees with the server's can produce.
+            guard interval >= 0 else { return "—:—" }
+            return interval < 60 ? "00:00" : Format.duration(interval)
+        }
+    }
+
+    /// Which of the three this flight is, decided by where the aeroplane is
+    /// now and how far back the path reaches.
+    ///
+    /// The live phase decides airborne or not, rather than the last sample in
+    /// the track: the track is thinned by distance, so its newest point can be
+    /// several miles and a couple of minutes old, and an aeroplane that has
+    /// just touched down would still be reported as flying by it.
+    private var clock: Clock {
+        if FlightPhase.from(flight) == .ground {
+            if let landed = TrackPoint.lastLanding(in: track) {
+                return .onGround(since: landed)
+            }
+        } else if let takeoff = TrackPoint.lastTakeoff(in: track) {
+            return .airborne(since: takeoff)
+        }
+
+        // Neither question can be answered from the path — an aeroplane parked
+        // since before we were watching, or one found already at cruise. Back
+        // to the number the tile has always shown, under the label that says
+        // what it actually is.
+        guard let seen = start else { return .unknown }
+        return .watching(since: seen)
+    }
+
     // MARK: - Labels
 
-    /// Time since the first sample we have. That is the flight's own start when
-    /// the backend's history reaches back to departure, and the moment we
-    /// started watching when it doesn't — so it is never presented as anything
-    /// more precise than "elapsed".
+    /// The first sample we have. That is the flight's own start when the
+    /// backend's history reaches back to departure, and the moment we started
+    /// watching when it doesn't — which is why the tile above says ELAPSED
+    /// rather than AIRBORNE when it falls back to this.
     ///
     /// Reading the track alone was not enough, and the failure was quiet: the
     /// trail is thinned by DISTANCE, so an aircraft that has not moved two
@@ -167,16 +269,6 @@ struct FlightActionRow: View {
     private var start: Date? {
         track.compactMap(\.date).min()
             ?? FlightTrailStore.shared.firstSeen(for: flight.id)
-    }
-
-    private var elapsedLabel: String {
-        guard let start else { return "—:—" }
-        let interval = now.timeIntervalSince(start)
-        // Under a minute rounds to 00:00 through `Format.duration` anyway; the
-        // guard is here to refuse a negative one, which a clock that disagrees
-        // with the server's can produce.
-        guard interval >= 0 else { return "—:—" }
-        return interval < 60 ? "00:00" : Format.duration(interval)
     }
 
     private var remainingLabel: String {

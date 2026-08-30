@@ -31,9 +31,19 @@ import UIKit
 /// Oceanian, Middle Eastern and African airlines the sim has liveries for, the
 /// cargo operators, and the manufacturers' and air forces' house schemes.
 ///
+/// Alongside them is a second, smaller table of *names* rather than colours —
+/// see `aliases`. A good share of what the feed sends is an aeroplane wearing
+/// somebody else's paint under its own name: Horizon is an Alaska aircraft,
+/// Envoy and PSA are American ones, Malta Air is a Ryanair 737 with a Maltese
+/// cross on it. Each of those was a miss, so a regional fleet came out in the
+/// app's own accent while the mainline it flies for did not. They are resolved
+/// against the merged table rather than given hexes of their own, so correcting
+/// a parent's colour corrects everything flying it.
+///
 /// Anything still not in them gets no accent at all and the window looks
 /// exactly as it did before this existed — which remains the right failure. A
-/// guessed colour on somebody's airline is worse than no colour.
+/// guessed colour on somebody's airline is worse than no colour, and the list
+/// stops where my confidence does rather than where the roster does.
 enum AirlineAccent {
 
     /// The tint itself, and what is legible written on top of it.
@@ -227,11 +237,22 @@ enum AirlineAccent {
         let groups = [
             ported, europe, northAmerica, latinAmerica,
             eastAsia, southAndSoutheastAsia, oceania,
-            middleEastAndCentralAsia, africa, cargo, houseAndState
+            middleEastAndCentralAsia, africa, cargo, houseAndState,
+            moreEurope, moreAmericas, moreAsia, moreElsewhere
         ]
         for group in groups {
             table.merge(group) { first, _ in first }
         }
+
+        // ...and then the carriers that fly somebody else's paint, resolved
+        // against whatever the tables above ended up holding for the parent.
+        // Written as a name rather than as a repeated set of hexes so the two
+        // cannot drift: correcting Ryanair's blue corrects Malta Air's with it.
+        for (name, parent) in aliases {
+            guard table[name] == nil, let palette = table[parent] else { continue }
+            table[name] = palette
+        }
+
         return table
     }()
 
@@ -530,5 +551,180 @@ enum AirlineAccent {
         "United States Air Force": [0x00308F, 0x9EA2A2],
         "US Air Force": [0x00308F, 0x9EA2A2],
         "US Navy": [0x00205B, 0xFFC72C],
+    ]
+
+    // MARK: The second pass
+    //
+    // Same rule as the tables above: the airline's own brand colour, and
+    // nothing entered on a guess. Where I could not place a carrier's colour
+    // with confidence it is simply absent, which draws the window exactly as it
+    // was before — a wrong colour on somebody's airline is worse than none.
+
+    private static let moreEurope: [String: [UInt32]] = [
+        // Guernsey's airline, and the only fleet in Europe painted entirely
+        // this yellow.
+        "Aurigny": [0xFFD100, 0x231F20, 0xFFFFFF],
+        "Atlantic Airways": [0xC8102E, 0x005DAA, 0xFFFFFF],
+        // Red aeroplanes with white titles — the one thing everyone knows about
+        // this airline, and the reason it is here rather than under Ryanair,
+        // which owns it and does not paint it.
+        "Lauda": [0xE30613, 0xFFFFFF],
+        "Lauda Europe": [0xE30613, 0xFFFFFF],
+        "Loganair": [0x00205B, 0xFFFFFF],
+        "Pobeda": [0x00A650, 0xE30613, 0xFFFFFF],
+        "SkyUp": [0xFFD200, 0x005BAA, 0xFFFFFF],
+        "SkyUp Airlines": [0xFFD200, 0x005BAA, 0xFFFFFF],
+        "Smartwings": [0x0F62AE, 0xFFFFFF],
+    ]
+
+    private static let moreAmericas: [String: [UInt32]] = [
+        "Flair Airlines": [0x00B140, 0x1D1D1B, 0xFFFFFF],
+        "Wingo": [0xE6007E, 0xFFFFFF],
+    ]
+
+    private static let moreAsia: [String: [UInt32]] = [
+        "Air Busan": [0x00A0E2, 0xFFFFFF],
+        "Air Seoul": [0x00B2A9, 0xFFFFFF],
+        "Akasa Air": [0xFF6C0C, 0x86469C, 0xFFFFFF],
+        "Bamboo Airways": [0x00A651, 0xFFFFFF],
+        "Firefly": [0xFF6600, 0xFFFFFF],
+        "HK Express": [0x7A1E8B, 0xFFFFFF],
+        "Hong Kong Airlines": [0xE60012, 0xFFFFFF],
+        "Jin Air": [0x84BD00, 0x000000, 0xFFFFFF],
+        "Skymark Airlines": [0x0068B7, 0xFFFFFF],
+        "Solaseed Air": [0x00A95C, 0xF6C600, 0xFFFFFF],
+        // Black aircraft, white titles, and nothing else — which `build` reads
+        // as a grey and draws as a neutral hairline rather than inventing a
+        // hue for it. Which is right: that is what the aeroplane looks like.
+        "StarFlyer": [0x1A1A1A, 0xFFFFFF],
+        // Both spellings, because the apostrophe is the kind of character a
+        // feed loses.
+        "T'way Air": [0xE8380D, 0xFFFFFF],
+        "Tway Air": [0xE8380D, 0xFFFFFF],
+    ]
+
+    /// The Middle East, the Pacific, and the two manufacturers' house schemes
+    /// the tables above did not have. One group rather than four, because four
+    /// dictionaries of three entries is bookkeeping rather than structure.
+    private static let moreElsewhere: [String: [UInt32]] = [
+        "AJet": [0xFFC700, 0xC70A0C, 0xFFFFFF],
+        "AnadoluJet": [0xFFC700, 0xC70A0C, 0xFFFFFF],
+        "Antonov Airlines": [0x004B87, 0xF6C700, 0xFFFFFF],
+        "Embraer": [0x003DA5, 0xFFFFFF],
+        "flyadeal": [0x662D91, 0xFFFFFF],
+        "FlyArystan": [0xFFD100, 0x00205B],
+        "flynas": [0x00A94F, 0xFFFFFF],
+        "Maersk Air Cargo": [0x42B0D5, 0xFFFFFF],
+        "Regional Express": [0xF26522, 0x00539F, 0xFFFFFF],
+        "Rex": [0xF26522, 0x00539F, 0xFFFFFF],
+    ]
+
+    // MARK: Names that are somebody else's paint
+    //
+    // Two kinds of entry, and neither is a colour judgement — which is what
+    // makes them the safest lines in the file.
+    //
+    // Most are subsidiaries and franchises: aeroplanes wearing the parent's
+    // livery under their own name in the feed. Horizon is an Alaska aircraft;
+    // Envoy, PSA and Piedmont are American ones; Malta Air is a Ryanair 737
+    // with a Maltese cross on it. Each was previously a miss, so a whole
+    // regional fleet came out in the app's own accent while the mainline it
+    // flies for did not.
+    //
+    // The rest are spellings. `TAP Air Portugal` is how the airline writes its
+    // own name and `TAP` is what the table had; `Widerøe` is how Norway spells
+    // it and `Wideroe` is what survives an ASCII pipe. A missed diacritic is an
+    // airline with no colour, and the cost of a spare key is one dictionary
+    // entry.
+    //
+    // Resolved against the merged table rather than repeating the parent's
+    // hexes — see `liveries`. A parent that is itself missing simply leaves the
+    // alias missing too, which is the right failure and needs no maintenance.
+    private static let aliases: [String: String] = [
+        // Ryanair Group
+        "Buzz": "Ryanair",
+        "Malta Air": "Ryanair",
+        "Ryanair UK": "Ryanair",
+
+        // easyJet
+        "easyJet Europe": "EasyJet",
+        "easyJet Switzerland": "EasyJet",
+
+        // IAG
+        "BA Euroflyer": "British Airways",
+        "Iberia Express": "Iberia",
+
+        // Lufthansa Group
+        "Lufthansa City Airlines": "Lufthansa",
+        "Eurowings Europe": "Eurowings",
+        "Swiss Global Air Lines": "Swiss",
+
+        // Air France–KLM
+        "KLM Cityhopper": "KLM",
+        "Transavia France": "Transavia",
+
+        // SAS
+        "SAS Connect": "SAS",
+        "SAS Link": "SAS",
+        "Scandinavian Airlines System": "SAS",
+
+        // Wizz
+        "Wizz Air Abu Dhabi": "Wizz Air",
+        "Wizz Air Malta": "Wizz Air",
+        "Wizz Air UK": "Wizz Air",
+
+        // TUI
+        "TUI fly": "TUI",
+        "TUI fly Belgium": "TUI",
+        "TUI fly Netherlands": "TUI",
+        "TUI fly Nordic": "TUI",
+
+        // North America
+        "Air Canada Jazz": "Air Canada",
+        "Jazz Aviation": "Air Canada",
+        "Alaska Horizon": "Alaska Airlines",
+        "Horizon Air": "Alaska Airlines",
+        "Envoy Air": "American Airlines",
+        "Piedmont Airlines": "American Airlines",
+        "PSA Airlines": "American Airlines",
+
+        // Latin America
+        "Aeromexico Connect": "Aeromexico",
+        "Copa Airlines Colombia": "Copa Airlines",
+        "LATAM Brasil": "LATAM",
+        "LATAM Cargo": "LATAM",
+
+        // Asia-Pacific
+        "AirAsia X": "AirAsia",
+        "Indonesia AirAsia": "AirAsia",
+        "Philippines AirAsia": "AirAsia",
+        "Thai AirAsia": "AirAsia",
+        "Batik Air Malaysia": "Batik Air",
+        "Jetstar Asia": "Jetstar",
+        "Jetstar Japan": "Jetstar",
+        "MASkargo": "Malaysia Airlines",
+        "MASwings": "Malaysia Airlines",
+        "Spring Japan": "Spring Airlines",
+        "Thai Lion Air": "Lion Air",
+        "Thai Vietjet Air": "VietJet Air",
+        "AIX Connect": "Air India Express",
+
+        // Freight arms flying the mainline's colours
+        "Air China Cargo": "Air China",
+        "China Eastern Cargo": "China Eastern",
+        "China Southern Cargo": "China Southern",
+        "Etihad Cargo": "Etihad",
+        "Qatar Executive": "Qatar Airways",
+
+        // Spellings of the same airline
+        "Aerolíneas Argentinas": "Aerolineas Argentinas",
+        "Aeroméxico": "Aeromexico",
+        "Air Algérie": "Air Algerie",
+        "Cathay": "Cathay Pacific",
+        "EVA Airways": "EVA Air",
+        "Korean Air Lines": "Korean Air",
+        "TAP Air Portugal": "TAP",
+        "Virgin Atlantic Airways": "Virgin Atlantic",
+        "Widerøe": "Wideroe",
     ]
 }

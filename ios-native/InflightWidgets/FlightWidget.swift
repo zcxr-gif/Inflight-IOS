@@ -1,19 +1,35 @@
+import AppIntents
 import SwiftUI
 import WidgetKit
 
 /// One flight on the home screen, drawn on its own aircraft.
 ///
-/// The flight is whichever one was pinned from its window in the app; with
-/// nothing pinned it falls back to the friend furthest along their route,
-/// which means the tile is useful before anyone has discovered pinning.
+/// Which flight is the tile's own setting: long-press it, tap Edit Widget, and
+/// choose — your own aeroplane, a pilot you watch, or whatever is pinned in the
+/// app. See `SelectFlightIntent`, and the note there on why the choice is a
+/// standing rule rather than a particular flight.
+///
+/// Left alone it behaves exactly as it did before it could be configured: the
+/// flight pinned from its window in the app, falling back to your own aircraft
+/// and then to the watched pilot furthest along their route — so a tile that
+/// somebody adds and never opens is still useful.
 struct FlightWidget: Widget {
 
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: "InflightFlightWidget", provider: FlightProvider()) { entry in
+        // The kind is unchanged on purpose. It is the identity the system
+        // stores widgets under, so a new one here would orphan every tile
+        // already on somebody's home screen; keeping it lets the existing ones
+        // pick up the configuration with its default, which is the behaviour
+        // they already had.
+        AppIntentConfiguration(
+            kind: "InflightFlightWidget",
+            intent: SelectFlightIntent.self,
+            provider: FlightProvider()
+        ) { entry in
             FlightWidgetView(entry: entry)
         }
         .configurationDisplayName("Flight")
-        .description("A flight you've pinned, on a photo of the aircraft flying it.")
+        .description("One flight, on a photo of the aircraft flying it. Long-press to choose which.")
         .supportedFamilies([
             .systemSmall, .systemMedium, .systemLarge,
             .accessoryRectangular, .accessoryInline
@@ -29,17 +45,19 @@ struct FlightEntry: TimelineEntry {
     let isExtrapolated: Bool
 }
 
-struct FlightProvider: TimelineProvider {
+struct FlightProvider: AppIntentTimelineProvider {
 
     func placeholder(in context: Context) -> FlightEntry {
         FlightEntry(date: Date(), flight: WidgetSnapshot.preview.pinned, isExtrapolated: false)
     }
 
-    func getSnapshot(in context: Context, completion: @escaping (FlightEntry) -> Void) {
+    func snapshot(for configuration: SelectFlightIntent, in context: Context) async -> FlightEntry {
         // The gallery preview gets the sample flight rather than an empty
         // tile: a blank rectangle in the widget picker doesn't get chosen.
-        let flight = context.isPreview ? WidgetSnapshot.preview.pinned : subject()
-        completion(FlightEntry(date: Date(), flight: flight, isExtrapolated: false))
+        let flight = context.isPreview
+            ? WidgetSnapshot.preview.pinned
+            : subject(of: configuration)
+        return FlightEntry(date: Date(), flight: flight, isExtrapolated: false)
     }
 
     /// A run of entries carrying the aircraft forward on its own speed.
@@ -48,11 +66,10 @@ struct FlightProvider: TimelineProvider {
     /// refreshes per day, so a tile that wants to stay alive for an hour is
     /// better off being handed an hour of pre-computed positions than asking
     /// for twelve reloads it may not get.
-    func getTimeline(in context: Context, completion: @escaping (Timeline<FlightEntry>) -> Void) {
-        guard let flight = subject() else {
+    func timeline(for configuration: SelectFlightIntent, in context: Context) async -> Timeline<FlightEntry> {
+        guard let flight = subject(of: configuration) else {
             let entry = FlightEntry(date: Date(), flight: nil, isExtrapolated: false)
-            completion(Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(30 * 60))))
-            return
+            return Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(30 * 60)))
         }
 
         let now = Date()
@@ -68,14 +85,15 @@ struct FlightProvider: TimelineProvider {
             )
         }
 
-        completion(Timeline(entries: entries, policy: .after(now.addingTimeInterval(45 * 60))))
+        return Timeline(entries: entries, policy: .after(now.addingTimeInterval(45 * 60)))
     }
 
-    /// The pinned flight, or the friend closest to arriving.
-    private func subject() -> WidgetFlight? {
-        let snapshot = SharedStore.loadSnapshot()
-        if let pinned = snapshot.pinned { return pinned }
-        return snapshot.friends.first { $0.isAirborne } ?? snapshot.friends.first
+    /// What this particular tile has been pointed at, resolved against the
+    /// snapshot as it stands now. A tile nobody has configured has no subject
+    /// at all, which reads as `.automatic`.
+    private func subject(of configuration: SelectFlightIntent) -> WidgetFlight? {
+        let rule = configuration.subject?.rule ?? .automatic
+        return SharedStore.loadSnapshot().flight(for: rule)
     }
 }
 
@@ -342,10 +360,13 @@ private struct EmptyFlightView: View {
             Image(systemName: "airplane.circle")
                 .font(.system(size: 20, weight: .light))
                 .foregroundStyle(WidgetPalette.secondary)
-            Text("Nothing pinned")
+            // Two ways to be empty now, and the copy covers both without
+            // guessing which: nothing has been chosen, or the pilot this tile
+            // follows is not flying at the moment.
+            Text("No flight")
                 .font(WidgetType.title(14))
                 .foregroundStyle(WidgetPalette.text)
-            Text("Open a flight in Inflight and tap Pin to keep it here.")
+            Text("Long-press to follow a pilot, or pin a flight from its window in Inflight.")
                 .font(WidgetType.caption(10))
                 .foregroundStyle(WidgetPalette.dim)
                 .fixedSize(horizontal: false, vertical: true)

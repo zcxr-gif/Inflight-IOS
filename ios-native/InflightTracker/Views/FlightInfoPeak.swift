@@ -16,6 +16,22 @@ struct FlightInfoPeak: View {
     let style: FlightInfoPeakStyle
     let width: CGFloat
 
+    /// Every photograph the lookup found of this type in this livery.
+    ///
+    /// The peak used to be handed none of them on purpose, on the grounds that
+    /// a horizontal swipe on a sheet you are dragging is a gesture fighting the
+    /// window. It is not — the page style is a scroll view underneath, and a
+    /// scroll view that only scrolls sideways hands every vertical drag
+    /// straight to the sheet. What the old rule actually cost was the gallery
+    /// itself: the peak is the state the window spends nearly all its time in,
+    /// so a set of photographs only the fully open window would show is a set
+    /// of photographs almost nobody ever saw.
+    var photos: [AircraftPhoto] = []
+
+    /// Whether the peak is the half of the window on screen. See
+    /// `FlightHero.isAutoplaying` — both halves are mounted at once.
+    var isAutoplaying: Bool = true
+
     /// The tallest the photo peak's header may be drawn, worked out by the
     /// window against the display it is on. See
     /// `FlightInfoLayout.peakHeroCeiling(inScreenHeight:)`: the peak does not
@@ -35,6 +51,10 @@ struct FlightInfoPeak: View {
     /// plus the card, so a very tall crop would buy empty space beside the
     /// text rather than a better photo.
     private let thumbnailWidth: CGFloat = 148
+
+    /// Which of the photographs the bar's thumbnail is showing. Its own state,
+    /// not the header's: the two are never on screen at the same time.
+    @State private var thumbnailPage = 0
 
     private var thumbnailHeight: CGFloat {
         guard let image = image, image.size.width > 0, image.size.height > 0 else {
@@ -84,6 +104,8 @@ struct FlightInfoPeak: View {
                 contributor: contributor,
                 theme: theme,
                 width: width,
+                photos: photos,
+                isAutoplaying: isAutoplaying,
                 // The one place the peak's header and the full window's differ,
                 // and only for a photograph tall enough to need it. See
                 // `heroCeiling`: the peak has no scroll view to put the
@@ -115,6 +137,10 @@ struct FlightInfoPeak: View {
                         .font(.system(size: 19, weight: .heavy, design: .rounded))
                         .foregroundStyle(theme.textPrimary)
                         .flightInfoLine(minimumScale: 0.6)
+                        // Tapping a second aeroplane changes this window
+                        // rather than replacing it, so the callsign crosses
+                        // into the new one instead of cutting to it.
+                        .motionWords(flight.displayName)
 
                     FlightPhaseChip(phase: FlightPhase.from(flight), theme: theme)
                 }
@@ -148,6 +174,36 @@ struct FlightInfoPeak: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
+            thumbnail
+                .frame(width: thumbnailWidth, height: thumbnailHeight)
+                .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous)
+                        .strokeBorder(theme.strokeStrong, lineWidth: 1)
+                }
+        }
+    }
+
+    /// The bar's photograph.
+    ///
+    /// The same carousel the photo peak's header runs, at a hundred and
+    /// forty-eight points wide: it turns itself over on the same dwell, so the
+    /// bar shows the whole set rather than the first shot for ever. No dots on
+    /// something this size — the picture changing is the whole of what there
+    /// is to say about it.
+    @ViewBuilder
+    private var thumbnail: some View {
+        if photos.count > 1 {
+            AircraftPhotoPager(
+                photos: photos,
+                preloaded: image,
+                spriteKey: flight.spriteKey,
+                theme: theme,
+                iconSize: 38,
+                isAutoplaying: isAutoplaying,
+                page: $thumbnailPage
+            )
+        } else {
             AircraftPhotoImage(
                 image: image,
                 spriteKey: flight.spriteKey,
@@ -155,12 +211,6 @@ struct FlightInfoPeak: View {
                 iconSize: 38,
                 contentMode: .fit
             )
-            .frame(width: thumbnailWidth, height: thumbnailHeight)
-            .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous)
-                    .strokeBorder(theme.strokeStrong, lineWidth: 1)
-            }
         }
     }
 

@@ -465,11 +465,15 @@ struct ContentView: View {
     /// whatever happens next, so there is nothing left worth waiting for.
     private static let windowCloseCommit: CGFloat = 96
 
-    /// How tall the map's own control stack is: three rows with a hairline
+    /// How tall the map's own control stack is: its rows, with a hairline
     /// between each. Written down because the find-me button stacks on top of
     /// it, and a control that overlaps the one underneath is the kind of thing
-    /// a fixed offset quietly becomes when a row is added.
-    private static let mapControlsHeight: CGFloat = 42 * 3 + 2
+    /// a fixed offset quietly becomes when a row is added — or, as here, taken
+    /// away. Derived from the count rather than written out as a number, so the
+    /// next change to the stack cannot leave this behind.
+    private static let mapControlRows = 3
+    private static let mapControlsHeight: CGFloat =
+        42 * CGFloat(mapControlRows) + CGFloat(mapControlRows - 1)
 
     /// A replay is driving the camera down the old track; following the live
     /// aircraft at the same time would be two things fighting over one map.
@@ -665,7 +669,7 @@ struct ContentView: View {
         // The same spring the dock settles its own handle with, so the card
         // and everything that lifts out of its way move as one thing.
         .motion(Motion.chrome, value: isStatsUp)
-        .onChange(of: selection?.id) { _, id in
+        .onChange(of: selection?.id) { wasOpen, id in
             // A replay belongs to the aircraft it was started from, and to the
             // window that drew the track under it. Opening another aircraft,
             // or closing the window, ends it rather than leaving a ghost
@@ -678,14 +682,23 @@ struct ContentView: View {
 
             isWindowExpanded = false
 
-            // Back to the opening guess for the new aircraft rather than the
-            // last one's measured height. The guess is under anything the peak
-            // lays out to, so the first correction is always upward: the sheet
-            // grows the last few points into place. Inheriting a taller
-            // aircraft's height instead means the correction is downward, and a
-            // sheet shrinking out from under content that is already drawn is
-            // the band of empty window this used to open with.
-            peakHeight = FlightInfoLayout.openingHeight(for: appearance.peakStyle)
+            // The opening guess, but only when the window is actually
+            // opening. The guess is under anything the peak lays out to, so
+            // the first correction is always upward: the sheet grows the last
+            // few points into place rather than shrinking out from under
+            // content that is already drawn, which is the band of empty window
+            // this used to open with.
+            //
+            // Between two aircraft it is left alone, and that is the point. The
+            // window is no longer rebuilt for the second one, so the peak it
+            // measured for the first is still on screen and still very nearly
+            // right — two flights differ by whatever their photographs differ
+            // by, which is a few points. Resetting to the guess there would be
+            // the sheet collapsing to a constant and growing back for no
+            // reason anybody could see, which is exactly what it looked like.
+            if wasOpen == nil {
+                peakHeight = FlightInfoLayout.openingHeight(for: appearance.peakStyle)
+            }
 
             // The field is on its way out, and it should come back empty rather
             // than holding the query that found this aircraft. Cleared here
@@ -895,9 +908,25 @@ struct ContentView: View {
                     onReplay: { track in startReplay(of: selected.id, track: track) },
                     onSelectAirport: { field in openAirport(field, from: selected) }
                 )
-                    // Resets the window's own state per aircraft without taking
-                    // the sheet down with it.
-                    .id(selected.id)
+                    // No `.id` here, and that is the whole of why tapping one
+                    // aeroplane while another is open now changes the window
+                    // instead of flashing it.
+                    //
+                    // Keying the window on the aircraft looked like the tidy
+                    // way to get a clean slate — the view is rebuilt, so no
+                    // state can survive that shouldn't. What it actually did
+                    // was throw the window away and put a new one in its place
+                    // mid-flight: the photograph went back to a placeholder,
+                    // the measured peak height went back to zero, and the sheet
+                    // dropped to the opening guess, remeasured, and grew again.
+                    // Three resizes and a blank photo between one aeroplane and
+                    // the next, which is the flicker.
+                    //
+                    // The window is the same window now, and it changes its
+                    // mind about which flight it is showing — see
+                    // `FlightDetailView.resetForNewFlight()`, which clears
+                    // exactly the state that belonged to the old aircraft and
+                    // keeps the measurements that make the sheet sit still.
                     .environmentObject(feed)
             }
         }
@@ -1860,27 +1889,50 @@ struct ContentView: View {
     private var mapControls: some View {
         if selection != nil, !replay.isActive {
             // One grouped control rather than free-floating circles: it reads
-            // as part of the window's chrome instead of two loose buttons.
+            // as part of the window's chrome instead of three loose buttons.
             VStack(spacing: 0) {
-                mapButton(
-                    "viewfinder",
-                    isFollowing ? "Stop following this aircraft" : "Follow this aircraft",
-                    isOn: isFollowing
-                ) {
-                    isFollowing.toggle()
-                    // Turning it on takes the map to the aircraft straight
-                    // away. Follow itself only acts once the aircraft has
-                    // drifted out of the middle of the view, which from a map
-                    // pointed somewhere else entirely would leave the mode
-                    // looking like it had done nothing.
-                    if isFollowing { mapCommand = MapCommand(kind: .centerOnFlight) }
+                // The whole flight, in the part of the map the window is not
+                // standing on: both ends of the route, everything flown so far,
+                // and the aeroplane itself, framed in the middle of the gap
+                // above the window rather than in the middle of the screen —
+                // which is behind it.
+                //
+                // This is what the bottom button used to do, and it is here
+                // because this is the button people press. A viewfinder is the
+                // glyph for "show me this thing", and what it was wired to was
+                // a mode: pressing it centred on the aeroplane and then quietly
+                // kept doing so, while the button that actually framed the
+                // flight sat at the far end of the stack where nobody found it.
+                mapButton("viewfinder", "Show the whole flight") {
+                    // Framing the route and staying glued to the aeroplane pull
+                    // the camera in opposite directions, so following stands
+                    // down.
+                    isFollowing = false
+                    mapCommand = MapCommand(kind: .fitRoute)
                 }
 
                 Rectangle()
                     .fill(theme.stroke)
                     .frame(height: 1)
 
-                mapButton("location.fill", "Centre on aircraft") {
+                // The aeroplane, at the zoom the map is already at — and then
+                // it stays there.
+                //
+                // One control rather than two, because a single centring and a
+                // mode that centres are the same intent a moment apart: nobody
+                // presses "put the map on this aircraft" hoping to watch it
+                // slide back off. Pressing it again lets go.
+                mapButton(
+                    "location.fill",
+                    isFollowing ? "Stop following this aircraft" : "Centre on this aircraft and follow it",
+                    isOn: isFollowing
+                ) {
+                    isFollowing.toggle()
+                    // Either way round the map goes to the aeroplane now.
+                    // Follow on its own only acts once the aircraft has drifted
+                    // out of the middle of the view, which from a map pointed
+                    // somewhere else entirely would leave the mode looking like
+                    // it had done nothing.
                     mapCommand = MapCommand(kind: .centerOnFlight)
                 }
 
@@ -1892,11 +1944,11 @@ struct ContentView: View {
                 //
                 // There was nothing here for it before. The track was simply
                 // always drawn, with no way to ask for it and no way to be
-                // shown it — the nearest thing was the button below, which
-                // frames the whole route including both airports, so on a
-                // long-haul it answers "where has this been" with an ocean and
-                // a line across a corner of it. Somebody looking for the path
-                // pressed that, got a view of the Atlantic, and reasonably
+                // shown it — the nearest thing was the button at the top,
+                // which frames the whole route including both airports, so on
+                // a long-haul it answers "where has this been" with an ocean
+                // and a line across a corner of it. Somebody looking for the
+                // path pressed that, got a view of the Atlantic, and reasonably
                 // concluded the button did nothing.
                 //
                 // So the switch is here, beside the aeroplane it applies to,
@@ -1911,29 +1963,16 @@ struct ContentView: View {
                     guard filters.showsFlownPath else { return }
                     // Framing the track and staying glued to the aeroplane pull
                     // the camera in opposite directions, so following stands
-                    // down — the same bargain the route button below makes.
+                    // down — the same bargain the button at the top makes.
                     isFollowing = false
                     mapCommand = MapCommand(kind: .fitFlownPath)
                 }
-
-                Rectangle()
-                    .fill(theme.stroke)
-                    .frame(height: 1)
-
-                mapButton("arrow.down.left.and.arrow.up.right", "Show whole route") {
-                    // Framing the whole route and staying with the aircraft are
-                    // different intents, and following would pull the camera
-                    // back off the route within a packet or two of getting
-                    // there.
-                    isFollowing = false
-                    mapCommand = MapCommand(kind: .fitRoute)
-                }
             }
             .frame(width: 44)
-            // The follow button fills itself when it is on, and it is the top
-            // of the stack. Glass draws behind its content rather than
-            // clipping it, so without this the accent squares off the hub's
-            // rounded corners.
+            // Two of the three fill themselves when they are on, and one of
+            // those is the bottom of the stack. Glass draws behind its content
+            // rather than clipping it, so without this the accent squares off
+            // the hub's rounded corners.
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .environment(\.colorScheme, theme.colorScheme)

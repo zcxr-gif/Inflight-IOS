@@ -211,6 +211,16 @@ public struct WidgetSnapshot: Codable {
     /// Watched pilots who are currently flying, most interesting first.
     public var friends: [WidgetFlight]
 
+    /// This pilot's own aeroplanes, when the app knows who they are.
+    ///
+    /// Optional rather than an empty array with a default, and that is a fact
+    /// about `Codable` rather than about aeroplanes: a synthesised decoder does
+    /// not fall back to a property's default value, so a non-optional added
+    /// here would make every snapshot written by an older build fail to decode
+    /// — and `loadSnapshot` turns a decode failure into `.empty`, so the widget
+    /// would go blank until the app next ran. Optional decodes as nil.
+    public var mine: [WidgetFlight]?
+
     /// How many pilots are on the list at all — the widget says "3 of 12
     /// flying", which needs both numbers.
     public var friendCount: Int
@@ -222,14 +232,35 @@ public struct WidgetSnapshot: Codable {
 
     public init(pinned: WidgetFlight? = nil,
                 friends: [WidgetFlight] = [],
+                mine: [WidgetFlight]? = nil,
                 friendCount: Int = 0,
                 airport: WidgetAirport? = nil,
                 updatedAt: Date = Date()) {
         self.pinned = pinned
         self.friends = friends
+        self.mine = mine
         self.friendCount = friendCount
         self.airport = airport
         self.updatedAt = updatedAt
+    }
+
+    /// This pilot's own flights, as a list that is always there to iterate.
+    public var myFlights: [WidgetFlight] { mine ?? [] }
+
+    /// Every aeroplane this snapshot knows about, most specific first and with
+    /// no aircraft counted twice.
+    ///
+    /// What a widget pointed at a *pilot* searches: the same person can appear
+    /// as the pinned flight, as one of my own, and in the watched list, and a
+    /// widget looking them up should find them wherever they happen to be.
+    public var allFlights: [WidgetFlight] {
+        var seen = Set<String>()
+        var out: [WidgetFlight] = []
+        for flight in [pinned].compactMap({ $0 }) + myFlights + friends {
+            guard seen.insert(flight.id).inserted else { continue }
+            out.append(flight)
+        }
+        return out
     }
 
     public static let empty = WidgetSnapshot()

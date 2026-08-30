@@ -86,33 +86,111 @@ final class FlightPlanStore {
         }.resume()
     }
 
-    /// `{ ok, flightId, flightPlanId, waypoints: [{ name, lat, lon }] }`.
+    /// Reads a filed plan out of whichever shape the backend answered in.
+    ///
+    /// ## Why there is more than one shape
+    ///
+    /// This was written against `{ ok, flightId, waypoints: [{ name, lat, lon }] }`
+    /// — a flat list the backend had flattened for us. What the same route
+    /// looks like coming out of Infinite Flight, which is where the backend
+    /// gets it and what the web tracker reads directly, is
+    /// `{ ok, plan: { flightPlanItems: [...] } }`: a *tree*, whose leaves carry
+    /// `location: { latitude, longitude }` and whose branches are procedures
+    /// with their fixes nested inside as `children`. A parser that knows only
+    /// the flat form reads that as no waypoints at all, silently, for every
+    /// flight — which is a map that never draws a filed route and never says
+    /// why. See `old/www/flight.js` → `extractPlanRoute`, which walks the tree.
+    ///
+    /// So both are read, along with the items at the root without the `plan`
+    /// wrapper, and a fix is taken from whichever of the coordinate spellings
+    /// it carries. This is the same tolerance `AircraftPhotoService` applies to
+    /// its endpoint, for the same reason: one client, several backend vintages,
+    /// and the failure when they disagree is silence rather than an error.
     private static func parse(_ data: Data?) -> [PlanWaypoint] {
         guard let data = data,
-              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let raw = root["waypoints"] as? [[String: Any]] else {
-            return []
-        }
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return [] }
+
+        let plan = root["plan"] as? [String: Any]
+
+        let items = (root["waypoints"] as? [[String: Any]])
+            ?? (plan?["flightPlanItems"] as? [[String: Any]])
+            ?? (plan?["waypoints"] as? [[String: Any]])
+            ?? (root["flightPlanItems"] as? [[String: Any]])
+            ?? []
 
         var out: [PlanWaypoint] = []
-        for item in raw {
-            guard let lat = item["lat"] as? Double,
-                  let lon = item["lon"] as? Double else { continue }
-            // The backend drops (0,0) already; this is the belt to its braces,
-            // because a fix at null island drags the whole drawn route into the
-            // Atlantic.
-            guard lat != 0 || lon != 0 else { continue }
-            guard abs(lat) <= 90, abs(lon) <= 180 else { continue }
+        flatten(items, depth: 0, into: &out)
+        return out
+    }
 
-            let name = (item["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    /// Walks the tree, taking the leaves in order.
+    ///
+    /// A branch is a procedure — a SID, a STAR, an airway — and its `children`
+    /// are the fixes along it. Taking the branch itself would plot one point
+    /// for a dozen, so only leaves are kept, exactly as the web tracker does.
+    ///
+    /// The depth cap is not defensive dressing: this walks a structure from the
+    /// network, and a document that referred to itself would otherwise be a
+    /// hang inside a map layout pass. Nothing real is more than two or three
+    /// deep.
+    private static func flatten(
+        _ items: [[String: Any]],
+        depth: Int,
+        into out: inout [PlanWaypoint]
+    ) {
+        guard depth < 6 else { return }
+
+        for item in items {
+            if let children = item["children"] as? [[String: Any]], !children.isEmpty {
+                flatten(children, depth: depth + 1, into: &out)
+                continue
+            }
+
+            guard let coordinate = coordinate(in: item) else { continue }
             out.append(
-                PlanWaypoint(
-                    name: (name?.isEmpty ?? true) ? "—" : name!,
-                    coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon),
-                    index: out.count
-                )
+                PlanWaypoint(name: name(of: item), coordinate: coordinate, index: out.count)
             )
         }
-        return out
+    }
+
+    /// A fix's position, however this payload spells it.
+    private static func coordinate(in item: [String: Any]) -> CLLocationCoordinate2D? {
+        let location = item["location"] as? [String: Any]
+
+        let latitude = (item["lat"] as? Double)
+            ?? (item["latitude"] as? Double)
+            ?? (location?["latitude"] as? Double)
+            ?? (location?["lat"] as? Double)
+
+        let longitude = (item["lon"] as? Double)
+            ?? (item["lng"] as? Double)
+            ?? (item["longitude"] as? Double)
+            ?? (location?["longitude"] as? Double)
+            ?? (location?["lon"] as? Double)
+
+        guard let lat = latitude, let lon = longitude else { return nil }
+
+        // The backend drops (0,0) already; this is the belt to its braces,
+        // because a fix at null island drags the whole drawn route into the
+        // Atlantic.
+        guard lat != 0 || lon != 0 else { return nil }
+        guard abs(lat) <= 90, abs(lon) <= 180 else { return nil }
+
+        return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+    }
+
+    /// What to label the fix. `identifier` is the one on the chart; `name` is
+    /// what the flat form called it. Either is better than the dash, which is
+    /// what an unnamed corner gets.
+    private static func name(of item: [String: Any]) -> String {
+        for key in ["name", "identifier", "ident"] {
+            guard let value = (item[key] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                  !value.isEmpty
+            else { continue }
+            return value
+        }
+        return "—"
     }
 }

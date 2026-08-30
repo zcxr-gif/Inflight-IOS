@@ -412,10 +412,18 @@ struct FlightHero: View {
 
     /// Everything the lookup returned for this type and livery.
     ///
-    /// Empty for the peak state, which is a preview under a sheet you drag —
-    /// a horizontal swipe there is a gesture fighting the window rather than a
-    /// gallery. Left empty it draws exactly the single photo it always did.
+    /// One photograph draws exactly what it always did. Two or more turn the
+    /// header into a carousel: it turns itself over on a dwell, it can be
+    /// swiped either way, and the dots in the corner step it on.
     var photos: [AircraftPhoto] = []
+
+    /// Whether this header is the one on screen.
+    ///
+    /// The peak state and the full window are both mounted the whole time the
+    /// sheet is up — one of them at zero opacity — so without this both would
+    /// be paging photographs, and the one nobody is looking at would be doing
+    /// it into the void. Each is told whether it is the visible half.
+    var isAutoplaying: Bool = true
 
     /// The tallest this header may be drawn. See `height(for:image:ceiling:)`:
     /// the peak state sets one, the full window leaves it open.
@@ -458,21 +466,15 @@ struct FlightHero: View {
     var body: some View {
         Group {
             if isGallery {
-                TabView(selection: $page) {
-                    ForEach(Array(photos.enumerated()), id: \.element.url) { index, photo in
-                        HeroPage(
-                            photo: photo,
-                            // The window has already fetched the first one.
-                            preloaded: index == 0 ? image : nil,
-                            spriteKey: spriteKey,
-                            theme: theme
-                        )
-                        .tag(index)
-                    }
-                }
-                // The app draws its own, in the theme's ink — the system's dots
-                // are white, which disappears on a light window over a pale sky.
-                .tabViewStyle(.page(indexDisplayMode: .never))
+                AircraftPhotoPager(
+                    photos: photos,
+                    // The window has already fetched the first one.
+                    preloaded: image,
+                    spriteKey: spriteKey,
+                    theme: theme,
+                    isAutoplaying: isAutoplaying,
+                    page: $page
+                )
             } else {
                 AircraftPhotoImage(
                     image: image,
@@ -487,13 +489,28 @@ struct FlightHero: View {
             }
         }
         .frame(width: width, height: Self.height(for: width, image: image, ceiling: maxHeight))
-        .overlay { PhotoScrim(theme: theme) }
+        // The header is one photograph's worth of room and never more. Nothing
+        // inside it — a page arriving, the blurred backdrop behind a fitted
+        // shot, a portrait frame among landscape ones — is allowed to reach
+        // past this and sit over the page beside it or the window below it.
+        .clipped()
+        // Shading, not a surface. An overlay is hit-testable by default, and
+        // this one covers the photograph from edge to edge — so left alone it
+        // swallows every touch that lands on the picture, and the swipe that
+        // is supposed to page the gallery never reaches the pager underneath
+        // it. The gradient has nothing to do with a finger; it says so.
+        .overlay { PhotoScrim(theme: theme).allowsHitTesting(false) }
         // The photo's own alpha is faded out at the bottom, so it melts into
         // the window's ground rather than ending on a black band.
         .mask { PhotoFadeMask() }
         // Both of these go on after the mask, so neither fades out with the
         // bottom of the photograph.
-        .overlay(alignment: .topTrailing) { credit }
+        //
+        // The credit stands aside from touches for the same reason as the
+        // scrim: it is a label, and a swipe that happens to start on the
+        // photographer's name is still a swipe. The dots below it are the one
+        // thing here that *is* a control.
+        .overlay(alignment: .topTrailing) { credit.allowsHitTesting(false) }
         .overlay(alignment: .bottomLeading) { pageDots }
         // A shorter list arriving — another aircraft's photos, or a failed
         // reload — must not leave the playhead past the end of it.
@@ -528,38 +545,209 @@ struct FlightHero: View {
         }
     }
 
+    /// The dots — and, since they are already a pill sitting in the corner of
+    /// the photograph, the way to the next one without swiping for it.
+    ///
+    /// The whole pill is the button rather than each dot. Five points across is
+    /// not a target, and growing them into ones would push them far enough
+    /// apart to stop reading as a row of dots; the pill is forty by twenty and
+    /// already there. Tapping it steps forward, which is the direction the
+    /// carousel is going anyway — going back is a swipe, which is the gesture
+    /// that has always been able to.
     @ViewBuilder
     private var pageDots: some View {
         if isGallery {
-            HStack(spacing: 5) {
-                ForEach(photos.indices, id: \.self) { index in
-                    Circle()
-                        .fill(theme.textPrimary)
-                        .opacity(index == page ? 0.9 : 0.3)
-                        .frame(width: 5, height: 5)
+            Button {
+                withAnimation(Motion.content) {
+                    page = (page + 1) % max(photos.count, 1)
                 }
+            } label: {
+                HStack(spacing: 5) {
+                    ForEach(photos.indices, id: \.self) { index in
+                        Circle()
+                            .fill(theme.textPrimary)
+                            .opacity(index == page ? 0.9 : 0.3)
+                            .frame(width: 5, height: 5)
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .flightInfoSurface(theme, radius: 8, elevated: true)
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .flightInfoSurface(theme, radius: 8, elevated: true)
+            .buttonStyle(.pressable(scale: 0.94))
             .padding(.leading, 12)
             .padding(.bottom, 10)
             .motion(Motion.content, value: page)
             .accessibilityLabel("Photo \(page + 1) of \(photos.count)")
+            .accessibilityHint("Shows the next photograph")
         }
     }
 }
 
-/// One photograph in the header's gallery.
+/// A set of photographs of the same aeroplane, one at a time.
+///
+/// ## Why a `TabView` and not a stack with an offset on it
+///
+/// The header lives inside a sheet you drag up and down. A hand-rolled pager
+/// means a `DragGesture`, and a SwiftUI drag gesture over most of the window
+/// claims the vertical drag as readily as the horizontal one — which is the
+/// sheet's gesture, and the only way the window opens. The page style is a
+/// `UIPageViewController` underneath, so its scroll view negotiates with the
+/// sheet's pan the way two UIKit gestures do: sideways is the carousel's,
+/// up and down is the window's, and neither has to be taught about the other.
+///
+/// ## Paging itself
+///
+/// It advances on a dwell rather than on a repeating timer, and the dwell is
+/// the `task`'s own lifetime: the identity below includes the page, so any
+/// change — the dwell's own, a swipe, a tap on the dots — cancels the pending
+/// advance and starts the wait again. There is no clock to fall out of step
+/// with, and a photograph you have just swiped to gets a whole turn on screen
+/// rather than whatever was left of the last one's.
+///
+/// A turn you asked for is longer than one you did not: five seconds when the
+/// gallery moved itself, seven when a finger did. Somebody swiping is somebody
+/// looking, and taking the picture away on the automatic clock is the carousel
+/// talking over them — but stopping outright would mean a gallery that never
+/// starts again for anyone who touched it once, so it is a pause rather than a
+/// halt.
+struct AircraftPhotoPager: View {
+
+    let photos: [AircraftPhoto]
+
+    /// The first photograph, already in hand. Everything after it is fetched
+    /// as it is reached.
+    let preloaded: UIImage?
+
+    let spriteKey: String
+    let theme: FlightInfoTheme
+
+    var iconSize: CGFloat = 64
+
+    /// Whether this pager is the one on screen. A pager that is mounted behind
+    /// something else holds its place instead of paging.
+    var isAutoplaying: Bool = true
+
+    @Binding var page: Int
+
+    /// How long each photograph is up for when the gallery is turning itself
+    /// over.
+    ///
+    /// Long enough to look at an aeroplane, short enough that a set of five is
+    /// through in under half a minute — and slow is the side of this to be
+    /// wrong on, because the window underneath is being read at the same time.
+    static let dwell: TimeInterval = 5
+
+    /// ...and how long it stays put after somebody has turned it themselves.
+    ///
+    /// Longer than the dwell, and that is the whole point of it being its own
+    /// figure. Swiping to a photograph is asking to look at that photograph;
+    /// having it slide away on whatever was left of the automatic clock is the
+    /// carousel talking over you. Seven seconds is one turn, not a new speed —
+    /// the next photograph after it goes back to five.
+    static let interruption: TimeInterval = 7
+
+    /// The page this pager last turned to on its own — the way it tells its
+    /// own clock from a finger.
+    ///
+    /// Everything that moves the gallery moves the same binding: the paging
+    /// scroll view under a swipe, the dots in the corner, and the advance
+    /// below. So the advance writes its answer here *before* it writes the
+    /// page, and the turn that finds its own answer waiting is the turn nobody
+    /// asked for. It is consumed when it is read, so swiping back to that same
+    /// photograph later is read as what it is.
+    ///
+    /// Seeded to the first page so the photograph the window opens on gets an
+    /// ordinary dwell rather than being treated as somebody's choice.
+    ///
+    /// Read where the decision is made rather than reported by an `onChange`,
+    /// and that is the point: a swipe and the task's own re-arm are two
+    /// callbacks off the same state change, in no guaranteed order, so a flag
+    /// set by one and read by the other is a coin toss between five seconds
+    /// and seven. This is set inside the task itself, one turn earlier.
+    @State private var advanced: Int? = 0
+
+    /// A carousel is movement nobody asked for, which is the exact thing this
+    /// setting turns off. Swiping and the dots still work; the photographs just
+    /// stop moving on their own.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var isPaging: Bool {
+        isAutoplaying && !reduceMotion && photos.count > 1
+    }
+
+    var body: some View {
+        TabView(selection: $page) {
+            ForEach(Array(photos.enumerated()), id: \.element.url) { index, photo in
+                AircraftPhotoPage(
+                    photo: photo,
+                    preloaded: index == 0 ? preloaded : nil,
+                    spriteKey: spriteKey,
+                    theme: theme,
+                    iconSize: iconSize,
+                    // What is on screen, and what is one swipe either side of
+                    // it. A window opened on a type with ten photographs of it
+                    // is not ten downloads.
+                    isNear: abs(index - page) <= 1
+                )
+                // Each page is exactly its own page. A tall shot among wide
+                // ones has nothing to spill onto its neighbours with.
+                .clipped()
+                .tag(index)
+            }
+        }
+        // The app draws its own dots, in the theme's ink — the system's are
+        // white, which disappears on a light window over a pale sky.
+        .tabViewStyle(.page(indexDisplayMode: .never))
+        // A shorter list arriving — another aircraft's photographs, or a
+        // failed reload — must not leave the playhead past the end of it.
+        .onChange(of: photos.count) { _, count in
+            if page >= count { page = 0 }
+        }
+        // Restarted by any change of page, however it was made — a swipe, the
+        // dots, or its own advance. The wait *is* the task, so there is no
+        // clock to reset and no half-spent turn for the next photograph to
+        // inherit: whoever moves the gallery, the picture they land on starts
+        // its turn from the beginning.
+        .task(id: "\(page)|\(photos.count)|\(isPaging)") {
+            guard isPaging else { return }
+
+            // Whose turn this is. See `advanced` — a page this pager put here
+            // itself gets the ordinary dwell; one a finger put here gets the
+            // longer look, and then the gallery carries on as before.
+            let isMine = page == advanced
+            if isMine { advanced = nil }
+
+            let turn = isMine ? Self.dwell : Self.interruption
+            try? await Task.sleep(nanoseconds: UInt64(turn * 1_000_000_000))
+            guard !Task.isCancelled, photos.count > 1 else { return }
+
+            // Written before the page it describes, so the turn that follows
+            // finds it already there.
+            let next = (page + 1) % photos.count
+            advanced = next
+            withAnimation(Motion.content) { page = next }
+        }
+        .accessibilityLabel("Photo \(min(page, max(photos.count - 1, 0)) + 1) of \(photos.count)")
+    }
+}
+
+/// One photograph in a pager.
 ///
 /// Its own loader, so pages fetch as they are reached rather than all at once
 /// — the shared image cache means paging back to one is instant.
-private struct HeroPage: View {
+private struct AircraftPhotoPage: View {
 
     let photo: AircraftPhoto
     let preloaded: UIImage?
     let spriteKey: String
     let theme: FlightInfoTheme
+    var iconSize: CGFloat = 64
+
+    /// Whether this page is close enough to the one on screen to be worth
+    /// having. A page that is not fetches nothing until it becomes one.
+    var isNear: Bool = true
 
     @StateObject private var loader = RemoteImageLoader()
 
@@ -568,13 +756,17 @@ private struct HeroPage: View {
             image: preloaded ?? loader.image,
             spriteKey: spriteKey,
             theme: theme,
-            iconSize: 64,
+            iconSize: iconSize,
             contentMode: .fit
         )
-        .onAppear { if preloaded == nil { loader.load(photo.url) } }
-        .onChange(of: photo.url) { _, url in
-            if preloaded == nil { loader.load(url) }
-        }
+        .onAppear(perform: fetchIfWanted)
+        .onChange(of: photo.url) { _, _ in fetchIfWanted() }
+        .onChange(of: isNear) { _, _ in fetchIfWanted() }
+    }
+
+    private func fetchIfWanted() {
+        guard preloaded == nil, isNear else { return }
+        loader.load(photo.url)
     }
 }
 
@@ -593,6 +785,9 @@ struct FlightIdentityBlock: View {
                         .font(.system(size: 21, weight: .heavy, design: .rounded))
                         .foregroundStyle(theme.textPrimary)
                         .flightInfoLine(minimumScale: 0.6)
+                        // See the peak's copy of this line: the window is the
+                        // same window when another aircraft is opened in it.
+                        .motionWords(flight.displayName)
 
                     FlightPhaseChip(phase: FlightPhase.from(flight), theme: theme, elevated: true)
                 }
@@ -652,28 +847,41 @@ struct AircraftPhotoImage: View {
     /// but the nose and tail are never cropped off.
     var contentMode: ContentMode = .fit
 
+    /// Which photograph is on screen, as something comparable.
+    ///
+    /// The object's identity rather than its pixels: two photographs are two
+    /// objects, and comparing the images themselves would be comparing several
+    /// megabytes on every layout pass to answer a question a pointer already
+    /// answers. Nil is the placeholder, which is a state like any other.
+    private var identity: ObjectIdentifier? { image.map(ObjectIdentifier.init) }
+
+    /// How a photograph arrives.
+    ///
+    /// It used to not arrive at all — it was simply there on the frame after
+    /// the one where the download finished, which is a cut, and a cut in the
+    /// biggest thing on the window reads as a glitch rather than as an image
+    /// loading. A photograph fades up over whatever was in its place and
+    /// settles the last three per cent of its size as it does, which is a
+    /// picture coming into focus rather than one being stamped down.
+    ///
+    /// Three per cent is chosen to be felt and not seen: the frame is clipped,
+    /// so the overscan never shows, and anything larger starts to read as the
+    /// photo zooming, which is a claim about the picture rather than about it
+    /// arriving.
+    private static let arrival: AnyTransition = .opacity.combined(with: .scale(scale: 1.03))
+
     var body: some View {
         ZStack {
             if let image = image {
-                if contentMode == .fit {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .blur(radius: 18, opaque: true)
-                        // Blur samples past the edges, so oversize the backdrop
-                        // rather than letting it fade out at the frame.
-                        .scaleEffect(1.2)
-
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                } else {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                }
+                photo(image)
+                    // Keyed on which photograph it is, so paging from one to
+                    // the next dissolves rather than swapping the pixels
+                    // inside a view that never went away.
+                    .id(identity)
+                    .transition(Self.arrival)
             } else {
                 placeholder
+                    .transition(.opacity)
             }
         }
         // Fill the frame, then clip: a resizable image reports its own
@@ -681,6 +889,41 @@ struct AircraftPhotoImage: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
         .contentShape(Rectangle())
+        // `Motion.content` is the app's own curve for anything cross-fading,
+        // and it honours Reduce Motion — which matters here more than usual,
+        // because somebody who has asked for less movement should get the
+        // photograph immediately rather than watching it breathe.
+        .motion(Motion.content, value: identity)
+    }
+
+    /// The picture itself, both ways of fitting it.
+    ///
+    /// One view rather than two siblings in the stack, and that is what lets
+    /// the transition above work: a fitted photo is a blurred backdrop *and* the
+    /// airframe over it, and those two have to arrive as one thing. Left as
+    /// siblings they fade independently, and for a few frames the aeroplane is
+    /// over a backdrop that has not caught up.
+    @ViewBuilder
+    private func photo(_ image: UIImage) -> some View {
+        if contentMode == .fit {
+            ZStack {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .blur(radius: 18, opaque: true)
+                    // Blur samples past the edges, so oversize the backdrop
+                    // rather than letting it fade out at the frame.
+                    .scaleEffect(1.2)
+
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+            }
+        } else {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+        }
     }
 
     private var placeholder: some View {
