@@ -111,7 +111,28 @@ struct FlightMotion {
 
     /// A fresh packet. The drawn position is left exactly where it is: the gap
     /// this opens is what `advance(to:)` spends the next second closing.
+    ///
+    /// ## A packet already told about is not a fresh one
+    ///
+    /// This is handed the aircraft by whatever is diffing the map against the
+    /// feed, and that is not only the feed: the map re-culls its annotations
+    /// through a pan or a pinch, four times a second, against whichever packet
+    /// happens to be the current one. The aeroplane in it is the same
+    /// aeroplane, at the same position, from the same packet — but the moment
+    /// arriving with it is *now*.
+    ///
+    /// Taken as a report, that moment is a claim that the aircraft is at the
+    /// old position right now, which throws away every second of prediction
+    /// since the packet actually landed and hands `advance(to:)` a correction
+    /// pointing backwards. The aeroplane is hauled back along its own track,
+    /// then runs forward again, then is hauled back — for as long as the
+    /// gesture lasts. Which is precisely what a zoom looked like.
+    ///
+    /// So the same fix twice is nothing at all. The clock is only restarted by
+    /// a packet that actually says something new.
     mutating func report(_ flight: Flight, now: CFTimeInterval) {
+        guard !isSameFix(as: flight) else { return }
+
         reported = flight.coordinate
         reportedAt = now
         headingDegrees = flight.heading
@@ -123,6 +144,21 @@ struct FlightMotion {
             drawn = predicted
             unwrappedHeading = flight.heading
         }
+    }
+
+    /// Whether this is the packet already being flown forward.
+    ///
+    /// Compared exactly, and exactly is the right test: these are the same
+    /// `Double`s copied out of the same decoded packet, not two measurements of
+    /// one thing. An aircraft that genuinely reports an identical position,
+    /// heading and speed in a *new* packet is one that has not moved, and
+    /// leaving the prediction where it is — running on, or stopped at
+    /// `maximumLead` — is what should happen to it anyway.
+    private func isSameFix(as flight: Flight) -> Bool {
+        flight.latitude == reported.latitude
+            && flight.longitude == reported.longitude
+            && flight.heading == headingDegrees
+            && Self.metresPerSecond(knots: flight.groundSpeedKnots) == metresPerSecond
     }
 
     /// Advances one frame. Returns the position to draw.

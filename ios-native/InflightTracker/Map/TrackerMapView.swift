@@ -2364,10 +2364,20 @@ struct TrackerMapView: UIViewRepresentable {
             let elapsed = now - lastFlightTick
             lastFlightTick = now
 
+            guard let mapView = flyingMapView, mapView.window != nil else { return }
+
+            let scale = Self.pointsPerMetre(on: mapView)
+            guard scale > 0 else { return }
+
+            // Before the smoothing gate rather than after it. The track's head
+            // follows wherever the open aircraft is *drawn*, which is a
+            // question with an answer whether the aeroplane is being carried
+            // between packets or is sitting exactly where its last one put it —
+            // and with the switch off, the second is the only case there is.
+            updateFlownHead(on: mapView, pointsPerMetre: scale)
+
             let smoothing = parent.smoothsTraffic
             guard smoothing || flyingCount > 0 else { return }
-
-            guard let mapView = flyingMapView, mapView.window != nil else { return }
             guard !annotations.isEmpty else { return }
 
             // A frame, rather than a resume: coming back from the background
@@ -2380,9 +2390,6 @@ struct TrackerMapView: UIViewRepresentable {
                 flyingCount = 0
                 return
             }
-
-            let scale = Self.pointsPerMetre(on: mapView)
-            guard scale > 0 else { return }
 
             var flying = 0
 
@@ -2446,6 +2453,71 @@ struct TrackerMapView: UIViewRepresentable {
             guard metres.isFinite, metres > 0 else { return 0 }
 
             return 100 / metres
+        }
+
+        /// Grows the flown path to wherever the open aircraft is drawn.
+        ///
+        /// The track ends at the newest breadcrumb the store holds, and
+        /// breadcrumbs are thinned by distance — two nautical miles apart at
+        /// best. So the aeroplane spends most of its time flying off the end of
+        /// its own path, with the line catching up in one jump each time a
+        /// sample lands. Here the last segment is redrawn on the frame clock
+        /// instead, to the same position the aircraft itself is being moved to,
+        /// so the two travel together.
+        ///
+        /// Cheap by construction, and it has to be at thirty frames a second:
+        /// the geometry is untouched, only one point moves, and the repaint is
+        /// scoped to the strip that point moved through rather than to the few
+        /// thousand that have not.
+        private func updateFlownHead(on mapView: MKMapView, pointsPerMetre: Double) {
+            guard let overlay = flownOverlay else { return }
+
+            guard let id = parent.selection?.id,
+                  let annotation = annotations[id] else {
+                retreatFlownHead(of: overlay, on: mapView)
+                return
+            }
+
+            let point = MKMapPoint(annotation.coordinate)
+
+            // Outside the room the overlay reserved, which means the aeroplane
+            // has flown further since the last rebuild than the path was built
+            // to allow for. Drawn, it would be cut off at the edge of the rect
+            // MapKit is willing to ask about; the honest answer is to stop
+            // extending and wait for the rebuild the next breadcrumb brings.
+            guard overlay.canReach(point) else {
+                retreatFlownHead(of: overlay, on: mapView)
+                return
+            }
+
+            let existing = overlay.head
+            let previous = existing ?? overlay.tail
+
+            // Under a fifth of a point is a move nobody can see, and a repaint
+            // for it is a tile rasterised for nothing. The first head is worth
+            // one at any distance: without it there is a gap rather than a
+            // slightly stale line.
+            let moved = previous.distance(to: point) * pointsPerMetre
+            guard existing == nil ? moved > 0 : moved >= 0.2 else { return }
+
+            overlay.head = point
+            renderer(forFlownPath: overlay, on: mapView)?
+                .refreshHead(from: previous, to: point)
+        }
+
+        /// Takes the head back off, and repaints where it was.
+        private func retreatFlownHead(of overlay: FlownPathOverlay, on mapView: MKMapView) {
+            guard let previous = overlay.head else { return }
+            overlay.head = nil
+            renderer(forFlownPath: overlay, on: mapView)?
+                .refreshHead(from: overlay.tail, to: previous)
+        }
+
+        private func renderer(
+            forFlownPath overlay: FlownPathOverlay,
+            on mapView: MKMapView
+        ) -> FlownPathRenderer? {
+            mapView.renderer(for: overlay) as? FlownPathRenderer
         }
 
         /// Where an aircraft is being *drawn*, which is what the camera and the
