@@ -847,28 +847,41 @@ struct AircraftPhotoImage: View {
     /// but the nose and tail are never cropped off.
     var contentMode: ContentMode = .fit
 
+    /// Which photograph is on screen, as something comparable.
+    ///
+    /// The object's identity rather than its pixels: two photographs are two
+    /// objects, and comparing the images themselves would be comparing several
+    /// megabytes on every layout pass to answer a question a pointer already
+    /// answers. Nil is the placeholder, which is a state like any other.
+    private var identity: ObjectIdentifier? { image.map(ObjectIdentifier.init) }
+
+    /// How a photograph arrives.
+    ///
+    /// It used to not arrive at all — it was simply there on the frame after
+    /// the one where the download finished, which is a cut, and a cut in the
+    /// biggest thing on the window reads as a glitch rather than as an image
+    /// loading. A photograph fades up over whatever was in its place and
+    /// settles the last three per cent of its size as it does, which is a
+    /// picture coming into focus rather than one being stamped down.
+    ///
+    /// Three per cent is chosen to be felt and not seen: the frame is clipped,
+    /// so the overscan never shows, and anything larger starts to read as the
+    /// photo zooming, which is a claim about the picture rather than about it
+    /// arriving.
+    private static let arrival: AnyTransition = .opacity.combined(with: .scale(scale: 1.03))
+
     var body: some View {
         ZStack {
             if let image = image {
-                if contentMode == .fit {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .blur(radius: 18, opaque: true)
-                        // Blur samples past the edges, so oversize the backdrop
-                        // rather than letting it fade out at the frame.
-                        .scaleEffect(1.2)
-
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                } else {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                }
+                photo(image)
+                    // Keyed on which photograph it is, so paging from one to
+                    // the next dissolves rather than swapping the pixels
+                    // inside a view that never went away.
+                    .id(identity)
+                    .transition(Self.arrival)
             } else {
                 placeholder
+                    .transition(.opacity)
             }
         }
         // Fill the frame, then clip: a resizable image reports its own
@@ -876,6 +889,41 @@ struct AircraftPhotoImage: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
         .contentShape(Rectangle())
+        // `Motion.content` is the app's own curve for anything cross-fading,
+        // and it honours Reduce Motion — which matters here more than usual,
+        // because somebody who has asked for less movement should get the
+        // photograph immediately rather than watching it breathe.
+        .motion(Motion.content, value: identity)
+    }
+
+    /// The picture itself, both ways of fitting it.
+    ///
+    /// One view rather than two siblings in the stack, and that is what lets
+    /// the transition above work: a fitted photo is a blurred backdrop *and* the
+    /// airframe over it, and those two have to arrive as one thing. Left as
+    /// siblings they fade independently, and for a few frames the aeroplane is
+    /// over a backdrop that has not caught up.
+    @ViewBuilder
+    private func photo(_ image: UIImage) -> some View {
+        if contentMode == .fit {
+            ZStack {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .blur(radius: 18, opaque: true)
+                    // Blur samples past the edges, so oversize the backdrop
+                    // rather than letting it fade out at the frame.
+                    .scaleEffect(1.2)
+
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+            }
+        } else {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+        }
     }
 
     private var placeholder: some View {
