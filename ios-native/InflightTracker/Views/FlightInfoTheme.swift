@@ -104,6 +104,7 @@ final class FlightInfoAppearance: ObservableObject {
 
     private static let glassKey = "flightInfoGlassEnabled"
     private static let peakStyleKey = "flightInfoPeakStyle"
+    private static let windowStyleKey = "flightInfoWindowStyle"
     private static let airlineAccentKey = "flightInfoAirlineAccent"
     private static let smoothTrafficKey = "map.smoothTraffic"
     private static let windowPlacementKey = "flightWindowPlacement"
@@ -123,6 +124,11 @@ final class FlightInfoAppearance: ObservableObject {
 
     @Published var peakStyle: FlightInfoPeakStyle {
         didSet { UserDefaults.standard.set(peakStyle.rawValue, forKey: Self.peakStyleKey) }
+    }
+
+    /// How the window is laid out once it is open. See `FlightInfoWindowStyle`.
+    @Published var windowStyle: FlightInfoWindowStyle {
+        didSet { UserDefaults.standard.set(windowStyle.rawValue, forKey: Self.windowStyleKey) }
     }
 
     /// Whether the flight window's edges and small accents take the colour of
@@ -274,6 +280,8 @@ final class FlightInfoAppearance: ObservableObject {
         // rather than on a case that no longer exists.
         peakStyle = FlightInfoPeakStyle(rawValue: defaults.string(forKey: Self.peakStyleKey) ?? "")
             ?? .compact
+        windowStyle = FlightInfoWindowStyle(rawValue: defaults.string(forKey: Self.windowStyleKey) ?? "")
+            ?? .cards
         showsAirlineAccent = defaults.object(forKey: Self.airlineAccentKey) as? Bool ?? true
         smoothsTraffic = defaults.object(forKey: Self.smoothTrafficKey) as? Bool ?? true
         flightWindowPlacement = FlightWindowPlacement(
@@ -381,6 +389,50 @@ enum FlightInfoPeakStyle: String, CaseIterable, Identifiable {
         switch self {
         case .compact: return "A bar with a thumbnail"
         case .rich: return "Opens on the aircraft photo"
+        }
+    }
+}
+
+/// How the window is laid out once it is open.
+///
+/// Two answers to the same question, and they are genuinely different
+/// questions underneath. `cards` is the app's own: a stack of cards, each one a
+/// subject — where it is, what it is doing, what the pilot's simulator says —
+/// which is the right shape for a window somebody scrolls through while
+/// watching an aeroplane.
+///
+/// `board` is the shape every other tracker uses, and it is the right shape for
+/// a different reason: the departure, the arrival, when it left and when it
+/// gets in, all above the fold and all readable at a glance. Somebody meeting a
+/// flight wants that and nothing else. The cards are still under it — this
+/// changes the head of the window, not what the window knows.
+enum FlightInfoWindowStyle: String, CaseIterable, Identifiable {
+
+    case cards
+    case board
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .cards: return "Cards"
+        case .board: return "Board"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .cards: return "rectangle.grid.1x2"
+        case .board: return "arrow.left.arrow.right"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .cards:
+            return "The app's own: the photo, then a card for each thing worth knowing."
+        case .board:
+            return "Both ends of the route, the times either side of them, and how far is left — the way a departures board reads. The cards follow underneath."
         }
     }
 }

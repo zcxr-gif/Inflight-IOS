@@ -33,11 +33,9 @@ struct SettingsPanel: View {
     @State private var isShowingConnect = false
     @State private var isShowingNotifications = false
     @State private var isShowingAcknowledgements = false
+    @State private var isShowingFlightWindow = false
 
     private var theme: FlightInfoTheme { appearance.theme }
-
-    /// Whether this is a tablet, for the one setting that only exists on one.
-    private var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
 
     var body: some View {
         MapPanel(title: "Settings", subtitle: feedSummary) {
@@ -195,15 +193,6 @@ struct SettingsPanel: View {
                 PanelDivider()
 
                 PanelToggleRow(
-                    title: "Airline colours",
-                    symbol: "paintpalette",
-                    detail: "Puts the airline's own colour on the flight window's edges, its dividers and the few pieces already drawn in the accent — the window itself stays as it is. Nothing is drawn for a livery we hold no colour for.",
-                    isOn: $appearance.showsAirlineAccent
-                )
-
-                PanelDivider()
-
-                PanelToggleRow(
                     title: "Fly the traffic",
                     symbol: "airplane.departure",
                     detail: "Airborne aircraft keep flying between the server's updates, at the heading and speed they last reported, instead of jumping each time one lands. Off, every aeroplane sits exactly where it was last reported. Aircraft on the ground never move on their own either way.",
@@ -212,37 +201,20 @@ struct SettingsPanel: View {
 
                 PanelDivider()
 
-                // The peak measures itself, so switching this resizes the sheet
-                // even while it is on screen.
-                PanelPickerRow(
-                    title: "Peek",
-                    symbol: "rectangle.portrait.bottomhalf.filled",
-                    options: FlightInfoPeakStyle.allCases,
-                    label: { $0.label },
-                    detail: appearance.peakStyle.detail,
-                    selection: $appearance.peakStyle
-                )
-
-                // Only where it means anything. A phone has one place to put
-                // the flight window and no choice to offer about it, and a row
-                // whose two options look identical is worse than no row.
+                // The peek style, the open window's layout, the airline colour
+                // and — on a tablet — where the window sits, all moved to one
+                // screen with a drawing of the window on it.
                 //
-                // The idiom rather than the size class, which is the one place
-                // in the app that is the right way round: this panel is itself
-                // in a sheet, and a sheet on an iPad can be handed a compact
-                // width — so asking how wide *this* is would hide the setting
-                // on exactly the device it is for.
-                if isPad {
-                    PanelDivider()
-
-                    PanelPickerRow(
-                        title: "Window",
-                        symbol: "sidebar.right",
-                        options: FlightWindowPlacement.allCases,
-                        label: { $0.label },
-                        detail: appearance.flightWindowPlacement.detail,
-                        selection: $appearance.flightWindowPlacement
-                    )
+                // Each of those was a row describing in a sentence something
+                // you can only judge by looking at it. Together, above a
+                // preview that changes as they are touched, they are a choice
+                // rather than four descriptions.
+                PanelActionRow(
+                    title: "Flight window",
+                    symbol: "airplane.circle",
+                    detail: windowDetail
+                ) {
+                    isShowingFlightWindow = true
                 }
             }
             .panelEntrance(7)
@@ -299,6 +271,7 @@ struct SettingsPanel: View {
             NotificationsPanel().environmentObject(feed)
         }
         .sheet(isPresented: $isShowingAcknowledgements) { AcknowledgementsPanel() }
+        .sheet(isPresented: $isShowingFlightWindow) { FlightWindowPanel() }
     }
 
     /// How the world is shaped, and what it is drawn in.
@@ -432,6 +405,16 @@ struct SettingsPanel: View {
             legalLink("Privacy Policy", symbol: "hand.raised", url: AppConfig.privacyURL)
         }
         .panelEntrance(11)
+    }
+
+    /// The flight window's row, saying what it is currently set to rather than
+    /// what it is for — the row is the only place the two choices behind it are
+    /// visible without opening anything.
+    private var windowDetail: String {
+        let peek = appearance.peakStyle.label.lowercased()
+        let open = appearance.windowStyle.label.lowercased()
+        let colour = appearance.showsAirlineAccent ? "airline colours" : "no airline colours"
+        return "\(peek) peek, \(open) layout, \(colour)"
     }
 
     /// What the notifications row says without being opened.

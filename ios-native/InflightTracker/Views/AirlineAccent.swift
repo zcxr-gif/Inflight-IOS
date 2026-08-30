@@ -146,16 +146,27 @@ enum AirlineAccent {
         // into an arbitrary pastel. Kept as a neutral of the right lightness
         // instead, which is what a silver livery should look like anyway.
         if saturation < 0.12 {
-            let level: CGFloat = isLight ? 0.42 : 0.78
+            let level: CGFloat = isLight ? 0.46 : 0.70
             return Colours(
                 tint: Color(uiColor: UIColor(hue: 0, saturation: 0, brightness: level, alpha: 1)),
                 ink: isLight ? .white : Color(white: 0.08)
             )
         }
 
+        // Both ends matter, and it was the *ceiling* that was missing.
+        //
+        // The floors are what stop a navy disappearing into a dark window, and
+        // they were the whole of the original clamp — so a brand colour that
+        // arrived already saturated passed through untouched. Most of them do:
+        // an airline red is around ninety per cent saturation because it is
+        // paint on an aluminium tube meant to be seen from a mile away, and
+        // ninety per cent saturation on a hairline six inches from your face is
+        // the neon this was accused of. Pulling the top down is what turns a
+        // livery colour into an interface colour; the hue, which is the part
+        // that says whose aeroplane it is, is untouched either way.
         let wanted = isLight
-            ? (saturation: clamp(saturation, 0.55, 1.0), brightness: clamp(brightness, 0.42, 0.72))
-            : (saturation: clamp(saturation, 0.45, 0.95), brightness: clamp(brightness, 0.62, 0.94))
+            ? (saturation: clamp(saturation, 0.34, 0.74), brightness: clamp(brightness, 0.36, 0.60))
+            : (saturation: clamp(saturation, 0.30, 0.66), brightness: clamp(brightness, 0.58, 0.84))
 
         let colour = UIColor(
             hue: hue,

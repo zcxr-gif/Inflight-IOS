@@ -485,11 +485,7 @@ struct FlightDetailView: View {
                 .id(Self.topAnchor)
 
                 VStack(spacing: 12) {
-                    FlightIdentityBlock(
-                        flight: flight,
-                        registration: registration(for: flight),
-                        theme: theme
-                    )
+                    header(for: flight)
 
                     FlightActionRow(
                         flight: flight,
@@ -505,7 +501,13 @@ struct FlightDetailView: View {
                     // the window's outer stack is already at the builder's
                     // ten-view ceiling.
                     VStack(spacing: 12) {
-                        situationCard(for: flight)
+                        // The board has already said where this flight is going
+                        // and how far is left, in bigger type and in one place.
+                        // Drawing the route card under it would be the same
+                        // three facts twice.
+                        if !usesBoard(for: flight) {
+                            situationCard(for: flight)
+                        }
 
                         // Tappable here and only here. The peak state above
                         // is a drag target from edge to edge, and a control in
@@ -572,6 +574,48 @@ struct FlightDetailView: View {
         }
         .scrollIndicators(.hidden)
         .scrollBounceBehavior(.basedOnSize)
+    }
+
+    /// The head of the open window: the app's own identity block, or the
+    /// board.
+    ///
+    /// The board needs both ends of a route to be a board at all — it is four
+    /// rows about a journey — so an aircraft with nothing filed gets the
+    /// identity block whichever style is chosen, rather than a board of dashes.
+    /// The setting is a preference about how to draw a route, not a promise to
+    /// draw one that does not exist.
+    @ViewBuilder
+    private func header(for flight: Flight) -> some View {
+        if let progress = boardProgress(for: flight) {
+            FlightInfoBoard(
+                flight: flight,
+                registration: registration(for: flight),
+                theme: theme,
+                progress: progress,
+                // The backend's history reaches back to the push-back for most
+                // flights, so this is usually when it actually left rather than
+                // when this app first looked.
+                began: FlightTrailStore.shared.firstSeen(for: flight.id),
+                onSelectAirport: onSelectAirport
+            )
+        } else {
+            FlightIdentityBlock(
+                flight: flight,
+                registration: registration(for: flight),
+                theme: theme
+            )
+        }
+    }
+
+    /// The route the board would draw, when the board is what is wanted and
+    /// there is a route to draw.
+    private func boardProgress(for flight: Flight) -> FlightProgress? {
+        guard appearance.windowStyle == .board else { return nil }
+        return FlightProgress(flight: flight)
+    }
+
+    private func usesBoard(for flight: Flight) -> Bool {
+        boardProgress(for: flight) != nil
     }
 
     private func registration(for flight: Flight) -> String {
