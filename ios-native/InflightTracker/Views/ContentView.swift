@@ -11,6 +11,11 @@ struct ContentView: View {
     /// — gets the phone's sheet, and so does a phone.
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @ObservedObject private var appearance = FlightInfoAppearance.shared
+
+    /// Somebody who has asked iOS for less movement gets the map back exactly
+    /// as it was: aircraft on their reported positions, moving when a packet
+    /// says they have.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject private var filters = MapFilters.shared
     @ObservedObject private var weatherPreferences = WeatherPreferences.shared
     /// Which tile layers are actually being served, for the chip's menu.
@@ -59,7 +64,7 @@ struct ContentView: View {
 
     /// Which phase the info window is in. Owned here so it can be reset to the
     /// peak state each time a different aircraft is tapped.
-    @State private var detent: PresentationDetent = .height(FlightInfoLayout.basePeakHeight)
+    @State private var detent: PresentationDetent = .custom(FlightPeakDetent.self)
 
     /// Latest camera request from the chrome around the map.
     @State private var mapCommand: MapCommand?
@@ -115,7 +120,15 @@ struct ContentView: View {
         return AirlineAccent.colours(forLivery: flight.liveryName, isLight: theme.isLight)
     }
 
-    private var peakDetent: PresentationDetent { .height(peakHeight) }
+    /// The stop the window opens at.
+    ///
+    /// One value for the life of the app, because it is a type rather than a
+    /// height: `FlightPeakDetent` reads how tall the peak measured itself from
+    /// the environment below. That is what lets the height change without the
+    /// *detent* changing, and everything that has to be compared against a
+    /// detent — the selection binding, the sheet's own resize, the interaction
+    /// threshold — compares against something that stands still.
+    private var peakDetent: PresentationDetent { .custom(FlightPeakDetent.self) }
 
     /// Rebuilt each redraw, and compared by value inside the map — so watching
     /// a new pilot, picking a colour, or Pro lapsing all repaint the traffic
@@ -462,6 +475,11 @@ struct ContentView: View {
             legalInset: mapLegalInset,
             replayFrame: replay.frame,
             isFollowing: isFollowingLive,
+            // The setting, and the system's own request for less movement —
+            // which is the one audience a map full of gliding aeroplanes is
+            // actively worse for. Resolved here rather than in the map: the map
+            // draws what it is told, and Reduce Motion is not its business.
+            smoothsTraffic: appearance.smoothsTraffic && !reduceMotion,
             // The map's own answer, which is the app's until a palette says
             // otherwise. The chrome over the map keeps the app's either way: a
             // light map under a dark app is a choice about the cartography,
@@ -639,6 +657,15 @@ struct ContentView: View {
 
             detent = peakDetent
 
+            // Back to the opening guess for the new aircraft rather than the
+            // last one's measured height. The guess is under anything the peak
+            // lays out to, so the first correction is always upward: the sheet
+            // grows the last few points into place. Inheriting a taller
+            // aircraft's height instead means the correction is downward, and a
+            // sheet shrinking out from under content that is already drawn is
+            // the band of empty window this used to open with.
+            peakHeight = FlightInfoLayout.openingHeight(for: appearance.peakStyle)
+
             // The field is on its way out, and it should come back empty rather
             // than holding the query that found this aircraft. Cleared here
             // rather than in the search field itself, which has no idea why it
@@ -714,12 +741,6 @@ struct ContentView: View {
         watchedStack
         .sheet(item: presentedSheet) { which in
             sheetContent(for: which)
-        }
-        // The detent set changes with the measurement, so the selection has to
-        // move to the new value or the sheet snaps to whatever is left.
-        .onChange(of: peakHeight) { _, height in
-            guard detent != .large else { return }
-            detent = .height(height)
         }
         .sheet(isPresented: $isShowingAccount) {
             // Handed the feed explicitly rather than left to inherit it: the
@@ -864,10 +885,18 @@ struct ContentView: View {
         // system's indicator would be a second pill in the same place.
         .presentationDragIndicator(.hidden)
         .overlay(alignment: .top) { flightWindowHandle }
-        .flightInfoSheetInteraction(upThrough: peakDetent)
+        .flightInfoSheetInteraction()
         // Belt and braces: however the sheet came to be on screen, it starts in
         // the peak state.
         .onAppear { detent = peakDetent }
+        // Where the peak detent gets its height from.
+        //
+        // Outermost, so it is in scope both for the window inside the sheet and
+        // for the presentation modifiers above it — a custom detent resolves
+        // against the environment of the thing being presented, and an
+        // environment written underneath those modifiers would only reach half
+        // of it.
+        .environment(\.flightPeakHeight, peakHeight)
     }
 
     /// The flight window's handle.

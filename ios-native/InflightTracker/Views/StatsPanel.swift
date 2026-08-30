@@ -45,23 +45,32 @@ struct StatsPanel: View {
                 header
 
                 HStack(spacing: 8) {
-                    figure("\(pulse.airborne)", label: "IN THE AIR")
-                    figure("\(pulse.onGround)", label: "ON THE GROUND")
-                    figure("\(pulse.controllers)", label: "ON FREQUENCY")
+                    figure("\(pulse.airborne)", of: Double(pulse.airborne), label: "IN THE AIR")
+                    figure("\(pulse.onGround)", of: Double(pulse.onGround), label: "ON THE GROUND")
+                    figure(
+                        "\(pulse.controllers)",
+                        of: Double(pulse.controllers),
+                        label: "ON FREQUENCY"
+                    )
                 }
 
                 HStack(spacing: 8) {
                     MiniStat(
                         label: "MEDIAN",
                         value: "\(Format.number(pulse.medianAltitudeFeet)) ft",
-                        theme: theme
+                        theme: theme,
+                        figure: pulse.medianAltitudeFeet
                     )
                     MiniStat(
                         label: "AVERAGE SPEED",
                         value: "\(Format.number(pulse.averageGroundSpeedKnots)) kts",
                         theme: theme,
-                        alignment: .center
+                        alignment: .center,
+                        figure: pulse.averageGroundSpeedKnots
                     )
+                    // A field's name with its traffic after it, so a word
+                    // rather than a figure: the busiest field changing is the
+                    // whole line changing.
                     MiniStat(
                         label: "BUSIEST",
                         value: busiest,
@@ -106,6 +115,7 @@ struct StatsPanel: View {
             Text(Format.number(Double(pulse.total)))
                 .font(.system(size: 14, weight: .heavy, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
+                .motionFigure(Double(pulse.total))
 
             Text("ON \(feed.server.uppercased())")
                 .font(.system(size: 8.5, weight: .bold))
@@ -124,7 +134,9 @@ struct StatsPanel: View {
                 .tracking(0.6)
                 .foregroundStyle(theme.textDim)
                 .flightInfoLine(minimumScale: 0.7)
+                .motionWords(feed.status.label)
         }
+        .motion(Motion.content, value: feed.status.isLive)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
             "\(pulse.total) aircraft on \(feed.server), feed \(feed.status.label.lowercased())"
@@ -141,12 +153,13 @@ struct StatsPanel: View {
 
     /// One of the three headline numbers, written the way the full panel writes
     /// them so the two read as the same thing.
-    private func figure(_ value: String, label: String) -> some View {
+    private func figure(_ value: String, of number: Double, label: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(value)
                 .font(.system(size: 22, weight: .heavy, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
                 .flightInfoLine(minimumScale: 0.5)
+                .motionFigure(number)
 
             Text(label)
                 .font(.system(size: 8.5, weight: .bold))

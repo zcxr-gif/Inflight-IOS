@@ -37,6 +37,10 @@ struct FlightInfoPeak: View {
         return min(max(thumbnailWidth * ratio, 76), 96)
     }
 
+    /// The peak lays out to exactly the height it wants, bottom gap included,
+    /// and the sheet is sized to what this measures. Nothing here stretches to
+    /// fill the window and nothing is pinned to its foot: there is no slack to
+    /// put anywhere, because the window is as tall as this and no taller.
     @ViewBuilder
     var body: some View {
         switch style {
@@ -49,12 +53,11 @@ struct FlightInfoPeak: View {
                 // bar had nothing at all.
                 VaPartnerLine(partner: partner, theme: theme)
             }
-            // Clears the drag indicator, which floats over the top of the sheet.
-            .padding(.top, 18)
+            // Clears the window's grabber, which floats over the top of the
+            // sheet rather than taking a band of its own.
+            .padding(.top, FlightInfoLayout.peakHandleClearance)
             .padding(.horizontal, 16)
-            // None: `peakBottomGap` is the whole distance from the last line
-            // to the bottom of the window, and the window is sized to leave
-            // exactly that. Padding here would only be added to it.
+            .padding(.bottom, FlightInfoLayout.peakBottomGap)
 
         case .rich:
             rich
@@ -73,7 +76,13 @@ struct FlightInfoPeak: View {
                 spriteKey: flight.spriteKey,
                 contributor: contributor,
                 theme: theme,
-                width: width
+                width: width,
+                // The one place the peak's header and the full window's differ,
+                // and only for a photograph tall enough to need it. See
+                // `peakHeroCeiling`: the peak has no scroll view to put the
+                // overflow in, so the picture yields before the route card
+                // does.
+                maxHeight: FlightInfoLayout.peakHeroCeiling
             )
 
             VStack(spacing: 12) {
@@ -83,8 +92,7 @@ struct FlightInfoPeak: View {
             }
             .padding(.horizontal, 14)
             .padding(.top, -FlightInfoLayout.heroSeamLift)
-            // As with the compact bar: `peakBottomGap` is the whole gap under
-            // the last line, so nothing is added to it here.
+            .padding(.bottom, FlightInfoLayout.peakBottomGap)
         }
     }
 
@@ -114,8 +122,12 @@ struct FlightInfoPeak: View {
                     // the space here the way AWAY or AP+ does.
                     if flight.pilotState.isNoteworthy {
                         PilotStateChip(state: flight.pilotState, theme: theme)
+                            .transition(.opacity.combined(with: .scale(scale: 0.85, anchor: .leading)))
                     }
                 }
+                // A pilot walking away from their aeroplane puts a chip on this
+                // row from nothing. Arriving is a movement like any other.
+                .motion(Motion.control, value: flight.pilotState)
 
                 // The aircraft and its livery live at the foot of the route
                 // card now, which is where the empty space was.
@@ -123,6 +135,9 @@ struct FlightInfoPeak: View {
                     .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
                     .foregroundStyle(theme.textDim)
                     .flightInfoLine()
+                    // Blank until the photo lookup finds a tail number, which
+                    // lands a second after the window opens.
+                    .motionWords(registration)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 

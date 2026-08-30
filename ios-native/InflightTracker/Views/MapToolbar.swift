@@ -168,7 +168,14 @@ struct MapToolbar: View {
                 .overlay(alignment: .topTrailing) {
                     badge(for: kind)
                         .offset(x: 4, y: -4)
+                        // A badge arriving is the one thing on this bar that
+                        // happens without anybody pressing anything — a
+                        // controller opening a position, a friend getting
+                        // airborne. It grows out of the corner it hangs on
+                        // rather than being there suddenly.
+                        .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .topTrailing)))
                 }
+                .motion(Motion.control, value: badgeState(for: kind))
 
             // Five of these across the narrowest phone the app runs on, which
             // is room enough to read them properly. Allowed to scale a little
@@ -222,6 +229,19 @@ struct MapToolbar: View {
             .padding(.vertical, 1.5)
             .background { Capsule().fill(theme.accent) }
             .fixedSize()
+            .motionFigure(Double(min(value, 100)))
+    }
+
+    /// What a badge on this item is currently showing, as one comparable
+    /// value — so the animation above fires when a badge arrives, leaves, or
+    /// changes its number, and on nothing else.
+    private func badgeState(for kind: MapPanelKind) -> Int {
+        switch kind {
+        case .friends: return friendsAloft
+        case .atc: return atcCount
+        case .filters: return activeFilters
+        default: return 0
+        }
     }
 
     private func accessibilityLabel(for kind: MapPanelKind) -> String {

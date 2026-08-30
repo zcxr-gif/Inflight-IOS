@@ -254,6 +254,15 @@ struct SettingsPanel: View {
 
                 PanelDivider()
 
+                PanelToggleRow(
+                    title: "Fly the traffic",
+                    symbol: "airplane.departure",
+                    detail: "Airborne aircraft keep flying between the server's updates, at the heading and speed they last reported, instead of jumping each time one lands. Off, every aeroplane sits exactly where it was last reported. Aircraft on the ground never move on their own either way.",
+                    isOn: $appearance.smoothsTraffic
+                )
+
+                PanelDivider()
+
                 // The peak measures itself, so switching this resizes the sheet
                 // even while it is on screen.
                 PanelPickerRow(

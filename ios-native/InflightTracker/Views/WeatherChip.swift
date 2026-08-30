@@ -132,16 +132,19 @@ struct WeatherChip: View {
                 .font(.system(size: 19, weight: .bold, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
                 .fixedSize()
+                .motionWords(temperature(for: station))
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(station.airport.icao)
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(theme.textSecondary)
+                    .motionWords(station.airport.icao)
 
                 Text(detail(for: station))
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .flightInfoLine(minimumScale: 0.8)
+                    .motionWords(detail(for: station))
             }
             .frame(maxWidth: 118, alignment: .leading)
         }
@@ -214,6 +217,7 @@ struct WeatherChip: View {
                 .font(.system(size: 16, weight: .bold, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
                 .fixedSize()
+                .motionWords(temperature(for: station))
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
