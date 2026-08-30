@@ -669,7 +669,7 @@ struct ContentView: View {
         // The same spring the dock settles its own handle with, so the card
         // and everything that lifts out of its way move as one thing.
         .motion(Motion.chrome, value: isStatsUp)
-        .onChange(of: selection?.id) { _, id in
+        .onChange(of: selection?.id) { wasOpen, id in
             // A replay belongs to the aircraft it was started from, and to the
             // window that drew the track under it. Opening another aircraft,
             // or closing the window, ends it rather than leaving a ghost
@@ -682,14 +682,23 @@ struct ContentView: View {
 
             isWindowExpanded = false
 
-            // Back to the opening guess for the new aircraft rather than the
-            // last one's measured height. The guess is under anything the peak
-            // lays out to, so the first correction is always upward: the sheet
-            // grows the last few points into place. Inheriting a taller
-            // aircraft's height instead means the correction is downward, and a
-            // sheet shrinking out from under content that is already drawn is
-            // the band of empty window this used to open with.
-            peakHeight = FlightInfoLayout.openingHeight(for: appearance.peakStyle)
+            // The opening guess, but only when the window is actually
+            // opening. The guess is under anything the peak lays out to, so
+            // the first correction is always upward: the sheet grows the last
+            // few points into place rather than shrinking out from under
+            // content that is already drawn, which is the band of empty window
+            // this used to open with.
+            //
+            // Between two aircraft it is left alone, and that is the point. The
+            // window is no longer rebuilt for the second one, so the peak it
+            // measured for the first is still on screen and still very nearly
+            // right — two flights differ by whatever their photographs differ
+            // by, which is a few points. Resetting to the guess there would be
+            // the sheet collapsing to a constant and growing back for no
+            // reason anybody could see, which is exactly what it looked like.
+            if wasOpen == nil {
+                peakHeight = FlightInfoLayout.openingHeight(for: appearance.peakStyle)
+            }
 
             // The field is on its way out, and it should come back empty rather
             // than holding the query that found this aircraft. Cleared here
@@ -899,9 +908,25 @@ struct ContentView: View {
                     onReplay: { track in startReplay(of: selected.id, track: track) },
                     onSelectAirport: { field in openAirport(field, from: selected) }
                 )
-                    // Resets the window's own state per aircraft without taking
-                    // the sheet down with it.
-                    .id(selected.id)
+                    // No `.id` here, and that is the whole of why tapping one
+                    // aeroplane while another is open now changes the window
+                    // instead of flashing it.
+                    //
+                    // Keying the window on the aircraft looked like the tidy
+                    // way to get a clean slate — the view is rebuilt, so no
+                    // state can survive that shouldn't. What it actually did
+                    // was throw the window away and put a new one in its place
+                    // mid-flight: the photograph went back to a placeholder,
+                    // the measured peak height went back to zero, and the sheet
+                    // dropped to the opening guess, remeasured, and grew again.
+                    // Three resizes and a blank photo between one aeroplane and
+                    // the next, which is the flicker.
+                    //
+                    // The window is the same window now, and it changes its
+                    // mind about which flight it is showing — see
+                    // `FlightDetailView.resetForNewFlight()`, which clears
+                    // exactly the state that belonged to the old aircraft and
+                    // keeps the measurements that make the sheet sit still.
                     .environmentObject(feed)
             }
         }

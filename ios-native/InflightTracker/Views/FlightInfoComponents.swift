@@ -785,6 +785,9 @@ struct FlightIdentityBlock: View {
                         .font(.system(size: 21, weight: .heavy, design: .rounded))
                         .foregroundStyle(theme.textPrimary)
                         .flightInfoLine(minimumScale: 0.6)
+                        // See the peak's copy of this line: the window is the
+                        // same window when another aircraft is opened in it.
+                        .motionWords(flight.displayName)
 
                     FlightPhaseChip(phase: FlightPhase.from(flight), theme: theme, elevated: true)
                 }

@@ -137,6 +137,10 @@ struct FlightInfoPeak: View {
                         .font(.system(size: 19, weight: .heavy, design: .rounded))
                         .foregroundStyle(theme.textPrimary)
                         .flightInfoLine(minimumScale: 0.6)
+                        // Tapping a second aeroplane changes this window
+                        // rather than replacing it, so the callsign crosses
+                        // into the new one instead of cutting to it.
+                        .motionWords(flight.displayName)
 
                     FlightPhaseChip(phase: FlightPhase.from(flight), theme: theme)
                 }
