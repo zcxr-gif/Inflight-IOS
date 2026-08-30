@@ -49,6 +49,10 @@ struct MapStyleSettingsPanel: View {
                         detail: projection.detail,
                         isPro: projection.isPro,
                         isSelected: appearance.mapProjection == projection,
+                        // The shape rows wear whatever palette is currently
+                        // chosen, so what they show is this map in that shape
+                        // rather than two unrelated pictures.
+                        preview: look(projection: projection, palette: appearance.mapPalette),
                         onLocked: { isShowingPaywall = true }
                     ) {
                         appearance.mapProjection = projection
@@ -67,6 +71,10 @@ struct MapStyleSettingsPanel: View {
                         detail: palette.detail,
                         isPro: palette.isPro,
                         isSelected: appearance.mapPalette == palette,
+                        // Always the flat map here, whatever shape is chosen:
+                        // this list is about the drawing, and the globe wears
+                        // one look whatever is picked in it.
+                        preview: look(projection: .flat, palette: palette),
                         onLocked: { isShowingPaywall = true }
                     ) {
                         appearance.mapPalette = palette
@@ -87,6 +95,20 @@ struct MapStyleSettingsPanel: View {
             .panelEntrance(1)
         }
         .sheet(isPresented: $isShowingPaywall) { ProPanel() }
+    }
+
+    /// The look a row is a picture of, built the same way the map's own is —
+    /// see `FlightInfoAppearance.resolvedMapStyle`. Detail and terrain come
+    /// from the settings as they stand, because those are not what this row is
+    /// choosing and a preview that quietly changed them would be a picture of
+    /// something you cannot get.
+    private func look(projection: MapProjection, palette: MapPalette) -> MapLook {
+        MapLook(
+            projection: projection,
+            palette: palette,
+            isTerrain: appearance.isMapTerrain,
+            isDetailed: appearance.isMapDetailed
+        )
     }
 }
 
@@ -498,6 +520,16 @@ struct SettingsChoiceRow: View {
     let detail: String
     let isPro: Bool
     let isSelected: Bool
+
+    /// A picture of what this row selects, where one can be taken.
+    ///
+    /// Every row on the map screen has one, and that is the point of them: the
+    /// difference between Auto and Light and Black is a difference you can only
+    /// judge by looking, and three adjectives in a column asked somebody to
+    /// imagine it. Rows that are not about a picture — every other choice in
+    /// the app — leave this nil and keep their glyph.
+    var preview: MapLook? = nil
+
     let onLocked: () -> Void
     let select: () -> Void
 
@@ -507,19 +539,40 @@ struct SettingsChoiceRow: View {
     private var theme: FlightInfoTheme { appearance.theme }
     private var locked: Bool { isPro && !entitlements.isPro }
 
+    /// Which way round the picture is taken. A palette that fixes the light
+    /// says so; the rest follow the app — the same line the map itself
+    /// resolves its scheme with.
+    private var previewScheme: ColorScheme {
+        preview?.resolvedPalette.scheme ?? appearance.resolvedScheme
+    }
+
     var body: some View {
         Button {
             select()
             if locked { onLocked() }
         } label: {
             HStack(spacing: 10) {
+                if let preview = preview {
+                    MapStyleThumbnail(look: preview, scheme: previewScheme)
+                }
+
                 VStack(alignment: .leading, spacing: 4) {
-                    PanelRowLabel(title: title, symbol: symbol)
+                    if preview == nil {
+                        PanelRowLabel(title: title, symbol: symbol)
+                    } else {
+                        // The picture is doing the glyph's job, so the title
+                        // sits at the head of its own column rather than
+                        // indented behind an icon that is no longer there.
+                        Text(title)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(theme.textPrimary)
+                            .flightInfoLine(minimumScale: 0.8)
+                    }
 
                     Text(detail)
                         .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(theme.textDim)
-                        .padding(.leading, 30)
+                        .padding(.leading, preview == nil ? 30 : 0)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
@@ -584,5 +637,146 @@ enum SettingsSummary {
         case let .live(host):       return "Connected to \(host)."
         case let .waiting(reason):  return "Waiting — \(reason)"
         }
+    }
+}
+
+
+// MARK: - Pro
+
+/// The card at the top of Settings, for accounts that are not Pro.
+///
+/// ## Why a card and not a row
+///
+/// It was a row in the account section, second of two, between the handle you
+/// signed in with and a heading called NOTIFICATIONS. Which is a fair place to
+/// *find* it and a poor place to be told about it: a row says what a thing is
+/// called, and the argument for Pro is what is behind the name — a replay, the
+/// whole watchlist, imagery and the planet. Three of the seven things it buys,
+/// shown rather than listed, is the difference between a price and an offer.
+///
+/// ## And why it disappears
+///
+/// Somebody who has already bought it has nothing to be sold. Advertising a
+/// subscription to the person paying for it is the kind of thing an app does
+/// when nobody checked, and it reads as being asked for money twice. Pro
+/// accounts get a plain line in the account section saying the thing is on and
+/// where it came from, and this card is not built at all.
+struct ProPromoCard: View {
+
+    /// Opening the paywall is the panel's job — it presents the sheet, and this
+    /// is a piece of the panel rather than a screen of its own.
+    let onOpen: () -> Void
+
+    @ObservedObject private var appearance = FlightInfoAppearance.shared
+    @ObservedObject private var store = ProStore.shared
+
+    private var theme: FlightInfoTheme { appearance.theme }
+
+    /// Three, and these three.
+    ///
+    /// The whole list is seven, and seven bullet points at the top of a
+    /// settings screen is a page nobody reads to the end of. These are the
+    /// three that are visible from the map — the thing somebody is looking at
+    /// when they wonder what Pro is — and the paywall behind the card is where
+    /// the other four are.
+    private static let headline: [ProFeature] = [.replay, .mapStyles, .watchlist]
+
+    var body: some View {
+        Button(action: onOpen) {
+            VStack(alignment: .leading, spacing: 12) {
+                header
+
+                VStack(alignment: .leading, spacing: 9) {
+                    ForEach(Self.headline) { feature in
+                        line(feature)
+                    }
+                }
+
+                footer
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .flightInfoSurface(theme, radius: theme.radiusMedium)
+            .overlay {
+                // The one card in Settings drawn in the accent. Everything else
+                // on the screen is a preference; this is the only thing on it
+                // asking for anything, and it should be legible as that at a
+                // glance rather than dressed as another row.
+                RoundedRectangle(cornerRadius: theme.radiusMedium, style: .continuous)
+                    .strokeBorder(theme.accent.opacity(0.45), lineWidth: 1)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.pressable(scale: 0.99))
+    }
+
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("INFLIGHT PRO")
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(1.2)
+                    .foregroundStyle(theme.accent)
+
+                Text("The whole tracker")
+                    .font(.system(size: 19, weight: .heavy, design: .rounded))
+                    .foregroundStyle(theme.textPrimary)
+                    .flightInfoLine(minimumScale: 0.7)
+            }
+
+            Spacer(minLength: 8)
+
+            Image(systemName: "sparkles")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(theme.accent)
+        }
+    }
+
+    private func line(_ feature: ProFeature) -> some View {
+        HStack(spacing: 9) {
+            Image(systemName: feature.symbol)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(theme.accent)
+                // A fixed column, so three glyphs of three different widths
+                // still leave their titles on one left edge.
+                .frame(width: 18)
+
+            Text(feature.title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(theme.textSecondary)
+                .flightInfoLine(minimumScale: 0.8)
+
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var footer: some View {
+        HStack(spacing: 8) {
+            Text(price)
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(theme.textDim)
+                .flightInfoLine(minimumScale: 0.8)
+                // The price arrives from the App Store a moment after launch,
+                // so this line changes under itself on a cold open.
+                .motionWords(price)
+
+            Spacer(minLength: 8)
+
+            Text("See it all")
+                .font(.system(size: 12.5, weight: .bold))
+                .foregroundStyle(theme.onAccent)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background { Capsule().fill(theme.accent) }
+                .fixedSize()
+        }
+    }
+
+    /// What it costs, once the App Store has said. Before that the card sells
+    /// the features and stays quiet about the number rather than guessing at
+    /// one or showing a gap where a price is going to appear.
+    private var price: String {
+        guard let price = store.displayPrice else { return "Seven features, one subscription." }
+        return "From \(price) a year."
     }
 }

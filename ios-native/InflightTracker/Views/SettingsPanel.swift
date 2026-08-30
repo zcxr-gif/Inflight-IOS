@@ -29,9 +29,6 @@ struct SettingsPanel: View {
     @ObservedObject private var instruments = InstrumentPreferences.shared
     @ObservedObject private var accounts = AccountStore.shared
     @ObservedObject private var entitlements = Entitlements.shared
-    // Observed for the price alone: it arrives from the App Store a moment
-    // after launch, and the row that quotes it has to redraw when it does.
-    @ObservedObject private var store = ProStore.shared
     // Observed so the row underneath says what the link is actually doing
     // rather than only what it is for.
     @ObservedObject private var connect = ConnectSession.shared
@@ -59,6 +56,17 @@ struct SettingsPanel: View {
             // Each section is dealt in a beat after the one above it. See
             // Motion: the stagger is small enough to be felt rather than
             // watched.
+            //
+            // First, above the account and above everything else — and only
+            // for somebody who has not bought it. See `ProPromoCard`: an
+            // account that is already Pro is not shown this at all, because the
+            // one thing worse than not mentioning a subscription is mentioning
+            // it to the person already paying for it.
+            if !entitlements.isPro {
+                ProPromoCard { isShowingPaywall = true }
+                    .panelEntrance(0)
+            }
+
             PanelSection(title: "ACCOUNT") {
                 PanelActionRow(
                     title: accounts.account?.handle ?? "Sign in",
@@ -68,17 +76,23 @@ struct SettingsPanel: View {
                     isShowingAccount = true
                 }
 
-                PanelDivider()
+                // The status of a subscription somebody holds, which is a fact
+                // about their account and belongs here. The *offer* is the card
+                // above, and the two are never on screen together: this row is
+                // built only when the card is not.
+                if entitlements.isPro {
+                    PanelDivider()
 
-                PanelActionRow(
-                    title: entitlements.isPro ? "Inflight Pro" : "Get Inflight Pro",
-                    symbol: entitlements.isPro ? "checkmark.seal.fill" : "sparkles",
-                    detail: proDetail
-                ) {
-                    isShowingPaywall = true
+                    PanelActionRow(
+                        title: "Inflight Pro",
+                        symbol: "checkmark.seal.fill",
+                        detail: proDetail
+                    ) {
+                        isShowingPaywall = true
+                    }
                 }
             }
-            .panelEntrance(0)
+            .panelEntrance(1)
 
             // High up, and above everything about how the app is drawn, because
             // it is the only section here about something that happens when the
@@ -93,7 +107,7 @@ struct SettingsPanel: View {
                     isShowingNotifications = true
                 }
             }
-            .panelEntrance(1)
+            .panelEntrance(2)
 
             // The three screens about what you are looking at, in the order you
             // meet them: the map underneath everything, the window that opens
@@ -137,7 +151,7 @@ struct SettingsPanel: View {
                     isShowingAppearance = true
                 }
             }
-            .panelEntrance(2)
+            .panelEntrance(3)
 
             // Where the aeroplanes come from — the cloud, and the simulator on
             // the next device along. Two rows rather than one screen with both
@@ -161,7 +175,7 @@ struct SettingsPanel: View {
                     isShowingConnect = true
                 }
             }
-            .panelEntrance(3)
+            .panelEntrance(4)
 
             PanelSection(title: "ABOUT") {
                 PanelActionRow(
@@ -172,7 +186,7 @@ struct SettingsPanel: View {
                     isShowingAbout = true
                 }
             }
-            .panelEntrance(4)
+            .panelEntrance(5)
         }
         .sheet(isPresented: $isShowingAccount) { AccountPanel() }
         .sheet(isPresented: $isShowingPaywall) { ProPanel() }
@@ -265,19 +279,18 @@ struct SettingsPanel: View {
         return account.email
     }
 
+    /// Where a Pro account's Pro came from.
+    ///
+    /// Only ever read by the row that is built for accounts that have it, so
+    /// there is no longer a sales pitch on the other side of this — that moved
+    /// to `ProPromoCard`, which is a card rather than a sentence because it had
+    /// something to show.
     private var proDetail: String {
-        if entitlements.isPro {
-            switch entitlements.source {
-            case .appStore: return "Active — through the App Store."
-            case .subscription: return "Active — from your inflight.info subscription."
-            case .legacy: return "Active on your account."
-            case .free: return "Active."
-            }
+        switch entitlements.source {
+        case .appStore:     return "Active — through the App Store."
+        case .subscription: return "Active — from your inflight.info subscription."
+        case .legacy:       return "Active on your account."
+        case .free:         return "Active."
         }
-
-        guard let price = store.displayPrice else {
-            return "Flight replay, the whole watchlist, and the globe."
-        }
-        return "From \(price) a year. Flight replay, the whole watchlist, and the globe."
     }
 }
