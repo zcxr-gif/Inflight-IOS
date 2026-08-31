@@ -151,7 +151,40 @@ enum GlobeMarkMetrics {
     static let tappableDepth: Float = 0.18
 }
 
+/// The planet, over the sky.
+///
+/// Two layers rather than one, and the split is the whole point. The sky — a
+/// gradient, seven hundred stars, a vignette — does not change when the planet
+/// turns, and it covers the entire screen. Drawn into the same bitmap as the
+/// planet, it had to be laid down again on *every frame of every gesture*: a
+/// full-screen composite, sixty times a second, to reproduce the picture that
+/// was already there.
+///
+/// Now it is a layer of its own, painted when the backdrop or the size changes
+/// and composited by the GPU after that, which is the thing GPUs are for. The
+/// planet draws into a transparent layer above it — a memset and a blend over
+/// the quarter of the screen the disc actually covers, against a full-screen
+/// copy.
+///
+/// It also unties the resolution from the sky. `updateResolution` drops the
+/// planet's pixel count while a finger is down; when the sky shared that
+/// bitmap, every step of that meant either resampling a three-megapixel image
+/// per frame or rebuilding it mid-gesture. The sky is simply always sharp now,
+/// and costs nothing for being so.
+private final class GlobePlanetView: UIView {
+
+    weak var owner: GlobeCanvasView?
+
+    override func draw(_ rect: CGRect) {
+        guard let context = UIGraphicsGetCurrentContext() else { return }
+        owner?.drawPlanet(in: context)
+    }
+}
+
 final class GlobeCanvasView: UIView {
+
+    /// Everything that moves. See `GlobePlanetView`.
+    private let planetView = GlobePlanetView()
 
     // MARK: - What the view is handed
 
@@ -240,6 +273,21 @@ final class GlobeCanvasView: UIView {
     /// from a camera it was handed.
     private var isLive: Bool { still == nil }
 
+    // MARK: - Keeping up
+
+    /// How long the planet has been taking to draw, in seconds, smoothed over
+    /// the last several frames.
+    private var frameCost: Double = 0
+
+    /// The resolution the planet is drawn at while it is moving, found rather
+    /// than assumed. See `tuneResolution`.
+    private var interactiveScale: CGFloat = 2
+
+    /// Frames in a row on the wrong side of a threshold, so that one slow
+    /// frame does not soften the map and one quick one does not sharpen it.
+    private var slowFrames = 0
+    private var quickFrames = 0
+
     // MARK: - Caches
 
     /// Field codes, rendered once each. Cleared when the palette changes, which
@@ -259,43 +307,38 @@ final class GlobeCanvasView: UIView {
     /// every frame of every gesture.
     private var marks: [(index: Int, point: CGPoint, angle: CGFloat)] = []
 
-    /// The sky, rendered once per resolution it is drawn at.
-    ///
-    /// It is a gradient, up to seven hundred stars and a radial vignette, and
-    /// none of it moves when the planet turns — so drawing it per frame was
-    /// two full-screen per-pixel gradient composites and several hundred
-    /// ellipses, every frame, for a picture that was identical each time. Now
-    /// it is one bitmap and one blit.
-    ///
-    /// Keyed by scale, and that key is the whole difference between a blit and
-    /// a resample. The view drops to two pixels a point while a finger is down
-    /// (see `updateResolution`), and one bitmap held at the screen's three had
-    /// to be scaled down into that context on *every frame of every gesture* —
-    /// a three megapixel interpolation, on the CPU, at the one moment there is
-    /// nothing spare. It is a straight copy when the two agree, so the two are
-    /// made to agree: a second bitmap, built once the first time a finger
-    /// lands, is a couple of megabytes against several milliseconds a frame.
-    private var skies: [CGFloat: UIImage] = [:]
-    private var skySize: CGSize = .zero
-    private var skyStyle: GlobeBackdropStyle?
 
     // MARK: - Setting up
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        addPlanet()
         addGestures()
         watchMemory()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
+        addPlanet()
         addGestures()
         watchMemory()
     }
 
-    /// Two full-screen backdrops is a few megabytes worth having and not worth
-    /// keeping through a squeeze. Both rebuild themselves on the next frame,
-    /// and the frame after a memory warning is not one anybody is pinching.
+    private func addPlanet() {
+        planetView.owner = self
+        planetView.isOpaque = false
+        planetView.backgroundColor = .clear
+        // Redrawn rather than stretched, so a coastline is a hairline at any
+        // zoom instead of a scaled bitmap.
+        planetView.contentMode = .redraw
+        // The gestures belong to the container, which is what the recognizers
+        // are attached to and what the hit test should find.
+        planetView.isUserInteractionEnabled = false
+        addSubview(planetView)
+    }
+
+    /// The field codes are the only bitmaps left here worth giving back, and
+    /// they redraw themselves the next time a field is on screen.
     private func watchMemory() {
         NotificationCenter.default.addObserver(
             self,
@@ -306,7 +349,6 @@ final class GlobeCanvasView: UIView {
     }
 
     @objc private func dropCaches() {
-        skies.removeAll()
         labels.removeAll()
     }
 
@@ -385,6 +427,7 @@ final class GlobeCanvasView: UIView {
             || still != self.still
 
         if palette != self.palette { labels.removeAll() }
+        let skyMoved = backdrop != self.backdrop
 
         let insetsMoved = bottomInset != self.bottomInset || trailingInset != self.trailingInset
 
@@ -404,12 +447,14 @@ final class GlobeCanvasView: UIView {
         // An opaque view has to have something behind the drawing during the
         // moment between a resize and the redraw, or the gap is undefined.
         backgroundColor = (backdrop.colors.first ?? .black).withAlphaComponent(1)
+        // The sky is repainted only when the sky changes.
+        if skyMoved { setNeedsDisplay() }
 
         if insetsMoved || still != nil { layoutCamera(); changed = true }
         if carryOut(command) { changed = true }
 
         guard changed else { return }
-        setNeedsDisplay()
+        redrawPlanet()
     }
 
     /// Points the planet where the chrome asked, once.
@@ -432,6 +477,7 @@ final class GlobeCanvasView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        planetView.frame = bounds
         layoutCamera()
     }
 
@@ -465,7 +511,7 @@ final class GlobeCanvasView: UIView {
             isReady = true
         }
         reportCamera()
-        setNeedsDisplay()
+        redrawPlanet()
     }
 
     /// The radius at which the whole planet sits inside the screen with room
@@ -655,7 +701,7 @@ final class GlobeCanvasView: UIView {
             guard !isPinching else { return }
 
             camera.drag(by: CGSize(width: moved.x, height: moved.y))
-            setNeedsDisplay()
+            redrawPlanet()
 
         case .ended, .cancelled, .failed:
             isPanning = false
@@ -699,7 +745,7 @@ final class GlobeCanvasView: UIView {
             if let anchor = pinchAnchor {
                 pin(anchor, at: gesture.location(in: self))
             }
-            setNeedsDisplay()
+            redrawPlanet()
 
         case .ended, .cancelled, .failed:
             isPinching = false
@@ -783,7 +829,7 @@ final class GlobeCanvasView: UIView {
             momentum = speed > 12 ? flick : nil
         }
 
-        setNeedsDisplay()
+        redrawPlanet()
 
         if !isZooming && momentum == nil {
             stopAnimator()
@@ -807,6 +853,11 @@ final class GlobeCanvasView: UIView {
     }
 
     private func beginInteraction() {
+        // Whatever the last frame cost, it was drawn at the resting
+        // resolution and says nothing about what this gesture will cost.
+        frameCost = 0
+        slowFrames = 0
+        quickFrames = 0
         updateResolution()
     }
 
@@ -814,7 +865,7 @@ final class GlobeCanvasView: UIView {
         guard !isInteracting else { return }
         updateResolution()
         reportCamera()
-        setNeedsDisplay()
+        redrawPlanet()
     }
 
     /// Draws at fewer pixels while a finger is down.
@@ -825,9 +876,87 @@ final class GlobeCanvasView: UIView {
     /// actually moving, which is exactly when nobody is looking at the
     /// sharpness of a coastline, and come back the moment it stops.
     private func updateResolution() {
-        let wanted = isInteracting ? min(displayScale, 2) : displayScale
-        guard contentScaleFactor != wanted else { return }
-        contentScaleFactor = wanted
+        let wanted = isInteracting ? min(interactiveScale, displayScale) : displayScale
+        guard planetView.contentScaleFactor != wanted else { return }
+        planetView.contentScaleFactor = wanted
+    }
+
+    /// Finds the resolution this phone can actually hold sixty frames at.
+    ///
+    /// The planet is rasterised on the CPU, so a frame costs very nearly what
+    /// its pixel count costs — and how many pixels that is depends on the
+    /// screen, and how much work each one is depends on how much traffic is on
+    /// the server, how much coastline is on screen, and which phone this is.
+    /// A fixed number cannot be right for all of that: two pixels a point is
+    /// wasteful on a quiet server and still too many on a busy one on an older
+    /// device.
+    ///
+    /// So it is measured. The planet times its own drawing, and while a finger
+    /// is down the resolution walks up and down a short ladder to keep that
+    /// under a frame. It falls quickly — three slow frames and it is down a
+    /// step, because the whole point is not to drop frames — and climbs back
+    /// slowly, so a single quick stretch cannot start it oscillating. At rest
+    /// it is always the screen's own resolution, however low it fell.
+    /// Smoothed, because a single frame is mostly noise — a packet landing, a
+    /// label being laid out for the first time, another app waking up.
+    private func record(frame seconds: Double) {
+        frameCost = frameCost > 0 ? frameCost * 0.75 + seconds * 0.25 : seconds
+    }
+
+    private func tuneResolution() {
+        guard isInteracting, isLive else { return }
+
+        let ladder = Self.resolutionLadder
+        let ceiling = min(displayScale, 2)
+        guard let step = ladder.lastIndex(where: { $0 <= interactiveScale }) else { return }
+
+        if frameCost > Self.slowFrame {
+            quickFrames = 0
+            slowFrames += 1
+            guard slowFrames >= 3, step > 0 else { return }
+            interactiveScale = ladder[step - 1]
+            settle()
+        } else if frameCost < Self.quickFrame {
+            slowFrames = 0
+            quickFrames += 1
+            guard quickFrames >= 20, step + 1 < ladder.count,
+                  ladder[step + 1] <= ceiling else { return }
+            interactiveScale = ladder[step + 1]
+            settle()
+        } else {
+            slowFrames = 0
+            quickFrames = 0
+        }
+    }
+
+    /// Applies a new resolution and forgets what the old one cost, so the next
+    /// decision is made on frames actually drawn at it. Without this the
+    /// average still carries the expensive frames that caused the step, and
+    /// the planet walks all the way down the ladder for one slow moment.
+    private func settle() {
+        slowFrames = 0
+        quickFrames = 0
+        frameCost = 0
+        updateResolution()
+    }
+
+    /// Pixels a point, coarsest first. The floor is one — below that a
+    /// coastline stops being a line — and the ceiling is two, which is where
+    /// the reduction started life.
+    private static let resolutionLadder: [CGFloat] = [1, 1.25, 1.5, 2]
+
+    /// A frame worth stepping down for, and one worth stepping back up for.
+    /// Sixty frames a second is sixteen and a half milliseconds all in, and
+    /// this measures only the drawing — the rest of it is the backing store
+    /// going to the GPU and Core Animation putting the two layers together.
+    private static let slowFrame: Double = 0.010
+    private static let quickFrame: Double = 0.0045
+
+    /// Invalidates the planet, and takes the chance to notice whether the
+    /// frames are landing.
+    private func redrawPlanet() {
+        tuneResolution()
+        planetView.setNeedsDisplay()
     }
 
     private var displayScale: CGFloat {
@@ -932,10 +1061,19 @@ final class GlobeCanvasView: UIView {
 
     // MARK: - Drawing
 
+    /// The sky, and nothing else.
+    ///
+    /// Reached only when the size or the backdrop changes — the planet turning
+    /// invalidates `planetView`, not this.
     override func draw(_ rect: CGRect) {
         guard let context = UIGraphicsGetCurrentContext() else { return }
-
         drawSky(in: context)
+    }
+
+    fileprivate func drawPlanet(in context: CGContext) {
+        let began = CACurrentMediaTime()
+        defer { record(frame: CACurrentMediaTime() - began) }
+
         guard camera.radius > 0 else { return }
 
         let basis = camera.basis
@@ -1045,91 +1183,44 @@ final class GlobeCanvasView: UIView {
 
     // MARK: - The sky
 
-    /// Blits the sky, rendering it first if the size, the resolution or the
-    /// backdrop has moved.
+    /// Paints the sky.
     ///
-    /// Nothing behind the planet moves when the planet turns, so none of it
-    /// belongs in a per-frame path. What used to happen here every frame was a
-    /// full-screen linear gradient, up to seven hundred ellipses and a
-    /// full-screen radial vignette — three per-pixel passes over the whole view
-    /// to produce a picture identical to the one already on screen.
+    /// Not per frame, and not into a cache. It used to be both: drawn into the
+    /// same bitmap as the planet, it had to be laid down again every frame, so
+    /// it was rendered once into an image and blitted — and then the image had
+    /// to be held at every resolution the planet might be drawn at, or every
+    /// blit was a three megapixel resample.
+    ///
+    /// A layer of its own removes all of that. This runs when the view is
+    /// resized or the backdrop is changed, and Core Animation composites it
+    /// under the planet from then on. The bitmaps, and the twenty megabytes
+    /// they cost, are gone with it.
     private func drawSky(in context: CGContext) {
-        // Zoomed in far enough that the planet is wider than the screen, there
-        // is no sky on screen at all: `drawSphere` fills the whole view with
-        // ocean a moment later, over every pixel of this. A full-screen
-        // composite, per frame, entirely underneath an opaque fill — and it is
-        // the frames at the top of the zoom range that have least to spare.
-        //
-        // On the radius as well as on the disc, because a view is inside a
-        // sphere of no size and there would then be nothing drawn at all.
-        if camera.radius > 0, isViewInsideDisc { return }
+        let box = bounds
+        guard box.width > 0, box.height > 0 else { return }
 
-        if skySize != bounds.size || skyStyle != backdrop { skies.removeAll() }
-
-        let scale = contentScaleFactor > 0 ? contentScaleFactor : displayScale
-        if skies[scale] == nil {
-            // Every resolution this view will ask for, built together. The
-            // reduced one is wanted on the first frame of the first gesture,
-            // and a full-screen gradient and a starfield built on *that* frame
-            // is the hitch the cache exists to remove — so it is built now,
-            // while nothing is moving, alongside the one being drawn.
-            for wanted in Set([scale, displayScale, min(displayScale, 2)]) {
-                makeSky(scale: wanted)
-            }
-        }
-
-        guard let sky = skies[scale] else {
+        if backdrop.colors.count > 1,
+           let gradient = CGGradient(
+               colorsSpace: CGColorSpaceCreateDeviceRGB(),
+               colors: backdrop.colors.map { $0.cgColor } as CFArray,
+               locations: nil
+           ) {
+            context.saveGState()
+            context.clip(to: box)
+            context.drawLinearGradient(
+                gradient,
+                start: CGPoint(x: box.midX, y: box.minY),
+                end: CGPoint(x: box.midX, y: box.maxY),
+                options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
+            )
+            context.restoreGState()
+        } else {
             context.setFillColor((backdrop.colors.first ?? .black).withAlphaComponent(1).cgColor)
-            context.fill(bounds)
-            return
-        }
-        sky.draw(at: .zero)
-    }
-
-    @discardableResult
-    private func makeSky(scale: CGFloat) -> UIImage? {
-        skySize = bounds.size
-        skyStyle = backdrop
-
-        guard bounds.width > 0, bounds.height > 0 else { return nil }
-
-        let format = UIGraphicsImageRendererFormat.default()
-        format.opaque = true
-        // The resolution this frame is actually being drawn at, so the blit is
-        // a copy rather than an interpolation. There are two of them at most —
-        // the screen's own, and the reduced one a gesture drops to.
-        format.scale = scale
-
-        let box = CGRect(origin: .zero, size: bounds.size)
-        let sky = UIGraphicsImageRenderer(size: bounds.size, format: format).image { render in
-            let context = render.cgContext
-
-            if backdrop.colors.count > 1,
-               let gradient = CGGradient(
-                   colorsSpace: CGColorSpaceCreateDeviceRGB(),
-                   colors: backdrop.colors.map { $0.cgColor } as CFArray,
-                   locations: nil
-               ) {
-                context.saveGState()
-                context.clip(to: box)
-                context.drawLinearGradient(
-                    gradient,
-                    start: CGPoint(x: box.midX, y: box.minY),
-                    end: CGPoint(x: box.midX, y: box.maxY),
-                    options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
-                )
-                context.restoreGState()
-            } else {
-                context.setFillColor((backdrop.colors.first ?? .black).withAlphaComponent(1).cgColor)
-                context.fill(box)
-            }
-
-            if let colour = backdrop.stars { drawStars(in: context, over: box, color: colour) }
-            if let colour = backdrop.vignette { drawVignette(in: context, over: box, color: colour) }
+            context.fill(box)
         }
 
-        skies[scale] = sky
-        return sky
+        if let colour = backdrop.stars { drawStars(in: context, over: box, color: colour) }
+        if let colour = backdrop.vignette { drawVignette(in: context, over: box, color: colour) }
     }
 
     /// Stars, fixed to the screen rather than to the sky.
@@ -1497,8 +1588,15 @@ final class GlobeCanvasView: UIView {
 
         context.setStrokeColor(color.cgColor)
         context.setLineWidth(width)
-        context.setLineJoin(.round)
-        context.setLineCap(.round)
+        // Round joins and caps on a hairline are several thousand arcs a frame
+        // for a difference nothing can see. A round join is a circle drawn at
+        // every vertex of every coastline, and at three quarters of a point
+        // wide the circle is a third of a pixel across — the same handful of
+        // pixels a bevel puts there, at several times the price. Kept for a
+        // line thick enough to have a visible corner.
+        let soft = width >= 1.5
+        context.setLineJoin(soft ? .round : .bevel)
+        context.setLineCap(soft ? .round : .butt)
         context.addPath(path)
         context.strokePath()
     }
@@ -2215,6 +2313,20 @@ final class GlobeCanvasView: UIView {
         let ring = GlobeMarkMetrics.fieldRingRadius
         let dot = GlobeMarkMetrics.fieldDotRadius
 
+        // The same grid the traffic uses, at about the width of a code.
+        //
+        // Pulled back, every field the map has ranked lands on a disc three
+        // hundred points across, and a couple of hundred four-letter codes in
+        // that space is not a list of aerodromes, it is a texture — nothing in
+        // it can be read, and each one costs a stroked ring and a blit. One
+        // code to a patch of screen, in the order the map ranked them, so what
+        // survives is what it thought mattered.
+        //
+        // A field somebody is working skips the grid, the way a coloured
+        // aircraft does. It is the one thing about a field you cannot work out
+        // by looking at the traffic, and it is never the thing to drop.
+        prepareCrowd(cell: 30, in: box)
+
         // Rendered before the drawing starts rather than as each one is
         // reached. A label is drawn into an image renderer, which pushes a
         // context of its own, and doing that in the middle of a run of state
@@ -2225,6 +2337,8 @@ final class GlobeCanvasView: UIView {
         for field in fields {
             let projected = camera.project(field.position, using: basis)
             guard projected.depth > 0.02, box.contains(projected.point) else { continue }
+
+            if !field.isControlled, isCrowded(at: projected.point) { continue }
 
             // Full strength across most of the near side, falling away only in
             // the last stretch before the limb — so on a zoomed-in frame every
