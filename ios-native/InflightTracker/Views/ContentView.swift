@@ -665,6 +665,9 @@ struct ContentView: View {
             start: planetStart,
             command: mapCommand,
             replayFrame: replay.frame,
+            // The same answer the flat map is given: the setting, and the
+            // system's own request for less movement.
+            smoothsTraffic: appearance.smoothsTraffic && !reduceMotion,
             bottomInset: mapBottomInset,
             trailingInset: mapTrailingInset,
             onSelectFlight: { flight in
@@ -685,6 +688,11 @@ struct ContentView: View {
         hasher.combine(trafficRevision)
         hasher.combine(airportsRevision)
         hasher.combine(filters.showsAirports)
+        // A history landing from the backend replaces the fragment the planet
+        // has already drawn, and it arrives on its own schedule rather than
+        // with a packet. Without this the flown path stays the stub it was
+        // built from until the next one lands.
+        hasher.combine(trails.seedRevision)
         return hasher.finalize()
     }
 

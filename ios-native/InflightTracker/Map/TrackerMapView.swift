@@ -382,24 +382,6 @@ struct TrackerMapView: UIViewRepresentable {
         private var renderedRouteKey: String?
         private var routeOverlays: [MKOverlay] = []
 
-        /// Flights whose backend history this map has asked for, and when.
-        ///
-        /// A set of ids was not enough, and the failure was the quiet kind. The
-        /// trail store drops the trail of any aircraft missing from a packet —
-        /// right, since trails are the expensive part — and the feed does blink:
-        /// one short packet or a reconnect and a nine-hour flight's seeded
-        /// history is gone. With an id already in the set the map would never
-        /// ask again, so the path silently collapsed to the fragment recorded
-        /// since the blink and stayed that way for as long as the window was
-        /// open. A date lets the request come back, while still holding off the
-        /// storm the set existed to prevent: a flight that has only just pushed
-        /// back has an empty history, `hasHistory` stays false for it forever,
-        /// and this method runs on every layout pass.
-        private var requestedHistory: [String: Date] = [:]
-
-        /// How long a history request holds the door shut behind it.
-        private static let historyRetryInterval: TimeInterval = 45
-
         /// How close to a field a slow sample has to be for that field's
         /// pavement to be worth fetching, so the flown path can be matched to
         /// it.
@@ -1365,6 +1347,8 @@ struct TrackerMapView: UIViewRepresentable {
                 return
             }
 
+            // Where the aircraft was before we were watching.
+            //
             // Asked for here as well as by the window, and asked for first:
             // this runs on the map's very next pass after the aeroplane is
             // tapped, which is before the sheet has finished coming up. The
@@ -1372,26 +1356,10 @@ struct TrackerMapView: UIViewRepresentable {
             // half a second of sheet animation is half a second of a path that
             // could already have been on its way.
             //
-            // Rate-limited here rather than in the service, because a history
-            // that comes back empty — a flight that has only just pushed back —
-            // leaves `hasHistory` false forever, and a condition that stays
-            // true on a method called every layout pass is a request storm.
-            // Rate-limited rather than once-only: see `requestedHistory`.
-            let now = Date()
-            if !FlightTrailStore.shared.hasHistory(for: flight.id),
-               now.timeIntervalSince(requestedHistory[flight.id] ?? .distantPast)
-                   > Self.historyRetryInterval {
-                requestedHistory[flight.id] = now
-
-                // Nothing worth remembering about the ones before: this exists
-                // to stop a repeat, and an id that has not been asked for in a
-                // hundred aircraft is not about to be asked for twice.
-                if requestedHistory.count > 200 { requestedHistory = [flight.id: now] }
-
-                FlightHistoryService.shared.load(flightId: flight.id) { history in
-                    FlightTrailStore.shared.seed(history, for: flight.id)
-                }
-            }
+            // Rate-limited inside the service, and the rule lives there rather
+            // than here because the planet draws the same track and has to be
+            // able to ask the same question.
+            FlightHistoryService.shared.ensureHistory(for: flight.id)
 
             let trail = FlightTrailStore.shared.points(for: flight.id)
 
@@ -1477,7 +1445,7 @@ struct TrackerMapView: UIViewRepresentable {
                 // what this replaced and why none of it survived.
                 let path = FlownPath(
                     points: drawn,
-                    bands: Self.heightBands(of: drawn),
+                    bands: FlownPath.heightBands(of: drawn),
                     title: Self.flownTitle
                 )
                 flownOverlay = path?.overlay
@@ -1694,50 +1662,6 @@ struct TrackerMapView: UIViewRepresentable {
             let line = MKGeodesicPolyline(coordinates: [from, to], count: 2)
             line.title = Self.plannedTitle
             return line
-        }
-
-        /// How far a path can run at exactly zero feet before the zero is read
-        /// as missing rather than as low.
-        ///
-        /// A flight from a sea-level field reports tens of feet, not a clean
-        /// zero, and an aircraft that never leaves the apron does not travel
-        /// twenty miles. A run that does both is a height the backend did not
-        /// send.
-        private static let unknownHeightRunNM: Double = 20
-
-        /// The band each sample belongs in, or nil where its height is missing
-        /// rather than low.
-        ///
-        /// Judged per run rather than over the whole path: a track seeded from
-        /// the backend without heights, with the live position on the end of
-        /// it, is the ordinary case — and it should draw as an unknown path
-        /// that becomes a coloured one, not as a flight that spent three hours
-        /// on the deck.
-        private static func heightBands(of points: [TrackPoint]) -> [Int?] {
-            var bands: [Int?] = points.map { AltitudeBand.band(forFeet: $0.altitudeFeet) }
-
-            var start = 0
-            while start < points.count {
-                guard points[start].altitudeFeet == 0 else {
-                    start += 1
-                    continue
-                }
-
-                var end = start
-                while end + 1 < points.count, points[end + 1].altitudeFeet == 0 { end += 1 }
-
-                let spanNM = FlightProgress.distanceNM(
-                    from: points[start].coordinate,
-                    to: points[end].coordinate
-                )
-                if spanNM > unknownHeightRunNM {
-                    for index in start...end { bands[index] = nil }
-                }
-
-                start = end + 1
-            }
-
-            return bands
         }
 
         private func clearRoute(on mapView: MKMapView) {

@@ -61,6 +61,10 @@ struct GlobeCanvas: UIViewRepresentable {
     /// is playing.
     var replay: GlobeReplayMark? = nil
 
+    /// Whether the traffic is carried between packets rather than jumping to
+    /// each one. See `GlobeCanvasView.isFlyingTraffic`.
+    var smoothsTraffic: Bool = true
+
     /// Which face is turned towards you the first time this is laid out.
     var start: CLLocationCoordinate2D = CLLocationCoordinate2D(latitude: 20, longitude: 0)
 
@@ -111,6 +115,7 @@ struct GlobeCanvas: UIViewRepresentable {
             showsFields: showsFields,
             sun: sun,
             replay: replay,
+            smoothsTraffic: smoothsTraffic,
             start: start,
             bottomInset: bottomInset,
             trailingInset: trailingInset,
@@ -197,6 +202,7 @@ final class GlobeCanvasView: UIView {
     private var showsFields = true
     private var sun: SIMD3<Float>?
     private var replay: GlobeReplayMark?
+    private var smoothsTraffic = true
     private var start = CLLocationCoordinate2D(latitude: 20, longitude: 0)
     private var bottomInset: CGFloat = 0
     private var trailingInset: CGFloat = 0
@@ -311,6 +317,11 @@ final class GlobeCanvasView: UIView {
     /// every frame of every gesture.
     private var marks: [(index: Int, position: SIMD3<Float>, point: CGPoint, angle: CGFloat)] = []
 
+    /// Where the open aircraft was put this frame, if it is on screen at all.
+    /// What the flown path's live segment is drawn out to, so the track stays
+    /// attached to an aeroplane that is moving between packets.
+    private var openPlace: SIMD3<Float>?
+
 
     // MARK: - Setting up
 
@@ -361,7 +372,11 @@ final class GlobeCanvasView: UIView {
     /// existing, for as long as the app did.
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        guard window == nil else { return }
+        guard window == nil else {
+            // Back on screen, and the traffic goes back to flying.
+            updateTrafficClock()
+            return
+        }
         momentum = nil
         zoomProgress = 0
         zoomAnchor = nil
@@ -425,6 +440,7 @@ final class GlobeCanvasView: UIView {
         showsFields: Bool,
         sun: SIMD3<Float>?,
         replay: GlobeReplayMark?,
+        smoothsTraffic: Bool,
         start: CLLocationCoordinate2D,
         bottomInset: CGFloat,
         trailingInset: CGFloat,
@@ -437,6 +453,7 @@ final class GlobeCanvasView: UIView {
             || showsFields != self.showsFields
             || sun != self.sun
             || replay != self.replay
+            || smoothsTraffic != self.smoothsTraffic
             || palette != self.palette
             || backdrop != self.backdrop
             || still != self.still
@@ -454,6 +471,7 @@ final class GlobeCanvasView: UIView {
         self.showsFields = showsFields
         self.sun = sun
         self.replay = replay
+        self.smoothsTraffic = smoothsTraffic
         self.start = start
         self.bottomInset = bottomInset
         self.trailingInset = trailingInset
@@ -467,6 +485,10 @@ final class GlobeCanvasView: UIView {
 
         if insetsMoved || still != nil { layoutCamera(); changed = true }
         if carryOut(command) { changed = true }
+
+        // A packet may have brought the first aeroplane worth carrying, or
+        // taken the last one away.
+        updateTrafficClock()
 
         guard changed else { return }
         redrawPlanet()
@@ -526,6 +548,9 @@ final class GlobeCanvasView: UIView {
             isReady = true
         }
         reportCamera()
+        // The zoom decides whether carrying the traffic between packets is
+        // something anybody could see. See `isFlyingTraffic`.
+        updateTrafficClock()
         redrawPlanet()
     }
 
@@ -836,6 +861,7 @@ final class GlobeCanvasView: UIView {
 
     @objc private func step(_ link: CADisplayLink) {
         let elapsed = max(1.0 / 120, min(1.0 / 20, link.targetTimestamp - link.timestamp))
+        let wasMoving = isZooming || momentum != nil
 
         if isZooming {
             zoomProgress = min(1, zoomProgress + elapsed / Self.zoomDuration)
@@ -860,11 +886,69 @@ final class GlobeCanvasView: UIView {
             momentum = speed > 12 ? flick : nil
         }
 
-        redrawPlanet()
+        // The camera is moving, so every frame is a frame. Otherwise the clock
+        // is only running to carry the traffic forward, and that is worth half
+        // as many: an aeroplane crossing the screen in a minute is the same
+        // aeroplane at thirty frames a second as at sixty, and the planet under
+        // it is a full redraw either way.
+        if wasMoving {
+            redrawPlanet()
+        } else if link.timestamp - lastTrafficFrame >= Self.trafficFrameInterval {
+            lastTrafficFrame = link.timestamp
+            redrawPlanet()
+        }
 
-        if !isZooming && momentum == nil {
+        guard !isZooming, momentum == nil else { return }
+
+        // Settling happens once, on the frame the movement stops, whether or
+        // not the clock keeps running for the traffic.
+        if wasMoving { endInteraction() }
+        if !isFlyingTraffic { stopAnimator() }
+    }
+
+    /// Thirty frames a second for traffic alone. The flat map redraws the head
+    /// of a flown path at the same rate, for the same reason.
+    private static let trafficFrameInterval: CFTimeInterval = 1.0 / 30
+
+    /// When the last traffic-only frame was drawn.
+    private var lastTrafficFrame: CFTimeInterval = 0
+
+    /// Whether the traffic is being carried between packets *and* it would
+    /// show.
+    ///
+    /// The second half is not a saving so much as the honest answer. Dead
+    /// reckoning moves an aeroplane at its ground speed, and how far that is on
+    /// screen depends entirely on how close the camera is: with the whole
+    /// planet in view a jet covers about a hundredth of a point a second, so
+    /// the prediction is invisible, the jump it exists to hide is invisible,
+    /// and all a frame clock would do is redraw a planet nobody can see move —
+    /// several hundred coastlines and three thousand aeroplanes, thirty times
+    /// a second, for a picture identical to the last one.
+    ///
+    /// So it is switched on by how much ground a point is worth. At a thousand
+    /// metres a point a jet moves about a quarter of a point a second, which is
+    /// a point and a bit between packets: the first zoom at which the jump is
+    /// something you can see, and therefore the first at which smoothing it is
+    /// something you can see. Closer than that it is the difference between an
+    /// aeroplane flying and an aeroplane teleporting.
+    private static let flyingMetresPerPoint: Double = 1_000
+
+    private var isFlyingTraffic: Bool {
+        guard smoothsTraffic, isLive, window != nil, scene.hasMotion else { return false }
+        return camera.metresPerPoint <= Self.flyingMetresPerPoint
+    }
+
+    /// Starts or stops the frame clock that carries the traffic.
+    ///
+    /// Called when a packet lands and when the zoom settles — the two things
+    /// that can change the answer. A gesture does not need it: the clock is
+    /// already running for the glide, and `step` asks again when that ends.
+    private func updateTrafficClock() {
+        if isFlyingTraffic {
+            lastTrafficFrame = CACurrentMediaTime()
+            runAnimator()
+        } else if !isInteracting {
             stopAnimator()
-            endInteraction()
         }
     }
 
@@ -896,6 +980,9 @@ final class GlobeCanvasView: UIView {
         guard !isInteracting else { return }
         updateResolution()
         reportCamera()
+        // A pinch that has just finished may have brought the traffic close
+        // enough to be worth flying, or taken it out of range.
+        updateTrafficClock()
         redrawPlanet()
     }
 
@@ -1141,9 +1228,15 @@ final class GlobeCanvasView: UIView {
             drawNight(in: context, basis: basis, sun: sun)
         }
 
+        // Before anything that reads where an aeroplane is, because that is no
+        // longer only the traffic: the flown path is drawn out to the open
+        // aircraft, and the aircraft is somewhere between packets.
+        flyTraffic(basis: basis, box: box)
+
         drawLines(in: context, basis: basis, box: box)
+        drawFlownPath(in: context, basis: basis, box: box)
         drawLimb(in: context)
-        drawTraffic(in: context, basis: basis, box: box)
+        drawTraffic(in: context, basis: basis)
 
         if showsFields {
             drawFields(in: context, basis: basis, box: box)
@@ -1651,6 +1744,135 @@ final class GlobeCanvasView: UIView {
         }
     }
 
+    // MARK: - The flown path
+
+    /// How wide the flown track is drawn, in points.
+    ///
+    /// The flat map's own ramp — see `FlownPathStyle`, which is where the
+    /// argument for it lives — keyed on how much ground is across the screen
+    /// rather than on a MapKit camera distance, because that is the same
+    /// question asked of a globe. Wide at an aerodrome, where the track is read
+    /// against runway edges; narrow with a continent in view, where a long-haul
+    /// is a tangle of switchbacks and a wide stroke stops being a line and
+    /// becomes a shape.
+    private var flownWidth: CGFloat {
+        let across = max(120, min(bounds.width - trailingInset, bounds.height - bottomInset))
+        return FlownPathStyle.width(
+            forCameraDistance: camera.metresPerPoint * Double(across)
+        )
+    }
+
+    /// Where the open aircraft is being drawn, which is where its track has to
+    /// end. A playback owns the aeroplane when one is running.
+    private var flownHead: SIMD3<Float>? { replay?.position ?? openPlace }
+
+    /// How far the aeroplane may be from the newest fix and still have the gap
+    /// drawn, as the cosine of an angle at the centre of the planet.
+    ///
+    /// A degree and a half, which is a hundred and sixty kilometres. The gap
+    /// this covers is the few miles between the last breadcrumb and the
+    /// aeroplane; anything on that scale is not a gap but a different place —
+    /// a respawn, a reposition, a track held over from a flight that has ended
+    /// — and joining the two would draw a line across a country that was never
+    /// flown.
+    private static let flownHeadReach = cos(1.5 * Double.pi / 180)
+
+    /// The open aircraft's track: where it has been, in the colours of the
+    /// heights it was at.
+    ///
+    /// ## Built once, stroked twice
+    ///
+    /// The halo and the core are the same geometry at two widths, and the
+    /// geometry is the expensive half — a few thousand points projected and
+    /// clipped at the horizon. So the paths are built once and stroked twice,
+    /// which is not something the flat map's renderer can do: it is handed a
+    /// tile at a time and has to walk the track for each.
+    ///
+    /// ## The halo, inside a layer
+    ///
+    /// A wide translucent stroke composites twice wherever a track crosses
+    /// itself — a hold, a circuit, a taxi back down the same line — and every
+    /// crossing comes out darker than the line either side of it. Drawn opaque
+    /// into a transparency layer and faded as a whole, the overlap happens
+    /// inside the layer where it is opaque-on-opaque, and the wash comes out
+    /// even. The layer is clipped to the track's own bounds first, so what it
+    /// costs is the strip the track covers rather than the screen.
+    private func drawFlownPath(in context: CGContext, basis: GlobeCamera.Basis, box: CGRect) {
+        guard let flown = scene.flown, !flown.runs.isEmpty else { return }
+
+        var strokes: [(path: CGPath, color: UIColor)] = []
+        strokes.reserveCapacity(flown.runs.count + 1)
+        var covered = CGRect.null
+
+        for run in flown.runs {
+            let path = CGMutablePath()
+            append(
+                flown.points,
+                from: run.first,
+                through: run.last,
+                to: path,
+                basis: basis,
+                box: box
+            )
+            guard !path.isEmpty else { continue }
+            covered = covered.union(path.boundingBox)
+            strokes.append((path, run.color))
+        }
+
+        // The piece the feed has not caught up with: the newest fix out to
+        // wherever the aeroplane is this frame. It carries the fix's colour,
+        // because that is the height the aircraft was last known to be at and
+        // inventing a different one for a few miles of track would be a claim
+        // about a climb nobody reported.
+        if let head = flownHead {
+            let tip = SIMD3<Double>(Double(head.x), Double(head.y), Double(head.z))
+            if simd_dot(flown.tail, tip) > Self.flownHeadReach {
+                let path = CGMutablePath()
+                append([flown.tail, tip], to: path, basis: basis, box: box)
+                if !path.isEmpty {
+                    covered = covered.union(path.boundingBox)
+                    strokes.append((path, flown.headColor))
+                }
+            }
+        }
+
+        guard !strokes.isEmpty, !covered.isNull else { return }
+
+        let core = flownWidth
+        let halo = core * FlownPathStyle.glowSpread
+
+        context.saveGState()
+        defer { context.restoreGState() }
+
+        context.setLineCap(.round)
+        context.setLineJoin(.round)
+
+        let room = covered.insetBy(dx: -halo, dy: -halo).intersection(bounds)
+        guard !room.isEmpty else { return }
+        context.clip(to: room)
+
+        context.setAlpha(FlownPathStyle.glowOpacity)
+        context.beginTransparencyLayer(auxiliaryInfo: nil)
+        stroke(strokes, width: halo, in: context)
+        context.endTransparencyLayer()
+        context.setAlpha(1)
+
+        stroke(strokes, width: core, in: context)
+    }
+
+    private func stroke(
+        _ strokes: [(path: CGPath, color: UIColor)],
+        width: CGFloat,
+        in context: CGContext
+    ) {
+        context.setLineWidth(width)
+        for run in strokes {
+            context.setStrokeColor(run.color.cgColor)
+            context.addPath(run.path)
+            context.strokePath()
+        }
+    }
+
     /// A run of points on the sphere, as screen path, clipped at the horizon.
     ///
     /// The clipping is the part worth being careful about. A segment with one
@@ -1747,15 +1969,24 @@ final class GlobeCanvasView: UIView {
     /// thirty lines that are not going to change independently.
     private func append(
         _ points: [SIMD3<Double>],
+        from first: Int = 0,
+        through last: Int = .max,
         to path: CGMutablePath,
         basis: GlobeCamera.Basis,
         box: CGRect
     ) {
+        // A range rather than a slice, so that one run of a flown path — which
+        // is a stretch of one colour inside an array of a few thousand points —
+        // is walked in place instead of copied out to be walked.
+        let end = min(last, points.count - 1)
+        guard first >= 0, first <= end else { return }
+
         var previousVector: SIMD3<Double>?
         var previous: GlobeCamera.Projected?
         var isDrawing = false
 
-        for point in points {
+        for index in first...end {
+            let point = points[index]
             let now = camera.project(point, using: basis)
 
             guard let lastVector = previousVector, let last = previous else {
@@ -2076,8 +2307,75 @@ final class GlobeCanvasView: UIView {
 
     // MARK: - Traffic
 
-    private func drawTraffic(in context: CGContext, basis: GlobeCamera.Basis, box: CGRect) {
-        guard !scene.traffic.isEmpty || replay != nil else { return }
+    /// Carries every aeroplane this frame is going to draw forward to now, and
+    /// works out where each of them lands on screen.
+    ///
+    /// One pass for the whole frame, before anything is drawn, and both of
+    /// those matter.
+    ///
+    /// *One*, because `FlightMotion` measures the step it takes from the last
+    /// time it was asked. Asked twice in a frame it sees no elapsed time at
+    /// all, takes the raw prediction, and the aeroplane snaps to it — which is
+    /// precisely the jump the smoothing exists to remove. So the traffic, the
+    /// dots and the head of the flown path all read the answers from here
+    /// rather than each asking for their own.
+    ///
+    /// *Before*, because the flown path is drawn under the traffic and has to
+    /// end where the aeroplane is going to be drawn, not where it was.
+    ///
+    /// Walked by index rather than by element, which is not a style choice. A
+    /// `GlobeTrafficDot` carries two `String`s and a `UIColor?`, so binding one
+    /// per iteration retains and releases three references — a packet of three
+    /// thousand at sixty frames a second is over half a million retain/release
+    /// pairs a second to read two vectors.
+    private func flyTraffic(basis: GlobeCamera.Basis, box: CGRect) {
+        marks.removeAll(keepingCapacity: true)
+        openPlace = nil
+        guard !scene.traffic.isEmpty else { return }
+
+        let flying = isFlyingTraffic
+        let now = CACurrentMediaTime()
+
+        // An aeroplane whose last packet put it just off the edge may well
+        // have flown onto it since, and it is the one arriving that a jump
+        // would be most obvious on. So the screen test is widened by as far as
+        // a prediction can reach — a few points at the zoom this runs at, and
+        // nothing at all when it is switched off.
+        let lead = flying
+            ? CGFloat(FlightMotion.maximumLeadMetres / camera.metresPerPoint)
+            : 0
+        let reach = lead > 0.5 ? box.insetBy(dx: -lead, dy: -lead) : box
+
+        for index in 0..<scene.traffic.count {
+            var projected = camera.project(scene.traffic[index].position, using: basis)
+            guard projected.isVisible, reach.contains(projected.point) else { continue }
+
+            if flying, scene.flyForward(index, to: now) {
+                projected = camera.project(scene.traffic[index].position, using: basis)
+                guard projected.isVisible else { continue }
+            }
+            guard box.contains(projected.point) else { continue }
+
+            // Two dot products for the sprite's angle. The heading is a
+            // direction on the surface, and an orthographic projection is
+            // linear, so where that direction lands on screen is the projection
+            // of the direction itself — no second point to project and
+            // subtract.
+            let dx = CGFloat(simd_dot(scene.traffic[index].heading, basis.east))
+            let dy = -CGFloat(simd_dot(scene.traffic[index].heading, basis.north))
+            let place = scene.traffic[index].position
+            marks.append((
+                index: index,
+                position: place,
+                point: projected.point,
+                angle: atan2(dx, -dy)
+            ))
+            if scene.traffic[index].isOpen { openPlace = place }
+        }
+    }
+
+    private func drawTraffic(in context: CGContext, basis: GlobeCamera.Basis) {
+        guard !marks.isEmpty || replay != nil else { return }
 
         // The setting, and nothing else.
         //
@@ -2092,9 +2390,9 @@ final class GlobeCanvasView: UIView {
         // What actually bounds the work is the screen rejection below: only
         // aircraft you can see are drawn, at any zoom.
         if showsPlanes {
-            drawPlanes(in: context, basis: basis, box: box)
+            drawPlanes(in: context, basis: basis)
         } else {
-            drawDots(in: context, basis: basis, box: box)
+            drawDots(in: context, basis: basis)
         }
     }
 
@@ -2114,8 +2412,7 @@ final class GlobeCanvasView: UIView {
 
     private func drawPlanes(
         in context: CGContext,
-        basis: GlobeCamera.Basis,
-        box: CGRect
+        basis: GlobeCamera.Basis
     ) {
         let sprites = PlaneSprites.shared
         let size = spriteSize
@@ -2130,42 +2427,12 @@ final class GlobeCanvasView: UIView {
         context.interpolationQuality = .low
         defer { context.restoreGState() }
 
-        // Projected first, drawn second, and the reason is the budget below:
-        // how far apart two aeroplanes have to be to both be worth drawing
-        // depends on how many of them there are, which is not known until they
-        // have all been looked at. Projecting is nine multiplies; the answers
-        // are kept so it happens once rather than twice.
-        //
-        // Walked by index rather than by element, which is not a style choice.
-        // A `GlobeTrafficDot` carries two `String`s and a `UIColor?`, so binding
-        // one per iteration retains and releases three references — a packet of
-        // three thousand at sixty frames a second is over half a million
-        // retain/release pairs a second to read two vectors.
-        marks.removeAll(keepingCapacity: true)
-        let traffic = scene.traffic
-        for index in traffic.indices {
-            let projected = camera.project(traffic[index].position, using: basis)
-            guard projected.isVisible, box.contains(projected.point) else { continue }
-
-            // Two dot products for the sprite's angle. The heading is a
-            // direction on the surface, and an orthographic projection is
-            // linear, so where that direction lands on screen is the projection
-            // of the direction itself — no second point to project and
-            // subtract.
-            let dx = CGFloat(simd_dot(traffic[index].heading, basis.east))
-            let dy = -CGFloat(simd_dot(traffic[index].heading, basis.north))
-            marks.append((
-                index: index,
-                position: traffic[index].position,
-                point: projected.point,
-                angle: atan2(dx, -dy)
-            ))
-        }
-
+        // Where everything is was worked out once for the whole frame, before
+        // any of it was drawn — see `flyTraffic`.
         startCrowding(mark: size)
 
         for mark in marks {
-            let dot = traffic[mark.index]
+            let dot = scene.traffic[mark.index]
 
             if dot.isOpen {
                 // A playback is driving this aeroplane, so where the feed last
@@ -2354,8 +2621,7 @@ final class GlobeCanvasView: UIView {
 
     private func drawDots(
         in context: CGContext,
-        basis: GlobeCamera.Basis,
-        box: CGRect
+        basis: GlobeCamera.Basis
     ) {
         // Grouped by colour, so a packet of three thousand aircraft is a
         // handful of fills rather than one state change apiece. An array rather
@@ -2366,20 +2632,18 @@ final class GlobeCanvasView: UIView {
         var open: [CGPoint] = []
         let size = palette.dotRadius
 
-        let traffic = scene.traffic
-        for index in traffic.indices {
-            let projected = camera.project(traffic[index].position, using: basis)
-            guard projected.isVisible, box.contains(projected.point) else { continue }
+        for mark in marks {
+            let dot = scene.traffic[mark.index]
 
-            if traffic[index].isOpen {
-                if replay == nil { open.append(projected.point) }
+            if dot.isOpen {
+                if replay == nil { open.append(mark.point) }
                 continue
             }
 
-            let colour = traffic[index].tint ?? palette.traffic
+            let colour = dot.tint ?? palette.traffic
             let box = CGRect(
-                x: projected.point.x - size,
-                y: projected.point.y - size,
+                x: mark.point.x - size,
+                y: mark.point.y - size,
                 width: size * 2,
                 height: size * 2
             )

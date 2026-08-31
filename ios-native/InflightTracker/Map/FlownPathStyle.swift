@@ -181,8 +181,60 @@ struct FlownPath {
     /// that judgement is about runs of zeroes and belongs where it is — but
     /// once it is known there is no reason to throw the feet away and draw the
     /// middle of the band the aircraft happened to be in.
-    private static func color(for band: Int?, feet: Double) -> UIColor {
+    ///
+    /// Not private, because the planet draws the same track and has to draw it
+    /// in the same colours: a path that changes hue when you change the shape
+    /// of the world is telling you about the renderer rather than about the
+    /// flight. See `GlobeFlownPath`.
+    static func color(for band: Int?, feet: Double) -> UIColor {
         band == nil ? AltitudeBand.unknownColor : AltitudeBand.color(forFeet: feet)
+    }
+
+    /// How far a path can run at exactly zero feet before the zero is read
+    /// as missing rather than as low.
+    ///
+    /// A flight from a sea-level field reports tens of feet, not a clean
+    /// zero, and an aircraft that never leaves the apron does not travel
+    /// twenty miles. A run that does both is a height the backend did not
+    /// send.
+    private static let unknownHeightRunNM: Double = 20
+
+    /// The band each sample belongs in, or nil where its height is missing
+    /// rather than low.
+    ///
+    /// Judged per run rather than over the whole path: a track seeded from
+    /// the backend without heights, with the live position on the end of
+    /// it, is the ordinary case — and it should draw as an unknown path
+    /// that becomes a coloured one, not as a flight that spent three hours
+    /// on the deck.
+    ///
+    /// Here rather than on either map, because both of them draw this track
+    /// and neither of them owns the rule.
+    static func heightBands(of points: [TrackPoint]) -> [Int?] {
+        var bands: [Int?] = points.map { AltitudeBand.band(forFeet: $0.altitudeFeet) }
+
+        var start = 0
+        while start < points.count {
+            guard points[start].altitudeFeet == 0 else {
+                start += 1
+                continue
+            }
+
+            var end = start
+            while end + 1 < points.count, points[end + 1].altitudeFeet == 0 { end += 1 }
+
+            let spanNM = FlightProgress.distanceNM(
+                from: points[start].coordinate,
+                to: points[end].coordinate
+            )
+            if spanNM > unknownHeightRunNM {
+                for index in start...end { bands[index] = nil }
+            }
+
+            start = end + 1
+        }
+
+        return bands
     }
 }
 

@@ -65,6 +65,11 @@ struct PlanetSurface: View {
     /// somewhere other than where the feed last saw it.
     var replayFrame: FlightReplay.Frame? = nil
 
+    /// Whether the traffic is carried between packets rather than jumping to
+    /// each one. The map's own setting, resolved by whoever owns it — the
+    /// planet draws what it is told, and Reduce Motion is not its business.
+    var smoothsTraffic: Bool = true
+
     /// How much of the bottom and the right of the view is spoken for by the
     /// chrome standing over it — the toolbar, or the flight window.
     ///
@@ -139,6 +144,7 @@ struct PlanetSurface: View {
             showsFields: filters.showsAirports,
             sun: filters.showsTerminator ? sun : nil,
             replay: replayMark,
+            smoothsTraffic: smoothsTraffic,
             start: start,
             bottomInset: bottomInset,
             trailingInset: trailingInset,
@@ -280,18 +286,34 @@ struct PlanetSurface: View {
         hasher.combine(route?.arrival?.longitude)
         hasher.combine(filters.showsNatTracks ? natTracks.tracks.count : 0)
         hasher.combine(filters.showsFlownPath)
+        hasher.combine(smoothsTraffic)
         return hasher.finalize()
     }
 
-    /// Where the open aircraft has actually been.
+    /// Where the open aircraft has actually been, with the height it was at
+    /// when it was there — which is what the path is coloured by.
     ///
     /// Read out of the shared store at rebuild time rather than observed. The
     /// store publishes only when a history is seeded, and the path grows with
     /// every packet — which the caller's own signature already covers, since
     /// it is stamped with the packet the path grew from.
-    private var flownPath: [CLLocationCoordinate2D] {
+    ///
+    /// The aircraft's own position is deliberately *not* on the end of it. The
+    /// track ends at the newest breadcrumb; the piece from there to where the
+    /// aeroplane is being drawn is redrawn on the frame clock by the canvas,
+    /// so the line stays attached to an aircraft that is moving between
+    /// packets rather than catching it up in a jump.
+    private var flownPath: [TrackPoint] {
         guard filters.showsFlownPath, let id = openFlightId else { return [] }
-        return FlightTrailStore.shared.points(for: id).map(\.coordinate)
+
+        // Where it was before we were watching. Rate-limited inside the
+        // service, so asking on every rebuild is a dictionary lookup rather
+        // than a request — and asking at all is what the planet did not do:
+        // it drew whatever fragment had been recorded since the app opened
+        // while the flat map drew the same flight from its departure.
+        FlightHistoryService.shared.ensureHistory(for: id)
+
+        return FlightTrailStore.shared.points(for: id)
     }
 
     /// Hands the scene everything it is built from, and lets it decide whether
@@ -311,6 +333,7 @@ struct PlanetSurface: View {
             route: route,
             flownPath: flownPath,
             natTracks: filters.showsNatTracks ? natTracks.tracks.map(\.coordinates) : [],
+            smoothsTraffic: smoothsTraffic,
             palette: palette
         )
     }

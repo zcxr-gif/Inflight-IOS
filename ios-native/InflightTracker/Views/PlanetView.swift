@@ -37,6 +37,7 @@ struct PlanetView: View {
 
     @EnvironmentObject private var feed: LiveFeed
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @ObservedObject private var filters = MapFilters.shared
 
@@ -63,6 +64,7 @@ struct PlanetView: View {
                 airports: filters.showsAirports ? airports : [],
                 signature: signature,
                 start: start,
+                smoothsTraffic: appearance.smoothsTraffic && !reduceMotion,
                 onSelectFlight: { flight in
                     onSelectFlight(flight)
                     dismiss()
