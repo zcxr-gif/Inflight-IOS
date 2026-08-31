@@ -1977,6 +1977,60 @@ struct ContentView: View {
         return "Map style, \(style.projection.label.lowercased()), \(style.resolvedPalette.label.lowercased())"
     }
 
+    /// The planet's own three, for the style menu.
+    ///
+    /// In submenus rather than laid out in the menu itself: ten colours and
+    /// five backdrops is a good list to choose from and a terrible one to
+    /// scroll past on the way to something else.
+    ///
+    /// Lifted out of `mapStyleControl` for the same reason the map's insets
+    /// were lifted out of its argument list — Swift type-checks a view's body
+    /// as one expression, and this menu was already three sections and two
+    /// `ForEach`es deep before any of this was in it.
+    @ViewBuilder
+    private var planetStyleSection: some View {
+        if isPlanetMap {
+            Section("Planet") {
+                Menu("Colour") {
+                    ForEach(GlobeSkin.allCases) { skin in
+                        Button {
+                            appearance.globeSkin = skin
+                        } label: {
+                            Label(
+                                skin.label,
+                                systemImage: appearance.globeSkin == skin ? "checkmark" : "circle.fill"
+                            )
+                        }
+                    }
+                }
+
+                Menu("Background") {
+                    ForEach(GlobeBackdrop.allCases) { backdrop in
+                        Button {
+                            appearance.globeBackdrop = backdrop
+                        } label: {
+                            Label(
+                                backdrop.label,
+                                systemImage: appearance.globeBackdrop == backdrop
+                                    ? "checkmark"
+                                    : backdrop.symbol
+                            )
+                        }
+                    }
+                }
+
+                Button {
+                    appearance.globeShowsPlanes.toggle()
+                } label: {
+                    Label(
+                        "Aircraft shapes",
+                        systemImage: appearance.globeShowsPlanes ? "checkmark" : "airplane"
+                    )
+                }
+            }
+        }
+    }
+
     /// How the map is drawn, in the corner that holds the map's controls.
     ///
     /// The same corner as the follow/centre/route hub, and shown on exactly the
@@ -2073,54 +2127,7 @@ struct ContentView: View {
                         }
                     }
 
-                    // The planet's own three, in submenus rather than laid out
-                    // here. Ten colours and five backdrops is a good list to
-                    // choose from and a terrible one to scroll past on the way
-                    // to something else.
-                    if isPlanetMap {
-                        Section("Planet") {
-                            Menu("Colour") {
-                                ForEach(GlobeSkin.allCases) { skin in
-                                    Button {
-                                        appearance.globeSkin = skin
-                                    } label: {
-                                        Label(
-                                            skin.label,
-                                            systemImage: appearance.globeSkin == skin
-                                                ? "checkmark"
-                                                : "circle.fill"
-                                        )
-                                    }
-                                }
-                            }
-
-                            Menu("Background") {
-                                ForEach(GlobeBackdrop.allCases) { backdrop in
-                                    Button {
-                                        appearance.globeBackdrop = backdrop
-                                    } label: {
-                                        Label(
-                                            backdrop.label,
-                                            systemImage: appearance.globeBackdrop == backdrop
-                                                ? "checkmark"
-                                                : backdrop.symbol
-                                        )
-                                    }
-                                }
-                            }
-
-                            Button {
-                                appearance.globeShowsPlanes.toggle()
-                            } label: {
-                                Label(
-                                    "Aircraft shapes",
-                                    systemImage: appearance.globeShowsPlanes
-                                        ? "checkmark"
-                                        : "airplane"
-                                )
-                            }
-                        }
-                    }
+                    planetStyleSection
 
                     Section {
                         // Nothing to turn up on imagery: it has no roads, no
