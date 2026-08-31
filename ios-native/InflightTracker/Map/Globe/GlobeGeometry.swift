@@ -93,6 +93,23 @@ enum GlobeGeometry {
         vector(latitude: coordinate.latitude, longitude: coordinate.longitude)
     }
 
+    /// The same direction, to full precision.
+    ///
+    /// For the lines that are drawn at the zoom where a `Float` unit vector's
+    /// forty centimetres of resolution starts to show — see
+    /// `GlobeCamera.Basis.preciseEast`. Not for the cartography, which is a
+    /// hundred and ten million times coarser than that to begin with.
+    static func preciseVector(latitude: Double, longitude: Double) -> SIMD3<Double> {
+        let lat = latitude * .pi / 180
+        let lon = longitude * .pi / 180
+        let cosLat = cos(lat)
+        return SIMD3<Double>(cosLat * cos(lon), cosLat * sin(lon), sin(lat))
+    }
+
+    static func preciseVector(_ coordinate: CLLocationCoordinate2D) -> SIMD3<Double> {
+        preciseVector(latitude: coordinate.latitude, longitude: coordinate.longitude)
+    }
+
     /// Which way an aircraft is pointing, as a direction lying along the
     /// sphere's surface at the place it is.
     ///

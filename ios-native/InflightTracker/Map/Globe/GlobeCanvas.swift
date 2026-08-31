@@ -1726,6 +1726,97 @@ final class GlobeCanvasView: UIView {
         }
     }
 
+    /// The same walk, for the lines that are held to full precision.
+    ///
+    /// A second copy rather than one made generic over the scalar. What the
+    /// two share is the *shape* of the problem — visible, hidden, and the two
+    /// crossings between — and what they do not share is the arithmetic: the
+    /// cartography is ten thousand `Float` points a frame and these are a few
+    /// hundred `Double` ones. A generic over `SIMD3` would put a witness table
+    /// between the border clipper and its dot product for the sake of removing
+    /// thirty lines that are not going to change independently.
+    private func append(
+        _ points: [SIMD3<Double>],
+        to path: CGMutablePath,
+        basis: GlobeCamera.Basis,
+        box: CGRect
+    ) {
+        var previousVector: SIMD3<Double>?
+        var previous: GlobeCamera.Projected?
+        var isDrawing = false
+
+        for point in points {
+            let now = camera.project(point, using: basis)
+
+            guard let lastVector = previousVector, let last = previous else {
+                if now.isVisible {
+                    path.move(to: now.point)
+                    isDrawing = true
+                }
+                previousVector = point
+                previous = now
+                continue
+            }
+
+            switch (last.isVisible, now.isVisible) {
+            case (true, true):
+                if max(last.point.x, now.point.x) < box.minX
+                    || min(last.point.x, now.point.x) > box.maxX
+                    || max(last.point.y, now.point.y) < box.minY
+                    || min(last.point.y, now.point.y) > box.maxY {
+                    isDrawing = false
+                    previousVector = point
+                    previous = now
+                    continue
+                }
+
+                if !isDrawing {
+                    path.move(to: last.point)
+                    isDrawing = true
+                }
+                path.addLine(to: now.point)
+
+            case (true, false):
+                if !isDrawing {
+                    path.move(to: last.point)
+                    isDrawing = true
+                }
+                path.addLine(to: horizonCrossing(
+                    near: last, far: now, nearVector: lastVector, farVector: point, basis: basis
+                ))
+                isDrawing = false
+
+            case (false, true):
+                path.move(to: horizonCrossing(
+                    near: now, far: last, nearVector: point, farVector: lastVector, basis: basis
+                ))
+                path.addLine(to: now.point)
+                isDrawing = true
+
+            case (false, false):
+                isDrawing = false
+            }
+
+            previousVector = point
+            previous = now
+        }
+    }
+
+    private func horizonCrossing(
+        near: GlobeCamera.Projected,
+        far: GlobeCamera.Projected,
+        nearVector: SIMD3<Double>,
+        farVector: SIMD3<Double>,
+        basis: GlobeCamera.Basis
+    ) -> CGPoint {
+        let span = Double(near.depth) - Double(far.depth)
+        guard span > 1e-9 else { return near.point }
+
+        let t = Double(near.depth) / span
+        let blended = simd_normalize(nearVector + (farVector - nearVector) * t)
+        return camera.project(blended, using: basis).point
+    }
+
     /// Where the segment between two directions crosses the horizon.
     ///
     /// The two directions are blended by their depths and renormalised, which

@@ -43,7 +43,15 @@ struct GlobeFieldMark: Equatable {
 
 /// A line drawn on the surface — today, the open aircraft's route.
 struct GlobeLine: Equatable {
-    let points: [SIMD3<Float>]
+    /// Full precision, unlike everything else on the planet.
+    ///
+    /// These are the lines you look at when you are zoomed all the way in —
+    /// a taxi trail across an apron — and a `Float` unit vector resolves to
+    /// about forty centimetres of ground, which at that zoom is three quarters
+    /// of a point. Consecutive fixes then land on a lattice and the path
+    /// zigzags by more than half its own width. There are a few hundred points
+    /// here, not ten thousand, so the precision is nearly free.
+    let points: [SIMD3<Double>]
     let color: UIColor
     let width: CGFloat
     let dash: [CGFloat]?
@@ -284,7 +292,7 @@ final class GlobeScene: ObservableObject {
         // reported.
         if flownPath.count > 1 {
             lines.append(GlobeLine(
-                points: flownPath.map(GlobeGeometry.vector),
+                points: flownPath.map(GlobeGeometry.preciseVector),
                 color: palette.flownPath,
                 width: 1.8,
                 dash: nil
@@ -292,14 +300,14 @@ final class GlobeScene: ObservableObject {
         }
 
         if let route = route {
-            let here = GlobeGeometry.vector(route.position)
+            let here = GlobeGeometry.preciseVector(route.position)
 
             // Flown solid, still to fly dashed — the same reading the flat
             // map's route line has always had, and the one thing a line on a
             // planet can say without a label on it.
             if let departure = route.departure {
                 lines.append(GlobeLine(
-                    points: arc(from: GlobeGeometry.vector(departure), to: here),
+                    points: arc(from: GlobeGeometry.preciseVector(departure), to: here),
                     color: palette.route,
                     width: 1.6,
                     dash: nil
@@ -307,7 +315,7 @@ final class GlobeScene: ObservableObject {
             }
             if let arrival = route.arrival {
                 lines.append(GlobeLine(
-                    points: arc(from: here, to: GlobeGeometry.vector(arrival)),
+                    points: arc(from: here, to: GlobeGeometry.preciseVector(arrival)),
                     color: palette.route.withAlphaComponent(0.75),
                     width: 1.4,
                     dash: [4, 4]
@@ -326,12 +334,12 @@ final class GlobeScene: ObservableObject {
     /// between its ends bows several hundred miles north of the chord on a
     /// sphere. Which is the whole reason the tracks are shaped the way they
     /// are, so drawing them straight would hide the point of them.
-    private static func path(through fixes: [CLLocationCoordinate2D]) -> [SIMD3<Float>] {
-        var points: [SIMD3<Float>] = []
+    private static func path(through fixes: [CLLocationCoordinate2D]) -> [SIMD3<Double>] {
+        var points: [SIMD3<Double>] = []
         for index in 0..<(fixes.count - 1) {
             let leg = arc(
-                from: GlobeGeometry.vector(fixes[index]),
-                to: GlobeGeometry.vector(fixes[index + 1])
+                from: GlobeGeometry.preciseVector(fixes[index]),
+                to: GlobeGeometry.preciseVector(fixes[index + 1])
             )
             // The joint is the same point twice; the second copy is a zero
             // length segment and a wasted round line cap. Dropped by count
@@ -351,7 +359,7 @@ final class GlobeScene: ObservableObject {
     ///
     /// The step count follows the angle, so a hop between two neighbouring
     /// fields is a handful of points and a transpacific is a smooth arc.
-    private static func arc(from start: SIMD3<Float>, to end: SIMD3<Float>) -> [SIMD3<Float>] {
+    private static func arc(from start: SIMD3<Double>, to end: SIMD3<Double>) -> [SIMD3<Double>] {
         let dot = max(-1, min(1, simd_dot(start, end)))
         let angle = acos(dot)
         guard angle > 1e-4 else { return [start, end] }
@@ -359,15 +367,15 @@ final class GlobeScene: ObservableObject {
         // Antipodal, where the great circle between them is not unique and any
         // answer is as good as any other. Straight through, so it is at least
         // continuous.
-        guard angle < Float.pi - 1e-3 else { return [start, end] }
+        guard angle < Double.pi - 1e-3 else { return [start, end] }
 
         let steps = max(8, min(96, Int(angle * 40)))
         let sine = sin(angle)
 
-        var points: [SIMD3<Float>] = []
+        var points: [SIMD3<Double>] = []
         points.reserveCapacity(steps + 1)
         for step in 0...steps {
-            let t = Float(step) / Float(steps)
+            let t = Double(step) / Double(steps)
             let a = sin((1 - t) * angle) / sine
             let b = sin(t * angle) / sine
             points.append(simd_normalize(start * a + end * b))

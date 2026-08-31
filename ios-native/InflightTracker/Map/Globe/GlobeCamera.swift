@@ -52,18 +52,43 @@ struct GlobeCamera: Equatable {
         let east: SIMD3<Float>
         let north: SIMD3<Float>
         let out: SIMD3<Float>
+
+        /// The same three directions kept to full precision.
+        ///
+        /// `Float` carries about seven digits, which on a planet six and a
+        /// half thousand kilometres across is a resolution of some forty
+        /// centimetres. That was invisible while the zoom stopped at a country
+        /// filling the screen; at two hundred metres across a phone it is
+        /// three quarters of a point, and a line drawn through such points
+        /// zigzags by more than half its own width.
+        ///
+        /// So the cartography — ten thousand coastline points, redrawn every
+        /// frame, and quantised to a tenth of a degree in the file anyway —
+        /// stays single precision, and the handful of things that are drawn
+        /// *at* that zoom and have to sit where they really are get these: the
+        /// flown path, the route, the tracks. See `project(_:using:)`.
+        let preciseEast: SIMD3<Double>
+        let preciseNorth: SIMD3<Double>
+        let preciseOut: SIMD3<Double>
     }
 
     var basis: Basis {
         let lat = latitude * .pi / 180
         let lon = longitude * .pi / 180
-        let sinLat = Float(sin(lat)), cosLat = Float(cos(lat))
-        let sinLon = Float(sin(lon)), cosLon = Float(cos(lon))
+        let sinLat = sin(lat), cosLat = cos(lat)
+        let sinLon = sin(lon), cosLon = cos(lon)
+
+        let east = SIMD3<Double>(-sinLon, cosLon, 0)
+        let north = SIMD3<Double>(-sinLat * cosLon, -sinLat * sinLon, cosLat)
+        let out = SIMD3<Double>(cosLat * cosLon, cosLat * sinLon, sinLat)
 
         return Basis(
-            east: SIMD3<Float>(-sinLon, cosLon, 0),
-            north: SIMD3<Float>(-sinLat * cosLon, -sinLat * sinLon, cosLat),
-            out: SIMD3<Float>(cosLat * cosLon, cosLat * sinLon, sinLat)
+            east: SIMD3<Float>(Float(east.x), Float(east.y), Float(east.z)),
+            north: SIMD3<Float>(Float(north.x), Float(north.y), Float(north.z)),
+            out: SIMD3<Float>(Float(out.x), Float(out.y), Float(out.z)),
+            preciseEast: east,
+            preciseNorth: north,
+            preciseOut: out
         )
     }
 
@@ -99,6 +124,22 @@ struct GlobeCamera: Equatable {
 
     func project(_ coordinate: CLLocationCoordinate2D) -> Projected {
         project(GlobeGeometry.vector(coordinate), using: basis)
+    }
+
+    /// The same projection, without throwing away forty centimetres of the
+    /// answer. See `Basis.preciseEast`.
+    func project(_ vector: SIMD3<Double>, using basis: Basis) -> Projected {
+        let x = simd_dot(vector, basis.preciseEast)
+        let y = simd_dot(vector, basis.preciseNorth)
+        let depth = simd_dot(vector, basis.preciseOut)
+
+        return Projected(
+            point: CGPoint(
+                x: center.x + CGFloat(x) * radius,
+                y: center.y - CGFloat(y) * radius
+            ),
+            depth: Float(depth)
+        )
     }
 
     // MARK: - Moving it
