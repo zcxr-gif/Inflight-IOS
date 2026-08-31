@@ -149,6 +149,12 @@ enum GlobeGeometry {
     /// globe used to stutter: every frame paid the zoomed-in price.
     enum Detail {
 
+        /// Every sixth point, and no island smaller than about two and a half
+        /// degrees across. For a planet that is *moving* — a coastline sliding
+        /// under a finger is being looked at as a shape rather than as a
+        /// shoreline, and half the points hold the shape.
+        case rough
+
         /// Every third point, and no island smaller than about a degree
         /// across. The whole planet on a screen, where a coastline is a few
         /// hundred points long and the difference is invisible.
@@ -164,6 +170,7 @@ enum GlobeGeometry {
 
     static func borders(for detail: Detail) -> [Ring] {
         switch detail {
+        case .rough: return roughBorders
         case .coarse: return coarseBorders
         case .medium: return mediumBorders
         case .full: return borders
@@ -173,6 +180,7 @@ enum GlobeGeometry {
     /// Both built lazily off the full set, so an install that never opens the
     /// planet decodes nothing and one that opens it zoomed out never builds the
     /// finer of the two.
+    private static let roughBorders: [Ring] = decimate(borders, keepingEvery: 6, smallestSpan: 2.5)
     private static let coarseBorders: [Ring] = decimate(borders, keepingEvery: 3, smallestSpan: 0.9)
     private static let mediumBorders: [Ring] = decimate(borders, keepingEvery: 2, smallestSpan: 0.3)
 

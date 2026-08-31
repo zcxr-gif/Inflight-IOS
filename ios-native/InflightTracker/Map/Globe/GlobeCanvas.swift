@@ -186,10 +186,21 @@ final class GlobeCanvasView: UIView {
     /// to, and a rotation must not fly it back to where the map was.
     private var isReady = false
 
-    private var panStart: GlobeCamera?
+    /// Where the planet was pointed when the current drag began.
+    ///
+    /// Two numbers rather than the whole camera, and that is not tidiness. Held
+    /// as a `GlobeCamera` it carried the *radius* too, and a pan applies its
+    /// whole translation from the start each update — so every frame of a drag
+    /// wrote back the radius from when that drag began. With pan and pinch
+    /// recognised simultaneously, which they must be for a hand to turn and
+    /// zoom in one movement, that meant the pan spent the entire pinch undoing
+    /// it: the zoom snapped back to where it was a finger-touch ago, sixty
+    /// times a second. A drag turns the planet. It has no opinion about how far
+    /// away it is.
+    private var panOrigin: (latitude: Double, longitude: Double)?
     private var pinchStart: CGFloat?
 
-    private var isInteracting: Bool { panStart != nil || pinchStart != nil }
+    private var isInteracting: Bool { panOrigin != nil || pinchStart != nil }
 
     // MARK: - Caches
 
@@ -355,19 +366,27 @@ final class GlobeCanvasView: UIView {
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
         switch gesture.state {
         case .began:
-            panStart = camera
+            panOrigin = (camera.latitude, camera.longitude)
             beginInteraction()
 
         case .changed:
-            guard let base = panStart else { return }
+            guard let origin = panOrigin else { return }
             let moved = gesture.translation(in: self)
-            var turned = base
+
+            // Started from the live camera, so the radius and the centre are
+            // whatever a pinch running alongside this has made them, and only
+            // the heading is wound back to where the drag began. `turn` scales
+            // by the radius as well, so the ground keeps up with the fingertip
+            // as the zoom changes under it.
+            var turned = camera
+            turned.latitude = origin.latitude
+            turned.longitude = origin.longitude
             turned.turn(by: CGSize(width: moved.x, height: moved.y))
             camera = turned
             setNeedsDisplay()
 
         case .ended, .cancelled, .failed:
-            panStart = nil
+            panOrigin = nil
             endInteraction()
 
         default:
@@ -547,10 +566,35 @@ final class GlobeCanvasView: UIView {
     /// is the thing that decides whether a dropped point is visible — rather
     /// than about a phone's screen width.
     private var detail: GlobeGeometry.Detail {
-        if isInteracting { return camera.radius > 1400 ? .medium : .coarse }
+        if isInteracting {
+            if camera.radius > 1400 { return .medium }
+            if camera.radius > 700 { return .coarse }
+            return .rough
+        }
         if camera.radius > 1600 { return .full }
         if camera.radius > 700 { return .medium }
         return .coarse
+    }
+
+    /// Whether the edge of the planet is anywhere the screen can see it.
+    ///
+    /// Past about four times zoom it is not: the disc is wider than the view,
+    /// so the limb, the atmosphere round it and the whole radial gradient that
+    /// draws them are outside the context entirely. Core Graphics would clip
+    /// all of it away for nothing, having first built the gradient — and a
+    /// full-screen radial gradient is one of the more expensive things there
+    /// is to ask it for.
+    ///
+    /// True when the furthest corner of the view is beyond the inner edge of
+    /// the halo, which is the only case where any part of either is visible.
+    /// Whether the disc covers the whole view — so there is nothing to clip to
+    /// it, and no edge of it to draw. The other side of the same question.
+    private var isViewInsideDisc: Bool { !isLimbNearScreen }
+
+    private var isLimbNearScreen: Bool {
+        let dx = max(abs(bounds.minX - camera.center.x), abs(bounds.maxX - camera.center.x))
+        let dy = max(abs(bounds.minY - camera.center.y), abs(bounds.maxY - camera.center.y))
+        return (dx * dx + dy * dy).squareRoot() > camera.radius * 0.97
     }
 
     private var discBox: CGRect {
@@ -700,7 +744,15 @@ final class GlobeCanvasView: UIView {
 
     private func drawSphere(in context: CGContext) {
         context.setFillColor(palette.ocean.cgColor)
-        context.fillEllipse(in: discBox)
+        // Past a few times zoom the planet is wider than the screen, and the
+        // ocean is then a rectangle. Asking Core Graphics for a two thousand
+        // point antialiased ellipse to fill a view entirely inside it is a
+        // full-resolution edge mask computed and thrown away.
+        if isViewInsideDisc {
+            context.fill(bounds)
+        } else {
+            context.fillEllipse(in: discBox)
+        }
     }
 
     /// A ring of atmosphere just outside the limb.
@@ -709,7 +761,7 @@ final class GlobeCanvasView: UIView {
     /// laying it over the cartography would fog the coastlines at the edge —
     /// which are the ones already hardest to read.
     private func drawHalo(in context: CGContext) {
-        guard let colour = palette.halo else { return }
+        guard let colour = palette.halo, isLimbNearScreen else { return }
 
         let outer = camera.radius * 1.12
         guard let gradient = CGGradient(
@@ -736,7 +788,7 @@ final class GlobeCanvasView: UIView {
     /// the limb are finished by a clean arc instead of by whatever the clipper
     /// left within half a pixel of it.
     private func drawLimb(in context: CGContext) {
-        guard palette.limbWidth > 0 else { return }
+        guard palette.limbWidth > 0, isLimbNearScreen else { return }
         context.setStrokeColor(palette.limb.cgColor)
         context.setLineWidth(palette.limbWidth)
         context.strokeEllipse(
@@ -773,8 +825,10 @@ final class GlobeCanvasView: UIView {
         }
 
         context.saveGState()
-        context.addEllipse(in: discBox)
-        context.clip()
+        if !isViewInsideDisc {
+            context.addEllipse(in: discBox)
+            context.clip()
+        }
         context.setFillColor(color.cgColor)
         context.addPath(path)
         context.fillPath(using: .evenOdd)
@@ -1067,8 +1121,10 @@ final class GlobeCanvasView: UIView {
         path.closeSubpath()
 
         context.saveGState()
-        context.addEllipse(in: discBox)
-        context.clip()
+        if !isViewInsideDisc {
+            context.addEllipse(in: discBox)
+            context.clip()
+        }
         context.setFillColor(palette.night.cgColor)
         context.addPath(path)
         context.fillPath()
@@ -1104,24 +1160,45 @@ final class GlobeCanvasView: UIView {
         // What actually bounds the work is the screen rejection below: only
         // aircraft you can see are drawn, at any zoom.
         if showsPlanes {
-            drawPlanes(scene.traffic, in: context, basis: basis, box: box)
+            drawPlanes(in: context, basis: basis, box: box)
         } else {
-            drawDots(scene.traffic, in: context, basis: basis, box: box)
+            drawDots(in: context, basis: basis, box: box)
         }
     }
 
+    /// How large an aircraft is drawn.
+    ///
+    /// The map's own size once there is room for it, and smaller with the whole
+    /// planet on screen — where a full-size silhouette is a third the width of
+    /// a country and a packet of them is a texture rather than traffic. It is
+    /// also the blit: two thirds of the width is half the pixels, several
+    /// hundred times a frame, at exactly the zoom where there are most of them.
+    ///
+    /// Two sizes rather than a curve, so the icon cache holds two entries per
+    /// airframe instead of a fresh one per zoom level.
+    private var spriteSize: CGFloat {
+        camera.radius > 520 ? palette.planeSize : palette.planeSize * 0.72
+    }
+
     private func drawPlanes(
-        _ traffic: [GlobeTrafficDot],
         in context: CGContext,
         basis: GlobeCamera.Basis,
         box: CGRect
     ) {
         let sprites = PlaneSprites.shared
-        let size = palette.planeSize
+        let size = spriteSize
         var open: [(CGPoint, CGFloat, GlobeTrafficDot)] = []
 
-        for dot in traffic {
-            let projected = camera.project(dot.position, using: basis)
+        // Walked by index rather than by element, which is not a style choice.
+        // A `GlobeTrafficDot` carries two `String`s and a `UIColor?`, so binding
+        // one per iteration retains and releases three references — a packet of
+        // three thousand at sixty frames a second is over half a million
+        // retain/release pairs a second to read two vectors. Reading the fields
+        // individually touches the reference-counted ones only for the aircraft
+        // that survive the cull, which when zoomed in is a handful of them.
+        let traffic = scene.traffic
+        for index in traffic.indices {
+            let projected = camera.project(traffic[index].position, using: basis)
             guard projected.isVisible, box.contains(projected.point) else { continue }
 
             // Two dot products for the sprite's angle. The heading is a
@@ -1129,19 +1206,20 @@ final class GlobeCanvasView: UIView {
             // linear, so where that direction lands on screen is the projection
             // of the direction itself — no second point to project and
             // subtract.
-            let dx = CGFloat(simd_dot(dot.heading, basis.east))
-            let dy = -CGFloat(simd_dot(dot.heading, basis.north))
+            let dx = CGFloat(simd_dot(traffic[index].heading, basis.east))
+            let dy = -CGFloat(simd_dot(traffic[index].heading, basis.north))
             let angle = atan2(dx, -dy)
 
-            if dot.isOpen {
+            if traffic[index].isOpen {
                 // A playback is driving this aeroplane, so where the feed
                 // last saw it is not where it is being shown. Dropped here
                 // and drawn from the frame below.
-                if replay == nil { open.append((projected.point, angle, dot)) }
+                if replay == nil { open.append((projected.point, angle, traffic[index])) }
                 continue
             }
 
-            draw(dot, at: projected.point, angle: angle, size: size, in: context, sprites: sprites)
+            draw(traffic[index], at: projected.point, angle: angle,
+                 size: size, in: context, sprites: sprites)
         }
 
         if let replay = replay {
@@ -1208,7 +1286,6 @@ final class GlobeCanvasView: UIView {
     }
 
     private func drawDots(
-        _ traffic: [GlobeTrafficDot],
         in context: CGContext,
         basis: GlobeCamera.Basis,
         box: CGRect
@@ -1222,16 +1299,17 @@ final class GlobeCanvasView: UIView {
         var open: [CGPoint] = []
         let size = palette.dotRadius
 
-        for dot in traffic {
-            let projected = camera.project(dot.position, using: basis)
+        let traffic = scene.traffic
+        for index in traffic.indices {
+            let projected = camera.project(traffic[index].position, using: basis)
             guard projected.isVisible, box.contains(projected.point) else { continue }
 
-            if dot.isOpen {
+            if traffic[index].isOpen {
                 if replay == nil { open.append(projected.point) }
                 continue
             }
 
-            let colour = dot.tint ?? palette.traffic
+            let colour = traffic[index].tint ?? palette.traffic
             let box = CGRect(
                 x: projected.point.x - size,
                 y: projected.point.y - size,
