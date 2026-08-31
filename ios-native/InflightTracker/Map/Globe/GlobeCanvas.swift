@@ -208,16 +208,32 @@ final class GlobeCanvasView: UIView {
     /// is the only thing that can make one wrong.
     private var labels: [String: UIImage] = [:]
 
-    /// The sky, rendered once.
+    /// Scratch for the land fill: one landmass projected, and the same one
+    /// part way through being clipped. Held by the view rather than made per
+    /// ring, so a frame that walks three hundred coastlines does not allocate
+    /// six hundred arrays to throw all of them away — `removeAll(keepingCapacity:)`
+    /// keeps whatever the largest country needed.
+    private var outline: [CGPoint] = []
+    private var trimmed: [CGPoint] = []
+
+    /// The sky, rendered once per resolution it is drawn at.
     ///
     /// It is a gradient, up to seven hundred stars and a radial vignette, and
     /// none of it moves when the planet turns — so drawing it per frame was
     /// two full-screen per-pixel gradient composites and several hundred
     /// ellipses, every frame, for a picture that was identical each time. Now
     /// it is one bitmap and one blit.
-    private var sky: UIImage?
+    ///
+    /// Keyed by scale, and that key is the whole difference between a blit and
+    /// a resample. The view drops to two pixels a point while a finger is down
+    /// (see `updateResolution`), and one bitmap held at the screen's three had
+    /// to be scaled down into that context on *every frame of every gesture* —
+    /// a three megapixel interpolation, on the CPU, at the one moment there is
+    /// nothing spare. It is a straight copy when the two agree, so the two are
+    /// made to agree: a second bitmap, built once the first time a finger
+    /// lands, is a couple of megabytes against several milliseconds a frame.
+    private var skies: [CGFloat: UIImage] = [:]
     private var skySize: CGSize = .zero
-    private var skyScale: CGFloat = 0
     private var skyStyle: GlobeBackdropStyle?
 
     // MARK: - Setting up
@@ -225,11 +241,30 @@ final class GlobeCanvasView: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         addGestures()
+        watchMemory()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         addGestures()
+        watchMemory()
+    }
+
+    /// Two full-screen backdrops is a few megabytes worth having and not worth
+    /// keeping through a squeeze. Both rebuild themselves on the next frame,
+    /// and the frame after a memory warning is not one anybody is pinching.
+    private func watchMemory() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(dropCaches),
+            name: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil
+        )
+    }
+
+    @objc private func dropCaches() {
+        skies.removeAll()
+        labels.removeAll()
     }
 
     private func addGestures() {
@@ -565,15 +600,30 @@ final class GlobeCanvasView: UIView {
     /// the answer is about how large the planet actually is on screen — which
     /// is the thing that decides whether a dropped point is visible — rather
     /// than about a phone's screen width.
+    ///
+    /// ## Lifting a finger does not change the picture
+    ///
+    /// This used to answer one level coarser for the whole zoom range while a
+    /// gesture was running, and cross its thresholds at different radii than
+    /// the resting answer did. Which meant every pinch redrew the cartography
+    /// two or three times on the way — coastlines changing shape under your
+    /// fingers, and changing again when you let go. That is the "it redraws
+    /// parts of itself" the globe was doing, and none of it was a dropped
+    /// frame.
+    ///
+    /// So the level now follows the radius and nothing else, except at the
+    /// very bottom of the range: below about a third more than a fitted
+    /// planet, a country is thirty points across and the sixth-point outline
+    /// is the same drawing to within well under a pixel. Everywhere else,
+    /// what you get while you are moving is what you get when you stop —
+    /// which is affordable because the clipping in `appendSilhouette` and the
+    /// culling in `isCulled` mean a zoomed-in frame walks the coastline you
+    /// can see rather than the whole hemisphere.
     private var detail: GlobeGeometry.Detail {
-        if isInteracting {
-            if camera.radius > 1400 { return .medium }
-            if camera.radius > 700 { return .coarse }
-            return .rough
-        }
-        if camera.radius > 1600 { return .full }
-        if camera.radius > 700 { return .medium }
-        return .coarse
+        if camera.radius > 1400 { return .full }
+        if camera.radius > 620 { return .medium }
+        if camera.radius > 260 { return .coarse }
+        return isInteracting ? .rough : .coarse
     }
 
     /// Whether the edge of the planet is anywhere the screen can see it.
@@ -617,12 +667,31 @@ final class GlobeCanvasView: UIView {
     /// full-screen radial vignette — three per-pixel passes over the whole view
     /// to produce a picture identical to the one already on screen.
     private func drawSky(in context: CGContext) {
-        if sky == nil || skySize != bounds.size || skyScale != displayScale
-            || skyStyle != backdrop {
-            makeSky()
+        // Zoomed in far enough that the planet is wider than the screen, there
+        // is no sky on screen at all: `drawSphere` fills the whole view with
+        // ocean a moment later, over every pixel of this. A full-screen
+        // composite, per frame, entirely underneath an opaque fill — and it is
+        // the frames at the top of the zoom range that have least to spare.
+        //
+        // On the radius as well as on the disc, because a view is inside a
+        // sphere of no size and there would then be nothing drawn at all.
+        if camera.radius > 0, isViewInsideDisc { return }
+
+        if skySize != bounds.size || skyStyle != backdrop { skies.removeAll() }
+
+        let scale = contentScaleFactor > 0 ? contentScaleFactor : displayScale
+        if skies[scale] == nil {
+            // Every resolution this view will ask for, built together. The
+            // reduced one is wanted on the first frame of the first gesture,
+            // and a full-screen gradient and a starfield built on *that* frame
+            // is the hitch the cache exists to remove — so it is built now,
+            // while nothing is moving, alongside the one being drawn.
+            for wanted in Set([scale, displayScale, min(displayScale, 2)]) {
+                makeSky(scale: wanted)
+            }
         }
 
-        guard let sky = sky else {
+        guard let sky = skies[scale] else {
             context.setFillColor((backdrop.colors.first ?? .black).withAlphaComponent(1).cgColor)
             context.fill(bounds)
             return
@@ -630,26 +699,22 @@ final class GlobeCanvasView: UIView {
         sky.draw(at: .zero)
     }
 
-    private func makeSky() {
+    @discardableResult
+    private func makeSky(scale: CGFloat) -> UIImage? {
         skySize = bounds.size
-        skyScale = displayScale
         skyStyle = backdrop
-        sky = nil
 
-        guard bounds.width > 0, bounds.height > 0 else { return }
+        guard bounds.width > 0, bounds.height > 0 else { return nil }
 
         let format = UIGraphicsImageRendererFormat.default()
         format.opaque = true
-        // The screen's resolution rather than the view's current one. The view
-        // drops to fewer pixels while a finger is down, and keying the sky to
-        // that would throw this bitmap away and rebuild it — a full-screen
-        // gradient and a starfield — at the exact moment a drag begins, which
-        // is the one moment there is nothing spare. Drawing a 3x image into a
-        // 2x context resamples it, which costs nothing and looks the same.
-        format.scale = displayScale
+        // The resolution this frame is actually being drawn at, so the blit is
+        // a copy rather than an interpolation. There are two of them at most —
+        // the screen's own, and the reduced one a gesture drops to.
+        format.scale = scale
 
         let box = CGRect(origin: .zero, size: bounds.size)
-        sky = UIGraphicsImageRenderer(size: bounds.size, format: format).image { render in
+        let sky = UIGraphicsImageRenderer(size: bounds.size, format: format).image { render in
             let context = render.cgContext
 
             if backdrop.colors.count > 1,
@@ -675,6 +740,9 @@ final class GlobeCanvasView: UIView {
             if let colour = backdrop.stars { drawStars(in: context, over: box, color: colour) }
             if let colour = backdrop.vignette { drawVignette(in: context, over: box, color: colour) }
         }
+
+        skies[scale] = sky
+        return sky
     }
 
     /// Stars, fixed to the screen rather than to the sky.
@@ -821,7 +889,7 @@ final class GlobeCanvasView: UIView {
     ) {
         let path = CGMutablePath()
         for ring in GlobeGeometry.borders(for: detail) where !isCulled(ring, basis: basis, box: box) {
-            appendSilhouette(ring, to: path, basis: basis)
+            appendSilhouette(ring, to: path, basis: basis, box: box)
         }
 
         context.saveGState()
@@ -835,12 +903,45 @@ final class GlobeCanvasView: UIView {
         context.restoreGState()
     }
 
+    /// One landmass, projected and then trimmed to the view.
+    ///
+    /// ## Why the trimming has to happen here
+    ///
+    /// The stroked cartography rejects segment by segment inside `append`, and
+    /// a fill cannot: dropping a piece of an outline does not remove a piece
+    /// of the shape, it changes which side of the remaining outline is inside.
+    /// So the land was the one thing still paying the whole-hemisphere price
+    /// at every zoom. At the top of the range the sphere is over two thousand
+    /// points across on a four hundred point screen, and Russia, Canada,
+    /// Antarctica and Asia are all far too large for `isCulled` to reject —
+    /// their outlines went into the path in full, thousands of edges of them,
+    /// to fill a screen showing one bay.
+    ///
+    /// ## Sutherland–Hodgman, against the view
+    ///
+    /// Clipping the closed polygon to the view rectangle is the answer that
+    /// keeps the fill exactly right. Each of the four half-plane passes
+    /// replaces the parts of the loop lying outside with a run along the
+    /// boundary line itself — and an excursion together with the run that
+    /// replaces it is a closed loop lying entirely on the far side, which any
+    /// point inside the rectangle is outside of. So its winding about anything
+    /// you can see is zero, and every point of the view is filled exactly as
+    /// it was before. A country that surrounds the screen comes out as the
+    /// rectangle, which is the truth: all of it is land.
+    ///
+    /// What it costs is four passes over a ring's points; what it saves is the
+    /// path and the scan conversion, which is where the frame was going. A
+    /// ring that lies entirely inside the view — which at the bottom of the
+    /// zoom range is all of them — skips the whole thing on one flag.
     private func appendSilhouette(
         _ ring: GlobeGeometry.Ring,
         to path: CGMutablePath,
-        basis: GlobeCamera.Basis
+        basis: GlobeCamera.Basis,
+        box: CGRect
     ) {
-        var started = false
+        outline.removeAll(keepingCapacity: true)
+        var strays = false
+
         for point in ring.points {
             var x = CGFloat(simd_dot(point, basis.east))
             var y = CGFloat(simd_dot(point, basis.north))
@@ -859,15 +960,67 @@ final class GlobeCanvasView: UIView {
                 x: camera.center.x + x * camera.radius,
                 y: camera.center.y - y * camera.radius
             )
-            if started {
-                path.addLine(to: screen)
-            } else {
-                path.move(to: screen)
-                started = true
+            if screen.x < box.minX || screen.x > box.maxX
+                || screen.y < box.minY || screen.y > box.maxY {
+                strays = true
             }
+            outline.append(screen)
         }
 
-        if started { path.closeSubpath() }
+        if strays {
+            trim(outline, into: &trimmed,
+                 inside: { $0.x >= box.minX },
+                 crossing: { Self.split($0, $1, atX: box.minX) })
+            trim(trimmed, into: &outline,
+                 inside: { $0.x <= box.maxX },
+                 crossing: { Self.split($0, $1, atX: box.maxX) })
+            trim(outline, into: &trimmed,
+                 inside: { $0.y >= box.minY },
+                 crossing: { Self.split($0, $1, atY: box.minY) })
+            trim(trimmed, into: &outline,
+                 inside: { $0.y <= box.maxY },
+                 crossing: { Self.split($0, $1, atY: box.maxY) })
+        }
+
+        guard outline.count > 2 else { return }
+        path.addLines(between: outline)
+        path.closeSubpath()
+    }
+
+    /// One half-plane pass: everything on the wrong side of a line, replaced by
+    /// a run along the line.
+    private func trim(
+        _ input: [CGPoint],
+        into output: inout [CGPoint],
+        inside: (CGPoint) -> Bool,
+        crossing: (CGPoint, CGPoint) -> CGPoint
+    ) {
+        output.removeAll(keepingCapacity: true)
+        guard var previous = input.last else { return }
+        var wasInside = inside(previous)
+
+        for point in input {
+            let nowInside = inside(point)
+            if nowInside != wasInside { output.append(crossing(previous, point)) }
+            if nowInside { output.append(point) }
+            previous = point
+            wasInside = nowInside
+        }
+    }
+
+    /// Where the segment between two points meets a vertical or a horizontal
+    /// line. Only ever called for a pair straddling it, so the divisor is not
+    /// zero — and guarded anyway, because a coastline is data.
+    private static func split(_ a: CGPoint, _ b: CGPoint, atX x: CGFloat) -> CGPoint {
+        let span = b.x - a.x
+        guard abs(span) > .ulpOfOne else { return CGPoint(x: x, y: a.y) }
+        return CGPoint(x: x, y: a.y + (b.y - a.y) * (x - a.x) / span)
+    }
+
+    private static func split(_ a: CGPoint, _ b: CGPoint, atY y: CGFloat) -> CGPoint {
+        let span = b.y - a.y
+        guard abs(span) > .ulpOfOne else { return CGPoint(x: a.x, y: y) }
+        return CGPoint(x: a.x + (b.x - a.x) * (y - a.y) / span, y: y)
     }
 
     // MARK: - Lines on it
@@ -1261,15 +1414,18 @@ final class GlobeCanvasView: UIView {
             }
         }
 
-        // The open aircraft last and larger, with a ring round it, so it is
-        // findable in a packet of three thousand.
+        // The open aircraft last and larger, so it is findable in a packet of
+        // three thousand.
+        //
+        // Larger and amber, and nothing else. It used to carry a ring as well,
+        // and the ring was the wrong mark twice over: the flat map does not
+        // draw one, so the aeroplane you had just been watching grew a circle
+        // when you changed the shape of the world; and a circle a hair wider
+        // than the aircraft inside it reads as a crop of it rather than as a
+        // ring around it — you see a nose and a tail cut off at the rim rather
+        // than a highlighted aeroplane. The size and the colour say the same
+        // thing without drawing over the artwork.
         for (point, angle, dot) in open {
-            let ring = size * 0.95
-            context.setStrokeColor(palette.openTraffic.cgColor)
-            context.setLineWidth(1.5)
-            context.strokeEllipse(in: CGRect(
-                x: point.x - ring, y: point.y - ring, width: ring * 2, height: ring * 2
-            ))
             draw(dot, at: point, angle: angle, size: size * 1.45, in: context, sprites: sprites)
         }
     }
@@ -1406,12 +1562,18 @@ final class GlobeCanvasView: UIView {
             guard projected.depth > 0.02, box.contains(projected.point) else { continue }
 
             // Full strength across most of the near side, falling away only in
-            // the last stretch before the limb.
+            // the last stretch before the limb — so on a zoomed-in frame every
+            // field on screen is at full strength, and the whole save, set,
+            // restore is skipped rather than paid three hundred times for an
+            // alpha of one.
             let opacity = min(1, CGFloat(projected.depth) / 0.28)
+            let fading = opacity < 1
             let point = projected.point
 
-            context.saveGState()
-            context.setAlpha(opacity)
+            if fading {
+                context.saveGState()
+                context.setAlpha(opacity)
+            }
 
             context.setStrokeColor(palette.fieldRing.cgColor)
             context.setLineWidth(1)
@@ -1432,7 +1594,7 @@ final class GlobeCanvasView: UIView {
                 y: point.y - label.size.height / 2
             ))
 
-            context.restoreGState()
+            if fading { context.restoreGState() }
         }
     }
 

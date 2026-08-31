@@ -147,17 +147,33 @@ enum GlobeGeometry {
     /// range is thirty thousand line segments spent on a shape three hundred
     /// points across at the bottom of it. Which is the whole of why turning the
     /// globe used to stutter: every frame paid the zoomed-in price.
+    ///
+    /// ## A level thins points. It never removes shapes
+    ///
+    /// The coarser levels used to drop whole rings as well — no island under
+    /// two and a half degrees at `rough`, under one at `coarse` — and that is
+    /// what made a pinch look like the planet was being redrawn underneath it.
+    /// Two and a half degrees is thirty points of screen at the radius `rough`
+    /// was still being used at, so every Greek island, the Canaries and half
+    /// the Caribbean blinked out the moment a finger landed and blinked back
+    /// when it lifted.
+    ///
+    /// Every level now carries every ring. Thinning a coastline moves it by
+    /// well under a point; removing one is a shape appearing and disappearing,
+    /// which the eye is built to notice. The specks cost about seventeen
+    /// hundred points at the very bottom of the range, where they are drawn at
+    /// a radius of a hundred and sixty and every one of them is smaller than a
+    /// pixel.
     enum Detail {
 
-        /// Every sixth point, and no island smaller than about two and a half
-        /// degrees across. For a planet that is *moving* — a coastline sliding
-        /// under a finger is being looked at as a shape rather than as a
-        /// shoreline, and half the points hold the shape.
+        /// Every sixth point. For a planet that is *moving* at the bottom of
+        /// the zoom range — a coastline sliding under a finger is being looked
+        /// at as a shape rather than as a shoreline, and a sixth of the points
+        /// hold the shape at a radius where a country is thirty points across.
         case rough
 
-        /// Every third point, and no island smaller than about a degree
-        /// across. The whole planet on a screen, where a coastline is a few
-        /// hundred points long and the difference is invisible.
+        /// Every third point. The whole planet on a screen, where a coastline
+        /// is a few hundred points long and the difference is invisible.
         case coarse
 
         /// Every other point.
@@ -177,31 +193,19 @@ enum GlobeGeometry {
         }
     }
 
-    /// Both built lazily off the full set, so an install that never opens the
+    /// All built lazily off the full set, so an install that never opens the
     /// planet decodes nothing and one that opens it zoomed out never builds the
-    /// finer of the two.
-    private static let roughBorders: [Ring] = decimate(borders, keepingEvery: 6, smallestSpan: 2.5)
-    private static let coarseBorders: [Ring] = decimate(borders, keepingEvery: 3, smallestSpan: 0.9)
-    private static let mediumBorders: [Ring] = decimate(borders, keepingEvery: 2, smallestSpan: 0.3)
+    /// finer of them.
+    private static let roughBorders: [Ring] = decimate(borders, keepingEvery: 6)
+    private static let coarseBorders: [Ring] = decimate(borders, keepingEvery: 3)
+    private static let mediumBorders: [Ring] = decimate(borders, keepingEvery: 2)
 
-    /// Thins every ring, and drops the ones too small to be a shape.
-    ///
-    /// `smallestSpan` is an angular radius in degrees, compared against the
-    /// ring's own bounding cone — which is already computed, so dropping a
-    /// speck costs one comparison. A ring that wraps the planet has a cosine of
-    /// -1 and is never dropped, whatever the threshold.
-    private static func decimate(
-        _ rings: [Ring],
-        keepingEvery step: Int,
-        smallestSpan degrees: Double
-    ) -> [Ring] {
-        let floor = Float(cos(degrees * .pi / 180))
+    /// Thins every ring, and keeps every one of them.
+    private static func decimate(_ rings: [Ring], keepingEvery step: Int) -> [Ring] {
         var out: [Ring] = []
         out.reserveCapacity(rings.count)
 
         for ring in rings {
-            if ring.radiusCosine > floor { continue }
-
             let points = ring.points
             // Not worth thinning a ring that would come out a triangle: the
             // shape would change rather than soften.

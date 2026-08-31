@@ -26,6 +26,20 @@ enum PlaneIconRenderer {
     private static let shadowOpacity: CGFloat = 0.35
     private static let shadowBlur: CGFloat = 1.6
 
+    /// How far the drawing reaches outside the artwork's own bounds.
+    ///
+    /// `pointSize` sizes the *shape*, and the shape is not the last thing put
+    /// on the bitmap: the outline is a stroke, so half its width stands
+    /// outside every edge, and the shadow is blurred and nudged down beyond
+    /// that. A canvas cut to `pointSize` therefore cuts the ends off the
+    /// silhouette — which on artwork drawn nose-up means the nose and the
+    /// tail, the two ends that say which way the aeroplane is pointing.
+    ///
+    /// Worst on the aircraft you most want to look at: `PlaneSprites` scales a
+    /// 380 to 1.18 and a 747 to 1.14 of the fleet size, so the shape alone
+    /// overran a square canvas by nearly a fifth before any of this was added.
+    private static let bleed: CGFloat = outlineWidth + shadowBlur + 0.5
+
     struct Mark {
         let parts: [PlaneArtwork.Part]
         /// Size relative to the rest of the fleet. A 380 draws bigger than a
@@ -40,12 +54,17 @@ enum PlaneIconRenderer {
     /// - Parameters:
     ///   - pointSize: the longest side of the drawing, before `mark.scale`.
     ///   - canvas: the bitmap to centre it in. Larger than `pointSize` for
-    ///     aircraft, so the annotation stays easy to tap while the aircraft
-    ///     itself stays small.
+    ///     aircraft on the flat map, so the annotation stays easy to tap while
+    ///     the aircraft itself stays small. Nil fits the bitmap to the mark —
+    ///     the artwork's own proportions plus the room the outline and the
+    ///     shadow stand in, and not one pixel more. Which is what a caller
+    ///     blitting these into a `CGContext` several hundred times a frame
+    ///     wants: every point of margin is transparent pixels composited per
+    ///     aircraft, and every point missing is a nose or a tail cut off.
     static func image(
         _ mark: Mark,
         pointSize: CGFloat,
-        canvas: CGSize,
+        canvas: CGSize? = nil,
         body: UIColor,
         outline: UIColor,
         shadow: Bool
@@ -57,6 +76,11 @@ enum PlaneIconRenderer {
         let side = pointSize * mark.scale
         let scale = side / max(bounds.width, bounds.height)
         let fill = mark.body ?? body
+
+        let canvas = canvas ?? CGSize(
+            width: (bounds.width * scale + bleed * 2).rounded(.up),
+            height: (bounds.height * scale + bleed * 2).rounded(.up)
+        )
 
         let format = UIGraphicsImageRendererFormat.default()
         format.opaque = false
