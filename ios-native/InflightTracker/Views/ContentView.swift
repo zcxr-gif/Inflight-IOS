@@ -89,6 +89,9 @@ struct ContentView: View {
     /// Whether the sky view is up: the camera, with the traffic drawn over it.
     @State private var isShowingSky = false
 
+    /// Whether the vector globe is up. See `PlanetView`.
+    @State private var isShowingPlanet = false
+
     /// Whether the map is staying with the open aircraft. Lives here rather
     /// than in the map so it can be turned off by the things that contradict
     /// it — framing a whole route, or closing the window entirely.
@@ -430,7 +433,28 @@ struct ContentView: View {
         // the only thing left to keep clear of. It has to be counted, or the
         // route framed at the start of a playback runs underneath it.
         if replay.isActive { return ReplayBar.reservedHeight }
+
+        // A field's own panel stands on the bottom of the map exactly the way
+        // the flight window does, and until opening one moved the map it never
+        // had to be counted — nothing was being framed while it was up. Now
+        // that it is, a field focused without this lands directly behind the
+        // sheet that is describing it.
+        if let panel = openPanelBottomInset { return panel }
+
         return selection == nil ? MapDock.reservedHeight : flightWindowBottomInset
+    }
+
+    /// How much of the map's bottom edge an open panel sheet is covering, or
+    /// nil when the sheet is not one.
+    ///
+    /// Only the field panel, because it is the only one the map frames anything
+    /// underneath. The toolbar's own panels are opened *instead* of looking at
+    /// the map rather than alongside it, and the flight window has its own
+    /// answer a few lines down — a more careful one, because it is measured
+    /// rather than declared.
+    private var openPanelBottomInset: CGFloat? {
+        guard case .airport = sheet else { return nil }
+        return AirportPanel.peakHeight
     }
 
     /// How much of the bottom of the screen the flight window is standing on.
@@ -535,6 +559,34 @@ struct ContentView: View {
     /// A field tapped on the map. No origin: it was not arrived at from an
     /// aircraft, even if one happens to be open behind it, and offering to go
     /// "back" to one would be inventing a history.
+    /// Which face of the planet is turned towards you when it opens.
+    ///
+    /// Deliberately not the map's own centre. Reporting that would mean writing
+    /// the region into this view's state on every frame of every pan, which is
+    /// a full redraw of the map, the chrome and the toolbar to answer a
+    /// question nothing asks until somebody opens the globe.
+    ///
+    /// The three answers below are better ones anyway, in the order somebody
+    /// would want them: the aeroplane whose window is open, then the one they
+    /// are flying, then wherever the traffic actually is. A world view that
+    /// opens on an empty Pacific is a world view you have to go and find
+    /// something on.
+    private var planetStart: CLLocationCoordinate2D {
+        if let selected = selection,
+           let flight = feed.flights.first(where: { $0.id == selected.id }) {
+            return flight.coordinate
+        }
+        if let mine = myFlights.first {
+            return mine.coordinate
+        }
+        if let busiest = mapAirports.first {
+            return busiest.airport.coordinate
+        }
+        // Nothing is flying anywhere: the Atlantic, which puts most of the
+        // world's traffic on the near side when it comes back.
+        return CLLocationCoordinate2D(latitude: 25, longitude: -20)
+    }
+
     private func openAirport(fromMap icao: String) {
         guard let field = AirportStore.shared.airport(icao) else { return }
         selection = nil
@@ -851,6 +903,25 @@ struct ContentView: View {
         // Full screen rather than a sheet: it is a camera, and a camera behind
         // a card with the map showing round the edges is a viewfinder nobody
         // can aim.
+        // Full screen for the same reason as the sky: it is a picture of the
+        // whole world, and a picture of the whole world inside a card with the
+        // map round the edges is neither.
+        .fullScreenCover(isPresented: $isShowingPlanet) {
+            PlanetView(
+                airports: mapAirports,
+                onSelectAirport: { field in
+                    isShowingPlanet = false
+                    openAirport(field)
+                },
+                onSelectFlight: { flight in
+                    isShowingPlanet = false
+                    selection = SelectedFlight(id: flight.id)
+                    focus(on: flight.coordinate, spanMeters: 240_000)
+                },
+                start: planetStart
+            )
+            .environmentObject(feed)
+        }
         .fullScreenCover(isPresented: $isShowingSky) {
             SkyView(myFlights: myFlights) { id in
                 isShowingSky = false
@@ -1094,11 +1165,14 @@ struct ContentView: View {
             AirportPanel(
                 airport: airport,
                 onShowOnMap: { field in
-                    // Same order as the other panels: close first, then move,
-                    // so the field isn't framed underneath the sheet it was
-                    // picked in.
+                    // The map is already on the field — opening the panel took
+                    // it there. What this does now is get the panel out of the
+                    // way and re-frame against the whole screen, which is the
+                    // difference between glancing at the field and looking at
+                    // it. Closed first, then moved, so the camera is told about
+                    // the bottom of the map it has just been given back.
                     sheet = nil
-                    focus(on: field.coordinate, spanMeters: 90_000)
+                    focus(on: field.coordinate, spanMeters: Self.fieldSpanMeters)
                 },
                 onSelectFlight: { flight in
                     sheet = nil
@@ -1190,7 +1264,28 @@ struct ContentView: View {
     private func openAirport(_ airport: Airport, from flight: SelectedFlight?) {
         airportOrigin = flight
         sheet = .airport(airport.icao)
+
+        // And take the map there. Opening a field used to leave the map
+        // wherever it was, which made the panel a page about somewhere else:
+        // everything on it — the inbound list, the stands, who is on frequency
+        // — is about a place, and the map behind it was showing another one.
+        //
+        // The sheet is left up rather than closed, which is what `Show on map`
+        // is still for. It works because the map counts the panel as standing
+        // on its bottom edge — see `openPanelBottomInset` — so the field is
+        // framed in the part of the map the sheet is not covering. Both change
+        // in this one update, so the camera move already knows the sheet is
+        // there.
+        focus(on: airport.coordinate, spanMeters: Self.fieldSpanMeters)
     }
+
+    /// How much of the world is in view when a field is opened.
+    ///
+    /// Wide enough to show the traffic on its way in rather than only the
+    /// runways: the panel's first section is the inbound list, and a camera
+    /// tight enough to read the taxiways would put every aircraft on that list
+    /// off screen.
+    private static let fieldSpanMeters: Double = 90_000
 
     /// Open a field from somewhere with nothing to come back to.
     private func openAirport(_ airport: Airport) {
@@ -1821,6 +1916,18 @@ struct ContentView: View {
                 // rather than changing it.
                 mapButton("camera.viewfinder", "Point the camera at the sky") {
                     isShowingSky = true
+                }
+
+                Rectangle()
+                    .fill(theme.stroke)
+                    .frame(height: 1)
+
+                // Under the sky and above the styles, because it belongs with
+                // the first: both leave the map for a different way of looking
+                // at the same packet, where everything below changes the map
+                // you are already on.
+                mapButton("globe.europe.africa", "See the whole planet") {
+                    isShowingPlanet = true
                 }
 
                 Rectangle()
