@@ -146,23 +146,27 @@ final class VaAdsService {
         let code = Self.normalisedIcao(icao)
         guard !code.isEmpty else { return [] }
 
-        lock.lock()
-        if let cached = hubCache[code] {
-            lock.unlock()
-            return cached
-        }
-        lock.unlock()
+        if let cached = cachedPartners(hubbedAt: code) { return cached }
 
         guard let ads = await fetchAds(
             path: "/api/va-ads/banner/\(code)",
             query: [URLQueryItem(name: "limit", value: "8")]
         ) else { return [] }
 
-        lock.lock()
-        hubCache[code] = ads
-        lock.unlock()
-
+        cache(partners: ads, hubbedAt: code)
         return ads
+    }
+
+    private func cachedPartners(hubbedAt code: String) -> [VaAd]? {
+        lock.lock()
+        defer { lock.unlock() }
+        return hubCache[code]
+    }
+
+    private func cache(partners ads: [VaAd], hubbedAt code: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        hubCache[code] = ads
     }
 
     /// The VA to show against a flight.
@@ -234,20 +238,30 @@ final class VaAdsService {
               id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" })
         else { return [] }
 
+        switch beginRosterLoad(id) {
+        case let .cached(handles): return handles
+        case let .wait(task): return await task.value
+        }
+    }
+
+    /// The roster if it is already known, or the task that is fetching it —
+    /// decided under the lock, in a function with nowhere to suspend. See
+    /// `beginDirectoryLoad` for why that matters.
+    private enum RosterStep {
+        case cached(Set<String>)
+        case wait(Task<Set<String>, Never>)
+    }
+
+    private func beginRosterLoad(_ id: String) -> RosterStep {
         lock.lock()
-        if let cached = rosterCache[id] {
-            lock.unlock()
-            return cached
-        }
-        if let inFlight = rosterTasks[id] {
-            lock.unlock()
-            return await inFlight.value
-        }
+        defer { lock.unlock() }
+
+        if let cached = rosterCache[id] { return .cached(cached) }
+        if let inFlight = rosterTasks[id] { return .wait(inFlight) }
+
         let task = Task { await self.fetchRoster(id) }
         rosterTasks[id] = task
-        lock.unlock()
-
-        return await task.value
+        return .wait(task)
     }
 
     private func fetchRoster(_ id: String) async -> Set<String> {
@@ -278,14 +292,19 @@ final class VaAdsService {
             }
         }
 
+        finish(roster: handles, for: id, failed: failed)
+        return handles
+    }
+
+    private func finish(roster handles: Set<String>, for id: String, failed: Bool) {
         lock.lock()
         defer { lock.unlock() }
+
         rosterTasks[id] = nil
         // A roster that never arrived is not the same as a VA with no pilots;
         // remembering the failure as "nobody" would mark real members as
         // strangers for the life of the process.
         if !failed { rosterCache[id] = handles }
-        return handles
     }
 
     /// The roster this VA has already answered with, or nil if it has not been
@@ -392,26 +411,38 @@ final class VaAdsService {
     // MARK: - Directory
 
     private func loadDirectory() async {
+        guard let task = beginDirectoryLoad() else { return }
+        await task.value
+    }
+
+    /// Decides whether the directory needs loading and claims the job if so —
+    /// all of it under the lock, and none of it `async`.
+    ///
+    /// The lock never actually was held across a suspension: every path through
+    /// the old version unlocked before its `await`. But the compiler cannot see
+    /// that, and taking an `NSLock` anywhere inside an `async` function is a
+    /// warning today and an error under the Swift 6 language mode — because a
+    /// task that suspends while holding one can resume on a different thread,
+    /// and then unlocks from a thread that never locked it. Which is a real
+    /// hazard and an ugly one: it is undefined behaviour, not a deadlock, so it
+    /// does not announce itself.
+    ///
+    /// Doing the locked part in a synchronous function is how that gets proved
+    /// rather than argued: there is nowhere in here to put a suspension.
+    ///
+    /// Returns the task to wait on — the one already running, or the one this
+    /// call just started — or nil when there is nothing to do.
+    private func beginDirectoryLoad() -> Task<Void, Never>? {
         lock.lock()
-        if directoryLoaded {
-            lock.unlock()
-            return
-        }
-        if let retry = directoryRetryAfter, retry > Date() {
-            lock.unlock()
-            return
-        }
-        if let inFlight = directoryTask {
-            lock.unlock()
-            await inFlight.value
-            return
-        }
+        defer { lock.unlock() }
+
+        if directoryLoaded { return nil }
+        if let retry = directoryRetryAfter, retry > Date() { return nil }
+        if let inFlight = directoryTask { return inFlight }
 
         let task = Task { await self.fetchDirectory() }
         directoryTask = task
-        lock.unlock()
-
-        await task.value
+        return task
     }
 
     private func fetchDirectory() async {
@@ -435,6 +466,13 @@ final class VaAdsService {
             if ads.count < Self.pageSize { break }
         }
 
+        finish(directory: all, failed: failed)
+    }
+
+    /// Files whatever came back, under the lock and outside the async context
+    /// that fetched it — see `beginDirectoryLoad` for why that separation is
+    /// the point rather than a tidy-up.
+    private func finish(directory all: [VaAd], failed: Bool) {
         lock.lock()
         defer { lock.unlock() }
 
