@@ -38,6 +38,38 @@ enum Terminator {
     /// gradient rather than a set of edges.
     static let bandCount = 8
 
+    /// The sun elevation band `index` is drawn at, from the sunset line down to
+    /// astronomical night.
+    ///
+    /// Shared rather than worked out where the shapes are, because the planet
+    /// draws the same fade out of the same numbers — see
+    /// `GlobeCanvasView.drawNight` — and a terminator that softened over
+    /// eighteen degrees on one map and some other span on the other would be
+    /// two different claims about the same evening.
+    static func elevation(atIndex index: Int) -> Double {
+        guard bandCount > 1 else { return nightElevation }
+        let fraction = Double(index) / Double(bandCount - 1)
+        return sunsetElevation + (nightElevation - sunsetElevation) * fraction
+    }
+
+    /// How deep band `index` is, as a fraction of full night.
+    ///
+    /// The same accumulation `alpha(atIndex:step:)` builds, divided by what the
+    /// innermost band comes to — which is what a renderer needs when it has
+    /// been given the colour of full night rather than a per-band step. The
+    /// planet is drawn that way: its night is a palette colour, and each ring
+    /// is that colour at this fraction of its strength.
+    static func depth(atIndex index: Int) -> Double {
+        let deepest = alpha(atIndex: bandCount - 1, step: depthStep)
+        guard deepest > 0 else { return 1 }
+        return min(1, alpha(atIndex: index, step: depthStep) / deepest)
+    }
+
+    /// The step the fraction above is shaped by. Between the two the map itself
+    /// uses, since this one is about the *shape* of the fade rather than about
+    /// how heavy it is.
+    private static let depthStep: Double = 0.05
+
     /// Titles the renderer reads the band's own darkness back off, since
     /// `MKPolygon` carries a string and nothing else.
     private static let titlePrefix = "terminator.band."
@@ -68,9 +100,7 @@ enum Terminator {
         let sun = SolarPosition.sun(at: date)
 
         let rings: [[CLLocationCoordinate2D]] = (0..<bandCount).map { index in
-            let fraction = Double(index) / Double(bandCount - 1)
-            let elevation = sunsetElevation + (nightElevation - sunsetElevation) * fraction
-            return ring(below: elevation, sun: sun)
+            ring(below: elevation(atIndex: index), sun: sun)
         }
 
         var out: [MKPolygon] = []

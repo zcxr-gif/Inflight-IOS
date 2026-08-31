@@ -2111,43 +2111,115 @@ final class GlobeCanvasView: UIView {
 
     // MARK: - Night
 
-    /// The half of the planet the sun is not on.
+    /// The half of the planet the sun is not on, and the dusk before it.
     ///
-    /// The night region is a hemisphere, so its edge on screen is the visible
-    /// half of one great circle — the terminator — closed along the limb. Both
-    /// halves are found exactly rather than searched for:
+    /// ## Why this is eight shapes and not one
     ///
-    /// - the terminator meets the limb at `±normalize(sun × out)`, the two
-    ///   directions perpendicular to both;
-    /// - the visible half of the terminator runs between them through the point
-    ///   nearest the camera, which is `out` with its sun component removed;
-    /// - and a point *on* the limb is in darkness exactly when it lies in the
-    ///   half centred on the anti-solar direction, because a limb point has no
-    ///   depth for the sun's own depth to matter against.
+    /// It used to be one: the dark hemisphere, filled flat, with the
+    /// terminator as its edge. Which put a hard line across the Atlantic —
+    /// full night on one side of it and full daylight on the other, a step
+    /// no photograph of the earth has ever shown. The flat map stopped
+    /// drawing that some time ago and the planet went on doing it.
     ///
-    /// So the limb arc to close along is the half-circle centred on the
-    /// anti-solar bearing, and its ends are the two crossings — which is the
-    /// same pair, and the reason none of this needs a search or a winding rule.
+    /// So it is the map's own fade now, out of the map's own numbers: eight
+    /// caps, from the sunset line down to astronomical night, each one
+    /// everything darker than a chosen sun elevation. See `Terminator`, which
+    /// owns the elevations and the ramp so that the two maps cannot disagree
+    /// about the same evening.
+    ///
+    /// Cut into rings rather than stacked, for the reason the map cuts them:
+    /// nested caps paint the deep night eight times over, which on a planet
+    /// redrawn every frame of every gesture is eight full-screen composites
+    /// for a picture one of them could draw. Each ring instead carries the
+    /// darkness the stack would have accumulated to, so every pixel of the
+    /// wash is painted once.
     private func drawNight(in context: CGContext, basis: GlobeCamera.Basis, sun: SIMD3<Float>) {
-        let radius = camera.radius
-        let facing = simd_dot(sun, basis.out)
+        let full = palette.night.cgColor.alpha
+        guard full > 0, Terminator.bandCount > 0 else { return }
 
-        // The sun straight ahead or straight behind: the terminator is the limb
-        // itself, and the answer is all of it or none of it.
-        let crossing = simd_cross(sun, basis.out)
-        let crossingLength = simd_length(crossing)
-        guard crossingLength > 1e-4 else {
-            guard facing < 0 else { return }
-            context.setFillColor(palette.night.cgColor)
-            context.fillEllipse(in: discBox)
-            return
+        // Lightest first: the sunset line, then each step down from it.
+        var caps: [CGPath?] = []
+        caps.reserveCapacity(Terminator.bandCount)
+        for index in 0..<Terminator.bandCount {
+            caps.append(cap(
+                belowElevation: Terminator.elevation(atIndex: index),
+                basis: basis,
+                sun: sun
+            ))
         }
 
-        let edge = crossing / crossingLength
+        context.saveGState()
+        defer { context.restoreGState() }
 
-        // The visible midpoint of the terminator, which is the view direction
-        // with whatever of the sun is in it taken out.
-        let towards = simd_normalize(basis.out - sun * facing)
+        if !isViewInsideDisc {
+            context.addEllipse(in: discBox)
+            context.clip()
+        }
+
+        for index in 0..<Terminator.bandCount {
+            // The caps only shrink, so once one has nothing in view neither
+            // has anything darker than it.
+            guard let outer = caps[index] else { return }
+
+            let ring = CGMutablePath()
+            ring.addPath(outer)
+            // The innermost band has nothing under it: past astronomical night
+            // the ground is as dark as this draws it, so that one is solid.
+            if index + 1 < caps.count, let inner = caps[index + 1] {
+                ring.addPath(inner)
+            }
+
+            let depth = CGFloat(Terminator.depth(atIndex: index))
+            context.setFillColor(palette.night.withAlphaComponent(full * depth).cgColor)
+            context.addPath(ring)
+            // Even-odd, so the cap inside this one is a hole rather than a
+            // second coat.
+            context.fillPath(using: .evenOdd)
+        }
+    }
+
+    /// Everything on the face you can see where the sun is at or below one
+    /// elevation, as a path to fill. Nil where there is none of it in view.
+    ///
+    /// ## The shape
+    ///
+    /// The ground darker than a given sun elevation is a cap of the sphere
+    /// centred on the antisolar point — its edge the small circle where the
+    /// sun's own direction has a fixed, negative component. What you can see is
+    /// another cap, centred on the camera. So the region is the overlap of two
+    /// caps, and every case of that is here rather than searched for:
+    ///
+    /// - the edge crosses the limb, which is the ordinary evening: the visible
+    ///   arc of it, closed along the piece of limb the dark is on;
+    /// - the edge is round the back, so the whole face is one side of it —
+    ///   all of it or none of it;
+    /// - the edge is wholly on the near side, and the region is the closed
+    ///   curve itself: the dark cap sitting inside the disc, which is what the
+    ///   small hours look like from over the night side.
+    ///
+    /// The discriminant is one comparison. Every point of the edge has depth
+    /// `spin·across·cos φ − h·facing`, so the edge reaches the limb exactly
+    /// when `|h| ≤ across` — and when it does not, the sign of `−h·facing`
+    /// says which side of the planet it is round.
+    private func cap(
+        belowElevation degrees: Double,
+        basis: GlobeCamera.Basis,
+        sun: SIMD3<Float>
+    ) -> CGPath? {
+        let radius = camera.radius
+        guard radius > 0 else { return nil }
+
+        // How far the sun is below the horizon on the edge of this cap, as the
+        // sine that a dot product against the sun's direction can be compared
+        // to directly.
+        let h = Float(-sin(degrees * .pi / 180))
+
+        // How much of the sun's direction points at the camera, and how much
+        // of it lies across the view — the second of which is also the sine of
+        // the deepest the sun gets anywhere on the limb, and so the whole of
+        // what decides whether this cap's edge reaches it.
+        let facing = simd_dot(sun, basis.out)
+        let across = simd_length(simd_cross(sun, basis.out))
 
         func screen(_ vector: SIMD3<Float>) -> CGPoint {
             CGPoint(
@@ -2156,60 +2228,117 @@ final class GlobeCanvasView: UIView {
             )
         }
 
-        let path = CGMutablePath()
-        let steps = 64
-        for step in 0...steps {
-            let angle = Float(step) / Float(steps) * .pi
-            let point = edge * cos(angle) + towards * sin(angle)
-            let screenPoint = screen(point)
-            if step == 0 { path.move(to: screenPoint) } else { path.addLine(to: screenPoint) }
+        func disc() -> CGPath {
+            let path = CGMutablePath()
+            path.addEllipse(in: discBox)
+            return path
         }
 
-        // Home along the limb, through the bearing of the anti-solar point.
-        // `-edge` is where the terminator arc finished; the night's own bearing
-        // is a quarter turn from it, and which quarter is the only thing left
-        // to decide.
-        let endAngle = atan2(
-            screen(-edge).y - camera.center.y,
-            screen(-edge).x - camera.center.x
-        )
-        let nightBearing = atan2(
-            CGFloat(-simd_dot(-sun, basis.north)),
-            CGFloat(simd_dot(-sun, basis.east))
-        )
-        let sweep: CGFloat = Self.isNearer(endAngle + .pi / 2, to: nightBearing,
-                                           than: endAngle - .pi / 2) ? .pi : -.pi
+        // The sun straight ahead or straight behind. The cap is then centred on
+        // the middle of the view, so its edge is a plain circle and the frame
+        // the general case is built in — the direction in the cap's plane that
+        // leans furthest towards the camera — does not exist.
+        guard across > 1e-4 else {
+            guard facing < 0 else { return nil }
+            let spread = radius * CGFloat((1 - h * h).squareRoot())
+            let path = CGMutablePath()
+            path.addEllipse(in: CGRect(
+                x: camera.center.x - spread,
+                y: camera.center.y - spread,
+                width: spread * 2,
+                height: spread * 2
+            ))
+            return path
+        }
 
-        let limbSteps = 48
-        for step in 1...limbSteps {
-            let angle = endAngle + sweep * CGFloat(step) / CGFloat(limbSteps)
+        // The edge, as a circle in its own plane: the antisolar direction taken
+        // in by `h`, plus a radius spun about it. `towards` is the way that
+        // leans furthest towards the camera, so the angle runs outwards from
+        // the middle of what you can see in both directions.
+        let spin = (1 - h * h).squareRoot()
+        let towards = (basis.out - sun * facing) / across
+        let sideways = simd_cross(sun, towards)
+
+        func edge(_ angle: Float) -> SIMD3<Float> {
+            sun * (-h) + (towards * cos(angle) + sideways * sin(angle)) * spin
+        }
+
+        // The edge never reaches the limb.
+        guard abs(h) <= across else {
+            guard h * facing < 0 else {
+                // Round the back: the whole face is on one side of it, and
+                // which side is one comparison at the middle of the view.
+                return facing <= -h ? disc() : nil
+            }
+
+            // Wholly on the near side: the cap is a closed curve in the disc.
+            let path = CGMutablePath()
+            for step in 0...Self.nightEdgeSteps {
+                let angle = Float(step) / Float(Self.nightEdgeSteps) * 2 * .pi
+                let point = screen(edge(angle))
+                if step == 0 { path.move(to: point) } else { path.addLine(to: point) }
+            }
+            path.closeSubpath()
+            return path
+        }
+
+        // The ordinary evening. The edge is visible out to where its depth
+        // runs out, which is the angle either side of `towards` at which the
+        // two terms of it cancel.
+        let reach = acos(min(1, max(-1, h * facing / (spin * across))))
+
+        let path = CGMutablePath()
+        for step in 0...Self.nightEdgeSteps {
+            let angle = -reach + 2 * reach * Float(step) / Float(Self.nightEdgeSteps)
+            let point = screen(edge(angle))
+            if step == 0 { path.move(to: point) } else { path.addLine(to: point) }
+        }
+
+        // Home along the limb. Both ends of the arc sit on it, and the piece to
+        // close along is the piece the dark is on — which is the one containing
+        // the bearing of the antisolar point, since a point on the limb has no
+        // depth for anything else to decide it.
+        let from = limbAngle(of: screen(edge(reach)))
+        let to = limbAngle(of: screen(edge(-reach)))
+        let darkest = atan2(
+            CGFloat(simd_dot(sun, basis.north)),
+            CGFloat(-simd_dot(sun, basis.east))
+        )
+
+        var sweep = Self.turn(from: from, to: to)
+        if Self.turn(from: from, to: darkest) > sweep { sweep -= 2 * .pi }
+
+        for step in 1...Self.limbSteps {
+            let angle = from + sweep * CGFloat(step) / CGFloat(Self.limbSteps)
             path.addLine(to: CGPoint(
                 x: camera.center.x + cos(angle) * radius,
                 y: camera.center.y + sin(angle) * radius
             ))
         }
         path.closeSubpath()
-
-        context.saveGState()
-        if !isViewInsideDisc {
-            context.addEllipse(in: discBox)
-            context.clip()
-        }
-        context.setFillColor(palette.night.cgColor)
-        context.addPath(path)
-        context.fillPath()
-        context.restoreGState()
+        return path
     }
 
-    /// Whether the first angle is the closer of two to a third, going the short
-    /// way round in both cases.
-    private static func isNearer(_ first: CGFloat, to target: CGFloat, than second: CGFloat) -> Bool {
-        func distance(_ a: CGFloat, _ b: CGFloat) -> CGFloat {
-            var delta = (a - b).truncatingRemainder(dividingBy: .pi * 2)
-            if delta < 0 { delta += .pi * 2 }
-            return min(delta, .pi * 2 - delta)
-        }
-        return distance(first, target) <= distance(second, target)
+    /// How finely a cap's edge and the limb it closes along are walked.
+    ///
+    /// The edges are nearly parallel to each other and sampled at the same
+    /// angles, so whatever a chord loses, every band loses identically and they
+    /// stay the even width they should be.
+    private static let nightEdgeSteps = 64
+    private static let limbSteps = 48
+
+    /// The bearing of a point on the limb, about the middle of the disc.
+    private func limbAngle(of point: CGPoint) -> CGFloat {
+        atan2(point.y - camera.center.y, point.x - camera.center.x)
+    }
+
+    /// The turn from one bearing to another, going the way angles increase.
+    /// Always in `[0, 2π)`, so a caller can ask whether a third bearing is
+    /// inside it by comparing two of these.
+    private static func turn(from: CGFloat, to: CGFloat) -> CGFloat {
+        var delta = (to - from).truncatingRemainder(dividingBy: .pi * 2)
+        if delta < 0 { delta += .pi * 2 }
+        return delta
     }
 
     // MARK: - The ground
