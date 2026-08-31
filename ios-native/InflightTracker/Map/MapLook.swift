@@ -76,13 +76,17 @@ enum MapPalette: String, CaseIterable, Identifiable {
 
     /// Follows the app's own light and dark. The default, and what the map did
     /// before there was anything to choose — the map turned when the app did.
+    ///
+    /// This is also where the old `dark` went. There used to be a fourth
+    /// cartography colour that meant "night, whatever the app is set to", and
+    /// the app is set to dark for very nearly everybody — so it drew the map
+    /// this one already draws, sat next to it in the list, and the only way to
+    /// tell the two apart was to go and change the app's appearance. A choice
+    /// you cannot see the effect of is not a choice. See `from(stored:)`.
     case auto
 
     /// Daytime cartography, whatever the app itself is set to.
     case light
-
-    /// Night cartography, whatever the app itself is set to.
-    case dark
 
     /// Night cartography washed down towards black. For OLED, and for the map
     /// staying out of the way of the traffic at cruise.
@@ -98,11 +102,27 @@ enum MapPalette: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// What a stored palette means now, including one this enum no longer has
+    /// a case for.
+    ///
+    /// `dark` is the only such value, and it lands on `auto`. That is the
+    /// palette it was drawing anyway on any install whose app appearance is
+    /// dark — which is the default and what nearly every install is — so for
+    /// nearly everybody the map is byte-for-byte what it was before the update.
+    /// The exception is somebody running the app light with the map pinned
+    /// dark, whose map now turns with the app; there is no surviving palette
+    /// that means what theirs did, and `black` — the nearest — is a visibly
+    /// different, dimmed map rather than the one they chose.
+    static func from(stored raw: String?) -> MapPalette? {
+        guard let raw = raw, !raw.isEmpty else { return nil }
+        if raw == "dark" { return .auto }
+        return MapPalette(rawValue: raw)
+    }
+
     var label: String {
         switch self {
         case .auto: return "Auto"
         case .light: return "Light"
-        case .dark: return "Dark"
         case .black: return "Black"
         case .satellite: return "Satellite"
         }
@@ -112,7 +132,6 @@ enum MapPalette: String, CaseIterable, Identifiable {
         switch self {
         case .auto: return "Turns with the app's own light and dark."
         case .light: return "Daytime cartography, whatever the app is set to."
-        case .dark: return "Night cartography, whatever the app is set to."
         case .black: return "Night cartography washed down to near black."
         case .satellite: return "Imagery. Flat it has no labels, so only the aircraft read."
         }
@@ -122,7 +141,6 @@ enum MapPalette: String, CaseIterable, Identifiable {
         switch self {
         case .auto: return "circle.lefthalf.filled"
         case .light: return "sun.max"
-        case .dark: return "moon"
         case .black: return "circle.fill"
         case .satellite: return "globe.americas"
         }
@@ -142,7 +160,7 @@ enum MapPalette: String, CaseIterable, Identifiable {
         switch self {
         case .auto, .satellite: return nil
         case .light: return .light
-        case .dark, .black: return .dark
+        case .black: return .dark
         }
     }
 

@@ -16,6 +16,10 @@ struct FriendsPanel: View {
     @ObservedObject private var push = PushService.shared
     @ObservedObject private var liveActivity = LiveActivityController.shared
 
+    /// Read so the rows repaint when a pilot is given a colour of their own,
+    /// which happens on another panel entirely.
+    @ObservedObject private var highlight = PilotHighlightPreferences.shared
+
     /// Raised when the free list is full. The limit is a Pro thing, so the
     /// place it is explained is the place Pro is explained.
     @State private var isShowingPaywall = false
@@ -74,6 +78,21 @@ struct FriendsPanel: View {
         return found
     }
 
+    /// What this pilot's aeroplane is painted on the map, or nil when nothing
+    /// is being painted at all.
+    ///
+    /// A free account gets the one shared colour for everybody here, which is
+    /// exactly what the map does with them — the row is not the place to
+    /// advertise Pro, it is the place to tell the truth about which dot on the
+    /// map is whose.
+    private func mapColor(for username: String) -> Color? {
+        guard highlight.isEnabled else { return nil }
+        guard entitlements.has(.pilotColours) else {
+            return PilotHighlightPreferences.defaultFriend
+        }
+        return highlight.color(forFriend: username)
+    }
+
     var body: some View {
         let aloft = flying
 
@@ -101,6 +120,7 @@ struct FriendsPanel: View {
                             username: username,
                             flight: aloft[username]?.first,
                             theme: theme,
+                            mapColor: mapColor(for: username),
                             isTracking: aloft[username]?.first.map { liveActivity.isTracking(flightId: $0.id) } ?? false,
                             onOpen: { flight in onSelect(flight) },
                             onTrack: { flight in toggleTracking(flight) },
@@ -486,6 +506,11 @@ private struct FriendRow: View {
     let username: String
     let flight: Flight?
     let theme: FlightInfoTheme
+
+    /// The colour this pilot's aircraft is drawn in on the map, or nil when the
+    /// traffic is not being coloured. See `FriendsPanel.mapColor(for:)`.
+    let mapColor: Color?
+
     let isTracking: Bool
 
     let onOpen: (Flight) -> Void
@@ -561,12 +586,18 @@ private struct FriendRow: View {
         .padding(.vertical, 10)
     }
 
-    /// Filled while they are on the server, hollow while they are not — the
-    /// same monochrome logic the rest of the window uses, with no colour
-    /// carrying meaning on its own.
+    /// Filled while they are on the server, hollow while they are not.
+    ///
+    /// In the colour their aeroplane is wearing on the map, when the traffic is
+    /// being coloured at all. That is the one place colour is allowed to carry
+    /// meaning of its own in this window, and it earns it: with a colour per
+    /// pilot, the dot beside a name is the only thing that says which of five
+    /// coloured aircraft over the same field is theirs.
     private var statusDot: some View {
-        Circle()
-            .fill(flight == nil ? Color.clear : theme.accent)
+        let live = mapColor ?? theme.accent
+
+        return Circle()
+            .fill(flight == nil ? Color.clear : live)
             .frame(width: 7, height: 7)
             .overlay {
                 Circle().strokeBorder(flight == nil ? theme.textDim : .clear, lineWidth: 1)

@@ -17,6 +17,9 @@ struct AccountPanel: View {
     @ObservedObject private var identity = PilotIdentity.shared
     @ObservedObject private var highlight = PilotHighlightPreferences.shared
 
+    /// Only for the per-pilot colour rows below: the names to offer one for.
+    @ObservedObject private var friends = FriendsStore.shared
+
     /// Sign in, or make one. One form either way — the fields are the same and
     /// the difference is one word on the button — so this is a segmented
     /// control rather than two screens.
@@ -285,28 +288,45 @@ struct AccountPanel: View {
 
     /// What your own aircraft and your watchlist are painted.
     ///
-    /// Pro. The defaults are the web build's amber and amethyst, which is what
-    /// anyone coming from it will expect to see.
+    /// The switch and the colouring are free — the defaults are the web
+    /// build's amber and amethyst, which is what anyone coming from it will
+    /// expect to see. Pro is what turns the two swatches into pickers, and
+    /// what adds the section under them: a colour per watched pilot, so a
+    /// circuit full of friends is not one colour repeated.
     @ViewBuilder
     private var colorSection: some View {
+        let isPro = entitlements.has(.pilotColours)
+
         PanelSection(title: "PICK YOUR TRAFFIC OUT") {
-            if entitlements.has(.pilotColours) {
-                PanelToggleRow(
-                    title: "Colour my traffic",
-                    symbol: "paintpalette",
-                    detail: "Your aircraft and everyone you watch, painted on the map.",
-                    isOn: $highlight.isEnabled
+            PanelToggleRow(
+                title: "Colour my traffic",
+                symbol: "paintpalette",
+                detail: "Your aircraft and everyone you watch, painted on the map.",
+                isOn: $highlight.isEnabled
+            )
+
+            if highlight.isEnabled {
+                PanelDivider()
+
+                colorRow(
+                    "Your aircraft",
+                    symbol: "airplane",
+                    selection: $highlight.ownColor,
+                    swatch: PilotHighlightPreferences.defaultOwn,
+                    isPro: isPro
                 )
 
-                if highlight.isEnabled {
-                    PanelDivider()
+                PanelDivider()
 
-                    colorRow("Your aircraft", symbol: "airplane", selection: $highlight.ownColor)
+                colorRow(
+                    "Watched pilots",
+                    symbol: "person.2.fill",
+                    selection: $highlight.friendColor,
+                    swatch: PilotHighlightPreferences.defaultFriend,
+                    isPro: isPro
+                )
 
-                    PanelDivider()
-
-                    colorRow("Watched pilots", symbol: "person.2.fill", selection: $highlight.friendColor)
-
+                if isPro {
                     PanelDivider()
 
                     Button {
@@ -321,27 +341,101 @@ struct AccountPanel: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                } else {
+                    PanelDivider()
+
+                    PanelActionRow(
+                        title: "Pick your own colours",
+                        symbol: "lock",
+                        detail: "Pro. Choose these two, and give any pilot you watch a colour of their own — free paints the whole watchlist the same."
+                    ) {
+                        isShowingPaywall = true
+                    }
                 }
-            } else {
-                PanelActionRow(
-                    title: "Colour my traffic",
-                    symbol: "paintpalette",
-                    detail: "Pro. Your own aircraft and every pilot you watch, picked out of the traffic in colours you choose."
-                ) {
-                    isShowingPaywall = true
+            }
+        }
+
+        if highlight.isEnabled { perPilotSection(isPro: isPro) }
+    }
+
+    /// A colour for one watched pilot at a time.
+    ///
+    /// Drawn only for Pro, and only when there is somebody on the list to
+    /// paint: a section headed "each pilot" over an empty watchlist explains
+    /// nothing, and the paywall for it is already one row above.
+    @ViewBuilder
+    private func perPilotSection(isPro: Bool) -> some View {
+        if isPro, !friends.friends.isEmpty {
+            PanelSection(title: "EACH PILOT") {
+                ForEach(Array(friends.friends.enumerated()), id: \.element) { index, username in
+                    if index > 0 { PanelDivider() }
+
+                    colorRow(
+                        username,
+                        symbol: highlight.hasOwnColor(forFriend: username)
+                            ? "person.fill"
+                            : "person",
+                        selection: Binding(
+                            get: { highlight.color(forFriend: username) },
+                            set: { highlight.setColor($0, forFriend: username) }
+                        ),
+                        swatch: nil,
+                        isPro: true,
+                        // Only offered once they have one to clear. Painting a
+                        // pilot the shared colour by hand is not the same as
+                        // never having painted them: the first stops following
+                        // a later change to it, and this is how you get back.
+                        onClear: highlight.hasOwnColor(forFriend: username)
+                            ? { highlight.setColor(nil, forFriend: username) }
+                            : nil
+                    )
                 }
             }
         }
     }
 
-    private func colorRow(_ title: String, symbol: String, selection: Binding<Color>) -> some View {
+    /// One colour row: a picker for Pro, and the colour it is fixed at for
+    /// everybody else.
+    ///
+    /// A free account gets the swatch rather than nothing, because the row is
+    /// telling the truth either way — this *is* what those aircraft are
+    /// painted. What it does not get is a control that would appear to work
+    /// and then be ignored by the map.
+    private func colorRow(
+        _ title: String,
+        symbol: String,
+        selection: Binding<Color>,
+        swatch: Color?,
+        isPro: Bool,
+        onClear: (() -> Void)? = nil
+    ) -> some View {
         HStack(spacing: 10) {
             PanelRowLabel(title: title, symbol: symbol)
 
             Spacer(minLength: 8)
 
-            ColorPicker("", selection: selection, supportsOpacity: false)
-                .labelsHidden()
+            if let onClear = onClear {
+                Button(action: onClear) {
+                    Image(systemName: "arrow.uturn.backward")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(theme.textDim)
+                        .frame(width: 26, height: 26)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Put \(title) back on the shared colour")
+            }
+
+            if isPro {
+                ColorPicker("", selection: selection, supportsOpacity: false)
+                    .labelsHidden()
+            } else {
+                Circle()
+                    .fill(swatch ?? selection.wrappedValue)
+                    .frame(width: 22, height: 22)
+                    .overlay { Circle().strokeBorder(theme.stroke, lineWidth: 1) }
+                    .accessibilityHidden(true)
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)

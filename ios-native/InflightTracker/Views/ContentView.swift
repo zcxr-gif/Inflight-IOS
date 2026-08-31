@@ -700,7 +700,8 @@ struct ContentView: View {
                     peakHeight: .constant(FlightInfoLayout.basePeakHeight),
                     presentation: .pane,
                     onReplay: { track in startReplay(of: selected.id, track: track) },
-                    onSelectAirport: { field in openAirport(field, from: selected) }
+                    onSelectAirport: { field in openAirport(field, from: selected) },
+                    origin: flightReturn(for: selected)
                 )
                     // Same as the sheet's: a different aircraft resets the
                     // window's own state without the window going anywhere.
@@ -960,7 +961,8 @@ struct ContentView: View {
                     flightId: selected.id,
                     peakHeight: $peakHeight,
                     onReplay: { track in startReplay(of: selected.id, track: track) },
-                    onSelectAirport: { field in openAirport(field, from: selected) }
+                    onSelectAirport: { field in openAirport(field, from: selected) },
+                    origin: flightReturn(for: selected)
                 )
                     // No `.id` here, and that is the whole of why tapping one
                     // aeroplane while another is open now changes the window
@@ -1091,7 +1093,9 @@ struct ContentView: View {
                 },
                 onSelectFlight: { flight in
                     sheet = nil
-                    selection = SelectedFlight(id: flight.id)
+                    // With the field on it, so the window that opens has a way
+                    // back to the list the aircraft was picked out of.
+                    selection = SelectedFlight(id: flight.id, origin: airport.icao)
                     focus(on: flight.coordinate, spanMeters: 240_000)
                 },
                 onPlanFlight: { field in
@@ -1182,6 +1186,25 @@ struct ContentView: View {
     /// Open a field from somewhere with nothing to come back to.
     private func openAirport(_ airport: Airport) {
         openAirport(airport, from: nil)
+    }
+
+    /// The back row for the flight window, when the aircraft was opened out of
+    /// a field's own traffic lists.
+    ///
+    /// Named by ICAO rather than by the field's full name: the row is one line
+    /// in a window full of them, and the code is what was at the top of the
+    /// panel being gone back to. Nothing is offered for an ICAO the offline
+    /// dataset does not have, because there would be no panel to open.
+    private func flightReturn(for selected: SelectedFlight) -> FlightDetailView.Origin? {
+        guard let icao = selected.origin,
+              let field = AirportStore.shared.airport(icao) else { return nil }
+
+        return FlightDetailView.Origin(label: field.icao) {
+            // Plain, with nothing behind it: this *is* the way back, and giving
+            // the field a "back to the flight" row of its own would leave the
+            // two panels pointing at each other for ever.
+            openAirport(field)
+        }
     }
 
     /// The back row for the field panel, when there is a flight behind it.

@@ -138,6 +138,44 @@ struct PlannedFlight: Identifiable, Equatable {
         )
     }
 
+    /// A plan filled in from an aeroplane that is already flying.
+    ///
+    /// The one place a plan is *observed* rather than typed, and it is worth
+    /// being careful about what that means. Nothing here is measured either —
+    /// every field is still a claim, because the feed's route is whatever the
+    /// pilot put into the sim, and the sim will happily fly you somewhere else.
+    /// What this saves is the typing, and only for the pilot whose aeroplane it
+    /// is: see `FileThisFlightRow`, which is the only caller and refuses to
+    /// build one out of somebody else's aircraft.
+    ///
+    /// The gates are deliberately left empty. The feed has no idea which stand
+    /// anybody pushed back from, and inventing one from the aircraft's position
+    /// would be a guess written into a record that is supposed to be a
+    /// statement of intent.
+    static func from(flight: Flight) -> PlannedFlight {
+        var plan = blank(from: flight.departureIcao ?? "", to: flight.arrivalIcao ?? "")
+        plan.callsign = flight.callsign ?? ""
+        plan.aircraft = flight.aircraftName
+        plan.livery = flight.liveryName
+        return plan
+    }
+
+    /// The same aeroplane's details written over a plan that is already filed.
+    ///
+    /// For amending rather than duplicating: a pilot who files EGLL → KJFK on
+    /// Tuesday and then pushes back on Wednesday wants that row updated, not a
+    /// second one beside it. The route is deliberately not overwritten — it is
+    /// what identified the plan as this flight's in the first place — and
+    /// neither are the gates or the schedule, which somebody sat down and
+    /// filled in and the feed knows nothing about.
+    func amended(with flight: Flight) -> PlannedFlight {
+        var plan = self
+        if let callsign = flight.callsign, !callsign.isEmpty { plan.callsign = callsign }
+        if !flight.aircraftName.isEmpty { plan.aircraft = flight.aircraftName }
+        if !flight.liveryName.isEmpty { plan.livery = flight.liveryName }
+        return plan
+    }
+
     var isSaved: Bool { !id.isEmpty }
 
     /// Whether this is worth sending to the server.
