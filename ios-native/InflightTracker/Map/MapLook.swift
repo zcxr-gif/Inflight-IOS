@@ -21,12 +21,30 @@ enum MapProjection: String, CaseIterable, Identifiable {
     /// see `MapLook.palette`.
     case globe
 
+    /// The drawn planet: a vector globe of the app's own, in whichever colours
+    /// you pick, with the traffic and the fields on it.
+    ///
+    /// Not MapKit at all — see `PlanetSurface`. It began as a screen you opened
+    /// from the corner of the map and closed again, and the argument for
+    /// keeping it that way was that a renderer which is not MapKit cannot
+    /// reach the map's weather tiles, its gate layouts or its ruler, so
+    /// offering it as a projection would mean silently turning features off.
+    ///
+    /// What changed is where it sits. The planet is now a layer *inside* the
+    /// map rather than a screen instead of it, so the search field, the
+    /// filters, the dock, the toolbar, every panel and the flight window are
+    /// all still there and all still work — and the handful of things that
+    /// genuinely need MapKit tiles say so by being switched off rather than by
+    /// quietly doing nothing.
+    case planet
+
     var id: String { rawValue }
 
     var label: String {
         switch self {
         case .flat: return "Flat"
         case .globe: return "Globe"
+        case .planet: return "Planet"
         }
     }
 
@@ -34,6 +52,7 @@ enum MapProjection: String, CaseIterable, Identifiable {
         switch self {
         case .flat: return "The ordinary map, north up."
         case .globe: return "The whole planet in imagery, free to spin and tilt. Pull back to see it."
+        case .planet: return "A drawn globe in colours you pick, with the traffic over it."
         }
     }
 
@@ -41,8 +60,13 @@ enum MapProjection: String, CaseIterable, Identifiable {
         switch self {
         case .flat: return "map"
         case .globe: return "globe"
+        case .planet: return "globe.americas"
         }
     }
+
+    /// Whether this shape is drawn by the app rather than by MapKit, which is
+    /// what decides which of the map's controls have anything to act on.
+    var isDrawn: Bool { self == .planet }
 
     /// The planet is Pro; the flat map is what everybody has always had.
     var isPro: Bool { self == .globe }
@@ -233,6 +257,9 @@ struct MapLook: Equatable {
 
     var isFreeCamera: Bool { projection.isFreeCamera }
     var dimming: CGFloat { resolvedPalette.dimming }
+
+    /// Whether the app draws this map itself. See `MapProjection.planet`.
+    var isDrawn: Bool { projection.isDrawn }
 
     /// Whether there is real elevation under this map. Always true on the
     /// globe, which is what rounds it off.

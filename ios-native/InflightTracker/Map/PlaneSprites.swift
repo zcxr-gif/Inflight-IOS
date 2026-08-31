@@ -41,6 +41,18 @@ final class PlaneSprites {
 
     private var cache: [IconKey: UIImage] = [:]
 
+    /// The planet's own icons, filed separately: they carry an outline colour
+    /// the map's never varies, and mixing the two would mean a key with a field
+    /// in it that only one caller ever sets.
+    private struct PlanetIconKey: Hashable {
+        let sprite: String
+        let body: UInt32
+        let outline: UInt32
+        let pointSize: CGFloat
+    }
+
+    private var planetCache: [PlanetIconKey: UIImage] = [:]
+
     private init() {}
 
     /// Whether the artwork is present. Kept for the settings panel, which
@@ -124,6 +136,56 @@ final class PlaneSprites {
         )
 
         cache[cacheKey] = image
+        return image
+    }
+
+    /// An aircraft for the planet: any size, any two colours, and no padding.
+    ///
+    /// The map's own icons are no use here. They are cut at
+    /// `AppConfig.iconPointSize` inside a canvas twice that wide — padding that
+    /// exists so an `MKAnnotationView` stays easy to tap — and the globe draws
+    /// its traffic into a `CGContext` where the padding is dead pixels blitted
+    /// per aircraft, several hundred times a frame. It also needs the outline
+    /// to change: the map's near-black holds up on imagery and disappears on a
+    /// blueprint planet.
+    ///
+    /// Cached the same way, so a packet of three thousand aircraft over a dozen
+    /// airframe types renders a dozen bitmaps and then draws them.
+    func planetIcon(
+        forKey key: String,
+        pointSize: CGFloat,
+        body: UIColor,
+        outline: UIColor
+    ) -> UIImage? {
+        // Whole points, so a zoom that scales the traffic cannot mint a cache
+        // entry per frame.
+        let size = max(6, pointSize.rounded())
+        let cacheKey = PlanetIconKey(
+            sprite: key,
+            body: body.packed,
+            outline: outline.packed,
+            pointSize: size
+        )
+        if let cached = planetCache[cacheKey] { return cached }
+
+        guard let mark = mark(forKey: key) else { return nil }
+
+        // The fleet table paints a few marks a colour of their own — the
+        // airport pins — and on the planet that would be an airport-coloured
+        // aeroplane. The palette's colour wins here.
+        var flat = mark
+        flat.body = nil
+
+        let image = PlaneIconRenderer.image(
+            flat,
+            pointSize: size,
+            canvas: CGSize(width: size, height: size),
+            body: body,
+            outline: outline,
+            shadow: false
+        )
+
+        planetCache[cacheKey] = image
         return image
     }
 

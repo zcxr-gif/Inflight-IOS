@@ -67,6 +67,13 @@ struct SyncedSettings: Codable, Equatable {
     var mapDetailed: Bool?
     var mapTerrain: Bool?
 
+    /// The drawn planet's own three. Nothing reads across from the flat map's
+    /// palette — they are different pictures — so an account that has never
+    /// been on the planet syncs three nulls and lands on the defaults.
+    var globeSkin: String?
+    var globeBackdrop: String?
+    var globePlanes: Bool?
+
     var filterPhases: [String]?
     var filterBands: [Int]?
     var filterCategories: [String]?
@@ -141,6 +148,9 @@ struct SyncedSettings: Codable, Equatable {
         settings.mapPalette = appearance.mapPalette.rawValue
         settings.mapDetailed = appearance.isMapDetailed
         settings.mapTerrain = appearance.isMapTerrain
+        settings.globeSkin = appearance.globeSkin.rawValue
+        settings.globeBackdrop = appearance.globeBackdrop.rawValue
+        settings.globePlanes = appearance.globeShowsPlanes
 
         settings.filterPhases = filters.phases.map(\.rawValue).sorted()
         settings.filterBands = filters.bands.sorted()
@@ -242,6 +252,14 @@ struct SyncedSettings: Codable, Equatable {
         }
         if let mapDetailed = mapDetailed { appearance.isMapDetailed = mapDetailed }
         if let mapTerrain = mapTerrain { appearance.isMapTerrain = mapTerrain }
+
+        if let value = globeSkin.flatMap(GlobeSkin.init(rawValue:)) {
+            appearance.globeSkin = value
+        }
+        if let value = globeBackdrop.flatMap(GlobeBackdrop.init(rawValue:)) {
+            appearance.globeBackdrop = value
+        }
+        if let globePlanes = globePlanes { appearance.globeShowsPlanes = globePlanes }
 
         // The three sets that may never be emptied. `MapFilters.toggle` refuses
         // to turn the last one off, so a map that draws nothing is a state the

@@ -10,23 +10,32 @@ import UIKit
 /// a coastline legible against the traffic, not to what the flight window is
 /// made of.
 ///
-/// The look is the one the app has always been after on the map and never had:
-/// unlit land, borders as hairlines, and nothing written on it. The aircraft
-/// are the only thing on a globe with any colour in them, which is the whole
-/// point of drawing the world this way.
+/// A value handed in rather than read: every colour on the planet comes from
+/// one `GlobeSkin`, and the skin is a setting. See `GlobeSkin.palette(for:)`.
 struct GlobePalette: Equatable {
 
-    /// The disc itself. Barely off the background — enough that the planet
-    /// reads as an object with an edge, not so much that it competes with the
-    /// borders drawn on it.
+    /// The disc itself, where there is no land on it.
     var ocean: UIColor
+
+    /// Land, filled. Nil draws the planet as outlines on open water, which is
+    /// what the globe did before there was anything to choose — a coastline is
+    /// a hairline and the sea and the continents are the same colour.
+    ///
+    /// The fill is worth having on most skins and worth *not* having on some:
+    /// a filled planet reads as a globe at a glance, an unfilled one keeps the
+    /// traffic the only solid thing on screen.
+    var land: UIColor?
 
     /// The bright rim where the planet meets space.
     var limb: UIColor
     var limbWidth: CGFloat
 
-    /// Country outlines. The brightest thing on the planet, because they are
-    /// the only thing giving it shape.
+    /// A soft ring of atmosphere just outside the limb. Nil on the flat-looking
+    /// skins, where a glow would be the only lit thing on an unlit drawing.
+    var halo: UIColor?
+
+    /// Country outlines. On an unfilled planet they are the only thing giving
+    /// it shape, so they are the brightest thing on it.
     var border: UIColor
     var borderWidth: CGFloat
 
@@ -40,51 +49,55 @@ struct GlobePalette: Equatable {
     var openTraffic: UIColor
     var dotRadius: CGFloat
 
-    /// The night one, and the one the app opens on.
-    static let night = GlobePalette(
-        ocean: UIColor(white: 0.07, alpha: 1),
-        limb: UIColor(white: 1, alpha: 0.5),
-        limbWidth: 1,
-        border: UIColor(white: 1, alpha: 0.55),
-        borderWidth: 0.7,
-        graticule: UIColor(white: 1, alpha: 0.09),
-        graticuleWidth: 0.5,
-        traffic: UIColor(white: 1, alpha: 0.75),
-        openTraffic: UIColor(red: 0.36, green: 0.72, blue: 1, alpha: 1),
-        dotRadius: 1.6
-    )
+    /// How large an aircraft is drawn when the traffic is drawn as aircraft
+    /// rather than as dots. In points, the long side of the artwork.
+    var planeSize: CGFloat
 
-    /// The daylight one. Not a recolour of the night palette but its inverse:
-    /// dark ink on a pale planet, because a white hairline on a white disc is
-    /// nothing at all.
-    static let day = GlobePalette(
-        ocean: UIColor(white: 0.93, alpha: 1),
-        limb: UIColor(white: 0.35, alpha: 0.7),
-        limbWidth: 1,
-        border: UIColor(white: 0.2, alpha: 0.65),
-        borderWidth: 0.7,
-        graticule: UIColor(white: 0.2, alpha: 0.12),
-        graticuleWidth: 0.5,
-        traffic: UIColor(white: 0.1, alpha: 0.8),
-        openTraffic: UIColor(red: 0.1, green: 0.42, blue: 0.85, alpha: 1),
-        dotRadius: 1.6
-    )
+    /// The wash over the half of the planet that is in darkness.
+    var night: UIColor
+
+    /// The open aircraft's route, where the planet draws one.
+    var route: UIColor
+
+    /// A field: the ring around it, its code, and the halo that keeps the code
+    /// legible over a coastline.
+    var fieldRing: UIColor
+    var fieldLabel: UIColor
+    var fieldLabelHalo: UIColor
+
+    /// Green where somebody is working the field, plain where nobody is. The
+    /// one piece of colour a marker carries, and the one thing about a field
+    /// you cannot work out by looking at the traffic.
+    var fieldControlled: UIColor
+    var fieldPlain: UIColor
 
     init(
         ocean: UIColor,
+        land: UIColor? = nil,
         limb: UIColor,
-        limbWidth: CGFloat,
+        limbWidth: CGFloat = 1,
+        halo: UIColor? = nil,
         border: UIColor,
-        borderWidth: CGFloat,
+        borderWidth: CGFloat = 0.7,
         graticule: UIColor,
-        graticuleWidth: CGFloat,
+        graticuleWidth: CGFloat = 0.5,
         traffic: UIColor,
         openTraffic: UIColor,
-        dotRadius: CGFloat
+        dotRadius: CGFloat = 1.6,
+        planeSize: CGFloat = 15,
+        night: UIColor = UIColor(white: 0, alpha: 0.32),
+        route: UIColor,
+        fieldRing: UIColor,
+        fieldLabel: UIColor,
+        fieldLabelHalo: UIColor,
+        fieldControlled: UIColor = UIColor(red: 0.42, green: 0.85, blue: 0.45, alpha: 1),
+        fieldPlain: UIColor
     ) {
         self.ocean = ocean
+        self.land = land
         self.limb = limb
         self.limbWidth = limbWidth
+        self.halo = halo
         self.border = border
         self.borderWidth = borderWidth
         self.graticule = graticule
@@ -92,12 +105,35 @@ struct GlobePalette: Equatable {
         self.traffic = traffic
         self.openTraffic = openTraffic
         self.dotRadius = dotRadius
+        self.planeSize = planeSize
+        self.night = night
+        self.route = route
+        self.fieldRing = fieldRing
+        self.fieldLabel = fieldLabel
+        self.fieldLabelHalo = fieldLabelHalo
+        self.fieldControlled = fieldControlled
+        self.fieldPlain = fieldPlain
     }
+}
 
-    /// The palette for the app as it is currently set. Only which way round —
-    /// the globe does not take the app's accent, because an accent on the
-    /// planet would be one more colour competing with the traffic.
-    init(theme: FlightInfoTheme) {
-        self = theme.isLight ? .day : .night
-    }
+/// What sits behind the planet.
+///
+/// Resolved from a `GlobeBackdrop` and whichever skin is on, because the two
+/// have to agree: a starfield behind a daylight planet is a planet floating in
+/// the wrong sky, and a backdrop that ignores the skin is the one way to make
+/// the disc's edge disappear.
+struct GlobeBackdropStyle: Equatable {
+
+    /// One colour is a flat ground; two or more is a vertical gradient down the
+    /// screen.
+    var colors: [UIColor]
+
+    /// The starfield's colour, or nil for a sky with nothing in it.
+    var stars: UIColor?
+
+    /// A darkening towards the corners, which is what stops a flat ground from
+    /// reading as a wall the planet is stuck to.
+    var vignette: UIColor?
+
+    static let plain = GlobeBackdropStyle(colors: [.black], stars: nil, vignette: nil)
 }

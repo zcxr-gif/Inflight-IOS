@@ -85,6 +85,38 @@ enum GlobeGeometry {
         vector(latitude: coordinate.latitude, longitude: coordinate.longitude)
     }
 
+    /// Which way an aircraft is pointing, as a direction lying along the
+    /// sphere's surface at the place it is.
+    ///
+    /// Worked out once when the packet lands rather than once a frame, for the
+    /// same reason positions are: the aeroplane's heading does not change when
+    /// the planet is turned, only the basis it is measured against. Projecting
+    /// this is then two dot products, and the screen angle of a sprite comes
+    /// out of it directly — see `GlobeCanvasView.drawTraffic`.
+    ///
+    /// The tangent frame is the usual one: east along the parallel, north along
+    /// the meridian. It stays defined at the poles, where a longitude still
+    /// names a direction to face even though every direction is south.
+    static func headingVector(
+        latitude: Double,
+        longitude: Double,
+        headingDegrees: Double
+    ) -> SIMD3<Float> {
+        let lon = longitude * .pi / 180
+        let east = SIMD3<Float>(Float(-sin(lon)), Float(cos(lon)), 0)
+        let north = simd_cross(vector(latitude: latitude, longitude: longitude), east)
+
+        let heading = headingDegrees * .pi / 180
+        let along = north * Float(cos(heading)) + east * Float(sin(heading))
+
+        // A heading at the pole, or one that has cancelled itself out through
+        // rounding, would otherwise be a zero vector and a sprite pointing at
+        // nothing. North is the honest fallback: it is what a compass rose
+        // draws when it has nothing to say.
+        let length = simd_length(along)
+        return length > 1e-5 ? along / length : north
+    }
+
     // MARK: - The borders
 
     /// Every country outline in the world, loaded once.
@@ -104,6 +136,89 @@ enum GlobeGeometry {
     /// stray lines. Finer looked like graph paper behind the traffic, which is
     /// the one thing the globe is for.
     static let graticule: [Ring] = makeGraticule(everyDegrees: 30)
+
+    // MARK: - Level of detail
+
+    /// How much of the border data a frame actually walks.
+    ///
+    /// The globe is drawn at radii spanning a factor of fifteen — a planet that
+    /// fits on a phone at one end, a country filling the screen at the other —
+    /// and the point count that makes a coastline smooth at the top of that
+    /// range is thirty thousand line segments spent on a shape three hundred
+    /// points across at the bottom of it. Which is the whole of why turning the
+    /// globe used to stutter: every frame paid the zoomed-in price.
+    enum Detail {
+
+        /// Every third point, and no island smaller than about a degree
+        /// across. The whole planet on a screen, where a coastline is a few
+        /// hundred points long and the difference is invisible.
+        case coarse
+
+        /// Every other point.
+        case medium
+
+        /// Everything, for a camera close enough that the decimation would
+        /// start showing as straight lines across a bay.
+        case full
+    }
+
+    static func borders(for detail: Detail) -> [Ring] {
+        switch detail {
+        case .coarse: return coarseBorders
+        case .medium: return mediumBorders
+        case .full: return borders
+        }
+    }
+
+    /// Both built lazily off the full set, so an install that never opens the
+    /// planet decodes nothing and one that opens it zoomed out never builds the
+    /// finer of the two.
+    private static let coarseBorders: [Ring] = decimate(borders, keepingEvery: 3, smallestSpan: 0.9)
+    private static let mediumBorders: [Ring] = decimate(borders, keepingEvery: 2, smallestSpan: 0.3)
+
+    /// Thins every ring, and drops the ones too small to be a shape.
+    ///
+    /// `smallestSpan` is an angular radius in degrees, compared against the
+    /// ring's own bounding cone — which is already computed, so dropping a
+    /// speck costs one comparison. A ring that wraps the planet has a cosine of
+    /// -1 and is never dropped, whatever the threshold.
+    private static func decimate(
+        _ rings: [Ring],
+        keepingEvery step: Int,
+        smallestSpan degrees: Double
+    ) -> [Ring] {
+        let floor = Float(cos(degrees * .pi / 180))
+        var out: [Ring] = []
+        out.reserveCapacity(rings.count)
+
+        for ring in rings {
+            if ring.radiusCosine > floor { continue }
+
+            let points = ring.points
+            // Not worth thinning a ring that would come out a triangle: the
+            // shape would change rather than soften.
+            guard points.count > step * 4 else {
+                out.append(ring)
+                continue
+            }
+
+            var kept: [SIMD3<Float>] = []
+            kept.reserveCapacity(points.count / step + 2)
+            var index = 0
+            while index < points.count {
+                kept.append(points[index])
+                index += step
+            }
+            // These rings are closed, and a stride that does not divide the
+            // length would leave the last one open — which on a filled planet
+            // is a country with a slice cut out of it.
+            if let last = points.last, kept.last != last { kept.append(last) }
+
+            out.append(Ring(points: kept))
+        }
+
+        return out
+    }
 
     private static func loadBorders() -> [Ring] {
         guard let url = Bundle.main.url(forResource: "world-borders", withExtension: "bin"),
