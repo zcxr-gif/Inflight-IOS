@@ -56,6 +56,15 @@ struct PlanetSurface: View {
     /// somewhere other than where the feed last saw it.
     var replayFrame: FlightReplay.Frame? = nil
 
+    /// How much of the bottom and the right of the view is spoken for by the
+    /// chrome standing over it — the toolbar, or the flight window.
+    ///
+    /// The planet is put in the middle of what is *left*, which is the same
+    /// thing MapKit's layout margins do for the flat map. Without it the one
+    /// aeroplane you have opened a window on is centred behind that window.
+    var bottomInset: CGFloat = 0
+    var trailingInset: CGFloat = 0
+
     var onSelectFlight: (Flight) -> Void = { _ in }
     var onSelectAirport: (Airport) -> Void = { _ in }
 
@@ -133,6 +142,8 @@ struct PlanetSurface: View {
                 rebuild()
             }
             .onChange(of: geometry.size) { _, newSize in layout(in: newSize) }
+            .onChange(of: bottomInset) { _, _ in layout(in: geometry.size) }
+            .onChange(of: trailingInset) { _, _ in layout(in: geometry.size) }
         }
         .onReceive(Self.clock) { _ in sun = Self.sunVector() }
         .onChange(of: sceneSignature) { _, _ in rebuild() }
@@ -233,7 +244,10 @@ struct PlanetSurface: View {
         guard size.width > 0, size.height > 0 else { return }
         self.size = size
 
-        camera.center = CGPoint(x: size.width / 2, y: size.height / 2)
+        camera.center = CGPoint(
+            x: (size.width - trailingInset) / 2,
+            y: (size.height - bottomInset) / 2
+        )
         camera.radius = fittedRadius(in: size) * scale
 
         if !isReady {
@@ -246,7 +260,12 @@ struct PlanetSurface: View {
     /// The radius at which the whole planet sits inside the screen with room
     /// for the chrome over it.
     private func fittedRadius(in size: CGSize) -> CGFloat {
-        min(size.width, size.height) * 0.42
+        // Floored, because the insets are heights of chrome measured
+        // independently of this view and there is no rule that says they
+        // cannot add up to more than the screen — a tall window on a short
+        // split would otherwise give the planet a negative radius, which is
+        // nothing drawn at all.
+        max(60, min(size.width - trailingInset, size.height - bottomInset) * 0.42)
     }
 
     // MARK: - Turning it
