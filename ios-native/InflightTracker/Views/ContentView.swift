@@ -664,6 +664,7 @@ struct ContentView: View {
             route: planetRoute,
             start: planetStart,
             command: mapCommand,
+            replayFrame: replay.frame,
             onSelectFlight: { flight in
                 selection = SelectedFlight(id: flight.id)
             },

@@ -85,7 +85,9 @@ final class GlobeScene: ObservableObject {
         openFlightId: String?,
         highlighting: PilotHighlighting,
         route: GlobeRoute?,
-        routeColor: UIColor
+        flownPath: [CLLocationCoordinate2D],
+        natTracks: [[CLLocationCoordinate2D]],
+        palette: GlobePalette
     ) {
         guard stamp != signature else { return }
         stamp = signature
@@ -115,7 +117,12 @@ final class GlobeScene: ObservableObject {
                 isControlled: $0.isControlled
             )
         }
-        self.lines = Self.lines(for: route, color: routeColor)
+        self.lines = Self.lines(
+            route: route,
+            flownPath: flownPath,
+            natTracks: natTracks,
+            palette: palette
+        )
 
         revision &+= 1
     }
@@ -142,32 +149,88 @@ final class GlobeScene: ObservableObject {
         }
     }
 
-    private static func lines(for route: GlobeRoute?, color: UIColor) -> [GlobeLine] {
-        guard let route = route else { return [] }
-
-        let here = GlobeGeometry.vector(route.position)
+    /// Every line on the planet, in the order they are drawn.
+    ///
+    /// The organised tracks first, because they are about the ocean rather than
+    /// about anybody in particular and everything else belongs on top of them;
+    /// then where the open aircraft has been; then where it is going.
+    private static func lines(
+        route: GlobeRoute?,
+        flownPath: [CLLocationCoordinate2D],
+        natTracks: [[CLLocationCoordinate2D]],
+        palette: GlobePalette
+    ) -> [GlobeLine] {
         var lines: [GlobeLine] = []
 
-        // Flown solid, still to fly dashed — the same reading the flat map's
-        // route line has always had, and the one thing a line on a planet can
-        // say without a label on it.
-        if let departure = route.departure {
+        for track in natTracks where track.count > 1 {
             lines.append(GlobeLine(
-                points: arc(from: GlobeGeometry.vector(departure), to: here),
-                color: color,
-                width: 1.6,
+                points: path(through: track),
+                color: palette.track,
+                width: 1.1,
+                dash: [6, 4]
+            ))
+        }
+
+        // The flown path is a series of reports rather than a route, so it is
+        // joined fix to fix rather than smoothed: a great circle drawn between
+        // two positions a few seconds apart is a claim about a turn nobody
+        // reported.
+        if flownPath.count > 1 {
+            lines.append(GlobeLine(
+                points: flownPath.map(GlobeGeometry.vector),
+                color: palette.flownPath,
+                width: 1.8,
                 dash: nil
             ))
         }
-        if let arrival = route.arrival {
-            lines.append(GlobeLine(
-                points: arc(from: here, to: GlobeGeometry.vector(arrival)),
-                color: color.withAlphaComponent(0.75),
-                width: 1.4,
-                dash: [4, 4]
-            ))
+
+        if let route = route {
+            let here = GlobeGeometry.vector(route.position)
+
+            // Flown solid, still to fly dashed — the same reading the flat
+            // map's route line has always had, and the one thing a line on a
+            // planet can say without a label on it.
+            if let departure = route.departure {
+                lines.append(GlobeLine(
+                    points: arc(from: GlobeGeometry.vector(departure), to: here),
+                    color: palette.route,
+                    width: 1.6,
+                    dash: nil
+                ))
+            }
+            if let arrival = route.arrival {
+                lines.append(GlobeLine(
+                    points: arc(from: here, to: GlobeGeometry.vector(arrival)),
+                    color: palette.route.withAlphaComponent(0.75),
+                    width: 1.4,
+                    dash: [4, 4]
+                ))
+            }
         }
+
         return lines
+    }
+
+    /// A run of fixes, joined by the great circle between each neighbouring
+    /// pair.
+    ///
+    /// Straight lines between the fixes would be right on a flat map and wrong
+    /// here: a NAT segment is ten degrees of longitude, and the shortest path
+    /// between its ends bows several hundred miles north of the chord on a
+    /// sphere. Which is the whole reason the tracks are shaped the way they
+    /// are, so drawing them straight would hide the point of them.
+    private static func path(through fixes: [CLLocationCoordinate2D]) -> [SIMD3<Float>] {
+        var points: [SIMD3<Float>] = []
+        for index in 0..<(fixes.count - 1) {
+            let leg = arc(
+                from: GlobeGeometry.vector(fixes[index]),
+                to: GlobeGeometry.vector(fixes[index + 1])
+            )
+            // The joint is the same point twice; the second copy is a zero
+            // length segment and a wasted round line cap.
+            points.append(contentsOf: index == 0 ? leg : leg.dropFirst())
+        }
+        return points
     }
 
     /// The great circle between two places, as points on the sphere.

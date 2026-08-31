@@ -59,6 +59,12 @@ struct GlobePalette: Equatable {
     /// The open aircraft's route, where the planet draws one.
     var route: UIColor
 
+    /// Where the open aircraft has actually been, and the organised track
+    /// system when it is switched on. Both are lines about *traffic* rather
+    /// than about the ground, so neither takes a cartography colour.
+    var flownPath: UIColor
+    var track: UIColor
+
     /// A field: the ring around it, its code, and the halo that keeps the code
     /// legible over a coastline.
     var fieldRing: UIColor
@@ -87,6 +93,8 @@ struct GlobePalette: Equatable {
         planeSize: CGFloat = 15,
         night: UIColor = UIColor(white: 0, alpha: 0.32),
         route: UIColor,
+        flownPath: UIColor? = nil,
+        track: UIColor = UIColor(red: 0.45, green: 0.72, blue: 1, alpha: 0.5),
         fieldRing: UIColor,
         fieldLabel: UIColor,
         fieldLabelHalo: UIColor,
@@ -108,6 +116,11 @@ struct GlobePalette: Equatable {
         self.planeSize = planeSize
         self.night = night
         self.route = route
+        // Defaults to the route's own colour at half strength: a flown path is
+        // the same journey as the line ahead of it, and giving it a colour of
+        // its own would be one more thing on the planet to tell apart.
+        self.flownPath = flownPath ?? route.withAlphaComponent(0.55)
+        self.track = track
         self.fieldRing = fieldRing
         self.fieldLabel = fieldLabel
         self.fieldLabelHalo = fieldLabelHalo

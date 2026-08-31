@@ -17,6 +17,11 @@ struct PlanetSurface: View {
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @ObservedObject private var filters = MapFilters.shared
 
+    /// The organised track system, which the planet draws for the same reason
+    /// the flat map does: it is the answer to why several hundred aircraft are
+    /// flying in parallel lines across an ocean.
+    @ObservedObject private var natTracks = NatTrackService.shared
+
     /// The traffic, the fields and the route, rebuilt when a packet lands
     /// rather than when the planet turns. See `GlobeScene`.
     @StateObject private var scene = GlobeScene()
@@ -46,6 +51,10 @@ struct PlanetSurface: View {
     /// "show me this flight" button. The same one-shot command the flat map
     /// takes, so the two answer the same instructions.
     var command: MapCommand? = nil
+
+    /// A running playback of the open aircraft's own track, which puts it
+    /// somewhere other than where the feed last saw it.
+    var replayFrame: FlightReplay.Frame? = nil
 
     var onSelectFlight: (Flight) -> Void = { _ in }
     var onSelectAirport: (Airport) -> Void = { _ in }
@@ -107,6 +116,7 @@ struct PlanetSurface: View {
                 showsPlanes: appearance.globeShowsPlanes,
                 showsFields: filters.showsAirports,
                 sun: filters.showsTerminator ? sun : nil,
+                replay: replayMark,
                 isInteracting: isInteracting
             )
             // The canvas is a `UIView` that redraws itself the instant it is
@@ -148,12 +158,30 @@ struct PlanetSurface: View {
         hasher.combine(route?.departure?.longitude)
         hasher.combine(route?.arrival?.latitude)
         hasher.combine(route?.arrival?.longitude)
+        hasher.combine(filters.showsNatTracks ? natTracks.tracks.count : 0)
+        hasher.combine(filters.showsFlownPath)
         return hasher.finalize()
+    }
+
+    /// Where the open aircraft has actually been.
+    ///
+    /// Read out of the shared store at rebuild time rather than observed. The
+    /// store publishes only when a history is seeded, and the path grows with
+    /// every packet — which the caller's own signature already covers, since
+    /// it is stamped with the packet the path grew from.
+    private var flownPath: [CLLocationCoordinate2D] {
+        guard filters.showsFlownPath, let id = openFlightId else { return [] }
+        return FlightTrailStore.shared.points(for: id).map(\.coordinate)
     }
 
     /// Hands the scene everything it is built from, and lets it decide whether
     /// any of it has moved.
     private func rebuild() {
+        // The map does this from its own sync pass, which is not running when
+        // the planet is what the map is. Safe on every packet: a date
+        // comparison until the hour is up.
+        if filters.showsNatTracks { natTracks.refresh() }
+
         scene.rebuild(
             signature: sceneSignature,
             flights: flights,
@@ -161,7 +189,27 @@ struct PlanetSurface: View {
             openFlightId: openFlightId,
             highlighting: PilotHighlighting.current(),
             route: route,
-            routeColor: palette.route
+            flownPath: flownPath,
+            natTracks: filters.showsNatTracks ? natTracks.tracks.map(\.coordinates) : [],
+            palette: palette
+        )
+    }
+
+    /// The playback's aeroplane, as directions on the sphere.
+    ///
+    /// Worked out in the body rather than in the scene, because a frame lands
+    /// several times a second and the scene is the thing that must not be
+    /// rebuilt at that rate. It is three trigonometric calls.
+    private var replayMark: GlobeReplayMark? {
+        guard let frame = replayFrame else { return nil }
+        return GlobeReplayMark(
+            position: GlobeGeometry.vector(frame.coordinate),
+            heading: GlobeGeometry.headingVector(
+                latitude: frame.coordinate.latitude,
+                longitude: frame.coordinate.longitude,
+                headingDegrees: frame.heading
+            ),
+            spriteKey: openFlight?.spriteKey ?? "TRIANGLE"
         )
     }
 

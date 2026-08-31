@@ -40,7 +40,11 @@ struct GlobeCanvas: UIViewRepresentable {
     var showsFields: Bool
 
     /// Where the sun is overhead, or nil to draw the planet evenly lit.
-    var sun: SIMD3<Float>?
+    var sun: SIMD3<Float>? = nil
+
+    /// Where a running playback has put the open aircraft, or nil when nothing
+    /// is playing.
+    var replay: GlobeReplayMark? = nil
 
     /// Whether a finger is on the planet right now. Drops the cartography a
     /// level of detail for the duration, which is invisible while the world is
@@ -68,9 +72,23 @@ struct GlobeCanvas: UIViewRepresentable {
             showsPlanes: showsPlanes,
             showsFields: showsFields,
             sun: sun,
+            replay: replay,
             isInteracting: isInteracting
         )
     }
+}
+
+/// The open aircraft as a replay is putting it, which is not where the feed
+/// says it is.
+///
+/// Handed separately from the scene rather than folded into it, because it
+/// moves at the frame rate of a playback and the scene moves at the rate of a
+/// packet. Rebuilding three thousand aircraft to move one of them would undo
+/// the whole reason the scene exists.
+struct GlobeReplayMark: Equatable {
+    let position: SIMD3<Float>
+    let heading: SIMD3<Float>
+    let spriteKey: String
 }
 
 /// How large the things with labels on them are drawn.
@@ -102,6 +120,7 @@ final class GlobeCanvasView: UIView {
     private var showsPlanes = true
     private var showsFields = true
     private var sun: SIMD3<Float>?
+    private var replay: GlobeReplayMark?
     private var isInteracting = false
 
     /// Field codes, rendered once each. Cleared when the palette changes, which
@@ -127,6 +146,7 @@ final class GlobeCanvasView: UIView {
         showsPlanes: Bool,
         showsFields: Bool,
         sun: SIMD3<Float>?,
+        replay: GlobeReplayMark?,
         isInteracting: Bool
     ) {
         let unchanged = camera == self.camera
@@ -135,6 +155,7 @@ final class GlobeCanvasView: UIView {
             && showsPlanes == self.showsPlanes
             && showsFields == self.showsFields
             && sun == self.sun
+            && replay == self.replay
             && isInteracting == self.isInteracting
             && palette == self.palette
             && backdrop == self.backdrop
@@ -149,6 +170,7 @@ final class GlobeCanvasView: UIView {
         self.showsPlanes = showsPlanes
         self.showsFields = showsFields
         self.sun = sun
+        self.replay = replay
         self.isInteracting = isInteracting
 
         // An opaque view has to have something behind the drawing during the
@@ -698,7 +720,7 @@ final class GlobeCanvasView: UIView {
 
     private func drawTraffic(in context: CGContext, basis: GlobeCamera.Basis) {
         let traffic = scene.traffic
-        guard !traffic.isEmpty else { return }
+        guard !traffic.isEmpty || replay != nil else { return }
 
         if showsPlanes && traffic.count <= Self.planeLimit && !(isInteracting && traffic.count > 400) {
             drawPlanes(traffic, in: context, basis: basis)
@@ -739,11 +761,30 @@ final class GlobeCanvasView: UIView {
             let angle = atan2(dx, -dy)
 
             if dot.isOpen {
-                open.append((projected.point, angle, dot))
+                // A playback is driving this aeroplane, so where the feed
+                // last saw it is not where it is being shown. Dropped here
+                // and drawn from the frame below.
+                if replay == nil { open.append((projected.point, angle, dot)) }
                 continue
             }
 
             draw(dot, at: projected.point, angle: angle, size: size, in: context, sprites: sprites)
+        }
+
+        if let replay = replay {
+            let projected = camera.project(replay.position, using: basis)
+            if projected.isVisible {
+                let dx = CGFloat(simd_dot(replay.heading, basis.east))
+                let dy = -CGFloat(simd_dot(replay.heading, basis.north))
+                open.append((projected.point, atan2(dx, -dy), GlobeTrafficDot(
+                    id: "replay",
+                    position: replay.position,
+                    heading: replay.heading,
+                    spriteKey: replay.spriteKey,
+                    tint: nil,
+                    isOpen: true
+                )))
+            }
         }
 
         // The open aircraft last and larger, with a ring round it, so it is
@@ -813,7 +854,7 @@ final class GlobeCanvasView: UIView {
             guard projected.isVisible else { continue }
 
             if dot.isOpen {
-                open.append(projected.point)
+                if replay == nil { open.append(projected.point) }
                 continue
             }
 
@@ -832,6 +873,11 @@ final class GlobeCanvasView: UIView {
                 path.addEllipse(in: box)
                 groups.append((colour, path))
             }
+        }
+
+        if let replay = replay {
+            let projected = camera.project(replay.position, using: basis)
+            if projected.isVisible { open.append(projected.point) }
         }
 
         for group in groups {
