@@ -70,6 +70,14 @@ struct FlightDetailView: View {
     /// of the binding that wants to know.
     @Binding var peakHeight: CGFloat
 
+    /// The tallest the peak's detent is allowed to be.
+    ///
+    /// Handed in because the window cannot work it out: inside a sheet at the
+    /// peak detent, the only height there is to measure is the detent's own,
+    /// and the question is what share of the *screen* the peak may take. The
+    /// presenter knows that; this does not.
+    var peakCeiling: CGFloat = FlightInfoLayout.maximumPeakHeight
+
     /// How this window is on screen.
     ///
     /// A sheet on a phone, a pane on anything wide enough to choose where to
@@ -156,6 +164,19 @@ struct FlightDetailView: View {
                         width: geometry.size.width,
                         partner: vaPartner
                     )
+                        // Laid out at the height it wants, not the height it
+                        // has been given — and this one line is what makes the
+                        // sizing below arithmetic instead of a chase.
+                        //
+                        // A view squeezed into a container shorter than itself
+                        // measures short: the text scales down, the stack
+                        // compresses, and what comes back is the container's
+                        // height wearing the content's name. Feed that to a
+                        // detent and the detent is measuring itself. Fixed
+                        // vertically, the peak reports the same number whatever
+                        // the sheet is currently doing, so the detent has
+                        // something to converge on.
+                        .fixedSize(horizontal: false, vertical: true)
                         .background {
                             GeometryReader { peak in
                                 Color.clear.preference(
@@ -170,36 +191,24 @@ struct FlightDetailView: View {
                         .offset(y: CGFloat(-14 * expansion))
                         .scaleEffect(CGFloat(0.985 + 0.015 * peakOpacity), anchor: .top)
                         .opacity(peakOpacity)
-                        // Pinned to the foot of the window rather than hung
-                        // from its top.
-                        //
-                        // Sizing the sheet to the content is a calculation, and
-                        // a calculation can be wrong — the header's height
-                        // follows the photograph's own shape, and the bottom of
-                        // that photograph is masked away to nothing, so what
-                        // the layout reserves and what you can see are not the
-                        // same number. Hung from the top, every point of that
-                        // difference collects under the last line, which is the
-                        // one place it is worth nothing.
-                        //
-                        // Measured before this, so the sheet is still sized to
-                        // the content and not to the frame it is being pinned
-                        // inside; both offset and scale go on before it too, so
-                        // they still work off the content's own top edge. What
-                        // this settles is only where the slack goes if there is
-                        // any: above the identity row, where the drag handle
-                        // already leaves room, instead of under the text.
                         .padding(.bottom, FlightInfoLayout.peakBottomGap)
-                        // Top-aligned until the first measurement lands. The
-                        // sheet opens at `basePeakHeight`, which is a guess and
-                        // is sometimes shorter than the content; hanging from
-                        // the bottom in that one frame would clip the callsign
-                        // off the top rather than the route off the bottom, and
-                        // of the two that is the worse thing to flash.
-                        .frame(
-                            maxHeight: .infinity,
-                            alignment: peakContentHeight > 0 ? .bottom : .top
-                        )
+                        // Hung from the top of the window, always.
+                        //
+                        // In the steady state this changes nothing: the detent
+                        // is the content plus the gap, so there is no slack for
+                        // an alignment to place. It matters in the two moments
+                        // there is some. While the sheet is animating to a new
+                        // height, top-aligned content stays where it is and the
+                        // window's bottom edge moves under it, which is what a
+                        // sheet resizing is supposed to look like; pinned to
+                        // the foot, the content rides the edge and opens a hole
+                        // between the handle and the callsign — the gap this
+                        // window kept being reported for. And if the content
+                        // ever does overrun the ceiling, the clip has to fall
+                        // at the bottom: losing the partner line is a trim,
+                        // losing the callsign off the top is the window not
+                        // saying which aircraft it is about.
+                        .frame(maxHeight: .infinity, alignment: .top)
                         .allowsHitTesting(expansion < 0.3)
 
                     expanded(for: flight, width: geometry.size.width)
@@ -318,32 +327,66 @@ struct FlightDetailView: View {
         return Double(min(max(travelled, 0), 1))
     }
 
-    /// Size the peak's detent from what is actually empty under it, rather than
-    /// from what ought to be.
+    /// Size the peak's detent to the peak. Once.
     ///
-    /// `measured + peakBottomGap` was an assumption about the sheet: that a
-    /// detent of h hands the window exactly h points to lay out in. It does
-    /// not always. The home indicator's band, a detent set changing underneath
-    /// a bound selection, and plain rounding each put a few points — or a whole
-    /// inset — between the peak's last line and the bottom of the window, and
-    /// none of them are in that sum. Which is why shrinking the constant never
-    /// shrank the band: the constant was not what the band was made of.
+    /// ## What was wrong with the old one
     ///
-    /// `container` is the height the window is really laying out into and
-    /// `measured` is what the peak really needs, so `container - measured` IS
-    /// the empty band. Move the detent by the difference between that and the
-    /// gap we want, and the band becomes the gap — whatever it was made of.
-    /// One pass lands it: the correction is arithmetic, not a search.
+    /// It measured the peak *as laid out inside the detent*, and then sized the
+    /// detent from that measurement. Which is a loop, and the loop has a
+    /// trapdoor in it: a view given less room than it wants does not report the
+    /// height it wanted, it compresses and reports the room it was given. So
+    /// the moment the content was taller than the detent, the measurement came
+    /// back as the detent, the arithmetic found nothing to correct, and the
+    /// detent could never grow again.
+    ///
+    /// That is the photo peak, exactly. It opens at a guess; a full-width
+    /// photograph with an identity block and a route card under it wants half
+    /// as much again as the guess; and every pass agreed the window was already
+    /// the right size while the bottom of the card sat below the bottom of the
+    /// sheet. Nothing was under anything — it was cut off, and the sizing was
+    /// measuring the cut.
+    ///
+    /// The same loop broke something that looks unrelated. Every correction is
+    /// a detent change, a detent change is a sheet animation, and a sheet
+    /// part-way through one hands no touches to what is behind it — so the
+    /// map's own controls, sitting above the window in plain sight, took
+    /// presses and did nothing with them.
+    ///
+    /// ## What this does instead
+    ///
+    /// `measured` is now the peak's *ideal* height: see `.fixedSize` in the
+    /// body, which lays the peak out at the size it asks for regardless of the
+    /// room it is in. That number does not move when the detent does, so the
+    /// detent is `measured + peakBottomGap` and there is nothing to iterate.
+    ///
+    /// `container` is still read, for one bounded thing. If the sheet hands the
+    /// window less room than the detent it was given — an inset we have not
+    /// accounted for on some device, a chrome change in a future release — the
+    /// shortfall is real and is added on top. That correction only ever grows
+    /// the detent and only while the content genuinely does not fit, so it
+    /// lands in a pass and stops. It cannot oscillate, which is the property
+    /// the old sizing did not have.
     private func fitPeak(to measured: CGFloat, in container: CGFloat) {
-        guard measured > 80, container > 0 else { return }
+        guard measured > 80 else { return }
 
-        let slack = container - measured
-        let wanted = min(
-            max(peakHeight - (slack - FlightInfoLayout.peakBottomGap),
-                FlightInfoLayout.minimumPeakHeight),
-            FlightInfoLayout.maximumPeakHeight
+        let needed = measured + FlightInfoLayout.peakBottomGap
+        var wanted = needed
+
+        // Only ever upward, and only when the room really is short of what the
+        // content needs.
+        if container > 0, needed - container > 1 {
+            wanted = peakHeight + (needed - container)
+        }
+
+        // Whole points, and a couple of them of slop. A point or two of drift
+        // is invisible where it lands — under the last line of a card — and
+        // still counts as a detent change, which is a sheet animation and a
+        // frame of swallowed touches bought for nothing.
+        wanted = min(
+            max(wanted.rounded(), FlightInfoLayout.minimumPeakHeight),
+            max(peakCeiling, FlightInfoLayout.minimumPeakHeight)
         )
-        if abs(wanted - peakHeight) > 1 { peakHeight = wanted }
+        if abs(wanted - peakHeight) > 2 { peakHeight = wanted }
     }
 
     /// Smoothstep across a slice of the drag. The two slices overlap, so the

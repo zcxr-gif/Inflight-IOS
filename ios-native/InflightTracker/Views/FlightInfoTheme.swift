@@ -980,25 +980,51 @@ struct FlightInfoSurfaceModifier: ViewModifier {
 /// Measurements the window and its sheet have to agree on.
 enum FlightInfoLayout {
 
-    /// Starting height for the peak state, used until the window has measured
-    /// what its own content actually needs. The real detent follows that
-    /// measurement, so the peak never opens with a band of empty sheet under
-    /// it — content height varies with the photo's shape and the device's home
-    /// indicator, and no single constant fits all of them.
-    static let basePeakHeight: CGFloat = 300
-
-    /// Bounds on that measurement, so a bad layout pass can't produce an
-    /// unusable sheet.
+    /// Where the peak opens before it has measured itself, per style.
     ///
-    /// The floor is deliberately below anything the peak actually lays out to:
-    /// it is a guard against a broken measurement, not a target. Set close to
-    /// the real content height it becomes the height, and a short peak — a
-    /// parked aircraft, with no route strip to draw — pads itself back out
-    /// with the empty band it was measured to avoid.
+    /// Per style because the two are nowhere near the same size — the bar is a
+    /// row and a card, the photo peak is the full window's header — and one
+    /// constant for both meant one of them always opened at the wrong height
+    /// and resized itself in front of you. That resize is what a band of empty
+    /// window between the handle and the callsign actually was: not a layout
+    /// with a hole in it, a sheet caught on its way to the right height.
+    ///
+    /// Still only a first guess. The measurement below is what the detent
+    /// settles on, and the window remembers the last one it landed on for each
+    /// style, so from the second open onwards there is nothing to settle.
+    static func basePeakHeight(for style: FlightInfoPeakStyle) -> CGFloat {
+        switch style {
+        case .compact: return 212
+        case .rich: return 470
+        }
+    }
+
+    /// The floor on that measurement, so a bad layout pass can't produce an
+    /// unusable sheet. Deliberately below anything the peak actually lays out
+    /// to: it is a guard, not a target.
     static let minimumPeakHeight: CGFloat = 180
 
-    /// Generous enough for the photo peak, which is the full window's header
-    /// plus its route card.
+    /// The ceiling, on a screen this tall.
+    ///
+    /// A constant was the wrong shape for this question, and being the wrong
+    /// shape is what hid content. Five hundred and sixty points is most of a
+    /// small phone and two thirds of a large one — and the photo peak, which is
+    /// a full-width photograph with an identity block and a route card under
+    /// it, lays out past that on a big screen as soon as the shot is anything
+    /// but wide. Past the ceiling the peak is simply cut off, which is exactly
+    /// the "there's information under it you can't see" report: the window was
+    /// not overfull, it was capped.
+    ///
+    /// A share of the screen instead. The cap then means what it is for —
+    /// leave a usable piece of map above the window — on every device rather
+    /// than on the one the number was picked on.
+    static func peakCeiling(forScreenHeight height: CGFloat) -> CGFloat {
+        guard height > 0 else { return maximumPeakHeight }
+        return max(height * 0.78, minimumPeakHeight + 40)
+    }
+
+    /// The fallback ceiling, for a window that has not been told the screen's
+    /// height yet.
     static let maximumPeakHeight: CGFloat = 560
 
     /// How far the identity block is pulled up into the photo above it, so it
@@ -1009,11 +1035,10 @@ enum FlightInfoLayout {
     /// Space left under the peak state's last line, measured to the bottom of
     /// the window itself.
     ///
-    /// This is the whole band, and now genuinely so: `fitPeak` sizes the detent
-    /// against what is actually empty under the peak rather than assuming the
-    /// sheet hands back exactly the height it was asked for, so whatever the
-    /// band used to be made of — an ignored safe-area inset, a stale detent,
-    /// rounding — it is this number now.
+    /// This is the whole band, and now genuinely so, because the detent is the
+    /// peak's own ideal height plus this and nothing else. What used to sit
+    /// under the last line on top of it was never a constant that needed
+    /// shrinking — it was the sheet still moving. See `fitPeak`.
     ///
     /// Which is why it is eighteen rather than the eight that a line of text
     /// wants on its own. The window draws over the home indicator, and the
@@ -1040,15 +1065,33 @@ enum FlightInfoLayout {
 
 extension View {
 
-    /// Keeps the map live behind the peak state: the sheet stops being modal
-    /// up through that detent, so panning and zooming still reach the map —
-    /// and the system stops dimming everything behind the sheet, which is what
-    /// put a dark wash over the map as soon as the window opened.
+    /// Keeps the map live behind the window: the sheet is never modal, so
+    /// panning, zooming and the map's own controls still answer — and the
+    /// system stops dimming everything behind the sheet, which is what put a
+    /// dark wash over the map as soon as the window opened.
     ///
-    /// The detent is passed in rather than assumed: it has to be the same
-    /// value the sheet is actually using, or the system quietly ignores this.
-    func flightInfoSheetInteraction(upThrough detent: PresentationDetent) -> some View {
-        presentationBackgroundInteraction(.enabled(upThrough: detent))
+    /// ## Why this is not `upThrough:` the peak detent
+    ///
+    /// It was, and that is why the map's buttons stopped working. The peak
+    /// detent is `.height(x)` where x is measured from the peak's own content,
+    /// so it is a *different value* every time the window is opened on a
+    /// different aircraft. Two things have to agree on it — the detent set and
+    /// this — and the selection binding that moves between them is updated
+    /// asynchronously, so for as long as x is in motion there are frames where
+    /// the sheet's current detent is a value this no longer names. UIKit's
+    /// answer to a detent it cannot match is to fall back to modal, and a modal
+    /// sheet swallows every touch outside itself. The centre and flown-path
+    /// buttons sit outside it.
+    ///
+    /// `.large` is the whole sheet, so there is no comparison left to lose. It
+    /// is also a constant, which is the actual fix: nothing about the map's
+    /// chrome working can depend on a number the window is still measuring.
+    /// And it costs nothing — at the full window the sheet covers the map
+    /// anyway, so there is no exposed chrome for the extra permission to reach.
+    /// It is the same call every other window in the app already makes; see
+    /// `SheetWindow`.
+    func flightInfoSheetInteraction() -> some View {
+        presentationBackgroundInteraction(.enabled(upThrough: .large))
     }
 
     /// Chrome that floats over the map — the weather chip, the controls hub,

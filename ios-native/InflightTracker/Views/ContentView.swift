@@ -52,14 +52,30 @@ struct ContentView: View {
 
     /// Height the peak state needs for its own content, reported back by the
     /// window once it has measured itself.
-    @State private var peakHeight = FlightInfoLayout.basePeakHeight
+    @State private var peakHeight = FlightInfoLayout.basePeakHeight(for: .compact)
+
+    /// The tallest that height is allowed to be — a share of the screen, which
+    /// only this side of the presentation can see. See
+    /// `FlightInfoLayout.peakCeiling(forScreenHeight:)`.
+    @State private var peakCeiling = FlightInfoLayout.maximumPeakHeight
+
+    /// The height each peak style last measured out to.
+    ///
+    /// The window can only measure itself once it is on screen, so the first
+    /// open of a given style is always a guess followed by a correction — and
+    /// the correction is a sheet visibly changing size under the handle.
+    /// Remembering the answer makes that a once-ever event rather than a
+    /// once-per-launch one: every open after the first starts at a height the
+    /// content has already been shown to want.
+    @AppStorage("flightInfo.peak.compact") private var rememberedCompactPeak: Double = 0
+    @AppStorage("flightInfo.peak.rich") private var rememberedRichPeak: Double = 0
 
     /// The flight window's handle, held under a finger.
     @GestureState private var isWindowHeld = false
 
     /// Which phase the info window is in. Owned here so it can be reset to the
     /// peak state each time a different aircraft is tapped.
-    @State private var detent: PresentationDetent = .height(FlightInfoLayout.basePeakHeight)
+    @State private var detent: PresentationDetent = .height(FlightInfoLayout.basePeakHeight(for: .compact))
 
     /// Latest camera request from the chrome around the map.
     @State private var mapCommand: MapCommand?
@@ -116,6 +132,28 @@ struct ContentView: View {
     }
 
     private var peakDetent: PresentationDetent { .height(peakHeight) }
+
+    /// Where the peak should open, for the style that is set: what it measured
+    /// last time, or the style's own starting figure if it has never been
+    /// measured. Capped, so a height remembered from a larger screen — or from
+    /// before a rotation — cannot open a window taller than the map it is on.
+    private var openingPeakHeight: CGFloat {
+        let remembered = appearance.peakStyle == .rich ? rememberedRichPeak : rememberedCompactPeak
+        let wanted = remembered > Double(FlightInfoLayout.minimumPeakHeight)
+            ? CGFloat(remembered)
+            : FlightInfoLayout.basePeakHeight(for: appearance.peakStyle)
+        return min(wanted, max(peakCeiling, FlightInfoLayout.minimumPeakHeight))
+    }
+
+    /// Written down when the window lands on a height, so the next open starts
+    /// there instead of arriving at it.
+    private func rememberPeak(_ height: CGFloat) {
+        if appearance.peakStyle == .rich {
+            rememberedRichPeak = Double(height)
+        } else {
+            rememberedCompactPeak = Double(height)
+        }
+    }
 
     /// Rebuilt each redraw, and compared by value inside the map — so watching
     /// a new pilot, picking a colour, or Pro lapsing all repaint the traffic
@@ -570,6 +608,17 @@ struct ContentView: View {
             replayBar
             flightPane
         }
+        // How tall the window actually is, which is the only way to say what
+        // share of it the flight window's peak may take. Read through
+        // `ignoresSafeArea` so it is the screen rather than the safe area:
+        // the sheet's detents are measured from the bottom edge, not from
+        // above the home indicator.
+        .background {
+            GeometryReader { proxy in
+                Color.clear.preference(key: ScreenHeightKey.self, value: proxy.size.height)
+            }
+            .ignoresSafeArea()
+        }
     }
 
     /// The flight window, on a screen wide enough to lay it out beside the map
@@ -600,7 +649,7 @@ struct ContentView: View {
                 FlightDetailView(
                     flightId: selected.id,
                     // No detent to be measured against, so nothing to report.
-                    peakHeight: .constant(FlightInfoLayout.basePeakHeight),
+                    peakHeight: .constant(FlightInfoLayout.basePeakHeight(for: .rich)),
                     presentation: .pane,
                     onReplay: { track in startReplay(of: selected.id, track: track) },
                     onSelectAirport: { field in openAirport(field, from: selected) }
@@ -718,8 +767,19 @@ struct ContentView: View {
         // The detent set changes with the measurement, so the selection has to
         // move to the new value or the sheet snaps to whatever is left.
         .onChange(of: peakHeight) { _, height in
+            rememberPeak(height)
             guard detent != .large else { return }
             detent = .height(height)
+        }
+        .onPreferenceChange(ScreenHeightKey.self) { height in
+            peakCeiling = FlightInfoLayout.peakCeiling(forScreenHeight: height)
+        }
+        // A different peak style is a different height, and the one on screen
+        // was measured for the other one. Opening at the new style's own figure
+        // means the switch takes effect the next time the window is opened
+        // rather than one open later.
+        .onChange(of: appearance.peakStyle) { _, _ in
+            peakHeight = openingPeakHeight
         }
         .sheet(isPresented: $isShowingAccount) {
             // Handed the feed explicitly rather than left to inherit it: the
@@ -850,6 +910,7 @@ struct ContentView: View {
                 FlightDetailView(
                     flightId: selected.id,
                     peakHeight: $peakHeight,
+                    peakCeiling: peakCeiling,
                     onReplay: { track in startReplay(of: selected.id, track: track) },
                     onSelectAirport: { field in openAirport(field, from: selected) }
                 )
@@ -864,10 +925,15 @@ struct ContentView: View {
         // system's indicator would be a second pill in the same place.
         .presentationDragIndicator(.hidden)
         .overlay(alignment: .top) { flightWindowHandle }
-        .flightInfoSheetInteraction(upThrough: peakDetent)
+        .flightInfoSheetInteraction()
         // Belt and braces: however the sheet came to be on screen, it starts in
-        // the peak state.
-        .onAppear { detent = peakDetent }
+        // the peak state — and at the height that state is already known to
+        // want, so there is nothing for it to resize to once it is up.
+        .onAppear {
+            let opening = openingPeakHeight
+            peakHeight = opening
+            detent = .height(opening)
+        }
     }
 
     /// The flight window's handle.
@@ -1920,7 +1986,13 @@ struct ContentView: View {
         Button(action: action) {
             mapControlFace(symbol, isOn: isOn)
         }
-        .buttonStyle(.plain)
+        // Not `.plain`. Three of these four controls move the camera, and a
+        // camera move to somewhere the map is already looking is invisible —
+        // press "centre" on a centred aeroplane and a plain button gives you
+        // nothing at all to tell a control that did its job from one that
+        // never heard you. The cell lights under the finger, so the tap is
+        // always answered even when the map has nothing to say.
+        .buttonStyle(MapControlStyle(theme: theme))
         .accessibilityLabel(label)
         .accessibilityAddTraits(isOn ? .isSelected : [])
     }
@@ -1956,4 +2028,39 @@ struct ContentView: View {
             .contentShape(Rectangle())
     }
 
+}
+
+/// The press, for the controls that float over the map.
+///
+/// The same job `ToolbarItemStyle` does in the dock, and written here for the
+/// same reason it is written there: a control whose only feedback is the thing
+/// it changes is a control that looks broken whenever the change is small.
+private struct MapControlStyle: ButtonStyle {
+
+    let theme: FlightInfoTheme
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background {
+                Rectangle()
+                    .fill(theme.surfaceFill)
+                    .opacity(configuration.isPressed ? 1 : 0)
+            }
+            .opacity(configuration.isPressed ? 0.7 : 1)
+            .animation(Motion.control, value: configuration.isPressed)
+    }
+}
+
+/// How tall the window the map is drawn in actually is.
+///
+/// Reported up from the map's own stack because the flight window cannot see
+/// it: inside a sheet the only height on offer is the sheet's, and the ceiling
+/// on the peak is a share of the screen.
+private struct ScreenHeightKey: PreferenceKey {
+
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
 }

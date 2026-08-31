@@ -2117,7 +2117,7 @@ struct TrackerMapView: UIViewRepresentable {
             let bounds = mapView.bounds
             guard bounds.width > 1, bounds.height > 1 else { return }
 
-            let clear = bounds.inset(by: edgeInsets())
+            let clear = bounds.inset(by: edgeInsets(in: bounds.size))
             guard clear.width > 1, clear.height > 1 else {
                 pan(to: coordinate, on: mapView)
                 return
@@ -2191,7 +2191,7 @@ struct TrackerMapView: UIViewRepresentable {
             // what the target must not land behind.
             mapView.setVisibleMapRect(
                 Self.mapRect(for: region),
-                edgePadding: edgeInsets(),
+                edgePadding: edgeInsets(in: mapView.bounds.size),
                 animated: true
             )
         }
@@ -2250,7 +2250,7 @@ struct TrackerMapView: UIViewRepresentable {
             let bounds = mapView.bounds
             guard bounds.width > 1, bounds.height > 1 else { return }
 
-            let insets = edgeInsets()
+            let insets = edgeInsets(in: bounds.size)
             let target = CGPoint(
                 x: bounds.midX + (insets.left - insets.right) / 2,
                 y: bounds.midY + (insets.top - insets.bottom) / 2
@@ -2313,7 +2313,11 @@ struct TrackerMapView: UIViewRepresentable {
 
             guard !rect.isNull, rect.width.isFinite, rect.height.isFinite else { return }
 
-            mapView.setVisibleMapRect(rect, edgePadding: edgeInsets(), animated: true)
+            mapView.setVisibleMapRect(
+                rect,
+                edgePadding: edgeInsets(in: mapView.bounds.size),
+                animated: true
+            )
         }
 
         /// Frames the flown track alone — every breadcrumb we hold plus where
@@ -2348,16 +2352,70 @@ struct TrackerMapView: UIViewRepresentable {
                 return
             }
 
-            mapView.setVisibleMapRect(rect, edgePadding: edgeInsets(), animated: true)
+            mapView.setVisibleMapRect(
+                rect,
+                edgePadding: edgeInsets(in: mapView.bounds.size),
+                animated: true
+            )
         }
 
-        private func edgeInsets() -> UIEdgeInsets {
-            UIEdgeInsets(
+        /// The part of the map nothing is standing on — the bounds less the
+        /// chrome, the flight window and the docked pane.
+        ///
+        /// Clamped against the view it is describing, and that clamp is not
+        /// hypothetical. The window's own inset is a live number: the peak's
+        /// detent is measured from the peak's content, so a photo peak on a
+        /// short screen can be most of the height of the map. Add the top
+        /// chrome and the padding either side of it and the "clear" box the
+        /// camera is asked to frame a route inside can come out a few points
+        /// tall — or inverted, which is worse. `setVisibleMapRect` given
+        /// padding that does not leave it a box to work in frames nothing at
+        /// all, and a button that frames nothing at all is a button that does
+        /// not work.
+        ///
+        /// So each axis keeps at least a third of the view. Framing a route a
+        /// little too generously is a view that includes some window; framing
+        /// it into a sliver is a camera move you cannot see happen.
+        private func edgeInsets(in size: CGSize) -> UIEdgeInsets {
+            var insets = UIEdgeInsets(
                 top: 96,
                 left: 44,
                 bottom: parent.bottomInset + 28,
                 right: 44 + parent.trailingInset
             )
+
+            insets = Self.clamped(insets, vertically: size.height)
+            insets = Self.clamped(insets, horizontally: size.width)
+            return insets
+        }
+
+        /// Scales a pair of insets down together until they leave at least a
+        /// third of the axis, so the box keeps the shape the chrome asked for
+        /// rather than being trimmed off one side.
+        private static func clamped(_ insets: UIEdgeInsets, vertically height: CGFloat) -> UIEdgeInsets {
+            guard height > 0 else { return insets }
+            let total = insets.top + insets.bottom
+            let allowed = height * 0.67
+            guard total > allowed, total > 0 else { return insets }
+
+            let scale = allowed / total
+            var scaled = insets
+            scaled.top = insets.top * scale
+            scaled.bottom = insets.bottom * scale
+            return scaled
+        }
+
+        private static func clamped(_ insets: UIEdgeInsets, horizontally width: CGFloat) -> UIEdgeInsets {
+            guard width > 0 else { return insets }
+            let total = insets.left + insets.right
+            let allowed = width * 0.67
+            guard total > allowed, total > 0 else { return insets }
+
+            let scale = allowed / total
+            var scaled = insets
+            scaled.left = insets.left * scale
+            scaled.right = insets.right * scale
+            return scaled
         }
 
         // MARK: MKMapViewDelegate
