@@ -274,6 +274,7 @@ final class AccountStore: ObservableObject {
         // pilot's intentions, and the next person to sign in on this phone
         // must not find them sitting in the panel.
         FlightPlanBook.shared.clear()
+        stopCarryingSettings()
 
         // Carries an agreement made before there was an account onto the
         // account. Not awaited, for the same reason as the profile: it is
@@ -281,14 +282,30 @@ final class AccountStore: ObservableObject {
         Task { await self.recordTermsAcceptance() }
     }
 
+    /// Stops carrying settings, without taking any of them away.
+    ///
+    /// Called from both ways out of an account. The watchlist, the colours and
+    /// the map stay exactly as they are on this device: they were this device's
+    /// settings before there was an account and they still are, and clearing
+    /// them would be punishing somebody for signing out. What stops is the
+    /// writing — see `AccountSync.signedOut`.
+    @MainActor
+    private func stopCarryingSettings() {
+        AccountSync.shared.signedOut()
+    }
+
     /// Erases the account, then signs out.
     ///
     /// Required to exist by App Store Guideline 5.1.1(v) — an app that lets you
     /// make an account has to let you delete it from inside the app. It is
     /// genuinely irreversible: the auth user goes, and so does everything on
-    /// the server keyed to it. What it does *not* touch is anything local — the
-    /// watchlist is filed under the device, and deleting an account is not a
-    /// reason to take it away.
+    /// the server keyed to it — the settings row among them, by the cascade on
+    /// `pilot_settings.user_id`.
+    ///
+    /// What it does *not* touch is anything local. The watchlist, the colours
+    /// and the rest are still on this device, exactly as they were: deleting an
+    /// account says the account should stop existing, not that the phone in
+    /// somebody's hand should forget who they watch.
     @MainActor
     func deleteAccount() async {
         guard account != nil else { return }
@@ -304,7 +321,10 @@ final class AccountStore: ObservableObject {
             UserDefaults.standard.removeObject(forKey: Self.emailKey)
             Entitlements.shared.accountChanged()
             ProfileStore.shared.accountChanged()
-        PilotDirectory.shared.accountChanged()
+            PilotDirectory.shared.accountChanged()
+            // Awaited because `run`'s closure is not on the main actor and
+            // this is: the sync's own state is published to the account panel.
+            await self.stopCarryingSettings()
         }
     }
 
@@ -475,6 +495,13 @@ final class AccountStore: ObservableObject {
         // the one notification that is about this pilot's own flight rather
         // than about somebody they are watching.
         PushService.shared.syncAccountRegistration()
+
+        // Everything this account had set up on its other devices — the
+        // watchlist, the colours, the map, the units — arrives here. Not
+        // awaited, for the same reason as the profile: it is one small row, and
+        // nothing on screen should wait on it to show a map. See `AccountSync`
+        // for which side wins, and why it is the account.
+        Task { await AccountSync.shared.signedIn() }
     }
 
     @MainActor

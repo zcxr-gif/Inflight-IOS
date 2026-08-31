@@ -887,10 +887,19 @@ struct ContentView: View {
             switch phase {
             case .active:
                 Task { await Entitlements.shared.refreshFromServer() }
+                // And the same argument for the settings: another device may
+                // have changed a colour or added somebody to the watchlist
+                // while this one was in a pocket. One row, and nothing is
+                // applied unless it is genuinely newer — see `AccountSync`.
+                Task { await AccountSync.shared.refresh() }
             case .background:
                 // A flight that ended while the app was in somebody's pocket is
                 // still a flight. Written on the way out rather than lost.
                 LogbookRecorder.shared.flush()
+                // Same again for a setting changed in the last few seconds,
+                // which the sync's quiet period would otherwise still be
+                // sitting on when the app is suspended.
+                Task { await AccountSync.shared.flush() }
             default:
                 break
             }

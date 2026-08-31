@@ -12,6 +12,10 @@ struct AccountPanel: View {
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @ObservedObject private var accounts = AccountStore.shared
     @ObservedObject private var entitlements = Entitlements.shared
+
+    /// Whether this account's settings are being carried, and whether the last
+    /// attempt worked. See `syncSection`.
+    @ObservedObject private var sync = AccountSync.shared
     @ObservedObject private var profiles = ProfileStore.shared
     @ObservedObject private var store = ProStore.shared
     @ObservedObject private var identity = PilotIdentity.shared
@@ -88,6 +92,7 @@ struct AccountPanel: View {
                 }
             } else if let account = accounts.account {
                 signedIn(account)
+                syncSection
             } else {
                 signedOut
             }
@@ -401,6 +406,60 @@ struct AccountPanel: View {
     /// telling the truth either way — this *is* what those aircraft are
     /// painted. What it does not get is a control that would appear to work
     /// and then be ignored by the map.
+    // MARK: - Carried to your other devices
+
+    /// One row saying whether the settings above are being carried, and saying
+    /// so plainly when they are not.
+    ///
+    /// Worth a row at all because the feature is invisible when it works: you
+    /// only ever meet it on a second device, and the first one gives you no
+    /// reason to believe anything is being kept. What it must not be is
+    /// chatty — a spinner every four seconds as somebody drags a colour picker
+    /// would be worse than silence — so the working states read the same and
+    /// only a failure says anything different.
+    @ViewBuilder
+    private var syncSection: some View {
+        PanelSection(title: "ON YOUR OTHER DEVICES") {
+            switch sync.state {
+            case .off:
+                PanelEmptyState(
+                    symbol: "iphone.slash",
+                    title: "Not being carried",
+                    detail: "Sign in and your watchlist, colours, map and units follow you to any device you sign in on."
+                )
+
+            case .reading, .writing, .synced:
+                HStack(spacing: 10) {
+                    PanelRowLabel(
+                        title: "Carried with your account",
+                        symbol: "arrow.triangle.2.circlepath"
+                    )
+                    Spacer(minLength: 8)
+                }
+                .padding(.horizontal, 14)
+                .padding(.top, 12)
+
+                Text("Your watchlist, the colours you paint your traffic, the map, the weather units and the instrument panel. Sign in on another device and it arrives set up the way you left this one.")
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(theme.textDim)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 14)
+                    .padding(.leading, 30)
+                    .padding(.bottom, 12)
+
+            case .failed(let problem):
+                PanelEmptyState(
+                    symbol: "exclamationmark.arrow.triangle.2.circlepath",
+                    title: "Settings did not reach your account",
+                    // The server's own words. Everything is still safe on this
+                    // device — the sync is a copy, never the original — so this
+                    // is worth saying calmly.
+                    detail: "\(problem) Nothing has been lost here; this device will try again."
+                )
+            }
+        }
+    }
+
     private func colorRow(
         _ title: String,
         symbol: String,

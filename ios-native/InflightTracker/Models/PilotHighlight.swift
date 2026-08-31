@@ -110,6 +110,14 @@ final class PilotHighlightPreferences: ObservableObject {
         UserDefaults.standard.set(parts, forKey: key)
     }
 
+    /// The other direction, for a colour that arrived from the account. Nil for
+    /// anything that is not three numbers, so a malformed blob loses one colour
+    /// rather than failing the whole restore.
+    static func color(from parts: [Double]?) -> Color? {
+        guard let parts = parts, parts.count == 3 else { return nil }
+        return Color(red: parts[0], green: parts[1], blue: parts[2])
+    }
+
     private static func read(forKey key: String) -> Color? {
         guard let parts = UserDefaults.standard.array(forKey: key) as? [Double],
               parts.count == 3 else { return nil }
@@ -138,7 +146,13 @@ final class PilotHighlightPreferences: ObservableObject {
         return colors
     }
 
-    private static func components(of color: Color) -> [Double]? {
+    /// A colour as the three numbers it is stored and synced as.
+    ///
+    /// Not private, because the account snapshot writes colours into the same
+    /// shape this file already persists them in — see `SyncedSettings`. One
+    /// definition of "a colour, written down", so the disk and the account
+    /// cannot disagree about what one looks like.
+    static func components(of color: Color) -> [Double]? {
         let ui = UIColor(color)
         var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
         guard ui.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else { return nil }
