@@ -550,7 +550,7 @@ final class GlobeCanvasView: UIView {
             drawNight(in: context, basis: basis, sun: sun)
         }
 
-        drawLines(in: context, basis: basis)
+        drawLines(in: context, basis: basis, box: box)
         drawLimb(in: context)
         drawTraffic(in: context, basis: basis, box: box)
 
@@ -926,7 +926,7 @@ final class GlobeCanvasView: UIView {
 
         let path = CGMutablePath()
         for ring in rings where !isCulled(ring, basis: basis, box: box) {
-            append(ring.points, to: path, basis: basis)
+            append(ring.points, to: path, basis: basis, box: box)
         }
 
         context.setStrokeColor(color.cgColor)
@@ -937,12 +937,12 @@ final class GlobeCanvasView: UIView {
         context.strokePath()
     }
 
-    private func drawLines(in context: CGContext, basis: GlobeCamera.Basis) {
+    private func drawLines(in context: CGContext, basis: GlobeCamera.Basis, box: CGRect) {
         guard !scene.lines.isEmpty else { return }
 
         for line in scene.lines {
             let path = CGMutablePath()
-            append(line.points, to: path, basis: basis)
+            append(line.points, to: path, basis: basis, box: box)
 
             context.saveGState()
             context.setStrokeColor(line.color.cgColor)
@@ -965,7 +965,8 @@ final class GlobeCanvasView: UIView {
     private func append(
         _ points: [SIMD3<Float>],
         to path: CGMutablePath,
-        basis: GlobeCamera.Basis
+        basis: GlobeCamera.Basis,
+        box: CGRect
     ) {
         var previousVector: SIMD3<Float>?
         var previous: GlobeCamera.Projected?
@@ -986,6 +987,28 @@ final class GlobeCanvasView: UIView {
 
             switch (last.isVisible, now.isVisible) {
             case (true, true):
+                // A segment with nothing in the view. The ring-level cull
+                // cannot catch these: a meridian is a great circle, so its
+                // bounding cone reaches everywhere and it is never rejected as
+                // a whole — and zoomed in, eleven of the twelve are off the
+                // side of the screen with all ninety-one of their points being
+                // projected and pathed regardless. The same goes for any
+                // coastline long enough to straddle the view.
+                //
+                // Compared as boxes rather than as a proper segment-rectangle
+                // intersection: it keeps the occasional diagonal that misses
+                // the corner, which costs one line, where getting the crossing
+                // test subtly wrong costs a coastline.
+                if max(last.point.x, now.point.x) < box.minX
+                    || min(last.point.x, now.point.x) > box.maxX
+                    || max(last.point.y, now.point.y) < box.minY
+                    || min(last.point.y, now.point.y) > box.maxY {
+                    isDrawing = false
+                    previousVector = point
+                    previous = now
+                    continue
+                }
+
                 if !isDrawing {
                     path.move(to: last.point)
                     isDrawing = true
