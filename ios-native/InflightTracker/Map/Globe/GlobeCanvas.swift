@@ -249,6 +249,14 @@ final class GlobeCanvasView: UIView {
     /// Whether a pinch ran at any point during the drag now ending.
     private var wasPinched = false
 
+    /// How many fingers the pan had on the last frame it was believed.
+    ///
+    /// A `UIPanGestureRecognizer` measures its translation from the *centroid*
+    /// of whatever touches it currently has, so the count changing moves that
+    /// centroid instantly — by half the distance between two fingers when one
+    /// of them lifts. See `handlePan`.
+    private var panTouches = 0
+
     /// Whether two fingers are running a pinch, and what was under them when
     /// it began — so the ground between them stays between them. The pinch
     /// tracks its own midpoint, which *is* a two-finger drag, so while it is
@@ -737,10 +745,32 @@ final class GlobeCanvasView: UIView {
             isPanning = true
             wasPinched = false
             momentum = nil
+            panTouches = gesture.numberOfTouches
             gesture.setTranslation(.zero, in: self)
             beginInteraction()
 
         case .changed:
+            // A finger arriving or leaving is not a hand moving.
+            //
+            // The translation is measured from the centroid of the touches the
+            // recognizer has, so lifting one of two fingers moves that centroid
+            // to the finger still down — half the distance between them, in one
+            // step, reported as a drag nobody made. Which is exactly what the
+            // end of a pinch is: the second finger comes up, the pinch ends, so
+            // the guard below no longer stands the pan off, and the planet
+            // snaps the ground you had just zoomed to over to the finger that
+            // is left. The same jump, backwards, when a second finger lands
+            // before the pinch has passed its own threshold.
+            //
+            // So the frame the count changes on is spent re-anchoring rather
+            // than drawn: the reset makes the new centroid the new origin, and
+            // the next frame is a real movement of it again.
+            if gesture.numberOfTouches != panTouches {
+                panTouches = gesture.numberOfTouches
+                gesture.setTranslation(.zero, in: self)
+                return
+            }
+
             // Read and reset, so what arrives is the change since the last
             // frame rather than the whole drag re-applied.
             let moved = gesture.translation(in: self)
