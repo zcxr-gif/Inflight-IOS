@@ -1,4 +1,5 @@
 import CoreLocation
+import QuartzCore
 import SwiftUI
 import UIKit
 import simd
@@ -367,6 +368,17 @@ final class GlobeCanvasView: UIView {
     deinit { animator?.invalidate() }
 
     /// The same set of gestures Maps has, because this is a map.
+    /// A planet handed a fixed camera is a swatch — a forty-eight point
+    /// picture of a globe in a settings row. It is not something to turn, and
+    /// nothing may move its camera off the one it was given.
+    ///
+    /// `UIView` declares this itself rather than only picking it up from
+    /// `UIGestureRecognizerDelegate`, so it is an override and lives here with
+    /// the other overrides rather than down in the delegate extension.
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        isLive
+    }
+
     private func addGestures() {
         // Two fingers as well as one. A pinch that has drifted into a drag is
         // one movement to a hand, and refusing the second finger is how a map
@@ -1247,7 +1259,7 @@ final class GlobeCanvasView: UIView {
         }
 
         // Three brightnesses, three fills, rather than a state change per star.
-        var bands: [CGMutablePath] = [CGMutablePath(), CGMutablePath(), CGMutablePath()]
+        let bands: [CGMutablePath] = [CGMutablePath(), CGMutablePath(), CGMutablePath()]
         for _ in 0..<count {
             let x = next() * box.width
             let y = next() * box.height
@@ -2433,13 +2445,6 @@ extension GlobeCanvasView: UIGestureRecognizerDelegate {
         shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
     ) -> Bool {
         true
-    }
-
-    /// A planet handed a fixed camera is a swatch — a forty-eight point
-    /// picture of a globe in a settings row. It is not something to turn, and
-    /// nothing may move its camera off the one it was given.
-    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        isLive
     }
 }
 
