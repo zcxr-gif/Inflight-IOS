@@ -64,7 +64,7 @@ enum AirportGroundStyle {
 
     /// What the map underneath is made of, as far as this layer cares.
     ///
-    /// Three cases rather than the palette's five, because pavement only has
+    /// Three cases rather than one per palette, because pavement only has
     /// three questions to answer: am I drawing on light paper, on dark paper,
     /// or on a photograph of the ground itself.
     enum Ground {

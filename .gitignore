@@ -12,3 +12,10 @@ node_modules/
 ios/
 
 .DS_Store
+
+# The Natural Earth source the globe's borders are built from. Public domain
+# and 1.8 MB of text; `tools/globe-borders/build.py` turns it into the 42 KB
+# blob the app actually ships, and that blob is committed. Fetch it with:
+#   curl -Lo tools/globe-borders/ne_110m_admin_0_countries.geojson \
+#     https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_admin_0_countries.geojson
+tools/globe-borders/*.geojson

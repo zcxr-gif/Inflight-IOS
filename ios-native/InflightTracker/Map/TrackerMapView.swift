@@ -3429,6 +3429,24 @@ struct TrackerMapView: UIViewRepresentable {
 /// the sheet itself always reads the newest data for that id.
 struct SelectedFlight: Identifiable, Equatable {
     let id: String
+
+    /// The field this aircraft was opened from, when it was opened from one —
+    /// a tap in an airport panel's inbound, departed or on-the-ground list.
+    ///
+    /// Carried here rather than kept beside the selection, and that is the
+    /// whole reason it can be trusted. There are a dozen ways into the flight
+    /// window — the map, a widget, the friends list, a search result, a deep
+    /// link — and every one of them builds a `SelectedFlight` without saying
+    /// anything about an airport, so every one of them clears this by simply
+    /// not setting it. Separate state would have had to be cleared by each of
+    /// them in turn, and the way back to Heathrow would eventually have
+    /// survived onto an aeroplane over Chile.
+    var origin: String?
+
+    init(id: String, origin: String? = nil) {
+        self.id = id
+        self.origin = origin
+    }
 }
 
 /// A one-shot camera move. The token is what makes it one-shot: SwiftUI hands

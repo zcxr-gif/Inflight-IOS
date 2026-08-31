@@ -444,7 +444,12 @@ struct AirportPanel: View {
     /// its content genuinely changes height — a parked aircraft has no route
     /// strip — where a field always has the same top, so a constant is honest
     /// here and one fewer layout pass.
-    private static let peakHeight: CGFloat = 340
+    /// The sheet's resting height.
+    ///
+    /// Not private: the map reads it to know how much of its own bottom edge
+    /// this panel is standing on, so the field it frames when the panel opens
+    /// lands above it rather than behind it. See `ContentView.mapBottomInset`.
+    static let peakHeight: CGFloat = 340
 
     private var isPinned: Bool { widgets.isAirportPinned(airport.icao) }
 

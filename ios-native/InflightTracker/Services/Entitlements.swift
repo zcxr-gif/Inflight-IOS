@@ -15,8 +15,13 @@ enum ProFeature: String, CaseIterable, Identifiable {
     /// More than a handful of watched pilots.
     case watchlist
 
-    /// Your own aircraft and the pilots you watch, painted so you can find
-    /// them in a screen full of traffic.
+    /// Choosing what your own aircraft and each pilot you watch are painted.
+    ///
+    /// Not the colouring itself, which everybody has: a free account's own
+    /// aeroplane is amber and its whole watchlist is amethyst, and that is
+    /// enough to find either in a screen full of traffic. What is sold here is
+    /// picking those two, and giving one watched pilot a colour of their own —
+    /// see `PilotHighlighting.current()`.
     case pilotColours
 
     /// Satellite, and the globe.
@@ -73,7 +78,7 @@ enum ProFeature: String, CaseIterable, Identifiable {
         switch self {
         case .replay: return "Flight replay"
         case .watchlist: return "The whole watchlist"
-        case .pilotColours: return "Your traffic, in your colours"
+        case .pilotColours: return "A colour for every pilot"
         case .mapStyles: return "Satellite and the globe"
         case .findMyAircraft: return "Jump to your aircraft"
         case .profileBanner: return "Your profile, your way"
@@ -89,7 +94,7 @@ enum ProFeature: String, CaseIterable, Identifiable {
         case .watchlist:
             return "Watch as many pilots as you like. Free keeps \(Self.freeWatchlistLimit)."
         case .pilotColours:
-            return "Your own aircraft and every pilot you watch, picked out of the traffic in colours you choose."
+            return "Paint each pilot you watch their own colour, and your own aircraft whatever you like. Free keeps one colour for the whole watchlist."
         case .mapStyles:
             return "Imagery, and the whole planet — free to spin and tilt with the traffic on it."
         case .findMyAircraft:

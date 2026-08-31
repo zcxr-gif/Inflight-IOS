@@ -93,6 +93,31 @@ final class FlightPlanBook: ObservableObject {
         return plans.filter { !upcomingIDs.contains($0.id) }
     }
 
+    /// A plan already filed for this route, if there is one.
+    ///
+    /// Only among `upcoming`, and only on the route: those are the two things
+    /// that make a plan "this flight". A flown or cancelled row is history and
+    /// is not amended by pushing back again, and matching on anything narrower
+    /// than both ends — a callsign, an aircraft type — would miss the plan
+    /// somebody filed a week ago and then changed their mind about the livery.
+    ///
+    /// Both codes are compared trimmed and upper-cased, which is the shape the
+    /// server stores them in and not necessarily the shape the feed reports.
+    func upcomingPlan(from origin: String?, to destination: String?) -> PlannedFlight? {
+        guard let origin = Self.code(origin), let destination = Self.code(destination) else {
+            return nil
+        }
+        return upcoming.first {
+            Self.code($0.originICAO) == origin && Self.code($0.destinationICAO) == destination
+        }
+    }
+
+    private static func code(_ raw: String?) -> String? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased(),
+              !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
+
     /// How long after its scheduled departure a plan stops being upcoming.
     ///
     /// A day rather than the moment the clock passes it: somebody who plans an

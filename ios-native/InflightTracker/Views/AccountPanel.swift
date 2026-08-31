@@ -12,10 +12,17 @@ struct AccountPanel: View {
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @ObservedObject private var accounts = AccountStore.shared
     @ObservedObject private var entitlements = Entitlements.shared
+
+    /// Whether this account's settings are being carried, and whether the last
+    /// attempt worked. See `syncSection`.
+    @ObservedObject private var sync = AccountSync.shared
     @ObservedObject private var profiles = ProfileStore.shared
     @ObservedObject private var store = ProStore.shared
     @ObservedObject private var identity = PilotIdentity.shared
     @ObservedObject private var highlight = PilotHighlightPreferences.shared
+
+    /// Only for the per-pilot colour rows below: the names to offer one for.
+    @ObservedObject private var friends = FriendsStore.shared
 
     /// Sign in, or make one. One form either way — the fields are the same and
     /// the difference is one word on the button — so this is a segmented
@@ -85,6 +92,7 @@ struct AccountPanel: View {
                 }
             } else if let account = accounts.account {
                 signedIn(account)
+                syncSection
             } else {
                 signedOut
             }
@@ -285,28 +293,45 @@ struct AccountPanel: View {
 
     /// What your own aircraft and your watchlist are painted.
     ///
-    /// Pro. The defaults are the web build's amber and amethyst, which is what
-    /// anyone coming from it will expect to see.
+    /// The switch and the colouring are free — the defaults are the web
+    /// build's amber and amethyst, which is what anyone coming from it will
+    /// expect to see. Pro is what turns the two swatches into pickers, and
+    /// what adds the section under them: a colour per watched pilot, so a
+    /// circuit full of friends is not one colour repeated.
     @ViewBuilder
     private var colorSection: some View {
+        let isPro = entitlements.has(.pilotColours)
+
         PanelSection(title: "PICK YOUR TRAFFIC OUT") {
-            if entitlements.has(.pilotColours) {
-                PanelToggleRow(
-                    title: "Colour my traffic",
-                    symbol: "paintpalette",
-                    detail: "Your aircraft and everyone you watch, painted on the map.",
-                    isOn: $highlight.isEnabled
+            PanelToggleRow(
+                title: "Colour my traffic",
+                symbol: "paintpalette",
+                detail: "Your aircraft and everyone you watch, painted on the map.",
+                isOn: $highlight.isEnabled
+            )
+
+            if highlight.isEnabled {
+                PanelDivider()
+
+                colorRow(
+                    "Your aircraft",
+                    symbol: "airplane",
+                    selection: $highlight.ownColor,
+                    swatch: PilotHighlightPreferences.defaultOwn,
+                    isPro: isPro
                 )
 
-                if highlight.isEnabled {
-                    PanelDivider()
+                PanelDivider()
 
-                    colorRow("Your aircraft", symbol: "airplane", selection: $highlight.ownColor)
+                colorRow(
+                    "Watched pilots",
+                    symbol: "person.2.fill",
+                    selection: $highlight.friendColor,
+                    swatch: PilotHighlightPreferences.defaultFriend,
+                    isPro: isPro
+                )
 
-                    PanelDivider()
-
-                    colorRow("Watched pilots", symbol: "person.2.fill", selection: $highlight.friendColor)
-
+                if isPro {
                     PanelDivider()
 
                     Button {
@@ -321,27 +346,155 @@ struct AccountPanel: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                } else {
+                    PanelDivider()
+
+                    PanelActionRow(
+                        title: "Pick your own colours",
+                        symbol: "lock",
+                        detail: "Pro. Choose these two, and give any pilot you watch a colour of their own — free paints the whole watchlist the same."
+                    ) {
+                        isShowingPaywall = true
+                    }
                 }
-            } else {
-                PanelActionRow(
-                    title: "Colour my traffic",
-                    symbol: "paintpalette",
-                    detail: "Pro. Your own aircraft and every pilot you watch, picked out of the traffic in colours you choose."
-                ) {
-                    isShowingPaywall = true
+            }
+        }
+
+        if highlight.isEnabled { perPilotSection(isPro: isPro) }
+    }
+
+    /// A colour for one watched pilot at a time.
+    ///
+    /// Drawn only for Pro, and only when there is somebody on the list to
+    /// paint: a section headed "each pilot" over an empty watchlist explains
+    /// nothing, and the paywall for it is already one row above.
+    @ViewBuilder
+    private func perPilotSection(isPro: Bool) -> some View {
+        if isPro, !friends.friends.isEmpty {
+            PanelSection(title: "EACH PILOT") {
+                ForEach(Array(friends.friends.enumerated()), id: \.element) { index, username in
+                    if index > 0 { PanelDivider() }
+
+                    colorRow(
+                        username,
+                        symbol: highlight.hasOwnColor(forFriend: username)
+                            ? "person.fill"
+                            : "person",
+                        selection: Binding(
+                            get: { highlight.color(forFriend: username) },
+                            set: { highlight.setColor($0, forFriend: username) }
+                        ),
+                        swatch: nil,
+                        isPro: true,
+                        // Only offered once they have one to clear. Painting a
+                        // pilot the shared colour by hand is not the same as
+                        // never having painted them: the first stops following
+                        // a later change to it, and this is how you get back.
+                        onClear: highlight.hasOwnColor(forFriend: username)
+                            ? { highlight.setColor(nil, forFriend: username) }
+                            : nil
+                    )
                 }
             }
         }
     }
 
-    private func colorRow(_ title: String, symbol: String, selection: Binding<Color>) -> some View {
+    /// One colour row: a picker for Pro, and the colour it is fixed at for
+    /// everybody else.
+    ///
+    /// A free account gets the swatch rather than nothing, because the row is
+    /// telling the truth either way — this *is* what those aircraft are
+    /// painted. What it does not get is a control that would appear to work
+    /// and then be ignored by the map.
+    // MARK: - Carried to your other devices
+
+    /// One row saying whether the settings above are being carried, and saying
+    /// so plainly when they are not.
+    ///
+    /// Worth a row at all because the feature is invisible when it works: you
+    /// only ever meet it on a second device, and the first one gives you no
+    /// reason to believe anything is being kept. What it must not be is
+    /// chatty — a spinner every four seconds as somebody drags a colour picker
+    /// would be worse than silence — so the working states read the same and
+    /// only a failure says anything different.
+    @ViewBuilder
+    private var syncSection: some View {
+        PanelSection(title: "ON YOUR OTHER DEVICES") {
+            switch sync.state {
+            case .off:
+                PanelEmptyState(
+                    symbol: "iphone.slash",
+                    title: "Not being carried",
+                    detail: "Sign in and your watchlist, colours, map and units follow you to any device you sign in on."
+                )
+
+            case .reading, .writing, .synced:
+                HStack(spacing: 10) {
+                    PanelRowLabel(
+                        title: "Carried with your account",
+                        symbol: "arrow.triangle.2.circlepath"
+                    )
+                    Spacer(minLength: 8)
+                }
+                .padding(.horizontal, 14)
+                .padding(.top, 12)
+
+                Text("Your watchlist, the colours you paint your traffic, the map, the weather units and the instrument panel. Sign in on another device and it arrives set up the way you left this one.")
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(theme.textDim)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 14)
+                    .padding(.leading, 30)
+                    .padding(.bottom, 12)
+
+            case .failed(let problem):
+                PanelEmptyState(
+                    symbol: "exclamationmark.arrow.triangle.2.circlepath",
+                    title: "Settings did not reach your account",
+                    // The server's own words. Everything is still safe on this
+                    // device — the sync is a copy, never the original — so this
+                    // is worth saying calmly.
+                    detail: "\(problem) Nothing has been lost here; this device will try again."
+                )
+            }
+        }
+    }
+
+    private func colorRow(
+        _ title: String,
+        symbol: String,
+        selection: Binding<Color>,
+        swatch: Color?,
+        isPro: Bool,
+        onClear: (() -> Void)? = nil
+    ) -> some View {
         HStack(spacing: 10) {
             PanelRowLabel(title: title, symbol: symbol)
 
             Spacer(minLength: 8)
 
-            ColorPicker("", selection: selection, supportsOpacity: false)
-                .labelsHidden()
+            if let onClear = onClear {
+                Button(action: onClear) {
+                    Image(systemName: "arrow.uturn.backward")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(theme.textDim)
+                        .frame(width: 26, height: 26)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Put \(title) back on the shared colour")
+            }
+
+            if isPro {
+                ColorPicker("", selection: selection, supportsOpacity: false)
+                    .labelsHidden()
+            } else {
+                Circle()
+                    .fill(swatch ?? selection.wrappedValue)
+                    .frame(width: 22, height: 22)
+                    .overlay { Circle().strokeBorder(theme.stroke, lineWidth: 1) }
+                    .accessibilityHidden(true)
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)

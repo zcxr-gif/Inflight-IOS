@@ -345,6 +345,33 @@ final class HintsStore: ObservableObject {
         shown = defaults.object(forKey: Self.shownKey) as? [String: Int] ?? [:]
     }
 
+    /// Which hints have been seen how often, for the account to carry.
+    ///
+    /// The counts rather than a list of retired ids: a hint two launches into
+    /// its three is a different state from an unseen one, and flattening that
+    /// would either re-run the whole catalogue on a new phone or retire lines
+    /// nobody has read.
+    var shownCounts: [String: Int] { shown }
+
+    /// Takes the counts the account is carrying.
+    ///
+    /// Merged by the higher count rather than replaced. Hints are read on
+    /// whichever device is to hand, and the two answers to "have you seen this"
+    /// are not equal: one device having shown it is the fact, and the other
+    /// not having is only that device's ignorance. Taking the maximum means a
+    /// line already read never comes back, whichever phone read it.
+    func adopt(shown counts: [String: Int]) {
+        var merged = shown
+        for (id, count) in counts where count > (merged[id] ?? 0) {
+            merged[id] = count
+        }
+        guard merged != shown else { return }
+        shown = merged
+        UserDefaults.standard.set(shown, forKey: Self.shownKey)
+        // Anything on screen is reading a line this may just have retired.
+        revision &+= 1
+    }
+
     /// How many hints have been read out or dismissed, for the settings row
     /// that offers them back.
     var retiredCount: Int {

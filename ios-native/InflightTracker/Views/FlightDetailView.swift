@@ -90,6 +90,23 @@ struct FlightDetailView: View {
     /// remembering the way back here.
     var onSelectAirport: (Airport) -> Void = { _ in }
 
+    /// The field this window was reached from, when it was reached from one.
+    ///
+    /// The mirror of `AirportPanel.Origin`, and it exists for the same reason:
+    /// opening an aircraft replaces whatever sheet was up, so tapping a flight
+    /// out of a field's inbound list costs you the field — and the field is
+    /// very often the thing you were actually reading. Nil everywhere else,
+    /// which is most places: a flight opened off the map has nothing behind it
+    /// to go back to.
+    var origin: Origin? = nil
+
+    /// Where the window was opened from, and how to get back to it.
+    struct Origin {
+        /// What to call it on the row — an ICAO, normally.
+        let label: String
+        let action: () -> Void
+    }
+
     /// The window's palette, wearing the airline's colour on its edges when
     /// there is one and the setting is on.
     ///
@@ -547,7 +564,17 @@ struct FlightDetailView: View {
                         onReplay: { onReplay(track) }
                     )
 
-                    FlightWatchRow(flight: flight, theme: theme)
+                    // Grouped rather than two children of the stack, which is
+                    // at the builder's ceiling. They belong together anyway:
+                    // both are about keeping hold of this flight past the
+                    // moment you are looking at it.
+                    VStack(spacing: 12) {
+                        FlightWatchRow(flight: flight, theme: theme)
+
+                        // Nothing at all on anybody else's aeroplane — see
+                        // `FileThisFlightRow`.
+                        FileThisFlightRow(flight: flight, theme: theme)
+                    }
 
                     // Grouped, not two children of the stack: the partner
                     // line sits under the bottom edge of the route card, and
@@ -639,22 +666,60 @@ struct FlightDetailView: View {
     /// draw one that does not exist.
     @ViewBuilder
     private func header(for flight: Flight) -> some View {
-        if let progress = boardProgress(for: flight) {
-            FlightInfoBoard(
-                flight: flight,
-                registration: registration(for: flight),
-                theme: theme,
-                progress: progress,
-                began: departed,
-                onSelectAirport: onSelectAirport
-            )
-        } else {
-            FlightIdentityBlock(
-                flight: flight,
-                registration: registration(for: flight),
-                theme: theme
-            )
+        // The way back rides in the header rather than as another child of the
+        // window's outer stack, which is already at the builder's ceiling.
+        VStack(spacing: 12) {
+            if let origin = origin { backRow(origin) }
+
+            if let progress = boardProgress(for: flight) {
+                FlightInfoBoard(
+                    flight: flight,
+                    registration: registration(for: flight),
+                    theme: theme,
+                    progress: progress,
+                    began: departed,
+                    onSelectAirport: onSelectAirport
+                )
+            } else {
+                FlightIdentityBlock(
+                    flight: flight,
+                    registration: registration(for: flight),
+                    theme: theme
+                )
+            }
         }
+    }
+
+    /// Back to the field this aircraft was picked out of.
+    ///
+    /// The first thing in the open window, above the aeroplane's own identity:
+    /// it is the way out of somewhere you arrived at by a tap, and the airport
+    /// panel puts its own back row in exactly the same place for exactly the
+    /// same reason.
+    ///
+    /// In the open window and not in the peak state, which is a drag target
+    /// from edge to edge — a control there that could take a drag for a tap is
+    /// how a window becomes hard to open.
+    private func backRow(_ origin: Origin) -> some View {
+        Button(action: origin.action) {
+            HStack(spacing: 7) {
+                Image(systemName: "chevron.backward")
+                    .font(.system(size: 11, weight: .bold))
+
+                Text("Back to \(origin.label)")
+                    .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                    .flightInfoLine(minimumScale: 0.8)
+
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(theme.textSecondary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .flightInfoSurface(theme, radius: theme.radiusSmall, interactive: true)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Back to \(origin.label)")
     }
 
     /// The route the board would draw, when the board is what is wanted and

@@ -307,7 +307,10 @@ final class FlightInfoAppearance: ObservableObject {
         mapProjection = MapProjection(rawValue: defaults.string(forKey: Self.mapProjectionKey) ?? "")
             ?? legacy?.projection
             ?? .flat
-        mapPalette = MapPalette(rawValue: defaults.string(forKey: Self.mapPaletteKey) ?? "")
+        // Through `from(stored:)` rather than the raw initialiser, so a
+        // palette this app no longer has a case for is read across to what it
+        // means now instead of silently falling through to the default.
+        mapPalette = MapPalette.from(stored: defaults.string(forKey: Self.mapPaletteKey))
             ?? legacy?.palette
             ?? .auto
         isMapDetailed = defaults.object(forKey: Self.mapDetailKey) as? Bool

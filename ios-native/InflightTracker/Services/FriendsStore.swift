@@ -121,6 +121,35 @@ final class FriendsStore: ObservableObject {
         return .added
     }
 
+    /// Replaces the whole list with the one the account is carrying.
+    ///
+    /// THE FREE LIMIT IS DELIBERATELY NOT CHECKED HERE, and that is the same
+    /// rule `add` states rather than a hole in it: the cap is on *adding*, never
+    /// on what is already there. A pilot who watched a dozen names on their old
+    /// phone has not added anything by opening the app on a new one, and a
+    /// restore that silently dropped nine of them to enforce a limit they met
+    /// years ago would be indefensible — the same reasoning, and the same
+    /// sentence, as the account that watched twelve before the limit existed.
+    ///
+    /// Everything else `add` does is still done, because those are about the
+    /// names being usable rather than about how many there are: each is
+    /// normalised, anything unusable is dropped rather than stored as a name
+    /// that will silently never match, and duplicates collapse.
+    func adopt(_ names: [String]) {
+        var cleaned: [String] = []
+        for name in names {
+            let normalised = normalize(name)
+            guard !normalised.isEmpty, normalised.count <= 64 else { continue }
+            guard !cleaned.contains(normalised) else { continue }
+            cleaned.append(normalised)
+        }
+
+        guard cleaned != friends else { return }
+        friends = cleaned
+        persist()
+        syncToBackend()
+    }
+
     func remove(_ username: String) {
         let name = normalize(username)
         guard let index = friends.firstIndex(of: name) else { return }
