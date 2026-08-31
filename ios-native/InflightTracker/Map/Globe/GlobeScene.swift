@@ -49,6 +49,100 @@ struct GlobeLine: Equatable {
     let dash: [CGFloat]?
 }
 
+/// A field's pavement, ready to be drawn on a sphere.
+///
+/// ## Why this is metres and not directions
+///
+/// Everything else on the planet is a unit vector, because a direction does
+/// not change when the camera turns. Pavement cannot be, and the reason is
+/// arithmetic rather than taste: a `SIMD3<Float>` unit vector carries about
+/// seven digits, which on a planet six and a half thousand kilometres across
+/// is a resolution of roughly half a metre. That is invisible on a coastline
+/// and it is half the width of the runway centreline.
+///
+/// So a layout is held as a tangent plane pinned at the field: a direction for
+/// the field itself, the two directions that are east and north *there*, and
+/// every point as its offset in metres. Over the few kilometres an aerodrome
+/// covers, the difference between that plane and the sphere is millimetres,
+/// and drawing a point becomes two multiplies and two adds off a single
+/// projected origin — which is also why it stays cheap at a zoom where the
+/// sphere is a million points across.
+struct GlobeGround: Equatable {
+
+    struct Piece: Equatable {
+        let kind: AirportLayout.Piece.Kind
+        /// Metres east and metres north of the field.
+        let points: [SIMD2<Float>]
+        /// What this pavement really is, across. Zero for areas, which are
+        /// filled rather than stroked.
+        let widthMetres: Double
+    }
+
+    let icao: String
+
+    /// The field itself, and the tangent frame there.
+    let anchor: SIMD3<Float>
+    let east: SIMD3<Float>
+    let north: SIMD3<Float>
+
+    let pieces: [Piece]
+
+    /// How far the furthest pavement is from the field, in metres. The whole
+    /// layout is rejected on this when the field is off screen.
+    let reachMetres: Double
+
+    static func == (lhs: GlobeGround, rhs: GlobeGround) -> Bool { lhs.icao == rhs.icao }
+
+    /// A store layout, in the terms the canvas draws in.
+    init?(_ layout: AirportLayout, at centre: CLLocationCoordinate2D) {
+        guard !layout.isEmpty else { return nil }
+
+        let anchor = GlobeGeometry.vector(centre)
+        let lon = centre.longitude * .pi / 180
+        let east = SIMD3<Float>(Float(-sin(lon)), Float(cos(lon)), 0)
+        let north = simd_cross(anchor, east)
+
+        // Metres per degree, on the plane at this field. Longitude shrinks
+        // with the latitude; latitude does not shrink at all.
+        let metresPerDegree = GlobeCamera.earthRadiusMetres * .pi / 180
+        let eastPerDegree = metresPerDegree * cos(centre.latitude * .pi / 180)
+
+        var pieces: [Piece] = []
+        var reach: Double = 0
+        pieces.reserveCapacity(layout.pieces.count)
+
+        for piece in layout.pieces where piece.coordinates.count > 1 {
+            var points: [SIMD2<Float>] = []
+            points.reserveCapacity(piece.coordinates.count)
+            for coordinate in piece.coordinates {
+                var delta = coordinate.longitude - centre.longitude
+                // A field on the antimeridian, whose pavement is a fraction of
+                // a degree wide and three hundred and sixty degrees away.
+                if delta > 180 { delta -= 360 } else if delta < -180 { delta += 360 }
+
+                let x = delta * eastPerDegree
+                let y = (coordinate.latitude - centre.latitude) * metresPerDegree
+                reach = max(reach, (x * x + y * y).squareRoot())
+                points.append(SIMD2<Float>(Float(x), Float(y)))
+            }
+            pieces.append(Piece(
+                kind: piece.kind,
+                points: points,
+                widthMetres: piece.widthMetres ?? AirportGroundStyle.defaultWidth(for: piece.kind)
+            ))
+        }
+
+        guard !pieces.isEmpty else { return nil }
+
+        self.icao = layout.icao
+        self.anchor = anchor
+        self.east = east
+        self.north = north
+        self.pieces = pieces
+        self.reachMetres = reach
+    }
+}
+
 /// Everything on the planet that is not the planet.
 ///
 /// A reference type, published as a single revision number, and that shape is
@@ -69,6 +163,12 @@ final class GlobeScene: ObservableObject {
     private(set) var traffic: [GlobeTrafficDot] = []
     private(set) var fields: [GlobeFieldMark] = []
     private(set) var lines: [GlobeLine] = []
+
+    /// The pavement of whichever field the camera is sitting over, once it is
+    /// close enough for that to mean anything. Set on its own rather than
+    /// through `rebuild`, because it arrives from the network on its own
+    /// schedule and has nothing to do with a packet of traffic landing.
+    private(set) var ground: GlobeGround?
 
     /// What the last rebuild was made from, so a body that runs for an
     /// unrelated reason does not rebuild anything.
@@ -124,6 +224,13 @@ final class GlobeScene: ObservableObject {
             palette: palette
         )
 
+        revision &+= 1
+    }
+
+    /// The field under the camera, or nothing when there is none worth drawing.
+    func setGround(_ ground: GlobeGround?) {
+        guard ground?.icao != self.ground?.icao else { return }
+        self.ground = ground
         revision &+= 1
     }
 

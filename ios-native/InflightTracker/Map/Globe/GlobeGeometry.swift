@@ -39,6 +39,12 @@ enum GlobeGeometry {
         let axis: SIMD3<Float>
         let radiusCosine: Float
 
+        /// The same reach as an angle, which is what a cull that has to add it
+        /// to the angle the *view* can see needs. Held rather than derived
+        /// because `acos` per ring per frame is the one thing this whole file
+        /// exists to avoid.
+        let radiusAngle: Float
+
         init(points: [SIMD3<Float>]) {
             self.points = points
 
@@ -53,6 +59,7 @@ enum GlobeGeometry {
             guard length > 0.0001 else {
                 self.axis = SIMD3<Float>(0, 0, 1)
                 self.radiusCosine = -1
+                self.radiusAngle = .pi
                 return
             }
 
@@ -62,6 +69,7 @@ enum GlobeGeometry {
 
             self.axis = centre
             self.radiusCosine = lowest
+            self.radiusAngle = acos(max(-1, min(1, lowest)))
         }
     }
 
