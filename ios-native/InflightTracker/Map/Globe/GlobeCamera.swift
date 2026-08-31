@@ -141,10 +141,18 @@ struct GlobeCamera: Equatable {
     /// the viewport.
     ///
     /// The floor leaves the whole planet comfortably inside the screen with the
-    /// chrome over it; the ceiling is where the 110m outlines stop being an
-    /// outline and start being a polygon, which is about a country filling the
-    /// screen. Zooming past the data would be offering detail that is not
-    /// there.
+    /// chrome over it.
+    ///
+    /// The ceiling used to be fourteen, which is where 110m outlines stop being
+    /// an outline and start being a polygon — the point past which zooming
+    /// offers detail that is not in the data. That was the right ceiling for a
+    /// screen you opened to see the whole world and closed again. It is the
+    /// wrong one for a map you are on all day: somebody following an approach
+    /// wants to be closer than a country filling the screen, and what they are
+    /// looking at by then is the aircraft rather than the coastline. So the
+    /// ceiling is now where the *traffic* stops being readable rather than
+    /// where the cartography does, and the coarse coastline at the top of the
+    /// range is a known, visible cost rather than a surprise.
     static let minimumScale: CGFloat = 0.9
-    static let maximumScale: CGFloat = 14
+    static let maximumScale: CGFloat = 24
 }

@@ -93,6 +93,60 @@ struct MapStyleSettingsPanel: View {
                 .opacity(appearance.mapPalette.usesImagery ? 0.45 : 1)
             }
             .panelEntrance(1)
+
+            // The planet's own three, and only when the planet is what the map
+            // is. Fifteen rows about a shape you have not picked is most of
+            // this screen spent on a map you are not looking at — and the row
+            // that turns them on is directly above, with a picture of the thing
+            // on it.
+            if appearance.mapProjection == .planet {
+                PanelSection(title: "PLANET COLOUR") {
+                    ForEach(GlobeSkin.allCases) { skin in
+                        if skin != GlobeSkin.allCases.first { PanelDivider() }
+
+                        GlobeChoiceRow(
+                            title: skin.label,
+                            detail: skin.detail,
+                            isSelected: appearance.globeSkin == skin,
+                            skin: skin,
+                            backdrop: appearance.globeBackdrop
+                        ) {
+                            appearance.globeSkin = skin
+                        }
+                    }
+                }
+                .panelEntrance(2)
+
+                PanelSection(title: "BEHIND THE PLANET") {
+                    ForEach(GlobeBackdrop.allCases) { backdrop in
+                        if backdrop != GlobeBackdrop.allCases.first { PanelDivider() }
+
+                        GlobeChoiceRow(
+                            title: backdrop.label,
+                            detail: backdrop.detail,
+                            isSelected: appearance.globeBackdrop == backdrop,
+                            // The skin is held still down this list and the
+                            // backdrop changes, which is the only way to see
+                            // what a backdrop does.
+                            skin: appearance.globeSkin,
+                            backdrop: backdrop
+                        ) {
+                            appearance.globeBackdrop = backdrop
+                        }
+                    }
+                }
+                .panelEntrance(3)
+
+                PanelSection(title: "TRAFFIC") {
+                    PanelToggleRow(
+                        title: "Aircraft shapes",
+                        symbol: "airplane",
+                        detail: "Draws the traffic as aircraft, pointing where they are going, rather than as dots. A packet too dense for silhouettes to read falls back to dots on its own.",
+                        isOn: $appearance.globeShowsPlanes
+                    )
+                }
+                .panelEntrance(4)
+            }
         }
         .sheet(isPresented: $isShowingPaywall) { ProPanel() }
     }
@@ -503,6 +557,66 @@ struct AboutSettingsPanel: View {
 }
 
 // MARK: - Shared pieces
+
+/// One choice about how the planet is drawn — its colours, or what is behind
+/// it.
+///
+/// Its own row rather than a `SettingsChoiceRow` with another optional on it.
+/// That row's picture is a `MapLook`, which is MapKit's question — a projection
+/// and a palette and an elevation style — and none of the planet's three
+/// settings is expressible in one. Nothing here is Pro either, so the whole
+/// locked/paywall half of that row would be dead weight.
+struct GlobeChoiceRow: View {
+
+    let title: String
+    let detail: String
+    let isSelected: Bool
+    let skin: GlobeSkin
+    let backdrop: GlobeBackdrop
+    let select: () -> Void
+
+    @ObservedObject private var appearance = FlightInfoAppearance.shared
+
+    private var theme: FlightInfoTheme { appearance.theme }
+
+    var body: some View {
+        Button(action: select) {
+            HStack(spacing: 10) {
+                GlobeSwatch(skin: skin, backdrop: backdrop)
+                    .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous)
+                            .strokeBorder(theme.strokeStrong, lineWidth: 1)
+                    }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(theme.textPrimary)
+                        .flightInfoLine(minimumScale: 0.8)
+
+                    Text(detail)
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(theme.textDim)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 8)
+
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(theme.textPrimary)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : [.isButton])
+    }
+}
 
 /// One choice about how something is drawn — the map's shape, its palette.
 ///

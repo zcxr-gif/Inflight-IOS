@@ -41,8 +41,13 @@ struct MapStyleThumbnail: View {
 
     private var theme: FlightInfoTheme { appearance.theme }
 
+    /// Whether this look is the app's own drawn planet, which is previewed by
+    /// drawing it rather than by photographing MapKit — the snapshotter has no
+    /// idea this map exists.
+    private var isDrawn: Bool { look.projection.isDrawn }
+
     /// The planet is round; the chart is not.
-    private var isPlanet: Bool { look.projection == .globe }
+    private var isPlanet: Bool { look.projection != .flat }
 
     private var radius: CGFloat { theme.radiusSmall }
 
@@ -55,6 +60,7 @@ struct MapStyleThumbnail: View {
             // cache behind this means flipping through the list a second time
             // costs nothing.
             .task(id: loader.key(for: look, scheme: scheme, side: side)) {
+                guard !isDrawn else { return }
                 loader.load(look: look, scheme: scheme, side: side)
             }
             .accessibilityHidden(true)
@@ -62,7 +68,9 @@ struct MapStyleThumbnail: View {
 
     @ViewBuilder
     private var picture: some View {
-        if let image = loader.image {
+        if isDrawn {
+            GlobeSwatch(skin: appearance.globeSkin, backdrop: appearance.globeBackdrop, side: side)
+        } else if let image = loader.image {
             Image(uiImage: image)
                 .resizable()
                 .scaledToFill()

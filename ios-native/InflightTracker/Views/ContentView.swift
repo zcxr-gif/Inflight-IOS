@@ -637,6 +637,77 @@ struct ContentView: View {
         .ignoresSafeArea()
     }
 
+    /// The map underneath everything: MapKit, or the planet the app draws
+    /// itself.
+    ///
+    /// One layer swapped for another inside the same stack, and that is the
+    /// whole design. Everything over the top of this — the search field, the
+    /// weather chip, the hub, the toolbar, the dock, every panel and the flight
+    /// window — is chrome that talks to `selection`, `sheet` and the feed
+    /// rather than to MapKit, so it does not know or care which of the two is
+    /// underneath it and goes on working either way.
+    @ViewBuilder
+    private var mapLayer: some View {
+        if isPlanetMap { planet } else { map }
+    }
+
+    /// Whether the map is the drawn planet. See `MapProjection.planet`.
+    private var isPlanetMap: Bool { appearance.resolvedMapStyle.isDrawn }
+
+    /// The drawn planet, standing where MapKit usually does.
+    private var planet: some View {
+        PlanetSurface(
+            flights: visibleFlights,
+            airports: filters.showsAirports ? mapAirports : [],
+            signature: planetSignature,
+            openFlightId: selection?.id,
+            route: planetRoute,
+            start: planetStart,
+            command: mapCommand,
+            replayFrame: replay.frame,
+            bottomInset: mapBottomInset,
+            trailingInset: mapTrailingInset,
+            onSelectFlight: { flight in
+                selection = SelectedFlight(id: flight.id)
+            },
+            onSelectAirport: { field in
+                selection = nil
+                openAirport(field)
+            }
+        )
+        .ignoresSafeArea()
+    }
+
+    /// A stamp of everything the planet's scene is built from. The map already
+    /// keeps one for the traffic; the fields have their own.
+    private var planetSignature: Int {
+        var hasher = Hasher()
+        hasher.combine(trafficRevision)
+        hasher.combine(airportsRevision)
+        hasher.combine(filters.showsAirports)
+        return hasher.finalize()
+    }
+
+    /// The open aircraft's route, for the planet to draw as two great circles.
+    ///
+    /// Follows the same filter the flat map's route line does, so turning the
+    /// line off turns it off on both. The filed plan is not offered here — that
+    /// is a fetched list of waypoints the map holds and the planet does not —
+    /// and asking for it draws the direct line instead, which is the honest
+    /// half of the answer rather than nothing.
+    private var planetRoute: GlobeScene.GlobeRoute? {
+        guard filters.showsDirectLine || filters.showsFlightPlan,
+              let selected = selection,
+              let flight = feed.flights.first(where: { $0.id == selected.id }) else { return nil }
+
+        let store = AirportStore.shared
+        return GlobeScene.GlobeRoute(
+            departure: flight.departureIcao.flatMap { store.airport($0)?.coordinate },
+            position: flight.coordinate,
+            arrival: flight.arrivalIcao.flatMap { store.airport($0)?.coordinate }
+        )
+    }
+
     /// The top row: what you are looking for, or what you have found, and your
     /// own face beside it.
     ///
@@ -689,7 +760,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 10) {
             topRow
 
-            if weatherPreferences.mapLayer != .off {
+            if weatherPreferences.mapLayer != .off, !isPlanetMap {
                 MapWeatherBar(model: mapWeather, theme: theme)
                     .transition(.opacity.combined(with: .move(edge: .leading)))
             }
@@ -709,7 +780,7 @@ struct ContentView: View {
     /// expressions rather than one very large one.
     private var mapStack: some View {
         ZStack(alignment: .top) {
-            map
+            mapLayer
             topChrome
             mapControls
             weatherControl
@@ -1752,7 +1823,12 @@ struct ContentView: View {
     /// in the menu.
     @ViewBuilder
     private var weatherControl: some View {
-        if selection == nil, !replay.isActive {
+        // Nothing to switch on where there are no tiles to switch on. The
+        // planet is drawn from vectors the app ships, so the radar, the
+        // satellite layer and the wind barbs — all of which are MapKit
+        // overlays — have nothing to draw over. Hidden rather than shown doing
+        // nothing: a control that is there and inert is a bug report.
+        if selection == nil, !replay.isActive, !isPlanetMap {
             Menu {
                 Section("Layer") {
                     // Buttons rather than a `Picker`, for the same reason the
@@ -1862,6 +1938,10 @@ struct ContentView: View {
     /// again.
     private func select(_ projection: MapProjection) {
         appearance.mapProjection = projection
+        // The ruler is a pair of MapKit annotations, so a measurement in
+        // progress has nowhere to be on the drawn planet. Put away rather than
+        // left up over a map that cannot answer it.
+        if projection.isDrawn { measurement = MapMeasurement() }
         if projection.isPro, !entitlements.isPro { isShowingStylePaywall = true }
     }
 
@@ -1876,19 +1956,82 @@ struct ContentView: View {
 
     /// Whether the map is the planet, which is the one look that decides what
     /// it is drawn in for itself.
-    private var isGlobe: Bool { appearance.resolvedMapStyle.projection == .globe }
+    /// Whether the map decides its own colours, which both round shapes do —
+    /// the globe because it is imagery whatever is picked, the planet because
+    /// it has a list of its own. Either way `MapPalette` has nothing to act on.
+    private var usesOwnPalette: Bool {
+        let projection = appearance.resolvedMapStyle.projection
+        return projection == .globe || projection == .planet
+    }
 
     /// The glyph on the corner button: the shape of the map when it is the
     /// planet, since that is the bigger fact about it, and otherwise whatever
     /// it is drawn in.
     private var mapStyleSymbol: String {
         let style = appearance.resolvedMapStyle
-        return style.projection == .globe ? style.projection.symbol : style.resolvedPalette.symbol
+        // Both round shapes answer with the shape. What the flat map is drawn
+        // in is the interesting half of the question only when the map is flat;
+        // on a globe or the planet, that it is round is the bigger fact.
+        return style.projection == .flat ? style.resolvedPalette.symbol : style.projection.symbol
     }
 
     private var mapStyleLabel: String {
         let style = appearance.resolvedMapStyle
         return "Map style, \(style.projection.label.lowercased()), \(style.resolvedPalette.label.lowercased())"
+    }
+
+    /// The planet's own three, for the style menu.
+    ///
+    /// In submenus rather than laid out in the menu itself: ten colours and
+    /// five backdrops is a good list to choose from and a terrible one to
+    /// scroll past on the way to something else.
+    ///
+    /// Lifted out of `mapStyleControl` for the same reason the map's insets
+    /// were lifted out of its argument list — Swift type-checks a view's body
+    /// as one expression, and this menu was already three sections and two
+    /// `ForEach`es deep before any of this was in it.
+    @ViewBuilder
+    private var planetStyleSection: some View {
+        if isPlanetMap {
+            Section("Planet") {
+                Menu("Colour") {
+                    ForEach(GlobeSkin.allCases) { skin in
+                        Button {
+                            appearance.globeSkin = skin
+                        } label: {
+                            Label(
+                                skin.label,
+                                systemImage: appearance.globeSkin == skin ? "checkmark" : "circle.fill"
+                            )
+                        }
+                    }
+                }
+
+                Menu("Background") {
+                    ForEach(GlobeBackdrop.allCases) { backdrop in
+                        Button {
+                            appearance.globeBackdrop = backdrop
+                        } label: {
+                            Label(
+                                backdrop.label,
+                                systemImage: appearance.globeBackdrop == backdrop
+                                    ? "checkmark"
+                                    : backdrop.symbol
+                            )
+                        }
+                    }
+                }
+
+                Button {
+                    appearance.globeShowsPlanes.toggle()
+                } label: {
+                    Label(
+                        "Aircraft shapes",
+                        systemImage: appearance.globeShowsPlanes ? "checkmark" : "airplane"
+                    )
+                }
+            }
+        }
     }
 
     /// How the map is drawn, in the corner that holds the map's controls.
@@ -1926,13 +2069,19 @@ struct ContentView: View {
                 // the first: both leave the map for a different way of looking
                 // at the same packet, where everything below changes the map
                 // you are already on.
-                mapButton("globe.europe.africa", "See the whole planet") {
-                    isShowingPlanet = true
-                }
+                //
+                // Not offered when the map *is* the planet. Opening a full
+                // screen copy of what is already underneath you is a button
+                // that appears to do nothing.
+                if !isPlanetMap {
+                    mapButton("globe.europe.africa", "See the whole planet") {
+                        isShowingPlanet = true
+                    }
 
-                Rectangle()
-                    .fill(theme.stroke)
-                    .frame(height: 1)
+                    Rectangle()
+                        .fill(theme.stroke)
+                        .frame(height: 1)
+                }
 
                 Menu {
                     // Buttons rather than a `Picker` bound to the setting: some
@@ -1961,7 +2110,7 @@ struct ContentView: View {
                     // taken away: a section that vanishes reads as a feature
                     // that has gone missing, where a disabled one that agrees
                     // with what is on screen reads as an answer.
-                    Section(isGlobe ? "Map (flat only)" : "Map") {
+                    Section(usesOwnPalette ? "Map (flat only)" : "Map") {
                         ForEach(MapPalette.allCases) { palette in
                             Button {
                                 select(palette)
@@ -1977,9 +2126,11 @@ struct ContentView: View {
                                         : palette.symbol
                                 )
                             }
-                            .disabled(isGlobe)
+                            .disabled(usesOwnPalette)
                         }
                     }
+
+                    planetStyleSection
 
                     Section {
                         // Nothing to turn up on imagery: it has no roads, no
@@ -1992,7 +2143,9 @@ struct ContentView: View {
                                 systemImage: appearance.isMapDetailed ? "checkmark" : "map.fill"
                             )
                         }
-                        .disabled(appearance.resolvedMapStyle.resolvedPalette.usesImagery)
+                        .disabled(
+                            appearance.resolvedMapStyle.resolvedPalette.usesImagery || isPlanetMap
+                        )
 
                         // Real height under the map, and a camera free to lean
                         // over and look along it.
@@ -2012,27 +2165,32 @@ struct ContentView: View {
                                     : "mountain.2.fill"
                             )
                         }
-                        .disabled(appearance.mapProjection == .globe)
+                        .disabled(usesOwnPalette)
                     }
                 } label: {
                     mapControlFace(mapStyleSymbol, isOn: false)
                 }
                 .accessibilityLabel(mapStyleLabel)
 
-                Rectangle()
-                    .fill(theme.stroke)
-                    .frame(height: 1)
-
                 // The ruler lives beside the style rather than in the flight
                 // window's hub: measuring is about the map, and it is most
                 // wanted when no aircraft is open and you are looking at the
                 // shape of somewhere.
-                mapButton(
-                    "ruler",
-                    measurement.isOn ? "Put the ruler away" : "Measure a distance",
-                    isOn: measurement.isOn
-                ) {
-                    measurement.isOn.toggle()
+                //
+                // Gone on the planet, where the two ends of a measurement would
+                // be MapKit annotations on a map that is not there.
+                if !isPlanetMap {
+                    Rectangle()
+                        .fill(theme.stroke)
+                        .frame(height: 1)
+
+                    mapButton(
+                        "ruler",
+                        measurement.isOn ? "Put the ruler away" : "Measure a distance",
+                        isOn: measurement.isOn
+                    ) {
+                        measurement.isOn.toggle()
+                    }
                 }
             }
             .frame(width: 44)

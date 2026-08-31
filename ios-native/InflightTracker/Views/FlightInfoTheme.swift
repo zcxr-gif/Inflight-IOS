@@ -117,6 +117,9 @@ final class FlightInfoAppearance: ObservableObject {
     private static let mapPaletteKey = "map.palette"
     private static let mapDetailKey = "map.detailed"
     private static let mapTerrainKey = "map.terrain"
+    private static let globeSkinKey = "map.globe.skin"
+    private static let globeBackdropKey = "map.globe.backdrop"
+    private static let globePlanesKey = "map.globe.planes"
 
     @Published var isGlassEnabled: Bool {
         didSet { UserDefaults.standard.set(isGlassEnabled, forKey: Self.glassKey) }
@@ -213,6 +216,37 @@ final class FlightInfoAppearance: ObservableObject {
     /// for the people who want it.
     @Published var isMapTerrain: Bool {
         didSet { UserDefaults.standard.set(isMapTerrain, forKey: Self.mapTerrainKey) }
+    }
+
+    /// What colour the drawn planet is. See `GlobeSkin`.
+    ///
+    /// Its own axis rather than a fifth `MapPalette`, for the same reason the
+    /// shape and the finish were split in the first place: these are the
+    /// colours of a *drawing*, and MapKit has no equivalent of them. A skin
+    /// picked here does nothing at all to the flat map, and the flat map's
+    /// palette does nothing to the planet — which is honest, and is what stops
+    /// either list from being half full of choices that do not apply.
+    @Published var globeSkin: GlobeSkin {
+        didSet { UserDefaults.standard.set(globeSkin.rawValue, forKey: Self.globeSkinKey) }
+    }
+
+    /// What is behind the planet. See `GlobeBackdrop`.
+    @Published var globeBackdrop: GlobeBackdrop {
+        didSet { UserDefaults.standard.set(globeBackdrop.rawValue, forKey: Self.globeBackdropKey) }
+    }
+
+    /// Whether the traffic on the planet is drawn as aircraft rather than as
+    /// dots.
+    ///
+    /// On by default. The globe started out drawing dots because it was a view
+    /// of the whole world, where a silhouette is smaller than the aeroplane it
+    /// stands for — but the planet is a map you zoom into now, and at anything
+    /// closer than a hemisphere a dot throws away the one thing a sprite says
+    /// for free, which is which way the thing is pointing. The canvas still
+    /// falls back to dots on its own when a packet is too dense for artwork to
+    /// read; see `GlobeCanvasView.planeLimit`.
+    @Published var globeShowsPlanes: Bool {
+        didSet { UserDefaults.standard.set(globeShowsPlanes, forKey: Self.globePlanesKey) }
     }
 
     /// What iOS itself is set to, reported in by the root view.
@@ -321,6 +355,15 @@ final class FlightInfoAppearance: ObservableObject {
         // always had elevation — gets it from its projection rather than from
         // here.
         isMapTerrain = defaults.object(forKey: Self.mapTerrainKey) as? Bool ?? false
+
+        // The planet's own three. No legacy read-across: none of them existed
+        // before the planet became a map, and the defaults are what it looked
+        // like when it was a screen — a globe that follows the app's light and
+        // dark, on the app's own ground.
+        globeSkin = GlobeSkin(rawValue: defaults.string(forKey: Self.globeSkinKey) ?? "") ?? .auto
+        globeBackdrop = GlobeBackdrop(rawValue: defaults.string(forKey: Self.globeBackdropKey) ?? "")
+            ?? .app
+        globeShowsPlanes = defaults.object(forKey: Self.globePlanesKey) as? Bool ?? true
     }
 }
 
