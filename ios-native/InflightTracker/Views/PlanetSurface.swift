@@ -27,6 +27,10 @@ struct PlanetSurface: View {
     /// flying in parallel lines across an ocean.
     @ObservedObject private var natTracks = NatTrackService.shared
 
+    /// The pavement store, observed so that a layout arriving from the network
+    /// after the planet has already settled over the field still gets drawn.
+    @ObservedObject private var layouts = AirportLayoutStore.shared
+
     /// The traffic, the fields and the route, rebuilt when a packet lands
     /// rather than when the planet turns. See `GlobeScene`.
     @StateObject private var scene = GlobeScene()
@@ -77,6 +81,37 @@ struct PlanetSurface: View {
     /// frame: the terminator moves a quarter of a degree a minute.
     @State private var sun: SIMD3<Float>?
 
+    /// Where the planet has settled, reported by the canvas. The camera itself
+    /// stays down in the canvas — this is a place, not a camera, and it only
+    /// moves when the planet stops.
+    @State private var spot: CameraSpot?
+
+    /// Whichever field the planet is currently over, so the arrival of *its*
+    /// layout is the thing that redraws.
+    @State private var groundIcao: String?
+
+    private struct CameraSpot: Equatable {
+        var latitude: Double
+        var longitude: Double
+        var spanMetres: Double
+    }
+
+    /// How much ground has to be on screen before a field's pavement is worth
+    /// *fetching*, in metres.
+    ///
+    /// Deliberately much wider than the zoom it is drawn at — see
+    /// `GlobeCanvasView.drawGround` — and that gap is the point. A layout is
+    /// an Overpass round trip, so asking for it at the moment it becomes
+    /// visible means several seconds of an empty aerodrome first. Asking about
+    /// an octave and a half earlier means it is already there.
+    ///
+    /// The flat map's nine nautical miles is the number for a map that is
+    /// already drawing roads under you. Here there is nothing else at that
+    /// zoom, and nine miles is the last one per cent of a zoom range that now
+    /// runs to two hundred metres — you could pinch ten times without ever
+    /// finding out the layer existed.
+    private static let groundLoadSpanMetres: Double = 50 * 1852
+
     /// Static, so the timer belongs to the type rather than to a `View` value
     /// that SwiftUI rebuilds whenever anything on screen changes. A stored
     /// `Timer.publish` on the struct would start a fresh one per body.
@@ -108,6 +143,13 @@ struct PlanetSurface: View {
             bottomInset: bottomInset,
             trailingInset: trailingInset,
             command: globeCommand,
+            onCameraMoved: { centre, span in
+                spot = CameraSpot(
+                    latitude: centre.latitude,
+                    longitude: centre.longitude,
+                    spanMetres: span
+                )
+            },
             onSelectFlight: { id in
                 guard let flight = flights.first(where: { $0.id == id }) else { return }
                 onSelectFlight(flight)
@@ -128,6 +170,53 @@ struct PlanetSurface: View {
         }
         .onReceive(Self.clock) { _ in sun = Self.sunVector() }
         .onChange(of: sceneSignature) { _, _ in rebuild() }
+        .onChange(of: spot) { _, _ in syncGround() }
+        // The field is asked for the moment the planet settles over it and the
+        // answer arrives from the network some time later. This is that later.
+        .onChange(of: layouts.state(for: groundIcao ?? "")) { _, _ in syncGround() }
+    }
+
+    // MARK: - The ground
+
+    /// Puts the pavement of whichever field the planet is sitting over into
+    /// the scene, once it is close enough for pavement to mean anything.
+    ///
+    /// The same shape as the flat map's `syncGround`, and for the same reason:
+    /// resolving which field a place belongs to is a walk over the whole
+    /// airport dataset on a cache miss, so it happens when the planet stops
+    /// moving rather than while it is moving.
+    private func syncGround() {
+        guard let spot = spot, spot.spanMetres <= Self.groundLoadSpanMetres else {
+            groundIcao = nil
+            scene.setGround(nil)
+            return
+        }
+
+        let centre = CLLocationCoordinate2D(
+            latitude: spot.latitude,
+            longitude: spot.longitude
+        )
+        guard let field = AirportStore.shared.nearestAirport(
+            to: centre,
+            withinNM: 9
+        ) else {
+            groundIcao = nil
+            scene.setGround(nil)
+            return
+        }
+
+        if groundIcao != field.icao { groundIcao = field.icao }
+
+        if case .idle = layouts.state(for: field.icao) {
+            // Off the update, not inside it. `load` publishes, and publishing
+            // from inside a SwiftUI update is the warning SwiftUI exists to
+            // give.
+            DispatchQueue.main.async { layouts.load(field) }
+            return
+        }
+
+        guard let layout = layouts.layout(for: field.icao) else { return }
+        scene.setGround(GlobeGround(layout, at: field.coordinate))
     }
 
     /// The chrome's camera request, in the terms the canvas takes.

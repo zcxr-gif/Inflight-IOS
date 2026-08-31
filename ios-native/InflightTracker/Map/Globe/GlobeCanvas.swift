@@ -1,4 +1,5 @@
 import CoreLocation
+import QuartzCore
 import SwiftUI
 import UIKit
 import simd
@@ -78,6 +79,11 @@ struct GlobeCanvas: UIViewRepresentable {
     /// itself, against the same scene and the same camera it drew — so what you
     /// can tap is exactly what you can see, rather than a second projection
     /// that has to be kept in step with the first.
+    /// Where the planet has settled, and how much ground is across the short
+    /// side of it in metres. What lets the layer above go and find the field
+    /// the camera is over — see `PlanetSurface.syncGround`.
+    var onCameraMoved: ((CLLocationCoordinate2D, Double) -> Void)? = nil
+
     var onSelectFlight: ((String) -> Void)? = nil
     var onSelectField: ((String) -> Void)? = nil
 
@@ -95,6 +101,7 @@ struct GlobeCanvas: UIViewRepresentable {
     func updateUIView(_ view: GlobeCanvasView, context: Context) {
         view.onSelectFlight = onSelectFlight
         view.onSelectField = onSelectField
+        view.onCameraMoved = onCameraMoved
         view.apply(
             palette: palette,
             backdrop: backdrop,
@@ -145,7 +152,40 @@ enum GlobeMarkMetrics {
     static let tappableDepth: Float = 0.18
 }
 
+/// The planet, over the sky.
+///
+/// Two layers rather than one, and the split is the whole point. The sky — a
+/// gradient, seven hundred stars, a vignette — does not change when the planet
+/// turns, and it covers the entire screen. Drawn into the same bitmap as the
+/// planet, it had to be laid down again on *every frame of every gesture*: a
+/// full-screen composite, sixty times a second, to reproduce the picture that
+/// was already there.
+///
+/// Now it is a layer of its own, painted when the backdrop or the size changes
+/// and composited by the GPU after that, which is the thing GPUs are for. The
+/// planet draws into a transparent layer above it — a memset and a blend over
+/// the quarter of the screen the disc actually covers, against a full-screen
+/// copy.
+///
+/// It also unties the resolution from the sky. `updateResolution` drops the
+/// planet's pixel count while a finger is down; when the sky shared that
+/// bitmap, every step of that meant either resampling a three-megapixel image
+/// per frame or rebuilding it mid-gesture. The sky is simply always sharp now,
+/// and costs nothing for being so.
+private final class GlobePlanetView: UIView {
+
+    weak var owner: GlobeCanvasView?
+
+    override func draw(_ rect: CGRect) {
+        guard let context = UIGraphicsGetCurrentContext() else { return }
+        owner?.drawPlanet(in: context)
+    }
+}
+
 final class GlobeCanvasView: UIView {
+
+    /// Everything that moves. See `GlobePlanetView`.
+    private let planetView = GlobePlanetView()
 
     // MARK: - What the view is handed
 
@@ -165,6 +205,7 @@ final class GlobeCanvasView: UIView {
 
     var onSelectFlight: ((String) -> Void)?
     var onSelectField: ((String) -> Void)?
+    var onCameraMoved: ((CLLocationCoordinate2D, Double) -> Void)?
 
     // MARK: - What the view owns
     //
@@ -186,21 +227,70 @@ final class GlobeCanvasView: UIView {
     /// to, and a rotation must not fly it back to where the map was.
     private var isReady = false
 
-    /// Where the planet was pointed when the current drag began.
+    /// What the fingers are doing.
     ///
-    /// Two numbers rather than the whole camera, and that is not tidiness. Held
-    /// as a `GlobeCamera` it carried the *radius* too, and a pan applies its
-    /// whole translation from the start each update — so every frame of a drag
-    /// wrote back the radius from when that drag began. With pan and pinch
-    /// recognised simultaneously, which they must be for a hand to turn and
-    /// zoom in one movement, that meant the pan spent the entire pinch undoing
-    /// it: the zoom snapped back to where it was a finger-touch ago, sixty
-    /// times a second. A drag turns the planet. It has no opinion about how far
-    /// away it is.
-    private var panOrigin: (latitude: Double, longitude: Double)?
-    private var pinchStart: CGFloat?
+    /// The pan is applied as the *change* since the last update rather than as
+    /// the whole translation since the drag began, which is why there is no
+    /// origin here any more. The old arrangement wound the heading back to the
+    /// start of the drag on every frame and re-applied everything, and it had
+    /// to hold a separate origin so that a pinch running alongside it was not
+    /// undone sixty times a second. Deltas have no such problem: each one is
+    /// applied to whatever the camera is now, so a pinch and a drag simply
+    /// compose, and `GlobeCamera.drag` gets to use the latitude you are
+    /// actually at when it decides what a point of screen is worth.
+    private var isPanning = false
 
-    private var isInteracting: Bool { panOrigin != nil || pinchStart != nil }
+    /// Whether a pinch ran at any point during the drag now ending.
+    private var wasPinched = false
+
+    /// Whether two fingers are running a pinch, and what was under them when
+    /// it began — so the ground between them stays between them. The pinch
+    /// tracks its own midpoint, which *is* a two-finger drag, so while it is
+    /// live it owns the translation as well and the pan stands off. See
+    /// `pin(_:at:)`.
+    private var isPinching = false
+    private var pinchAnchor: SIMD3<Double>?
+
+    /// A flick, in points a second, decaying. Nil when the planet is still.
+    private var momentum: CGVector?
+
+    /// A zoom being animated by a tap: where it is going, and how far through.
+    private var zoomFrom: CGFloat = 0
+    private var zoomTo: CGFloat = 0
+    private var zoomAnchor: SIMD3<Double>?
+    private var zoomPoint: CGPoint = .zero
+    private var zoomProgress: Double = 0
+
+    private var isZooming: Bool { zoomProgress > 0 && zoomProgress < 1 }
+
+    /// Drives the glide and the tap zoom. Nil whenever neither is running, so
+    /// a still planet costs nothing.
+    private var animator: CADisplayLink?
+
+    /// Whether the planet is moving, by a finger or by its own momentum. What
+    /// decides the drawing resolution.
+    private var isInteracting: Bool {
+        isPanning || isPinching || momentum != nil || isZooming
+    }
+
+    /// Whether this planet is one you can turn, rather than a swatch drawn
+    /// from a camera it was handed.
+    private var isLive: Bool { still == nil }
+
+    // MARK: - Keeping up
+
+    /// How long the planet has been taking to draw, in seconds, smoothed over
+    /// the last several frames.
+    private var frameCost: Double = 0
+
+    /// The resolution the planet is drawn at while it is moving, found rather
+    /// than assumed. See `tuneResolution`.
+    private var interactiveScale: CGFloat = 2
+
+    /// Frames in a row on the wrong side of a threshold, so that one slow
+    /// frame does not soften the map and one quick one does not sharpen it.
+    private var slowFrames = 0
+    private var quickFrames = 0
 
     // MARK: - Caches
 
@@ -208,33 +298,96 @@ final class GlobeCanvasView: UIView {
     /// is the only thing that can make one wrong.
     private var labels: [String: UIImage] = [:]
 
-    /// The sky, rendered once.
-    ///
-    /// It is a gradient, up to seven hundred stars and a radial vignette, and
-    /// none of it moves when the planet turns — so drawing it per frame was
-    /// two full-screen per-pixel gradient composites and several hundred
-    /// ellipses, every frame, for a picture that was identical each time. Now
-    /// it is one bitmap and one blit.
-    private var sky: UIImage?
-    private var skySize: CGSize = .zero
-    private var skyScale: CGFloat = 0
-    private var skyStyle: GlobeBackdropStyle?
+    /// Scratch for the land fill: one landmass projected, and the same one
+    /// part way through being clipped. Held by the view rather than made per
+    /// ring, so a frame that walks three hundred coastlines does not allocate
+    /// six hundred arrays to throw all of them away — `removeAll(keepingCapacity:)`
+    /// keeps whatever the largest country needed.
+    private var outline: [CGPoint] = []
+    private var trimmed: [CGPoint] = []
+
+    /// The traffic, projected. Held by the view for the same reason the land
+    /// scratch is: a packet is three thousand of these and they are rebuilt
+    /// every frame of every gesture.
+    private var marks: [(index: Int, position: SIMD3<Float>, point: CGPoint, angle: CGFloat)] = []
+
 
     // MARK: - Setting up
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        addPlanet()
         addGestures()
+        watchMemory()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
+        addPlanet()
         addGestures()
+        watchMemory()
+    }
+
+    private func addPlanet() {
+        planetView.owner = self
+        planetView.isOpaque = false
+        planetView.backgroundColor = .clear
+        // Redrawn rather than stretched, so a coastline is a hairline at any
+        // zoom instead of a scaled bitmap.
+        planetView.contentMode = .redraw
+        // The gestures belong to the container, which is what the recognizers
+        // are attached to and what the hit test should find.
+        planetView.isUserInteractionEnabled = false
+        addSubview(planetView)
+    }
+
+    /// The field codes are the only bitmaps left here worth giving back, and
+    /// they redraw themselves the next time a field is on screen.
+    private func watchMemory() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(dropCaches),
+            name: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil
+        )
+    }
+
+    @objc private func dropCaches() {
+        labels.removeAll()
+    }
+
+    /// A `CADisplayLink` holds its target, and the runloop holds the link — so
+    /// a planet taken off screen mid-glide would go on turning, and go on
+    /// existing, for as long as the app did.
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window == nil else { return }
+        momentum = nil
+        zoomProgress = 0
+        zoomAnchor = nil
+        stopAnimator()
+    }
+
+    deinit { animator?.invalidate() }
+
+    /// The same set of gestures Maps has, because this is a map.
+    /// A planet handed a fixed camera is a swatch — a forty-eight point
+    /// picture of a globe in a settings row. It is not something to turn, and
+    /// nothing may move its camera off the one it was given.
+    ///
+    /// `UIView` declares this itself rather than only picking it up from
+    /// `UIGestureRecognizerDelegate`, so it is an override and lives here with
+    /// the other overrides rather than down in the delegate extension.
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        isLive
     }
 
     private func addGestures() {
+        // Two fingers as well as one. A pinch that has drifted into a drag is
+        // one movement to a hand, and refusing the second finger is how a map
+        // starts feeling like a diagram of a map.
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan))
-        pan.maximumNumberOfTouches = 1
+        pan.maximumNumberOfTouches = 2
         pan.delegate = self
         addGestureRecognizer(pan)
 
@@ -242,8 +395,24 @@ final class GlobeCanvasView: UIView {
         pinch.delegate = self
         addGestureRecognizer(pinch)
 
+        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleDoubleTap))
+        doubleTap.numberOfTapsRequired = 2
+        doubleTap.delegate = self
+        addGestureRecognizer(doubleTap)
+
+        let twoFingerTap = UITapGestureRecognizer(
+            target: self, action: #selector(handleTwoFingerTap)
+        )
+        twoFingerTap.numberOfTouchesRequired = 2
+        twoFingerTap.delegate = self
+        addGestureRecognizer(twoFingerTap)
+
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
         tap.delegate = self
+        // Opening an aircraft waits to find out whether a second tap is
+        // coming. Which is the trade Maps makes as well, and the alternative
+        // is a double tap that opens whatever was under the first of the two.
+        tap.require(toFail: doubleTap)
         addGestureRecognizer(tap)
     }
 
@@ -273,6 +442,7 @@ final class GlobeCanvasView: UIView {
             || still != self.still
 
         if palette != self.palette { labels.removeAll() }
+        let skyMoved = backdrop != self.backdrop
 
         let insetsMoved = bottomInset != self.bottomInset || trailingInset != self.trailingInset
 
@@ -292,12 +462,14 @@ final class GlobeCanvasView: UIView {
         // An opaque view has to have something behind the drawing during the
         // moment between a resize and the redraw, or the gap is undefined.
         backgroundColor = (backdrop.colors.first ?? .black).withAlphaComponent(1)
+        // The sky is repainted only when the sky changes.
+        if skyMoved { setNeedsDisplay() }
 
         if insetsMoved || still != nil { layoutCamera(); changed = true }
         if carryOut(command) { changed = true }
 
         guard changed else { return }
-        setNeedsDisplay()
+        redrawPlanet()
     }
 
     /// Points the planet where the chrome asked, once.
@@ -309,9 +481,10 @@ final class GlobeCanvasView: UIView {
         camera.longitude = GlobeCamera.wrapped(command.longitude)
 
         if let wanted = command.scale {
-            scale = min(GlobeCamera.maximumScale, max(GlobeCamera.minimumScale, wanted))
+            scale = clamped(wanted)
             camera.radius = fittedRadius * scale
         }
+        reportCamera()
         return true
     }
 
@@ -319,6 +492,7 @@ final class GlobeCanvasView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        planetView.frame = bounds
         layoutCamera()
     }
 
@@ -340,6 +514,10 @@ final class GlobeCanvasView: UIView {
             x: (bounds.width - trailingInset) / 2,
             y: (bounds.height - bottomInset) / 2
         )
+        // Re-clamped rather than carried over. The zoom is a multiple of the
+        // fitted radius and the ceiling is a distance across the ground, so a
+        // rotation or a split screen changes what the same multiple means.
+        scale = clamped(scale)
         camera.radius = fittedRadius * scale
 
         if !isReady {
@@ -347,7 +525,8 @@ final class GlobeCanvasView: UIView {
             camera.longitude = GlobeCamera.wrapped(start.longitude)
             isReady = true
         }
-        setNeedsDisplay()
+        reportCamera()
+        redrawPlanet()
     }
 
     /// The radius at which the whole planet sits inside the screen with room
@@ -363,30 +542,209 @@ final class GlobeCanvasView: UIView {
 
     // MARK: - Turning it
 
+    /// How close the planet may be pushed in, as a zoom multiple.
+    ///
+    /// Worked out from a distance across the ground rather than stored, so the
+    /// same rule gives the same closest approach on every screen. See
+    /// `GlobeCamera.minimumSpanMetres`.
+    private var maximumScale: CGFloat {
+        let fitted = fittedRadius
+        guard fitted > 0 else { return 1 }
+        let across = max(120, min(bounds.width - trailingInset, bounds.height - bottomInset))
+        let closest = GlobeCamera.radius(forSpan: GlobeCamera.minimumSpanMetres, across: across)
+        return max(GlobeCamera.minimumScale, closest / fitted)
+    }
+
+    private func clamped(_ wanted: CGFloat) -> CGFloat {
+        min(maximumScale, max(GlobeCamera.minimumScale, wanted))
+    }
+
+    /// The direction on the sphere under a point of screen, if the planet is
+    /// there to be under it.
+    ///
+    /// The inverse of the orthographic projection: the screen offset is the
+    /// sine of the angle from the middle, so the depth is what is left of the
+    /// unit vector. Off the disc there is no ground under the finger and the
+    /// answer is nothing.
+    /// Full precision, because this is the point a pinch promises to keep
+    /// under your fingers.
+    ///
+    /// A `Float` direction resolves to about forty centimetres of ground,
+    /// which at the closest zoom is three quarters of a point — so the anchor
+    /// itself was landing on a lattice, and `pin` was then solving exactly for
+    /// a slightly wrong place. The solve was always double precision inside;
+    /// this stops the answer being thrown away on the way in.
+    private func direction(at point: CGPoint) -> SIMD3<Double>? {
+        guard camera.radius > 0 else { return nil }
+        let u = Double((point.x - camera.center.x) / camera.radius)
+        let v = Double((camera.center.y - point.y) / camera.radius)
+        let flat = u * u + v * v
+        guard flat < 0.9801 else { return nil }
+
+        let basis = camera.basis
+        let depth = (1 - flat).squareRoot()
+        return simd_normalize(
+            basis.preciseEast * u + basis.preciseNorth * v + basis.preciseOut * depth
+        )
+    }
+
+    /// Turns the camera so `anchor` sits under `point`.
+    ///
+    /// ## Why a zoom needs this at all
+    ///
+    /// A pinch used to change the radius and nothing else, which zooms about
+    /// the middle of the screen — so whatever you had put your fingers on slid
+    /// away from them, and to look at something off-centre you had to zoom,
+    /// drag it back, and zoom again. Maps has never worked that way: the
+    /// ground between your fingers is the one part of the map that does not
+    /// move. This is what makes that true here, and it is what a double tap
+    /// and a two-finger tap zoom about as well.
+    ///
+    /// ## Solved rather than searched for
+    ///
+    /// Stepping towards the answer with the same drag a finger uses does not
+    /// work: `drag` is exact for the middle of the screen and the anchor is
+    /// not in the middle, so near the limb — where the projection is most
+    /// compressed — it converges slowly or overshoots, and a pinch that
+    /// overshoots throws the planet across the screen.
+    ///
+    /// It does not need searching for. Writing the anchor in the camera's own
+    /// frame, `A = u·east + v·north + w·out`, and taking the vertical
+    /// component gives `A.z = v·cos φ + w·sin φ` — one equation in the
+    /// latitude alone, because `east` is horizontal and contributes nothing to
+    /// it. `A·east = u` then gives the longitude the same way. Two roots each,
+    /// so four candidate cameras; the one that projects the anchor where it
+    /// was asked for, and moves least doing it, is the answer. Exact, and the
+    /// same handful of arithmetic every time.
+    ///
+    /// ## What cannot be done
+    ///
+    /// `east` being horizontal is also a real limit: `|A·east|` can never
+    /// exceed the cosine of the anchor's own latitude, so a point near a pole
+    /// cannot be pushed far off the middle of the screen by any camera that
+    /// does not roll — and this one deliberately does not, so that north stays
+    /// up. The target is clamped into what is reachable rather than refused,
+    /// which makes the ground slide under the fingers instead of stopping
+    /// dead. Zooming *in*, it never binds at all.
+    private func pin(_ anchor: SIMD3<Double>, at point: CGPoint) {
+        guard camera.radius > 0 else { return }
+
+        let ax = anchor.x, ay = anchor.y, az = anchor.z
+
+        // The cosine of the anchor's own latitude, which is how far off the
+        // middle of the screen it can be put.
+        let ring = (ax * ax + ay * ay).squareRoot()
+        guard ring > 1e-6 else { return }
+
+        var u = Double((point.x - camera.center.x) / camera.radius)
+        var v = Double((camera.center.y - point.y) / camera.radius)
+
+        // Onto the disc first, then into what this anchor can reach.
+        let flat = u * u + v * v
+        if flat > 0.9604 {
+            let pull = 0.98 / flat.squareRoot()
+            u *= pull
+            v *= pull
+        }
+        if abs(u) > ring {
+            u = u < 0 ? -ring : ring
+            let room = max(0, 0.9604 - u * u).squareRoot()
+            if abs(v) > room { v = v < 0 ? -room : room }
+        }
+
+        let depth = max(0, 1 - u * u - v * v).squareRoot()
+        let column = max(1e-12, 1 - u * u).squareRoot()
+        guard abs(az) <= column else { return }
+
+        let phase = atan2(depth, v)
+        let spread = acos(max(-1, min(1, az / column)))
+        let swing = atan2(ax, ay)
+        let offset = acos(max(-1, min(1, u / ring)))
+
+        let target = CGPoint(
+            x: camera.center.x + CGFloat(u) * camera.radius,
+            y: camera.center.y - CGFloat(v) * camera.radius
+        )
+
+        var best: (latitude: Double, longitude: Double)?
+        var least = Double.infinity
+
+        for radians in [phase + spread, phase - spread] {
+            let latitude = GlobeCamera.wrapped(radians * 180 / .pi)
+            guard abs(latitude) <= 90.000001 else { continue }
+
+            for turn in [offset - swing, -offset - swing] {
+                var trial = camera
+                trial.latitude = latitude
+                trial.longitude = GlobeCamera.wrapped(turn * 180 / .pi)
+
+                let landed = trial.project(anchor, using: trial.basis)
+                guard landed.depth > 0 else { continue }
+
+                let dx = Double(landed.point.x - target.x)
+                let dy = Double(landed.point.y - target.y)
+                guard dx * dx + dy * dy < 0.25 else { continue }
+
+                let moved = abs(trial.latitude - camera.latitude)
+                    + abs(GlobeCamera.wrapped(trial.longitude - camera.longitude))
+                if moved < least {
+                    least = moved
+                    best = (trial.latitude, trial.longitude)
+                }
+            }
+        }
+
+        // Nothing landed, or the only answer is most of a planet away: leave
+        // the camera where it is rather than have it jump.
+        guard let best = best, least <= Self.pinLimit else { return }
+        camera.latitude = best.latitude
+        camera.longitude = best.longitude
+    }
+
+    /// How far the camera may be moved by a single pin, in degrees. A pinch
+    /// step is a fraction of one; anything approaching this is the far root of
+    /// the same equation, and taking it would be a teleport.
+    private static let pinLimit: Double = 45
+
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
         switch gesture.state {
         case .began:
-            panOrigin = (camera.latitude, camera.longitude)
+            isPanning = true
+            wasPinched = false
+            momentum = nil
+            gesture.setTranslation(.zero, in: self)
             beginInteraction()
 
         case .changed:
-            guard let origin = panOrigin else { return }
+            // Read and reset, so what arrives is the change since the last
+            // frame rather than the whole drag re-applied.
             let moved = gesture.translation(in: self)
+            gesture.setTranslation(.zero, in: self)
 
-            // Started from the live camera, so the radius and the centre are
-            // whatever a pinch running alongside this has made them, and only
-            // the heading is wound back to where the drag began. `turn` scales
-            // by the radius as well, so the ground keeps up with the fingertip
-            // as the zoom changes under it.
-            var turned = camera
-            turned.latitude = origin.latitude
-            turned.longitude = origin.longitude
-            turned.turn(by: CGSize(width: moved.x, height: moved.y))
-            camera = turned
-            setNeedsDisplay()
+            // A live pinch is already following the midpoint of the same two
+            // fingers, and that midpoint moving is this translation. Applying
+            // both would move the planet twice as far as the hand did.
+            guard !isPinching else { wasPinched = true; return }
+
+            camera.drag(by: CGSize(width: moved.x, height: moved.y))
+            redrawPlanet()
 
         case .ended, .cancelled, .failed:
-            panOrigin = nil
+            isPanning = false
+            // A flick keeps going. The planet used to stop dead under your
+            // fingertip, which is the other half of what made this not feel
+            // like a map — everything on iOS that scrolls, glides.
+            let velocity = gesture.velocity(in: self)
+            let speed = (velocity.x * velocity.x + velocity.y * velocity.y).squareRoot()
+            // Never off the back of a pinch. Two fingers coming off a zoom
+            // are not a flick, and the velocity of their midpoint is not one
+            // either — it would sail the planet away from what you had just
+            // zoomed in on.
+            if gesture.state == .ended, !isPinching, !wasPinched,
+               speed > Self.glideThreshold {
+                momentum = CGVector(dx: velocity.x, dy: velocity.y)
+                runAnimator()
+            }
             endInteraction()
 
         default:
@@ -397,24 +755,116 @@ final class GlobeCanvasView: UIView {
     @objc private func handlePinch(_ gesture: UIPinchGestureRecognizer) {
         switch gesture.state {
         case .began:
-            pinchStart = scale
+            momentum = nil
+            isPinching = true
+            pinchAnchor = direction(at: gesture.location(in: self))
+            gesture.scale = 1
             beginInteraction()
 
         case .changed:
-            guard let base = pinchStart else { return }
-            scale = min(
-                GlobeCamera.maximumScale,
-                max(GlobeCamera.minimumScale, base * gesture.scale)
-            )
+            // Incremental, like the pan: the factor since the last frame,
+            // applied to wherever the zoom is now.
+            let factor = gesture.scale
+            gesture.scale = 1
+            guard factor > 0 else { return }
+
+            scale = clamped(scale * factor)
             camera.radius = fittedRadius * scale
-            setNeedsDisplay()
+
+            // Two fingers name a point on the map, and that point stays under
+            // them — through the zoom and as the midpoint itself moves.
+            if let anchor = pinchAnchor {
+                pin(anchor, at: gesture.location(in: self))
+            }
+            redrawPlanet()
 
         case .ended, .cancelled, .failed:
-            pinchStart = nil
+            isPinching = false
+            pinchAnchor = nil
             endInteraction()
 
         default:
             break
+        }
+    }
+
+    /// Double tap to come in, the way it does everywhere else on iOS.
+    @objc private func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
+        momentum = nil
+        begin(zoomTo: scale * 2, around: gesture.location(in: self))
+    }
+
+    /// Two fingers, one tap, to go back out. The other half of the pair.
+    @objc private func handleTwoFingerTap(_ gesture: UITapGestureRecognizer) {
+        momentum = nil
+        begin(zoomTo: scale * 0.5, around: gesture.location(in: self))
+    }
+
+    private func begin(zoomTo wanted: CGFloat, around point: CGPoint) {
+        let target = clamped(wanted)
+        guard abs(target - scale) > 0.0001 else { return }
+
+        zoomFrom = scale
+        zoomTo = target
+        zoomAnchor = direction(at: point)
+        zoomPoint = point
+        zoomProgress = 0.0001
+        updateResolution()
+        runAnimator()
+    }
+
+    /// How fast a flick has to be to keep going, in points a second.
+    private static let glideThreshold: CGFloat = 90
+
+    /// What is left of a flick after a second. Slower than a scroll view's,
+    /// because a planet has more of itself to show you than a list does.
+    private static let glideDecayPerSecond: CGFloat = 0.0015
+
+    private static let zoomDuration: Double = 0.28
+
+    private func runAnimator() {
+        guard animator == nil else { return }
+        let link = CADisplayLink(target: self, selector: #selector(step(_:)))
+        link.add(to: .main, forMode: .common)
+        animator = link
+    }
+
+    private func stopAnimator() {
+        animator?.invalidate()
+        animator = nil
+    }
+
+    @objc private func step(_ link: CADisplayLink) {
+        let elapsed = max(1.0 / 120, min(1.0 / 20, link.targetTimestamp - link.timestamp))
+
+        if isZooming {
+            zoomProgress = min(1, zoomProgress + elapsed / Self.zoomDuration)
+            // Eased, so a tap zoom arrives rather than stops.
+            let t = zoomProgress
+            let eased = CGFloat(t < 0.5 ? 4 * t * t * t : 1 - pow(-2 * t + 2, 3) / 2)
+            scale = zoomFrom + (zoomTo - zoomFrom) * eased
+            camera.radius = fittedRadius * scale
+            if let anchor = zoomAnchor { pin(anchor, at: zoomPoint) }
+            if zoomProgress >= 1 { zoomAnchor = nil }
+        }
+
+        if var flick = momentum {
+            camera.drag(by: CGSize(
+                width: flick.dx * CGFloat(elapsed),
+                height: flick.dy * CGFloat(elapsed)
+            ))
+            let decay = CGFloat(pow(Double(Self.glideDecayPerSecond), elapsed))
+            flick.dx *= decay
+            flick.dy *= decay
+            let speed = (flick.dx * flick.dx + flick.dy * flick.dy).squareRoot()
+            momentum = speed > 12 ? flick : nil
+        }
+
+        redrawPlanet()
+
+        if !isZooming && momentum == nil {
+            stopAnimator()
+            endInteraction()
         }
     }
 
@@ -434,13 +884,19 @@ final class GlobeCanvasView: UIView {
     }
 
     private func beginInteraction() {
+        // Whatever the last frame cost, it was drawn at the resting
+        // resolution and says nothing about what this gesture will cost.
+        frameCost = 0
+        slowFrames = 0
+        quickFrames = 0
         updateResolution()
     }
 
     private func endInteraction() {
         guard !isInteracting else { return }
         updateResolution()
-        setNeedsDisplay()
+        reportCamera()
+        redrawPlanet()
     }
 
     /// Draws at fewer pixels while a finger is down.
@@ -451,13 +907,130 @@ final class GlobeCanvasView: UIView {
     /// actually moving, which is exactly when nobody is looking at the
     /// sharpness of a coastline, and come back the moment it stops.
     private func updateResolution() {
-        let wanted = isInteracting ? min(displayScale, 2) : displayScale
-        guard contentScaleFactor != wanted else { return }
-        contentScaleFactor = wanted
+        let wanted = isInteracting ? min(interactiveScale, displayScale) : displayScale
+        guard planetView.contentScaleFactor != wanted else { return }
+        planetView.contentScaleFactor = wanted
+    }
+
+    /// Finds the resolution this phone can actually hold sixty frames at.
+    ///
+    /// The planet is rasterised on the CPU, so a frame costs very nearly what
+    /// its pixel count costs — and how many pixels that is depends on the
+    /// screen, and how much work each one is depends on how much traffic is on
+    /// the server, how much coastline is on screen, and which phone this is.
+    /// A fixed number cannot be right for all of that: two pixels a point is
+    /// wasteful on a quiet server and still too many on a busy one on an older
+    /// device.
+    ///
+    /// So it is measured. The planet times its own drawing, and while a finger
+    /// is down the resolution walks up and down a short ladder to keep that
+    /// under a frame. It falls quickly — three slow frames and it is down a
+    /// step, because the whole point is not to drop frames — and climbs back
+    /// slowly, so a single quick stretch cannot start it oscillating. At rest
+    /// it is always the screen's own resolution, however low it fell.
+    /// Smoothed, because a single frame is mostly noise — a packet landing, a
+    /// label being laid out for the first time, another app waking up.
+    private func record(frame seconds: Double) {
+        frameCost = frameCost > 0 ? frameCost * 0.75 + seconds * 0.25 : seconds
+    }
+
+    private func tuneResolution() {
+        guard isInteracting, isLive else { return }
+
+        let ladder = Self.resolutionLadder
+        let ceiling = min(displayScale, 2)
+        guard let step = ladder.lastIndex(where: { $0 <= interactiveScale }) else { return }
+
+        if frameCost > Self.slowFrame {
+            quickFrames = 0
+            slowFrames += 1
+            guard slowFrames >= 3, step > 0 else { return }
+            interactiveScale = ladder[step - 1]
+            settle()
+        } else if frameCost < Self.quickFrame {
+            slowFrames = 0
+            quickFrames += 1
+            guard quickFrames >= 20, step + 1 < ladder.count,
+                  ladder[step + 1] <= ceiling else { return }
+            interactiveScale = ladder[step + 1]
+            settle()
+        } else {
+            slowFrames = 0
+            quickFrames = 0
+        }
+    }
+
+    /// Applies a new resolution and forgets what the old one cost, so the next
+    /// decision is made on frames actually drawn at it. Without this the
+    /// average still carries the expensive frames that caused the step, and
+    /// the planet walks all the way down the ladder for one slow moment.
+    private func settle() {
+        slowFrames = 0
+        quickFrames = 0
+        frameCost = 0
+        updateResolution()
+    }
+
+    /// Pixels a point, coarsest first. The floor is one — below that a
+    /// coastline stops being a line — and the ceiling is two, which is where
+    /// the reduction started life.
+    private static let resolutionLadder: [CGFloat] = [1, 1.25, 1.5, 2]
+
+    /// A frame worth stepping down for, and one worth stepping back up for.
+    /// Sixty frames a second is sixteen and a half milliseconds all in, and
+    /// this measures only the drawing — the rest of it is the backing store
+    /// going to the GPU and Core Animation putting the two layers together.
+    private static let slowFrame: Double = 0.010
+    private static let quickFrame: Double = 0.0045
+
+    /// Invalidates the planet, and takes the chance to notice whether the
+    /// frames are landing.
+    private func redrawPlanet() {
+        tuneResolution()
+        planetView.setNeedsDisplay()
     }
 
     private var displayScale: CGFloat {
         traitCollection.displayScale > 0 ? traitCollection.displayScale : 3
+    }
+
+    // MARK: - Saying where it is
+
+    /// The last place reported, so a settle that has not moved says nothing.
+    private var reported: (latitude: Double, longitude: Double, span: Double)?
+
+    /// Tells whoever is listening where the planet is now pointed.
+    ///
+    /// Only when it has settled, and only when it has actually gone somewhere.
+    /// The camera deliberately lives down here rather than in SwiftUI state,
+    /// and reporting it per frame would put it straight back — so this is the
+    /// one wire back up, and it carries a place rather than a camera.
+    ///
+    /// Asked for on the next runloop turn because a settle can happen inside a
+    /// layout pass, and answering it there is a SwiftUI state change in the
+    /// middle of a SwiftUI update.
+    private func reportCamera() {
+        guard let report = onCameraMoved, camera.radius > 0 else { return }
+
+        let across = max(1, min(bounds.width - trailingInset, bounds.height - bottomInset))
+        let span = camera.metresPerPoint * Double(across)
+        let here = (latitude: camera.latitude, longitude: camera.longitude, span: span)
+
+        if let last = reported {
+            let metresPerDegree = GlobeCamera.earthRadiusMetres * .pi / 180
+            let north = (here.latitude - last.latitude) * metresPerDegree
+            let east = GlobeCamera.wrapped(here.longitude - last.longitude)
+                * metresPerDegree * cos(here.latitude * .pi / 180)
+            let moved = (north * north + east * east).squareRoot()
+
+            // Less than a sixth of a screen, and less than a tenth of a zoom
+            // step: nothing downstream would answer any differently.
+            if moved < span * 0.16, abs(span - last.span) < last.span * 0.1 { return }
+        }
+
+        reported = here
+        let centre = CLLocationCoordinate2D(latitude: here.latitude, longitude: here.longitude)
+        DispatchQueue.main.async { report(centre, span) }
     }
 
     // MARK: - What was tapped
@@ -519,10 +1092,19 @@ final class GlobeCanvasView: UIView {
 
     // MARK: - Drawing
 
+    /// The sky, and nothing else.
+    ///
+    /// Reached only when the size or the backdrop changes — the planet turning
+    /// invalidates `planetView`, not this.
     override func draw(_ rect: CGRect) {
         guard let context = UIGraphicsGetCurrentContext() else { return }
-
         drawSky(in: context)
+    }
+
+    fileprivate func drawPlanet(in context: CGContext) {
+        let began = CACurrentMediaTime()
+        defer { record(frame: CACurrentMediaTime() - began) }
+
         guard camera.radius > 0 else { return }
 
         let basis = camera.basis
@@ -533,18 +1115,27 @@ final class GlobeCanvasView: UIView {
         // see it. Inflated a little so a shape whose centre is just outside
         // still draws the part of it that is inside.
         let box = bounds.insetBy(dx: -24, dy: -24)
+        let reach = visibleAngle
 
         drawHalo(in: context)
         drawSphere(in: context)
 
         if let land = palette.land {
-            drawLand(in: context, basis: basis, detail: detail, color: land, box: box)
+            drawLand(in: context, basis: basis, detail: detail,
+                     color: land, box: box, reach: reach)
         }
 
         drawRings(GlobeGeometry.graticule, in: context, basis: basis,
-                  color: palette.graticule, width: palette.graticuleWidth, box: box)
+                  color: palette.graticule, width: palette.graticuleWidth,
+                  box: box, reach: reach)
         drawRings(GlobeGeometry.borders(for: detail), in: context, basis: basis,
-                  color: palette.border, width: palette.borderWidth, box: box)
+                  color: palette.border, width: palette.borderWidth,
+                  box: box, reach: reach)
+
+        // Pavement over the cartography and under everything that flies. It is
+        // the ground, and at the zoom where it is drawn at all it is the only
+        // thing on screen that is.
+        drawGround(in: context, basis: basis, box: box)
 
         if let sun = sun {
             drawNight(in: context, basis: basis, sun: sun)
@@ -565,15 +1156,30 @@ final class GlobeCanvasView: UIView {
     /// the answer is about how large the planet actually is on screen — which
     /// is the thing that decides whether a dropped point is visible — rather
     /// than about a phone's screen width.
+    ///
+    /// ## Lifting a finger does not change the picture
+    ///
+    /// This used to answer one level coarser for the whole zoom range while a
+    /// gesture was running, and cross its thresholds at different radii than
+    /// the resting answer did. Which meant every pinch redrew the cartography
+    /// two or three times on the way — coastlines changing shape under your
+    /// fingers, and changing again when you let go. That is the "it redraws
+    /// parts of itself" the globe was doing, and none of it was a dropped
+    /// frame.
+    ///
+    /// So the level now follows the radius and nothing else, except at the
+    /// very bottom of the range: below about a third more than a fitted
+    /// planet, a country is thirty points across and the sixth-point outline
+    /// is the same drawing to within well under a pixel. Everywhere else,
+    /// what you get while you are moving is what you get when you stop —
+    /// which is affordable because the clipping in `appendSilhouette` and the
+    /// culling in `isCulled` mean a zoomed-in frame walks the coastline you
+    /// can see rather than the whole hemisphere.
     private var detail: GlobeGeometry.Detail {
-        if isInteracting {
-            if camera.radius > 1400 { return .medium }
-            if camera.radius > 700 { return .coarse }
-            return .rough
-        }
-        if camera.radius > 1600 { return .full }
-        if camera.radius > 700 { return .medium }
-        return .coarse
+        if camera.radius > 1400 { return .full }
+        if camera.radius > 620 { return .medium }
+        if camera.radius > 260 { return .coarse }
+        return isInteracting ? .rough : .coarse
     }
 
     /// Whether the edge of the planet is anywhere the screen can see it.
@@ -608,73 +1214,44 @@ final class GlobeCanvasView: UIView {
 
     // MARK: - The sky
 
-    /// Blits the sky, rendering it first if the size, the resolution or the
-    /// backdrop has moved.
+    /// Paints the sky.
     ///
-    /// Nothing behind the planet moves when the planet turns, so none of it
-    /// belongs in a per-frame path. What used to happen here every frame was a
-    /// full-screen linear gradient, up to seven hundred ellipses and a
-    /// full-screen radial vignette — three per-pixel passes over the whole view
-    /// to produce a picture identical to the one already on screen.
+    /// Not per frame, and not into a cache. It used to be both: drawn into the
+    /// same bitmap as the planet, it had to be laid down again every frame, so
+    /// it was rendered once into an image and blitted — and then the image had
+    /// to be held at every resolution the planet might be drawn at, or every
+    /// blit was a three megapixel resample.
+    ///
+    /// A layer of its own removes all of that. This runs when the view is
+    /// resized or the backdrop is changed, and Core Animation composites it
+    /// under the planet from then on. The bitmaps, and the twenty megabytes
+    /// they cost, are gone with it.
     private func drawSky(in context: CGContext) {
-        if sky == nil || skySize != bounds.size || skyScale != displayScale
-            || skyStyle != backdrop {
-            makeSky()
-        }
+        let box = bounds
+        guard box.width > 0, box.height > 0 else { return }
 
-        guard let sky = sky else {
+        if backdrop.colors.count > 1,
+           let gradient = CGGradient(
+               colorsSpace: CGColorSpaceCreateDeviceRGB(),
+               colors: backdrop.colors.map { $0.cgColor } as CFArray,
+               locations: nil
+           ) {
+            context.saveGState()
+            context.clip(to: box)
+            context.drawLinearGradient(
+                gradient,
+                start: CGPoint(x: box.midX, y: box.minY),
+                end: CGPoint(x: box.midX, y: box.maxY),
+                options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
+            )
+            context.restoreGState()
+        } else {
             context.setFillColor((backdrop.colors.first ?? .black).withAlphaComponent(1).cgColor)
-            context.fill(bounds)
-            return
+            context.fill(box)
         }
-        sky.draw(at: .zero)
-    }
 
-    private func makeSky() {
-        skySize = bounds.size
-        skyScale = displayScale
-        skyStyle = backdrop
-        sky = nil
-
-        guard bounds.width > 0, bounds.height > 0 else { return }
-
-        let format = UIGraphicsImageRendererFormat.default()
-        format.opaque = true
-        // The screen's resolution rather than the view's current one. The view
-        // drops to fewer pixels while a finger is down, and keying the sky to
-        // that would throw this bitmap away and rebuild it — a full-screen
-        // gradient and a starfield — at the exact moment a drag begins, which
-        // is the one moment there is nothing spare. Drawing a 3x image into a
-        // 2x context resamples it, which costs nothing and looks the same.
-        format.scale = displayScale
-
-        let box = CGRect(origin: .zero, size: bounds.size)
-        sky = UIGraphicsImageRenderer(size: bounds.size, format: format).image { render in
-            let context = render.cgContext
-
-            if backdrop.colors.count > 1,
-               let gradient = CGGradient(
-                   colorsSpace: CGColorSpaceCreateDeviceRGB(),
-                   colors: backdrop.colors.map { $0.cgColor } as CFArray,
-                   locations: nil
-               ) {
-                context.saveGState()
-                context.clip(to: box)
-                context.drawLinearGradient(
-                    gradient,
-                    start: CGPoint(x: box.midX, y: box.minY),
-                    end: CGPoint(x: box.midX, y: box.maxY),
-                    options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
-                )
-                context.restoreGState()
-            } else {
-                context.setFillColor((backdrop.colors.first ?? .black).withAlphaComponent(1).cgColor)
-                context.fill(box)
-            }
-
-            if let colour = backdrop.stars { drawStars(in: context, over: box, color: colour) }
-            if let colour = backdrop.vignette { drawVignette(in: context, over: box, color: colour) }
-        }
+        if let colour = backdrop.stars { drawStars(in: context, over: box, color: colour) }
+        if let colour = backdrop.vignette { drawVignette(in: context, over: box, color: colour) }
     }
 
     /// Stars, fixed to the screen rather than to the sky.
@@ -701,7 +1278,7 @@ final class GlobeCanvasView: UIView {
         }
 
         // Three brightnesses, three fills, rather than a state change per star.
-        var bands: [CGMutablePath] = [CGMutablePath(), CGMutablePath(), CGMutablePath()]
+        let bands: [CGMutablePath] = [CGMutablePath(), CGMutablePath(), CGMutablePath()]
         for _ in 0..<count {
             let x = next() * box.width
             let y = next() * box.height
@@ -817,11 +1394,13 @@ final class GlobeCanvasView: UIView {
         basis: GlobeCamera.Basis,
         detail: GlobeGeometry.Detail,
         color: UIColor,
-        box: CGRect
+        box: CGRect,
+        reach: Float
     ) {
         let path = CGMutablePath()
-        for ring in GlobeGeometry.borders(for: detail) where !isCulled(ring, basis: basis, box: box) {
-            appendSilhouette(ring, to: path, basis: basis)
+        for ring in GlobeGeometry.borders(for: detail)
+        where !isCulled(ring, basis: basis, box: box, reach: reach) {
+            appendSilhouette(ring, to: path, basis: basis, box: box)
         }
 
         context.saveGState()
@@ -835,12 +1414,45 @@ final class GlobeCanvasView: UIView {
         context.restoreGState()
     }
 
+    /// One landmass, projected and then trimmed to the view.
+    ///
+    /// ## Why the trimming has to happen here
+    ///
+    /// The stroked cartography rejects segment by segment inside `append`, and
+    /// a fill cannot: dropping a piece of an outline does not remove a piece
+    /// of the shape, it changes which side of the remaining outline is inside.
+    /// So the land was the one thing still paying the whole-hemisphere price
+    /// at every zoom. At the top of the range the sphere is over two thousand
+    /// points across on a four hundred point screen, and Russia, Canada,
+    /// Antarctica and Asia are all far too large for `isCulled` to reject —
+    /// their outlines went into the path in full, thousands of edges of them,
+    /// to fill a screen showing one bay.
+    ///
+    /// ## Sutherland–Hodgman, against the view
+    ///
+    /// Clipping the closed polygon to the view rectangle is the answer that
+    /// keeps the fill exactly right. Each of the four half-plane passes
+    /// replaces the parts of the loop lying outside with a run along the
+    /// boundary line itself — and an excursion together with the run that
+    /// replaces it is a closed loop lying entirely on the far side, which any
+    /// point inside the rectangle is outside of. So its winding about anything
+    /// you can see is zero, and every point of the view is filled exactly as
+    /// it was before. A country that surrounds the screen comes out as the
+    /// rectangle, which is the truth: all of it is land.
+    ///
+    /// What it costs is four passes over a ring's points; what it saves is the
+    /// path and the scan conversion, which is where the frame was going. A
+    /// ring that lies entirely inside the view — which at the bottom of the
+    /// zoom range is all of them — skips the whole thing on one flag.
     private func appendSilhouette(
         _ ring: GlobeGeometry.Ring,
         to path: CGMutablePath,
-        basis: GlobeCamera.Basis
+        basis: GlobeCamera.Basis,
+        box: CGRect
     ) {
-        var started = false
+        outline.removeAll(keepingCapacity: true)
+        var strays = false
+
         for point in ring.points {
             var x = CGFloat(simd_dot(point, basis.east))
             var y = CGFloat(simd_dot(point, basis.north))
@@ -859,51 +1471,126 @@ final class GlobeCanvasView: UIView {
                 x: camera.center.x + x * camera.radius,
                 y: camera.center.y - y * camera.radius
             )
-            if started {
-                path.addLine(to: screen)
-            } else {
-                path.move(to: screen)
-                started = true
+            if screen.x < box.minX || screen.x > box.maxX
+                || screen.y < box.minY || screen.y > box.maxY {
+                strays = true
             }
+            outline.append(screen)
         }
 
-        if started { path.closeSubpath() }
+        if strays {
+            trim(outline, into: &trimmed,
+                 inside: { $0.x >= box.minX },
+                 crossing: { Self.split($0, $1, atX: box.minX) })
+            trim(trimmed, into: &outline,
+                 inside: { $0.x <= box.maxX },
+                 crossing: { Self.split($0, $1, atX: box.maxX) })
+            trim(outline, into: &trimmed,
+                 inside: { $0.y >= box.minY },
+                 crossing: { Self.split($0, $1, atY: box.minY) })
+            trim(trimmed, into: &outline,
+                 inside: { $0.y <= box.maxY },
+                 crossing: { Self.split($0, $1, atY: box.maxY) })
+        }
+
+        guard outline.count > 2 else { return }
+        path.addLines(between: outline)
+        path.closeSubpath()
+    }
+
+    /// One half-plane pass: everything on the wrong side of a line, replaced by
+    /// a run along the line.
+    private func trim(
+        _ input: [CGPoint],
+        into output: inout [CGPoint],
+        inside: (CGPoint) -> Bool,
+        crossing: (CGPoint, CGPoint) -> CGPoint
+    ) {
+        output.removeAll(keepingCapacity: true)
+        guard var previous = input.last else { return }
+        var wasInside = inside(previous)
+
+        for point in input {
+            let nowInside = inside(point)
+            if nowInside != wasInside { output.append(crossing(previous, point)) }
+            if nowInside { output.append(point) }
+            previous = point
+            wasInside = nowInside
+        }
+    }
+
+    /// Where the segment between two points meets a vertical or a horizontal
+    /// line. Only ever called for a pair straddling it, so the divisor is not
+    /// zero — and guarded anyway, because a coastline is data.
+    private static func split(_ a: CGPoint, _ b: CGPoint, atX x: CGFloat) -> CGPoint {
+        let span = b.x - a.x
+        guard abs(span) > .ulpOfOne else { return CGPoint(x: x, y: a.y) }
+        return CGPoint(x: x, y: a.y + (b.y - a.y) * (x - a.x) / span)
+    }
+
+    private static func split(_ a: CGPoint, _ b: CGPoint, atY y: CGFloat) -> CGPoint {
+        let span = b.y - a.y
+        guard abs(span) > .ulpOfOne else { return CGPoint(x: a.x, y: y) }
+        return CGPoint(x: a.x + (b.x - a.x) * (y - a.y) / span, y: y)
     }
 
     // MARK: - Lines on it
 
+    /// How much of the sphere this frame can see, as an angle from the point
+    /// facing the camera.
+    ///
+    /// The projection is a sine, so a screen offset of `d` from the middle of
+    /// the disc is `asin(d/R)` of ground. Take the furthest corner of the view
+    /// and that is the whole visible cap — which at the top of the zoom range
+    /// is a couple of hundredths of a degree, and is the number that makes
+    /// culling work at a zoom where nothing else does.
+    private var visibleAngle: Float {
+        guard camera.radius > 0 else { return .pi }
+        let dx = max(abs(bounds.minX - camera.center.x), abs(bounds.maxX - camera.center.x))
+        let dy = max(abs(bounds.minY - camera.center.y), abs(bounds.maxY - camera.center.y))
+        let corner = (dx * dx + dy * dy).squareRoot() + 24
+        guard corner < camera.radius else { return .pi / 2 }
+        return Float(asin(corner / camera.radius))
+    }
+
     /// Whether a ring is somewhere this frame cannot see, in two dot products
     /// and a rectangle test.
     ///
-    /// ## Round the back
+    /// ## Round the back, and off the side, in one test
     ///
-    /// One dot product for an entire country. Only sound for a ring that fits
-    /// inside a hemisphere, which is what a positive `radiusCosine` means. A
-    /// ring larger than that — a meridian, which wraps the planet — has no
-    /// direction the camera can point away from far enough, and the test would
-    /// cull it wrongly.
+    /// Every point of a ring lies within `radiusAngle` of its axis, and every
+    /// point this frame can see lies within `reach` of the camera direction.
+    /// So a ring has nothing on screen when its axis is further from the
+    /// camera than the two of them added together — one dot product against
+    /// one cosine, and it subsumes the old "is it round the back" test, which
+    /// was the same comparison with `reach` fixed at a right angle.
     ///
-    /// ## Off the side of the screen
+    /// That fixed right angle is why the globe used to pay the whole
+    /// hemisphere at every zoom. Half the planet is behind you at any zoom, so
+    /// rejecting the far side is worth a flat half and no more — while what
+    /// you can actually *see* falls away as the square of the zoom. At the top
+    /// of the range this now rejects all but a handful of rings, where before
+    /// it rejected a little under half of them and handed the rest to the
+    /// clipper.
     ///
-    /// The half that was missing, and the one that matters most. At the top of
-    /// the zoom range the sphere is over two thousand points across on a screen
-    /// four hundred wide, so nearly everything on the hemisphere facing you is
-    /// still nowhere you can see it — and every one of those coastlines was
-    /// being projected point by point and pathed anyway.
+    /// ## The rectangle, still
     ///
-    /// The bound is exact rather than estimated. Every point of a ring lies
-    /// within its cone's angular radius θ of the axis, so the straight-line
-    /// distance between any two of them is at most 2·sin(θ/2); an orthographic
-    /// projection cannot stretch that, so on screen the whole ring is inside a
-    /// circle of radius R·√(2 − 2·cos θ) about the projected axis. A great
-    /// circle has a cosine of −1, which gives 2R and never culls — which is the
-    /// truth about a line that wraps the planet.
-    private func isCulled(_ ring: GlobeGeometry.Ring, basis: GlobeCamera.Basis, box: CGRect) -> Bool {
-        if ring.radiusCosine > 0 {
-            let facing = simd_dot(ring.axis, basis.out)
-            let reach = (1 - ring.radiusCosine * ring.radiusCosine).squareRoot()
-            if facing < -reach { return true }
-        }
+    /// Kept underneath it because the cap is the circle *around* the view and
+    /// the view is a tall rectangle: pulled back, where the cap is most of a
+    /// hemisphere and rejects nothing, the corners of that circle are a lot of
+    /// screen that is not there. The bound is exact — every point of a ring is
+    /// within `R·√(2 − 2·cos θ)` of the projected axis, since an orthographic
+    /// projection cannot stretch a chord — and a great circle comes out at 2R,
+    /// which never culls, which is the truth about a line that wraps the
+    /// planet.
+    private func isCulled(
+        _ ring: GlobeGeometry.Ring,
+        basis: GlobeCamera.Basis,
+        box: CGRect,
+        reach: Float
+    ) -> Bool {
+        let span = ring.radiusAngle + reach
+        if span < .pi, simd_dot(ring.axis, basis.out) < cos(span) { return true }
 
         let spread = CGFloat((2 - 2 * ring.radiusCosine).squareRoot()) * camera.radius
         let centre = CGPoint(
@@ -920,19 +1607,27 @@ final class GlobeCanvasView: UIView {
         basis: GlobeCamera.Basis,
         color: UIColor,
         width: CGFloat,
-        box: CGRect
+        box: CGRect,
+        reach: Float
     ) {
         guard width > 0 else { return }
 
         let path = CGMutablePath()
-        for ring in rings where !isCulled(ring, basis: basis, box: box) {
+        for ring in rings where !isCulled(ring, basis: basis, box: box, reach: reach) {
             append(ring.points, to: path, basis: basis, box: box)
         }
 
         context.setStrokeColor(color.cgColor)
         context.setLineWidth(width)
-        context.setLineJoin(.round)
-        context.setLineCap(.round)
+        // Round joins and caps on a hairline are several thousand arcs a frame
+        // for a difference nothing can see. A round join is a circle drawn at
+        // every vertex of every coastline, and at three quarters of a point
+        // wide the circle is a third of a pixel across — the same handful of
+        // pixels a bevel puts there, at several times the price. Kept for a
+        // line thick enough to have a visible corner.
+        let soft = width >= 1.5
+        context.setLineJoin(soft ? .round : .bevel)
+        context.setLineCap(soft ? .round : .butt)
         context.addPath(path)
         context.strokePath()
     }
@@ -1039,6 +1734,97 @@ final class GlobeCanvasView: UIView {
             previousVector = point
             previous = now
         }
+    }
+
+    /// The same walk, for the lines that are held to full precision.
+    ///
+    /// A second copy rather than one made generic over the scalar. What the
+    /// two share is the *shape* of the problem — visible, hidden, and the two
+    /// crossings between — and what they do not share is the arithmetic: the
+    /// cartography is ten thousand `Float` points a frame and these are a few
+    /// hundred `Double` ones. A generic over `SIMD3` would put a witness table
+    /// between the border clipper and its dot product for the sake of removing
+    /// thirty lines that are not going to change independently.
+    private func append(
+        _ points: [SIMD3<Double>],
+        to path: CGMutablePath,
+        basis: GlobeCamera.Basis,
+        box: CGRect
+    ) {
+        var previousVector: SIMD3<Double>?
+        var previous: GlobeCamera.Projected?
+        var isDrawing = false
+
+        for point in points {
+            let now = camera.project(point, using: basis)
+
+            guard let lastVector = previousVector, let last = previous else {
+                if now.isVisible {
+                    path.move(to: now.point)
+                    isDrawing = true
+                }
+                previousVector = point
+                previous = now
+                continue
+            }
+
+            switch (last.isVisible, now.isVisible) {
+            case (true, true):
+                if max(last.point.x, now.point.x) < box.minX
+                    || min(last.point.x, now.point.x) > box.maxX
+                    || max(last.point.y, now.point.y) < box.minY
+                    || min(last.point.y, now.point.y) > box.maxY {
+                    isDrawing = false
+                    previousVector = point
+                    previous = now
+                    continue
+                }
+
+                if !isDrawing {
+                    path.move(to: last.point)
+                    isDrawing = true
+                }
+                path.addLine(to: now.point)
+
+            case (true, false):
+                if !isDrawing {
+                    path.move(to: last.point)
+                    isDrawing = true
+                }
+                path.addLine(to: horizonCrossing(
+                    near: last, far: now, nearVector: lastVector, farVector: point, basis: basis
+                ))
+                isDrawing = false
+
+            case (false, true):
+                path.move(to: horizonCrossing(
+                    near: now, far: last, nearVector: point, farVector: lastVector, basis: basis
+                ))
+                path.addLine(to: now.point)
+                isDrawing = true
+
+            case (false, false):
+                isDrawing = false
+            }
+
+            previousVector = point
+            previous = now
+        }
+    }
+
+    private func horizonCrossing(
+        near: GlobeCamera.Projected,
+        far: GlobeCamera.Projected,
+        nearVector: SIMD3<Double>,
+        farVector: SIMD3<Double>,
+        basis: GlobeCamera.Basis
+    ) -> CGPoint {
+        let span = Double(near.depth) - Double(far.depth)
+        guard span > 1e-9 else { return near.point }
+
+        let t = Double(near.depth) / span
+        let blended = simd_normalize(nearVector + (farVector - nearVector) * t)
+        return camera.project(blended, using: basis).point
     }
 
     /// Where the segment between two directions crosses the horizon.
@@ -1165,6 +1951,129 @@ final class GlobeCanvasView: UIView {
         return distance(first, target) <= distance(second, target)
     }
 
+    // MARK: - The ground
+
+    /// The pavement of the field the camera is over.
+    ///
+    /// The whole point of being able to zoom in this far. Runways, taxiways,
+    /// aprons and terminals, in the same colours and at the same real widths
+    /// the flat map draws them — `AirportGroundStyle` is shared rather than
+    /// reimplemented, so a runway is the same runway whichever shape the world
+    /// is.
+    ///
+    /// ## One projected point, and a plane
+    ///
+    /// Every point of a layout is drawn off a single projection of the field
+    /// itself, plus its offset in metres through the projection's own
+    /// derivative there — two multiplies and two adds a point. That is not
+    /// only speed. At this zoom the sphere is hundreds of thousands of points
+    /// across, and a unit vector in `Float` resolves to about half a metre,
+    /// which is a runway centreline's worth of wobble on every vertex. Metres
+    /// in a tangent plane have no such problem, and over the few kilometres a
+    /// field covers the plane and the sphere differ by millimetres.
+    private func drawGround(in context: CGContext, basis: GlobeCamera.Basis, box: CGRect) {
+        guard let ground = scene.ground else { return }
+
+        // Points per metre, and the zoom this layer starts at.
+        //
+        // A kilometre has to be worth a dozen points, which puts a three and a
+        // half kilometre aerodrome at about forty across — a shape you can
+        // read, rather than a smudge the ring and the code already say better.
+        // That is a view some thirty kilometres wide, well inside the range
+        // and well outside the two hundred metres the zoom now runs to.
+        let perMetre = camera.radius / CGFloat(GlobeCamera.earthRadiusMetres)
+        guard perMetre * 1000 > 12 else { return }
+
+        let origin = camera.project(ground.anchor, using: basis)
+        guard origin.depth > 0 else { return }
+
+        // Off the side of the screen, field and all.
+        let span = CGFloat(ground.reachMetres) * perMetre
+        guard box.insetBy(dx: -span, dy: -span).contains(origin.point) else { return }
+
+        // The projection's derivative at the field: where a metre east and a
+        // metre north each land on screen.
+        let ex = CGFloat(simd_dot(ground.east, basis.east)) * perMetre
+        let ey = -CGFloat(simd_dot(ground.east, basis.north)) * perMetre
+        let nx = CGFloat(simd_dot(ground.north, basis.east)) * perMetre
+        let ny = -CGFloat(simd_dot(ground.north, basis.north)) * perMetre
+        let anchor = origin.point
+
+        func place(_ offset: SIMD2<Float>) -> CGPoint {
+            CGPoint(
+                x: anchor.x + CGFloat(offset.x) * ex + CGFloat(offset.y) * nx,
+                y: anchor.y + CGFloat(offset.x) * ey + CGFloat(offset.y) * ny
+            )
+        }
+
+        let paper: AirportGroundStyle.Ground = (palette.land ?? palette.ocean).isLight
+            ? .light
+            : .dark
+
+        // Aprons first, runways last, so the pieces stack the way the concrete
+        // does — the same order the flat map lays them down in.
+        for kind in AirportLayout.drawingOrder {
+            for piece in ground.pieces where piece.kind == kind {
+                let points = piece.points.map(place)
+                guard points.count > 1 else { continue }
+
+                let path = CGMutablePath()
+                path.addLines(between: points)
+
+                if kind.isArea {
+                    path.closeSubpath()
+                    context.setFillColor(AirportGroundStyle.area(for: kind, on: paper).cgColor)
+                    context.addPath(path)
+                    context.fillPath()
+                    continue
+                }
+
+                // Drawn to scale with a floor under it, which is what makes a
+                // field look like an aerodrome rather than a diagram of one.
+                let width = max(
+                    AirportGroundStyle.minimumPoints(for: kind),
+                    CGFloat(piece.widthMetres) * perMetre
+                )
+
+                context.setLineJoin(.round)
+                context.setLineCap(kind == .holdShort ? .butt : .round)
+
+                if kind == .holdShort {
+                    context.setStrokeColor(AirportGroundStyle.holdBar.cgColor)
+                    context.setLineWidth(width)
+                    context.addPath(path)
+                    context.strokePath()
+                    continue
+                }
+
+                let edge = AirportGroundStyle.edgePoints(for: kind, on: paper)
+                if edge > 0 {
+                    context.setStrokeColor(AirportGroundStyle.edge(for: kind, on: paper).cgColor)
+                    context.setLineWidth(width + edge * 2)
+                    context.addPath(path)
+                    context.strokePath()
+                }
+
+                context.setStrokeColor(AirportGroundStyle.fill(for: kind, on: paper).cgColor)
+                context.setLineWidth(width)
+                context.addPath(path)
+                context.strokePath()
+
+                // The dashed stripe down the middle, which is what makes a grey
+                // slab read as a runway. Only once there is a slab to put it on.
+                if kind == .runway, width > 7 {
+                    context.saveGState()
+                    context.setStrokeColor(AirportGroundStyle.centreline(on: paper).cgColor)
+                    context.setLineWidth(max(0.8, width * 0.06))
+                    context.setLineDash(phase: 0, lengths: [width * 0.9, width * 0.7])
+                    context.addPath(path)
+                    context.strokePath()
+                    context.restoreGState()
+                }
+            }
+        }
+    }
+
     // MARK: - Traffic
 
     private func drawTraffic(in context: CGContext, basis: GlobeCamera.Basis, box: CGRect) {
@@ -1212,13 +2121,27 @@ final class GlobeCanvasView: UIView {
         let size = spriteSize
         var open: [(CGPoint, CGFloat, GlobeTrafficDot)] = []
 
+        // A rotated blit is a resampled one, and this is the only place in the
+        // frame that asks for hundreds of them. The artwork is drawn at its own
+        // size and only turned, so there is nothing for a better filter to
+        // recover — bilinear is the whole of the answer, and the default costs
+        // several times as much for it.
+        context.saveGState()
+        context.interpolationQuality = .low
+        defer { context.restoreGState() }
+
+        // Projected first, drawn second, and the reason is the budget below:
+        // how far apart two aeroplanes have to be to both be worth drawing
+        // depends on how many of them there are, which is not known until they
+        // have all been looked at. Projecting is nine multiplies; the answers
+        // are kept so it happens once rather than twice.
+        //
         // Walked by index rather than by element, which is not a style choice.
         // A `GlobeTrafficDot` carries two `String`s and a `UIColor?`, so binding
         // one per iteration retains and releases three references — a packet of
         // three thousand at sixty frames a second is over half a million
-        // retain/release pairs a second to read two vectors. Reading the fields
-        // individually touches the reference-counted ones only for the aircraft
-        // that survive the cull, which when zoomed in is a handful of them.
+        // retain/release pairs a second to read two vectors.
+        marks.removeAll(keepingCapacity: true)
         let traffic = scene.traffic
         for index in traffic.indices {
             let projected = camera.project(traffic[index].position, using: basis)
@@ -1231,17 +2154,34 @@ final class GlobeCanvasView: UIView {
             // subtract.
             let dx = CGFloat(simd_dot(traffic[index].heading, basis.east))
             let dy = -CGFloat(simd_dot(traffic[index].heading, basis.north))
-            let angle = atan2(dx, -dy)
+            marks.append((
+                index: index,
+                position: traffic[index].position,
+                point: projected.point,
+                angle: atan2(dx, -dy)
+            ))
+        }
 
-            if traffic[index].isOpen {
-                // A playback is driving this aeroplane, so where the feed
-                // last saw it is not where it is being shown. Dropped here
-                // and drawn from the frame below.
-                if replay == nil { open.append((projected.point, angle, traffic[index])) }
+        startCrowding(mark: size)
+
+        for mark in marks {
+            let dot = traffic[mark.index]
+
+            if dot.isOpen {
+                // A playback is driving this aeroplane, so where the feed last
+                // saw it is not where it is being shown. Dropped here and drawn
+                // from the frame below.
+                if replay == nil { open.append((mark.point, mark.angle, dot)) }
                 continue
             }
 
-            draw(traffic[index], at: projected.point, angle: angle,
+            // Traffic that would land on top of traffic already drawn is not
+            // drawn. See `startCrowding`. The ones the colouring has an opinion
+            // about — your own, the pilots you watch — are never dropped:
+            // they are the ones you are looking for.
+            if dot.tint == nil, isCrowded(at: mark.position) { continue }
+
+            draw(dot, at: mark.point, angle: mark.angle,
                  size: size, in: context, sprites: sprites)
         }
 
@@ -1261,15 +2201,18 @@ final class GlobeCanvasView: UIView {
             }
         }
 
-        // The open aircraft last and larger, with a ring round it, so it is
-        // findable in a packet of three thousand.
+        // The open aircraft last and larger, so it is findable in a packet of
+        // three thousand.
+        //
+        // Larger and amber, and nothing else. It used to carry a ring as well,
+        // and the ring was the wrong mark twice over: the flat map does not
+        // draw one, so the aeroplane you had just been watching grew a circle
+        // when you changed the shape of the world; and a circle a hair wider
+        // than the aircraft inside it reads as a crop of it rather than as a
+        // ring around it — you see a nose and a tail cut off at the rim rather
+        // than a highlighted aeroplane. The size and the colour say the same
+        // thing without drawing over the artwork.
         for (point, angle, dot) in open {
-            let ring = size * 0.95
-            context.setStrokeColor(palette.openTraffic.cgColor)
-            context.setLineWidth(1.5)
-            context.strokeEllipse(in: CGRect(
-                x: point.x - ring, y: point.y - ring, width: ring * 2, height: ring * 2
-            ))
             draw(dot, at: point, angle: angle, size: size * 1.45, in: context, sprites: sprites)
         }
     }
@@ -1306,6 +2249,107 @@ final class GlobeCanvasView: UIView {
         context.rotate(by: angle)
         image.draw(at: CGPoint(x: -image.size.width / 2, y: -image.size.height / 2))
         context.restoreGState()
+    }
+
+    // MARK: - Crowding
+
+    /// Patches of the *sphere* already spoken for this frame, and how many of
+    /// them there are to a radian.
+    private var crowd: Set<SIMD3<Int32>> = []
+    private var crowdScale: Double = 0
+
+    /// Stops drawing marks on top of marks.
+    ///
+    /// ## The arithmetic of a full planet
+    ///
+    /// Pulled all the way back, a packet is three thousand aircraft on a disc
+    /// about three hundred and thirty points across, and half of those are
+    /// round the back. What is left is fifteen hundred marks, thirteen points
+    /// on a side, poured into forty thousand square points of planet — every
+    /// part of the picture several aeroplanes deep, most of them painted over
+    /// before the frame ends. Each one is a *rotated* blit, which is a
+    /// resample rather than a copy, so at two or three pixels to the point
+    /// that is the frame.
+    ///
+    /// ## Cells on the sphere, not on the screen
+    ///
+    /// The first version of this laid a grid over the *view*, and that grid
+    /// made the traffic flicker. An aeroplane does not move relative to its
+    /// neighbours when the planet turns — but the cell edges do, sweeping
+    /// across the screen with the camera, so a pair straddling one would share
+    /// a cell on one frame and hold two on the next, and the loser blinked on
+    /// and off at the rate the boundary crossed it.
+    ///
+    /// The cells are patches of the sphere instead. An aeroplane's cell is a
+    /// function of its own position and the zoom and nothing else, so turning
+    /// the planet, dragging it, or letting it glide cannot change who wins:
+    /// the positions do not move and neither do the cells. The size is snapped
+    /// to a power of two of a radian, so a pinch does not resize them
+    /// continuously either — it steps, once an octave, while everything on
+    /// screen is already changing size.
+    ///
+    /// What is dropped is only ever a mark that would have been drawn on top
+    /// of another. Anything the colouring has singled out skips the grid, and
+    /// the hit test still walks the whole packet, so an aeroplane that was not
+    /// drawn is still one you can tap.
+    private func beginCrowding(points: CGFloat) {
+        crowd.removeAll(keepingCapacity: true)
+        guard camera.radius > 0 else { crowdScale = 0; return }
+
+        // Points of screen into an angle on the sphere, then up to the next
+        // power of two so that it only ever changes in steps.
+        let wanted = Double(max(3, points) / camera.radius)
+        let cell = exp2(log2(wanted).rounded(.up))
+        // Capped so that a cell index can never leave `Int32`, whatever the
+        // radius: converting a Double that does not fit is a trap, and a crash
+        // is a poor way to declutter a map.
+        crowdScale = cell > 0 ? min(1 / cell, 1e8) : 0
+    }
+
+    /// Sizes the traffic's cells so that what will actually be *drawn* comes
+    /// under the budget.
+    ///
+    /// How many fill is not how many are on screen, and the difference is the
+    /// whole trick: a full planet is mostly aeroplanes on top of aeroplanes,
+    /// so opening the grid by the ratio of the packet to the budget opens it
+    /// far too far and leaves a lattice. One measured pass says how many the
+    /// natural spacing draws; each doubling of the cell quarters that, so the
+    /// number of doublings is arithmetic rather than a search.
+    private func startCrowding(mark: CGFloat) {
+        let natural = mark * 0.6
+        beginCrowding(points: natural)
+        guard marks.count > Self.trafficBudget else { return }
+
+        var filled = 0
+        for candidate in marks where !isCrowded(at: candidate.position) { filled += 1 }
+
+        guard filled > Self.trafficBudget else {
+            beginCrowding(points: natural)
+            return
+        }
+
+        let doublings = (log2(Double(filled) / Double(Self.trafficBudget)) / 2).rounded(.up)
+        beginCrowding(points: natural * CGFloat(exp2(max(1, min(6, doublings)))))
+    }
+
+    /// How many aircraft are worth drawing in one frame.
+    ///
+    /// One number rather than one for moving and one for resting. Two of them
+    /// meant the traffic thinned out the moment a finger landed and thickened
+    /// again when it lifted, which is the same "it redraws itself when you let
+    /// go" the level of detail used to do. What a frame can afford is handled
+    /// by `tuneResolution` instead, which changes how many *pixels* each of
+    /// these costs rather than how many of them there are.
+    private static let trafficBudget = 1200
+
+    private func isCrowded(at position: SIMD3<Float>) -> Bool {
+        guard crowdScale > 0 else { return false }
+        let cell = SIMD3<Int32>(
+            Int32((Double(position.x) * crowdScale).rounded(.down)),
+            Int32((Double(position.y) * crowdScale).rounded(.down)),
+            Int32((Double(position.z) * crowdScale).rounded(.down))
+        )
+        return !crowd.insert(cell).inserted
     }
 
     private func drawDots(
@@ -1394,6 +2438,20 @@ final class GlobeCanvasView: UIView {
         let ring = GlobeMarkMetrics.fieldRingRadius
         let dot = GlobeMarkMetrics.fieldDotRadius
 
+        // The same grid the traffic uses, at about the width of a code.
+        //
+        // Pulled back, every field the map has ranked lands on a disc three
+        // hundred points across, and a couple of hundred four-letter codes in
+        // that space is not a list of aerodromes, it is a texture — nothing in
+        // it can be read, and each one costs a stroked ring and a blit. One
+        // code to a patch of screen, in the order the map ranked them, so what
+        // survives is what it thought mattered.
+        //
+        // A field somebody is working skips the grid, the way a coloured
+        // aircraft does. It is the one thing about a field you cannot work out
+        // by looking at the traffic, and it is never the thing to drop.
+        beginCrowding(points: 30)
+
         // Rendered before the drawing starts rather than as each one is
         // reached. A label is drawn into an image renderer, which pushes a
         // context of its own, and doing that in the middle of a run of state
@@ -1405,13 +2463,21 @@ final class GlobeCanvasView: UIView {
             let projected = camera.project(field.position, using: basis)
             guard projected.depth > 0.02, box.contains(projected.point) else { continue }
 
+            if !field.isControlled, isCrowded(at: field.position) { continue }
+
             // Full strength across most of the near side, falling away only in
-            // the last stretch before the limb.
+            // the last stretch before the limb — so on a zoomed-in frame every
+            // field on screen is at full strength, and the whole save, set,
+            // restore is skipped rather than paid three hundred times for an
+            // alpha of one.
             let opacity = min(1, CGFloat(projected.depth) / 0.28)
+            let fading = opacity < 1
             let point = projected.point
 
-            context.saveGState()
-            context.setAlpha(opacity)
+            if fading {
+                context.saveGState()
+                context.setAlpha(opacity)
+            }
 
             context.setStrokeColor(palette.fieldRing.cgColor)
             context.setLineWidth(1)
@@ -1432,7 +2498,7 @@ final class GlobeCanvasView: UIView {
                 y: point.y - label.size.height / 2
             ))
 
-            context.restoreGState()
+            if fading { context.restoreGState() }
         }
     }
 
@@ -1492,5 +2558,18 @@ extension GlobeCanvasView: UIGestureRecognizerDelegate {
         shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
     ) -> Bool {
         true
+    }
+}
+
+private extension UIColor {
+
+    /// Whether this is light enough that something drawn on it should be dark.
+    ///
+    /// Rec. 709 luminance, which is close enough to how bright a colour looks
+    /// for a question with two answers.
+    var isLight: Bool {
+        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+        guard getRed(&red, green: &green, blue: &blue, alpha: &alpha) else { return false }
+        return 0.2126 * red + 0.7152 * green + 0.0722 * blue > 0.5
     }
 }

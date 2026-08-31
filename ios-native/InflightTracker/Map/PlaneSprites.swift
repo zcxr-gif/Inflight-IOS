@@ -150,11 +150,12 @@ final class PlaneSprites {
     /// colour, and the amber for the aircraft whose window is open.
     ///
     /// What differs from `icon(forKey:selected:tint:)` is only the packaging:
-    /// no padding, and any point size. The map's icons are cut at
-    /// `AppConfig.iconPointSize` inside a canvas twice that wide, padding that
-    /// exists so an `MKAnnotationView` stays easy to tap. The planet draws into
-    /// a `CGContext` where that padding is dead pixels blitted per aircraft,
-    /// several hundred times a frame.
+    /// a canvas cut to the mark itself, and any point size. The map's icons sit
+    /// at `AppConfig.iconPointSize` inside a canvas twice that wide, padding
+    /// that exists so an `MKAnnotationView` stays easy to tap. The planet draws
+    /// into a `CGContext` where that padding is dead pixels blitted per
+    /// aircraft, several hundred times a frame — so here the canvas is the mark
+    /// plus exactly the room the outline and the shadow need, and no more.
     ///
     /// Cached the same way, so a packet of three thousand aircraft over a dozen
     /// airframe types renders a dozen bitmaps and then blits them.
@@ -185,10 +186,24 @@ final class PlaneSprites {
         var flat = mark
         flat.body = nil
 
+        // No canvas, so the bitmap is fitted to the mark.
+        //
+        // It used to be a square of `size`, and `size` is what the *shape* is
+        // scaled to — before `mark.scale`, which runs to 1.18 on a 380, and
+        // before the outline and the shadow, which stand outside the shape
+        // again. So the bitmap was smaller than the drawing on it and the
+        // drawing was cropped: a flat nose and a flat tail on every heavy on
+        // the planet, and worst on the aircraft whose window is open, which is
+        // drawn at 1.45 and is the one being looked at.
+        //
+        // Fitted rather than simply padded, because these are blitted per
+        // aircraft per frame and a square canvas around a shape that is not
+        // square is transparent pixels composited several hundred times over.
+        // Nothing moves: the mark is still drawn at `size`, still centred on
+        // the aeroplane's position.
         let image = PlaneIconRenderer.image(
             flat,
             pointSize: size,
-            canvas: CGSize(width: size, height: size),
             body: body,
             outline: Palette.outline,
             // The same drop shadow the map's traffic carries, so an aeroplane
