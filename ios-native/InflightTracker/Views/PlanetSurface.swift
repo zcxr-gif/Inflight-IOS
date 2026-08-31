@@ -6,9 +6,14 @@ import simd
 
 /// The planet, as a thing you can put on a screen.
 ///
-/// Everything the globe *is* lives here — the camera, the gestures, the hit
-/// testing, and the settings that decide what colour it comes in. What it
-/// deliberately does not have is any chrome: no title, no close button, no
+/// What lives here is everything the planet is *made of* — which packet, which
+/// fields, which colours, where the sun is — and nothing about how it is drawn
+/// or turned. The camera, the gestures and the hit testing are all inside
+/// `GlobeCanvasView`, deliberately: a pan that went through SwiftUI state cost
+/// a body evaluation, a fresh representable and an `updateUIView` per frame, to
+/// move a value nothing in SwiftUI ever read.
+///
+/// What it also does not have is any chrome: no title, no close button, no
 /// toolbar. That is what lets the same view be the whole-world screen you open
 /// from the corner of the map and be the map itself, with the app's own chrome
 /// standing over it, without either of them being a special case of the other.
@@ -68,31 +73,6 @@ struct PlanetSurface: View {
     var onSelectFlight: (Flight) -> Void = { _ in }
     var onSelectAirport: (Airport) -> Void = { _ in }
 
-    @State private var camera = GlobeCamera()
-    @State private var size: CGSize = .zero
-
-    /// The camera as it was when the current gesture began. Gestures report
-    /// their whole translation each update, not the change since the last one,
-    /// so applying them incrementally would compound.
-    @State private var gestureStart: GlobeCamera?
-    @State private var zoomStart: CGFloat?
-
-    /// How far zoomed in, as a multiple of the radius that fits the viewport.
-    @State private var scale: CGFloat = 1
-
-    /// Whether a finger is on the planet. Handed to the canvas, which spends it
-    /// on cartography detail.
-    @State private var isInteracting = false
-
-    /// Whether the camera has been put where it was asked to start. Once, on
-    /// the first layout — after that the camera is wherever it has been turned
-    /// to, and a rotation must not fly it back to where the map was.
-    @State private var isReady = false
-
-    /// Which command has already been carried out, so the same one arriving
-    /// again with the next packet does not move the camera a second time.
-    @State private var lastCommand: UUID?
-
     /// Where the sun is overhead. Refreshed on a slow timer rather than per
     /// frame: the terminator moves a quarter of a degree a minute.
     @State private var sun: SIMD3<Float>?
@@ -115,39 +95,79 @@ struct PlanetSurface: View {
     }
 
     var body: some View {
-        GeometryReader { geometry in
-            GlobeCanvas(
-                camera: camera,
-                palette: palette,
-                backdrop: backdrop,
-                scene: scene,
-                revision: scene.revision,
-                showsPlanes: appearance.globeShowsPlanes,
-                showsFields: filters.showsAirports,
-                sun: filters.showsTerminator ? sun : nil,
-                replay: replayMark,
-                isInteracting: isInteracting
-            )
-            // The canvas is a `UIView` that redraws itself the instant it is
-            // told to. Anything animating the value handed to it would put the
-            // planet a frame or two behind the finger turning it, which is
-            // precisely the wobble this view exists to not have.
-            .transaction { $0.animation = nil }
-            .contentShape(Rectangle())
-            .gesture(turn)
-            .simultaneousGesture(zoom)
-            .onAppear {
-                layout(in: geometry.size)
-                sun = Self.sunVector()
-                rebuild()
+        GlobeCanvas(
+            palette: palette,
+            backdrop: backdrop,
+            scene: scene,
+            revision: scene.revision,
+            showsPlanes: appearance.globeShowsPlanes,
+            showsFields: filters.showsAirports,
+            sun: filters.showsTerminator ? sun : nil,
+            replay: replayMark,
+            start: start,
+            bottomInset: bottomInset,
+            trailingInset: trailingInset,
+            command: globeCommand,
+            onSelectFlight: { id in
+                guard let flight = flights.first(where: { $0.id == id }) else { return }
+                onSelectFlight(flight)
+            },
+            onSelectField: { icao in
+                guard let field = airports.first(where: { $0.airport.icao == icao }) else { return }
+                onSelectAirport(field.airport)
             }
-            .onChange(of: geometry.size) { _, newSize in layout(in: newSize) }
-            .onChange(of: bottomInset) { _, _ in layout(in: geometry.size) }
-            .onChange(of: trailingInset) { _, _ in layout(in: geometry.size) }
+        )
+        // No SwiftUI gesture, and no SwiftUI camera. Turning the planet is a
+        // `UIPanGestureRecognizer` on the canvas itself, mutating a struct it
+        // owns and redrawing — so a drag costs no body evaluation here at all.
+        // It used to cost one per frame, plus a fresh representable and an
+        // `updateUIView`, to move a value nothing in SwiftUI ever read.
+        .onAppear {
+            sun = Self.sunVector()
+            rebuild()
         }
         .onReceive(Self.clock) { _ in sun = Self.sunVector() }
         .onChange(of: sceneSignature) { _, _ in rebuild() }
-        .onChange(of: command) { _, newValue in apply(newValue) }
+    }
+
+    /// The chrome's camera request, in the terms the canvas takes.
+    ///
+    /// Worked out here rather than in the canvas because the span-to-zoom
+    /// arithmetic needs to know what a screen is, and because `MapCommand` is
+    /// MapKit's vocabulary — the renderer should not have to learn it.
+    private var globeCommand: GlobeCommand? {
+        guard let command = command else { return nil }
+
+        switch command.kind {
+        case .centerOnFlight:
+            guard let flight = openFlight else { return nil }
+            return GlobeCommand(
+                latitude: flight.latitude,
+                longitude: flight.longitude,
+                scale: nil,
+                token: command.id
+            )
+
+        case .fitRoute, .fitFlownPath:
+            guard let flight = openFlight else { return nil }
+            // A whole route on a globe is a matter of standing far enough back
+            // to see both ends of it, and the planet has exactly one answer for
+            // that: all of it.
+            return GlobeCommand(
+                latitude: flight.latitude,
+                longitude: flight.longitude,
+                scale: 1,
+                token: command.id
+            )
+
+        case let .focus(latitude, longitude, spanMeters):
+            return GlobeCommand(
+                latitude: latitude,
+                longitude: longitude,
+                scale: zoomScale(forSpan: spanMeters),
+                token: command.id
+            )
+        }
     }
 
     // MARK: - What is on it
@@ -232,210 +252,9 @@ struct PlanetSurface: View {
         )
     }
 
-    // MARK: - Laying it out
-
-    /// Sizes the planet to the viewport and puts it in the middle.
-    ///
-    /// Re-run on every size change, which is a rotation or a split view. The
-    /// zoom is kept as a *multiple* rather than as a radius precisely so that
-    /// survives: turning the phone sideways keeps you as close to the ground as
-    /// you were, rather than as many points from the middle as you were.
-    private func layout(in size: CGSize) {
-        guard size.width > 0, size.height > 0 else { return }
-        self.size = size
-
-        camera.center = CGPoint(
-            x: (size.width - trailingInset) / 2,
-            y: (size.height - bottomInset) / 2
-        )
-        camera.radius = fittedRadius(in: size) * scale
-
-        if !isReady {
-            camera.latitude = start.latitude
-            camera.longitude = GlobeCamera.wrapped(start.longitude)
-            isReady = true
-        }
-    }
-
-    /// The radius at which the whole planet sits inside the screen with room
-    /// for the chrome over it.
-    private func fittedRadius(in size: CGSize) -> CGFloat {
-        // Floored, because the insets are heights of chrome measured
-        // independently of this view and there is no rule that says they
-        // cannot add up to more than the screen — a tall window on a short
-        // split would otherwise give the planet a negative radius, which is
-        // nothing drawn at all.
-        max(60, min(size.width - trailingInset, size.height - bottomInset) * 0.42)
-    }
-
-    // MARK: - Turning it
-
-    /// Turning the planet — and, when the finger did not actually go anywhere,
-    /// opening whatever was under it.
-    ///
-    /// One gesture doing both because it has to: a `DragGesture` with no
-    /// minimum distance swallows every tap in its area, so a separate
-    /// `TapGesture` underneath it would never fire. The threshold is in points
-    /// and generous, because a tap on a phone is rarely perfectly still.
-    private var turn: some Gesture {
-        DragGesture(minimumDistance: 0)
-            .onChanged { value in
-                let base = gestureStart ?? camera
-                if gestureStart == nil {
-                    gestureStart = camera
-                    isInteracting = true
-                }
-
-                var moved = base
-                moved.turn(by: value.translation)
-                camera = moved
-            }
-            .onEnded { value in
-                let travelled = abs(value.translation.width) + abs(value.translation.height)
-                if travelled < 6 { tap(at: value.startLocation) }
-                gestureStart = nil
-                isInteracting = false
-            }
-    }
-
-    private var zoom: some Gesture {
-        MagnifyGesture()
-            .onChanged { value in
-                let base = zoomStart ?? scale
-                if zoomStart == nil {
-                    zoomStart = scale
-                    isInteracting = true
-                }
-
-                scale = min(
-                    GlobeCamera.maximumScale,
-                    max(GlobeCamera.minimumScale, base * value.magnification)
-                )
-                camera.radius = fittedRadius(in: size) * scale
-            }
-            .onEnded { _ in
-                zoomStart = nil
-                isInteracting = false
-            }
-    }
-
-    /// What was under the finger. Fields before aircraft: a field carries a
-    /// label, so it is the larger target and the one somebody aiming at a
-    /// cluster meant.
-    private func tap(at point: CGPoint) {
-        if filters.showsAirports, let field = field(near: point) {
-            onSelectAirport(field.airport)
-            return
-        }
-        if let flight = flight(near: point) {
-            onSelectFlight(flight)
-        }
-    }
-
-    /// The aircraft nearest a tap, if one is near enough to have been meant.
-    ///
-    /// Traffic is drawn into the canvas rather than as views, so there is
-    /// nothing to attach a gesture to and the hit test is done here. Against
-    /// the projected position rather than the coordinate, because "near" means
-    /// near on the screen: two aircraft a hundred miles apart at the limb are a
-    /// couple of points apart, and the one that looks closest to the finger is
-    /// the one that was aimed at.
-    private func flight(near point: CGPoint) -> Flight? {
-        let basis = camera.basis
-        let reach = GlobeMarkMetrics.touchRadius
-
-        var best: Flight?
-        var bestDistance = reach * reach
-
-        for flight in flights {
-            let projected = camera.project(GlobeGeometry.vector(flight.coordinate), using: basis)
-            guard projected.isVisible else { continue }
-
-            let dx = projected.point.x - point.x
-            let dy = projected.point.y - point.y
-            let distance = dx * dx + dy * dy
-            if distance < bestDistance {
-                bestDistance = distance
-                best = flight
-            }
-        }
-        return best
-    }
-
-    /// The field nearest a tap. Only the ones far enough onto the near side to
-    /// have been drawn at something like full strength — a marker on ground
-    /// turning away is not something to open by accident.
-    private func field(near point: CGPoint) -> MapAirport? {
-        let basis = camera.basis
-        let reach = GlobeMarkMetrics.touchRadius
-
-        var best: MapAirport?
-        var bestDistance = reach * reach
-
-        for field in airports {
-            let projected = camera.project(
-                GlobeGeometry.vector(field.airport.coordinate),
-                using: basis
-            )
-            guard projected.depth > GlobeMarkMetrics.tappableDepth else { continue }
-
-            // Biased towards the label, which sits to the right of the ring and
-            // is most of what there is to aim at.
-            let dx = projected.point.x + GlobeMarkMetrics.fieldRingRadius - point.x
-            let dy = projected.point.y - point.y
-            let distance = dx * dx + dy * dy
-            if distance < bestDistance {
-                bestDistance = distance
-                best = field
-            }
-        }
-        return best
-    }
-
-    // MARK: - Being told where to look
-
-    /// Carries out a camera move asked for by the chrome.
-    ///
-    /// The same `MapCommand` the flat map takes, so a search result or an open
-    /// tower moves the world whichever shape it is in — which is the whole
-    /// point of the planet being a map rather than a screen you visit.
-    private func apply(_ command: MapCommand?) {
-        guard let command = command, command.id != lastCommand else { return }
-        lastCommand = command.id
-
-        switch command.kind {
-        case .centerOnFlight:
-            guard let flight = openFlight else { return }
-            aim(at: flight.coordinate)
-
-        case .fitRoute, .fitFlownPath:
-            guard let flight = openFlight else { return }
-            // A whole route on a globe is a matter of standing far enough back
-            // to see both ends of it, and the planet has exactly one answer for
-            // that: all of it.
-            aim(at: flight.coordinate, scale: 1)
-
-        case let .focus(latitude, longitude, spanMeters):
-            aim(
-                at: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
-                scale: zoomScale(forSpan: spanMeters)
-            )
-        }
-    }
-
     private var openFlight: Flight? {
         guard let id = openFlightId else { return nil }
         return flights.first { $0.id == id }
-    }
-
-    private func aim(at coordinate: CLLocationCoordinate2D, scale newScale: CGFloat? = nil) {
-        camera.latitude = min(90, max(-90, coordinate.latitude))
-        camera.longitude = GlobeCamera.wrapped(coordinate.longitude)
-
-        if let newScale = newScale {
-            scale = min(GlobeCamera.maximumScale, max(GlobeCamera.minimumScale, newScale))
-            camera.radius = fittedRadius(in: size) * scale
-        }
     }
 
     /// The zoom that puts a span of ground across most of the screen.
@@ -444,15 +263,17 @@ struct PlanetSurface: View {
     /// radius in metres divided by its radius in points, so the arithmetic is
     /// one division — and it is only ever right in the middle, which is where
     /// the thing being focused on is about to be.
-    private func zoomScale(forSpan meters: Double) -> CGFloat {
-        let earthRadius: Double = 6_371_000
-        let across = Double(min(size.width, size.height)) * 0.8
-        guard meters > 1, across > 1 else { return scale }
+    ///
+    /// The screen cancels out, which is why this needs to know nothing about
+    /// it. Both halves are fractions of the same short side — the span is meant
+    /// to fill four fifths of it, and the fitted planet is 0.42 of it — so what
+    /// is left is a ratio, and the same one on every device. The canvas clamps
+    /// it to the zoom range; a span closer than the top of that range simply
+    /// arrives at the top of it.
+    private static let spanToFitted = 0.8 / 0.42
 
-        let wanted = earthRadius * across / meters
-        let fitted = Double(fittedRadius(in: size))
-        guard fitted > 0 else { return scale }
-
-        return CGFloat(wanted / fitted)
+    private func zoomScale(forSpan meters: Double) -> CGFloat? {
+        guard meters > 1 else { return nil }
+        return CGFloat(6_371_000 * Self.spanToFitted / meters)
     }
 }

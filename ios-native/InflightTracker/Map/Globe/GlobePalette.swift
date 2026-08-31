@@ -51,6 +51,10 @@ struct GlobePalette: Equatable {
 
     /// How large an aircraft is drawn when the traffic is drawn as aircraft
     /// rather than as dots. In points, the long side of the artwork.
+    ///
+    /// `AppConfig.iconPointSize` by default, which is what the flat map draws
+    /// its traffic at — same artwork, same colours, same size, so an aeroplane
+    /// does not change size when you change the shape of the world.
     var planeSize: CGFloat
 
     /// The wash over the half of the planet that is in darkness.
@@ -90,7 +94,7 @@ struct GlobePalette: Equatable {
         traffic: UIColor,
         openTraffic: UIColor,
         dotRadius: CGFloat = 1.6,
-        planeSize: CGFloat = 15,
+        planeSize: CGFloat = AppConfig.iconPointSize,
         night: UIColor = UIColor(white: 0, alpha: 0.32),
         route: UIColor,
         flownPath: UIColor? = nil,

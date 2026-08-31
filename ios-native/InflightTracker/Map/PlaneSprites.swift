@@ -139,31 +139,40 @@ final class PlaneSprites {
         return image
     }
 
-    /// An aircraft for the planet: any size, any two colours, and no padding.
+    /// The map's aircraft, drawn for the planet.
     ///
-    /// The map's own icons are no use here. They are cut at
-    /// `AppConfig.iconPointSize` inside a canvas twice that wide — padding that
-    /// exists so an `MKAnnotationView` stays easy to tap — and the globe draws
-    /// its traffic into a `CGContext` where the padding is dead pixels blitted
-    /// per aircraft, several hundred times a frame. It also needs the outline
-    /// to change: the map's near-black holds up on imagery and disappears on a
-    /// blueprint planet.
+    /// Deliberately the same artwork in the same two colours the flat map uses,
+    /// because that is the entire point of drawing aeroplanes rather than dots:
+    /// you already know what a 380 looks like on this map, and a globe that
+    /// paints them some other colour is a globe whose traffic you have to learn
+    /// twice. `tint` and `selected` are the only two things allowed to change
+    /// that, and they are the two the map changes as well — a watched pilot's
+    /// colour, and the amber for the aircraft whose window is open.
+    ///
+    /// What differs from `icon(forKey:selected:tint:)` is only the packaging:
+    /// no padding, and any point size. The map's icons are cut at
+    /// `AppConfig.iconPointSize` inside a canvas twice that wide, padding that
+    /// exists so an `MKAnnotationView` stays easy to tap. The planet draws into
+    /// a `CGContext` where that padding is dead pixels blitted per aircraft,
+    /// several hundred times a frame.
     ///
     /// Cached the same way, so a packet of three thousand aircraft over a dozen
-    /// airframe types renders a dozen bitmaps and then draws them.
+    /// airframe types renders a dozen bitmaps and then blits them.
     func planetIcon(
         forKey key: String,
         pointSize: CGFloat,
-        body: UIColor,
-        outline: UIColor
+        body tint: UIColor? = nil,
+        selected: Bool = false
     ) -> UIImage? {
+        let body = tint ?? (selected ? Palette.selected : Palette.body)
+
         // Whole points, so a zoom that scales the traffic cannot mint a cache
         // entry per frame.
         let size = max(6, pointSize.rounded())
         let cacheKey = PlanetIconKey(
             sprite: key,
             body: body.packed,
-            outline: outline.packed,
+            outline: Palette.outline.packed,
             pointSize: size
         )
         if let cached = planetCache[cacheKey] { return cached }
@@ -172,7 +181,7 @@ final class PlaneSprites {
 
         // The fleet table paints a few marks a colour of their own — the
         // airport pins — and on the planet that would be an airport-coloured
-        // aeroplane. The palette's colour wins here.
+        // aeroplane. The body colour wins here.
         var flat = mark
         flat.body = nil
 
@@ -181,8 +190,11 @@ final class PlaneSprites {
             pointSize: size,
             canvas: CGSize(width: size, height: size),
             body: body,
-            outline: outline,
-            shadow: false
+            outline: Palette.outline,
+            // The same drop shadow the map's traffic carries, so an aeroplane
+            // sits above the planet rather than in it. Rendered once into the
+            // cached bitmap, so it costs a blit rather than a shadow pass.
+            shadow: true
         )
 
         planetCache[cacheKey] = image

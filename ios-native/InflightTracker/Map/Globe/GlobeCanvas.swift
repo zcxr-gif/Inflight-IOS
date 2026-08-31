@@ -1,3 +1,4 @@
+import CoreLocation
 import SwiftUI
 import UIKit
 import simd
@@ -24,9 +25,22 @@ import simd
 /// once into cached bitmaps and blitted, which costs a fraction of what the
 /// layout did, and hit testing happens against the same projection the drawing
 /// used — see `PlanetSurface`.
+/// A one-shot request to point the planet somewhere.
+///
+/// The map's own `MapCommand` in the terms this renderer understands. Kept
+/// separate because the canvas has no business knowing about MapKit spans, and
+/// because a token it can compare is what makes the move happen once rather
+/// than on every update that follows it.
+struct GlobeCommand: Equatable {
+    var latitude: Double
+    var longitude: Double
+    /// Nil leaves the zoom where it is.
+    var scale: CGFloat?
+    var token: UUID
+}
+
 struct GlobeCanvas: UIViewRepresentable {
 
-    var camera: GlobeCamera
     var palette: GlobePalette
     var backdrop: GlobeBackdropStyle
 
@@ -46,10 +60,26 @@ struct GlobeCanvas: UIViewRepresentable {
     /// is playing.
     var replay: GlobeReplayMark? = nil
 
-    /// Whether a finger is on the planet right now. Drops the cartography a
-    /// level of detail for the duration, which is invisible while the world is
-    /// moving and is most of the difference between sixty frames and thirty.
-    var isInteracting: Bool
+    /// Which face is turned towards you the first time this is laid out.
+    var start: CLLocationCoordinate2D = CLLocationCoordinate2D(latitude: 20, longitude: 0)
+
+    /// How much of the bottom and the right the chrome over this is standing
+    /// on. The planet is centred in what is left.
+    var bottomInset: CGFloat = 0
+    var trailingInset: CGFloat = 0
+
+    var command: GlobeCommand? = nil
+
+    /// A fixed camera, for a preview. Set it and the planet cannot be turned,
+    /// which is what a forty-eight point swatch wants.
+    var still: GlobeCamera? = nil
+
+    /// Answered with the id of whatever was tapped. The view does the hit test
+    /// itself, against the same scene and the same camera it drew — so what you
+    /// can tap is exactly what you can see, rather than a second projection
+    /// that has to be kept in step with the first.
+    var onSelectFlight: ((String) -> Void)? = nil
+    var onSelectField: ((String) -> Void)? = nil
 
     func makeUIView(context: Context) -> GlobeCanvasView {
         let view = GlobeCanvasView()
@@ -63,8 +93,9 @@ struct GlobeCanvas: UIViewRepresentable {
     }
 
     func updateUIView(_ view: GlobeCanvasView, context: Context) {
+        view.onSelectFlight = onSelectFlight
+        view.onSelectField = onSelectField
         view.apply(
-            camera: camera,
             palette: palette,
             backdrop: backdrop,
             scene: scene,
@@ -73,7 +104,11 @@ struct GlobeCanvas: UIViewRepresentable {
             showsFields: showsFields,
             sun: sun,
             replay: replay,
-            isInteracting: isInteracting
+            start: start,
+            bottomInset: bottomInset,
+            trailingInset: trailingInset,
+            still: still,
+            command: command
         )
     }
 }
@@ -112,7 +147,8 @@ enum GlobeMarkMetrics {
 
 final class GlobeCanvasView: UIView {
 
-    private var camera = GlobeCamera()
+    // MARK: - What the view is handed
+
     private var palette = GlobeSkin.midnight.palette(scheme: .dark)
     private var backdrop = GlobeBackdropStyle.plain
     private var scene = GlobeScene()
@@ -121,24 +157,86 @@ final class GlobeCanvasView: UIView {
     private var showsFields = true
     private var sun: SIMD3<Float>?
     private var replay: GlobeReplayMark?
-    private var isInteracting = false
+    private var start = CLLocationCoordinate2D(latitude: 20, longitude: 0)
+    private var bottomInset: CGFloat = 0
+    private var trailingInset: CGFloat = 0
+    private var still: GlobeCamera?
+    private var lastCommand: UUID?
+
+    var onSelectFlight: ((String) -> Void)?
+    var onSelectField: ((String) -> Void)?
+
+    // MARK: - What the view owns
+    //
+    // The camera lives here rather than in SwiftUI state, and that is the whole
+    // difference between a globe that turns and one that drags behind your
+    // finger. Held above, every pan update was a `@State` write: a SwiftUI body
+    // evaluation, a fresh representable, an `updateUIView`, and only then a
+    // redraw — sixty times a second, for a value nothing in SwiftUI reads. Held
+    // here, a pan is a struct mutation and a `setNeedsDisplay`, and SwiftUI is
+    // not involved in the gesture at all.
+
+    private(set) var camera = GlobeCamera()
+
+    /// How far zoomed in, as a multiple of the radius that fits the viewport.
+    private var scale: CGFloat = 1
+
+    /// Whether the camera has been put where it was asked to start. Once, on
+    /// the first layout — after that the camera is wherever it has been turned
+    /// to, and a rotation must not fly it back to where the map was.
+    private var isReady = false
+
+    private var panStart: GlobeCamera?
+    private var pinchStart: CGFloat?
+
+    private var isInteracting: Bool { panStart != nil || pinchStart != nil }
+
+    // MARK: - Caches
 
     /// Field codes, rendered once each. Cleared when the palette changes, which
     /// is the only thing that can make one wrong.
     private var labels: [String: UIImage] = [:]
 
-    /// The starfield, in unit coordinates, generated once for a given size.
-    private struct Star {
-        let x: CGFloat
-        let y: CGFloat
-        let radius: CGFloat
-        let alpha: CGFloat
+    /// The sky, rendered once.
+    ///
+    /// It is a gradient, up to seven hundred stars and a radial vignette, and
+    /// none of it moves when the planet turns — so drawing it per frame was
+    /// two full-screen per-pixel gradient composites and several hundred
+    /// ellipses, every frame, for a picture that was identical each time. Now
+    /// it is one bitmap and one blit.
+    private var sky: UIImage?
+    private var skySize: CGSize = .zero
+    private var skyScale: CGFloat = 0
+    private var skyStyle: GlobeBackdropStyle?
+
+    // MARK: - Setting up
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        addGestures()
     }
-    private var stars: [Star] = []
-    private var starsSize: CGSize = .zero
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        addGestures()
+    }
+
+    private func addGestures() {
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan))
+        pan.maximumNumberOfTouches = 1
+        pan.delegate = self
+        addGestureRecognizer(pan)
+
+        let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch))
+        pinch.delegate = self
+        addGestureRecognizer(pinch)
+
+        let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
+        tap.delegate = self
+        addGestureRecognizer(tap)
+    }
 
     func apply(
-        camera: GlobeCamera,
         palette: GlobePalette,
         backdrop: GlobeBackdropStyle,
         scene: GlobeScene,
@@ -147,22 +245,26 @@ final class GlobeCanvasView: UIView {
         showsFields: Bool,
         sun: SIMD3<Float>?,
         replay: GlobeReplayMark?,
-        isInteracting: Bool
+        start: CLLocationCoordinate2D,
+        bottomInset: CGFloat,
+        trailingInset: CGFloat,
+        still: GlobeCamera?,
+        command: GlobeCommand?
     ) {
-        let unchanged = camera == self.camera
-            && revision == self.revision
-            && scene === self.scene
-            && showsPlanes == self.showsPlanes
-            && showsFields == self.showsFields
-            && sun == self.sun
-            && replay == self.replay
-            && isInteracting == self.isInteracting
-            && palette == self.palette
-            && backdrop == self.backdrop
+        var changed = revision != self.revision
+            || scene !== self.scene
+            || showsPlanes != self.showsPlanes
+            || showsFields != self.showsFields
+            || sun != self.sun
+            || replay != self.replay
+            || palette != self.palette
+            || backdrop != self.backdrop
+            || still != self.still
 
         if palette != self.palette { labels.removeAll() }
 
-        self.camera = camera
+        let insetsMoved = bottomInset != self.bottomInset || trailingInset != self.trailingInset
+
         self.palette = palette
         self.backdrop = backdrop
         self.scene = scene
@@ -171,36 +273,259 @@ final class GlobeCanvasView: UIView {
         self.showsFields = showsFields
         self.sun = sun
         self.replay = replay
-        self.isInteracting = isInteracting
+        self.start = start
+        self.bottomInset = bottomInset
+        self.trailingInset = trailingInset
+        self.still = still
 
         // An opaque view has to have something behind the drawing during the
         // moment between a resize and the redraw, or the gap is undefined.
         backgroundColor = (backdrop.colors.first ?? .black).withAlphaComponent(1)
 
-        guard !unchanged else { return }
+        if insetsMoved || still != nil { layoutCamera(); changed = true }
+        if carryOut(command) { changed = true }
+
+        guard changed else { return }
         setNeedsDisplay()
     }
+
+    /// Points the planet where the chrome asked, once.
+    private func carryOut(_ command: GlobeCommand?) -> Bool {
+        guard let command = command, command.token != lastCommand else { return false }
+        lastCommand = command.token
+
+        camera.latitude = min(90, max(-90, command.latitude))
+        camera.longitude = GlobeCamera.wrapped(command.longitude)
+
+        if let wanted = command.scale {
+            scale = min(GlobeCamera.maximumScale, max(GlobeCamera.minimumScale, wanted))
+            camera.radius = fittedRadius * scale
+        }
+        return true
+    }
+
+    // MARK: - Laying it out
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layoutCamera()
+    }
+
+    /// Sizes the planet to the viewport and puts it in the middle of whatever
+    /// the chrome is not standing on.
+    ///
+    /// The zoom is kept as a *multiple* rather than as a radius precisely so a
+    /// resize survives it: turning the phone sideways keeps you as close to the
+    /// ground as you were, rather than as many points from the middle as you
+    /// were.
+    private func layoutCamera() {
+        if let still = still {
+            camera = still
+            return
+        }
+        guard bounds.width > 0, bounds.height > 0 else { return }
+
+        camera.center = CGPoint(
+            x: (bounds.width - trailingInset) / 2,
+            y: (bounds.height - bottomInset) / 2
+        )
+        camera.radius = fittedRadius * scale
+
+        if !isReady {
+            camera.latitude = start.latitude
+            camera.longitude = GlobeCamera.wrapped(start.longitude)
+            isReady = true
+        }
+        setNeedsDisplay()
+    }
+
+    /// The radius at which the whole planet sits inside the screen with room
+    /// for the chrome over it.
+    ///
+    /// Floored, because the insets are heights of chrome measured independently
+    /// of this view and nothing says they cannot add up to more than a short
+    /// split screen — which would otherwise be a negative radius and a planet
+    /// that is not drawn.
+    private var fittedRadius: CGFloat {
+        max(60, min(bounds.width - trailingInset, bounds.height - bottomInset) * 0.42)
+    }
+
+    // MARK: - Turning it
+
+    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+        switch gesture.state {
+        case .began:
+            panStart = camera
+            beginInteraction()
+
+        case .changed:
+            guard let base = panStart else { return }
+            let moved = gesture.translation(in: self)
+            var turned = base
+            turned.turn(by: CGSize(width: moved.x, height: moved.y))
+            camera = turned
+            setNeedsDisplay()
+
+        case .ended, .cancelled, .failed:
+            panStart = nil
+            endInteraction()
+
+        default:
+            break
+        }
+    }
+
+    @objc private func handlePinch(_ gesture: UIPinchGestureRecognizer) {
+        switch gesture.state {
+        case .began:
+            pinchStart = scale
+            beginInteraction()
+
+        case .changed:
+            guard let base = pinchStart else { return }
+            scale = min(
+                GlobeCamera.maximumScale,
+                max(GlobeCamera.minimumScale, base * gesture.scale)
+            )
+            camera.radius = fittedRadius * scale
+            setNeedsDisplay()
+
+        case .ended, .cancelled, .failed:
+            pinchStart = nil
+            endInteraction()
+
+        default:
+            break
+        }
+    }
+
+    /// What was under the finger. Fields before aircraft: a field carries a
+    /// label, so it is the larger target and the one somebody aiming at a
+    /// cluster meant.
+    @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
+        let point = gesture.location(in: self)
+
+        if showsFields, let icao = field(near: point) {
+            onSelectField?(icao)
+            return
+        }
+        if let id = flight(near: point) {
+            onSelectFlight?(id)
+        }
+    }
+
+    private func beginInteraction() {
+        updateResolution()
+    }
+
+    private func endInteraction() {
+        guard !isInteracting else { return }
+        updateResolution()
+        setNeedsDisplay()
+    }
+
+    /// Draws at fewer pixels while a finger is down.
+    ///
+    /// The planet is rasterised on the CPU, so the cost of a frame is very
+    /// nearly linear in its pixel count — and on a 3x phone that is nine pixels
+    /// per point. Two thirds of them can go for as long as the world is
+    /// actually moving, which is exactly when nobody is looking at the
+    /// sharpness of a coastline, and come back the moment it stops.
+    private func updateResolution() {
+        let wanted = isInteracting ? min(displayScale, 2) : displayScale
+        guard contentScaleFactor != wanted else { return }
+        contentScaleFactor = wanted
+    }
+
+    private var displayScale: CGFloat {
+        traitCollection.displayScale > 0 ? traitCollection.displayScale : 3
+    }
+
+    // MARK: - What was tapped
+
+    /// The aircraft nearest a tap, if one is near enough to have been meant.
+    ///
+    /// Against the projected position rather than the coordinate, because
+    /// "near" means near on the screen: two aircraft a hundred miles apart at
+    /// the limb are a couple of points apart, and the one that looks closest to
+    /// the finger is the one that was aimed at.
+    private func flight(near point: CGPoint) -> String? {
+        let basis = camera.basis
+        let reach = GlobeMarkMetrics.touchRadius
+
+        var best: String?
+        var bestDistance = reach * reach
+
+        for dot in scene.traffic {
+            let projected = camera.project(dot.position, using: basis)
+            guard projected.isVisible else { continue }
+
+            let dx = projected.point.x - point.x
+            let dy = projected.point.y - point.y
+            let distance = dx * dx + dy * dy
+            if distance < bestDistance {
+                bestDistance = distance
+                best = dot.id
+            }
+        }
+        return best
+    }
+
+    /// The field nearest a tap. Only the ones far enough onto the near side to
+    /// have been drawn at something like full strength — a marker on ground
+    /// turning away is not something to open by accident.
+    private func field(near point: CGPoint) -> String? {
+        let basis = camera.basis
+        let reach = GlobeMarkMetrics.touchRadius
+
+        var best: String?
+        var bestDistance = reach * reach
+
+        for field in scene.fields {
+            let projected = camera.project(field.position, using: basis)
+            guard projected.depth > GlobeMarkMetrics.tappableDepth else { continue }
+
+            // Biased towards the label, which sits to the right of the ring and
+            // is most of what there is to aim at.
+            let dx = projected.point.x + GlobeMarkMetrics.fieldRingRadius - point.x
+            let dy = projected.point.y - point.y
+            let distance = dx * dx + dy * dy
+            if distance < bestDistance {
+                bestDistance = distance
+                best = field.icao
+            }
+        }
+        return best
+    }
+
+    // MARK: - Drawing
 
     override func draw(_ rect: CGRect) {
         guard let context = UIGraphicsGetCurrentContext() else { return }
 
-        drawBackdrop(in: context)
+        drawSky(in: context)
         guard camera.radius > 0 else { return }
 
         let basis = camera.basis
         let detail = self.detail
+        // Everything is rejected against this rather than against the disc: at
+        // the top of the zoom range the planet is six times the width of the
+        // screen, so most of the hemisphere facing you is still nowhere you can
+        // see it. Inflated a little so a shape whose centre is just outside
+        // still draws the part of it that is inside.
+        let box = bounds.insetBy(dx: -24, dy: -24)
 
         drawHalo(in: context)
         drawSphere(in: context)
 
         if let land = palette.land {
-            drawLand(in: context, basis: basis, detail: detail, color: land)
+            drawLand(in: context, basis: basis, detail: detail, color: land, box: box)
         }
 
         drawRings(GlobeGeometry.graticule, in: context, basis: basis,
-                  color: palette.graticule, width: palette.graticuleWidth)
+                  color: palette.graticule, width: palette.graticuleWidth, box: box)
         drawRings(GlobeGeometry.borders(for: detail), in: context, basis: basis,
-                  color: palette.border, width: palette.borderWidth)
+                  color: palette.border, width: palette.borderWidth, box: box)
 
         if let sun = sun {
             drawNight(in: context, basis: basis, sun: sun)
@@ -208,10 +533,10 @@ final class GlobeCanvasView: UIView {
 
         drawLines(in: context, basis: basis)
         drawLimb(in: context)
-        drawTraffic(in: context, basis: basis)
+        drawTraffic(in: context, basis: basis, box: box)
 
         if showsFields {
-            drawFields(in: context, basis: basis)
+            drawFields(in: context, basis: basis, box: box)
         }
     }
 
@@ -239,35 +564,72 @@ final class GlobeCanvasView: UIView {
 
     // MARK: - The sky
 
-    private func drawBackdrop(in context: CGContext) {
-        let box = bounds
+    /// Blits the sky, rendering it first if the size, the resolution or the
+    /// backdrop has moved.
+    ///
+    /// Nothing behind the planet moves when the planet turns, so none of it
+    /// belongs in a per-frame path. What used to happen here every frame was a
+    /// full-screen linear gradient, up to seven hundred ellipses and a
+    /// full-screen radial vignette — three per-pixel passes over the whole view
+    /// to produce a picture identical to the one already on screen.
+    private func drawSky(in context: CGContext) {
+        if sky == nil || skySize != bounds.size || skyScale != displayScale
+            || skyStyle != backdrop {
+            makeSky()
+        }
 
-        if backdrop.colors.count > 1,
-           let gradient = CGGradient(
-               colorsSpace: CGColorSpaceCreateDeviceRGB(),
-               colors: backdrop.colors.map { $0.cgColor } as CFArray,
-               locations: nil
-           ) {
-            context.saveGState()
-            context.clip(to: box)
-            context.drawLinearGradient(
-                gradient,
-                start: CGPoint(x: box.midX, y: box.minY),
-                end: CGPoint(x: box.midX, y: box.maxY),
-                options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
-            )
-            context.restoreGState()
-        } else {
+        guard let sky = sky else {
             context.setFillColor((backdrop.colors.first ?? .black).withAlphaComponent(1).cgColor)
-            context.fill(box)
+            context.fill(bounds)
+            return
         }
+        sky.draw(at: .zero)
+    }
 
-        if let colour = backdrop.stars {
-            drawStars(in: context, color: colour)
-        }
+    private func makeSky() {
+        skySize = bounds.size
+        skyScale = displayScale
+        skyStyle = backdrop
+        sky = nil
 
-        if let colour = backdrop.vignette {
-            drawVignette(in: context, color: colour)
+        guard bounds.width > 0, bounds.height > 0 else { return }
+
+        let format = UIGraphicsImageRendererFormat.default()
+        format.opaque = true
+        // The screen's resolution rather than the view's current one. The view
+        // drops to fewer pixels while a finger is down, and keying the sky to
+        // that would throw this bitmap away and rebuild it — a full-screen
+        // gradient and a starfield — at the exact moment a drag begins, which
+        // is the one moment there is nothing spare. Drawing a 3x image into a
+        // 2x context resamples it, which costs nothing and looks the same.
+        format.scale = displayScale
+
+        let box = CGRect(origin: .zero, size: bounds.size)
+        sky = UIGraphicsImageRenderer(size: bounds.size, format: format).image { render in
+            let context = render.cgContext
+
+            if backdrop.colors.count > 1,
+               let gradient = CGGradient(
+                   colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                   colors: backdrop.colors.map { $0.cgColor } as CFArray,
+                   locations: nil
+               ) {
+                context.saveGState()
+                context.clip(to: box)
+                context.drawLinearGradient(
+                    gradient,
+                    start: CGPoint(x: box.midX, y: box.minY),
+                    end: CGPoint(x: box.midX, y: box.maxY),
+                    options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
+                )
+                context.restoreGState()
+            } else {
+                context.setFillColor((backdrop.colors.first ?? .black).withAlphaComponent(1).cgColor)
+                context.fill(box)
+            }
+
+            if let colour = backdrop.stars { drawStars(in: context, over: box, color: colour) }
+            if let colour = backdrop.vignette { drawVignette(in: context, over: box, color: colour) }
         }
     }
 
@@ -277,41 +639,12 @@ final class GlobeCanvasView: UIView {
     /// planet would be a second thing moving under your finger, competing with
     /// the one you are actually turning; held still, it reads as a window.
     ///
-    /// Generated from a fixed seed, so the sky is the same sky between redraws,
-    /// between rotations, and between launches. A random one would twinkle
-    /// every frame.
-    private func drawStars(in context: CGContext, color: UIColor) {
-        if starsSize != bounds.size { makeStars(for: bounds.size) }
-        guard !stars.isEmpty else { return }
-
-        // Grouped into three brightnesses rather than set per star, so a
-        // thousand stars is three fills.
-        for band in 0..<3 {
-            let path = CGMutablePath()
-            var any = false
-            for star in stars where Int(star.alpha * 3) == band {
-                path.addEllipse(in: CGRect(
-                    x: star.x - star.radius, y: star.y - star.radius,
-                    width: star.radius * 2, height: star.radius * 2
-                ))
-                any = true
-            }
-            guard any else { continue }
-            context.setFillColor(color.withAlphaComponent(0.25 + CGFloat(band) * 0.28).cgColor)
-            context.addPath(path)
-            context.fillPath()
-        }
-    }
-
-    private func makeStars(for size: CGSize) {
-        starsSize = size
-        stars = []
-        guard size.width > 0, size.height > 0 else { return }
-
+    /// Generated from a fixed seed, so the sky is the same sky between
+    /// rotations and between launches. A random one would twinkle.
+    private func drawStars(in context: CGContext, over box: CGRect, color: UIColor) {
         // About one star per four thousand square points: dense enough to read
         // as a sky, sparse enough that it never competes with the traffic.
-        let count = min(700, max(80, Int(size.width * size.height / 4000)))
-        stars.reserveCapacity(count)
+        let count = min(700, max(80, Int(box.width * box.height / 4000)))
 
         var seed: UInt64 = 0x9E3779B97F4A7C15
         func next() -> CGFloat {
@@ -323,32 +656,41 @@ final class GlobeCanvasView: UIView {
             return CGFloat(seed % 100_000) / 100_000
         }
 
+        // Three brightnesses, three fills, rather than a state change per star.
+        var bands: [CGMutablePath] = [CGMutablePath(), CGMutablePath(), CGMutablePath()]
         for _ in 0..<count {
-            stars.append(Star(
-                x: next() * size.width,
-                y: next() * size.height,
-                radius: 0.4 + next() * 0.9,
-                alpha: next() * 0.999
+            let x = next() * box.width
+            let y = next() * box.height
+            let radius = 0.4 + next() * 0.9
+            let band = min(2, Int(next() * 3))
+            bands[band].addEllipse(in: CGRect(
+                x: x - radius, y: y - radius, width: radius * 2, height: radius * 2
             ))
+        }
+
+        for (band, path) in bands.enumerated() where !path.isEmpty {
+            context.setFillColor(color.withAlphaComponent(0.25 + CGFloat(band) * 0.28).cgColor)
+            context.addPath(path)
+            context.fillPath()
         }
     }
 
-    private func drawVignette(in context: CGContext, color: UIColor) {
+    private func drawVignette(in context: CGContext, over box: CGRect, color: UIColor) {
         guard let gradient = CGGradient(
             colorsSpace: CGColorSpaceCreateDeviceRGB(),
             colors: [color.withAlphaComponent(0).cgColor, color.cgColor] as CFArray,
             locations: [0, 1]
         ) else { return }
 
-        let centre = CGPoint(x: bounds.midX, y: bounds.midY)
+        let centre = CGPoint(x: box.midX, y: box.midY)
         context.saveGState()
-        context.clip(to: bounds)
+        context.clip(to: box)
         context.drawRadialGradient(
             gradient,
             startCenter: centre,
-            startRadius: min(bounds.width, bounds.height) * 0.3,
+            startRadius: min(box.width, box.height) * 0.3,
             endCenter: centre,
-            endRadius: max(bounds.width, bounds.height) * 0.75,
+            endRadius: max(box.width, box.height) * 0.75,
             options: [.drawsAfterEndLocation]
         )
         context.restoreGState()
@@ -422,10 +764,11 @@ final class GlobeCanvasView: UIView {
         in context: CGContext,
         basis: GlobeCamera.Basis,
         detail: GlobeGeometry.Detail,
-        color: UIColor
+        color: UIColor,
+        box: CGRect
     ) {
         let path = CGMutablePath()
-        for ring in GlobeGeometry.borders(for: detail) {
+        for ring in GlobeGeometry.borders(for: detail) where !isCulled(ring, basis: basis, box: box) {
             appendSilhouette(ring, to: path, basis: basis)
         }
 
@@ -443,8 +786,6 @@ final class GlobeCanvasView: UIView {
         to path: CGMutablePath,
         basis: GlobeCamera.Basis
     ) {
-        if isCulled(ring, basis: basis) { return }
-
         var started = false
         for point in ring.points {
             var x = CGFloat(simd_dot(point, basis.east))
@@ -477,17 +818,45 @@ final class GlobeCanvasView: UIView {
 
     // MARK: - Lines on it
 
-    /// Wholly round the back: one dot product for an entire country.
+    /// Whether a ring is somewhere this frame cannot see, in two dot products
+    /// and a rectangle test.
     ///
-    /// Only sound for a ring that fits inside a hemisphere, which is what a
-    /// positive `radiusCosine` means. A ring larger than that — a meridian,
-    /// which wraps the planet — has no direction the camera can point away from
-    /// far enough, and the test would cull it wrongly.
-    private func isCulled(_ ring: GlobeGeometry.Ring, basis: GlobeCamera.Basis) -> Bool {
-        guard ring.radiusCosine > 0 else { return false }
-        let facing = simd_dot(ring.axis, basis.out)
-        let reach = (1 - ring.radiusCosine * ring.radiusCosine).squareRoot()
-        return facing < -reach
+    /// ## Round the back
+    ///
+    /// One dot product for an entire country. Only sound for a ring that fits
+    /// inside a hemisphere, which is what a positive `radiusCosine` means. A
+    /// ring larger than that — a meridian, which wraps the planet — has no
+    /// direction the camera can point away from far enough, and the test would
+    /// cull it wrongly.
+    ///
+    /// ## Off the side of the screen
+    ///
+    /// The half that was missing, and the one that matters most. At the top of
+    /// the zoom range the sphere is over two thousand points across on a screen
+    /// four hundred wide, so nearly everything on the hemisphere facing you is
+    /// still nowhere you can see it — and every one of those coastlines was
+    /// being projected point by point and pathed anyway.
+    ///
+    /// The bound is exact rather than estimated. Every point of a ring lies
+    /// within its cone's angular radius θ of the axis, so the straight-line
+    /// distance between any two of them is at most 2·sin(θ/2); an orthographic
+    /// projection cannot stretch that, so on screen the whole ring is inside a
+    /// circle of radius R·√(2 − 2·cos θ) about the projected axis. A great
+    /// circle has a cosine of −1, which gives 2R and never culls — which is the
+    /// truth about a line that wraps the planet.
+    private func isCulled(_ ring: GlobeGeometry.Ring, basis: GlobeCamera.Basis, box: CGRect) -> Bool {
+        if ring.radiusCosine > 0 {
+            let facing = simd_dot(ring.axis, basis.out)
+            let reach = (1 - ring.radiusCosine * ring.radiusCosine).squareRoot()
+            if facing < -reach { return true }
+        }
+
+        let spread = CGFloat((2 - 2 * ring.radiusCosine).squareRoot()) * camera.radius
+        let centre = CGPoint(
+            x: camera.center.x + CGFloat(simd_dot(ring.axis, basis.east)) * camera.radius,
+            y: camera.center.y - CGFloat(simd_dot(ring.axis, basis.north)) * camera.radius
+        )
+        return !box.insetBy(dx: -spread, dy: -spread).contains(centre)
     }
 
     /// Every ring, clipped at the horizon.
@@ -496,12 +865,13 @@ final class GlobeCanvasView: UIView {
         in context: CGContext,
         basis: GlobeCamera.Basis,
         color: UIColor,
-        width: CGFloat
+        width: CGFloat,
+        box: CGRect
     ) {
         guard width > 0 else { return }
 
         let path = CGMutablePath()
-        for ring in rings where !isCulled(ring, basis: basis) {
+        for ring in rings where !isCulled(ring, basis: basis, box: box) {
             append(ring.points, to: path, basis: basis)
         }
 
@@ -718,30 +1088,33 @@ final class GlobeCanvasView: UIView {
 
     // MARK: - Traffic
 
-    private func drawTraffic(in context: CGContext, basis: GlobeCamera.Basis) {
-        let traffic = scene.traffic
-        guard !traffic.isEmpty || replay != nil else { return }
+    private func drawTraffic(in context: CGContext, basis: GlobeCamera.Basis, box: CGRect) {
+        guard !scene.traffic.isEmpty || replay != nil else { return }
 
-        if showsPlanes && traffic.count <= Self.planeLimit && !(isInteracting && traffic.count > 400) {
-            drawPlanes(traffic, in: context, basis: basis)
+        // The setting, and nothing else.
+        //
+        // This used to fall back to dots above sixteen hundred aircraft in the
+        // packet, and again above four hundred while a finger was down. Both
+        // were counts of the *server*, not of what is on screen — so on any
+        // busy server the artwork never appeared at all, and on a quiet one it
+        // turned into dots the moment you touched the planet. Which is a
+        // setting that says "aircraft shapes" and draws dots, and it is the
+        // reason the planet did not look like the map.
+        //
+        // What actually bounds the work is the screen rejection below: only
+        // aircraft you can see are drawn, at any zoom.
+        if showsPlanes {
+            drawPlanes(scene.traffic, in: context, basis: basis, box: box)
         } else {
-            drawDots(traffic, in: context, basis: basis)
+            drawDots(scene.traffic, in: context, basis: basis, box: box)
         }
     }
-
-    /// Above this many aircraft the artwork stops being artwork.
-    ///
-    /// Not a performance floor — the icons are cached bitmaps and blitting
-    /// three thousand of them is well within a frame. It is that three thousand
-    /// aeroplane silhouettes on a disc four hundred points across is a texture
-    /// rather than a picture of traffic, and dots at least say how many and
-    /// where.
-    private static let planeLimit = 1600
 
     private func drawPlanes(
         _ traffic: [GlobeTrafficDot],
         in context: CGContext,
-        basis: GlobeCamera.Basis
+        basis: GlobeCamera.Basis,
+        box: CGRect
     ) {
         let sprites = PlaneSprites.shared
         let size = palette.planeSize
@@ -749,7 +1122,7 @@ final class GlobeCanvasView: UIView {
 
         for dot in traffic {
             let projected = camera.project(dot.position, using: basis)
-            guard projected.isVisible else { continue }
+            guard projected.isVisible, box.contains(projected.point) else { continue }
 
             // Two dot products for the sprite's angle. The heading is a
             // direction on the surface, and an orthographic projection is
@@ -808,12 +1181,23 @@ final class GlobeCanvasView: UIView {
         in context: CGContext,
         sprites: PlaneSprites
     ) {
-        let body = dot.isOpen ? palette.openTraffic : (dot.tint ?? palette.traffic)
+        // The map's own aircraft, in the map's own colours.
+        //
+        // These used to be painted in `palette.traffic` against a derived
+        // outline, which made a planet full of aeroplanes that were the same
+        // colour as the coastlines and a different colour from the ones on the
+        // map you had just come from. The whole point of drawing artwork rather
+        // than dots is that it is the artwork you already recognise, so the
+        // colours are the map's too: light body, dark outline, and the same
+        // amber for the aircraft whose window is open.
+        //
+        // The palette still gets its say where it has one to have: a watched
+        // pilot's tint is a fact about that pilot, not about the map.
         guard let image = sprites.planetIcon(
             forKey: dot.spriteKey,
             pointSize: size,
-            body: body,
-            outline: Self.outline(for: body)
+            body: dot.tint,
+            selected: dot.isOpen
         ) else { return }
 
         context.saveGState()
@@ -823,22 +1207,11 @@ final class GlobeCanvasView: UIView {
         context.restoreGState()
     }
 
-    /// What an aircraft is outlined in, which is whatever its body is not.
-    ///
-    /// Derived rather than carried by the palette, because the body is not the
-    /// palette's to decide either: a watched pilot's aeroplane wears the colour
-    /// that pilot was given, and it still has to hold together on a pale
-    /// planet.
-    private static func outline(for body: UIColor) -> UIColor {
-        body.relativeLuminance > 0.45
-            ? UIColor(white: 0.06, alpha: 0.9)
-            : UIColor(white: 1, alpha: 0.85)
-    }
-
     private func drawDots(
         _ traffic: [GlobeTrafficDot],
         in context: CGContext,
-        basis: GlobeCamera.Basis
+        basis: GlobeCamera.Basis,
+        box: CGRect
     ) {
         // Grouped by colour, so a packet of three thousand aircraft is a
         // handful of fills rather than one state change apiece. An array rather
@@ -851,7 +1224,7 @@ final class GlobeCanvasView: UIView {
 
         for dot in traffic {
             let projected = camera.project(dot.position, using: basis)
-            guard projected.isVisible else { continue }
+            guard projected.isVisible, box.contains(projected.point) else { continue }
 
             if dot.isOpen {
                 if replay == nil { open.append(projected.point) }
@@ -913,7 +1286,7 @@ final class GlobeCanvasView: UIView {
     /// Faded as they approach the limb: a marker at the edge of the disc is on
     /// ground turning away from you, and drawing it at full strength makes the
     /// planet look flat.
-    private func drawFields(in context: CGContext, basis: GlobeCamera.Basis) {
+    private func drawFields(in context: CGContext, basis: GlobeCamera.Basis, box: CGRect) {
         let fields = scene.fields
         guard !fields.isEmpty else { return }
 
@@ -924,11 +1297,12 @@ final class GlobeCanvasView: UIView {
         // reached. A label is drawn into an image renderer, which pushes a
         // context of its own, and doing that in the middle of a run of state
         // changes on this one is the kind of thing that works until it doesn't.
+        // Cached across frames, so this is a dictionary lookup after the first.
         for field in fields { _ = labelImage(field.icao) }
 
         for field in fields {
             let projected = camera.project(field.position, using: basis)
-            guard projected.depth > 0.02 else { continue }
+            guard projected.depth > 0.02, box.contains(projected.point) else { continue }
 
             // Full strength across most of the near side, falling away only in
             // the last stretch before the limb.
@@ -1007,13 +1381,15 @@ final class GlobeCanvasView: UIView {
     }()
 }
 
-extension UIColor {
+extension GlobeCanvasView: UIGestureRecognizerDelegate {
 
-    /// How light this colour reads, on the usual perceptual weighting. Used to
-    /// decide what to outline something drawn in it with.
-    var relativeLuminance: CGFloat {
-        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
-        guard getRed(&red, green: &green, blue: &blue, alpha: &alpha) else { return 1 }
-        return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+    /// Turning and zooming are one movement as far as a hand is concerned, and
+    /// a planet that stopped turning the moment a second finger landed would be
+    /// a planet that fights you.
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+    ) -> Bool {
+        true
     }
 }

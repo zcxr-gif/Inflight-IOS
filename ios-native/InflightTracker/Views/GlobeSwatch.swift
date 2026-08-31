@@ -29,16 +29,6 @@ struct GlobeSwatch: View {
 
     var body: some View {
         GlobeCanvas(
-            camera: GlobeCamera(
-                // Africa and Europe over the shoulder of the Atlantic: the one
-                // face of the planet that is unmistakably the planet at this
-                // size, and the one with enough coastline in it to show what a
-                // skin does to a coastline.
-                latitude: 18,
-                longitude: 10,
-                radius: side * 0.44,
-                center: CGPoint(x: side / 2, y: side / 2)
-            ),
             palette: skin.palette(scheme: scheme),
             backdrop: backdrop.style(
                 skin: skin,
@@ -50,10 +40,20 @@ struct GlobeSwatch: View {
             showsPlanes: false,
             showsFields: false,
             sun: nil,
-            // Not a lie about a finger being down — it is the flag that asks
-            // for the coarse cartography, which at twenty-one points of radius
-            // is the only level of detail that is not waste.
-            isInteracting: true
+            // A fixed camera, which is also what switches the gestures off: a
+            // swatch in a settings list must not be a thing you can accidentally
+            // spin while scrolling past it.
+            //
+            // Africa and Europe over the shoulder of the Atlantic: the one face
+            // of the planet that is unmistakably the planet at this size, and
+            // the one with enough coastline in it to show what a skin does to a
+            // coastline.
+            still: GlobeCamera(
+                latitude: 18,
+                longitude: 10,
+                radius: side * 0.44,
+                center: CGPoint(x: side / 2, y: side / 2)
+            )
         )
         .frame(width: side, height: side)
         .allowsHitTesting(false)
