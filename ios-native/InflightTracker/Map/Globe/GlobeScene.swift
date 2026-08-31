@@ -227,8 +227,10 @@ final class GlobeScene: ObservableObject {
                 to: GlobeGeometry.vector(fixes[index + 1])
             )
             // The joint is the same point twice; the second copy is a zero
-            // length segment and a wasted round line cap.
-            points.append(contentsOf: index == 0 ? leg : leg.dropFirst())
+            // length segment and a wasted round line cap. Dropped by count
+            // rather than by a conditional, which would be an `Array` against
+            // an `ArraySlice` and not a type.
+            points.append(contentsOf: leg.dropFirst(index == 0 ? 0 : 1))
         }
         return points
     }
