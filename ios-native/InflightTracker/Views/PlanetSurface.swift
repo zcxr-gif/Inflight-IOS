@@ -97,11 +97,20 @@ struct PlanetSurface: View {
     }
 
     /// How much ground has to be on screen before a field's pavement is worth
-    /// drawing, in metres.
+    /// *fetching*, in metres.
     ///
-    /// Nine nautical miles, which is what the flat map uses — the same layer
-    /// appearing at the same zoom whichever shape the world is.
-    private static let groundSpanMetres: Double = 9 * 1852
+    /// Deliberately much wider than the zoom it is drawn at — see
+    /// `GlobeCanvasView.drawGround` — and that gap is the point. A layout is
+    /// an Overpass round trip, so asking for it at the moment it becomes
+    /// visible means several seconds of an empty aerodrome first. Asking about
+    /// an octave and a half earlier means it is already there.
+    ///
+    /// The flat map's nine nautical miles is the number for a map that is
+    /// already drawing roads under you. Here there is nothing else at that
+    /// zoom, and nine miles is the last one per cent of a zoom range that now
+    /// runs to two hundred metres — you could pinch ten times without ever
+    /// finding out the layer existed.
+    private static let groundLoadSpanMetres: Double = 50 * 1852
 
     /// Static, so the timer belongs to the type rather than to a `View` value
     /// that SwiftUI rebuilds whenever anything on screen changes. A stored
@@ -177,7 +186,7 @@ struct PlanetSurface: View {
     /// airport dataset on a cache miss, so it happens when the planet stops
     /// moving rather than while it is moving.
     private func syncGround() {
-        guard let spot = spot, spot.spanMetres <= Self.groundSpanMetres else {
+        guard let spot = spot, spot.spanMetres <= Self.groundLoadSpanMetres else {
             groundIcao = nil
             scene.setGround(nil)
             return
@@ -189,7 +198,7 @@ struct PlanetSurface: View {
         )
         guard let field = AirportStore.shared.nearestAirport(
             to: centre,
-            withinNM: Self.groundSpanMetres / 1852
+            withinNM: 9
         ) else {
             groundIcao = nil
             scene.setGround(nil)

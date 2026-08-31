@@ -240,6 +240,9 @@ final class GlobeCanvasView: UIView {
     /// actually at when it decides what a point of screen is worth.
     private var isPanning = false
 
+    /// Whether a pinch ran at any point during the drag now ending.
+    private var wasPinched = false
+
     /// Whether two fingers are running a pinch, and what was under them when
     /// it began — so the ground between them stays between them. The pinch
     /// tracks its own midpoint, which *is* a two-finger drag, so while it is
@@ -306,7 +309,7 @@ final class GlobeCanvasView: UIView {
     /// The traffic, projected. Held by the view for the same reason the land
     /// scratch is: a packet is three thousand of these and they are rebuilt
     /// every frame of every gesture.
-    private var marks: [(index: Int, point: CGPoint, angle: CGFloat)] = []
+    private var marks: [(index: Int, position: SIMD3<Float>, point: CGPoint, angle: CGFloat)] = []
 
 
     // MARK: - Setting up
@@ -697,6 +700,7 @@ final class GlobeCanvasView: UIView {
         switch gesture.state {
         case .began:
             isPanning = true
+            wasPinched = false
             momentum = nil
             gesture.setTranslation(.zero, in: self)
             beginInteraction()
@@ -710,7 +714,7 @@ final class GlobeCanvasView: UIView {
             // A live pinch is already following the midpoint of the same two
             // fingers, and that midpoint moving is this translation. Applying
             // both would move the planet twice as far as the hand did.
-            guard !isPinching else { return }
+            guard !isPinching else { wasPinched = true; return }
 
             camera.drag(by: CGSize(width: moved.x, height: moved.y))
             redrawPlanet()
@@ -722,7 +726,12 @@ final class GlobeCanvasView: UIView {
             // like a map — everything on iOS that scrolls, glides.
             let velocity = gesture.velocity(in: self)
             let speed = (velocity.x * velocity.x + velocity.y * velocity.y).squareRoot()
-            if gesture.state == .ended, !isPinching, speed > Self.glideThreshold {
+            // Never off the back of a pinch. Two fingers coming off a zoom
+            // are not a flick, and the velocity of their midpoint is not one
+            // either — it would sail the planet away from what you had just
+            // zoomed in on.
+            if gesture.state == .ended, !isPinching, !wasPinched,
+               speed > Self.glideThreshold {
                 momentum = CGVector(dx: velocity.x, dy: velocity.y)
                 runAnimator()
             }
@@ -1864,10 +1873,15 @@ final class GlobeCanvasView: UIView {
     private func drawGround(in context: CGContext, basis: GlobeCamera.Basis, box: CGRect) {
         guard let ground = scene.ground else { return }
 
-        // Points per metre. Below this the field is a dot and the pavement is
-        // a smudge on it, which the ring and the code say better.
+        // Points per metre, and the zoom this layer starts at.
+        //
+        // A kilometre has to be worth a dozen points, which puts a three and a
+        // half kilometre aerodrome at about forty across — a shape you can
+        // read, rather than a smudge the ring and the code already say better.
+        // That is a view some thirty kilometres wide, well inside the range
+        // and well outside the two hundred metres the zoom now runs to.
         let perMetre = camera.radius / CGFloat(GlobeCamera.earthRadiusMetres)
-        guard perMetre * 1000 > 6 else { return }
+        guard perMetre * 1000 > 12 else { return }
 
         let origin = camera.project(ground.anchor, using: basis)
         guard origin.depth > 0 else { return }
@@ -2039,10 +2053,15 @@ final class GlobeCanvasView: UIView {
             // subtract.
             let dx = CGFloat(simd_dot(traffic[index].heading, basis.east))
             let dy = -CGFloat(simd_dot(traffic[index].heading, basis.north))
-            marks.append((index: index, point: projected.point, angle: atan2(dx, -dy)))
+            marks.append((
+                index: index,
+                position: traffic[index].position,
+                point: projected.point,
+                angle: atan2(dx, -dy)
+            ))
         }
 
-        startCrowding(mark: size, in: box)
+        startCrowding(mark: size)
 
         for mark in marks {
             let dot = traffic[mark.index]
@@ -2059,7 +2078,7 @@ final class GlobeCanvasView: UIView {
             // drawn. See `startCrowding`. The ones the colouring has an opinion
             // about — your own, the pilots you watch — are never dropped:
             // they are the ones you are looking for.
-            if dot.tint == nil, isCrowded(at: mark.point) { continue }
+            if dot.tint == nil, isCrowded(at: mark.position) { continue }
 
             draw(dot, at: mark.point, angle: mark.angle,
                  size: size, in: context, sprites: sprites)
@@ -2133,15 +2152,12 @@ final class GlobeCanvasView: UIView {
 
     // MARK: - Crowding
 
-    /// One cell per patch of screen, marked when an aeroplane has been drawn
-    /// in it.
-    private var crowd: [Bool] = []
-    private var crowdColumns = 0
-    private var crowdRows = 0
-    private var crowdCell: CGFloat = 1
-    private var crowdOrigin: CGPoint = .zero
+    /// Patches of the *sphere* already spoken for this frame, and how many of
+    /// them there are to a radian.
+    private var crowd: Set<SIMD3<Int32>> = []
+    private var crowdScale: Double = 0
 
-    /// Stops drawing aeroplanes on top of aeroplanes.
+    /// Stops drawing marks on top of marks.
     ///
     /// ## The arithmetic of a full planet
     ///
@@ -2150,93 +2166,89 @@ final class GlobeCanvasView: UIView {
     /// round the back. What is left is fifteen hundred marks, thirteen points
     /// on a side, poured into forty thousand square points of planet — every
     /// part of the picture several aeroplanes deep, most of them painted over
-    /// before the frame ends.
+    /// before the frame ends. Each one is a *rotated* blit, which is a
+    /// resample rather than a copy, so at two or three pixels to the point
+    /// that is the frame.
     ///
-    /// They are not cheap to paint over. Each is a *rotated* blit, which is a
-    /// resample rather than a copy, and at two or three pixels to the point
-    /// fifteen hundred of them is several million pixels of interpolation a
-    /// frame. That is the traffic still being heavy after all the cartography
-    /// had been made cheap.
+    /// ## Cells on the sphere, not on the screen
     ///
-    /// ## A budget, not a spacing
+    /// The first version of this laid a grid over the *view*, and that grid
+    /// made the traffic flicker. An aeroplane does not move relative to its
+    /// neighbours when the planet turns — but the cell edges do, sweeping
+    /// across the screen with the camera, so a pair straddling one would share
+    /// a cell on one frame and hold two on the next, and the loser blinked on
+    /// and off at the rate the boundary crossed it.
     ///
-    /// So the screen is a coarse grid and the first aeroplane into a cell is
-    /// the one drawn. The cell is not fixed: it is opened up until the number
-    /// that will be drawn comes under a budget, so the cost of a frame stops
-    /// depending on how busy the server is. A quiet server and a zoomed-in
-    /// view never reach the budget and nothing is dropped at all — which is
-    /// every case except the one that was slow.
+    /// The cells are patches of the sphere instead. An aeroplane's cell is a
+    /// function of its own position and the zoom and nothing else, so turning
+    /// the planet, dragging it, or letting it glide cannot change who wins:
+    /// the positions do not move and neither do the cells. The size is snapped
+    /// to a power of two of a radian, so a pinch does not resize them
+    /// continuously either — it steps, once an octave, while everything on
+    /// screen is already changing size.
     ///
-    /// What is dropped is only ever an aeroplane that would have been drawn on
-    /// top of another one. It is not a judgement about which aircraft matter:
-    /// anything the colouring has singled out skips the grid entirely, and the
-    /// hit test still walks the whole packet, so one that was not drawn is
-    /// still one you can tap.
-    private func startCrowding(mark: CGFloat, in box: CGRect) {
-        let natural = max(3, mark * 0.6)
-        let ceiling = mark * 3
-        prepareCrowd(cell: natural, in: box)
+    /// What is dropped is only ever a mark that would have been drawn on top
+    /// of another. Anything the colouring has singled out skips the grid, and
+    /// the hit test still walks the whole packet, so an aeroplane that was not
+    /// drawn is still one you can tap.
+    private func beginCrowding(points: CGFloat) {
+        crowd.removeAll(keepingCapacity: true)
+        guard camera.radius > 0 else { crowdScale = 0; return }
 
-        let budget = isInteracting ? Self.movingBudget : Self.restingBudget
-        guard marks.count > budget else { return }
-
-        // Opened up until what would actually be *drawn* comes under budget,
-        // measured rather than predicted.
-        //
-        // How many fill is not how many are on screen, and the difference is
-        // the whole trick: a full planet is mostly aeroplanes on top of
-        // aeroplanes, so opening the grid by the ratio of the packet to the
-        // budget opens it far too far and leaves a lattice. It is not a closed
-        // form either — the traffic is nothing like evenly spread, so how fast
-        // the count falls as the cell grows depends on the shape of the
-        // packet. Two or three passes of measure-and-open lands on it, and a
-        // pass is one array index per aeroplane.
-        var cell = natural
-        for _ in 0..<3 {
-            var filled = 0
-            for candidate in marks where !isCrowded(at: candidate.point) { filled += 1 }
-
-            guard filled > budget, cell < ceiling else {
-                prepareCrowd(cell: cell, in: box)
-                return
-            }
-            cell = min(ceiling, cell * (CGFloat(filled) / CGFloat(budget)).squareRoot())
-            prepareCrowd(cell: cell, in: box)
-        }
+        // Points of screen into an angle on the sphere, then up to the next
+        // power of two so that it only ever changes in steps.
+        let wanted = Double(max(3, points) / camera.radius)
+        let cell = exp2(log2(wanted).rounded(.up))
+        // Capped so that a cell index can never leave `Int32`, whatever the
+        // radius: converting a Double that does not fit is a trap, and a crash
+        // is a poor way to declutter a map.
+        crowdScale = cell > 0 ? min(1 / cell, 1e8) : 0
     }
 
-    private func prepareCrowd(cell: CGFloat, in box: CGRect) {
-        crowdCell = max(3, cell)
-        crowdOrigin = box.origin
-        crowdColumns = max(1, Int((box.width / crowdCell).rounded(.up)) + 1)
-        crowdRows = max(1, Int((box.height / crowdCell).rounded(.up)) + 1)
+    /// Sizes the traffic's cells so that what will actually be *drawn* comes
+    /// under the budget.
+    ///
+    /// How many fill is not how many are on screen, and the difference is the
+    /// whole trick: a full planet is mostly aeroplanes on top of aeroplanes,
+    /// so opening the grid by the ratio of the packet to the budget opens it
+    /// far too far and leaves a lattice. One measured pass says how many the
+    /// natural spacing draws; each doubling of the cell quarters that, so the
+    /// number of doublings is arithmetic rather than a search.
+    private func startCrowding(mark: CGFloat) {
+        let natural = mark * 0.6
+        beginCrowding(points: natural)
+        guard marks.count > Self.trafficBudget else { return }
 
-        let wanted = crowdColumns * crowdRows
-        if crowd.count < wanted {
-            crowd = [Bool](repeating: false, count: wanted)
-        } else {
-            for index in 0..<wanted { crowd[index] = false }
+        var filled = 0
+        for candidate in marks where !isCrowded(at: candidate.position) { filled += 1 }
+
+        guard filled > Self.trafficBudget else {
+            beginCrowding(points: natural)
+            return
         }
+
+        let doublings = (log2(Double(filled) / Double(Self.trafficBudget)) / 2).rounded(.up)
+        beginCrowding(points: natural * CGFloat(exp2(max(1, min(6, doublings)))))
     }
 
     /// How many aircraft are worth drawing in one frame.
     ///
-    /// Two numbers, because the two cases are not alike. While the planet is
-    /// moving this is paid sixty times a second and it is competing with the
-    /// cartography for the same frame; at rest it is paid once, when a packet
-    /// lands, and there is a whole second before the next one.
-    private static let movingBudget = 700
-    private static let restingBudget = 2400
+    /// One number rather than one for moving and one for resting. Two of them
+    /// meant the traffic thinned out the moment a finger landed and thickened
+    /// again when it lifted, which is the same "it redraws itself when you let
+    /// go" the level of detail used to do. What a frame can afford is handled
+    /// by `tuneResolution` instead, which changes how many *pixels* each of
+    /// these costs rather than how many of them there are.
+    private static let trafficBudget = 1200
 
-    private func isCrowded(at point: CGPoint) -> Bool {
-        let column = Int((point.x - crowdOrigin.x) / crowdCell)
-        let row = Int((point.y - crowdOrigin.y) / crowdCell)
-        guard column >= 0, column < crowdColumns, row >= 0, row < crowdRows else { return false }
-
-        let index = row * crowdColumns + column
-        if crowd[index] { return true }
-        crowd[index] = true
-        return false
+    private func isCrowded(at position: SIMD3<Float>) -> Bool {
+        guard crowdScale > 0 else { return false }
+        let cell = SIMD3<Int32>(
+            Int32((Double(position.x) * crowdScale).rounded(.down)),
+            Int32((Double(position.y) * crowdScale).rounded(.down)),
+            Int32((Double(position.z) * crowdScale).rounded(.down))
+        )
+        return !crowd.insert(cell).inserted
     }
 
     private func drawDots(
@@ -2337,7 +2349,7 @@ final class GlobeCanvasView: UIView {
         // A field somebody is working skips the grid, the way a coloured
         // aircraft does. It is the one thing about a field you cannot work out
         // by looking at the traffic, and it is never the thing to drop.
-        prepareCrowd(cell: 30, in: box)
+        beginCrowding(points: 30)
 
         // Rendered before the drawing starts rather than as each one is
         // reached. A label is drawn into an image renderer, which pushes a
@@ -2350,7 +2362,7 @@ final class GlobeCanvasView: UIView {
             let projected = camera.project(field.position, using: basis)
             guard projected.depth > 0.02, box.contains(projected.point) else { continue }
 
-            if !field.isControlled, isCrowded(at: projected.point) { continue }
+            if !field.isControlled, isCrowded(at: field.position) { continue }
 
             // Full strength across most of the near side, falling away only in
             // the last stretch before the limb — so on a zoomed-in frame every
