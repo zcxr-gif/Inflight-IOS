@@ -249,7 +249,7 @@ final class GlobeCanvasView: UIView {
     /// live it owns the translation as well and the pan stands off. See
     /// `pin(_:at:)`.
     private var isPinching = false
-    private var pinchAnchor: SIMD3<Float>?
+    private var pinchAnchor: SIMD3<Double>?
 
     /// A flick, in points a second, decaying. Nil when the planet is still.
     private var momentum: CGVector?
@@ -257,7 +257,7 @@ final class GlobeCanvasView: UIView {
     /// A zoom being animated by a tap: where it is going, and how far through.
     private var zoomFrom: CGFloat = 0
     private var zoomTo: CGFloat = 0
-    private var zoomAnchor: SIMD3<Float>?
+    private var zoomAnchor: SIMD3<Double>?
     private var zoomPoint: CGPoint = .zero
     private var zoomProgress: Double = 0
 
@@ -566,16 +566,26 @@ final class GlobeCanvasView: UIView {
     /// sine of the angle from the middle, so the depth is what is left of the
     /// unit vector. Off the disc there is no ground under the finger and the
     /// answer is nothing.
-    private func direction(at point: CGPoint) -> SIMD3<Float>? {
+    /// Full precision, because this is the point a pinch promises to keep
+    /// under your fingers.
+    ///
+    /// A `Float` direction resolves to about forty centimetres of ground,
+    /// which at the closest zoom is three quarters of a point — so the anchor
+    /// itself was landing on a lattice, and `pin` was then solving exactly for
+    /// a slightly wrong place. The solve was always double precision inside;
+    /// this stops the answer being thrown away on the way in.
+    private func direction(at point: CGPoint) -> SIMD3<Double>? {
         guard camera.radius > 0 else { return nil }
-        let u = Float((point.x - camera.center.x) / camera.radius)
-        let v = Float((camera.center.y - point.y) / camera.radius)
+        let u = Double((point.x - camera.center.x) / camera.radius)
+        let v = Double((camera.center.y - point.y) / camera.radius)
         let flat = u * u + v * v
         guard flat < 0.9801 else { return nil }
 
         let basis = camera.basis
         let depth = (1 - flat).squareRoot()
-        return simd_normalize(basis.east * u + basis.north * v + basis.out * depth)
+        return simd_normalize(
+            basis.preciseEast * u + basis.preciseNorth * v + basis.preciseOut * depth
+        )
     }
 
     /// Turns the camera so `anchor` sits under `point`.
@@ -616,10 +626,10 @@ final class GlobeCanvasView: UIView {
     /// up. The target is clamped into what is reachable rather than refused,
     /// which makes the ground slide under the fingers instead of stopping
     /// dead. Zooming *in*, it never binds at all.
-    private func pin(_ anchor: SIMD3<Float>, at point: CGPoint) {
+    private func pin(_ anchor: SIMD3<Double>, at point: CGPoint) {
         guard camera.radius > 0 else { return }
 
-        let ax = Double(anchor.x), ay = Double(anchor.y), az = Double(anchor.z)
+        let ax = anchor.x, ay = anchor.y, az = anchor.z
 
         // The cosine of the anchor's own latitude, which is how far off the
         // middle of the screen it can be put.
