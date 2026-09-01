@@ -72,6 +72,11 @@ struct PlanetSurface: View {
     var openFlightId: String? = nil
     var route: GlobeScene.GlobeRoute? = nil
 
+    /// The controllers currently on, for the staffed-airspace layer. Empty
+    /// when the layer is off — which is how it is off: nothing is resolved and
+    /// the boundary set is never loaded.
+    var atcStations: [AtcStation] = []
+
     /// Where the planet is turned to when it first appears.
     let start: CLLocationCoordinate2D
 
@@ -378,6 +383,10 @@ struct PlanetSurface: View {
         // `FlightPlanStore.cachedWaypoints`.
         hasher.combine(planFixCount)
         hasher.combine(filters.showsNatTracks ? natTracks.tracks.count : 0)
+        // The stations rather than the sectors they resolve to: resolving is
+        // what loads the boundary set, and a stamp must not be what does that.
+        // See `atcSectors`, which is reached from `rebuild` only.
+        hasher.combine(atcStationStamp)
         hasher.combine(filters.showsFlownPath)
         hasher.combine(smoothsTraffic)
         return hasher.finalize()
@@ -437,6 +446,26 @@ struct PlanetSurface: View {
         return route
     }
 
+    /// A stamp of who is working which airspace, without resolving any of it.
+    private var atcStationStamp: Int {
+        var hasher = Hasher()
+        for station in atcStations where station.isCenter {
+            hasher.combine(station.identifier)
+            hasher.combine(station.facilities.count)
+        }
+        return hasher.finalize()
+    }
+
+    /// The staffed sectors, resolved out of the stations.
+    ///
+    /// Reached from `rebuild` rather than from the body, like the flown path
+    /// and the filed plan: the first call loads the boundary set off the
+    /// bundle, and a body evaluation is not the place for that.
+    private var atcSectors: [AtcActiveSector] {
+        guard !atcStations.isEmpty else { return [] }
+        return AtcBoundaryStore.shared.activeSectors(for: atcStations)
+    }
+
     /// Hands the scene everything it is built from, and lets it decide whether
     /// any of it has moved.
     private func rebuild() {
@@ -454,6 +483,7 @@ struct PlanetSurface: View {
             route: plannedRoute,
             flownPath: flownPath,
             natTracks: filters.showsNatTracks ? natTracks.tracks.map(\.coordinates) : [],
+            atcSectors: atcSectors,
             smoothsTraffic: smoothsTraffic,
             palette: palette
         )

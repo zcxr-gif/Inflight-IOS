@@ -11,6 +11,12 @@ struct FiltersPanel: View {
     @ObservedObject private var filters = MapFilters.shared
     @ObservedObject private var appearance = FlightInfoAppearance.shared
 
+    /// Observed because the airspace layer is Pro, and `showsAtcBoundaries`
+    /// resolves against an entitlement this panel cannot otherwise see change.
+    @ObservedObject private var entitlements = Entitlements.shared
+
+    @State private var isShowingPaywall = false
+
     private var theme: FlightInfoTheme { appearance.theme }
 
     /// One pass over the packet for everything the panel counts: how much
@@ -119,6 +125,28 @@ struct FiltersPanel: View {
                 }
             }
 
+            // MARK: Controlled airspace
+            //
+            // Its own card, under the plan and above the traffic filters,
+            // because it is the one layer here about *people* rather than about
+            // aeroplanes or ground — and because it is the only one that is off
+            // until asked for, which a row buried in a list of six would not
+            // make obvious.
+            PanelSection(title: "CONTROLLED AIRSPACE") {
+                if !entitlements.isPro {
+                    ProUpsellRow(feature: .atcBoundaries) { isShowingPaywall = true }
+                    PanelDivider()
+                }
+
+                PanelToggleRow(
+                    title: "ATC boundaries",
+                    symbol: "square.dashed",
+                    detail: "Outlines the airspace of every centre with somebody working it, and names the station on it. Only staffed sectors — the whole boundary network would be a second map over the first. Off until you ask for it.",
+                    isOn: atcBoundaries
+                )
+                .proLocked(entitlements.isPro) { isShowingPaywall = true }
+            }
+
             PanelSection(title: "PHASE") {
                 ForEach(FlightPhase.allCases, id: \.self) { phase in
                     if phase != FlightPhase.allCases.first { PanelDivider() }
@@ -185,6 +213,19 @@ struct FiltersPanel: View {
 
             HintStrip(placement: .filters)
         }
+        .sheet(isPresented: $isShowingPaywall) { ProPanel(highlighted: .atcBoundaries) }
+    }
+
+    /// The switch behind the airspace row.
+    ///
+    /// Shows what is actually *drawn*, so a free account is never looking at a
+    /// switch that reads on over a map with no airspace on it. Hoisted out of
+    /// the body rather than written as a ternary in the row — see
+    /// `MapStyleSettingsPanel.planeShapes`, which is the same shape and the
+    /// same reason.
+    private var atcBoundaries: Binding<Bool> {
+        guard entitlements.isPro else { return .constant(false) }
+        return $filters.wantsAtcBoundaries
     }
 
     private var resetButton: some View {

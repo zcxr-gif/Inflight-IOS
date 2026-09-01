@@ -201,6 +201,32 @@ final class MapFilters: ObservableObject {
         didSet { UserDefaults.standard.set(showsNatTracks, forKey: Self.natKey) }
     }
 
+    /// Whether the airspace of every staffed sector is drawn.
+    ///
+    /// **Off by default**, and the only new layer that is off for a reason
+    /// other than cost: it is a lot of ink. A busy evening on the expert server
+    /// is thirty outlined sectors across two continents, which is exactly what
+    /// somebody watching controlled airspace wants and a second map drawn over
+    /// the first for everybody else.
+    ///
+    /// Stored plainly here and gated where it is *read* — see
+    /// `showsAtcBoundaries`. The stored choice is left alone by a lapsed
+    /// subscription, the same way the planet's colours are, so it comes back
+    /// switched on rather than forgotten.
+    @Published var wantsAtcBoundaries: Bool {
+        didSet { UserDefaults.standard.set(wantsAtcBoundaries, forKey: Self.atcBoundariesKey) }
+    }
+
+    /// Whether the layer is actually drawn: asked for, and paid for.
+    ///
+    /// Resolved here rather than guarded at the switch, which is the same
+    /// arrangement `FlightInfoAppearance.resolvedGlobeSkin` has and for the
+    /// same reason — both maps and the settings row read this one answer, so
+    /// none of them can disagree about whether the layer is on.
+    var showsAtcBoundaries: Bool {
+        wantsAtcBoundaries && Entitlements.shared.has(.atcBoundaries)
+    }
+
     /// Whether the half of the world that is in darkness is washed over.
     ///
     /// Uncounted as a filter, like the layers around it. On by default and it
@@ -222,6 +248,7 @@ final class MapFilters: ObservableObject {
     private static let legacyPlanKey = "map.showsFlightPlan"
     private static let flownKey = "map.showsFlownPath"
     private static let planNamesKey = "map.showsPlanFixNames"
+    private static let atcBoundariesKey = "map.showsAtcBoundaries"
     private static let natKey = "map.showsNatTracks"
     private static let terminatorKey = "map.showsTerminator"
 
@@ -239,6 +266,8 @@ final class MapFilters: ObservableObject {
         }
         showsFlownPath = defaults.object(forKey: Self.flownKey) as? Bool ?? true
         showsPlanFixNames = defaults.object(forKey: Self.planNamesKey) as? Bool ?? true
+        // Off unless somebody has asked for it, which is what "auto off" means.
+        wantsAtcBoundaries = defaults.bool(forKey: Self.atcBoundariesKey)
         showsNatTracks = defaults.bool(forKey: Self.natKey)
         showsTerminator = defaults.object(forKey: Self.terminatorKey) as? Bool ?? true
         // On by default: the fields being worked are the most useful thing on

@@ -27,6 +27,15 @@ enum ProFeature: String, CaseIterable, Identifiable {
     /// Satellite, and the globe.
     case mapStyles
 
+    /// The controlled airspace behind the traffic: which sectors are staffed
+    /// right now, drawn on the map.
+    ///
+    /// Its own feature rather than part of `mapStyles`, because it is not a
+    /// finish on the map — it is a layer of information, and the one that says
+    /// *why* a stretch of sky is busy. Who is on frequency stays free, in the
+    /// ATC panel and on every field: what is sold is seeing their airspace.
+    case atcBoundaries
+
     /// Editing the drawn planet: its colours, what is behind it, and how the
     /// traffic on it is drawn.
     ///
@@ -92,6 +101,7 @@ enum ProFeature: String, CaseIterable, Identifiable {
         case .pilotColours: return "A colour for every pilot"
         case .mapStyles: return "Satellite and the globe"
         case .planetLook: return "The planet, in your colours"
+        case .atcBoundaries: return "The airspace, drawn"
         case .findMyAircraft: return "Jump to your aircraft"
         case .profileBanner: return "Your profile, your way"
         case .logbook: return "Every flight you've made"
@@ -109,6 +119,8 @@ enum ProFeature: String, CaseIterable, Identifiable {
             return "Paint each pilot you watch their own colour, and your own aircraft whatever you like. Free keeps one colour for the whole watchlist."
         case .mapStyles:
             return "Imagery, and the whole planet — free to spin and tilt with the traffic on it."
+        case .atcBoundaries:
+            return "See the controlled airspace behind the traffic — every sector with somebody working it, outlined and named, on the map and on the planet. Who is on frequency is free either way."
         case .planetLook:
             return "Draw the planet your way: ten colours, five skies behind it, and silhouettes instead of dots. The planet itself is free — this is the wardrobe."
         case .findMyAircraft:
@@ -129,6 +141,7 @@ enum ProFeature: String, CaseIterable, Identifiable {
         case .pilotColours: return "paintpalette"
         case .mapStyles: return "globe"
         case .planetLook: return "paintbrush.pointed"
+        case .atcBoundaries: return "square.dashed"
         case .findMyAircraft: return "location.magnifyingglass"
         case .profileBanner: return "photo.on.rectangle.angled"
         case .logbook: return "book.closed"

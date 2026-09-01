@@ -165,6 +165,11 @@ enum GlobeMarkMetrics {
     static let planFixRadius: CGFloat = 5
     static let planFontSize: CGFloat = 9.5
 
+    /// A staffed sector's name. Smaller again than a fix: it names a volume of
+    /// sky the size of a country, and the things inside it are what somebody is
+    /// actually reading.
+    static let atcFontSize: CGFloat = 9
+
     /// How near a tap has to land, in points.
     static let touchRadius: CGFloat = 22
 
@@ -446,6 +451,12 @@ final class GlobeCanvasView: UIView {
     /// one is drawn in a colour of its own.
     private var fixLabels: [String: UIImage] = [:]
 
+    /// Staffed sector names, the same way again. A third cache rather than a
+    /// third prefix on a shared one: these are set at a different size and in a
+    /// different colour, and a cache keyed on the bare string would hand the
+    /// wrong bitmap to whichever asked second.
+    private var atcTextLabels: [String: UIImage] = [:]
+
     /// Scratch for the land fill: one landmass projected, and the same one
     /// part way through being clipped. Held by the view rather than made per
     /// ring, so a frame that walks three hundred coastlines does not allocate
@@ -511,6 +522,7 @@ final class GlobeCanvasView: UIView {
     @objc private func dropCaches() {
         labels.removeAll()
         fixLabels.removeAll()
+        atcTextLabels.removeAll()
     }
 
     /// A `CADisplayLink` holds its target, and the runloop holds the link — so
@@ -644,6 +656,7 @@ final class GlobeCanvasView: UIView {
         if palette != self.palette {
             labels.removeAll()
             fixLabels.removeAll()
+            atcTextLabels.removeAll()
         }
         let skyMoved = backdrop != self.backdrop
 
@@ -1610,6 +1623,10 @@ final class GlobeCanvasView: UIView {
         flyTraffic(basis: basis, box: box)
 
         drawLines(in: context, basis: basis, box: box)
+        // Straight after the lines that are its boundaries, and under
+        // everything else: a sector name is the largest, quietest thing on the
+        // planet and must not sit over an aeroplane.
+        drawAtcLabels(in: context, basis: basis, box: box)
         drawFlownPath(in: context, basis: basis, box: box)
         // Over the track and under the traffic. The fixes are marks you read
         // off the plan, so a coloured track crossing one must not bury it; the
@@ -3343,6 +3360,94 @@ final class GlobeCanvasView: UIView {
             ))
         }
     }
+
+    // MARK: - Controlled airspace
+
+    /// The station working each staffed sector, over the middle of its
+    /// airspace.
+    ///
+    /// The boundaries themselves are ordinary lines in the scene, so there is
+    /// nothing here but the names — which are the half a boundary cannot say,
+    /// and the half the web tracker gave up on entirely (`old/www/atcHighlights.js`
+    /// deletes its own label layer and calls it "ugly, broken").
+    ///
+    /// Crowded on the sphere like every other mark. Pulled back to the whole
+    /// planet, thirty staffed sectors put thirty names on a disc a few hundred
+    /// points across, and Europe on a busy evening is most of them.
+    private func drawAtcLabels(in context: CGContext, basis: GlobeCamera.Basis, box: CGRect) {
+        let marks = scene.atcLabels
+        guard !marks.isEmpty else { return }
+
+        beginCrowding(points: 64)
+
+        for mark in marks where !mark.text.isEmpty {
+            _ = atcLabel(mark.text)
+        }
+
+        for mark in marks {
+            guard !mark.text.isEmpty else { continue }
+
+            let projected = camera.project(mark.position, using: basis)
+            guard projected.depth > 0.02, box.contains(projected.point) else { continue }
+            if isCrowded(at: mark.position) { continue }
+
+            let opacity = min(1, CGFloat(projected.depth) / 0.28)
+            let fading = opacity < 1
+            if fading {
+                context.saveGState()
+                context.setAlpha(opacity)
+            }
+
+            let label = atcLabel(mark.text)
+            // Centred on the label point rather than offset beside it: there is
+            // no mark here to sit next to, and the point the dataset gives is
+            // the middle of the airspace.
+            label.draw(at: CGPoint(
+                x: projected.point.x - label.size.width / 2,
+                y: projected.point.y - label.size.height / 2
+            ))
+
+            if fading { context.restoreGState() }
+        }
+    }
+
+    /// A station's name, rendered once into a bitmap. See `labelImage`.
+    private func atcLabel(_ text: String) -> UIImage {
+        if let cached = atcTextLabels[text] { return cached }
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: Self.atcFont,
+            .foregroundColor: palette.atcLabel,
+        ]
+
+        let string = text as NSString
+        let measured = string.size(withAttributes: attributes)
+        let inset: CGFloat = 3
+        let size = CGSize(
+            width: measured.width.rounded(.up) + inset * 2,
+            height: measured.height.rounded(.up) + inset * 2
+        )
+
+        let format = UIGraphicsImageRendererFormat.default()
+        format.opaque = false
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
+            context.cgContext.setShadow(
+                offset: .zero,
+                blur: 2.5,
+                color: palette.fieldLabelHalo.cgColor
+            )
+            string.draw(at: CGPoint(x: inset, y: inset), withAttributes: attributes)
+        }
+
+        atcTextLabels[text] = image
+        return image
+    }
+
+    private static let atcFont: UIFont = {
+        let base = UIFont.systemFont(ofSize: GlobeMarkMetrics.atcFontSize, weight: .semibold)
+        guard let descriptor = base.fontDescriptor.withDesign(.rounded) else { return base }
+        return UIFont(descriptor: descriptor, size: GlobeMarkMetrics.atcFontSize)
+    }()
 
     // MARK: - The filed plan
 

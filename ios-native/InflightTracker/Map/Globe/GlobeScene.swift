@@ -73,6 +73,16 @@ struct GlobePlanFix: Equatable {
     let isPassed: Bool
 }
 
+/// A staffed sector's name, written over the middle of its airspace.
+///
+/// The boundary itself is drawn as ordinary `GlobeLine`s — an outline is an
+/// outline — so this carries only the part the line cannot say: which station
+/// it is and who is working it.
+struct GlobeAtcLabel: Equatable {
+    let position: SIMD3<Float>
+    let text: String
+}
+
 /// A line drawn on the surface — today, the open aircraft's route.
 struct GlobeLine: Equatable {
     /// Full precision, unlike everything else on the planet.
@@ -329,6 +339,11 @@ final class GlobeScene: ObservableObject {
     /// them — see `GlobePlanFix`.
     private(set) var planFixes: [GlobePlanFix] = []
 
+    /// The staffed sectors' names. Empty whenever the layer is off, which is
+    /// how the layer is switched off — the canvas has no flag for it, because
+    /// a scene with nothing in it draws nothing.
+    private(set) var atcLabels: [GlobeAtcLabel] = []
+
     /// Where the open aircraft has been. Its own thing rather than a line,
     /// because it is coloured by height along its length — see
     /// `GlobeFlownPath`.
@@ -381,6 +396,7 @@ final class GlobeScene: ObservableObject {
         route: GlobeRoute?,
         flownPath: [TrackPoint],
         natTracks: [[CLLocationCoordinate2D]],
+        atcSectors: [AtcActiveSector],
         smoothsTraffic: Bool,
         palette: GlobePalette
     ) {
@@ -450,9 +466,16 @@ final class GlobeScene: ObservableObject {
             // it on its own.
             flownFrom: flown == nil ? nil : flownPath.first?.coordinate,
             natTracks: natTracks,
+            atcSectors: atcSectors,
             palette: palette
         )
         self.planFixes = Self.planFixes(route: route)
+        self.atcLabels = atcSectors.map {
+            GlobeAtcLabel(
+                position: GlobeGeometry.vector($0.sector.label),
+                text: $0.label
+            )
+        }
 
         revision &+= 1
     }
@@ -551,9 +574,32 @@ final class GlobeScene: ObservableObject {
         route: GlobeRoute?,
         flownFrom: CLLocationCoordinate2D?,
         natTracks: [[CLLocationCoordinate2D]],
+        atcSectors: [AtcActiveSector],
         palette: GlobePalette
     ) -> [GlobeLine] {
         var lines: [GlobeLine] = []
+
+        // Airspace first, under everything else. It is the largest thing on the
+        // planet by far — a sector spans a country — and it is context for the
+        // traffic rather than a claim about any aeroplane, so nothing else
+        // should have to give way to it.
+        //
+        // Outlined, not filled. The flat map washes the inside of a staffed
+        // sector, which it can because MapKit clips a polygon to the viewport;
+        // here a sector crossing the limb is a ring the horizon cuts in half,
+        // and the honest closed shape to fill it with does not exist. The
+        // outline is what makes an FIR readable anyway — the wash only says
+        // which side of the line is inside.
+        for sector in atcSectors {
+            for ring in sector.sector.rings where ring.count > 2 {
+                lines.append(GlobeLine(
+                    points: ring.map { GlobeGeometry.preciseVector($0) },
+                    color: palette.atcBoundary,
+                    width: 1,
+                    dash: nil
+                ))
+            }
+        }
 
         for track in natTracks where track.count > 1 {
             lines.append(GlobeLine(

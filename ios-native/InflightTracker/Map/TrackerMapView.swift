@@ -156,6 +156,7 @@ struct TrackerMapView: UIViewRepresentable {
     /// either way — see `MapFilters.showsPlanFixNames`.
     var showsPlanNames = true
 
+
     /// Whether the open aircraft gets a straight line to its destination,
     /// travelling with it. Mutually exclusive with the filed plan above — see
     /// `RouteLineMode` for why the two are a choice rather than two switches.
@@ -185,6 +186,15 @@ struct TrackerMapView: UIViewRepresentable {
 
     /// Whether the North Atlantic organised tracks are drawn.
     var showsNatTracks = false
+
+    /// Whether the airspace of every staffed sector is drawn. Already resolved
+    /// against Pro by whoever owns the filters — the map draws what it is told.
+    var showsAtcBoundaries = false
+
+    /// The controllers currently on, which is what decides *which* airspace is
+    /// drawn: only sectors somebody is working. Empty when the layer is off, so
+    /// nothing is resolved and the boundary set is never even loaded.
+    var atcStations: [AtcStation] = []
 
     /// Whether model wind is drawn across the visible map, and at what height.
     var showsWinds = false
@@ -271,6 +281,11 @@ struct TrackerMapView: UIViewRepresentable {
         )
 
         mapView.register(
+            AtcSectorLabelView.self,
+            forAnnotationViewWithReuseIdentifier: AtcSectorLabelView.reuseIdentifier
+        )
+
+        mapView.register(
             WindBarbView.self,
             forAnnotationViewWithReuseIdentifier: WindBarbView.reuseIdentifier
         )
@@ -322,6 +337,7 @@ struct TrackerMapView: UIViewRepresentable {
         context.coordinator.syncWeatherTiles(on: mapView)
         context.coordinator.syncWinds(on: mapView)
         context.coordinator.syncNatTracks(on: mapView)
+        context.coordinator.syncAtcBoundaries(on: mapView)
 
         // The scheme goes on *after* the style, and is forced whenever the
         // style actually swapped the map's configuration. See `applyScheme`:
@@ -2038,6 +2054,72 @@ struct TrackerMapView: UIViewRepresentable {
             renderedNatKey = nil
         }
 
+        // MARK: - Controlled airspace
+
+        /// The sectors currently being drawn, and their labels.
+        private var atcOverlays: [MKOverlay] = []
+        private var atcLabels: [MKAnnotation] = []
+
+        /// What the drawn sectors were built from, so a packet that changes
+        /// nothing about who is on frequency costs one string comparison.
+        ///
+        /// This matters more here than anywhere else on the map: the ATC packet
+        /// lands every few seconds, and rebuilding thirty polygons of a
+        /// thousand points each time it did would be the whole reason the layer
+        /// felt heavy. It is also the bug the web build wrote a long note about
+        /// and only half fixed — see `old/www/atcHighlights.js`.
+        private var renderedAtcKey: String?
+
+        /// Draws the airspace of every sector somebody is working.
+        ///
+        /// Only centres, and only staffed ones. Drawing the whole boundary
+        /// network would be a second map on top of the first — nine hundred
+        /// sectors, most of them empty — and the question this layer answers is
+        /// "who is controlling what", which only the staffed ones answer.
+        func syncAtcBoundaries(on mapView: MKMapView) {
+            guard parent.showsAtcBoundaries else {
+                clearAtcBoundaries(on: mapView)
+                return
+            }
+
+            // Keyed on the stations rather than on the resolved sectors, so the
+            // resolution itself — and the one-time load of the boundary set
+            // behind it — is skipped entirely when nothing has changed.
+            let centres = parent.atcStations.filter(\.isCenter)
+            let key = centres
+                .map { "\($0.identifier)/\($0.facilities.count)" }
+                .sorted()
+                .joined(separator: ",")
+
+            guard renderedAtcKey != key else { return }
+
+            clearAtcBoundaries(on: mapView)
+            renderedAtcKey = key
+            guard !centres.isEmpty else { return }
+
+            let active = AtcBoundaryStore.shared.activeSectors(for: centres)
+            guard !active.isEmpty else { return }
+
+            for sector in active {
+                atcOverlays.append(contentsOf: AtcSectorOverlay.rings(of: sector.sector))
+                atcLabels.append(AtcSectorLabelAnnotation(sector))
+            }
+
+            // Under the traffic and under the routes, like every other layer
+            // that is context rather than subject.
+            mapView.addOverlays(atcOverlays, level: .aboveRoads)
+            mapView.addAnnotations(atcLabels)
+        }
+
+        private func clearAtcBoundaries(on mapView: MKMapView) {
+            guard renderedAtcKey != nil else { return }
+            mapView.removeOverlays(atcOverlays)
+            mapView.removeAnnotations(atcLabels)
+            atcOverlays.removeAll(keepingCapacity: true)
+            atcLabels.removeAll(keepingCapacity: true)
+            renderedAtcKey = nil
+        }
+
         // MARK: Ground layout
 
         /// How wide the view has to be, in nautical miles, before a field's
@@ -3027,6 +3109,16 @@ struct TrackerMapView: UIViewRepresentable {
             }
 
             if let area = overlay as? MKPolygon {
+                // First, because a sector reaching `groundRenderer` below would
+                // be drawn as pavement.
+                if AtcSectorOverlay.isSector(area.title) {
+                    let renderer = MKPolygonRenderer(polygon: area)
+                    renderer.fillColor = AtcSectorStyle.fill
+                    renderer.strokeColor = AtcSectorStyle.border
+                    renderer.lineWidth = AtcSectorStyle.borderWidth
+                    return renderer
+                }
+
                 if Terminator.isBand(area.title) {
                     let renderer = MKPolygonRenderer(polygon: area)
                     renderer.fillColor = Terminator.fill(for: area.title)
@@ -3211,6 +3303,15 @@ struct TrackerMapView: UIViewRepresentable {
                     for: annotation
                 )
                 (view as? WindBarbView)?.apply(barb)
+                return view
+            }
+
+            if let sector = annotation as? AtcSectorLabelAnnotation {
+                let view = mapView.dequeueReusableAnnotationView(
+                    withIdentifier: AtcSectorLabelView.reuseIdentifier,
+                    for: sector
+                )
+                (view as? AtcSectorLabelView)?.apply(sector)
                 return view
             }
 

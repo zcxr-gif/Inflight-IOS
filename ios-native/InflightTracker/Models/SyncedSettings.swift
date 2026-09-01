@@ -82,6 +82,7 @@ struct SyncedSettings: Codable, Equatable {
     var showsGroundLayout: Bool?
     var routeLine: String?
     var showsPlanFixNames: Bool?
+    var showsAtcBoundaries: Bool?
     var showsFlownPath: Bool?
     var showsNatTracks: Bool?
     var showsTerminator: Bool?
@@ -161,6 +162,9 @@ struct SyncedSettings: Codable, Equatable {
         settings.showsGroundLayout = filters.showsGroundLayout
         settings.routeLine = filters.routeLine.rawValue
         settings.showsPlanFixNames = filters.showsPlanFixNames
+        // What was *asked* for, not what is drawn — an account that pays on one
+        // device and not another should carry the choice to both.
+        settings.showsAtcBoundaries = filters.wantsAtcBoundaries
         settings.showsFlownPath = filters.showsFlownPath
         settings.showsNatTracks = filters.showsNatTracks
         settings.showsTerminator = filters.showsTerminator
@@ -287,6 +291,9 @@ struct SyncedSettings: Codable, Equatable {
         }
         if let showsPlanFixNames = showsPlanFixNames {
             filters.showsPlanFixNames = showsPlanFixNames
+        }
+        if let showsAtcBoundaries = showsAtcBoundaries {
+            filters.wantsAtcBoundaries = showsAtcBoundaries
         }
         if let showsFlownPath = showsFlownPath { filters.showsFlownPath = showsFlownPath }
         if let showsNatTracks = showsNatTracks { filters.showsNatTracks = showsNatTracks }

@@ -636,6 +636,11 @@ struct ContentView: View {
             measurement: $measurement,
             showsTerminator: filters.showsTerminator,
             showsNatTracks: filters.showsNatTracks,
+            showsAtcBoundaries: filters.showsAtcBoundaries,
+            // Handed in rather than read by the map, so the layer resolves
+            // against the same packet everything else on screen was drawn from
+            // — and so the map stays a thing that draws what it is given.
+            atcStations: filters.showsAtcBoundaries ? feed.atcStations : [],
             showsWinds: weatherPreferences.showsWinds,
             windLevel: weatherPreferences.windLevel,
             showsFieldConditions: weatherPreferences.showsFieldConditions,
@@ -670,6 +675,10 @@ struct ContentView: View {
             signature: planetSignature,
             openFlightId: selection?.id,
             route: planetRoute,
+            // Resolved against Pro by the filters, exactly as the flat map's
+            // copy of this is — so the layer is on, or off, on both shapes of
+            // the world at once.
+            atcStations: filters.showsAtcBoundaries ? feed.atcStations : [],
             start: planetStart,
             command: mapCommand,
             replayFrame: replay.frame,
