@@ -1614,11 +1614,44 @@ final class GlobeCanvasView: UIView {
 
     /// The continents, filled.
     ///
-    /// Every ring in one path filled even-odd, which is what makes the holes
-    /// work: Natural Earth gives a country's lakes and enclaves as interior
-    /// rings, and a country that sits inside another's hole — Lesotho — comes
-    /// out filled again because it is crossed a third time. One fill for the
+    /// Every ring in one path, filled by the winding rule. One fill for the
     /// whole world rather than one per country.
+    ///
+    /// ## Why not even-odd, which is what this used to be
+    ///
+    /// Land is the *union* of the country polygons, and even-odd is not a
+    /// union: it is a symmetric difference, so anywhere two of them cover the
+    /// same ground it takes that ground away. Which sounds like a case that
+    /// cannot arise — countries do not overlap — and does, for two reasons the
+    /// data and this file put together.
+    ///
+    /// Two countries either side of a border each carry their own copy of it,
+    /// deliberately (see `tools/globe-borders/build.py`: de-duplicating shared
+    /// edges means matching coordinates Natural Earth does not promise). At
+    /// full detail those two copies are the same vertices and lie exactly on
+    /// top of each other, and nothing shows. But every level below full is
+    /// thinned by `GlobeGeometry.decimate`, ring by ring and each from its own
+    /// starting vertex — so the two copies keep *different* subsets of the same
+    /// line and cross and recross it. Every one of those crossings is a sliver
+    /// covered twice, and even-odd cut every one of them out: a dotted channel
+    /// of ocean running along every inland border, which reads as a continent
+    /// broken up into islands. It is the whole-planet view that shows it, since
+    /// that is where the thinning is.
+    ///
+    /// The winding rule fills those slivers, as it should: two polygons wound
+    /// the same way that overlap are still land where they overlap. It also
+    /// still cuts the holes — a hole is wound against its own shell, in both
+    /// the shapefile convention and the GeoJSON one — so a country's lakes and
+    /// enclaves come out as they did, and a country sitting inside another's
+    /// hole is filled by its own ring. And it is the rule the clipping in
+    /// `appendSilhouette` was reasoned about with: the loops that clip leaves
+    /// outside the view are *zero winding* about anything you can see.
+    ///
+    /// The stroke closes what is left. Where both neighbours' thinned copies
+    /// chord the same corner, neither covers the true ground between them, and
+    /// no fill rule can invent it — but it is a sliver a point or so across, so
+    /// it is covered by drawing the outline of the same shape in the same
+    /// colour. See `landSeam(for:)`.
     ///
     /// The horizon is handled by pushing points round the back out to the limb
     /// rather than by clipping. A silhouette only needs its outline to be right
@@ -1647,8 +1680,37 @@ final class GlobeCanvasView: UIView {
         }
         context.setFillColor(color.cgColor)
         context.addPath(path)
-        context.fillPath(using: .evenOdd)
+
+        let seam = Self.landSeam(for: detail)
+        if seam > 0 {
+            context.setStrokeColor(color.cgColor)
+            context.setLineWidth(seam)
+            // Round, so a thinned coastline's corners do not grow spikes where
+            // its own segments meet at an angle.
+            context.setLineJoin(.round)
+            context.setLineCap(.round)
+            context.drawPath(using: .fillStroke)
+        } else {
+            context.fillPath()
+        }
         context.restoreGState()
+    }
+
+    /// How wide a line the land is outlined in, to cover the gaps thinning
+    /// leaves between two countries' copies of the border between them.
+    ///
+    /// It follows the thinning, because the gap does: at full detail the two
+    /// copies are the same points and there is nothing to cover, and each step
+    /// coarser can put them a little further apart. It is half of this that the
+    /// coastline grows by — a third of a point at its widest, on a planet where
+    /// the coastline is a hairline and has a border drawn along it anyway.
+    private static func landSeam(for detail: GlobeGeometry.Detail) -> CGFloat {
+        switch detail {
+        case .full: return 0
+        case .medium: return 0.5
+        case .coarse: return 0.8
+        case .rough: return 1.2
+        }
     }
 
     /// One landmass, projected and then trimmed to the view.
@@ -1689,12 +1751,15 @@ final class GlobeCanvasView: UIView {
     ) {
         outline.removeAll(keepingCapacity: true)
         var strays = false
+        var facing = false
 
         for point in ring.points {
             var x = CGFloat(simd_dot(point, basis.east))
             var y = CGFloat(simd_dot(point, basis.north))
 
-            if simd_dot(point, basis.out) < 0 {
+            if simd_dot(point, basis.out) >= 0 {
+                facing = true
+            } else {
                 let length = (x * x + y * y).squareRoot()
                 // Exactly the antipode of the camera, where there is no
                 // direction to push it in. One point of a ring, and skipping it
@@ -1714,6 +1779,19 @@ final class GlobeCanvasView: UIView {
             }
             outline.append(screen)
         }
+
+        // A landmass with no point of it on the near side has nothing of
+        // itself to show, and pushing all of it to the limb would draw a ring
+        // *around* the planet rather than a shape on it. Antarctica seen from
+        // the north pole is the case that matters: it encircles the antipode,
+        // so every point of it pushes out to the limb and the run of them goes
+        // the whole way round — which fills, or inverts, the entire disc.
+        //
+        // Nothing here can encircle the camera itself: no country at this
+        // scale spans a hemisphere, so a ring with no visible vertex has no
+        // visible interior either, and dropping it is exact rather than a
+        // guess.
+        guard facing else { return }
 
         if strays {
             trim(outline, into: &trimmed,
