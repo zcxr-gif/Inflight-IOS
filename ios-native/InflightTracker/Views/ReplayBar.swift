@@ -10,6 +10,16 @@ struct ReplayBar: View {
     /// The tallest thing in the header row: the button that ends the replay.
     static let headerHeight: CGFloat = 24
 
+    /// How much of the screen that button actually answers to.
+    ///
+    /// Not the same number, and that is the whole point. Drawn, it is a
+    /// twenty-four point circle with a ten point cross in it; pressed, it has
+    /// to be the forty-four points Apple has asked for since there were
+    /// touchscreens. It reaches that with an overlay rather than a frame, so
+    /// the header row — and `reservedHeight`, and the map inset built out of
+    /// it — stay the size they were.
+    static let tapTarget: CGFloat = 44
+
     /// A small slider's track and thumb, with a little room around them —
     /// this is applied to the slider as well as counted, so the sum below is
     /// the bar's real height rather than an estimate of it.
@@ -89,6 +99,28 @@ struct ReplayBar: View {
                     .foregroundStyle(theme.textSecondary)
                     .frame(width: Self.headerHeight, height: Self.headerHeight)
                     .flightInfoSurface(theme, in: Circle(), interactive: true)
+                    // What can be pressed, which is not what is drawn.
+                    //
+                    // A frame is layout; it is not a hit region. What makes a
+                    // frame pressable is something *in* it that answers to
+                    // touches, and on the glass theme there is nothing: the
+                    // surface is a `glassEffect` rather than a filled shape,
+                    // so the only reliably pressable thing in this button was
+                    // the ten-point cross itself, inside a twenty-four point
+                    // circle, in the corner of the screen. Which is why the
+                    // play button — a real fill behind a thirteen point
+                    // glyph — always worked and this one did not.
+                    //
+                    // So: the circle answers to touches, and a clear square
+                    // over it brings the target up to forty-four points
+                    // without moving anything. It stays inside the bar's own
+                    // padding, so it cannot take a press meant for the map.
+                    .contentShape(Circle())
+                    .overlay {
+                        Color.clear
+                            .frame(width: Self.tapTarget, height: Self.tapTarget)
+                            .contentShape(Rectangle())
+                    }
             }
             .buttonStyle(.plain)
             .accessibilityLabel("End replay")

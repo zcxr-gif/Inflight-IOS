@@ -57,6 +57,16 @@ struct FlightMotion {
     /// this the prediction simply stops and waits to be told.
     private static let maximumLead: Double = 12
 
+    /// The furthest that lead can carry an aeroplane past its last packet, in
+    /// metres, at a speed nothing in the sim exceeds.
+    ///
+    /// For a caller that has to decide whether an aircraft is worth advancing
+    /// *before* it has advanced it — the planet culls the packet against the
+    /// screen first, and an aeroplane reported just off the edge may well have
+    /// flown onto it since. Widening that test by this is what stops one
+    /// arriving late, at the edge, having jumped.
+    static let maximumLeadMetres: Double = maximumLead * 340
+
     /// Beyond this, a correction is a cut rather than a slide.
     ///
     /// An aircraft that has been repositioned, respawned, or restored from a

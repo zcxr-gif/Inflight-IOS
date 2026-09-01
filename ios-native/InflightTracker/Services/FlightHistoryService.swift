@@ -14,7 +14,59 @@ final class FlightHistoryService {
     private let lock = NSLock()
     private var inFlight = Set<String>()
 
+    /// When each flight's history was last asked for.
+    ///
+    /// A date rather than a set of ids, and the failure that taught us so was
+    /// the quiet kind. The trail store drops the trail of any aircraft missing
+    /// from a packet — right, since trails are the expensive part — and the
+    /// feed does blink: one short packet or a reconnect and a nine-hour
+    /// flight's seeded history is gone. With an id already in a set it would
+    /// never be asked for again, so the path silently collapsed to the
+    /// fragment recorded since the blink and stayed that way for as long as the
+    /// window was open. A date lets the request come back, while still holding
+    /// off the storm the set existed to prevent.
+    private var asked: [String: Date] = [:]
+
     private init() {}
+
+    /// How long before a flight whose history came back empty is asked about
+    /// again.
+    private static let retryInterval: TimeInterval = 45
+
+    /// The flown path this aircraft had before we were watching, in the trail
+    /// store, if it can be got.
+    ///
+    /// Rate-limited rather than once-only, and that is the point of it: a
+    /// history that comes back empty — a flight that has only just pushed back
+    /// — leaves `hasHistory` false forever, so a plain "ask if we have not
+    /// got one" on a method called every layout pass is a request a second for
+    /// as long as the window is open.
+    ///
+    /// Shared rather than kept by whichever map is on screen. Both of them draw
+    /// this track, only one of them used to ask for it, and the result was a
+    /// planet that drew a flown path starting wherever you happened to have
+    /// been when you opened the app while the flat map drew the same flight
+    /// from its departure.
+    func ensureHistory(for flightId: String) {
+        guard !FlightTrailStore.shared.hasHistory(for: flightId) else { return }
+
+        let now = Date()
+        lock.lock()
+        let due = now.timeIntervalSince(asked[flightId] ?? .distantPast) > Self.retryInterval
+        if due {
+            asked[flightId] = now
+            // Nothing worth remembering about the ones before: this exists to
+            // stop a repeat, and an id that has not been asked for in a
+            // hundred aircraft is not about to be asked for twice.
+            if asked.count > 200 { asked = [flightId: now] }
+        }
+        lock.unlock()
+
+        guard due else { return }
+        load(flightId: flightId) { history in
+            FlightTrailStore.shared.seed(history, for: flightId)
+        }
+    }
 
     /// Fetched once per flight per sheet. Completion is on the main queue and
     /// only fires with something worth drawing.

@@ -72,6 +72,18 @@ final class PlaneSprites {
         /// on the sheet; now it is the same drawing in another colour.
         static let selected = UIColor(red: 1.00, green: 0.62, blue: 0.04, alpha: 1)
 
+        /// The same three, as the integers the cache is keyed on.
+        ///
+        /// `packed` is four `getRed`-family calls into UIKit and a rounding
+        /// apiece, and the planet asks for an icon *per aircraft per frame* —
+        /// three thousand times a second at a busy zoom, to arrive at three
+        /// numbers that were decided when this file was written. Worked out
+        /// once here instead; a tint, which is a colour that genuinely varies,
+        /// still packs itself.
+        static let bodyPacked = body.packed
+        static let outlinePacked = outline.packed
+        static let selectedPacked = selected.packed
+
         /// A field with someone working it, against one without.
         static let controlledField = UIColor(red: 0.36, green: 0.68, blue: 1.00, alpha: 1)
         static let field = UIColor(white: 0.97, alpha: 1)
@@ -166,14 +178,16 @@ final class PlaneSprites {
         selected: Bool = false
     ) -> UIImage? {
         let body = tint ?? (selected ? Palette.selected : Palette.body)
+        let bodyPacked = tint?.packed
+            ?? (selected ? Palette.selectedPacked : Palette.bodyPacked)
 
         // Whole points, so a zoom that scales the traffic cannot mint a cache
         // entry per frame.
         let size = max(6, pointSize.rounded())
         let cacheKey = PlanetIconKey(
             sprite: key,
-            body: body.packed,
-            outline: Palette.outline.packed,
+            body: bodyPacked,
+            outline: Palette.outlinePacked,
             pointSize: size
         )
         if let cached = planetCache[cacheKey] { return cached }
