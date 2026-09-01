@@ -11,6 +11,12 @@ struct FiltersPanel: View {
     @ObservedObject private var filters = MapFilters.shared
     @ObservedObject private var appearance = FlightInfoAppearance.shared
 
+    /// Observed because the airspace layer is Pro, and `showsAtcBoundaries`
+    /// resolves against an entitlement this panel cannot otherwise see change.
+    @ObservedObject private var entitlements = Entitlements.shared
+
+    @State private var isShowingPaywall = false
+
     private var theme: FlightInfoTheme { appearance.theme }
 
     /// One pass over the packet for everything the panel counts: how much
@@ -67,17 +73,6 @@ struct FiltersPanel: View {
 
                 PanelDivider()
 
-                PanelPickerRow(
-                    title: "Route ahead",
-                    symbol: "point.topleft.down.curvedto.point.filled.bottomright.up",
-                    options: RouteLineMode.allCases,
-                    label: { $0.label },
-                    detail: filters.routeLine.detail,
-                    selection: $filters.routeLine
-                )
-
-                PanelDivider()
-
                 PanelToggleRow(
                     title: "Day and night",
                     symbol: "moon.stars",
@@ -93,6 +88,63 @@ struct FiltersPanel: View {
                     detail: "The organised track system, republished twice a day and coloured by letter, with the levels each track is valid at. It is what explains a hundred aircraft flying in parallel lines across the ocean.",
                     isOn: $filters.showsNatTracks
                 )
+            }
+
+            // MARK: The flight plan
+            //
+            // Its own card rather than two more rows in AIRPORTS, because it is
+            // its own subject: whether the route an open flight filed is drawn
+            // over the map, and how much of it is spelled out when it is. It is
+            // also the one layer that reads the same on both shapes of the
+            // world — the flat map and the planet plot the same fixes with the
+            // same names — so it deserves saying once, plainly, rather than
+            // being a line in a list about aerodromes.
+            PanelSection(title: "FLIGHT PLAN") {
+                PanelPickerRow(
+                    title: "Route ahead",
+                    symbol: "point.topleft.down.curvedto.point.filled.bottomright.up",
+                    options: RouteLineMode.allCases,
+                    label: { $0.label },
+                    detail: filters.routeLine.detail,
+                    selection: $filters.routeLine
+                )
+
+                // Only where there is a plan being drawn to put names on. Off
+                // and Direct have no fixes, so the row would be a switch with
+                // nothing to act on — and a switch that does nothing is worse
+                // than one that is not there.
+                if filters.showsFlightPlan {
+                    PanelDivider()
+
+                    PanelToggleRow(
+                        title: "Waypoint names",
+                        symbol: "textformat.abc",
+                        detail: "Names each fix on the plan. Turn it off to keep the diamonds and lose the labels — a long-haul plan is forty of them, and at a zoom that fits the whole route the names cover the route. On the flat map and the planet alike.",
+                        isOn: $filters.showsPlanFixNames
+                    )
+                }
+            }
+
+            // MARK: Controlled airspace
+            //
+            // Its own card, under the plan and above the traffic filters,
+            // because it is the one layer here about *people* rather than about
+            // aeroplanes or ground — and because it is the only one that is off
+            // until asked for, which a row buried in a list of six would not
+            // make obvious.
+            PanelSection(title: "CONTROLLED AIRSPACE") {
+                if !entitlements.isPro {
+                    ProUpsellRow(feature: .atcBoundaries) { isShowingPaywall = true }
+                    PanelDivider()
+                }
+
+                PanelToggleRow(
+                    title: "ATC boundaries",
+                    symbol: "square.dashed",
+                    detail: "Outlines the airspace of every centre with somebody working it, and names the station on it. Only staffed sectors — the whole boundary network would be a second map over the first. Off until you ask for it.",
+                    isOn: atcBoundaries
+                )
+                .proLocked(entitlements.isPro) { isShowingPaywall = true }
             }
 
             PanelSection(title: "PHASE") {
@@ -161,6 +213,19 @@ struct FiltersPanel: View {
 
             HintStrip(placement: .filters)
         }
+        .sheet(isPresented: $isShowingPaywall) { ProPanel(highlighted: .atcBoundaries) }
+    }
+
+    /// The switch behind the airspace row.
+    ///
+    /// Shows what is actually *drawn*, so a free account is never looking at a
+    /// switch that reads on over a map with no airspace on it. Hoisted out of
+    /// the body rather than written as a ternary in the row — see
+    /// `MapStyleSettingsPanel.planeShapes`, which is the same shape and the
+    /// same reason.
+    private var atcBoundaries: Binding<Bool> {
+        guard entitlements.isPro else { return .constant(false) }
+        return $filters.wantsAtcBoundaries
     }
 
     private var resetButton: some View {

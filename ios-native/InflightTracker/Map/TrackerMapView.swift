@@ -152,6 +152,11 @@ struct TrackerMapView: UIViewRepresentable {
     var showsGroundLayout = true
     var showsFlightPlan = false
 
+    /// Whether each fix on the drawn plan is named. The diamonds are drawn
+    /// either way — see `MapFilters.showsPlanFixNames`.
+    var showsPlanNames = true
+
+
     /// Whether the open aircraft gets a straight line to its destination,
     /// travelling with it. Mutually exclusive with the filed plan above — see
     /// `RouteLineMode` for why the two are a choice rather than two switches.
@@ -181,6 +186,15 @@ struct TrackerMapView: UIViewRepresentable {
 
     /// Whether the North Atlantic organised tracks are drawn.
     var showsNatTracks = false
+
+    /// Whether the airspace of every staffed sector is drawn. Already resolved
+    /// against Pro by whoever owns the filters — the map draws what it is told.
+    var showsAtcBoundaries = false
+
+    /// The controllers currently on, which is what decides *which* airspace is
+    /// drawn: only sectors somebody is working. Empty when the layer is off, so
+    /// nothing is resolved and the boundary set is never even loaded.
+    var atcStations: [AtcStation] = []
 
     /// Whether model wind is drawn across the visible map, and at what height.
     var showsWinds = false
@@ -267,6 +281,11 @@ struct TrackerMapView: UIViewRepresentable {
         )
 
         mapView.register(
+            AtcSectorLabelView.self,
+            forAnnotationViewWithReuseIdentifier: AtcSectorLabelView.reuseIdentifier
+        )
+
+        mapView.register(
             WindBarbView.self,
             forAnnotationViewWithReuseIdentifier: WindBarbView.reuseIdentifier
         )
@@ -318,6 +337,7 @@ struct TrackerMapView: UIViewRepresentable {
         context.coordinator.syncWeatherTiles(on: mapView)
         context.coordinator.syncWinds(on: mapView)
         context.coordinator.syncNatTracks(on: mapView)
+        context.coordinator.syncAtcBoundaries(on: mapView)
 
         // The scheme goes on *after* the style, and is forced whenever the
         // style actually swapped the map's configuration. See `applyScheme`:
@@ -1370,12 +1390,35 @@ struct TrackerMapView: UIViewRepresentable {
                 ? FlightPlanStore.shared.waypoints(for: flight.id)
                 : []
 
+            // Which fix the aeroplane is actually flying to, so the plan says
+            // where along itself the flight has got to rather than only what
+            // was filed. The same answer the flight window prints and the
+            // navigation display puts in its corner — `PlanProgress` is the one
+            // place that decides it, so the three cannot disagree.
+            let nextFix = PlanProgress.next(in: plan, from: flight.coordinate)?.waypoint.index
+
             // The pavement the ground part of this track will be laid on, where
             // the track has a ground part at all. Asked for on the same terms
             // as the plan and the history: asking is what starts the fetch, and
             // the answer is nothing until it lands.
             let taxiways = groundNetworks(for: flight, along: trail)
-            let key = [
+
+            // Pulled out of the literal below, and typed, because the literal
+            // below is what the compiler gave up on: "unable to type-check
+            // this expression in reasonable time". A dozen elements, several of
+            // them ternaries and one an `Optional.map`, and no stated element
+            // type — so every element's type was a candidate for every other
+            // element's, and the search is exponential in how many there are.
+            //
+            // Annotating `parts` is most of the fix: each element is then
+            // checked against `String` on its own. These three are hoisted as
+            // well because they were the expensive ones — a ternary whose arms
+            // are a call and a literal, and an optional map over an integer.
+            let planKey: String = parent.showsFlightPlan ? String(plan.count) : "off"
+            let namesKey: String = parent.showsPlanNames ? "names" : "nonames"
+            let nextFixKey: String = nextFix?.description ?? "-"
+
+            let parts: [String] = [
                 flight.id,
                 String(trail.count),
                 // In the key as well as on the view, which looks redundant and
@@ -1395,7 +1438,15 @@ struct TrackerMapView: UIViewRepresentable {
                 // when first asked for — so its arrival has to be able to
                 // invalidate the key, or the route is drawn once without it and
                 // never again.
-                parent.showsFlightPlan ? String(plan.count) : "off",
+                planKey,
+                // The names, and which fix is being flown to. Both are things
+                // about the annotations rather than about the line, and both
+                // have to be able to invalidate a plan already on screen: the
+                // switch because it is a switch, and the leg because the whole
+                // point of marking it is that it moves down the route as the
+                // aeroplane does.
+                namesKey,
+                nextFixKey,
                 // The layer switch is in the key for the same reason the plan's
                 // count is: turning it off has to be able to invalidate a route
                 // that is already drawn.
@@ -1404,8 +1455,9 @@ struct TrackerMapView: UIViewRepresentable {
                 // field's taxiways are fetched from OpenStreetMap when the
                 // track first turns out to need them, which is well after the
                 // path has been drawn once without them.
-                taxiways.map { "\($0.icao)/\($0.edgeCount)" }.joined(separator: "+")
-            ].joined(separator: "|")
+                taxiways.map { "\($0.icao)/\($0.edgeCount)" }.joined(separator: "+"),
+            ]
+            let key = parts.joined(separator: "|")
 
             guard key != renderedRouteKey else { return }
             renderedRouteKey = key
@@ -1491,7 +1543,18 @@ struct TrackerMapView: UIViewRepresentable {
                 planLabels.removeAll(keepingCapacity: true)
             }
             if !plan.isEmpty {
-                planLabels = plan.map { PlanWaypointAnnotation(waypoint: $0) }
+                planLabels = plan.map { fix in
+                    PlanWaypointAnnotation(
+                        waypoint: fix,
+                        showsName: parent.showsPlanNames,
+                        isNext: fix.index == nextFix,
+                        // Everything before the fix being flown to. No leg
+                        // resolved leaves the whole plan ahead of the
+                        // aeroplane, which is the honest answer when nothing
+                        // says otherwise.
+                        isPassed: nextFix.map { fix.index < $0 } ?? false
+                    )
+                }
                 mapView.addAnnotations(planLabels)
             }
 
@@ -1989,6 +2052,72 @@ struct TrackerMapView: UIViewRepresentable {
             natOverlays.removeAll(keepingCapacity: true)
             natLabels.removeAll(keepingCapacity: true)
             renderedNatKey = nil
+        }
+
+        // MARK: - Controlled airspace
+
+        /// The sectors currently being drawn, and their labels.
+        private var atcOverlays: [MKOverlay] = []
+        private var atcLabels: [MKAnnotation] = []
+
+        /// What the drawn sectors were built from, so a packet that changes
+        /// nothing about who is on frequency costs one string comparison.
+        ///
+        /// This matters more here than anywhere else on the map: the ATC packet
+        /// lands every few seconds, and rebuilding thirty polygons of a
+        /// thousand points each time it did would be the whole reason the layer
+        /// felt heavy. It is also the bug the web build wrote a long note about
+        /// and only half fixed — see `old/www/atcHighlights.js`.
+        private var renderedAtcKey: String?
+
+        /// Draws the airspace of every sector somebody is working.
+        ///
+        /// Only centres, and only staffed ones. Drawing the whole boundary
+        /// network would be a second map on top of the first — nine hundred
+        /// sectors, most of them empty — and the question this layer answers is
+        /// "who is controlling what", which only the staffed ones answer.
+        func syncAtcBoundaries(on mapView: MKMapView) {
+            guard parent.showsAtcBoundaries else {
+                clearAtcBoundaries(on: mapView)
+                return
+            }
+
+            // Keyed on the stations rather than on the resolved sectors, so the
+            // resolution itself — and the one-time load of the boundary set
+            // behind it — is skipped entirely when nothing has changed.
+            let centres = parent.atcStations.filter(\.isCenter)
+            let key = centres
+                .map { "\($0.identifier)/\($0.facilities.count)" }
+                .sorted()
+                .joined(separator: ",")
+
+            guard renderedAtcKey != key else { return }
+
+            clearAtcBoundaries(on: mapView)
+            renderedAtcKey = key
+            guard !centres.isEmpty else { return }
+
+            let active = AtcBoundaryStore.shared.activeSectors(for: centres)
+            guard !active.isEmpty else { return }
+
+            for sector in active {
+                atcOverlays.append(contentsOf: AtcSectorOverlay.rings(of: sector.sector))
+                atcLabels.append(AtcSectorLabelAnnotation(sector))
+            }
+
+            // Under the traffic and under the routes, like every other layer
+            // that is context rather than subject.
+            mapView.addOverlays(atcOverlays, level: .aboveRoads)
+            mapView.addAnnotations(atcLabels)
+        }
+
+        private func clearAtcBoundaries(on mapView: MKMapView) {
+            guard renderedAtcKey != nil else { return }
+            mapView.removeOverlays(atcOverlays)
+            mapView.removeAnnotations(atcLabels)
+            atcOverlays.removeAll(keepingCapacity: true)
+            atcLabels.removeAll(keepingCapacity: true)
+            renderedAtcKey = nil
         }
 
         // MARK: Ground layout
@@ -2980,6 +3109,16 @@ struct TrackerMapView: UIViewRepresentable {
             }
 
             if let area = overlay as? MKPolygon {
+                // First, because a sector reaching `groundRenderer` below would
+                // be drawn as pavement.
+                if AtcSectorOverlay.isSector(area.title) {
+                    let renderer = MKPolygonRenderer(polygon: area)
+                    renderer.fillColor = AtcSectorStyle.fill
+                    renderer.strokeColor = AtcSectorStyle.border
+                    renderer.lineWidth = AtcSectorStyle.borderWidth
+                    return renderer
+                }
+
                 if Terminator.isBand(area.title) {
                     let renderer = MKPolygonRenderer(polygon: area)
                     renderer.fillColor = Terminator.fill(for: area.title)
@@ -3164,6 +3303,15 @@ struct TrackerMapView: UIViewRepresentable {
                     for: annotation
                 )
                 (view as? WindBarbView)?.apply(barb)
+                return view
+            }
+
+            if let sector = annotation as? AtcSectorLabelAnnotation {
+                let view = mapView.dequeueReusableAnnotationView(
+                    withIdentifier: AtcSectorLabelView.reuseIdentifier,
+                    for: sector
+                )
+                (view as? AtcSectorLabelView)?.apply(sector)
                 return view
             }
 

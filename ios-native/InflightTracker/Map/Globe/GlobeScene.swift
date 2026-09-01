@@ -50,6 +50,39 @@ struct GlobeFieldMark: Equatable {
     let isControlled: Bool
 }
 
+/// One fix on the open aircraft's filed plan, ready to be drawn on a sphere.
+///
+/// Its own mark rather than a point on the route line, for the reason the flat
+/// map gives a fix its own annotation: a line through unnamed corners is a
+/// shape, and the names are most of why the plan is worth plotting instead of
+/// its two ends. The diamond is what makes it read as a route.
+struct GlobePlanFix: Equatable {
+
+    /// Where it is, as a direction on the sphere.
+    let position: SIMD3<Float>
+
+    /// What it is called. Empty for a fix the backend gave no name — those
+    /// still get a diamond, because the corner is real either way.
+    let name: String
+
+    /// Whether this is the fix being flown to. See `PlanProgress.next`.
+    let isNext: Bool
+
+    /// Whether the aircraft is already past it. Drawn dimmer: a plan is most
+    /// useful when you can see at a glance how much of it is left.
+    let isPassed: Bool
+}
+
+/// A staffed sector's name, written over the middle of its airspace.
+///
+/// The boundary itself is drawn as ordinary `GlobeLine`s — an outline is an
+/// outline — so this carries only the part the line cannot say: which station
+/// it is and who is working it.
+struct GlobeAtcLabel: Equatable {
+    let position: SIMD3<Float>
+    let text: String
+}
+
 /// A line drawn on the surface — today, the open aircraft's route.
 struct GlobeLine: Equatable {
     /// Full precision, unlike everything else on the planet.
@@ -301,6 +334,16 @@ final class GlobeScene: ObservableObject {
     private(set) var fields: [GlobeFieldMark] = []
     private(set) var lines: [GlobeLine] = []
 
+    /// The fixes on the open aircraft's filed plan. Their own array rather
+    /// than points on a line, because they are drawn as marks with names on
+    /// them — see `GlobePlanFix`.
+    private(set) var planFixes: [GlobePlanFix] = []
+
+    /// The staffed sectors' names. Empty whenever the layer is off, which is
+    /// how the layer is switched off — the canvas has no flag for it, because
+    /// a scene with nothing in it draws nothing.
+    private(set) var atcLabels: [GlobeAtcLabel] = []
+
     /// Where the open aircraft has been. Its own thing rather than a line,
     /// because it is coloured by height along its length — see
     /// `GlobeFlownPath`.
@@ -353,6 +396,7 @@ final class GlobeScene: ObservableObject {
         route: GlobeRoute?,
         flownPath: [TrackPoint],
         natTracks: [[CLLocationCoordinate2D]],
+        atcSectors: [AtcActiveSector],
         smoothsTraffic: Bool,
         palette: GlobePalette
     ) {
@@ -422,8 +466,16 @@ final class GlobeScene: ObservableObject {
             // it on its own.
             flownFrom: flown == nil ? nil : flownPath.first?.coordinate,
             natTracks: natTracks,
+            atcSectors: atcSectors,
             palette: palette
         )
+        self.planFixes = Self.planFixes(route: route)
+        self.atcLabels = atcSectors.map {
+            GlobeAtcLabel(
+                position: GlobeGeometry.vector($0.sector.label),
+                text: $0.label
+            )
+        }
 
         revision &+= 1
     }
@@ -489,6 +541,14 @@ final class GlobeScene: ObservableObject {
         var position: CLLocationCoordinate2D
         var arrival: CLLocationCoordinate2D?
 
+        /// The route as filed, when the pilot filed one and the layer asking
+        /// for it is the filed plan rather than the direct line.
+        ///
+        /// Empty is the ordinary case and not a failure: most pilots file
+        /// nothing, and the two great circles above are then the whole of what
+        /// can honestly be said about where this aeroplane is going.
+        var plan: [PlanWaypoint] = []
+
         static func == (lhs: GlobeRoute, rhs: GlobeRoute) -> Bool {
             lhs.departure?.latitude == rhs.departure?.latitude
                 && lhs.departure?.longitude == rhs.departure?.longitude
@@ -496,7 +556,12 @@ final class GlobeScene: ObservableObject {
                 && lhs.arrival?.longitude == rhs.arrival?.longitude
                 && lhs.position.latitude == rhs.position.latitude
                 && lhs.position.longitude == rhs.position.longitude
+                && lhs.plan == rhs.plan
         }
+
+        /// Whether there is enough of a plan to draw as a route rather than as
+        /// a single point. One fix is a corner with nothing either side of it.
+        var hasPlan: Bool { plan.count >= 2 }
     }
 
     /// Every line on the planet, in the order they are drawn.
@@ -509,9 +574,32 @@ final class GlobeScene: ObservableObject {
         route: GlobeRoute?,
         flownFrom: CLLocationCoordinate2D?,
         natTracks: [[CLLocationCoordinate2D]],
+        atcSectors: [AtcActiveSector],
         palette: GlobePalette
     ) -> [GlobeLine] {
         var lines: [GlobeLine] = []
+
+        // Airspace first, under everything else. It is the largest thing on the
+        // planet by far — a sector spans a country — and it is context for the
+        // traffic rather than a claim about any aeroplane, so nothing else
+        // should have to give way to it.
+        //
+        // Outlined, not filled. The flat map washes the inside of a staffed
+        // sector, which it can because MapKit clips a polygon to the viewport;
+        // here a sector crossing the limb is a ring the horizon cuts in half,
+        // and the honest closed shape to fill it with does not exist. The
+        // outline is what makes an FIR readable anyway — the wash only says
+        // which side of the line is inside.
+        for sector in atcSectors {
+            for ring in sector.sector.rings where ring.count > 2 {
+                lines.append(GlobeLine(
+                    points: ring.map { GlobeGeometry.preciseVector($0) },
+                    color: palette.atcBoundary,
+                    width: 1,
+                    dash: nil
+                ))
+            }
+        }
 
         for track in natTracks where track.count > 1 {
             lines.append(GlobeLine(
@@ -522,7 +610,27 @@ final class GlobeScene: ObservableObject {
             ))
         }
 
-        if let route = route {
+        if let route = route, route.hasPlan {
+            // MARK: The plan as filed
+            //
+            // The whole of it, in one dashed line through every fix, and none
+            // of the two great circles below. Both pictures at once is two
+            // claims about the same flight with nothing to say which is which
+            // — the same argument `RouteLineMode` settles for the flat map,
+            // settled the same way here.
+            //
+            // Great circles between neighbouring fixes rather than straight
+            // lines, for the reason the organised tracks are drawn that way:
+            // on a sphere the chord between two fixes ten degrees apart cuts
+            // visibly inside the path an aeroplane actually flies between
+            // them.
+            lines.append(GlobeLine(
+                points: path(through: route.plan.map(\.coordinate)),
+                color: palette.route.withAlphaComponent(0.75),
+                width: 1.4,
+                dash: [4, 4]
+            ))
+        } else if let route = route {
             let here = GlobeGeometry.preciseVector(route.position)
 
             // Where the aircraft came from.
@@ -574,6 +682,33 @@ final class GlobeScene: ObservableObject {
         }
 
         return lines
+    }
+
+    /// The fixes on the filed plan, marked up with where the aeroplane has got
+    /// to along it.
+    ///
+    /// Worked out once, when the plan or the packet moves, rather than per
+    /// frame: `PlanProgress.next` walks the whole plan and the drawing runs
+    /// sixty times a second. What it buys is the one thing a plotted plan
+    /// cannot say on its own — which of forty fixes is the one being flown to
+    /// — and it is the same answer the flight window prints and the navigation
+    /// display puts in its corner, so the three cannot disagree.
+    private static func planFixes(route: GlobeRoute?) -> [GlobePlanFix] {
+        guard let route = route, route.hasPlan else { return [] }
+
+        let next = PlanProgress.next(in: route.plan, from: route.position)?.waypoint.index
+
+        return route.plan.map { fix in
+            GlobePlanFix(
+                position: GlobeGeometry.vector(fix.coordinate),
+                name: fix.name,
+                isNext: fix.index == next,
+                // Everything before the fix being flown to. Nil — no leg could
+                // be resolved — leaves the whole plan ahead of the aeroplane,
+                // which is the honest answer when nothing says otherwise.
+                isPassed: next.map { fix.index < $0 } ?? false
+            )
+        }
     }
 
     /// A run of fixes, joined by the great circle between each neighbouring

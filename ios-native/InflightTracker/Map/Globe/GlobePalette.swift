@@ -73,6 +73,36 @@ struct GlobePalette: Equatable {
     /// about the skin. See `GlobeFlownPath`.
     var track: UIColor
 
+    /// A fix on a filed plan: the diamond, and the name beside it.
+    ///
+    /// Derived from `route` and `fieldLabel` rather than written out on every
+    /// skin, because that is what they *are*: a fix belongs to the route it is
+    /// on, and its name is a label on the planet exactly like a field's code.
+    /// Ten skins each restating both would be ten chances for one of them to
+    /// drift, for a picture nobody would choose differently.
+    ///
+    /// Left as stored properties rather than computed so a skin that genuinely
+    /// wants its own — a plan drawn over blueprint hatching, say — has
+    /// somewhere to say so.
+    var planFix: UIColor
+    var planLabel: UIColor
+
+    /// The fix the aircraft is flying to. The one mark on a plan that is about
+    /// *now* rather than about the filing, so it is the one that takes a
+    /// colour of its own.
+    var planNextFix: UIColor
+
+    /// Controlled airspace with somebody working it: the edge, and the station
+    /// named at the middle of it.
+    ///
+    /// A cyan, on every skin, and it does not take a cartography colour on
+    /// purpose. A sector boundary is a fact about *people* rather than about
+    /// the ground — the same reason the organised tracks above have their own
+    /// colour — and it has to stay legible over land and sea alike on a skin
+    /// that paints one or both of them green.
+    var atcBoundary: UIColor
+    var atcLabel: UIColor
+
     /// A field: the ring around it, its code, and the halo that keeps the code
     /// legible over a coastline.
     var fieldRing: UIColor
@@ -102,6 +132,11 @@ struct GlobePalette: Equatable {
         night: UIColor = UIColor(white: 0, alpha: 0.32),
         route: UIColor,
         track: UIColor = UIColor(red: 0.45, green: 0.72, blue: 1, alpha: 0.5),
+        planFix: UIColor? = nil,
+        planLabel: UIColor? = nil,
+        planNextFix: UIColor = UIColor(red: 0.98, green: 0.62, blue: 0.10, alpha: 1),
+        atcBoundary: UIColor = UIColor(red: 0.40, green: 0.91, blue: 0.98, alpha: 0.70),
+        atcLabel: UIColor = UIColor(red: 0.62, green: 0.94, blue: 1.00, alpha: 1),
         fieldRing: UIColor,
         fieldLabel: UIColor,
         fieldLabelHalo: UIColor,
@@ -124,6 +159,11 @@ struct GlobePalette: Equatable {
         self.night = night
         self.route = route
         self.track = track
+        self.planFix = planFix ?? route
+        self.planLabel = planLabel ?? fieldLabel
+        self.planNextFix = planNextFix
+        self.atcBoundary = atcBoundary
+        self.atcLabel = atcLabel
         self.fieldRing = fieldRing
         self.fieldLabel = fieldLabel
         self.fieldLabelHalo = fieldLabelHalo

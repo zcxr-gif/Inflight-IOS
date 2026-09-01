@@ -227,6 +227,12 @@ struct ContentView: View {
     /// Raised when a locked map style is picked.
     @State private var isShowingStylePaywall = false
 
+    /// Which of the map's two Pro features that sheet was raised for — the
+    /// shapes and finishes the map comes in, or the editing of the drawn
+    /// planet. Both open the same paywall, and a paywall that led with the
+    /// wrong one would be answering a question nobody asked.
+    @State private var stylePaywallFeature: ProFeature = .mapStyles
+
     /// Raised when somebody without Pro asks to be taken to their own aircraft.
     @State private var isShowingFindMePaywall = false
 
@@ -622,6 +628,7 @@ struct ContentView: View {
             airportsRevision: airportsRevision,
             showsGroundLayout: filters.showsGroundLayout,
             showsFlightPlan: filters.showsFlightPlan,
+            showsPlanNames: filters.showsPlanNames,
             showsDirectLine: filters.showsDirectLine,
             showsFlownPath: filters.showsFlownPath,
             weatherTiles: mapWeather.tiles,
@@ -629,6 +636,11 @@ struct ContentView: View {
             measurement: $measurement,
             showsTerminator: filters.showsTerminator,
             showsNatTracks: filters.showsNatTracks,
+            showsAtcBoundaries: filters.showsAtcBoundaries,
+            // Handed in rather than read by the map, so the layer resolves
+            // against the same packet everything else on screen was drawn from
+            // — and so the map stays a thing that draws what it is given.
+            atcStations: filters.showsAtcBoundaries ? feed.atcStations : [],
             showsWinds: weatherPreferences.showsWinds,
             windLevel: weatherPreferences.windLevel,
             showsFieldConditions: weatherPreferences.showsFieldConditions,
@@ -663,6 +675,10 @@ struct ContentView: View {
             signature: planetSignature,
             openFlightId: selection?.id,
             route: planetRoute,
+            // Resolved against Pro by the filters, exactly as the flat map's
+            // copy of this is — so the layer is on, or off, on both shapes of
+            // the world at once.
+            atcStations: filters.showsAtcBoundaries ? feed.atcStations : [],
             start: planetStart,
             command: mapCommand,
             replayFrame: replay.frame,
@@ -697,13 +713,16 @@ struct ContentView: View {
         return hasher.finalize()
     }
 
-    /// The open aircraft's route, for the planet to draw as two great circles.
+    /// The open aircraft's route, for the planet to draw.
     ///
     /// Follows the same filter the flat map's route line does, so turning the
-    /// line off turns it off on both. The filed plan is not offered here — that
-    /// is a fetched list of waypoints the map holds and the planet does not —
-    /// and asking for it draws the direct line instead, which is the honest
-    /// half of the answer rather than nothing.
+    /// line off turns it off on both — and so does asking for the filed plan,
+    /// which the planet now plots exactly as the flat map does, fixes, names
+    /// and all. The plan itself is not put on here: it is fetched per aircraft
+    /// and asking for it is what starts the fetch, so `PlanetSurface` picks it
+    /// up from its own rebuild rather than from this body. What is handed over
+    /// is the two ends and where the aeroplane is, which is what gets drawn
+    /// when nothing was filed — and most pilots file nothing.
     private var planetRoute: GlobeScene.GlobeRoute? {
         guard filters.showsDirectLine || filters.showsFlightPlan,
               let selected = selection,
@@ -993,7 +1012,7 @@ struct ContentView: View {
             .environmentObject(feed)
         }
         .sheet(isPresented: $isShowingProPaywall) { ProPanel() }
-        .sheet(isPresented: $isShowingStylePaywall) { ProPanel(highlighted: .mapStyles) }
+        .sheet(isPresented: $isShowingStylePaywall) { ProPanel(highlighted: stylePaywallFeature) }
         .sheet(isPresented: $isShowingFindMePaywall) { ProPanel(highlighted: .findMyAircraft) }
         .onOpenURL { url in
             guard let link = InflightLink.parse(url) else { return }
@@ -1932,12 +1951,18 @@ struct ContentView: View {
         // progress has nowhere to be on the drawn planet. Put away rather than
         // left up over a map that cannot answer it.
         if projection.isDrawn { measurement = MapMeasurement() }
-        if projection.isPro, !entitlements.isPro { isShowingStylePaywall = true }
+        if projection.isPro, !entitlements.isPro {
+            stylePaywallFeature = .mapStyles
+            isShowingStylePaywall = true
+        }
     }
 
     private func select(_ palette: MapPalette) {
         appearance.mapPalette = palette
-        if palette.isPro, !entitlements.isPro { isShowingStylePaywall = true }
+        if palette.isPro, !entitlements.isPro {
+            stylePaywallFeature = .mapStyles
+            isShowingStylePaywall = true
+        }
     }
 
     /// Whether a Pro choice is one this account cannot have yet. Shown rather
@@ -1980,18 +2005,27 @@ struct ContentView: View {
     /// were lifted out of its argument list — Swift type-checks a view's body
     /// as one expression, and this menu was already three sections and two
     /// `ForEach`es deep before any of this was in it.
+    ///
+    /// All three are Pro — see `ProFeature.planetLook`. Shown rather than
+    /// hidden, and the tick follows what is *drawn* rather than what is stored,
+    /// so a free account is never shown a colour ticked on a planet that is not
+    /// wearing it. Choosing one still stores the choice and opens the paywall,
+    /// which is the same bargain the map's own Pro rows make: buying from there
+    /// leaves you on the thing you picked.
     @ViewBuilder
     private var planetStyleSection: some View {
         if isPlanetMap {
-            Section("Planet") {
+            Section {
                 Menu("Colour") {
                     ForEach(GlobeSkin.allCases) { skin in
                         Button {
-                            appearance.globeSkin = skin
+                            selectPlanet { appearance.globeSkin = skin }
                         } label: {
                             Label(
                                 skin.label,
-                                systemImage: appearance.globeSkin == skin ? "checkmark" : "circle.fill"
+                                systemImage: appearance.resolvedGlobeSkin == skin
+                                    ? "checkmark"
+                                    : "circle.fill"
                             )
                         }
                     }
@@ -2000,11 +2034,11 @@ struct ContentView: View {
                 Menu("Background") {
                     ForEach(GlobeBackdrop.allCases) { backdrop in
                         Button {
-                            appearance.globeBackdrop = backdrop
+                            selectPlanet { appearance.globeBackdrop = backdrop }
                         } label: {
                             Label(
                                 backdrop.label,
-                                systemImage: appearance.globeBackdrop == backdrop
+                                systemImage: appearance.resolvedGlobeBackdrop == backdrop
                                     ? "checkmark"
                                     : backdrop.symbol
                             )
@@ -2013,14 +2047,29 @@ struct ContentView: View {
                 }
 
                 Button {
-                    appearance.globeShowsPlanes.toggle()
+                    selectPlanet { appearance.globeShowsPlanes.toggle() }
                 } label: {
                     Label(
                         "Aircraft shapes",
-                        systemImage: appearance.globeShowsPlanes ? "checkmark" : "airplane"
+                        systemImage: appearance.resolvedGlobeShowsPlanes ? "checkmark" : "airplane"
                     )
                 }
+            } header: {
+                // Said in the heading rather than badged on sixteen rows
+                // inside two submenus, where a badge would be a word in a menu
+                // item's title.
+                Text(appearance.canEditPlanet ? "Planet" : "Planet — Pro")
             }
+        }
+    }
+
+    /// Stores one of the planet's own choices, and asks for Pro if that is what
+    /// stands between the choice and the planet wearing it.
+    private func selectPlanet(_ change: () -> Void) {
+        change()
+        if !appearance.canEditPlanet {
+            stylePaywallFeature = .planetLook
+            isShowingStylePaywall = true
         }
     }
 

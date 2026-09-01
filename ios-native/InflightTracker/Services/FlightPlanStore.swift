@@ -80,6 +80,25 @@ final class FlightPlanStore {
         return entry?.waypoints ?? []
     }
 
+    /// What we already hold for this flight, without asking for anything.
+    ///
+    /// The other half of `waypoints(for:)`, and the difference is the side
+    /// effect. Asking is what starts a fetch, which is right in a layout pass
+    /// that is about to draw the answer and wrong in a SwiftUI body that is
+    /// only working out whether anything has *changed* — a body runs for every
+    /// reason there is, and a body that fetches is a body that fetches for
+    /// every one of them.
+    ///
+    /// So the planet stamps its scene with this and rebuilds the scene with
+    /// the fetching one. What that costs is a plan landing on the next packet
+    /// rather than the instant it arrives, which is a second or two and is
+    /// exactly what the flat map does with the same answer.
+    func cachedWaypoints(for flightId: String) -> [PlanWaypoint] {
+        lock.lock()
+        defer { lock.unlock() }
+        return plans[flightId]?.waypoints ?? []
+    }
+
     private func fetch(_ flightId: String) {
         guard let url = AppConfig.flightPlanURL(flightId: flightId) else { return }
 

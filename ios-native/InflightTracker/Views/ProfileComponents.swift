@@ -128,7 +128,14 @@ struct PilotBanner: View {
     }
 }
 
-/// "PRO", where somebody has one.
+/// "PRO", where somebody has one — or where something is behind it.
+///
+/// Both meanings, one capsule. It began as a mark on a *pilot*, saying that
+/// pilot subscribes; the settings rows that lock a choice behind Pro want the
+/// same three letters on the same capsule, and drew their own inline copy of
+/// it until there was a second such screen. Two badges that must look identical
+/// and are declared in different files are two badges that stop looking
+/// identical.
 struct ProBadge: View {
 
     @ObservedObject private var appearance = FlightInfoAppearance.shared
@@ -141,6 +148,11 @@ struct ProBadge: View {
             .padding(.horizontal, 5)
             .padding(.vertical, 2.5)
             .background { Capsule().fill(appearance.theme.accent) }
+            // Three letters that must stay three letters. In a row with a name
+            // or a title beside it, the flexible thing is the prose — a badge
+            // squeezed to "PR" is worse than a title that truncates, and every
+            // caller here is such a row.
+            .fixedSize()
             .accessibilityLabel("Inflight Pro")
     }
 }

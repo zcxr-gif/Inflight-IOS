@@ -28,6 +28,13 @@ struct PlanetSurface: View {
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @ObservedObject private var filters = MapFilters.shared
 
+    /// Observed because the planet's own look is Pro — see
+    /// `ProFeature.planetLook`. The resolved skin lives on `appearance`, which
+    /// cannot publish a change to somebody else's entitlement, so without this
+    /// a purchase would leave the planet in its free colours until the next
+    /// time anything else redrew it.
+    @ObservedObject private var entitlements = Entitlements.shared
+
     /// The organised track system, which the planet draws for the same reason
     /// the flat map does: it is the answer to why several hundred aircraft are
     /// flying in parallel lines across an ocean.
@@ -56,8 +63,19 @@ struct PlanetSurface: View {
 
     /// The aircraft whose window is open, drawn larger and with its route on
     /// the planet.
+    ///
+    /// The route arrives without its filed plan on it: the plan is fetched per
+    /// aircraft and asking for it is what starts the fetch, so it is picked up
+    /// here — from `rebuild`, which runs when something has moved — rather than
+    /// in the caller's body, which runs for every reason there is. See
+    /// `plannedRoute`.
     var openFlightId: String? = nil
     var route: GlobeScene.GlobeRoute? = nil
+
+    /// The controllers currently on, for the staffed-airspace layer. Empty
+    /// when the layer is off — which is how it is off: nothing is resolved and
+    /// the boundary set is never loaded.
+    var atcStations: [AtcStation] = []
 
     /// Where the planet is turned to when it first appears.
     let start: CLLocationCoordinate2D
@@ -138,11 +156,15 @@ struct PlanetSurface: View {
     private static let clock = Timer.publish(every: 120, on: .main, in: .common).autoconnect()
 
     private var theme: FlightInfoTheme { appearance.theme }
-    private var skin: GlobeSkin { appearance.globeSkin }
+
+    /// The look the planet is *actually* drawn in, which is the stored choice
+    /// only for an account that has bought the editing. See
+    /// `FlightInfoAppearance.resolvedGlobeSkin`.
+    private var skin: GlobeSkin { appearance.resolvedGlobeSkin }
     private var palette: GlobePalette { skin.palette(scheme: appearance.resolvedScheme) }
 
     private var backdrop: GlobeBackdropStyle {
-        appearance.globeBackdrop.style(
+        appearance.resolvedGlobeBackdrop.style(
             skin: skin,
             scheme: appearance.resolvedScheme,
             windowFill: UIColor(theme.windowFill)
@@ -155,8 +177,9 @@ struct PlanetSurface: View {
             backdrop: backdrop,
             scene: scene,
             revision: scene.revision,
-            showsPlanes: appearance.globeShowsPlanes,
+            showsPlanes: appearance.resolvedGlobeShowsPlanes,
             showsFields: filters.showsAirports,
+            showsPlanNames: filters.showsPlanNames,
             sun: filters.showsTerminator ? sun : nil,
             replay: replayMark,
             smoothsTraffic: smoothsTraffic,
@@ -192,6 +215,7 @@ struct PlanetSurface: View {
         .onReceive(Self.clock) { _ in sun = Self.sunVector() }
         .onChange(of: sceneSignature) { _, _ in rebuild() }
         .onChange(of: spot) { _, _ in syncGround() }
+        .onChange(of: filters.showsGroundLayout) { _, _ in syncGround() }
         // The fields are asked for the moment the planet settles over them and
         // the answers arrive from the network some time later. This is that
         // later: the store publishes, this view is observing it, and the stamp
@@ -209,6 +233,17 @@ struct PlanetSurface: View {
     /// airport dataset on a cache miss, so it happens when the planet stops
     /// moving rather than while it is moving.
     private func syncGround() {
+        // The layer's own switch, which the planet used to ignore. Under
+        // Filters it says "draws runways, taxiways and terminals once the map
+        // is over a field", and a switch that is true of one shape of the world
+        // and not the other is a switch that appears to do nothing depending on
+        // which shape you happen to be on — with the added cost, here, of an
+        // Overpass round trip per field for a layer that was turned off.
+        guard filters.showsGroundLayout else {
+            clearGround()
+            return
+        }
+
         guard let spot = spot, spot.spanMetres <= Self.groundLoadSpanMetres else {
             clearGround()
             return
@@ -335,14 +370,23 @@ struct PlanetSurface: View {
         var hasher = Hasher()
         hasher.combine(signature)
         hasher.combine(openFlightId)
-        hasher.combine(appearance.globeSkin)
+        hasher.combine(skin)
         hasher.combine(route?.position.latitude)
         hasher.combine(route?.position.longitude)
         hasher.combine(route?.departure?.latitude)
         hasher.combine(route?.departure?.longitude)
         hasher.combine(route?.arrival?.latitude)
         hasher.combine(route?.arrival?.longitude)
+        // How much of a plan the store is holding for this aeroplane, without
+        // asking it for one: a plan landing has to be able to move this stamp,
+        // and a body evaluation must not be what fetches it. See
+        // `FlightPlanStore.cachedWaypoints`.
+        hasher.combine(planFixCount)
         hasher.combine(filters.showsNatTracks ? natTracks.tracks.count : 0)
+        // The stations rather than the sectors they resolve to: resolving is
+        // what loads the boundary set, and a stamp must not be what does that.
+        // See `atcSectors`, which is reached from `rebuild` only.
+        hasher.combine(atcStationStamp)
         hasher.combine(filters.showsFlownPath)
         hasher.combine(smoothsTraffic)
         return hasher.finalize()
@@ -374,6 +418,54 @@ struct PlanetSurface: View {
         return FlightTrailStore.shared.points(for: id)
     }
 
+    /// How many fixes the store already holds for the open aircraft, asking it
+    /// for nothing.
+    ///
+    /// Read from the body, through the stamp, so a plan arriving from the
+    /// network is a change this view can see. The *fetching* read is in
+    /// `plannedRoute`, which only `rebuild` calls.
+    ///
+    /// What the split costs is a plan appearing on the next packet rather than
+    /// the instant it lands — a second or two, and exactly what the flat map
+    /// does with the same answer.
+    private var planFixCount: Int {
+        guard filters.showsFlightPlan, let id = openFlightId else { return 0 }
+        return FlightPlanStore.shared.cachedWaypoints(for: id).count
+    }
+
+    /// The route with its filed plan on it, where there is one to draw.
+    ///
+    /// Asking the store is what starts the fetch, which is why this is reached
+    /// from `rebuild` rather than from the body — the same arrangement
+    /// `flownPath` has, and for the same reason.
+    private var plannedRoute: GlobeScene.GlobeRoute? {
+        guard var route = route else { return nil }
+        guard filters.showsFlightPlan, let id = openFlightId else { return route }
+
+        route.plan = FlightPlanStore.shared.waypoints(for: id)
+        return route
+    }
+
+    /// A stamp of who is working which airspace, without resolving any of it.
+    private var atcStationStamp: Int {
+        var hasher = Hasher()
+        for station in atcStations where station.isCenter {
+            hasher.combine(station.identifier)
+            hasher.combine(station.facilities.count)
+        }
+        return hasher.finalize()
+    }
+
+    /// The staffed sectors, resolved out of the stations.
+    ///
+    /// Reached from `rebuild` rather than from the body, like the flown path
+    /// and the filed plan: the first call loads the boundary set off the
+    /// bundle, and a body evaluation is not the place for that.
+    private var atcSectors: [AtcActiveSector] {
+        guard !atcStations.isEmpty else { return [] }
+        return AtcBoundaryStore.shared.activeSectors(for: atcStations)
+    }
+
     /// Hands the scene everything it is built from, and lets it decide whether
     /// any of it has moved.
     private func rebuild() {
@@ -388,9 +480,10 @@ struct PlanetSurface: View {
             fields: airports,
             openFlightId: openFlightId,
             highlighting: PilotHighlighting.current(),
-            route: route,
+            route: plannedRoute,
             flownPath: flownPath,
             natTracks: filters.showsNatTracks ? natTracks.tracks.map(\.coordinates) : [],
+            atcSectors: atcSectors,
             smoothsTraffic: smoothsTraffic,
             palette: palette
         )

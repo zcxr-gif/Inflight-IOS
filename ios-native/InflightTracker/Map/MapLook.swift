@@ -70,7 +70,15 @@ enum MapProjection: String, CaseIterable, Identifiable {
     /// what decides which of the map's controls have anything to act on.
     var isDrawn: Bool { self == .planet }
 
-    /// The planet is Pro; the flat map is what everybody has always had.
+    /// MapKit's imagery globe is Pro; the flat map is what everybody has
+    /// always had, and so is the drawn planet.
+    ///
+    /// The planet is deliberately free, and that is a decision about what it is
+    /// rather than about what it costs to run: it is the app's own renderer, it
+    /// fetches nothing MapKit would have fetched, and a shape of the world
+    /// nobody without Pro can look at is one nobody without Pro can want. What
+    /// is sold on it is the *editing* — its colours, its sky and how the
+    /// traffic on it is drawn. See `ProFeature.planetLook`.
     var isPro: Bool { self == .globe }
 
     /// Whether the camera is free to rotate and tilt.

@@ -299,6 +299,36 @@ final class FlightInfoAppearance: ObservableObject {
         resolvedMapStyle.resolvedPalette.scheme ?? resolvedScheme
     }
 
+    // MARK: - The planet, as it is actually drawn
+
+    /// Whether this account may edit the planet — its colours, its sky, and
+    /// whether the traffic on it is aircraft or dots. See
+    /// `ProFeature.planetLook`.
+    ///
+    /// The planet itself is not behind this and must not be: switching the map
+    /// to it, spinning it, tapping the traffic on it and everything drawn over
+    /// it are free. What is sold is the wardrobe, so a free account gets the
+    /// planet as designed — Auto, over the app's own ground, with silhouettes —
+    /// which is the look the planet has always opened on.
+    var canEditPlanet: Bool { Entitlements.shared.has(.planetLook) }
+
+    /// The skin the planet is actually drawn in.
+    ///
+    /// Read everywhere the planet is drawn, rather than `globeSkin` — the same
+    /// arrangement `resolvedMapStyle` has, and for the same reason. The stored
+    /// choice is left exactly as made, so a lapsed subscription drops the
+    /// planet back to Auto without forgetting that you liked Blueprint, and it
+    /// is there again the moment Pro is.
+    var resolvedGlobeSkin: GlobeSkin { canEditPlanet ? globeSkin : .auto }
+
+    var resolvedGlobeBackdrop: GlobeBackdrop { canEditPlanet ? globeBackdrop : .app }
+
+    /// Silhouettes for everybody. This is the one of the three whose free
+    /// answer is not a default so much as the better picture — a dot throws
+    /// away which way an aeroplane is pointing — so what Pro buys here is the
+    /// ability to turn it *off*.
+    var resolvedGlobeShowsPlanes: Bool { canEditPlanet ? globeShowsPlanes : true }
+
     func adopt(systemScheme scheme: ColorScheme) {
         guard systemScheme != scheme else { return }
         systemScheme = scheme

@@ -69,7 +69,15 @@ struct MapStyleThumbnail: View {
     @ViewBuilder
     private var picture: some View {
         if isDrawn {
-            GlobeSwatch(skin: appearance.globeSkin, backdrop: appearance.globeBackdrop, side: side)
+            // What the planet is actually drawn in, not what is stored: the
+            // shape row is a picture of the map you would get by tapping it,
+            // and editing the planet is Pro. See
+            // `FlightInfoAppearance.resolvedGlobeSkin`.
+            GlobeSwatch(
+                skin: appearance.resolvedGlobeSkin,
+                backdrop: appearance.resolvedGlobeBackdrop,
+                side: side
+            )
         } else if let image = loader.image {
             Image(uiImage: image)
                 .resizable()
