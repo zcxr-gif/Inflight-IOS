@@ -304,6 +304,17 @@ final class GlobeCanvasView: UIView {
     private var isPinching = false
     private var pinchAnchor: SIMD3<Double>?
 
+    /// How many fingers the pinch had on the last frame it was believed.
+    ///
+    /// The same trap the pan has, and a worse one to fall into. A pinch's
+    /// `location(in:)` is the midpoint of the touches it currently holds, so
+    /// the moment one of two fingers lifts that midpoint collapses onto the
+    /// finger still down — and `pin(_:at:)` does not merely drift the camera
+    /// towards it, it *solves* for the camera that puts the pinned ground
+    /// exactly there. One frame, and the map has moved to your remaining
+    /// fingertip.
+    private var pinchTouches = 0
+
     /// A flick, in points a second, decaying. Nil when the planet is still.
     private var momentum: CGVector?
 
@@ -967,6 +978,7 @@ final class GlobeCanvasView: UIView {
             momentum = nil
             isPinching = true
             pinchedAt = CACurrentMediaTime()
+            pinchTouches = gesture.numberOfTouches
             pinchAnchor = direction(at: gesture.location(in: self))
             gesture.scale = 1
             beginInteraction()
@@ -976,6 +988,27 @@ final class GlobeCanvasView: UIView {
             // applied to wherever the zoom is now.
             let factor = gesture.scale
             gesture.scale = 1
+
+            // A finger arriving or leaving is not a hand moving — the same
+            // frame the pan spends re-anchoring, spent here for the same
+            // reason and a sharper one. The midpoint this pins to is the
+            // midpoint of *whatever touches the recognizer holds*, so a lift
+            // moves it half the distance between two fingers in one step, and
+            // what `pin` does with a moved point is put the ground you were
+            // holding underneath it exactly. So the frame is spent taking a
+            // fresh hold of the ground under the new midpoint, and the pinch
+            // carries on from there.
+            //
+            // This is where the map went to your last fingertip. The pan's own
+            // version of the jump was real and is fixed; this one was the one
+            // you could see, because a drag drifts and a solve arrives.
+            let touches = gesture.numberOfTouches
+            if touches != pinchTouches {
+                pinchTouches = touches
+                pinchAnchor = touches >= 2 ? direction(at: gesture.location(in: self)) : nil
+                return
+            }
+
             guard factor > 0 else { return }
 
             scale = clamped(scale * factor)
@@ -991,6 +1024,7 @@ final class GlobeCanvasView: UIView {
         case .ended, .cancelled, .failed:
             isPinching = false
             pinchedAt = CACurrentMediaTime()
+            pinchTouches = 0
             pinchAnchor = nil
             endInteraction()
 
