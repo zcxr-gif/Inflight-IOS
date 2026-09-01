@@ -48,7 +48,7 @@ enum RouteLineMode: String, CaseIterable, Identifiable {
         case .direct:
             return "A dashed great-circle line from the aeroplane straight to its destination, moving with it as it flies. Drawn for any flight with a destination filed."
         case .filedPlan:
-            return "The route as filed — a dashed line through every fix, and each one named. Procedures are expanded to the fixes they contain. Most pilots file nothing, and nothing is drawn when they haven't."
+            return "The route as filed — a dashed line through every fix, with the one being flown to picked out. Procedures are expanded to the fixes they contain. Drawn on the flat map and the planet alike. Most pilots file nothing, and nothing is drawn when they haven't."
         }
     }
 }
@@ -148,6 +148,32 @@ final class MapFilters: ObservableObject {
     /// drawn. Costs nothing — it is two coordinates the feed already carries.
     var showsDirectLine: Bool { routeLine == .direct }
 
+    /// Whether each fix on a drawn plan is named.
+    ///
+    /// Its own switch rather than part of the picker above, because the two
+    /// answer different questions and one of them has a real cost on screen. A
+    /// transatlantic plan is thirty or forty fixes; at a zoom that fits the
+    /// whole route, thirty five-character names laid along one line is a smear
+    /// rather than a route, and the *shape* — which is what you were looking at
+    /// — disappears underneath its own labelling. Turning the names off leaves
+    /// the diamonds, so the plan still reads as a plan with somewhere to be at
+    /// every corner.
+    ///
+    /// On by default: the names are most of why a plan is worth plotting rather
+    /// than drawing its two ends, and a switch nobody finds is a switch nobody
+    /// has.
+    ///
+    /// Honoured by both maps. Anything about a layer that is true on the flat
+    /// map and not on the planet is a setting that appears to do nothing
+    /// depending on which shape you happen to be on.
+    @Published var showsPlanFixNames: Bool {
+        didSet { UserDefaults.standard.set(showsPlanFixNames, forKey: Self.planNamesKey) }
+    }
+
+    /// Whether a fix on a drawn plan gets its name — the switch above, and only
+    /// where there is a plan being drawn to put names on.
+    var showsPlanNames: Bool { showsFlightPlan && showsPlanFixNames }
+
     /// Whether the open aircraft's flown track is drawn on the map — the
     /// coloured line behind it showing where it has actually been.
     ///
@@ -195,6 +221,7 @@ final class MapFilters: ObservableObject {
     /// line on its own.
     private static let legacyPlanKey = "map.showsFlightPlan"
     private static let flownKey = "map.showsFlownPath"
+    private static let planNamesKey = "map.showsPlanFixNames"
     private static let natKey = "map.showsNatTracks"
     private static let terminatorKey = "map.showsTerminator"
 
@@ -211,6 +238,7 @@ final class MapFilters: ObservableObject {
                 : .direct
         }
         showsFlownPath = defaults.object(forKey: Self.flownKey) as? Bool ?? true
+        showsPlanFixNames = defaults.object(forKey: Self.planNamesKey) as? Bool ?? true
         showsNatTracks = defaults.bool(forKey: Self.natKey)
         showsTerminator = defaults.object(forKey: Self.terminatorKey) as? Bool ?? true
         // On by default: the fields being worked are the most useful thing on

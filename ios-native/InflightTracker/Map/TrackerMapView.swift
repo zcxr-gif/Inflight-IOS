@@ -152,6 +152,10 @@ struct TrackerMapView: UIViewRepresentable {
     var showsGroundLayout = true
     var showsFlightPlan = false
 
+    /// Whether each fix on the drawn plan is named. The diamonds are drawn
+    /// either way — see `MapFilters.showsPlanFixNames`.
+    var showsPlanNames = true
+
     /// Whether the open aircraft gets a straight line to its destination,
     /// travelling with it. Mutually exclusive with the filed plan above — see
     /// `RouteLineMode` for why the two are a choice rather than two switches.
@@ -1370,6 +1374,13 @@ struct TrackerMapView: UIViewRepresentable {
                 ? FlightPlanStore.shared.waypoints(for: flight.id)
                 : []
 
+            // Which fix the aeroplane is actually flying to, so the plan says
+            // where along itself the flight has got to rather than only what
+            // was filed. The same answer the flight window prints and the
+            // navigation display puts in its corner — `PlanProgress` is the one
+            // place that decides it, so the three cannot disagree.
+            let nextFix = PlanProgress.next(in: plan, from: flight.coordinate)?.waypoint.index
+
             // The pavement the ground part of this track will be laid on, where
             // the track has a ground part at all. Asked for on the same terms
             // as the plan and the history: asking is what starts the fetch, and
@@ -1396,6 +1407,14 @@ struct TrackerMapView: UIViewRepresentable {
                 // invalidate the key, or the route is drawn once without it and
                 // never again.
                 parent.showsFlightPlan ? String(plan.count) : "off",
+                // The names, and which fix is being flown to. Both are things
+                // about the annotations rather than about the line, and both
+                // have to be able to invalidate a plan already on screen: the
+                // switch because it is a switch, and the leg because the whole
+                // point of marking it is that it moves down the route as the
+                // aeroplane does.
+                parent.showsPlanNames ? "names" : "nonames",
+                nextFix.map { String($0) } ?? "-",
                 // The layer switch is in the key for the same reason the plan's
                 // count is: turning it off has to be able to invalidate a route
                 // that is already drawn.
@@ -1491,7 +1510,18 @@ struct TrackerMapView: UIViewRepresentable {
                 planLabels.removeAll(keepingCapacity: true)
             }
             if !plan.isEmpty {
-                planLabels = plan.map { PlanWaypointAnnotation(waypoint: $0) }
+                planLabels = plan.map { fix in
+                    PlanWaypointAnnotation(
+                        waypoint: fix,
+                        showsName: parent.showsPlanNames,
+                        isNext: fix.index == nextFix,
+                        // Everything before the fix being flown to. No leg
+                        // resolved leaves the whole plan ahead of the
+                        // aeroplane, which is the honest answer when nothing
+                        // says otherwise.
+                        isPassed: nextFix.map { fix.index < $0 } ?? false
+                    )
+                }
                 mapView.addAnnotations(planLabels)
             }
 

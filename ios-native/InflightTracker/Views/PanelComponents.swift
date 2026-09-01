@@ -212,6 +212,78 @@ struct PanelToggleRow: View {
     }
 }
 
+/// The badge that says a row is behind Inflight Pro.
+///
+/// One capsule, in one place, so every locked control in the app is marked the
+/// same way. It was written inline in `SettingsChoiceRow` when that row was the
+/// only thing in the app that could be locked; the planet's own settings are
+/// the second, and a badge copied out for the second is a badge that drifts by
+/// the third.
+struct ProBadge: View {
+
+    @ObservedObject private var appearance = FlightInfoAppearance.shared
+
+    private var theme: FlightInfoTheme { appearance.theme }
+
+    var body: some View {
+        Text("PRO")
+            .font(.system(size: 8.5, weight: .bold))
+            .tracking(0.8)
+            .foregroundStyle(theme.onAccent)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background { Capsule().fill(theme.accent) }
+            .fixedSize()
+            .accessibilityLabel("Inflight Pro")
+    }
+}
+
+private struct ProLockedModifier: ViewModifier {
+
+    let isUnlocked: Bool
+    let onLocked: () -> Void
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isUnlocked {
+            content
+        } else {
+            content
+                // Dimmed rather than disabled, and the control underneath is
+                // taken out of the tap path rather than switched off: a
+                // disabled row is one iOS will not read out and one nobody can
+                // ask a question of. Here the whole row is still tappable, and
+                // what a tap does is say what this costs.
+                //
+                // No badge on the row itself. A switch already has something
+                // on its right-hand end, and a capsule laid over a toggle is
+                // two controls in one place; the group this is used in carries
+                // one `ProUpsellRow` at its head, which says it once for all of
+                // them.
+                .opacity(0.6)
+                .allowsHitTesting(false)
+                .background {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture(perform: onLocked)
+                }
+        }
+    }
+}
+
+extension View {
+
+    /// Marks a settings row as Pro, when it is not unlocked.
+    ///
+    /// Locked rows are shown, never hidden — you cannot want something you have
+    /// never seen — and tapping one opens the paywall rather than silently
+    /// doing nothing. See `SettingsChoiceRow`, which makes the same bargain for
+    /// a row that has a picture on it.
+    func proLocked(_ isUnlocked: Bool, onLocked: @escaping () -> Void) -> some View {
+        modifier(ProLockedModifier(isUnlocked: isUnlocked, onLocked: onLocked))
+    }
+}
+
 /// A row of segmented choices — units, styles.
 struct PanelPickerRow<Value: Hashable & Identifiable>: View {
 

@@ -67,17 +67,6 @@ struct FiltersPanel: View {
 
                 PanelDivider()
 
-                PanelPickerRow(
-                    title: "Route ahead",
-                    symbol: "point.topleft.down.curvedto.point.filled.bottomright.up",
-                    options: RouteLineMode.allCases,
-                    label: { $0.label },
-                    detail: filters.routeLine.detail,
-                    selection: $filters.routeLine
-                )
-
-                PanelDivider()
-
                 PanelToggleRow(
                     title: "Day and night",
                     symbol: "moon.stars",
@@ -93,6 +82,41 @@ struct FiltersPanel: View {
                     detail: "The organised track system, republished twice a day and coloured by letter, with the levels each track is valid at. It is what explains a hundred aircraft flying in parallel lines across the ocean.",
                     isOn: $filters.showsNatTracks
                 )
+            }
+
+            // MARK: The flight plan
+            //
+            // Its own card rather than two more rows in AIRPORTS, because it is
+            // its own subject: whether the route an open flight filed is drawn
+            // over the map, and how much of it is spelled out when it is. It is
+            // also the one layer that reads the same on both shapes of the
+            // world — the flat map and the planet plot the same fixes with the
+            // same names — so it deserves saying once, plainly, rather than
+            // being a line in a list about aerodromes.
+            PanelSection(title: "FLIGHT PLAN") {
+                PanelPickerRow(
+                    title: "Route ahead",
+                    symbol: "point.topleft.down.curvedto.point.filled.bottomright.up",
+                    options: RouteLineMode.allCases,
+                    label: { $0.label },
+                    detail: filters.routeLine.detail,
+                    selection: $filters.routeLine
+                )
+
+                // Only where there is a plan being drawn to put names on. Off
+                // and Direct have no fixes, so the row would be a switch with
+                // nothing to act on — and a switch that does nothing is worse
+                // than one that is not there.
+                if filters.showsFlightPlan {
+                    PanelDivider()
+
+                    PanelToggleRow(
+                        title: "Waypoint names",
+                        symbol: "textformat.abc",
+                        detail: "Names each fix on the plan. Turn it off to keep the diamonds and lose the labels — a long-haul plan is forty of them, and at a zoom that fits the whole route the names cover the route. On the flat map and the planet alike.",
+                        isOn: $filters.showsPlanFixNames
+                    )
+                }
             }
 
             PanelSection(title: "PHASE") {

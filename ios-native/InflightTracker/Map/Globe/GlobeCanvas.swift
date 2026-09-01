@@ -54,6 +54,10 @@ struct GlobeCanvas: UIViewRepresentable {
     var showsPlanes: Bool
     var showsFields: Bool
 
+    /// Whether each fix on a drawn plan is named. The diamonds are drawn
+    /// either way — see `MapFilters.showsPlanFixNames`.
+    var showsPlanNames: Bool = true
+
     /// Where the sun is overhead, or nil to draw the planet evenly lit.
     var sun: SIMD3<Float>? = nil
 
@@ -113,6 +117,7 @@ struct GlobeCanvas: UIViewRepresentable {
             revision: revision,
             showsPlanes: showsPlanes,
             showsFields: showsFields,
+            showsPlanNames: showsPlanNames,
             sun: sun,
             replay: replay,
             smoothsTraffic: smoothsTraffic,
@@ -148,6 +153,17 @@ enum GlobeMarkMetrics {
     static let fieldDotRadius: CGFloat = 3
     static let labelGap: CGFloat = 4
     static let fieldFontSize: CGFloat = 10.5
+
+    /// A fix on a filed plan: half the diagonal of the diamond, and the size
+    /// its name is set at.
+    ///
+    /// Smaller than a field's ring and its code, deliberately. A field is a
+    /// place; a fix is a corner on one aeroplane's route, and on a plan with
+    /// forty of them the marks must not out-shout the aerodromes underneath.
+    /// The flat map's own diamond is five points — see `PlanWaypointView` —
+    /// and this is the same mark at the same size.
+    static let planFixRadius: CGFloat = 5
+    static let planFontSize: CGFloat = 9.5
 
     /// How near a tap has to land, in points.
     static let touchRadius: CGFloat = 22
@@ -228,6 +244,7 @@ final class GlobeCanvasView: UIView {
     private var revision = -1
     private var showsPlanes = true
     private var showsFields = true
+    private var showsPlanNames = true
     private var sun: SIMD3<Float>?
     private var replay: GlobeReplayMark?
     private var smoothsTraffic = true
@@ -420,6 +437,15 @@ final class GlobeCanvasView: UIView {
     /// is the only thing that can make one wrong.
     private var labels: [String: UIImage] = [:]
 
+    /// Fix names, the same way — and a cache of their own rather than a shared
+    /// one, because they are set smaller and in a different colour. A fix
+    /// called KJFK is not the field KJFK, and one bitmap keyed on the bare
+    /// string would hand whichever was rendered first to both.
+    ///
+    /// Keyed by the name and whether it is the fix being flown to, since that
+    /// one is drawn in a colour of its own.
+    private var fixLabels: [String: UIImage] = [:]
+
     /// Scratch for the land fill: one landmass projected, and the same one
     /// part way through being clipped. Held by the view rather than made per
     /// ring, so a frame that walks three hundred coastlines does not allocate
@@ -484,6 +510,7 @@ final class GlobeCanvasView: UIView {
 
     @objc private func dropCaches() {
         labels.removeAll()
+        fixLabels.removeAll()
     }
 
     /// A `CADisplayLink` holds its target, and the runloop holds the link — so
@@ -573,6 +600,7 @@ final class GlobeCanvasView: UIView {
         revision: Int,
         showsPlanes: Bool,
         showsFields: Bool,
+        showsPlanNames: Bool,
         sun: SIMD3<Float>?,
         replay: GlobeReplayMark?,
         smoothsTraffic: Bool,
@@ -610,9 +638,13 @@ final class GlobeCanvasView: UIView {
             || replay != self.replay
             || showsPlanes != self.showsPlanes
             || showsFields != self.showsFields
+            || showsPlanNames != self.showsPlanNames
             || smoothsTraffic != self.smoothsTraffic
 
-        if palette != self.palette { labels.removeAll() }
+        if palette != self.palette {
+            labels.removeAll()
+            fixLabels.removeAll()
+        }
         let skyMoved = backdrop != self.backdrop
 
         let insetsMoved = bottomInset != self.bottomInset || trailingInset != self.trailingInset
@@ -623,6 +655,7 @@ final class GlobeCanvasView: UIView {
         self.revision = revision
         self.showsPlanes = showsPlanes
         self.showsFields = showsFields
+        self.showsPlanNames = showsPlanNames
         self.sun = sun
         self.replay = replay
         self.smoothsTraffic = smoothsTraffic
@@ -1578,6 +1611,10 @@ final class GlobeCanvasView: UIView {
 
         drawLines(in: context, basis: basis, box: box)
         drawFlownPath(in: context, basis: basis, box: box)
+        // Over the track and under the traffic. The fixes are marks you read
+        // off the plan, so a coloured track crossing one must not bury it; the
+        // aeroplane is still the point, so nothing on the plan goes over it.
+        drawPlanFixes(in: context, basis: basis, box: box)
         drawTraffic(in: context, basis: basis)
 
         if showsFields {
@@ -3306,6 +3343,141 @@ final class GlobeCanvasView: UIView {
             ))
         }
     }
+
+    // MARK: - The filed plan
+
+    /// Every fix on the open aircraft's plan: a diamond, and its name beside
+    /// it.
+    ///
+    /// The same mark the flat map draws — see `PlanWaypointView` — for the
+    /// reason the whole of this layer exists: a plan you can read on one shape
+    /// of the world and not the other is a setting that appears to do nothing
+    /// depending on which shape you happen to be on.
+    ///
+    /// Three states, and they are the three things a plotted plan can say. The
+    /// fix being flown to is filled and takes its own colour; everything
+    /// already behind the aeroplane is dimmed, so how much of the route is left
+    /// is legible without reading a single name; the rest is the plan as filed.
+    private func drawPlanFixes(in context: CGContext, basis: GlobeCamera.Basis, box: CGRect) {
+        let fixes = scene.planFixes
+        guard !fixes.isEmpty else { return }
+
+        let radius = GlobeMarkMetrics.planFixRadius
+
+        // Crowded on the sphere, exactly like the fields and the traffic.
+        //
+        // A transatlantic plan is forty fixes, and at a zoom that fits the
+        // whole of it they land a few points apart — forty diamonds and forty
+        // names in the space of one, which is a smear rather than a route. The
+        // grid is set at about the width of a name so that what survives is
+        // spread along the line rather than piled at one end of it.
+        //
+        // The fix being flown to skips the grid, the way a field somebody is
+        // working does. It is the one mark here that is about *now*, and it is
+        // never the one to drop.
+        beginCrowding(points: showsPlanNames ? 34 : 14)
+
+        // Rendered before the run of drawing starts rather than inside it: a
+        // label is drawn through an image renderer, which pushes a context of
+        // its own. Cached across frames, so this is a dictionary lookup after
+        // the first pass over a plan.
+        if showsPlanNames {
+            for fix in fixes where !fix.name.isEmpty {
+                _ = fixLabel(fix.name, isNext: fix.isNext)
+            }
+        }
+
+        for fix in fixes {
+            let projected = camera.project(fix.position, using: basis)
+            guard projected.depth > 0.02, box.contains(projected.point) else { continue }
+
+            if !fix.isNext, isCrowded(at: fix.position) { continue }
+
+            // Faded towards the limb like every other mark, and dimmed again
+            // for a fix that is already behind the wing.
+            let opacity = min(1, CGFloat(projected.depth) / 0.28) * (fix.isPassed ? 0.4 : 1)
+            let fading = opacity < 1
+            let point = projected.point
+
+            if fading {
+                context.saveGState()
+                context.setAlpha(opacity)
+            }
+
+            let colour = fix.isNext ? palette.planNextFix : palette.planFix
+            let diamond = CGMutablePath()
+            diamond.move(to: CGPoint(x: point.x, y: point.y - radius))
+            diamond.addLine(to: CGPoint(x: point.x + radius, y: point.y))
+            diamond.addLine(to: CGPoint(x: point.x, y: point.y + radius))
+            diamond.addLine(to: CGPoint(x: point.x - radius, y: point.y))
+            diamond.closeSubpath()
+
+            context.addPath(diamond)
+            if fix.isNext {
+                // Filled, so the fix being flown to is findable on a plan with
+                // forty outlines on it without having to read any of them.
+                context.setFillColor(colour.cgColor)
+                context.fillPath()
+            } else {
+                context.setStrokeColor(colour.cgColor)
+                context.setLineWidth(1.4)
+                context.setLineJoin(.round)
+                context.strokePath()
+            }
+
+            if showsPlanNames, !fix.name.isEmpty {
+                let label = fixLabel(fix.name, isNext: fix.isNext)
+                label.draw(at: CGPoint(
+                    x: point.x + radius + GlobeMarkMetrics.labelGap,
+                    y: point.y - label.size.height / 2
+                ))
+            }
+
+            if fading { context.restoreGState() }
+        }
+    }
+
+    /// A fix's name, rendered once into a bitmap. See `labelImage`, which is
+    /// the same answer to the same problem for a field's code.
+    private func fixLabel(_ name: String, isNext: Bool) -> UIImage {
+        // The flag first and a separator that cannot appear in a fix name, so
+        // "the next fix ATSIX" and "the fix *ATSIX" cannot be the same entry.
+        let key = "\(isNext)|\(name)"
+        if let cached = fixLabels[key] { return cached }
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: Self.planFont,
+            .foregroundColor: isNext ? palette.planNextFix : palette.planLabel,
+        ]
+
+        let text = name as NSString
+        let measured = text.size(withAttributes: attributes)
+        let inset: CGFloat = 3
+        let size = CGSize(
+            width: measured.width.rounded(.up) + inset * 2,
+            height: measured.height.rounded(.up) + inset * 2
+        )
+
+        let format = UIGraphicsImageRendererFormat.default()
+        format.opaque = false
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
+            context.cgContext.setShadow(
+                offset: .zero,
+                blur: 2.5,
+                color: palette.fieldLabelHalo.cgColor
+            )
+            text.draw(at: CGPoint(x: inset, y: inset), withAttributes: attributes)
+        }
+
+        fixLabels[key] = image
+        return image
+    }
+
+    private static let planFont: UIFont = {
+        let base = UIFont.systemFont(ofSize: GlobeMarkMetrics.planFontSize, weight: .bold)
+        guard let descriptor = base.fontDescriptor.withDesign(.rounded) else { return base }
+        return UIFont(descriptor: descriptor, size: GlobeMarkMetrics.planFontSize)
+    }()
 
     // MARK: - Fields
 

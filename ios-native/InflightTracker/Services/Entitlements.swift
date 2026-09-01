@@ -27,6 +27,17 @@ enum ProFeature: String, CaseIterable, Identifiable {
     /// Satellite, and the globe.
     case mapStyles
 
+    /// Editing the drawn planet: its colours, what is behind it, and how the
+    /// traffic on it is drawn.
+    ///
+    /// Its own feature rather than part of `mapStyles`, because they gate
+    /// different halves of the same screen. The planet itself is free — anyone
+    /// can switch the map to it and everything on it works — and what is sold
+    /// is the *editing*: ten skins, five backdrops, and the choice between
+    /// silhouettes and dots. A planet nobody can look at cannot be wanted, so
+    /// the shape stays free and the wardrobe is what Pro buys.
+    case planetLook
+
     /// Jumping straight to whatever you are flying right now.
     ///
     /// Its own feature rather than part of `pilotColours`, which is the other
@@ -80,6 +91,7 @@ enum ProFeature: String, CaseIterable, Identifiable {
         case .watchlist: return "The whole watchlist"
         case .pilotColours: return "A colour for every pilot"
         case .mapStyles: return "Satellite and the globe"
+        case .planetLook: return "The planet, in your colours"
         case .findMyAircraft: return "Jump to your aircraft"
         case .profileBanner: return "Your profile, your way"
         case .logbook: return "Every flight you've made"
@@ -97,6 +109,8 @@ enum ProFeature: String, CaseIterable, Identifiable {
             return "Paint each pilot you watch their own colour, and your own aircraft whatever you like. Free keeps one colour for the whole watchlist."
         case .mapStyles:
             return "Imagery, and the whole planet — free to spin and tilt with the traffic on it."
+        case .planetLook:
+            return "Draw the planet your way: ten colours, five skies behind it, and silhouettes instead of dots. The planet itself is free — this is the wardrobe."
         case .findMyAircraft:
             return "One tap puts the map on the aeroplane you are flying and opens its window — wherever on Earth you have got to."
         case .profileBanner:
@@ -114,6 +128,7 @@ enum ProFeature: String, CaseIterable, Identifiable {
         case .watchlist: return "person.2.badge.plus"
         case .pilotColours: return "paintpalette"
         case .mapStyles: return "globe"
+        case .planetLook: return "paintbrush.pointed"
         case .findMyAircraft: return "location.magnifyingglass"
         case .profileBanner: return "photo.on.rectangle.angled"
         case .logbook: return "book.closed"

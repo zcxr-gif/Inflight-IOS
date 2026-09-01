@@ -81,6 +81,7 @@ struct SyncedSettings: Codable, Equatable {
     var showsAirports: Bool?
     var showsGroundLayout: Bool?
     var routeLine: String?
+    var showsPlanFixNames: Bool?
     var showsFlownPath: Bool?
     var showsNatTracks: Bool?
     var showsTerminator: Bool?
@@ -159,6 +160,7 @@ struct SyncedSettings: Codable, Equatable {
         settings.showsAirports = filters.showsAirports
         settings.showsGroundLayout = filters.showsGroundLayout
         settings.routeLine = filters.routeLine.rawValue
+        settings.showsPlanFixNames = filters.showsPlanFixNames
         settings.showsFlownPath = filters.showsFlownPath
         settings.showsNatTracks = filters.showsNatTracks
         settings.showsTerminator = filters.showsTerminator
@@ -282,6 +284,9 @@ struct SyncedSettings: Codable, Equatable {
         if let showsGroundLayout = showsGroundLayout { filters.showsGroundLayout = showsGroundLayout }
         if let value = routeLine.flatMap(RouteLineMode.init(rawValue:)) {
             filters.routeLine = value
+        }
+        if let showsPlanFixNames = showsPlanFixNames {
+            filters.showsPlanFixNames = showsPlanFixNames
         }
         if let showsFlownPath = showsFlownPath { filters.showsFlownPath = showsFlownPath }
         if let showsNatTracks = showsNatTracks { filters.showsNatTracks = showsNatTracks }

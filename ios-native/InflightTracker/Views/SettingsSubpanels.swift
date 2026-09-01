@@ -31,7 +31,18 @@ struct MapStyleSettingsPanel: View {
 
     @ObservedObject private var appearance = FlightInfoAppearance.shared
 
+    /// Observed because half this screen is gated on it. `canEditPlanet` lives
+    /// on `appearance`, which cannot publish a change to somebody else's
+    /// entitlement — so without this, buying Pro from the sheet below would
+    /// leave the planet's rows locked behind you.
+    @ObservedObject private var entitlements = Entitlements.shared
+
     @State private var isShowingPaywall = false
+
+    /// Which of this screen's two Pro features the sheet was raised for — the
+    /// shapes and finishes the map comes in, or the editing of the drawn
+    /// planet. One paywall, and it leads with whichever row was tapped.
+    @State private var paywallFeature: ProFeature = .mapStyles
 
     var body: some View {
         MapPanel(title: "Map", subtitle: "How the world underneath the traffic is drawn") {
@@ -53,7 +64,7 @@ struct MapStyleSettingsPanel: View {
                         // chosen, so what they show is this map in that shape
                         // rather than two unrelated pictures.
                         preview: look(projection: projection, palette: appearance.mapPalette),
-                        onLocked: { isShowingPaywall = true }
+                        onLocked: { ask(for: .mapStyles) }
                     ) {
                         appearance.mapProjection = projection
                     }
@@ -75,7 +86,7 @@ struct MapStyleSettingsPanel: View {
                         // this list is about the drawing, and the globe wears
                         // one look whatever is picked in it.
                         preview: look(projection: .flat, palette: palette),
-                        onLocked: { isShowingPaywall = true }
+                        onLocked: { ask(for: .mapStyles) }
                     ) {
                         appearance.mapPalette = palette
                     }
@@ -100,6 +111,18 @@ struct MapStyleSettingsPanel: View {
             // that turns them on is directly above, with a picture of the thing
             // on it.
             if appearance.mapProjection == .planet {
+                // What the whole of the rest of this screen costs, said once,
+                // at the top of it — rather than a PRO badge repeated down
+                // sixteen rows. The planet itself is not behind it and the line
+                // says so: a free account gets the planet, spinning, with the
+                // traffic and the routes on it, in the look it opens on.
+                if !appearance.canEditPlanet {
+                    PanelSection(title: "EDITING THE PLANET") {
+                        ProUpsellRow(feature: .planetLook) { ask(for: .planetLook) }
+                    }
+                    .panelEntrance(2)
+                }
+
                 PanelSection(title: "PLANET COLOUR") {
                     ForEach(GlobeSkin.allCases) { skin in
                         if skin != GlobeSkin.allCases.first { PanelDivider() }
@@ -107,15 +130,22 @@ struct MapStyleSettingsPanel: View {
                         GlobeChoiceRow(
                             title: skin.label,
                             detail: skin.detail,
-                            isSelected: appearance.globeSkin == skin,
+                            // Ticked against what is *drawn*, not what is
+                            // stored: a free account holding Blueprint from a
+                            // lapsed subscription is looking at Auto, and a
+                            // tick beside a colour the planet is not wearing is
+                            // the list lying about the planet.
+                            isSelected: appearance.resolvedGlobeSkin == skin,
+                            isPro: true,
                             skin: skin,
-                            backdrop: appearance.globeBackdrop
+                            backdrop: appearance.resolvedGlobeBackdrop,
+                            onLocked: { ask(for: .planetLook) }
                         ) {
                             appearance.globeSkin = skin
                         }
                     }
                 }
-                .panelEntrance(2)
+                .panelEntrance(3)
 
                 PanelSection(title: "BEHIND THE PLANET") {
                     ForEach(GlobeBackdrop.allCases) { backdrop in
@@ -124,31 +154,47 @@ struct MapStyleSettingsPanel: View {
                         GlobeChoiceRow(
                             title: backdrop.label,
                             detail: backdrop.detail,
-                            isSelected: appearance.globeBackdrop == backdrop,
+                            isSelected: appearance.resolvedGlobeBackdrop == backdrop,
+                            isPro: true,
                             // The skin is held still down this list and the
                             // backdrop changes, which is the only way to see
                             // what a backdrop does.
-                            skin: appearance.globeSkin,
-                            backdrop: backdrop
+                            skin: appearance.resolvedGlobeSkin,
+                            backdrop: backdrop,
+                            onLocked: { ask(for: .planetLook) }
                         ) {
                             appearance.globeBackdrop = backdrop
                         }
                     }
                 }
-                .panelEntrance(3)
+                .panelEntrance(4)
 
                 PanelSection(title: "TRAFFIC") {
                     PanelToggleRow(
                         title: "Aircraft shapes",
                         symbol: "airplane",
                         detail: "Draws the traffic as aircraft, pointing where they are going, rather than as dots. A packet too dense for silhouettes to read falls back to dots on its own.",
-                        isOn: $appearance.globeShowsPlanes
+                        // What is actually drawn, so a locked switch is never
+                        // showing the opposite of the planet behind it. Free
+                        // accounts get silhouettes, so this reads on and stays
+                        // on; what Pro buys here is being able to turn it off.
+                        isOn: appearance.canEditPlanet
+                            ? $appearance.globeShowsPlanes
+                            : .constant(true)
                     )
+                    // Locked rather than hidden. Tapping the row asks for Pro
+                    // rather than flipping something the planet would ignore.
+                    .proLocked(appearance.canEditPlanet) { ask(for: .planetLook) }
                 }
-                .panelEntrance(4)
+                .panelEntrance(5)
             }
         }
-        .sheet(isPresented: $isShowingPaywall) { ProPanel() }
+        .sheet(isPresented: $isShowingPaywall) { ProPanel(highlighted: paywallFeature) }
+    }
+
+    private func ask(for feature: ProFeature) {
+        paywallFeature = feature
+        isShowingPaywall = true
     }
 
     /// The look a row is a picture of, built the same way the map's own is —
@@ -564,23 +610,41 @@ struct AboutSettingsPanel: View {
 /// Its own row rather than a `SettingsChoiceRow` with another optional on it.
 /// That row's picture is a `MapLook`, which is MapKit's question — a projection
 /// and a palette and an elevation style — and none of the planet's three
-/// settings is expressible in one. Nothing here is Pro either, so the whole
-/// locked/paywall half of that row would be dead weight.
+/// settings is expressible in one.
+///
+/// The swatch is drawn at full strength even on a locked row, unlike the rest
+/// of it. It is the whole argument for the thing being sold — the planet's
+/// colours are a difference you can only judge by looking — and dimming the one
+/// part of the row that makes the case is an odd way to make it.
 struct GlobeChoiceRow: View {
 
     let title: String
     let detail: String
     let isSelected: Bool
+
+    /// Whether this choice is behind Pro. Locked choices are shown, not hidden,
+    /// and tapping one opens the paywall — the same bargain
+    /// `SettingsChoiceRow` makes.
+    var isPro: Bool = false
+
     let skin: GlobeSkin
     let backdrop: GlobeBackdrop
+    var onLocked: () -> Void = {}
     let select: () -> Void
 
     @ObservedObject private var appearance = FlightInfoAppearance.shared
+    @ObservedObject private var entitlements = Entitlements.shared
 
     private var theme: FlightInfoTheme { appearance.theme }
+    private var locked: Bool { isPro && !entitlements.isPro }
 
     var body: some View {
-        Button(action: select) {
+        Button {
+            // Stored either way, so buying Pro from the sheet this opens leaves
+            // you on the colour you picked rather than back where you started.
+            select()
+            if locked { onLocked() }
+        } label: {
             HStack(spacing: 10) {
                 GlobeSwatch(skin: skin, backdrop: backdrop)
                     .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous))
@@ -600,10 +664,13 @@ struct GlobeChoiceRow: View {
                         .foregroundStyle(theme.textDim)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                .opacity(locked ? 0.6 : 1)
 
                 Spacer(minLength: 8)
 
-                if isSelected {
+                if locked {
+                    ProBadge()
+                } else if isSelected {
                     Image(systemName: "checkmark")
                         .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(theme.textPrimary)
@@ -615,6 +682,53 @@ struct GlobeChoiceRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : [.isButton])
+    }
+}
+
+/// One line saying what a whole locked group costs, and opening the paywall.
+///
+/// The alternative is a PRO badge on every row of it, which on the planet's
+/// screen would be sixteen of them: the same sentence, repeated down a column,
+/// each one taking the space the choice itself needed. One row at the head of
+/// the group says it once, and the choices underneath stay legible as choices.
+struct ProUpsellRow: View {
+
+    let feature: ProFeature
+    let open: () -> Void
+
+    @ObservedObject private var appearance = FlightInfoAppearance.shared
+
+    private var theme: FlightInfoTheme { appearance.theme }
+
+    var body: some View {
+        Button(action: open) {
+            HStack(spacing: 10) {
+                Image(systemName: feature.symbol)
+                    .font(.system(size: 13))
+                    .foregroundStyle(theme.accent)
+                    .frame(width: 20)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(feature.title)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(theme.textPrimary)
+                        .flightInfoLine(minimumScale: 0.8)
+
+                    Text(feature.detail)
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(theme.textDim)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 8)
+
+                ProBadge()
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -693,14 +807,7 @@ struct SettingsChoiceRow: View {
                 Spacer(minLength: 8)
 
                 if locked {
-                    Text("PRO")
-                        .font(.system(size: 8.5, weight: .bold))
-                        .tracking(0.8)
-                        .foregroundStyle(theme.onAccent)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background { Capsule().fill(theme.accent) }
-                        .fixedSize()
+                    ProBadge()
                 } else if isSelected {
                     Image(systemName: "checkmark")
                         .font(.system(size: 12, weight: .bold))

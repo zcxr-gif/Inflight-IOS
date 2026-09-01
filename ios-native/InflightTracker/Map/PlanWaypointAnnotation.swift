@@ -29,6 +29,23 @@ enum PlanStyle {
             ? UIColor(red: 0.11, green: 0.33, blue: 0.68, alpha: 1)
             : UIColor(red: 0.68, green: 0.84, blue: 1.00, alpha: 1)
     }
+
+    /// The fix being flown to.
+    ///
+    /// The one mark on a plan that is about *now* rather than about the filing,
+    /// so it is the one that gets a colour of its own and a filled diamond. On
+    /// a transatlantic plan of forty outlines it is the difference between
+    /// reading the route and searching it.
+    static let nextFix = UIColor { traits in
+        traits.userInterfaceStyle == .light
+            ? UIColor(red: 0.80, green: 0.48, blue: 0.02, alpha: 1)
+            : UIColor(red: 1.00, green: 0.80, blue: 0.35, alpha: 1)
+    }
+
+    /// How much is left of a fix already behind the wing. Dimmed rather than
+    /// dropped: how much of the route has been flown is legible at a glance,
+    /// and the corner is still a real corner.
+    static let passedOpacity: CGFloat = 0.45
 }
 
 /// One fix on a filed plan.
@@ -47,10 +64,27 @@ final class PlanWaypointAnnotation: NSObject, MKAnnotation {
     /// handed two annotations it has every reason to treat as one.
     let index: Int
 
-    init(waypoint: PlanWaypoint) {
+    /// Whether the name is drawn under the diamond. See
+    /// `MapFilters.showsPlanFixNames`.
+    let showsName: Bool
+
+    /// Whether this is the fix the aircraft is flying to, and whether it is
+    /// one already behind it. See `PlanProgress.next`.
+    let isNext: Bool
+    let isPassed: Bool
+
+    init(
+        waypoint: PlanWaypoint,
+        showsName: Bool = true,
+        isNext: Bool = false,
+        isPassed: Bool = false
+    ) {
         self.coordinate = waypoint.coordinate
         self.name = waypoint.name
         self.index = waypoint.index
+        self.showsName = showsName
+        self.isNext = isNext
+        self.isPassed = isPassed
         super.init()
     }
 }
@@ -75,6 +109,11 @@ final class PlanWaypointView: MKAnnotationView {
 
         // Above the pavement, below the traffic. The route is the reason the
         // aeroplane is where it is, and the aeroplane is still the point.
+        //
+        // The fix being flown to is lifted above the rest in `apply`: on a
+        // plan whose fixes are a few points apart, MapKit's own collision
+        // resolution will otherwise drop whichever it feels like — and the one
+        // mark here that is about now is never the one to drop.
         displayPriority = .defaultLow
         collisionMode = .circle
 
@@ -124,11 +163,28 @@ final class PlanWaypointView: MKAnnotationView {
 
     func apply(_ annotation: PlanWaypointAnnotation) {
         label.text = annotation.name
+        label.isHidden = !annotation.showsName || annotation.name.isEmpty
+
+        isNext = annotation.isNext
+        displayPriority = annotation.isNext ? .required : .defaultLow
+        alpha = annotation.isPassed ? PlanStyle.passedOpacity : 1
+
+        applyColours()
     }
 
+    /// Whether this view is currently drawing the fix being flown to. Held
+    /// rather than re-read from the annotation, because `applyColours` is also
+    /// what a trait change calls and a reused view's annotation may by then be
+    /// a different fix on a different plan.
+    private var isNext = false
+
     private func applyColours() {
-        let colour = PlanStyle.fix.resolvedColor(with: traitCollection)
+        let colour = (isNext ? PlanStyle.nextFix : PlanStyle.fix)
+            .resolvedColor(with: traitCollection)
         diamond.strokeColor = colour.cgColor
+        // Filled for the fix being flown to, so it is findable on a plan of
+        // forty outlines without reading a single name.
+        diamond.fillColor = isNext ? colour.cgColor : UIColor.clear.cgColor
         label.textColor = colour
 
         let centre = CGPoint(x: diamond.bounds.midX, y: 7)
