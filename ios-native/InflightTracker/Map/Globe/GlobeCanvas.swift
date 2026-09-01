@@ -249,13 +249,24 @@ final class GlobeCanvasView: UIView {
     /// Whether a pinch ran at any point during the drag now ending.
     private var wasPinched = false
 
-    /// How many fingers the pan had on the last frame it was believed.
+    /// Where the pan's fingers were last frame, and how many of them there
+    /// were.
     ///
-    /// A `UIPanGestureRecognizer` measures its translation from the *centroid*
-    /// of whatever touches it currently has, so the count changing moves that
-    /// centroid instantly — by half the distance between two fingers when one
-    /// of them lifts. See `handlePan`.
+    /// The planet is dragged by the movement of this point rather than by the
+    /// recognizer's own `translation`, and the difference is the touch count
+    /// changing. A pan measures from the *centroid* of whatever touches it has,
+    /// so a finger leaving moves that centroid to the finger still down — half
+    /// the distance between them, in one step. Read as a translation that is a
+    /// drag nobody made; sampled here, alongside the count that explains it, it
+    /// is a frame to re-anchor on and nothing more.
+    private var panCentre: CGPoint?
     private var panTouches = 0
+
+    /// Whether the number of fingers changed at any point in the drag now
+    /// ending, which is what disqualifies it as a flick: the recognizer's
+    /// velocity is a velocity of the centroid, and a centroid that has just
+    /// jumped to one finger carries a speed no hand was moving at.
+    private var panTouchesChanged = false
 
     /// Whether two fingers are running a pinch, and what was under them when
     /// it began — so the ground between them stays between them. The pinch
@@ -281,10 +292,55 @@ final class GlobeCanvasView: UIView {
     /// a still planet costs nothing.
     private var animator: CADisplayLink?
 
-    /// Whether the planet is moving, by a finger or by its own momentum. What
-    /// decides the drawing resolution.
+    /// Whether the planet is moving, by a finger or by its own momentum.
     private var isInteracting: Bool {
         isPanning || isPinching || momentum != nil || isZooming
+    }
+
+    /// When the chrome over the planet last moved — a flight window opening,
+    /// a sheet dragged between its stops, a panel closing.
+    private var chromeMovedAt: CFTimeInterval = -.greatestFiniteMagnitude
+
+    /// A guess at how long that movement lasts, which is a sheet animation.
+    private static let chromeSettle: CFTimeInterval = 0.45
+
+    /// Generation of the settle now pending, so that the last inset change is
+    /// the one that decides when the planet sharpens up again.
+    private var chromeGeneration = 0
+
+    /// Whether the chrome is in the middle of moving.
+    private var isChromeMoving: Bool {
+        CACurrentMediaTime() - chromeMovedAt < Self.chromeSettle
+    }
+
+    /// Whether the picture is changing for any reason, which is what decides
+    /// the resolution it is drawn at. A finger is one of those reasons; a
+    /// window sliding up over the planet is another, and used not to be.
+    private var isMoving: Bool { isInteracting || isChromeMoving }
+
+    /// Notes that the chrome has moved, drops the resolution for as long as it
+    /// is moving, and puts it back afterwards.
+    ///
+    /// The whole reason this exists is that a flight window is an expensive
+    /// piece of SwiftUI to lay out and the planet is rasterised on the CPU, so
+    /// the two of them are spending the same main thread. Every inset change
+    /// through that animation was a *full resolution* redraw of the entire
+    /// planet — nine pixels a point on a 3x phone — landing between the frames
+    /// of the animation that was causing it, which is exactly the stutter you
+    /// feel opening and closing the window. The gesture path has dropped
+    /// resolution while the world moves since the globe was written; this is
+    /// the same trade for the one kind of movement no finger is behind.
+    private func noteChromeMoved() {
+        chromeMovedAt = CACurrentMediaTime()
+        updateResolution()
+
+        chromeGeneration &+= 1
+        let generation = chromeGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.chromeSettle) { [weak self] in
+            guard let self = self, self.chromeGeneration == generation else { return }
+            self.updateResolution()
+            self.redrawPlanet()
+        }
     }
 
     /// Whether this planet is one you can turn, rather than a swatch drawn
@@ -428,6 +484,22 @@ final class GlobeCanvasView: UIView {
         )
         twoFingerTap.numberOfTouchesRequired = 2
         twoFingerTap.delegate = self
+        // Two fingers that pinched are not two fingers that tapped.
+        //
+        // Everything here recognises simultaneously, which is what lets a zoom
+        // drift into a drag — and it also let this fire off the back of every
+        // pinch. A tap allows a little movement, and a pinch is a *ratio*:
+        // fingers fifty points apart that spread by fifteen have zoomed by a
+        // third while each of them moved less than the tap's own tolerance. So
+        // the planet zoomed in under your fingers and then, the moment you
+        // lifted them, animated itself back out to half the zoom around the
+        // point they left — which is the elastic snap, and the jump to the
+        // last finger, both out of one line.
+        //
+        // Failure rather than a flag: a pinch that recognised is one this must
+        // not follow, and a pair of fingers that only tapped never gets the
+        // pinch going, so it fails and this fires as it always did.
+        twoFingerTap.require(toFail: pinch)
         addGestureRecognizer(twoFingerTap)
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
@@ -491,7 +563,11 @@ final class GlobeCanvasView: UIView {
         // The sky is repainted only when the sky changes.
         if skyMoved { setNeedsDisplay() }
 
-        if insetsMoved || still != nil { layoutCamera(); changed = true }
+        if insetsMoved || still != nil {
+            layoutCamera(keepingGround: insetsMoved)
+            if insetsMoved { noteChromeMoved() }
+            changed = true
+        }
         if carryOut(command) { changed = true }
 
         // A packet may have brought the first aeroplane worth carrying, or
@@ -533,7 +609,7 @@ final class GlobeCanvasView: UIView {
     /// resize survives it: turning the phone sideways keeps you as close to the
     /// ground as you were, rather than as many points from the middle as you
     /// were.
-    private func layoutCamera() {
+    private func layoutCamera(keepingGround: Bool = false) {
         if let still = still {
             camera = still
             return
@@ -544,10 +620,28 @@ final class GlobeCanvasView: UIView {
             x: (bounds.width - trailingInset) / 2,
             y: (bounds.height - bottomInset) / 2
         )
-        // Re-clamped rather than carried over. The zoom is a multiple of the
-        // fitted radius and the ceiling is a distance across the ground, so a
-        // rotation or a split screen changes what the same multiple means.
-        scale = clamped(scale)
+
+        // A window standing on the map is not a change of zoom.
+        //
+        // The zoom is held as a multiple of the radius that *fits* the space
+        // the chrome leaves, which is the right thing to carry across a
+        // rotation — a phone turned sideways should leave you as close to the
+        // ground as you were, rather than as many points from the middle as you
+        // were. It is the wrong thing to carry across a window opening. The
+        // fitted radius shrinks by whatever the window covers, so the same
+        // multiple is a smaller planet: open a flight and the ground you were
+        // looking at pulled away from you, and closing it pushed you back in.
+        //
+        // So when it is only the chrome that moved, the ground keeps its size
+        // and the disc simply recentres in what is left — which is what the
+        // flat map's layout margins have always done. Re-clamped either way,
+        // because both the floor and the ceiling are distances across a screen
+        // that has just changed shape.
+        if keepingGround, isReady, camera.radius > 0 {
+            scale = clamped(camera.radius / fittedRadius)
+        } else {
+            scale = clamped(scale)
+        }
         camera.radius = fittedRadius * scale
 
         if !isReady {
@@ -744,58 +838,58 @@ final class GlobeCanvasView: UIView {
         case .began:
             isPanning = true
             wasPinched = false
+            panTouchesChanged = false
             momentum = nil
             panTouches = gesture.numberOfTouches
-            gesture.setTranslation(.zero, in: self)
+            panCentre = gesture.location(in: self)
             beginInteraction()
 
         case .changed:
-            // A finger arriving or leaving is not a hand moving.
+            // Where the fingers are, and how many of them, read together.
             //
-            // The translation is measured from the centroid of the touches the
-            // recognizer has, so lifting one of two fingers moves that centroid
-            // to the finger still down — half the distance between them, in one
-            // step, reported as a drag nobody made. Which is exactly what the
-            // end of a pinch is: the second finger comes up, the pinch ends, so
-            // the guard below no longer stands the pan off, and the planet
-            // snaps the ground you had just zoomed to over to the finger that
-            // is left. The same jump, backwards, when a second finger lands
-            // before the pinch has passed its own threshold.
-            //
-            // So the frame the count changes on is spent re-anchoring rather
-            // than drawn: the reset makes the new centroid the new origin, and
-            // the next frame is a real movement of it again.
-            if gesture.numberOfTouches != panTouches {
-                panTouches = gesture.numberOfTouches
-                gesture.setTranslation(.zero, in: self)
+            // Together is the point. The recognizer's own `translation` is a
+            // running total kept on the other side of a touch ending, so a
+            // frame can arrive carrying a centroid that has jumped to the one
+            // finger still down — and nothing in the number itself says so.
+            // Sampled here, the count that explains the jump comes with it, and
+            // the frame it happens on is spent re-anchoring rather than drawn.
+            let touches = gesture.numberOfTouches
+            let centre = gesture.location(in: self)
+
+            guard touches == panTouches, let last = panCentre else {
+                panTouchesChanged = panTouchesChanged || touches != panTouches
+                panTouches = touches
+                panCentre = centre
                 return
             }
-
-            // Read and reset, so what arrives is the change since the last
-            // frame rather than the whole drag re-applied.
-            let moved = gesture.translation(in: self)
-            gesture.setTranslation(.zero, in: self)
+            panCentre = centre
 
             // A live pinch is already following the midpoint of the same two
-            // fingers, and that midpoint moving is this translation. Applying
-            // both would move the planet twice as far as the hand did.
+            // fingers, and that midpoint moving is this movement. Applying both
+            // would move the planet twice as far as the hand did. Kept up to
+            // date all the same, so the first frame after the pinch ends is a
+            // step from where the fingers actually are.
             guard !isPinching else { wasPinched = true; return }
 
-            camera.drag(by: CGSize(width: moved.x, height: moved.y))
+            camera.drag(by: CGSize(
+                width: centre.x - last.x,
+                height: centre.y - last.y
+            ))
             redrawPlanet()
 
         case .ended, .cancelled, .failed:
             isPanning = false
+            panCentre = nil
             // A flick keeps going. The planet used to stop dead under your
             // fingertip, which is the other half of what made this not feel
             // like a map — everything on iOS that scrolls, glides.
             let velocity = gesture.velocity(in: self)
             let speed = (velocity.x * velocity.x + velocity.y * velocity.y).squareRoot()
-            // Never off the back of a pinch. Two fingers coming off a zoom
-            // are not a flick, and the velocity of their midpoint is not one
-            // either — it would sail the planet away from what you had just
-            // zoomed in on.
-            if gesture.state == .ended, !isPinching, !wasPinched,
+            // Never off the back of a pinch, and never off a drag that
+            // changed hands. Two fingers coming off a zoom are not a flick, and
+            // the velocity of their midpoint is not one either — it would sail
+            // the planet away from what you had just zoomed in on.
+            if gesture.state == .ended, !isPinching, !wasPinched, !panTouchesChanged,
                speed > Self.glideThreshold {
                 momentum = CGVector(dx: velocity.x, dy: velocity.y)
                 runAnimator()
@@ -812,6 +906,7 @@ final class GlobeCanvasView: UIView {
         case .began:
             momentum = nil
             isPinching = true
+            pinchedAt = CACurrentMediaTime()
             pinchAnchor = direction(at: gesture.location(in: self))
             gesture.scale = 1
             beginInteraction()
@@ -835,6 +930,7 @@ final class GlobeCanvasView: UIView {
 
         case .ended, .cancelled, .failed:
             isPinching = false
+            pinchedAt = CACurrentMediaTime()
             pinchAnchor = nil
             endInteraction()
 
@@ -850,7 +946,20 @@ final class GlobeCanvasView: UIView {
     }
 
     /// Two fingers, one tap, to go back out. The other half of the pair.
+    /// When a pinch was last live, so a tap made of the same two fingers can
+    /// be told from one made on its own.
+    ///
+    /// The failure requirement in `addGestures` is the real answer and this is
+    /// the belt to its braces: it costs one comparison, and what it guards
+    /// against — a zoom that throws itself back out when you let go — is bad
+    /// enough to be worth guarding twice.
+    private var pinchedAt: CFTimeInterval = -.greatestFiniteMagnitude
+
+    /// How long after a pinch two fingers are still that pinch's.
+    private static let tapAfterPinch: CFTimeInterval = 0.35
+
     @objc private func handleTwoFingerTap(_ gesture: UITapGestureRecognizer) {
+        guard CACurrentMediaTime() - pinchedAt > Self.tapAfterPinch else { return }
         momentum = nil
         begin(zoomTo: scale * 0.5, around: gesture.location(in: self))
     }
@@ -923,6 +1032,11 @@ final class GlobeCanvasView: UIView {
         // it is a full redraw either way.
         if wasMoving {
             redrawPlanet()
+        } else if isChromeMoving {
+            // A window is animating over the planet and wants the main thread
+            // more than the traffic does. Nobody is watching an aeroplane creep
+            // across the screen while a sheet is sliding over it.
+            lastTrafficFrame = link.timestamp
         } else if link.timestamp - lastTrafficFrame >= Self.trafficFrameInterval {
             lastTrafficFrame = link.timestamp
             redrawPlanet()
@@ -1024,7 +1138,7 @@ final class GlobeCanvasView: UIView {
     /// actually moving, which is exactly when nobody is looking at the
     /// sharpness of a coastline, and come back the moment it stops.
     private func updateResolution() {
-        let wanted = isInteracting ? min(interactiveScale, displayScale) : displayScale
+        let wanted = isMoving ? min(interactiveScale, displayScale) : displayScale
         guard planetView.contentScaleFactor != wanted else { return }
         planetView.contentScaleFactor = wanted
     }
