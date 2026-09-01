@@ -97,9 +97,9 @@ struct PlanetSurface: View {
     /// moves when the planet stops.
     @State private var spot: CameraSpot?
 
-    /// Whichever field the planet is currently over, so the arrival of *its*
-    /// layout is the thing that redraws.
-    @State private var groundIcao: String?
+    /// The fields the planet is currently over, so the arrival of *their*
+    /// layouts is what redraws.
+    @State private var groundIcaos: [String] = []
 
     private struct CameraSpot: Equatable {
         var latitude: Double
@@ -122,6 +122,15 @@ struct PlanetSurface: View {
     /// runs to two hundred metres — you could pinch ten times without ever
     /// finding out the layer existed.
     private static let groundLoadSpanMetres: Double = 50 * 1852
+
+    /// How many fields are paved at once.
+    ///
+    /// Every layout is an Overpass round trip the first time it is wanted, so
+    /// this is a politeness limit as much as a drawing one — and past a
+    /// handful, the ones furthest from the middle of the screen are off the
+    /// edge of it anyway. Nearest first, so what you are looking at is what
+    /// gets drawn.
+    private static let maximumGroundFields = 8
 
     /// Static, so the timer belongs to the type rather than to a `View` value
     /// that SwiftUI rebuilds whenever anything on screen changes. A stored
@@ -183,9 +192,11 @@ struct PlanetSurface: View {
         .onReceive(Self.clock) { _ in sun = Self.sunVector() }
         .onChange(of: sceneSignature) { _, _ in rebuild() }
         .onChange(of: spot) { _, _ in syncGround() }
-        // The field is asked for the moment the planet settles over it and the
-        // answer arrives from the network some time later. This is that later.
-        .onChange(of: layouts.state(for: groundIcao ?? "")) { _, _ in syncGround() }
+        // The fields are asked for the moment the planet settles over them and
+        // the answers arrive from the network some time later. This is that
+        // later: the store publishes, this view is observing it, and the stamp
+        // below moves as each layout lands.
+        .onChange(of: groundStamp) { _, _ in syncGround() }
     }
 
     // MARK: - The ground
@@ -199,8 +210,7 @@ struct PlanetSurface: View {
     /// moving rather than while it is moving.
     private func syncGround() {
         guard let spot = spot, spot.spanMetres <= Self.groundLoadSpanMetres else {
-            groundIcao = nil
-            scene.setGround(nil)
+            clearGround()
             return
         }
 
@@ -208,27 +218,69 @@ struct PlanetSurface: View {
             latitude: spot.latitude,
             longitude: spot.longitude
         )
-        guard let field = AirportStore.shared.nearestAirport(
+
+        // Everything the view reaches rather than the one field under the
+        // middle of it. The radius is the whole span rather than half of it,
+        // because the span is measured across the *short* side and a field out
+        // along the long one is just as much on screen.
+        let fields = AirportStore.shared.nearestAirports(
             to: centre,
-            withinNM: 9
-        ) else {
-            groundIcao = nil
-            scene.setGround(nil)
+            withinNM: spot.spanMetres / 1852,
+            limit: Self.maximumGroundFields
+        )
+        guard !fields.isEmpty else {
+            clearGround()
             return
         }
 
-        if groundIcao != field.icao { groundIcao = field.icao }
+        let icaos = fields.map(\.icao)
+        if icaos != groundIcaos { groundIcaos = icaos }
 
-        if case .idle = layouts.state(for: field.icao) {
-            // Off the update, not inside it. `load` publishes, and publishing
-            // from inside a SwiftUI update is the warning SwiftUI exists to
-            // give.
-            DispatchQueue.main.async { layouts.load(field) }
-            return
+        var missing: [Airport] = []
+        var ground: [GlobeGround] = []
+        ground.reserveCapacity(fields.count)
+
+        for field in fields {
+            if case .idle = layouts.state(for: field.icao) {
+                missing.append(field)
+                continue
+            }
+            guard let layout = layouts.layout(for: field.icao),
+                  let paved = GlobeGround(layout, at: field.coordinate) else { continue }
+            ground.append(paved)
         }
 
-        guard let layout = layouts.layout(for: field.icao) else { return }
-        scene.setGround(GlobeGround(layout, at: field.coordinate))
+        // Off the update, not inside it. `load` publishes, and publishing from
+        // inside a SwiftUI update is the warning SwiftUI exists to give.
+        if !missing.isEmpty {
+            DispatchQueue.main.async {
+                for field in missing { layouts.load(field) }
+            }
+        }
+
+        // Whatever has arrived, now, rather than nothing until all of them
+        // have: a field whose layout is still in the air simply has no
+        // pavement yet, and gets it on the pass its own answer lands on.
+        scene.setGround(ground)
+    }
+
+    private func clearGround() {
+        if !groundIcaos.isEmpty { groundIcaos = [] }
+        scene.setGround([])
+    }
+
+    /// A stamp of what the store holds for the fields being drawn, so a layout
+    /// landing is a change this view can see.
+    ///
+    /// The states themselves rather than a count: what moves is `idle` to
+    /// `loading` to `ready`, and the number of fields does not change at all.
+    private var groundStamp: Int {
+        var hasher = Hasher()
+        for icao in groundIcaos {
+            hasher.combine(icao)
+            hasher.combine(layouts.layout(for: icao)?.pieces.count ?? -1)
+        }
+        return hasher.finalize()
     }
 
     /// The chrome's camera request, in the terms the canvas takes.

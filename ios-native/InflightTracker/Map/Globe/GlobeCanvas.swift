@@ -318,6 +318,19 @@ final class GlobeCanvasView: UIView {
     /// A flick, in points a second, decaying. Nil when the planet is still.
     private var momentum: CGVector?
 
+    /// The disc sliding to a new middle because the chrome over it moved:
+    /// where from, where to, and how far through. See `layoutCamera`.
+    private var recentreFrom: CGPoint = .zero
+    private var recentreTo: CGPoint = .zero
+    private var recentreProgress: Double = 0
+
+    private var isRecentring: Bool { recentreProgress > 0 && recentreProgress < 1 }
+
+    /// How long that takes. A sheet's own animation, near enough: long enough
+    /// to read as the map getting out of the way, short enough that letting go
+    /// of a window does not leave the planet still arriving.
+    private static let recentreDuration: Double = 0.32
+
     /// A zoom being animated by a tap: where it is going, and how far through.
     private var zoomFrom: CGFloat = 0
     private var zoomTo: CGFloat = 0
@@ -333,7 +346,7 @@ final class GlobeCanvasView: UIView {
 
     /// Whether the planet is moving, by a finger or by its own momentum.
     private var isInteracting: Bool {
-        isPanning || isPinching || momentum != nil || isZooming
+        isPanning || isPinching || momentum != nil || isZooming || isRecentring
     }
 
     /// When the chrome over the planet last moved — a flight window opening,
@@ -687,10 +700,35 @@ final class GlobeCanvasView: UIView {
         }
         guard bounds.width > 0, bounds.height > 0 else { return }
 
-        camera.center = CGPoint(
+        let middle = CGPoint(
             x: (bounds.width - trailingInset) / 2,
             y: (bounds.height - bottomInset) / 2
         )
+
+        // A window opening slides the planet out from under it, rather than
+        // teleporting it.
+        //
+        // The inset arrives in one step — the window measures itself and says
+        // how much of the bottom it is standing on — but the window itself
+        // takes a third of a second to get there. Moving the disc the moment
+        // the number lands means the planet has already jumped by the time the
+        // sheet has finished sliding, which reads as the map flinching away
+        // from it. So the *number* is taken at once and the *movement* is
+        // spent over the same third of a second, which is what makes it look
+        // like one thing moving out of the way of another.
+        //
+        // Only when the chrome is what moved. A rotation, a split screen or
+        // the first layout are not something to animate: there is no "before"
+        // on screen to move from.
+        if keepingGround, isReady, camera.center != middle {
+            recentreFrom = camera.center
+            recentreTo = middle
+            recentreProgress = 0.0001
+            runAnimator()
+        } else {
+            recentreProgress = 0
+            camera.center = middle
+        }
 
         // A window standing on the map is not a change of zoom.
         //
@@ -1094,7 +1132,7 @@ final class GlobeCanvasView: UIView {
 
     @objc private func step(_ link: CADisplayLink) {
         let elapsed = max(1.0 / 120, min(1.0 / 20, link.targetTimestamp - link.timestamp))
-        let wasMoving = isZooming || momentum != nil
+        let wasMoving = isZooming || momentum != nil || isRecentring
 
         if isZooming {
             zoomProgress = min(1, zoomProgress + elapsed / Self.zoomDuration)
@@ -1105,6 +1143,18 @@ final class GlobeCanvasView: UIView {
             camera.radius = fittedRadius * scale
             if let anchor = zoomAnchor { pin(anchor, at: zoomPoint) }
             if zoomProgress >= 1 { zoomAnchor = nil }
+        }
+
+        if isRecentring {
+            recentreProgress = min(1, recentreProgress + elapsed / Self.recentreDuration)
+            // The same ease the tap zoom arrives on, so the two kinds of
+            // camera movement the planet makes on its own feel like one hand.
+            let t = recentreProgress
+            let eased = CGFloat(t < 0.5 ? 4 * t * t * t : 1 - pow(-2 * t + 2, 3) / 2)
+            camera.center = CGPoint(
+                x: recentreFrom.x + (recentreTo.x - recentreFrom.x) * eased,
+                y: recentreFrom.y + (recentreTo.y - recentreFrom.y) * eased
+            )
         }
 
         if var flick = momentum {
@@ -1138,7 +1188,7 @@ final class GlobeCanvasView: UIView {
             redrawTraffic()
         }
 
-        guard !isZooming, momentum == nil else { return }
+        guard !isZooming, momentum == nil, !isRecentring else { return }
 
         // Settling happens once, on the frame the movement stops, whether or
         // not the clock keeps running for the traffic.
@@ -2706,13 +2756,18 @@ final class GlobeCanvasView: UIView {
 
     // MARK: - The ground
 
-    /// The pavement of the field the camera is over.
+    /// The pavement of every field in view.
     ///
     /// The whole point of being able to zoom in this far. Runways, taxiways,
     /// aprons and terminals, in the same colours and at the same real widths
     /// the flat map draws them — `AirportGroundStyle` is shared rather than
     /// reimplemented, so a runway is the same runway whichever shape the world
     /// is.
+    ///
+    /// Every field rather than the one under the middle of the screen, which
+    /// is what this drew: two aerodromes a few miles apart — and there are a
+    /// lot of those — had one of them paved and the other left as a ring and a
+    /// code, and which one it was changed as you panned between them.
     ///
     /// ## One projected point, and a plane
     ///
@@ -2725,7 +2780,7 @@ final class GlobeCanvasView: UIView {
     /// in a tangent plane have no such problem, and over the few kilometres a
     /// field covers the plane and the sphere differ by millimetres.
     private func drawGround(in context: CGContext, basis: GlobeCamera.Basis, box: CGRect) {
-        guard let ground = scene.ground else { return }
+        guard !scene.ground.isEmpty else { return }
 
         // Points per metre, and the zoom this layer starts at.
         //
@@ -2737,6 +2792,18 @@ final class GlobeCanvasView: UIView {
         let perMetre = camera.radius / CGFloat(GlobeCamera.earthRadiusMetres)
         guard perMetre * 1000 > 12 else { return }
 
+        for ground in scene.ground {
+            drawGround(ground, in: context, basis: basis, box: box, perMetre: perMetre)
+        }
+    }
+
+    private func drawGround(
+        _ ground: GlobeGround,
+        in context: CGContext,
+        basis: GlobeCamera.Basis,
+        box: CGRect,
+        perMetre: CGFloat
+    ) {
         let origin = camera.project(ground.anchor, using: basis)
         guard origin.depth > 0 else { return }
 
@@ -2990,19 +3057,22 @@ final class GlobeCanvasView: UIView {
             }
         }
 
-        // The open aircraft last and larger, so it is findable in a packet of
-        // three thousand.
+        // The open aircraft last, so it is on top of a packet of three
+        // thousand — and the same size as all of them.
         //
-        // Larger and amber, and nothing else. It used to carry a ring as well,
-        // and the ring was the wrong mark twice over: the flat map does not
-        // draw one, so the aeroplane you had just been watching grew a circle
-        // when you changed the shape of the world; and a circle a hair wider
-        // than the aircraft inside it reads as a crop of it rather than as a
-        // ring around it — you see a nose and a tail cut off at the rim rather
-        // than a highlighted aeroplane. The size and the colour say the same
-        // thing without drawing over the artwork.
+        // Amber, and nothing else. It used to carry a ring, which was the
+        // wrong mark twice over: the flat map does not draw one, so the
+        // aeroplane you had just been watching grew a circle when you changed
+        // the shape of the world; and a circle a hair wider than the aircraft
+        // inside it reads as a crop of it rather than as a ring around it.
+        // Then it was drawn half again as large instead, which is the same
+        // mistake in another form — the aeroplane you tapped is the one you
+        // are looking at, and it changing size under your finger is the app
+        // telling you about the tap rather than about the aircraft. The
+        // colour says which one it is; the artwork stays the size it is set
+        // to, here and on the flat map alike.
         for (point, angle, dot) in open {
-            draw(dot, at: point, angle: angle, size: size * 1.45, in: context, sprites: sprites)
+            draw(dot, at: point, angle: angle, size: size, in: context, sprites: sprites)
         }
     }
 

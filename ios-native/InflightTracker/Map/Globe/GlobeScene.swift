@@ -326,11 +326,15 @@ final class GlobeScene: ObservableObject {
     /// tells the canvas whether a frame clock is worth running at all.
     private(set) var hasMotion = false
 
-    /// The pavement of whichever field the camera is sitting over, once it is
-    /// close enough for that to mean anything. Set on its own rather than
-    /// through `rebuild`, because it arrives from the network on its own
-    /// schedule and has nothing to do with a packet of traffic landing.
-    private(set) var ground: GlobeGround?
+    /// The pavement of every field in view, once the camera is close enough
+    /// for pavement to mean anything. Set on its own rather than through
+    /// `rebuild`, because it arrives from the network on its own schedule and
+    /// has nothing to do with a packet of traffic landing.
+    ///
+    /// A list rather than one field: aerodromes come in clusters, and a view
+    /// that reaches two of them should draw both rather than pick whichever is
+    /// nearest the middle of the screen this second.
+    private(set) var ground: [GlobeGround] = []
 
     /// What the last rebuild was made from, so a body that runs for an
     /// unrelated reason does not rebuild anything.
@@ -462,9 +466,12 @@ final class GlobeScene: ObservableObject {
     /// changed. See `GlobeWorldView`.
     private(set) var groundRevision = 0
 
-    /// The field under the camera, or nothing when there is none worth drawing.
-    func setGround(_ ground: GlobeGround?) {
-        guard ground?.icao != self.ground?.icao else { return }
+    /// The fields in view, or nothing when there are none worth drawing.
+    ///
+    /// Compared by which fields they are — `GlobeGround` is equal by its own
+    /// ICAO — so the same aerodromes arriving again is not a redraw.
+    func setGround(_ ground: [GlobeGround]) {
+        guard ground != self.ground else { return }
         self.ground = ground
         groundRevision &+= 1
         revision &+= 1
