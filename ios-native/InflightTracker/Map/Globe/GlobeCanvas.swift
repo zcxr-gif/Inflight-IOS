@@ -187,9 +187,37 @@ private final class GlobePlanetView: UIView {
     }
 }
 
+/// The cartography: everything that is fixed to the ground.
+///
+/// A layer of its own for the same reason the sky is one, one step further in.
+/// The sky does not change when the planet turns; the *planet* does not change
+/// when an aeroplane moves — and aeroplanes now move on their own clock, thirty
+/// times a second, between packets. Drawn into one bitmap with the traffic,
+/// every one of those frames re-rasterised an ocean, a land fill over most of
+/// the screen, every coastline and border on it and eight bands of dusk, to
+/// reproduce a picture that was already there and then put three hundred
+/// aeroplanes a few points further along.
+///
+/// Split, a traffic frame is the traffic and nothing else, and the world under
+/// it is composited by the GPU. A gesture still redraws both — the world really
+/// has moved then — so nothing is deferred or stale; what is saved is only the
+/// work that was never needed.
+private final class GlobeWorldView: UIView {
+
+    weak var owner: GlobeCanvasView?
+
+    override func draw(_ rect: CGRect) {
+        guard let context = UIGraphicsGetCurrentContext() else { return }
+        owner?.drawWorld(in: context)
+    }
+}
+
 final class GlobeCanvasView: UIView {
 
-    /// Everything that moves. See `GlobePlanetView`.
+    /// The ground, and everything pinned to it. See `GlobeWorldView`.
+    private let worldView = GlobeWorldView()
+
+    /// Everything that moves over it. See `GlobePlanetView`.
     private let planetView = GlobePlanetView()
 
     // MARK: - What the view is handed
@@ -404,16 +432,19 @@ final class GlobeCanvasView: UIView {
     }
 
     private func addPlanet() {
+        for view in [worldView as UIView, planetView as UIView] {
+            view.isOpaque = false
+            view.backgroundColor = .clear
+            // Redrawn rather than stretched, so a coastline is a hairline at
+            // any zoom instead of a scaled bitmap.
+            view.contentMode = .redraw
+            // The gestures belong to the container, which is what the
+            // recognizers are attached to and what the hit test should find.
+            view.isUserInteractionEnabled = false
+            addSubview(view)
+        }
+        worldView.owner = self
         planetView.owner = self
-        planetView.isOpaque = false
-        planetView.backgroundColor = .clear
-        // Redrawn rather than stretched, so a coastline is a hairline at any
-        // zoom instead of a scaled bitmap.
-        planetView.contentMode = .redraw
-        // The gestures belong to the container, which is what the recognizers
-        // are attached to and what the hit test should find.
-        planetView.isUserInteractionEnabled = false
-        addSubview(planetView)
     }
 
     /// The field codes are the only bitmaps left here worth giving back, and
@@ -527,12 +558,16 @@ final class GlobeCanvasView: UIView {
         still: GlobeCamera?,
         command: GlobeCommand?
     ) {
+        // A playback moves one aeroplane along its own track several times a
+        // second and touches nothing else, so it is asked about separately: it
+        // is a frame for the layer the aeroplane is on, not for the ground.
+        let replayMoved = replay != self.replay
+
         var changed = revision != self.revision
             || scene !== self.scene
             || showsPlanes != self.showsPlanes
             || showsFields != self.showsFields
             || sun != self.sun
-            || replay != self.replay
             || smoothsTraffic != self.smoothsTraffic
             || palette != self.palette
             || backdrop != self.backdrop
@@ -574,7 +609,10 @@ final class GlobeCanvasView: UIView {
         // taken the last one away.
         updateTrafficClock()
 
-        guard changed else { return }
+        guard changed else {
+            if replayMoved { redrawTraffic() }
+            return
+        }
         redrawPlanet()
     }
 
@@ -598,6 +636,7 @@ final class GlobeCanvasView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        worldView.frame = bounds
         planetView.frame = bounds
         layoutCamera()
     }
@@ -1039,7 +1078,9 @@ final class GlobeCanvasView: UIView {
             lastTrafficFrame = link.timestamp
         } else if link.timestamp - lastTrafficFrame >= Self.trafficFrameInterval {
             lastTrafficFrame = link.timestamp
-            redrawPlanet()
+            // The camera has not moved, so the world under the traffic is the
+            // picture it already is. See `GlobeWorldView`.
+            redrawTraffic()
         }
 
         guard !isZooming, momentum == nil else { return }
@@ -1140,6 +1181,7 @@ final class GlobeCanvasView: UIView {
     private func updateResolution() {
         let wanted = isMoving ? min(interactiveScale, displayScale) : displayScale
         guard planetView.contentScaleFactor != wanted else { return }
+        worldView.contentScaleFactor = wanted
         planetView.contentScaleFactor = wanted
     }
 
@@ -1175,16 +1217,32 @@ final class GlobeCanvasView: UIView {
         if frameCost > Self.slowFrame {
             quickFrames = 0
             slowFrames += 1
-            guard slowFrames >= 3, step > 0 else { return }
-            interactiveScale = ladder[step - 1]
-            settle()
+            guard slowFrames >= 3 else { return }
+
+            // Pixels first, marks only when the pixels have run out. See
+            // `markBudget`.
+            if step > 0 {
+                interactiveScale = ladder[step - 1]
+                settle()
+            } else if markBudget > Self.leanTrafficBudget {
+                markBudget = max(Self.leanTrafficBudget, markBudget - Self.trafficStep)
+                settle()
+            }
         } else if frameCost < Self.quickFrame {
             slowFrames = 0
             quickFrames += 1
-            guard quickFrames >= 20, step + 1 < ladder.count,
-                  ladder[step + 1] <= ceiling else { return }
-            interactiveScale = ladder[step + 1]
-            settle()
+            guard quickFrames >= 20 else { return }
+
+            // And back in the other order: what was given up last is taken
+            // back first, so a device that can afford the traffic gets the
+            // traffic before it gets the sharpness.
+            if markBudget < Self.trafficBudget {
+                markBudget = min(Self.trafficBudget, markBudget + Self.trafficStep)
+                settle()
+            } else if step + 1 < ladder.count, ladder[step + 1] <= ceiling {
+                interactiveScale = ladder[step + 1]
+                settle()
+            }
         } else {
             slowFrames = 0
             quickFrames = 0
@@ -1214,9 +1272,21 @@ final class GlobeCanvasView: UIView {
     private static let slowFrame: Double = 0.010
     private static let quickFrame: Double = 0.0045
 
-    /// Invalidates the planet, and takes the chance to notice whether the
-    /// frames are landing.
+    /// Invalidates the whole picture — the ground and everything over it — and
+    /// takes the chance to notice whether the frames are landing.
     private func redrawPlanet() {
+        tuneResolution()
+        worldView.setNeedsDisplay()
+        planetView.setNeedsDisplay()
+    }
+
+    /// Invalidates only what moves over the ground.
+    ///
+    /// For a frame where nothing else *can* have changed: the traffic carried
+    /// forward between packets, and a replay stepping its aeroplane along its
+    /// own track. The camera has not moved, so the world under them is the
+    /// picture it already is.
+    private func redrawTraffic() {
         tuneResolution()
         planetView.setNeedsDisplay()
     }
@@ -1332,20 +1402,20 @@ final class GlobeCanvasView: UIView {
         drawSky(in: context)
     }
 
-    fileprivate func drawPlanet(in context: CGContext) {
+    /// The ground: the sphere, the cartography on it, the pavement and the
+    /// night. Everything that only moves when the camera does.
+    fileprivate func drawWorld(in context: CGContext) {
         let began = CACurrentMediaTime()
-        defer { record(frame: CACurrentMediaTime() - began) }
+        defer {
+            worldCost = CACurrentMediaTime() - began
+            record(frame: worldCost + trafficCost)
+        }
 
         guard camera.radius > 0 else { return }
 
         let basis = camera.basis
         let detail = self.detail
-        // Everything is rejected against this rather than against the disc: at
-        // the top of the zoom range the planet is six times the width of the
-        // screen, so most of the hemisphere facing you is still nowhere you can
-        // see it. Inflated a little so a shape whose centre is just outside
-        // still draws the part of it that is inside.
-        let box = bounds.insetBy(dx: -24, dy: -24)
+        let box = self.box
         let reach = visibleAngle
 
         drawHalo(in: context)
@@ -1372,6 +1442,30 @@ final class GlobeCanvasView: UIView {
             drawNight(in: context, basis: basis, sun: sun)
         }
 
+        // The bright edge, over the cartography that runs into it — see
+        // `drawLimb`. It is the last thing on this layer rather than the last
+        // thing of all now, so the route and the flown track are drawn over it
+        // where they meet it rather than under. Both of them stop *at* the
+        // limb, so what that changes is a hairline's worth of overlap at the
+        // one place a line ends anyway.
+        drawLimb(in: context)
+    }
+
+    /// Everything over the ground: the routes, the flown track, the traffic and
+    /// the fields. Drawn on its own layer, so a frame that only carries the
+    /// aeroplanes forward costs the aeroplanes.
+    fileprivate func drawPlanet(in context: CGContext) {
+        let began = CACurrentMediaTime()
+        defer {
+            trafficCost = CACurrentMediaTime() - began
+            record(frame: worldCost + trafficCost)
+        }
+
+        guard camera.radius > 0 else { return }
+
+        let basis = camera.basis
+        let box = self.box
+
         // Before anything that reads where an aeroplane is, because that is no
         // longer only the traffic: the flown path is drawn out to the open
         // aircraft, and the aircraft is somewhere between packets.
@@ -1379,13 +1473,24 @@ final class GlobeCanvasView: UIView {
 
         drawLines(in: context, basis: basis, box: box)
         drawFlownPath(in: context, basis: basis, box: box)
-        drawLimb(in: context)
         drawTraffic(in: context, basis: basis)
 
         if showsFields {
             drawFields(in: context, basis: basis, box: box)
         }
     }
+
+    /// What the frame rejects against, which is the view rather than the disc:
+    /// at the top of the zoom range the planet is six times the width of the
+    /// screen, so most of the hemisphere facing you is still nowhere you can
+    /// see it. Inflated a little so a shape whose centre is just outside still
+    /// draws the part of it that is inside.
+    private var box: CGRect { bounds.insetBy(dx: -24, dy: -24) }
+
+    /// What the last draw of each layer cost, so the tuner is told what a
+    /// *frame* costs rather than what half of one did.
+    private var worldCost: Double = 0
+    private var trafficCost: Double = 0
 
     /// How much border detail this frame is worth.
     ///
@@ -2936,17 +3041,17 @@ final class GlobeCanvasView: UIView {
     private func startCrowding(mark: CGFloat) {
         let natural = mark * 0.6
         beginCrowding(points: natural)
-        guard marks.count > Self.trafficBudget else { return }
+        guard marks.count > markBudget else { return }
 
         var filled = 0
         for candidate in marks where !isCrowded(at: candidate.position) { filled += 1 }
 
-        guard filled > Self.trafficBudget else {
+        guard filled > markBudget else {
             beginCrowding(points: natural)
             return
         }
 
-        let doublings = (log2(Double(filled) / Double(Self.trafficBudget)) / 2).rounded(.up)
+        let doublings = (log2(Double(filled) / Double(markBudget)) / 2).rounded(.up)
         beginCrowding(points: natural * CGFloat(exp2(max(1, min(6, doublings)))))
     }
 
@@ -2955,10 +3060,41 @@ final class GlobeCanvasView: UIView {
     /// One number rather than one for moving and one for resting. Two of them
     /// meant the traffic thinned out the moment a finger landed and thickened
     /// again when it lifted, which is the same "it redraws itself when you let
-    /// go" the level of detail used to do. What a frame can afford is handled
-    /// by `tuneResolution` instead, which changes how many *pixels* each of
-    /// these costs rather than how many of them there are.
+    /// go" the level of detail used to do.
     private static let trafficBudget = 1200
+
+    /// The fewest it is worth thinning to. Below this the traffic stops being
+    /// traffic and starts being a scattering, and a planet that cannot draw
+    /// four hundred aeroplanes in a frame is not going to be saved by drawing
+    /// three hundred.
+    private static let leanTrafficBudget = 400
+
+    /// How much of the budget one step gives up, or takes back.
+    private static let trafficStep = 200
+
+    /// What the budget actually is on *this* phone, with *this* many aircraft
+    /// on the server — measured, the way the resolution is.
+    ///
+    /// ## Why the pixels are not enough on their own
+    ///
+    /// `tuneResolution` gives up pixels while the world is moving, and that is
+    /// the right first answer: nearly everything a frame does is linear in its
+    /// pixel count, so dropping to a third of them buys back most of a frame.
+    /// Nearly everything. A mark is a *rotated blit*, and what a rotated blit
+    /// costs is a fixed setup plus its pixels — so at the bottom of the
+    /// resolution ladder, twelve hundred of them still cost twelve hundred
+    /// setups, and no further pixel this view can give up will touch them.
+    /// That is the frame the ladder cannot rescue, and it is exactly the one a
+    /// full planet on an older phone lands in.
+    ///
+    /// So when the pixels are spent and the frames are still late, the next
+    /// thing to give is how many marks there are. It is stepped rather than
+    /// solved, on the same three-slow-frames evidence, and it is *kept*: the
+    /// budget applies while a finger is down and after it lifts alike, so the
+    /// picture does not thin as you touch it and thicken as you let go — which
+    /// is the thing a second, gesture-only budget got wrong and the reason
+    /// there was only ever one number here.
+    private var markBudget = GlobeCanvasView.trafficBudget
 
     private func isCrowded(at position: SIMD3<Float>) -> Bool {
         guard crowdScale > 0 else { return false }
