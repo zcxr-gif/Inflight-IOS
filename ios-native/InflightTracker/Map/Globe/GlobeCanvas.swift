@@ -558,20 +558,35 @@ final class GlobeCanvasView: UIView {
         still: GlobeCamera?,
         command: GlobeCommand?
     ) {
-        // A playback moves one aeroplane along its own track several times a
-        // second and touches nothing else, so it is asked about separately: it
-        // is a frame for the layer the aeroplane is on, not for the ground.
-        let replayMoved = replay != self.replay
+        // Which layer has to be redrawn, rather than whether anything has.
+        //
+        // A packet is the case that matters: it lands every few seconds and it
+        // moves the traffic, the route and the flown track — all of which are
+        // drawn *over* the ground. Redrawing the ground for it meant an ocean,
+        // a land fill, every coastline and eight bands of dusk re-rasterised at
+        // full resolution every few seconds, for a picture identical to the one
+        // already on screen. The pavement is the only part of the ground that
+        // arrives on its own schedule, so it is counted on its own — see
+        // `GlobeScene.groundRevision`.
+        let ground = scene.groundRevision
 
-        var changed = revision != self.revision
+        // The look, and which planet this is. Both layers are drawn in the
+        // palette and both are drawn from this scene.
+        var bothChanged = palette != self.palette
+            || backdrop != self.backdrop
+            || sun != self.sun
+            || still != self.still
             || scene !== self.scene
+
+        let worldChanged = ground != self.groundRevision
+
+        // A playback moves one aeroplane along its own track several times a
+        // second and touches nothing else.
+        let movingChanged = revision != self.revision
+            || replay != self.replay
             || showsPlanes != self.showsPlanes
             || showsFields != self.showsFields
-            || sun != self.sun
             || smoothsTraffic != self.smoothsTraffic
-            || palette != self.palette
-            || backdrop != self.backdrop
-            || still != self.still
 
         if palette != self.palette { labels.removeAll() }
         let skyMoved = backdrop != self.backdrop
@@ -591,6 +606,7 @@ final class GlobeCanvasView: UIView {
         self.bottomInset = bottomInset
         self.trailingInset = trailingInset
         self.still = still
+        self.groundRevision = ground
 
         // An opaque view has to have something behind the drawing during the
         // moment between a resize and the redraw, or the gap is undefined.
@@ -598,23 +614,28 @@ final class GlobeCanvasView: UIView {
         // The sky is repainted only when the sky changes.
         if skyMoved { setNeedsDisplay() }
 
+        // The camera moving is a change to everything drawn from it, which is
+        // both layers.
         if insetsMoved || still != nil {
             layoutCamera(keepingGround: insetsMoved)
             if insetsMoved { noteChromeMoved() }
-            changed = true
+            bothChanged = true
         }
-        if carryOut(command) { changed = true }
+        if carryOut(command) { bothChanged = true }
 
         // A packet may have brought the first aeroplane worth carrying, or
         // taken the last one away.
         updateTrafficClock()
 
-        guard changed else {
-            if replayMoved { redrawTraffic() }
-            return
+        if bothChanged || worldChanged {
+            redrawPlanet()
+        } else if movingChanged {
+            redrawTraffic()
         }
-        redrawPlanet()
     }
+
+    /// The pavement this view has already drawn. See `GlobeScene.groundRevision`.
+    private var groundRevision = 0
 
     /// Points the planet where the chrome asked, once.
     private func carryOut(_ command: GlobeCommand?) -> Bool {

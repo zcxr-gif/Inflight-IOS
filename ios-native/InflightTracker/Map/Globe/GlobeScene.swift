@@ -454,10 +454,19 @@ final class GlobeScene: ObservableObject {
     }
 
 
+    /// How many times the pavement has changed.
+    ///
+    /// Counted apart from `revision`, which every packet moves, because the two
+    /// belong to different layers of the drawing: the traffic is drawn over the
+    /// ground and the ground is only redrawn when it is the ground that
+    /// changed. See `GlobeWorldView`.
+    private(set) var groundRevision = 0
+
     /// The field under the camera, or nothing when there is none worth drawing.
     func setGround(_ ground: GlobeGround?) {
         guard ground?.icao != self.ground?.icao else { return }
         self.ground = ground
+        groundRevision &+= 1
         revision &+= 1
     }
 
