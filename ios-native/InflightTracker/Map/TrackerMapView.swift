@@ -1386,7 +1386,23 @@ struct TrackerMapView: UIViewRepresentable {
             // as the plan and the history: asking is what starts the fetch, and
             // the answer is nothing until it lands.
             let taxiways = groundNetworks(for: flight, along: trail)
-            let key = [
+
+            // Pulled out of the literal below, and typed, because the literal
+            // below is what the compiler gave up on: "unable to type-check
+            // this expression in reasonable time". A dozen elements, several of
+            // them ternaries and one an `Optional.map`, and no stated element
+            // type — so every element's type was a candidate for every other
+            // element's, and the search is exponential in how many there are.
+            //
+            // Annotating `parts` is most of the fix: each element is then
+            // checked against `String` on its own. These three are hoisted as
+            // well because they were the expensive ones — a ternary whose arms
+            // are a call and a literal, and an optional map over an integer.
+            let planKey: String = parent.showsFlightPlan ? String(plan.count) : "off"
+            let namesKey: String = parent.showsPlanNames ? "names" : "nonames"
+            let nextFixKey: String = nextFix?.description ?? "-"
+
+            let parts: [String] = [
                 flight.id,
                 String(trail.count),
                 // In the key as well as on the view, which looks redundant and
@@ -1406,15 +1422,15 @@ struct TrackerMapView: UIViewRepresentable {
                 // when first asked for — so its arrival has to be able to
                 // invalidate the key, or the route is drawn once without it and
                 // never again.
-                parent.showsFlightPlan ? String(plan.count) : "off",
+                planKey,
                 // The names, and which fix is being flown to. Both are things
                 // about the annotations rather than about the line, and both
                 // have to be able to invalidate a plan already on screen: the
                 // switch because it is a switch, and the leg because the whole
                 // point of marking it is that it moves down the route as the
                 // aeroplane does.
-                parent.showsPlanNames ? "names" : "nonames",
-                nextFix.map { String($0) } ?? "-",
+                namesKey,
+                nextFixKey,
                 // The layer switch is in the key for the same reason the plan's
                 // count is: turning it off has to be able to invalidate a route
                 // that is already drawn.
@@ -1423,8 +1439,9 @@ struct TrackerMapView: UIViewRepresentable {
                 // field's taxiways are fetched from OpenStreetMap when the
                 // track first turns out to need them, which is well after the
                 // path has been drawn once without them.
-                taxiways.map { "\($0.icao)/\($0.edgeCount)" }.joined(separator: "+")
-            ].joined(separator: "|")
+                taxiways.map { "\($0.icao)/\($0.edgeCount)" }.joined(separator: "+"),
+            ]
+            let key = parts.joined(separator: "|")
 
             guard key != renderedRouteKey else { return }
             renderedRouteKey = key

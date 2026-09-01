@@ -174,13 +174,7 @@ struct MapStyleSettingsPanel: View {
                         title: "Aircraft shapes",
                         symbol: "airplane",
                         detail: "Draws the traffic as aircraft, pointing where they are going, rather than as dots. A packet too dense for silhouettes to read falls back to dots on its own.",
-                        // What is actually drawn, so a locked switch is never
-                        // showing the opposite of the planet behind it. Free
-                        // accounts get silhouettes, so this reads on and stays
-                        // on; what Pro buys here is being able to turn it off.
-                        isOn: appearance.canEditPlanet
-                            ? $appearance.globeShowsPlanes
-                            : .constant(true)
+                        isOn: planeShapes
                     )
                     // Locked rather than hidden. Tapping the row asks for Pro
                     // rather than flipping something the planet would ignore.
@@ -190,6 +184,22 @@ struct MapStyleSettingsPanel: View {
             }
         }
         .sheet(isPresented: $isShowingPaywall) { ProPanel(highlighted: paywallFeature) }
+    }
+
+    /// The switch behind "Aircraft shapes", which is the stored one only for
+    /// an account that may edit the planet.
+    ///
+    /// A property rather than a ternary in the row, so that what is actually
+    /// drawn is never the opposite of what the switch shows — free accounts get
+    /// silhouettes, so it reads on and stays on, and what Pro buys here is
+    /// being able to turn it *off*.
+    ///
+    /// Hoisted out of the view for a second reason as well: a ternary between
+    /// a projected binding and `.constant` is a shape the type-checker is slow
+    /// on, and this body already carries five sections and three `ForEach`es.
+    private var planeShapes: Binding<Bool> {
+        guard appearance.canEditPlanet else { return .constant(true) }
+        return $appearance.globeShowsPlanes
     }
 
     private func ask(for feature: ProFeature) {
