@@ -14,9 +14,15 @@ import simd
 /// move a value nothing in SwiftUI ever read.
 ///
 /// What it also does not have is any chrome: no title, no close button, no
-/// toolbar. That is what lets the same view be the whole-world screen you open
-/// from the corner of the map and be the map itself, with the app's own chrome
-/// standing over it, without either of them being a special case of the other.
+/// toolbar. It is the map, with the app's own chrome standing over it — the
+/// search field, the dock, the toolbar, the flight window — none of which knows
+/// or cares that what is underneath is drawn rather than tiled.
+///
+/// It was briefly both: this view, and a full-screen planet you opened from the
+/// corner of the map, which carried a title and a close button and the name of
+/// the server. That screen was the answer from before the planet was a
+/// projection; once the map could *be* the planet, opening a copy of what was
+/// already underneath you was a button with nothing to do, and it went.
 struct PlanetSurface: View {
 
     @ObservedObject private var appearance = FlightInfoAppearance.shared

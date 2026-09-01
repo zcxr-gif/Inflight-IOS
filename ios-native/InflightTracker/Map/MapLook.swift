@@ -35,7 +35,9 @@ enum MapProjection: String, CaseIterable, Identifiable {
     /// filters, the dock, the toolbar, every panel and the flight window are
     /// all still there and all still work — and the handful of things that
     /// genuinely need MapKit tiles say so by being switched off rather than by
-    /// quietly doing nothing.
+    /// quietly doing nothing. The screen it began as is gone with that: a
+    /// second, chrome-less copy of the map you are already looking at is a
+    /// place to go that has nothing you did not have.
     case planet
 
     var id: String { rawValue }

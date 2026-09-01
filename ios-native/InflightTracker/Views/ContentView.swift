@@ -89,9 +89,6 @@ struct ContentView: View {
     /// Whether the sky view is up: the camera, with the traffic drawn over it.
     @State private var isShowingSky = false
 
-    /// Whether the vector globe is up. See `PlanetView`.
-    @State private var isShowingPlanet = false
-
     /// Whether the map is staying with the open aircraft. Lives here rather
     /// than in the map so it can be turned off by the things that contradict
     /// it — framing a whole route, or closing the window entirely.
@@ -548,7 +545,11 @@ struct ContentView: View {
     /// a fixed offset quietly becomes when a row is added — or, as here, taken
     /// away. Derived from the count rather than written out as a number, so the
     /// next change to the stack cannot leave this behind.
-    private static let mapControlRows = 3
+    ///
+    /// Two: the sky, and the map's own styles. It was three while there was a
+    /// button for the full-screen planet, which the map being able to *be* the
+    /// planet made redundant.
+    private static let mapControlRows = 2
     private static let mapControlsHeight: CGFloat =
         42 * CGFloat(mapControlRows) + CGFloat(mapControlRows - 1)
 
@@ -982,25 +983,6 @@ struct ContentView: View {
         // Full screen rather than a sheet: it is a camera, and a camera behind
         // a card with the map showing round the edges is a viewfinder nobody
         // can aim.
-        // Full screen for the same reason as the sky: it is a picture of the
-        // whole world, and a picture of the whole world inside a card with the
-        // map round the edges is neither.
-        .fullScreenCover(isPresented: $isShowingPlanet) {
-            PlanetView(
-                airports: mapAirports,
-                onSelectAirport: { field in
-                    isShowingPlanet = false
-                    openAirport(field)
-                },
-                onSelectFlight: { flight in
-                    isShowingPlanet = false
-                    selection = SelectedFlight(id: flight.id)
-                    focus(on: flight.coordinate, spanMeters: 240_000)
-                },
-                start: planetStart
-            )
-            .environmentObject(feed)
-        }
         .fullScreenCover(isPresented: $isShowingSky) {
             SkyView(myFlights: myFlights) { id in
                 isShowingSky = false
@@ -2072,24 +2054,6 @@ struct ContentView: View {
                 Rectangle()
                     .fill(theme.stroke)
                     .frame(height: 1)
-
-                // Under the sky and above the styles, because it belongs with
-                // the first: both leave the map for a different way of looking
-                // at the same packet, where everything below changes the map
-                // you are already on.
-                //
-                // Not offered when the map *is* the planet. Opening a full
-                // screen copy of what is already underneath you is a button
-                // that appears to do nothing.
-                if !isPlanetMap {
-                    mapButton("globe.europe.africa", "See the whole planet") {
-                        isShowingPlanet = true
-                    }
-
-                    Rectangle()
-                        .fill(theme.stroke)
-                        .frame(height: 1)
-                }
 
                 Menu {
                     // Buttons rather than a `Picker` bound to the setting: some
