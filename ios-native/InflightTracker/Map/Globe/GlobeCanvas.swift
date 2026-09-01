@@ -1786,7 +1786,7 @@ final class GlobeCanvasView: UIView {
         context.setFillColor(color.cgColor)
         context.addPath(path)
 
-        let seam = Self.landSeam(for: detail)
+        let seam = landSeam(for: detail)
         if seam > 0 {
             context.setStrokeColor(color.cgColor)
             context.setLineWidth(seam)
@@ -1801,15 +1801,26 @@ final class GlobeCanvasView: UIView {
         context.restoreGState()
     }
 
-    /// How wide a line the land is outlined in, to cover the gaps thinning
-    /// leaves between two countries' copies of the border between them.
+    /// How wide a line the land is outlined in, to cover what the winding rule
+    /// cannot: the slivers where two countries' thinned copies of the border
+    /// between them cross, which neither of them then covers.
     ///
-    /// It follows the thinning, because the gap does: at full detail the two
-    /// copies are the same points and there is nothing to cover, and each step
-    /// coarser can put them a little further apart. It is half of this that the
-    /// coastline grows by — a third of a point at its widest, on a planet where
-    /// the coastline is a hairline and has a border drawn along it anyway.
-    private static func landSeam(for detail: GlobeGeometry.Detail) -> CGFloat {
+    /// Nearly always nothing, and the reason is that something else is already
+    /// drawn along exactly that line. The two copies deviate from the true
+    /// border by a fraction of a point, and `drawRings` strokes the border
+    /// itself over the top of them at two thirds of a point — so a sliver comes
+    /// out coloured as a border, which is what it is. Stroking the land as well
+    /// would be a second scan conversion of every coastline in the world, on
+    /// every frame of every gesture, to cover ground that is already covered.
+    ///
+    /// It is kept for the case where nothing covers it: a skin with no border
+    /// line at all. Then the width follows the thinning, because the sliver
+    /// does — at full detail the two copies are the same points and there is
+    /// nothing to cover. Half of it is what the coastline grows by.
+    private func landSeam(for detail: GlobeGeometry.Detail) -> CGFloat {
+        guard detail != .full else { return 0 }
+        guard palette.borderWidth <= 0 || palette.border.cgColor.alpha <= 0 else { return 0 }
+
         switch detail {
         case .full: return 0
         case .medium: return 0.5
