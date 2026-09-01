@@ -212,32 +212,6 @@ struct PanelToggleRow: View {
     }
 }
 
-/// The badge that says a row is behind Inflight Pro.
-///
-/// One capsule, in one place, so every locked control in the app is marked the
-/// same way. It was written inline in `SettingsChoiceRow` when that row was the
-/// only thing in the app that could be locked; the planet's own settings are
-/// the second, and a badge copied out for the second is a badge that drifts by
-/// the third.
-struct ProBadge: View {
-
-    @ObservedObject private var appearance = FlightInfoAppearance.shared
-
-    private var theme: FlightInfoTheme { appearance.theme }
-
-    var body: some View {
-        Text("PRO")
-            .font(.system(size: 8.5, weight: .bold))
-            .tracking(0.8)
-            .foregroundStyle(theme.onAccent)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background { Capsule().fill(theme.accent) }
-            .fixedSize()
-            .accessibilityLabel("Inflight Pro")
-    }
-}
-
 private struct ProLockedModifier: ViewModifier {
 
     let isUnlocked: Bool
