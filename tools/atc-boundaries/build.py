@@ -279,15 +279,22 @@ def main():
         for ring in sector['rings']:
             blob += struct.pack('<H', len(ring))
 
+    # Encoded before the count is written, not after. Writing the count and
+    # then skipping an entry that failed to encode would leave the file
+    # claiming more aliases than it holds -- and the reader, which walks this
+    # section to find where the points begin, would start reading coordinates
+    # one alias early. Nothing in the current data fails, which is exactly what
+    # makes that the kind of bug that ships.
     flat_aliases = []
     for key in sorted(aliases):
-        for index in aliases[key]:
-            flat_aliases.append((key, index))
-    blob += struct.pack('<I', len(flat_aliases))
-    for key, index in flat_aliases:
         encoded = key.encode('ascii', 'ignore')
         if not encoded or len(encoded) > 255:
             continue
+        for index in aliases[key]:
+            flat_aliases.append((encoded, index))
+
+    blob += struct.pack('<I', len(flat_aliases))
+    for encoded, index in flat_aliases:
         blob += struct.pack('<B', len(encoded)) + encoded + struct.pack('<H', index)
 
     total_points = sum(len(r) for s in sectors for r in s['rings'])
