@@ -267,8 +267,8 @@ struct SettingsPanel: View {
     /// what it is for — the row is the only place the choices behind it are
     /// visible without opening anything.
     private var windowDetail: String {
-        let peek = appearance.peakStyle.label.lowercased()
-        let open = appearance.windowStyle.label.lowercased()
+        let peek = appearance.resolvedPeakStyle.label.lowercased()
+        let open = appearance.resolvedWindowStyle.label.lowercased()
         let colour = appearance.showsAirlineAccent ? "airline colours" : "no airline colours"
         return "\(peek) peek, \(open) layout, \(colour)"
     }

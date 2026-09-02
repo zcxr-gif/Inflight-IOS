@@ -50,6 +50,16 @@ struct PilotProfile: Decodable, Equatable, Identifiable {
     let isPro: Bool
     let friendsVisibility: String
 
+    /// The VA listings this pilot has chosen to wear, in their own order.
+    ///
+    /// Ids and nothing more, and they are a REQUEST rather than a fact: the
+    /// column is a preference, and whether any of them is actually drawn is
+    /// settled by resolving them against the VAs' rosters at the moment the
+    /// badge is drawn — see `VaBadgeStrip` and the migration that added the
+    /// column. A pilot who has left a VA still has its id here and no longer
+    /// wears it.
+    let vaAdIds: [String]
+
     let followerCount: Int
     let followingCount: Int
     let friendCount: Int
@@ -91,6 +101,7 @@ struct PilotProfile: Decodable, Equatable, Identifiable {
         case isFriend = "is_friend"
         case isSelf = "is_self"
         case viewerBlocked = "viewer_blocked"
+        case vaAdIds = "va_ad_ids"
     }
 
     init(from decoder: Decoder) throws {
@@ -119,6 +130,10 @@ struct PilotProfile: Decodable, Equatable, Identifiable {
         isFriend = (try? c.decode(Bool.self, forKey: .isFriend)) ?? false
         isSelf = (try? c.decode(Bool.self, forKey: .isSelf)) ?? false
         viewerBlocked = (try? c.decode(Bool.self, forKey: .viewerBlocked)) ?? false
+        // Absent on a card served by a database that has not run the migration
+        // yet, which is an empty list rather than a decode failure — a profile
+        // is not worth failing to read over a badge.
+        vaAdIds = (try? c.decode([String].self, forKey: .vaAdIds)) ?? []
     }
 
     var avatarURL: URL? { AppConfig.profileImageURL(bucket: "pilot-avatars", path: avatarPath) }

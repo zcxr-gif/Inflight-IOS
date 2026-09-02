@@ -34,6 +34,8 @@ struct FlightWindowPanel: View {
     /// while it is being made.
     @State private var stage: Stage = .peek
 
+    @State private var isShowingPaywall = false
+
     /// How wide the drawing actually came out.
     ///
     /// The peek's header is a photograph laid edge to edge, and it is handed a
@@ -73,6 +75,43 @@ struct FlightWindowPanel: View {
 
     private var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
 
+    /// The peek picker's binding, with the Pro case intercepted.
+    ///
+    /// A binding rather than a `.proLocked` on the row, because what is sold
+    /// here is ONE OPTION of several and not the row: locking the row would
+    /// take Compact and Photo away from a free account to sell Detail, which is
+    /// charging for something they already have.
+    ///
+    /// Reads `resolvedPeakStyle` so the segment that appears chosen is the one
+    /// actually being drawn — a picker showing Detail on an account whose
+    /// window is drawing Compact is a lie about the app's own state.
+    private var peakSelection: Binding<FlightInfoPeakStyle> {
+        Binding(
+            get: { appearance.resolvedPeakStyle },
+            set: { style in
+                guard !style.isPro || appearance.canUseDetailLook else {
+                    isShowingPaywall = true
+                    return
+                }
+                appearance.peakStyle = style
+            }
+        )
+    }
+
+    /// The same for the open window's layout.
+    private var windowSelection: Binding<FlightInfoWindowStyle> {
+        Binding(
+            get: { appearance.resolvedWindowStyle },
+            set: { style in
+                guard !style.isPro || appearance.canUseDetailLook else {
+                    isShowingPaywall = true
+                    return
+                }
+                appearance.windowStyle = style
+            }
+        )
+    }
+
     var body: some View {
         MapPanel(title: "Flight window", subtitle: "What opens when you tap an aircraft") {
             preview
@@ -83,8 +122,8 @@ struct FlightWindowPanel: View {
                     symbol: "rectangle.portrait.bottomhalf.filled",
                     options: FlightInfoPeakStyle.allCases,
                     label: { $0.label },
-                    detail: appearance.peakStyle.detail,
-                    selection: $appearance.peakStyle
+                    detail: appearance.resolvedPeakStyle.detail,
+                    selection: peakSelection
                 )
             }
             .panelEntrance(1)
@@ -92,11 +131,11 @@ struct FlightWindowPanel: View {
             PanelSection(title: "OPEN WINDOW") {
                 PanelPickerRow(
                     title: "Layout",
-                    symbol: appearance.windowStyle.symbol,
+                    symbol: appearance.resolvedWindowStyle.symbol,
                     options: FlightInfoWindowStyle.allCases,
                     label: { $0.label },
-                    detail: appearance.windowStyle.detail,
-                    selection: $appearance.windowStyle
+                    detail: appearance.resolvedWindowStyle.detail,
+                    selection: windowSelection
                 )
             }
             .panelEntrance(2)
@@ -126,6 +165,9 @@ struct FlightWindowPanel: View {
                 }
                 .panelEntrance(4)
             }
+        }
+        .sheet(isPresented: $isShowingPaywall) {
+            ProPanel(highlighted: .flightInfoLook)
         }
     }
 
@@ -190,8 +232,8 @@ struct FlightWindowPanel: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(caption)
         // The whole point: the drawing changes under the choice being made.
-        .motion(Motion.panel, value: appearance.peakStyle)
-        .motion(Motion.panel, value: appearance.windowStyle)
+        .motion(Motion.panel, value: appearance.resolvedPeakStyle)
+        .motion(Motion.panel, value: appearance.resolvedWindowStyle)
         .motion(Motion.panel, value: appearance.showsAirlineAccent)
         .motion(Motion.panel, value: stage)
     }
@@ -206,7 +248,7 @@ struct FlightWindowPanel: View {
                 contributor: nil,
                 registration: Self.registration,
                 theme: theme,
-                style: appearance.peakStyle,
+                style: appearance.resolvedPeakStyle,
                 width: width,
                 // Shorter than the window's own ceiling: this is a drawing of a
                 // peek inside a list of settings, and the photo is the part of
@@ -226,7 +268,7 @@ struct FlightWindowPanel: View {
     /// the whole of what that setting changes.
     @ViewBuilder
     private var openHead: some View {
-        switch appearance.windowStyle {
+        switch appearance.resolvedWindowStyle {
         case .cards:
             VStack(spacing: 12) {
                 FlightIdentityBlock(
@@ -250,19 +292,44 @@ struct FlightWindowPanel: View {
                 progress: FlightProgress(flight: Self.sample),
                 began: Self.departed
             )
+
+        case .detail:
+            FlightDetailHead(
+                flight: Self.sample,
+                registration: Self.registration,
+                theme: theme,
+                // No photograph in the preview: there is no lookup behind an
+                // aeroplane that does not exist, so the hero draws its sprite
+                // fallback — which is what a real one does until the picture
+                // lands, and is honest about what this look is shaped like.
+                image: nil,
+                contributor: nil,
+                width: width,
+                began: Self.departed
+            )
         }
     }
 
     private var caption: String {
         switch stage {
         case .peek:
-            return appearance.peakStyle == .rich
-                ? "The peek opens on the aircraft's photograph, and the window grows around it."
-                : "The peek is a bar: who it is and where it is going, over the map."
+            switch appearance.resolvedPeakStyle {
+            case .rich:
+                return "The peek opens on the aircraft's photograph, and the window grows around it."
+            case .detail:
+                return "The peek says the height, the speed, the type and the tail before the window is opened at all."
+            case .compact:
+                return "The peek is a bar: who it is and where it is going, over the map."
+            }
         case .open:
-            return appearance.windowStyle == .board
-                ? "Open, the window leads with the route and the times. The cards follow underneath."
-                : "Open, the window leads with the aircraft and a card for the route."
+            switch appearance.resolvedWindowStyle {
+            case .board:
+                return "Open, the window leads with the route and the times. The cards follow underneath."
+            case .detail:
+                return "Open, the window leads with the photograph under the operator's own bar, then the route and the live numbers."
+            case .cards:
+                return "Open, the window leads with the aircraft and a card for the route."
+            }
         }
     }
 

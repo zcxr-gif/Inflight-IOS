@@ -203,6 +203,80 @@ public struct WidgetMovement: Codable, Hashable, Identifiable {
 /// One file rather than several: a widget that read a pinned flight from one
 /// and a friends list from another could catch them mid-write and draw a pair
 /// that never existed together.
+/// A virtual airline on the home screen: its mark, and how much of it is in
+/// the air at this moment.
+///
+/// Everything here is worked out in the app, on the packet the map already
+/// has, for the same reason `WidgetAirport` is: the widget process has neither
+/// the feed nor the VA directory, and a tile is not the place to discover
+/// either.
+public struct WidgetVa: Codable, Hashable, Identifiable {
+
+    /// The listing id, which is also how the app finds the VA again to rebuild
+    /// this from the next packet.
+    public var id: String
+
+    public var name: String
+
+    /// The callsign its members fly under, as the VA wrote it.
+    public var callsign: String
+
+    /// Its hubs, capped to what a tile can print.
+    public var hubs: [String]
+
+    /// How many of its aircraft are in the feed at all, and how many of those
+    /// are actually flying. Both, because "4 aircraft" over a stand full of
+    /// parked aeroplanes is the wrong number to put on a home screen.
+    public var totalCount: Int
+    public var airborneCount: Int
+
+    /// Its aeroplanes, most interesting first. More than the largest tile
+    /// draws, so one snapshot serves every family.
+    public var fleet: [WidgetMovement]
+
+    /// Whether the VA's own logo made it into the shared cache. False draws the
+    /// monogram instead, which is the same bargain every other surface makes.
+    public var hasLogo: Bool
+
+    public var capturedAt: Date
+
+    /// Where the logo is kept in the shared photo cache.
+    public var photoKey: String { PhotoKey.make(type: "va", livery: id) }
+
+    /// Two letters from the front of the VA's words, for the tile to fall back
+    /// on. Worked out here so the widget and the app agree without the widget
+    /// needing the app's own `VaLogoMark`.
+    public var monogram: String {
+        let letters = name
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .prefix(2)
+            .compactMap(\.first)
+        return String(letters).uppercased()
+    }
+
+    public init(
+        id: String,
+        name: String,
+        callsign: String = "",
+        hubs: [String] = [],
+        totalCount: Int = 0,
+        airborneCount: Int = 0,
+        fleet: [WidgetMovement] = [],
+        hasLogo: Bool = false,
+        capturedAt: Date = Date()
+    ) {
+        self.id = id
+        self.name = name
+        self.callsign = callsign
+        self.hubs = hubs
+        self.totalCount = totalCount
+        self.airborneCount = airborneCount
+        self.fleet = fleet
+        self.hasLogo = hasLogo
+        self.capturedAt = capturedAt
+    }
+}
+
 public struct WidgetSnapshot: Codable {
 
     /// The flight the user chose to keep an eye on.
@@ -228,6 +302,15 @@ public struct WidgetSnapshot: Codable {
     /// The field the user pinned, if any.
     public var airport: WidgetAirport?
 
+    /// The virtual airline the user pinned, if any.
+    ///
+    /// Optional for the reason spelled out on `mine`, which is worth repeating
+    /// because it is the trap in this file: a synthesised decoder does not fall
+    /// back to a default, so a non-optional added here would make every
+    /// snapshot an older build wrote fail to decode — and a decode failure
+    /// blanks every tile, not just this one.
+    public var va: WidgetVa?
+
     public var updatedAt: Date
 
     public init(pinned: WidgetFlight? = nil,
@@ -235,12 +318,14 @@ public struct WidgetSnapshot: Codable {
                 mine: [WidgetFlight]? = nil,
                 friendCount: Int = 0,
                 airport: WidgetAirport? = nil,
+                va: WidgetVa? = nil,
                 updatedAt: Date = Date()) {
         self.pinned = pinned
         self.friends = friends
         self.mine = mine
         self.friendCount = friendCount
         self.airport = airport
+        self.va = va
         self.updatedAt = updatedAt
     }
 
@@ -299,6 +384,19 @@ public struct WidgetSnapshot: Codable {
                 WidgetMovement(id: "p1", callsign: "BAW214", aircraftType: "Boeing 777", detail: "8 min"),
                 WidgetMovement(id: "p2", callsign: "DLH900", aircraftType: "Airbus A320", detail: "16 min"),
                 WidgetMovement(id: "p3", callsign: "UAE29", aircraftType: "Airbus A380", detail: "31 min")
+            ]
+        ),
+        va: WidgetVa(
+            id: "preview",
+            name: "Speedbird Virtual",
+            callsign: "Speedbird",
+            hubs: ["EGLL", "EGKK"],
+            totalCount: 9,
+            airborneCount: 6,
+            fleet: [
+                WidgetMovement(id: "v1", callsign: "Speedbird 117VA", aircraftType: "Boeing 777-300ER", detail: "EGLL → KJFK"),
+                WidgetMovement(id: "v2", callsign: "Speedbird 284VA", aircraftType: "Airbus A350", detail: "KSFO → EGLL"),
+                WidgetMovement(id: "v3", callsign: "Speedbird 56VA", aircraftType: "Boeing 787-9", detail: "FAOR → EGLL")
             ]
         )
     )

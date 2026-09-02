@@ -94,6 +94,17 @@ final class ProfileStore: ObservableObject {
         var avatarPath: String?
         var bannerPath: String?
 
+        /// The VAs this pilot has chosen to wear, in their own order.
+        ///
+        /// Written here, entitled elsewhere. Sending an id the pilot has no
+        /// claim to is not refused, because refusing it here would be a check
+        /// in the wrong place — the rosters are the partner backend's and the
+        /// resolution that decides whether a badge is drawn happens against
+        /// them every time it is drawn. What is stored is a preference; the
+        /// picker only offers rosters this pilot is actually on, and an id
+        /// that stops being true stops being drawn on its own.
+        var vaAdIds: [String] = []
+
         /// Set by the server when a profile has been hidden. Read-only, and
         /// shown to its owner so they know why nobody can find them.
         var moderationState: String = "ok"
@@ -337,6 +348,9 @@ final class ProfileStore: ObservableObject {
         row["favourite_livery"] = optional(edited.favouriteLivery)
         row["home_airport"] = optional(edited.homeAirport.uppercased())
         row["accent"] = edited.accent.map { $0 as Any } ?? NSNull()
+        // An array rather than an optional: empty is a pilot who wears none,
+        // which is a value and not an absence.
+        row["va_ad_ids"] = edited.vaAdIds
 
         do {
             let data = try await SupabaseData.upsert(
@@ -566,6 +580,7 @@ final class ProfileStore: ObservableObject {
             let flight_alerts: Bool?
             let moderation_state: String?
             let moderation_note: String?
+            let va_ad_ids: [String]?
         }
 
         guard let row = (try? JSONDecoder().decode([Row].self, from: data))?.first else {
@@ -589,6 +604,7 @@ final class ProfileStore: ObservableObject {
             flightAlerts: row.flight_alerts ?? true,
             avatarPath: row.avatar_path,
             bannerPath: row.banner_path,
+            vaAdIds: row.va_ad_ids ?? [],
             moderationState: row.moderation_state ?? "ok",
             moderationNote: row.moderation_note
         )

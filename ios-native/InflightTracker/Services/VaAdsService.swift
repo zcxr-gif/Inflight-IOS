@@ -2,18 +2,36 @@ import Foundation
 
 /// One virtual airline, as the VA-Ads directory describes it.
 ///
-/// The name, the callsign it flies under, and the fields it calls home — and
-/// nothing else. The directory also carries logos, banner artwork, taglines and
-/// links, and none of it is parsed here on purpose: that material belongs to
-/// the VAs who uploaded it, and the app has no licence to redraw it. What the
-/// app shows of a partner is its NAME, as text. Anything more is a copyright
-/// question this file is deliberately not in a position to get wrong.
+/// The name, the callsign it flies under, the fields it calls home, and the
+/// mark it goes by.
+///
+/// That last one used to be deliberately absent, on the reasoning that the
+/// artwork belongs to the VAs who uploaded it and the app had no licence to
+/// redraw it. That reasoning was answering the wrong question. A logo reaching
+/// this struct is one a VA uploaded to OUR directory, through our own form, to
+/// be shown against its own name — and every other surface we run already
+/// shows it: the web directory, the crew centres, the airport banners, the
+/// Discord flight cards. The app was the only place a partner appeared without
+/// its own mark, which read as an omission rather than as restraint.
+///
+/// The banner artwork is still not parsed, for a plainer reason than licence:
+/// there is nowhere in this app to put a 5:1 image that isn't an advert
+/// occupying a window the pilot opened to look at an aeroplane.
 struct VaAd: Identifiable, Equatable {
 
     let id: String
 
     /// What the VA calls itself.
     let name: String
+
+    /// The mark it goes by, when it has uploaded one.
+    ///
+    /// In practice always our own bucket — the field is written by the upload
+    /// pipeline rather than typed into a form, so nothing a VA submits lands
+    /// here as a URL of its choosing. It goes through `safeURL` anyway: an
+    /// image URL is fetched without anybody reading it first, which is exactly
+    /// where a guard is worth having whether or not it can currently fire.
+    let logo: URL?
 
     /// The callsign template its members fly under — "Air Canada 001VA".
     let callsign: String
@@ -219,6 +237,109 @@ final class VaAdsService {
         lock.unlock()
 
         return entries.first { compact.hasPrefix($0.code) && bounds.contains($0.code.count) }?.ad
+    }
+
+    // MARK: - The map's lookup
+
+    /// The VA flying this callsign, answered from the warm directory and
+    /// nothing else.
+    ///
+    /// The map needs this and cannot use `partner(for:)`: that one is `async`,
+    /// it consults the roster, and it falls back to advertising a VA hubbed at
+    /// an end of the route. Marking three thousand aeroplanes cannot suspend
+    /// three thousand times, must not put a roster request behind each one, and
+    /// must never draw a mark for a VA the aircraft has nothing to do with — a
+    /// logo over an aeroplane is read as whose aeroplane it is, so on the map
+    /// the callsign match is the ONLY claim worth making.
+    ///
+    /// Nil until `warmDirectory()` has landed, which is the correct answer
+    /// while we do not yet know: an unmarked aeroplane is right about our
+    /// ignorance, and a mark that arrives a second later is the directory
+    /// answering rather than the aircraft changing.
+    func warmPartner(callsign: String?) -> VaAd? {
+        matched(callsign: callsign)
+    }
+
+    /// One listing from the warm directory, by id.
+    ///
+    /// For the widget snapshot, which is rebuilt from every packet and holds a
+    /// pinned VA's id rather than a copy of its fields — a copy would be a
+    /// second place for a VA's name and hubs to go stale, and the directory is
+    /// already in memory. Nil until the directory lands, which leaves the tile
+    /// showing what it showed before rather than blanking it.
+    func warmListing(id: String) -> VaAd? {
+        let wanted = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !wanted.isEmpty else { return nil }
+
+        lock.lock()
+        let entries = directory
+        lock.unlock()
+
+        return entries.first { $0.ad.id == wanted }?.ad
+    }
+
+    /// Starts the directory load without waiting for it.
+    ///
+    /// The directory used to be fetched only when a flight window asked for a
+    /// partner. The map asks about every aeroplane on screen and can wait for
+    /// none of them, so it says once that it would like the directory and reads
+    /// `warmPartner` from then on. Idempotent — `beginDirectoryLoad` already
+    /// refuses to start a second one, and already holds off after a failure.
+    func warmDirectory() {
+        Task { await loadDirectory() }
+    }
+
+    // MARK: - Repping a VA
+
+    /// The approved VAs whose roster this community handle actually appears on.
+    ///
+    /// This is the ENTITLEMENT behind a VA badge, and it is asked every time a
+    /// badge is drawn rather than trusted from what a profile stored. A profile
+    /// row says which VAs a pilot would like to wear; it cannot say whether
+    /// they may, because the rosters live in the partner backend and not in the
+    /// database the profile is in. So the badge is the intersection: what they
+    /// asked for, kept to what this answers.
+    ///
+    /// Two things fall out of that and both are the point. A pilot who writes
+    /// an id they have no claim to wears nothing, because drawing is what
+    /// performs the check. And a pilot who LEAVES a VA stops wearing it without
+    /// anybody clearing a field.
+    ///
+    /// Matched on the community handle, which nothing verifies — see
+    /// `PilotProfile.ifUsernameVerified`. The badge inherits the "claims to be"
+    /// caveat every other surface showing that handle already carries.
+    ///
+    /// Empty on any failure, which loses a badge and never a profile.
+    func rosterListings(forIfUsername username: String?) async -> [VaAd] {
+        let handle = (username ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !handle.isEmpty, handle.count <= 80 else { return [] }
+
+        if let cached = cachedRosterListings(for: handle) { return cached }
+
+        let ads = await fetchAds(
+            path: "/api/va-ads/for-pilot",
+            query: [URLQueryItem(name: "user", value: handle)]
+        ) ?? []
+
+        cache(rosterListings: ads, for: handle)
+        return ads
+    }
+
+    /// Answered listings, by handle. Held for the life of the process: a
+    /// roster changes on the scale of somebody joining a VA, and a profile
+    /// opened twice in one session should not ask twice.
+    private var rosterListingCache: [String: [VaAd]] = [:]
+
+    private func cachedRosterListings(for handle: String) -> [VaAd]? {
+        lock.lock()
+        defer { lock.unlock() }
+        return rosterListingCache[handle.lowercased()]
+    }
+
+    private func cache(rosterListings ads: [VaAd], for handle: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        rosterListingCache[handle.lowercased()] = ads
     }
 
     // MARK: - Membership
@@ -527,6 +648,12 @@ final class VaAdsService {
                 entries = array
             } else if let one = object["data"] as? [String: Any] {
                 entries = [one]
+            } else if let options = object["vaOptions"] as? [Any] {
+                // The roster endpoint's envelope. Its entries are thinner than
+                // a directory listing — an id, a name and a logo — which is
+                // exactly what `normalise` already tolerates, so it is one more
+                // shape here rather than a second parser somewhere else.
+                entries = options
             } else {
                 entries = []
             }
@@ -550,6 +677,7 @@ final class VaAdsService {
         return VaAd(
             id: identifier,
             name: name,
+            logo: safeURL(firstText(in: raw, keys: ["logoUrl", "logo", "logo_url"])),
             callsign: callsign,
             hubs: hubs(in: raw),
             tagline: firstText(in: raw, keys: ["tagline", "slogan"]) ?? "",
@@ -565,10 +693,10 @@ final class VaAdsService {
         )
     }
 
-    /// Deliberately absent from everything above: `logo`, `bannerUrl` and the
-    /// rest of the artwork. The VAs own those, and the app has no licence to
-    /// redraw them — so they are never parsed, and there is nothing here for a
-    /// later change to start showing by accident.
+    /// Still absent from everything above: `bannerUrl` and the rest of the
+    /// wide artwork. Not a licence question — see the note on `VaAd` — but a
+    /// layout one: nothing in this app has a place to put a banner that isn't
+    /// an advert taking over a window the pilot opened to read a flight.
 
     private static func flag(_ value: Any?) -> Bool {
         if let bool = value as? Bool { return bool }

@@ -60,6 +60,7 @@ struct ProfileEditorView: View {
                 if !isNew { picturesSection }
                 aboutSection
                 favouriteSection
+                vaSection
                 privacySection
                 alertsSection
 
@@ -395,6 +396,20 @@ struct ProfileEditorView: View {
                     .padding(.vertical, 11)
             }
         }
+    }
+
+    /// Which of your VAs you wear.
+    ///
+    /// Under WHAT YOU FLY because that is what it is — the aeroplane, the
+    /// livery, the field, and who you fly it for. Above privacy because it is
+    /// still a thing about you rather than a control over who sees it.
+    ///
+    /// Only ever offers the rosters this pilot's community handle is actually
+    /// on. There is deliberately no free-text field: a VA badge is a claim
+    /// about somebody else's organisation, and the only version of it worth
+    /// having is the one the VA itself made true by adding you.
+    private var vaSection: some View {
+        VaBadgePicker(ifUsername: draft.ifUsername, selection: $draft.vaAdIds)
     }
 
     private var privacySection: some View {

@@ -4,9 +4,79 @@ import SwiftUI
 /// in the airport window listing the VAs hubbed at that field, and the panel
 /// both of them open.
 ///
-/// What is shown of a partner is its own words and its own links — never its
-/// artwork. The directory carries logos and banner images; `VaAd` does not
-/// parse them, so there is nothing here for a later change to start drawing.
+/// A partner is shown as its mark, its own words and its own links. The mark is
+/// small everywhere — 16pt on the flight line, 26pt in an airport row, 30pt
+/// against the panel title — because it is there to let a VA be recognised at a
+/// glance, not to turn a flight window into a billboard. See `VaAd` for why the
+/// logo is drawn and the banner still isn't.
+
+// MARK: - The mark
+
+/// A VA's own logo, at whatever size the surface has room for.
+///
+/// Falls back to a monogram on the theme's accent rather than to an empty
+/// square: a VA that never uploaded a logo, and one whose image is still in the
+/// air, should both read as an airline rather than as a broken asset. Same
+/// bargain `PilotAvatar` makes for a pilot with no picture, and the same loader
+/// behind it.
+struct VaLogoMark: View {
+
+    let ad: VaAd
+
+    /// Sized by the caller — the same mark is a 16pt glyph on the flight line
+    /// and a 30pt one beside a panel title.
+    var side: CGFloat = 22
+
+    @ObservedObject private var appearance = FlightInfoAppearance.shared
+    @StateObject private var loader = RemoteImageLoader()
+
+    private var theme: FlightInfoTheme { appearance.theme }
+
+    private var corner: CGFloat { side * 0.26 }
+
+    /// Two letters at most, taken from the front of the VA's words: "Air
+    /// Canada Virtual" is AC, "Skyward" is S.
+    private var monogram: String {
+        let letters = ad.name
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .prefix(2)
+            .compactMap(\.first)
+        return String(letters).uppercased()
+    }
+
+    var body: some View {
+        Group {
+            if let image = loader.image {
+                Image(uiImage: image)
+                    .resizable()
+                    // Fitted, not filled. The uploads are square 512s but a
+                    // wordmark sitting inside one is wider than it is tall, and
+                    // filling would crop the ends off the VA's own name.
+                    .scaledToFit()
+                    .padding(side * 0.08)
+            } else {
+                Text(monogram)
+                    .font(.system(size: side * 0.42, weight: .bold, design: .rounded))
+                    .foregroundStyle(theme.onAccent)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background { theme.accent }
+            }
+        }
+        .frame(width: side, height: side)
+        .background(theme.elevatedFill)
+        .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: corner, style: .continuous)
+                .strokeBorder(theme.stroke, lineWidth: 0.8)
+        }
+        .motion(Motion.content, value: loader.image != nil)
+        // The VA's name is always the next thing along, so the mark has nothing
+        // to add to what VoiceOver already reads.
+        .accessibilityHidden(true)
+        .onAppear { loader.load(ad.logo) }
+        .onChange(of: ad.logo) { _, new in loader.load(new) }
+    }
+}
 
 // MARK: - Flight window
 
@@ -63,6 +133,14 @@ struct VaPartnerLine: View {
                 .foregroundStyle(theme.textDim)
                 .fixedSize()
 
+            // After the kicker rather than in front of it, which is the whole
+            // argument of the note below in picture form: a logo is the
+            // loudest thing on this line, and a line that opens with an
+            // airline's mark says "this is that airline" before it has said
+            // "VA". The kicker gets read first; the mark and the name then
+            // arrive together as the one thing they describe.
+            VaLogoMark(ad: partner.ad, side: 16)
+
             Text(partner.ad.name)
                 .font(.system(size: 11, weight: .bold, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
@@ -105,6 +183,227 @@ struct VaPartnerLine: View {
         case .hubbed(let icao):
             return "\(partner.ad.name), a partner virtual airline hubbed at \(icao)."
         }
+    }
+}
+
+// MARK: - A pilot's own colours
+
+/// The VAs a pilot flies for, on their profile.
+///
+/// ## The entitlement is here, not in the profile
+///
+/// A profile row carries `va_ad_ids` — which VAs this pilot would LIKE to
+/// wear, in their own order. It carries no claim that they may, and it cannot:
+/// the rosters live in the partner backend and the profile lives in Supabase,
+/// so no constraint on that column could ever check one against the other.
+///
+/// So the check is here, at the moment of drawing. What the pilot asked for is
+/// intersected with `rosterListings(forIfUsername:)` — the approved listings
+/// their community handle actually appears on the roster of — and only the
+/// intersection is drawn. Two things follow, and both are the reason it is
+/// done this way round rather than at the write:
+///
+///   * Writing an id you have no claim to achieves nothing. There is no state
+///     in which the badge appears and the roster disagrees, because the roster
+///     is consulted every single time the badge appears.
+///   * Leaving a VA takes the badge off by itself. Nobody has to notice, and
+///     no cleanup job has to run.
+///
+/// Absent rather than empty when there is nothing to draw — which is most
+/// pilots, and a card reading "no virtual airlines" on every profile in the app
+/// is furniture.
+struct VaBadgeStrip: View {
+
+    /// The community handle the rosters are matched against. Nothing verifies
+    /// it — see `PilotProfile.ifUsernameVerified` — so this badge carries the
+    /// same "claims to be" caveat as every other use of that handle, and adds
+    /// no new one.
+    let ifUsername: String?
+
+    /// The ids the profile asked for, in the pilot's own order.
+    let wanted: [String]
+
+    /// Opens one of them, where the presenting screen has somewhere to put it.
+    var onOpen: ((VaAd) -> Void)? = nil
+
+    @ObservedObject private var appearance = FlightInfoAppearance.shared
+
+    /// What the rosters came back with. Empty until they answer, and empty
+    /// forever on a failure — which loses a badge, never the profile it is on.
+    @State private var listings: [VaAd] = []
+
+    private var theme: FlightInfoTheme { appearance.theme }
+
+    /// The intersection, in the pilot's order rather than the server's.
+    private var worn: [VaAd] {
+        wanted.compactMap { id in listings.first { $0.id == id } }
+    }
+
+    var body: some View {
+        Group {
+            if !worn.isEmpty {
+                PanelSection(title: "FLIES FOR") {
+                    ForEach(Array(worn.enumerated()), id: \.element.id) { index, ad in
+                        if index > 0 { PanelDivider() }
+
+                        if let onOpen = onOpen {
+                            Button { onOpen(ad) } label: { row(ad, isLink: true) }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("\(ad.name). Open this virtual airline.")
+                        } else {
+                            row(ad, isLink: false)
+                        }
+                    }
+                }
+            }
+        }
+        .task(id: ifUsername ?? "") {
+            listings = await VaAdsService.shared.rosterListings(forIfUsername: ifUsername)
+        }
+    }
+
+    private func row(_ ad: VaAd, isLink: Bool) -> some View {
+        HStack(spacing: 10) {
+            VaLogoMark(ad: ad, side: 26)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(ad.name)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(theme.textPrimary)
+                    .flightInfoLine(minimumScale: 0.75)
+
+                // What the badge actually means, in four words, because "flies
+                // for" over a real airline's name is otherwise a claim about
+                // employment.
+                Text("Virtual airline · on the roster")
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .foregroundStyle(theme.textDim)
+                    .fixedSize()
+            }
+
+            Spacer(minLength: 8)
+
+            if isLink {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(theme.textDim)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .contentShape(Rectangle())
+    }
+}
+
+/// The picker behind that strip: which of MY rosters do I want to wear.
+///
+/// It only ever offers what `rosterListings` returned, so the list is the
+/// pilot's actual memberships and nothing else — there is no field to type a
+/// VA into and no way to pick one you do not fly for. That is not where the
+/// entitlement is enforced (see `VaBadgeStrip`), but it is where it is
+/// EXPLAINED: a pilot who cannot find their VA here needs to be told that the
+/// VA has not put them on its roster, which is a thing they can go and fix.
+struct VaBadgePicker: View {
+
+    let ifUsername: String
+
+    /// The chosen ids, in the order they were chosen — first picked leads.
+    @Binding var selection: [String]
+
+    /// As many as the profile draws.
+    static let maximum = 3
+
+    @ObservedObject private var appearance = FlightInfoAppearance.shared
+
+    @State private var listings: [VaAd] = []
+    @State private var hasAnswered = false
+
+    private var theme: FlightInfoTheme { appearance.theme }
+
+    private var handle: String {
+        ifUsername.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var body: some View {
+        PanelSection(title: "VIRTUAL AIRLINES") {
+            if handle.isEmpty {
+                note("Add your Infinite Flight community name above, and any VA that has you on its roster will appear here to wear on your profile.")
+            } else if !hasAnswered {
+                note("Checking which VAs have you on their roster…")
+            } else if listings.isEmpty {
+                note("No partner VA has \(handle) on its roster. Ask yours to add you and it will show up here.")
+            } else {
+                ForEach(Array(listings.enumerated()), id: \.element.id) { index, ad in
+                    if index > 0 { PanelDivider() }
+                    row(ad)
+                }
+
+                PanelDivider()
+
+                note("Wear up to \(Self.maximum). They show on your profile in the order you pick them, and they come off by themselves if you leave the VA.")
+            }
+        }
+        .task(id: handle) {
+            hasAnswered = false
+            listings = await VaAdsService.shared.rosterListings(forIfUsername: handle)
+            hasAnswered = true
+        }
+    }
+
+    private func row(_ ad: VaAd) -> some View {
+        let isOn = selection.contains(ad.id)
+        // A pilot at the limit can still take one off, so only the unpicked
+        // rows go dead. A row that refuses both directions reads as broken.
+        let isBlocked = !isOn && selection.count >= Self.maximum
+
+        return Button {
+            toggle(ad)
+        } label: {
+            HStack(spacing: 10) {
+                VaLogoMark(ad: ad, side: 26)
+
+                Text(ad.name)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(theme.textPrimary)
+                    .flightInfoLine(minimumScale: 0.75)
+
+                Spacer(minLength: 8)
+
+                Image(systemName: isOn ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(isOn ? theme.accent : theme.textDim)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isBlocked)
+        .opacity(isBlocked ? 0.45 : 1)
+        .accessibilityLabel(ad.name)
+        .accessibilityValue(isOn ? "Worn" : "Not worn")
+    }
+
+    private func toggle(_ ad: VaAd) {
+        if let at = selection.firstIndex(of: ad.id) {
+            selection.remove(at: at)
+        } else if selection.count < Self.maximum {
+            // Appended rather than inserted: the order is which one leads, and
+            // picking a second should not demote the first.
+            selection.append(ad.id)
+        }
+    }
+
+    private func note(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(theme.textDim)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
     }
 }
 
@@ -170,6 +469,12 @@ struct AirportPartnersSection: View {
 
     private func row(_ ad: VaAd, isLink: Bool) -> some View {
         HStack(spacing: 10) {
+            // Leading here, unlike the flight line: the section is titled
+            // VIRTUAL AIRLINES and carries its own disclaimer underneath, so
+            // there is no claim about an aeroplane for a mark to get in front
+            // of, and a column of logos is what makes six rows scannable.
+            VaLogoMark(ad: ad, side: 26)
+
             Text(ad.name)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(theme.textPrimary)
@@ -203,8 +508,8 @@ struct AirportPartnersSection: View {
 /// One partner virtual airline: who they are, what they fly, and every way
 /// there is to reach them.
 ///
-/// Their words and their links. No logo, no banner — see the note at the top of
-/// this file, and the one in `VaAdsService`.
+/// Their mark, their words and their links. No banner — see the note at the top
+/// of this file, and the one in `VaAdsService`.
 struct VaDetailSheet: View {
 
     let ad: VaAd
@@ -216,6 +521,7 @@ struct VaDetailSheet: View {
 
     @EnvironmentObject private var feed: LiveFeed
     @ObservedObject private var appearance = FlightInfoAppearance.shared
+    @ObservedObject private var widgets = WidgetBridge.shared
 
     /// Filled once the roster has answered, which is what lets the live count
     /// include pilots the VA claims but whose callsigns carry no tag.
@@ -234,10 +540,12 @@ struct VaDetailSheet: View {
     }
 
     var body: some View {
-        MapPanel(title: ad.name, subtitle: subtitle) {
+        MapPanel(title: ad.name, subtitle: subtitle, accessory: AnyView(brandMark)) {
             identity
 
             liveFleet
+
+            homeScreen
 
             about
 
@@ -247,6 +555,18 @@ struct VaDetailSheet: View {
             _ = await VaAdsService.shared.roster(for: ad.id)
             hasRoster = true
         }
+    }
+
+    /// The VA's mark, opposite its name in the panel's title bar.
+    ///
+    /// The header aligns its row on the title's first baseline, and a view with
+    /// no text in it answers that with its own bottom edge — which would hang
+    /// the whole square above the title's cap. The guide moves the mark's
+    /// alignment point 5pt up from its bottom, dropping it by that much, which
+    /// centres a 30pt square on a 26pt title.
+    private var brandMark: some View {
+        VaLogoMark(ad: ad, side: 30)
+            .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 5 }
     }
 
     /// Always says "virtual airline", even when the VA has written its own
@@ -388,6 +708,52 @@ struct VaDetailSheet: View {
         let value = (icao ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         return value.isEmpty ? "———" : value
     }
+
+    // MARK: Home screen
+
+    /// Puts this VA on the home-screen widget.
+    ///
+    /// One pinned VA at a time, so it is a toggle rather than a list to
+    /// manage — pinning a second replaces the first, which is the bargain the
+    /// flight and airport tiles already make.
+    private var homeScreen: some View {
+        PanelSection(title: "HOME SCREEN") {
+            Button {
+                widgets.pinVa(isPinned ? nil : ad)
+            } label: {
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        PanelRowLabel(
+                            title: isPinned ? "Pinned to home screen" : "Pin to home screen",
+                            symbol: isPinned ? "square.grid.2x2.fill" : "square.grid.2x2"
+                        )
+
+                        Text(isPinned
+                             ? "The Virtual airline widget is showing \(ad.name)."
+                             : "Puts this VA's mark, and who is flying for it right now, on the Virtual airline widget.")
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundStyle(theme.textDim)
+                            .padding(.leading, 30)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer(minLength: 8)
+
+                    if isPinned {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(theme.textPrimary)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var isPinned: Bool { widgets.isVaPinned(ad) }
 
     // MARK: About
 

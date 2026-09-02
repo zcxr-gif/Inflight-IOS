@@ -53,6 +53,48 @@ enum RouteLineMode: String, CaseIterable, Identifiable {
     }
 }
 
+/// Which aeroplanes wear their callsign on the map.
+///
+/// Three answers rather than a switch, because the honest range of what people
+/// want here is three things: nothing, the one they are watching, and the lot.
+/// A switch would have to pick two of them.
+enum MarkerLabelMode: String, CaseIterable, Identifiable {
+
+    /// No callsigns. The map is aeroplanes and nothing else, which is what it
+    /// has always been.
+    case off
+
+    /// Only the open aircraft. One label on the map, on the aeroplane you are
+    /// already reading about — it costs nothing and it never collides with
+    /// anything, because there is only ever one of it.
+    case selected
+
+    /// Every aeroplane the map is drawing, once it is close enough in for that
+    /// to be readable rather than a smear. See `MapFilters.labelZoomSpan`.
+    case all
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .off: return "Off"
+        case .selected: return "Open"
+        case .all: return "All"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .off:
+            return "No callsigns on the map."
+        case .selected:
+            return "The callsign of the aircraft you have open, and no others."
+        case .all:
+            return "Every aircraft's callsign, once the map is zoomed in far enough to read them. Zoomed out they are dropped rather than drawn over each other — a thousand callsigns at continent scale is a smear, not a map."
+        }
+    }
+}
+
 /// What of the server's traffic the map is drawing.
 ///
 /// The feed is whole — every filter here is a view onto the aircraft already
@@ -238,6 +280,41 @@ final class MapFilters: ObservableObject {
         didSet { UserDefaults.standard.set(showsTerminator, forKey: Self.terminatorKey) }
     }
 
+    /// Which aeroplanes wear their callsign.
+    ///
+    /// Defaults to the open aircraft. Off is a map that has lost something it
+    /// could have told you for free; All is a decision about clutter that
+    /// belongs to whoever is looking at it, not to us — and one label, on the
+    /// aeroplane already being read about, is neither.
+    @Published var markerLabels: MarkerLabelMode {
+        didSet { UserDefaults.standard.set(markerLabels.rawValue, forKey: Self.markerLabelsKey) }
+    }
+
+    /// Whether an aeroplane flying a partner VA's callsign wears that VA's
+    /// logo above it.
+    ///
+    /// Costs one image per VA on screen, downloaded once and kept small — see
+    /// `VaMarkStore`. It is drawn ONLY on a callsign match, never on the
+    /// hubbed-at guess the flight window is allowed to make: a logo over an
+    /// aeroplane is read as whose aeroplane it is, and that is a claim we make
+    /// only where the callsign supports it.
+    ///
+    /// Held to the same zoom floor as the callsigns, because a logo is larger
+    /// than the text beside it and silts the map up sooner.
+    @Published var showsVaMarks: Bool {
+        didSet { UserDefaults.standard.set(showsVaMarks, forKey: Self.vaMarksKey) }
+    }
+
+    /// How far in the map has to be before every aeroplane gets marked, as a
+    /// span in degrees of latitude.
+    ///
+    /// Roughly a country across. Above it the aeroplanes are closer together
+    /// than their own labels are wide, so the labels are dropped — they would
+    /// cover each other and the traffic underneath, and the traffic is the map.
+    /// The open aircraft is exempt: it is one label, it is the thing being
+    /// looked at, and it never collides with a second of itself.
+    static let labelZoomSpan: Double = 12
+
     private static let routeLineKey = "map.routeLine"
 
     /// The switch this replaced, read once so an upgrade lands on the setting
@@ -251,6 +328,8 @@ final class MapFilters: ObservableObject {
     private static let atcBoundariesKey = "map.showsAtcBoundaries"
     private static let natKey = "map.showsNatTracks"
     private static let terminatorKey = "map.showsTerminator"
+    private static let markerLabelsKey = "map.markerLabels"
+    private static let vaMarksKey = "map.showsVaMarks"
 
     private init() {
         let defaults = UserDefaults.standard
@@ -270,6 +349,12 @@ final class MapFilters: ObservableObject {
         wantsAtcBoundaries = defaults.bool(forKey: Self.atcBoundariesKey)
         showsNatTracks = defaults.bool(forKey: Self.natKey)
         showsTerminator = defaults.object(forKey: Self.terminatorKey) as? Bool ?? true
+        markerLabels = MarkerLabelMode(rawValue: defaults.string(forKey: Self.markerLabelsKey) ?? "")
+            ?? .selected
+        // On by default. It is the partner VAs' own mark on their own pilots'
+        // aeroplanes, it is drawn only where the callsign says so, and it is
+        // the whole of what makes a VA's traffic findable on a busy server.
+        showsVaMarks = defaults.object(forKey: Self.vaMarksKey) as? Bool ?? true
         // On by default: the fields being worked are the most useful thing on
         // the map after the traffic, and a feature nobody finds is a feature
         // nobody has.
