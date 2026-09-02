@@ -329,6 +329,36 @@ final class FlightInfoAppearance: ObservableObject {
     /// ability to turn it *off*.
     var resolvedGlobeShowsPlanes: Bool { canEditPlanet ? globeShowsPlanes : true }
 
+    // MARK: - The flight window, as it is actually drawn
+
+    /// Whether this account may use the flight window's third look. See
+    /// `ProFeature.flightInfoLook`.
+    ///
+    /// What is behind this is a LAYOUT and never a fact. Every number the look
+    /// prints is on the free looks too — it is where they sit that is sold.
+    var canUseDetailLook: Bool { Entitlements.shared.has(.flightInfoLook) }
+
+    /// The peek style actually drawn.
+    ///
+    /// Read everywhere the peek is laid out, rather than `peakStyle` — the same
+    /// arrangement `resolvedGlobeSkin` has, and for the same reason. The stored
+    /// choice is left exactly as made, so a lapsed subscription drops the peek
+    /// back to Compact without forgetting that Detail was wanted, and it is
+    /// there again the moment Pro is.
+    ///
+    /// Falling back rather than hiding also settles the case that has no other
+    /// good answer: an account that chose Detail on a phone that is Pro, and
+    /// opened the app on one that is not.
+    var resolvedPeakStyle: FlightInfoPeakStyle {
+        peakStyle.isPro && !canUseDetailLook ? .compact : peakStyle
+    }
+
+    /// The open window's layout, resolved the same way. Falls back to `cards`,
+    /// which is the app's own and the one it has always opened on.
+    var resolvedWindowStyle: FlightInfoWindowStyle {
+        windowStyle.isPro && !canUseDetailLook ? .cards : windowStyle
+    }
+
     func adopt(systemScheme scheme: ColorScheme) {
         guard systemScheme != scheme else { return }
         systemScheme = scheme
@@ -452,12 +482,24 @@ enum FlightInfoPeakStyle: String, CaseIterable, Identifiable {
     /// already there rather than replacing it.
     case rich
 
+    /// Everything on one face: the operator's own bar, the route at board
+    /// size, the two live numbers, and the type and tail along the foot. Pro.
+    case detail
+
     var id: String { rawValue }
+
+    /// Whether this style is behind `ProFeature.flightInfoLook`.
+    ///
+    /// On the case rather than in the panel, so the picker, the paywall and
+    /// `FlightInfoAppearance.resolvedPeakStyle` cannot disagree about which
+    /// ones are sold.
+    var isPro: Bool { self == .detail }
 
     var label: String {
         switch self {
         case .compact: return "Compact"
         case .rich: return "Photo"
+        case .detail: return "Detail"
         }
     }
 
@@ -465,6 +507,7 @@ enum FlightInfoPeakStyle: String, CaseIterable, Identifiable {
         switch self {
         case .compact: return "A bar with a thumbnail"
         case .rich: return "Opens on the aircraft photo"
+        case .detail: return "Height, speed, type and tail, before you open it"
         }
     }
 }
@@ -482,17 +525,31 @@ enum FlightInfoPeakStyle: String, CaseIterable, Identifiable {
 /// gets in, all above the fold and all readable at a glance. Somebody meeting a
 /// flight wants that and nothing else. The cards are still under it — this
 /// changes the head of the window, not what the window knows.
+/// `detail` is a third answer and not a variation on either. Where `cards`
+/// leads with the aeroplane and `board` leads with the schedule, this one leads
+/// with the PICTURE — a full-bleed photograph under the operator's own bar,
+/// then both ends of the route large, then the live numbers. It is the shape a
+/// tracker's flight card takes, and it is the one worth having on a phone held
+/// up at an aeroplane rather than read sitting down.
 enum FlightInfoWindowStyle: String, CaseIterable, Identifiable {
 
     case cards
     case board
 
+    /// The photograph-led look. Pro — see `ProFeature.flightInfoLook`.
+    case detail
+
     var id: String { rawValue }
+
+    /// Whether this style is behind `ProFeature.flightInfoLook`. Same reason
+    /// as the peek's — one place decides what is sold.
+    var isPro: Bool { self == .detail }
 
     var label: String {
         switch self {
         case .cards: return "Cards"
         case .board: return "Board"
+        case .detail: return "Detail"
         }
     }
 
@@ -500,6 +557,7 @@ enum FlightInfoWindowStyle: String, CaseIterable, Identifiable {
         switch self {
         case .cards: return "rectangle.grid.1x2"
         case .board: return "arrow.left.arrow.right"
+        case .detail: return "photo.on.rectangle"
         }
     }
 
@@ -509,6 +567,8 @@ enum FlightInfoWindowStyle: String, CaseIterable, Identifiable {
             return "The app's own: the photo, then a card for each thing worth knowing."
         case .board:
             return "Both ends of the route, the times either side of them, and how far is left — the way a departures board reads. The cards follow underneath."
+        case .detail:
+            return "The photograph across the top, the operator's own bar over it, both ends of the route under it, and the live numbers beside them. The cards follow underneath."
         }
     }
 }
@@ -1145,6 +1205,9 @@ enum FlightInfoLayout {
         switch style {
         case .compact: return 272
         case .rich: return 400
+        // Between the two: it carries the compact bar's rows plus a readout
+        // column and a foot, but no hero photograph.
+        case .detail: return 322
         }
     }
 

@@ -75,6 +75,16 @@ enum ProFeature: String, CaseIterable, Identifiable {
     /// a tap instead of a guess at whether the pier you want is called B or 2B.
     case gateMap
 
+    /// The flight window's third look, in both of its states.
+    ///
+    /// What is sold is a LAYOUT, never a fact: every number this look prints —
+    /// the height, the speed, the type, the tail, how far is left — is on the
+    /// free looks too, in the cards that carry them. Pro buys having them all
+    /// on one face, and having the peek say them before the window is even
+    /// opened. Nothing about which aeroplanes can be seen, or what is known
+    /// about them, is behind this.
+    case flightInfoLook
+
     /// How many pilots a free account can watch. Low enough to be a real
     /// difference, high enough that the feature is genuinely usable free —
     /// nobody should have to pay to find out whether the list works.
@@ -106,6 +116,7 @@ enum ProFeature: String, CaseIterable, Identifiable {
         case .profileBanner: return "Your profile, your way"
         case .logbook: return "Every flight you've made"
         case .gateMap: return "Pick your gate off the map"
+        case .flightInfoLook: return "The flight window, denser"
         }
     }
 
@@ -131,6 +142,8 @@ enum ProFeature: String, CaseIterable, Identifiable {
             return "Your whole logbook, not just the last \(Self.freeLogbookEntries) flights — with the fields, fleet and hours behind it."
         case .gateMap:
             return "Open the field, see every stand it has, and tap the one you want. Planning a flight — both gates, both times — is free either way."
+        case .flightInfoLook:
+            return "A third look for the flight window: height, speed, type and tail on the peek before you open it, and a full-bleed photograph over both ends of the route when you do. The same numbers the free looks carry, on one face."
         }
     }
 
@@ -146,6 +159,7 @@ enum ProFeature: String, CaseIterable, Identifiable {
         case .profileBanner: return "photo.on.rectangle.angled"
         case .logbook: return "book.closed"
         case .gateMap: return "map.circle.fill"
+        case .flightInfoLook: return "rectangle.inset.filled.and.person.filled"
         }
     }
 }

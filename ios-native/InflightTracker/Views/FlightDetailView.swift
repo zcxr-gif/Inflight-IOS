@@ -170,7 +170,7 @@ struct FlightDetailView: View {
                         contributor: photoLoader.photo?.contributor,
                         registration: registration(for: flight),
                         theme: theme,
-                        style: appearance.peakStyle,
+                        style: appearance.resolvedPeakStyle,
                         width: geometry.size.width,
                         // The peak pages the whole set now, the same as the
                         // window above it. See `FlightInfoPeak.photos`.
@@ -179,7 +179,8 @@ struct FlightDetailView: View {
                         // actually on screen turns its photographs over.
                         isAutoplaying: settled,
                         heroCeiling: heroCeiling,
-                        partner: vaPartner
+                        partner: vaPartner,
+                        began: departed
                     )
                         // The peak lays out to the height it *wants*, not to
                         // the height the sheet currently is — and that is the
@@ -357,7 +358,7 @@ struct FlightDetailView: View {
     private var restingHeight: CGFloat {
         peakContentHeight > 80
             ? clampedPeakHeight(for: peakContentHeight)
-            : FlightInfoLayout.openingHeight(for: appearance.peakStyle)
+            : FlightInfoLayout.openingHeight(for: appearance.resolvedPeakStyle)
     }
 
     /// The tallest the peak's photograph may be drawn here.
@@ -542,20 +543,28 @@ struct FlightDetailView: View {
             VStack(spacing: 0) {
                 // Full bleed, flush with the top of the sheet: the photo is the
                 // window's header, not a card inside it.
-                FlightHero(
-                    image: imageLoader.image,
-                    spriteKey: flight.spriteKey,
-                    contributor: photoLoader.photo?.contributor,
-                    theme: theme,
-                    width: width,
-                    photos: photoLoader.photos,
-                    // Only while the full window is the half being looked at.
-                    isAutoplaying: !isCollapsed
-                )
-                .id(Self.topAnchor)
+                //
+                // Except under the detail look, which puts the operator's own
+                // bar ABOVE the photograph — so there the head owns the hero
+                // and draws it itself. Two heroes is the bug this guard is
+                // here to prevent, and it would be a silent one: the second
+                // would simply look like a very tall header.
+                if !usesDetailHead {
+                    FlightHero(
+                        image: imageLoader.image,
+                        spriteKey: flight.spriteKey,
+                        contributor: photoLoader.photo?.contributor,
+                        theme: theme,
+                        width: width,
+                        photos: photoLoader.photos,
+                        // Only while the full window is the half being looked at.
+                        isAutoplaying: !isCollapsed
+                    )
+                    .id(Self.topAnchor)
+                }
 
                 VStack(spacing: 12) {
-                    header(for: flight)
+                    header(for: flight, width: width)
 
                     FlightActionRow(
                         flight: flight,
@@ -581,11 +590,11 @@ struct FlightDetailView: View {
                     // the window's outer stack is already at the builder's
                     // ten-view ceiling.
                     VStack(spacing: 12) {
-                        // The board has already said where this flight is going
-                        // and how far is left, in bigger type and in one place.
-                        // Drawing the route card under it would be the same
-                        // three facts twice.
-                        if !usesBoard(for: flight) {
+                        // The board and the detail head have each already
+                        // said where this flight is going and how far is left,
+                        // in bigger type and in one place. Drawing the route
+                        // card under either would be the same three facts twice.
+                        if !usesBoard(for: flight), !usesDetailHead {
                             situationCard(for: flight)
                         }
 
@@ -665,13 +674,27 @@ struct FlightDetailView: View {
     /// The setting is a preference about how to draw a route, not a promise to
     /// draw one that does not exist.
     @ViewBuilder
-    private func header(for flight: Flight) -> some View {
+    private func header(for flight: Flight, width: CGFloat) -> some View {
         // The way back rides in the header rather than as another child of the
         // window's outer stack, which is already at the builder's ceiling.
         VStack(spacing: 12) {
             if let origin = origin { backRow(origin) }
 
-            if let progress = boardProgress(for: flight) {
+            if usesDetailHead {
+                FlightDetailHead(
+                    flight: flight,
+                    registration: registration(for: flight),
+                    theme: theme,
+                    image: imageLoader.image,
+                    contributor: photoLoader.photo?.contributor,
+                    photos: photoLoader.photos,
+                    isAutoplaying: !isCollapsed,
+                    width: width,
+                    began: departed,
+                    onSelectAirport: onSelectAirport
+                )
+                .id(Self.topAnchor)
+            } else if let progress = boardProgress(for: flight) {
                 FlightInfoBoard(
                     flight: flight,
                     registration: registration(for: flight),
@@ -725,12 +748,22 @@ struct FlightDetailView: View {
     /// The route the board would draw, when the board is what is wanted and
     /// there is a route to draw.
     private func boardProgress(for flight: Flight) -> FlightProgress? {
-        guard appearance.windowStyle == .board else { return nil }
+        guard appearance.resolvedWindowStyle == .board else { return nil }
         return FlightProgress(flight: flight)
     }
 
     private func usesBoard(for flight: Flight) -> Bool {
         boardProgress(for: flight) != nil
+    }
+
+    /// Whether the open window is wearing the detail look.
+    ///
+    /// Unlike the board this asks nothing about the route: the look is a
+    /// photograph, an operator's bar and whatever numbers there are, and every
+    /// one of those is worth drawing for an aircraft with nothing filed. The
+    /// route band inside it says "———" and the window is still the window.
+    private var usesDetailHead: Bool {
+        appearance.resolvedWindowStyle == .detail
     }
 
     private func registration(for flight: Flight) -> String {

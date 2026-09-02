@@ -43,6 +43,11 @@ struct FlightInfoPeak: View {
     /// Resolved by the window and handed down — see `VaPartnerLine`.
     var partner: VaPartner? = nil
 
+    /// When the flight was first seen moving. Resolved by the window from the
+    /// backend's history, like the board's, and used only by the detail look —
+    /// the other two peeks have nowhere to put a departure time.
+    var began: Date? = nil
+
     /// Width of the photo. Its height follows the photo's own aspect ratio, so
     /// a square shot and a wide airliner shot both sit in the row properly
     /// instead of being cropped to one fixed box.
@@ -82,6 +87,28 @@ struct FlightInfoPeak: View {
             }
             // Clears the window's grabber, which floats over the top of the
             // sheet rather than taking a band of its own.
+            .padding(.top, FlightInfoLayout.peakHandleClearance)
+            .padding(.horizontal, 16)
+            .padding(.bottom, FlightInfoLayout.peakBottomGap)
+
+        case .detail:
+            VStack(alignment: .leading, spacing: 12) {
+                // One view rather than this file's rows: the detail peek is a
+                // single face with its own internal divisions, and building it
+                // out of the compact bar's pieces would mean every future
+                // change to either having to be right for both.
+                FlightDetailPeek(
+                    flight: flight,
+                    registration: registration,
+                    theme: theme,
+                    image: image,
+                    photos: photos,
+                    isAutoplaying: isAutoplaying,
+                    began: began
+                )
+
+                VaPartnerLine(partner: partner, theme: theme)
+            }
             .padding(.top, FlightInfoLayout.peakHandleClearance)
             .padding(.horizontal, 16)
             .padding(.bottom, FlightInfoLayout.peakBottomGap)

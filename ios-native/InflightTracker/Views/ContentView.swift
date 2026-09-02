@@ -905,7 +905,7 @@ struct ContentView: View {
             // the sheet collapsing to a constant and growing back for no
             // reason anybody could see, which is exactly what it looked like.
             if wasOpen == nil {
-                peakHeight = FlightInfoLayout.openingHeight(for: appearance.peakStyle)
+                peakHeight = FlightInfoLayout.openingHeight(for: appearance.resolvedPeakStyle)
             }
 
             // The field is on its way out, and it should come back empty rather
