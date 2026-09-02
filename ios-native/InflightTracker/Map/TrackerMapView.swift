@@ -1474,15 +1474,19 @@ struct TrackerMapView: UIViewRepresentable {
             lastMarksFit = marksFitOnScreen(mapView)
             let selectedId = parent.selection?.id
 
-            for annotation in mapView.annotations {
-                guard let flight = annotation as? FlightAnnotation,
-                      let view = mapView.view(for: flight) as? FlightAnnotationView
+            // The coordinator's own aeroplanes rather than `mapView.annotations`,
+            // which is every marker on the map: the fields, the ground labels,
+            // the wind barbs, the plan's fixes. On a busy map zoomed in over an
+            // airport those outnumber the traffic, and every one of them was
+            // being cast, missed, and skipped on every pass and every pan.
+            for annotation in annotations.values {
+                guard let view = mapView.view(for: annotation) as? FlightAnnotationView
                 else { continue }
 
                 applyMarks(
-                    annotation: flight,
+                    annotation: annotation,
                     to: view,
-                    selected: flight.flightId == selectedId,
+                    selected: annotation.flightId == selectedId,
                     zoomedIn: lastMarksFit
                 )
             }
