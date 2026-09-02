@@ -49,11 +49,52 @@ final class WebSubscription: ObservableObject {
     /// otherwise looks like the app having simply forgotten.
     @Published var notice: String?
 
-    /// Whether a checkout was started from here and has not been accounted for
-    /// yet. This is the whole of the app's memory of the browser: it does not
-    /// know which session, or whether anybody paid, only that it sent somebody
-    /// somewhere and should ask when they get back.
-    private var awaitingReturn = false
+    /// When a checkout was started from here, if one is still unaccounted for.
+    ///
+    /// On disk rather than in memory, and that is the whole point: the checkout
+    /// happens in *another app*, and iOS is free to kill this one while Safari
+    /// has the screen. A claim held only in memory is exactly the claim that
+    /// goes missing in the case it exists for — somebody pays, comes back to a
+    /// freshly launched app, and nothing ever asks whether they did.
+    ///
+    /// It records only that a checkout was started. Not which session, not
+    /// whether anybody paid: the server is asked for that, and is the only
+    /// thing that answers it.
+    private var pendingSince: Date? {
+        get {
+            let seconds = UserDefaults.standard.double(forKey: Self.claimKey)
+            return seconds > 0 ? Date(timeIntervalSince1970: seconds) : nil
+        }
+        set {
+            if let newValue = newValue {
+                UserDefaults.standard.set(newValue.timeIntervalSince1970, forKey: Self.claimKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: Self.claimKey)
+            }
+        }
+    }
+
+    private static let claimKey = "inflight.webSubscription.pendingSince"
+
+    /// How long a claim is worth asking about. A day covers a checkout somebody
+    /// left open overnight and finished in the morning; past that, a payment
+    /// that never arrived is not going to, and asking Stripe on every launch
+    /// forever is not a thing to leave running.
+    private static let claimLifetime: TimeInterval = 24 * 60 * 60
+
+    /// Whether there is a checkout still to account for. Expired claims clear
+    /// themselves on the way past rather than needing a sweep.
+    private var awaitingReturn: Bool {
+        get {
+            guard let since = pendingSince else { return false }
+            guard Date().timeIntervalSince(since) <= Self.claimLifetime else {
+                pendingSince = nil
+                return false
+            }
+            return true
+        }
+        set { pendingSince = newValue ? Date() : nil }
+    }
 
     /// Set when the return page says the pilot backed out at Stripe. Read
     /// between tries as well as before them, because the deep link and the app

@@ -30,7 +30,6 @@ struct ProPanel: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
-    @Environment(\.scenePhase) private var scenePhase
 
     private var theme: FlightInfoTheme { appearance.theme }
 
@@ -82,15 +81,10 @@ struct ProPanel: View {
         // an admission that the gesture does not work.
         .presentationDragIndicator(.hidden)
         .task { await store.loadProducts() }
-        // Back from the web checkout. The paywall is still the screen the
-        // pilot left, so it is the screen that should answer for what happened
-        // in the browser — and it does nothing at all unless a checkout was
-        // actually started from here.
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active {
-                Task { await web.confirmIfAwaitingReturn() }
-            }
-        }
+        // A checkout left unaccounted for — paid in Safari on a launch that has
+        // since ended, say. `ContentView` asks on every foreground too; this is
+        // for the pilot who reopens the paywall rather than the app.
+        .task { await web.confirmIfAwaitingReturn() }
         // Bought here, or bought on another device while this was open: either
         // way the sheet has nothing left to sell.
         .onChange(of: entitlements.isPro) { _, isPro in

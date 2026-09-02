@@ -97,17 +97,43 @@ web option is one button, not a plan list, because there is nothing to choose.
    app.
 3. Stripe returns the browser to `inflight.info/app-return.html`, which does
    nothing but bounce to `inflight://open`.
-4. **The entitlement is granted by `stripe-webhook`**, which Stripe calls
-   directly and retries for days, resolving the account from the
-   `client_reference_id` the checkout carried. It lands whether or not anybody
-   comes back.
-5. On the way back the paywall asks `restore-pro-access` and re-reads
-   `pro_entitlement()` a few times, purely so a pilot who has just paid does
-   not sit looking at a paywall waiting for a webhook.
+4. The app asks **`restore-pro-access`** — which identifies the caller from
+   their own token, asks Stripe whether *that* account has a live
+   subscription, and writes the row — then re-reads `pro_entitlement()`. Five
+   tries over about twelve seconds while the paywall is up.
+5. And again on **every foreground** afterwards, until it is accounted for.
+   The claim is kept in `UserDefaults`, not in memory: the checkout happens in
+   Safari and iOS may kill this app while it is there, so a pilot who pays and
+   comes back to a freshly launched app is the case the claim exists for. It
+   expires after a day.
 
 Nothing in the app decides whether a payment worked, and nothing on the return
-page grants anything. That is deliberate: a redirect is the one step in this
-flow a person can close halfway.
+page grants anything — the server is asked, always. That is deliberate: a
+redirect is the one step in this flow a person can close halfway.
+
+### `stripe-webhook`, and why the app does not rely on it
+
+`stripe-webhook` is deployed, handles `checkout.session.completed` and the
+subscription lifecycle, and would make all of the above a mere speed-up. **It
+is not currently receiving anything.** As of 2026-09-02, no row in
+`public.subscriptions` had ever been written a second time — 19 rows going back
+to 2026-07-29, fifteen of them active monthly subscriptions, so renewals had
+certainly happened — and the function had no invocations at all in the
+available log window. The endpoint looks unregistered in the Stripe dashboard.
+
+Two consequences, and only the second is this app's problem:
+
+- **On the website**, renewals never refresh `current_period_end` and
+  cancellations never revoke. Eleven active rows carry a NULL period end,
+  which `pro_entitlement()` reads as "never expires". That is a billing
+  correctness bug, it predates any of this, and a subscription sold from this
+  app would land in the same state — so it is worth fixing before this
+  ships, not after.
+- **Here**, it means step 4 is not a speed-up but the actual grant, which is
+  why it repeats on every foreground rather than only on the return trip.
+
+If the endpoint is registered later, none of this changes: `restore-pro-access`
+is idempotent, and finding the row already written is a no-op.
 
 ### Sign-in is required
 

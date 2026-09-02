@@ -1049,6 +1049,11 @@ struct ContentView: View {
             switch phase {
             case .active:
                 Task { await Entitlements.shared.refreshFromServer() }
+                // And, if a web checkout is still unaccounted for, ask the
+                // server about it. Here rather than on the paywall because the
+                // pilot need not ever open the paywall again: they paid in
+                // Safari, and this app may have been killed while they did.
+                Task { await WebSubscription.shared.confirmIfAwaitingReturn() }
                 // And the same argument for the settings: another device may
                 // have changed a colour or added somebody to the watchlist
                 // while this one was in a pocket. One row, and nothing is
