@@ -474,12 +474,19 @@ struct FlightDetailPeek: View {
 /// What replaces the identity block when this look is chosen and the window is
 /// open.
 ///
-/// The operator's bar, the photograph under it at the size it wants to be, both
-/// ends of the route under that, then the live numbers. Cards on the window's
-/// own ground at the window's own spacing, so the sheet goes on being one
-/// stack of cards from the top of the photograph to the foot of the hints —
-/// this look decides the order and the emphasis of the first five, and the
-/// window's own cards follow underneath unchanged.
+/// A stack of blocks, in whatever order `FlightInfoBlocks` says, each wearing
+/// whatever colour it has been given. The window's own cards follow underneath
+/// unchanged — this look decides what the top of the sheet is made of, and the
+/// sheet goes on being a sheet.
+///
+/// ## Nothing here is said twice
+///
+/// The look owns the live numbers now. Before this it printed the height and
+/// the speed at the top of the window and the window printed them again in its
+/// telemetry card four cards down, which is the sort of thing you only notice
+/// once and then cannot stop noticing. So the telemetry block carries all four
+/// — height, speed, climb, heading — and `FlightDetailView` draws no telemetry
+/// card of its own under this look. One place, and it is the one you can move.
 struct FlightDetailHead: View {
 
     let flight: Flight
@@ -498,6 +505,8 @@ struct FlightDetailHead: View {
 
     var onSelectAirport: ((Airport) -> Void)? = nil
 
+    @ObservedObject private var arrangement = FlightInfoBlocks.shared
+
     private var progress: FlightProgress? {
         guard flight.departureIcao?.isEmpty == false,
               flight.arrivalIcao?.isEmpty == false else { return nil }
@@ -506,29 +515,60 @@ struct FlightDetailHead: View {
 
     var body: some View {
         VStack(spacing: 10) {
+            ForEach(arrangement.visible) { block in
+                content(for: block)
+                    // Keyed on the block rather than on its kind, so changing a
+                    // colour in the editor with the window open crosses to the
+                    // new one instead of cutting to it.
+                    .motion(Motion.panel, value: block)
+            }
+        }
+        // The whole stack re-lays out when a block is moved, switched off or
+        // added, and it does it as a movement rather than as a jump.
+        .motion(Motion.panel, value: arrangement.blocks)
+    }
+
+    /// One block, drawn and dressed.
+    ///
+    /// The photograph is the one that takes no card: it is a picture, and a
+    /// picture in a tinted card with a rule along the top is a picture in a
+    /// frame. It takes the corner and nothing else.
+    @ViewBuilder
+    private func content(for block: FlightInfoBlock) -> some View {
+        let dressed = theme.wearing(block)
+
+        switch block.kind {
+        case .identity:
             FlightDetailOperatorBar(
                 flight: flight,
-                theme: theme,
+                theme: dressed,
                 callsignSize: 24,
                 showsTypeChip: true,
                 showsTailChip: true,
                 registration: registration
             )
-            .flightInfoSurface(theme, radius: theme.radiusMedium, elevated: true)
+            .flightInfoBlock(block, theme: dressed, elevated: true)
 
+        case .photo:
             photograph
 
-            route
+        case .route:
+            route(dressed).flightInfoBlock(block, theme: dressed)
 
-            HStack(spacing: 8) {
-                cell("ALTITUDE", FlightDetailLook.altitude(flight), isEstimate: false)
-                cell("GROUND SPEED", FlightDetailLook.speed(flight), isEstimate: false)
-            }
+        case .progress:
+            run(dressed).flightInfoBlock(block, theme: dressed)
 
-            HStack(spacing: 8) {
-                cell("DEPARTED", departedValue, isEstimate: false)
-                cell("ARRIVING", arrivingValue, isEstimate: true)
-            }
+        case .times:
+            times(dressed).flightInfoBlock(block, theme: dressed)
+
+        case .telemetry:
+            telemetry(dressed).flightInfoBlock(block, theme: dressed)
+
+        case .aircraft:
+            aircraft(dressed).flightInfoBlock(block, theme: dressed)
+
+        case .position:
+            coordinates(dressed).flightInfoBlock(block, theme: dressed)
         }
     }
 
@@ -538,8 +578,8 @@ struct FlightDetailHead: View {
     ///
     /// The window's other looks run it full bleed off the top of the sheet,
     /// where it is the header and has an edge of the screen to end on. Here it
-    /// is the second card down with cards above and below it, so it takes the
-    /// same corner as they do and does not fade out at its foot — a picture
+    /// is one block among several with cards above and below it, so it takes
+    /// the same corner as they do and does not fade out at its foot — a picture
     /// dissolving into the middle of a stack reads as a rendering fault rather
     /// than as a seam.
     private var photograph: some View {
@@ -556,46 +596,99 @@ struct FlightDetailHead: View {
         .clipShape(RoundedRectangle(cornerRadius: theme.radiusMedium, style: .continuous))
     }
 
-    // MARK: Where, and how
+    // MARK: Where
 
-    private var route: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            FlightDetailRouteEnds(
-                flight: flight,
-                progress: progress,
+    private func route(_ theme: FlightInfoTheme) -> some View {
+        FlightDetailRouteEnds(
+            flight: flight,
+            progress: progress,
+            theme: theme,
+            codeSize: 36,
+            nameSize: 11,
+            badgeSize: 40,
+            onSelectAirport: onSelectAirport,
+            showsFlag: true
+        )
+        .padding(.horizontal, 14)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The bar, and the two distances either side of it.
+    ///
+    /// Draws the distances as dashes rather than drawing nothing when there is
+    /// no route: a block that is on and empty is a block that looks broken,
+    /// where a block saying "—" is a block saying nothing is filed.
+    @ViewBuilder
+    private func run(_ theme: FlightInfoTheme) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            RouteTrack(
+                fraction: progress?.fraction ?? 0,
                 theme: theme,
-                codeSize: 36,
-                nameSize: 11,
-                badgeSize: 40,
-                onSelectAirport: onSelectAirport,
-                showsFlag: true
+                planeSize: 13
             )
 
-            if let progress = progress {
-                RouteTrack(fraction: progress.fraction, theme: theme, planeSize: 13)
+            HStack(spacing: 8) {
+                Text(flownLine)
+                    .flightInfoLine(minimumScale: 0.7)
+                    .motionWords(flownLine)
 
-                HStack(spacing: 8) {
-                    Text(flownLine(progress))
-                        .flightInfoLine(minimumScale: 0.7)
-                        .motionWords(flownLine(progress))
+                Spacer(minLength: 6)
 
-                    Spacer(minLength: 6)
-
-                    Text(remainingLine(progress))
-                        .flightInfoLine(minimumScale: 0.7)
-                        .motionWords(remainingLine(progress))
-                }
-                .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
-                .foregroundStyle(theme.textDim)
+                Text(remainingLine)
+                    .flightInfoLine(minimumScale: 0.7)
+                    .motionWords(remainingLine)
             }
+            .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+            .foregroundStyle(theme.textDim)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .flightInfoSurface(theme, radius: theme.radiusMedium)
     }
 
-    private func cell(_ kicker: String, _ value: String, isEstimate: Bool) -> some View {
+    // MARK: How
+
+    private func times(_ theme: FlightInfoTheme) -> some View {
+        HStack(spacing: 0) {
+            cell("DEPARTED", departedValue, theme: theme, isEstimate: false)
+
+            divider(theme)
+
+            cell("ARRIVING", arrivingValue, theme: theme, isEstimate: true)
+        }
+        .padding(.vertical, 12)
+    }
+
+    /// The four live numbers, as two rows of two.
+    ///
+    /// All four, and this is the only place they are printed under this look —
+    /// see the note on the type. Height and speed lead because they are what a
+    /// glance is for; climb and heading follow because they are what you read
+    /// once you have decided to look properly.
+    private func telemetry(_ theme: FlightInfoTheme) -> some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 0) {
+                cell("ALTITUDE", FlightDetailLook.altitude(flight), theme: theme, isEstimate: false)
+                divider(theme)
+                cell("GROUND SPEED", FlightDetailLook.speed(flight), theme: theme, isEstimate: false)
+            }
+
+            HStack(spacing: 0) {
+                cell("VERTICAL", FlightDetailLook.vertical(flight), theme: theme, isEstimate: false)
+                divider(theme)
+                cell("HEADING", FlightDetailLook.heading(flight), theme: theme, isEstimate: false)
+            }
+        }
+        .padding(.vertical, 12)
+    }
+
+    private func cell(
+        _ kicker: String,
+        _ value: String,
+        theme: FlightInfoTheme,
+        isEstimate: Bool
+    ) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 5) {
                 // The mark that says this one is arithmetic rather than
@@ -618,19 +711,91 @@ struct FlightDetailHead: View {
                 .motionWords(value)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .flightInfoSurface(theme, radius: theme.radiusSmall)
+        .padding(.horizontal, 14)
+    }
+
+    /// The rule between two cells of one block.
+    ///
+    /// Cells inside a card rather than cards of their own, which is the change
+    /// this block made when it stopped being two rows of tiles: a block is one
+    /// thing you can move, colour and switch off, and a block made of four
+    /// separate cards is four things wearing the same colour.
+    private func divider(_ theme: FlightInfoTheme) -> some View {
+        Rectangle()
+            .fill(theme.stroke)
+            // A height rather than `maxHeight: .infinity`: a rectangle in a row
+            // that sizes itself is proposed no height at all and comes back ten
+            // points tall, which is a hairline hyphen between two cells.
+            .frame(width: 1, height: 32)
+    }
+
+    // MARK: What, and where exactly
+
+    /// What the aeroplane is, as rows.
+    ///
+    /// Label on the left, value on the right, one per line — the shape every
+    /// tracker reaches for when the answer is a word rather than a number, and
+    /// the right one here: a registration set in the same 19pt as a ground
+    /// speed reads as though it were changing.
+    private func aircraft(_ theme: FlightInfoTheme) -> some View {
+        VStack(spacing: 0) {
+            row("TYPE", flight.aircraftName.isEmpty ? "—" : flight.aircraftName, theme: theme)
+            row("REGISTRATION", registration.isEmpty ? "—" : registration, theme: theme, mono: true)
+            row("OPERATOR", operatorLine, theme: theme)
+            row("PILOT", flight.username ?? "—", theme: theme)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func coordinates(_ theme: FlightInfoTheme) -> some View {
+        VStack(spacing: 0) {
+            row("LATITUDE", FlightDetailLook.degrees(flight.latitude, positive: "N", negative: "S"), theme: theme, mono: true)
+            row("LONGITUDE", FlightDetailLook.degrees(flight.longitude, positive: "E", negative: "W"), theme: theme, mono: true)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func row(
+        _ kicker: String,
+        _ value: String,
+        theme: FlightInfoTheme,
+        mono: Bool = false
+    ) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(kicker)
+                .font(.system(size: 9, weight: .bold))
+                .tracking(0.7)
+                .foregroundStyle(theme.textDim)
+                .flightInfoLine(minimumScale: 0.7)
+
+            Spacer(minLength: 8)
+
+            Text(value)
+                .font(.system(size: 13, weight: .semibold, design: mono ? .monospaced : .default))
+                .foregroundStyle(theme.textPrimary)
+                .multilineTextAlignment(.trailing)
+                .flightInfoLine(minimumScale: 0.6)
+                .motionWords(value)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
     }
 
     // MARK: Lines
 
-    private func flownLine(_ progress: FlightProgress) -> String {
-        "\(Format.number(progress.flownNM)) NM FLOWN"
+    private var operatorLine: String {
+        let livery = flight.liveryName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return livery.isEmpty ? "—" : livery
     }
 
-    private func remainingLine(_ progress: FlightProgress) -> String {
-        "\(Format.number(progress.remainingNM)) NM TO RUN"
+    private var flownLine: String {
+        guard let progress = progress else { return "NOT FILED" }
+        return "\(Format.number(progress.flownNM)) NM FLOWN"
+    }
+
+    private var remainingLine: String {
+        guard let progress = progress else { return "NO ROUTE" }
+        return "\(Format.number(progress.remainingNM)) NM TO RUN"
     }
 
     private var departedValue: String {
@@ -643,6 +808,72 @@ struct FlightDetailHead: View {
               let remaining = progress.estimatedTimeEnroute(groundSpeedKnots: flight.groundSpeedKnots)
         else { return "—" }
         return "in \(Format.duration(remaining))"
+    }
+}
+
+// MARK: - Dressing a block
+
+extension View {
+
+    /// A block's card: the window's own surface, plus whatever colour the block
+    /// has been given.
+    ///
+    /// The four treatments are four different places to put a colour rather
+    /// than four amounts of it — a rule on the edge, the accents inside, the
+    /// whole ground, or none — and only the last two reach the content, which
+    /// `FlightInfoTheme.wearing(_:)` has already done by the time this is
+    /// applied.
+    fileprivate func flightInfoBlock(
+        _ block: FlightInfoBlock,
+        theme: FlightInfoTheme,
+        elevated: Bool = false
+    ) -> some View {
+        modifier(FlightInfoBlockSurface(block: block, theme: theme, elevated: elevated))
+    }
+}
+
+private struct FlightInfoBlockSurface: ViewModifier {
+
+    let block: FlightInfoBlock
+    let theme: FlightInfoTheme
+    let elevated: Bool
+
+    /// The colour this block is actually drawn in: its own, or the window's
+    /// accent for a block that has been given a treatment but no colour.
+    private var colour: Color { block.colour ?? theme.accent }
+
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: theme.radiusMedium, style: .continuous)
+    }
+
+    func body(content: Content) -> some View {
+        switch block.tint {
+        case .plain:
+            content.flightInfoSurface(theme, radius: theme.radiusMedium, elevated: elevated)
+
+        case .line:
+            content
+                .flightInfoSurface(theme, radius: theme.radiusMedium, elevated: elevated)
+                // Inside the card's own clip, so the rule takes the corner
+                // rather than crossing it.
+                .overlay(alignment: .top) {
+                    Rectangle().fill(colour).frame(height: 3)
+                }
+                .clipShape(shape)
+
+        case .accent:
+            content.flightInfoSurface(theme, radius: theme.radiusMedium, elevated: elevated)
+
+        case .filled:
+            // A real fill rather than a tinted piece of glass. Glass takes its
+            // colour from what is behind it, so a tint on it is a suggestion —
+            // and a block somebody has deliberately painted should be the
+            // colour they picked on every ground the window has.
+            content
+                .background { shape.fill(colour.opacity(theme.isLight ? 0.16 : 0.22)) }
+                .overlay { shape.strokeBorder(colour.opacity(0.45), lineWidth: 1) }
+                .clipShape(shape)
+        }
     }
 }
 
@@ -677,6 +908,31 @@ enum FlightDetailLook {
         let knots = flight.groundSpeedKnots
         guard knots.isFinite else { return "—" }
         return "\(Format.number(knots)) kts"
+    }
+
+    /// Signed, because the sign is the whole of what this number says: a
+    /// vertical speed without one is a rate with no direction.
+    static func vertical(_ flight: Flight) -> String {
+        let feetPerMinute = flight.verticalSpeedFPM
+        guard feetPerMinute.isFinite else { return "—" }
+        return "\(Format.signed(feetPerMinute)) fpm"
+    }
+
+    static func heading(_ flight: Flight) -> String {
+        guard flight.heading.isFinite else { return "—" }
+        return "\(Format.heading(flight.heading))°"
+    }
+
+    /// A coordinate as degrees and decimal minutes, which is how a position is
+    /// read out loud and written on a flight plan — 51°28.6'N rather than
+    /// 51.4772, which is a number a computer likes and nobody says.
+    static func degrees(_ value: Double, positive: String, negative: String) -> String {
+        guard value.isFinite else { return "—" }
+        let hemisphere = value < 0 ? negative : positive
+        let magnitude = abs(value)
+        let whole = Int(magnitude)
+        let minutes = (magnitude - Double(whole)) * 60
+        return String(format: "%d°%04.1f'%@", whole, minutes, hemisphere)
     }
 
     /// The model without its manufacturer: the feed sends "Boeing 777-300ER",

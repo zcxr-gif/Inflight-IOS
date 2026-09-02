@@ -609,7 +609,14 @@ struct FlightDetailView: View {
                         )
                     }
 
-                    telemetry(for: flight)
+                    // Not under the detail look, which carries all four of
+                    // these in its own live-numbers block — and carried two of
+                    // them twice before this, once at the top of the window and
+                    // once again four cards down. One place, and under that
+                    // look it is the one you can move and colour.
+                    if !usesDetailHead {
+                        telemetry(for: flight)
+                    }
 
                     if instruments.isEnabled {
                         InstrumentsCard(
