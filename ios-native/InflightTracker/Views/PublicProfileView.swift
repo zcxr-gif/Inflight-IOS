@@ -61,9 +61,15 @@ struct PublicProfileView: View {
     /// only thing a sheet can present.
     @State private var opened: ProfileLink?
 
+    /// A VA opened from the badge strip.
+    @State private var openedVa: VaAd?
+
     @State private var listing: Listing?
     @State private var isReporting = false
     @State private var isConfirmingBlock = false
+
+    /// Editing your own profile without leaving it — see `actions`.
+    @State private var isEditing = false
 
     private var theme: FlightInfoTheme { appearance.theme }
 
@@ -113,6 +119,7 @@ struct PublicProfileView: View {
                         liveCard
                         simCard
                         favouriteCard(profile)
+                        vaCard(profile)
                         statsCard
                         recordsCard
                         landingsCard
@@ -161,6 +168,16 @@ struct PublicProfileView: View {
                 )
                 .environmentObject(feed)
             )
+        }
+        .sheet(isPresented: $isEditing) {
+            // Re-read on the way out: the editor writes through ProfileStore,
+            // and this screen holds a card it fetched rather than that store's
+            // row, so without this a pilot saves a change and watches their own
+            // profile go on showing the old one.
+            AnyView(ProfileEditorView().onDisappear { Task { await load() } })
+        }
+        .sheet(item: $openedVa) { ad in
+            AnyView(VaDetailSheet(ad: ad).environmentObject(feed))
         }
         .sheet(isPresented: $isReporting) {
             ReportProfileSheet(handle: handle) { reason, detail in
@@ -345,10 +362,34 @@ struct PublicProfileView: View {
     private func actions(_ profile: PilotProfile) -> some View {
         HStack(spacing: 8) {
             if profile.isSelf {
-                Text("This is you.")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(theme.textDim)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                // This used to be the words "This is you." and nothing else,
+                // which is the one place in the app where a pilot is looking
+                // straight at the thing they want to change and is told only
+                // that it is theirs. Editing lived in the account panel, two
+                // screens away, and had to be gone and found.
+                Button {
+                    isEditing = true
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "square.and.pencil")
+                            .font(.system(size: 12, weight: .bold))
+                        Text("Edit profile")
+                            .font(.system(size: 13.5, weight: .bold, design: .rounded))
+                    }
+                    .foregroundStyle(theme.textPrimary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 11)
+                    .background {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(theme.elevatedFill)
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .strokeBorder(theme.stroke, lineWidth: 1)
+                            }
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Edit your profile")
             } else {
                 Button {
                     Task { await setFollowing(!profile.viewerFollows) }
@@ -523,6 +564,24 @@ struct PublicProfileView: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
             }
+            .padding(.horizontal, 16)
+        }
+    }
+
+    /// The VAs this pilot flies for.
+    ///
+    /// Handed the ids the profile asked for and the handle to check them
+    /// against; `VaBadgeStrip` is what decides which of them are actually
+    /// worn, and it decides it against the VAs' own rosters every time it
+    /// draws. See the note on that view.
+    @ViewBuilder
+    private func vaCard(_ profile: PilotProfile) -> some View {
+        if !profile.vaAdIds.isEmpty {
+            VaBadgeStrip(
+                ifUsername: profile.ifUsername,
+                wanted: profile.vaAdIds,
+                onOpen: { openedVa = $0 }
+            )
             .padding(.horizontal, 16)
         }
     }

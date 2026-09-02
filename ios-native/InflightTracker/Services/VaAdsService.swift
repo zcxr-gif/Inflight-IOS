@@ -271,6 +271,59 @@ final class VaAdsService {
         Task { await loadDirectory() }
     }
 
+    // MARK: - Repping a VA
+
+    /// The approved VAs whose roster this community handle actually appears on.
+    ///
+    /// This is the ENTITLEMENT behind a VA badge, and it is asked every time a
+    /// badge is drawn rather than trusted from what a profile stored. A profile
+    /// row says which VAs a pilot would like to wear; it cannot say whether
+    /// they may, because the rosters live in the partner backend and not in the
+    /// database the profile is in. So the badge is the intersection: what they
+    /// asked for, kept to what this answers.
+    ///
+    /// Two things fall out of that and both are the point. A pilot who writes
+    /// an id they have no claim to wears nothing, because drawing is what
+    /// performs the check. And a pilot who LEAVES a VA stops wearing it without
+    /// anybody clearing a field.
+    ///
+    /// Matched on the community handle, which nothing verifies — see
+    /// `PilotProfile.ifUsernameVerified`. The badge inherits the "claims to be"
+    /// caveat every other surface showing that handle already carries.
+    ///
+    /// Empty on any failure, which loses a badge and never a profile.
+    func rosterListings(forIfUsername username: String?) async -> [VaAd] {
+        let handle = (username ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !handle.isEmpty, handle.count <= 80 else { return [] }
+
+        if let cached = cachedRosterListings(for: handle) { return cached }
+
+        let ads = await fetchAds(
+            path: "/api/va-ads/for-pilot",
+            query: [URLQueryItem(name: "user", value: handle)]
+        ) ?? []
+
+        cache(rosterListings: ads, for: handle)
+        return ads
+    }
+
+    /// Answered listings, by handle. Held for the life of the process: a
+    /// roster changes on the scale of somebody joining a VA, and a profile
+    /// opened twice in one session should not ask twice.
+    private var rosterListingCache: [String: [VaAd]] = [:]
+
+    private func cachedRosterListings(for handle: String) -> [VaAd]? {
+        lock.lock()
+        defer { lock.unlock() }
+        return rosterListingCache[handle.lowercased()]
+    }
+
+    private func cache(rosterListings ads: [VaAd], for handle: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        rosterListingCache[handle.lowercased()] = ads
+    }
+
     // MARK: - Membership
 
     /// The VAs' rosters, by ad id, once each has answered. A VA with no roster
@@ -577,6 +630,12 @@ final class VaAdsService {
                 entries = array
             } else if let one = object["data"] as? [String: Any] {
                 entries = [one]
+            } else if let options = object["vaOptions"] as? [Any] {
+                // The roster endpoint's envelope. Its entries are thinner than
+                // a directory listing — an id, a name and a logo — which is
+                // exactly what `normalise` already tolerates, so it is one more
+                // shape here rather than a second parser somewhere else.
+                entries = options
             } else {
                 entries = []
             }
