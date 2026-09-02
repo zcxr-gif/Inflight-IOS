@@ -55,7 +55,59 @@ final class WebSubscription: ObservableObject {
     /// somewhere and should ask when they get back.
     private var awaitingReturn = false
 
+    /// Set when the return page says the pilot backed out at Stripe. Read
+    /// between tries as well as before them, because the deep link and the app
+    /// coming forward race each other and either can arrive first.
+    private var wasCancelled = false
+
     private init() {}
+
+    // MARK: - What the return page says
+
+    /// The result carried on `inflight://open?payment=…`, or nil for any other
+    /// link. Lives here rather than in `InflightLink` — that enum is the
+    /// contract between the widgets and the app, and a payment is neither.
+    static func paymentOutcome(from url: URL) -> Bool? {
+        guard url.scheme?.lowercased() == InflightLink.scheme,
+              let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
+              let outcome = items.first(where: { $0.name == "payment" })?.value
+        else { return nil }
+
+        switch outcome {
+        case "success": return true
+        case "cancel": return false
+        default: return nil
+        }
+    }
+
+    /// Called with what the return page said.
+    ///
+    /// A cancellation is worth hearing precisely because the alternative is
+    /// unknowable from here: an account with no subscription on it looks the
+    /// same whether nobody paid or Stripe has not finished. Told outright, the
+    /// paywall can stop rather than spend twelve seconds checking for
+    /// something nobody bought.
+    @MainActor
+    func settled(paid: Bool) async {
+        if paid {
+            // Already asking, because coming forward beat the link here. The
+            // link adds nothing to that, and staking a fresh claim over the
+            // top of it would leave one outstanding after the run finishes.
+            guard !isConfirming else { return }
+
+            // Otherwise the link is itself the claim, and does not depend on
+            // the one made when the checkout started: the app may have been
+            // killed in the background while Stripe had the screen.
+            awaitingReturn = true
+            wasCancelled = false
+            await confirmIfAwaitingReturn()
+        } else {
+            wasCancelled = true
+            awaitingReturn = false
+            problem = nil
+            notice = nil
+        }
+    }
 
     // MARK: - Buying
 
@@ -93,6 +145,7 @@ final class WebSubscription: ObservableObject {
                 accessToken: token
             )
             awaitingReturn = true
+            wasCancelled = false
             return checkout
         } catch {
             problem = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
@@ -135,6 +188,10 @@ final class WebSubscription: ObservableObject {
             if attempt > 0 {
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
             }
+
+            // The return page may have got here after this started. Nothing to
+            // say when it did: the pilot knows they cancelled.
+            if wasCancelled { return }
 
             if let token = await AccountStore.shared.currentAccessToken() {
                 // Whether it says yes or no, the entitlement is re-read below:

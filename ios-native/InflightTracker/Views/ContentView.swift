@@ -1017,6 +1017,15 @@ struct ContentView: View {
         .sheet(isPresented: $isShowingStylePaywall) { ProPanel(highlighted: stylePaywallFeature) }
         .sheet(isPresented: $isShowingFindMePaywall) { ProPanel(highlighted: .findMyAircraft) }
         .onOpenURL { url in
+            // Coming back from the web checkout, which is not a place in the
+            // app and so is not an `InflightLink`. Handled before the parse
+            // rather than after it, because `parse` answers nil for this and
+            // the guard below would swallow it.
+            if let paid = WebSubscription.paymentOutcome(from: url) {
+                Task { await WebSubscription.shared.settled(paid: paid) }
+                return
+            }
+
             guard let link = InflightLink.parse(url) else { return }
             open(link)
         }
