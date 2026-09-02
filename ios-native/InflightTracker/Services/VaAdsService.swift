@@ -239,6 +239,38 @@ final class VaAdsService {
         return entries.first { compact.hasPrefix($0.code) && bounds.contains($0.code.count) }?.ad
     }
 
+    // MARK: - The map's lookup
+
+    /// The VA flying this callsign, answered from the warm directory and
+    /// nothing else.
+    ///
+    /// The map needs this and cannot use `partner(for:)`: that one is `async`,
+    /// it consults the roster, and it falls back to advertising a VA hubbed at
+    /// an end of the route. Marking three thousand aeroplanes cannot suspend
+    /// three thousand times, must not put a roster request behind each one, and
+    /// must never draw a mark for a VA the aircraft has nothing to do with — a
+    /// logo over an aeroplane is read as whose aeroplane it is, so on the map
+    /// the callsign match is the ONLY claim worth making.
+    ///
+    /// Nil until `warmDirectory()` has landed, which is the correct answer
+    /// while we do not yet know: an unmarked aeroplane is right about our
+    /// ignorance, and a mark that arrives a second later is the directory
+    /// answering rather than the aircraft changing.
+    func warmPartner(callsign: String?) -> VaAd? {
+        matched(callsign: callsign)
+    }
+
+    /// Starts the directory load without waiting for it.
+    ///
+    /// The directory used to be fetched only when a flight window asked for a
+    /// partner. The map asks about every aeroplane on screen and can wait for
+    /// none of them, so it says once that it would like the directory and reads
+    /// `warmPartner` from then on. Idempotent — `beginDirectoryLoad` already
+    /// refuses to start a second one, and already holds off after a failure.
+    func warmDirectory() {
+        Task { await loadDirectory() }
+    }
+
     // MARK: - Membership
 
     /// The VAs' rosters, by ad id, once each has answered. A VA with no roster

@@ -168,6 +168,13 @@ struct TrackerMapView: UIViewRepresentable {
     /// flown path rather than a separate thing.
     var showsFlownPath = true
 
+    /// Which aeroplanes wear their callsign. See `MarkerLabelMode`.
+    var markerLabels: MarkerLabelMode = .selected
+
+    /// Whether an aeroplane on a partner VA's callsign wears that VA's logo.
+    /// See `MapFilters.showsVaMarks`.
+    var showsVaMarks = true
+
     /// The weather tiles to draw under the traffic, if any. Nil is the layer
     /// switched off, or switched on and still waiting for the frame index.
     var weatherTiles: MapWeatherTiles?
@@ -256,7 +263,7 @@ struct TrackerMapView: UIViewRepresentable {
         }
 
         mapView.register(
-            MKAnnotationView.self,
+            FlightAnnotationView.self,
             forAnnotationViewWithReuseIdentifier: Coordinator.reuseIdentifier
         )
 
@@ -554,6 +561,20 @@ struct TrackerMapView: UIViewRepresentable {
 
         init(_ parent: TrackerMapView) {
             self.parent = parent
+            super.init()
+
+            // The marks need the VA directory, and nothing else on the map was
+            // ever going to ask for it — the flight window's lookup only runs
+            // when a window is opened. Said once, here, and answered from the
+            // warm copy for every aeroplane after that.
+            VaMarkStore.shared.warm()
+
+            // A logo arriving is not a packet and not a gesture, so nothing
+            // else would repaint the aeroplanes that were waiting for it.
+            VaMarkStore.shared.onMarkArrived = { [weak self] in
+                guard let self = self, let mapView = self.markedMapView else { return }
+                self.refreshMarks(on: mapView)
+            }
         }
 
         // MARK: Style
@@ -801,7 +822,9 @@ struct TrackerMapView: UIViewRepresentable {
                 guard let view = mapView.view(for: annotation) else { continue }
 
                 if let flight = annotation as? FlightAnnotation {
-                    view.transform = rotation(
+                    // Only the aeroplane turns. The marks over it are in the
+                    // view's own upright space and stay where they are.
+                    (view as? FlightAnnotationView)?.spriteTransform = rotation(
                         for: flight.flight.heading,
                         at: flight.coordinate,
                         on: mapView
@@ -1222,6 +1245,11 @@ struct TrackerMapView: UIViewRepresentable {
             if !additions.isEmpty {
                 mapView.addAnnotations(additions)
             }
+
+            // Last, so the aeroplanes added on this pass already have their
+            // views. Also the pass that picks up a zoom change, since the
+            // region callbacks come back through here.
+            refreshMarks(on: mapView)
         }
 
         /// Everything within reach of the viewport — all of it.
@@ -1291,8 +1319,11 @@ struct TrackerMapView: UIViewRepresentable {
         /// picture that has not changed. The transform is the whole of what a
         /// frame of a turn actually needs.
         private func turn(annotation: FlightAnnotation, on mapView: MKMapView) {
-            guard let view = mapView.view(for: annotation) else { return }
-            view.transform = rotation(
+            guard let view = mapView.view(for: annotation) as? FlightAnnotationView else { return }
+            // The sprite's transform, never the view's — see the note at the
+            // top of `FlightAnnotationView` for what turning the whole view
+            // does to anything sitting above the aeroplane.
+            view.spriteTransform = rotation(
                 for: annotation.drawnHeading,
                 at: annotation.coordinate,
                 on: mapView
@@ -1301,7 +1332,7 @@ struct TrackerMapView: UIViewRepresentable {
         }
 
         private func refresh(annotation: FlightAnnotation, on mapView: MKMapView) {
-            guard let view = mapView.view(for: annotation) else { return }
+            guard let view = mapView.view(for: annotation) as? FlightAnnotationView else { return }
             apply(
                 annotation: annotation,
                 to: view,
@@ -1312,17 +1343,17 @@ struct TrackerMapView: UIViewRepresentable {
 
         private func apply(
             annotation: FlightAnnotation,
-            to view: MKAnnotationView,
+            to view: FlightAnnotationView,
             selected: Bool,
             on mapView: MKMapView
         ) {
             let key = annotation.flight.spriteKey
-            view.image = PlaneSprites.shared.icon(
+            view.spriteImage = PlaneSprites.shared.icon(
                 forKey: key,
                 selected: selected,
                 tint: appliedHighlighting.tint(for: annotation.flight.username)
             )
-            view.transform = rotation(
+            view.spriteTransform = rotation(
                 for: annotation.drawnHeading,
                 at: annotation.coordinate,
                 on: mapView
@@ -1330,6 +1361,130 @@ struct TrackerMapView: UIViewRepresentable {
 
             annotation.renderedSpriteKey = key
             annotation.renderedHeading = annotation.drawnHeading
+
+            // Setting the sprite resizes the view and lays the marks out
+            // against the new bounds, so the marks are written after it.
+            applyMarks(annotation: annotation, to: view, selected: selected)
+        }
+
+        // MARK: Marks
+
+        /// Whether the map is close enough in for every aeroplane to be marked.
+        ///
+        /// The open aircraft is exempt from this and is marked at any zoom —
+        /// see `MarkerLabelMode.selected`, and `MapFilters.labelZoomSpan` for
+        /// what the number is and why.
+        private func marksFitOnScreen(_ mapView: MKMapView) -> Bool {
+            let span = mapView.region.span.latitudeDelta
+            guard span.isFinite, span > 0 else { return false }
+            return span <= MapFilters.labelZoomSpan
+        }
+
+        /// The marks one aeroplane should be wearing, as the pair the view
+        /// takes and the key that says whether it has changed.
+        private func marks(
+            for annotation: FlightAnnotation,
+            selected: Bool,
+            zoomedIn: Bool
+        ) -> (mark: UIImage?, callsign: String?, key: String) {
+            // A label the map is too far out for, on an aeroplane that isn't
+            // the open one, is nothing at all — and answering that first is
+            // what keeps a zoomed-out map from doing a directory lookup per
+            // aircraft per packet.
+            let allowed = selected || zoomedIn
+            guard allowed else { return (nil, nil, "-") }
+
+            let flight = annotation.flight
+
+            let wantsCallsign: Bool
+            switch parent.markerLabels {
+            case .off:      wantsCallsign = false
+            case .selected: wantsCallsign = selected
+            case .all:      wantsCallsign = true
+            }
+
+            let text = wantsCallsign ? flight.callsign : nil
+
+            var image: UIImage?
+            var adId = ""
+            if parent.showsVaMarks, let ad = VaMarkStore.shared.partner(callsign: flight.callsign) {
+                adId = ad.id
+                // Asking is what starts the download, and nil until it lands.
+                image = VaMarkStore.shared.mark(for: ad)
+            }
+
+            let trimmed = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            // The key carries whether the image has actually arrived, not just
+            // which VA it is, so the aeroplane repaints once when it does.
+            let key = "\(adId)|\(image == nil ? 0 : 1)|\(trimmed)"
+            return (image, trimmed.isEmpty ? nil : trimmed, key)
+        }
+
+        private func applyMarks(
+            annotation: FlightAnnotation,
+            to view: FlightAnnotationView,
+            selected: Bool
+        ) {
+            applyMarks(
+                annotation: annotation,
+                to: view,
+                selected: selected,
+                zoomedIn: lastMarksFit
+            )
+        }
+
+        private func applyMarks(
+            annotation: FlightAnnotation,
+            to view: FlightAnnotationView,
+            selected: Bool,
+            zoomedIn: Bool
+        ) {
+            let wanted = marks(for: annotation, selected: selected, zoomedIn: zoomedIn)
+            guard annotation.renderedMarkKey != wanted.key else { return }
+            annotation.renderedMarkKey = wanted.key
+            view.apply(mark: wanted.mark, callsign: wanted.callsign)
+        }
+
+        /// Whether the marks fitted on screen as of the last pass, so a single
+        /// aeroplane being refreshed does not have to re-measure the region.
+        private var lastMarksFit = false
+
+        /// The map the marks were last drawn into, for the one caller that is
+        /// not handed it: a logo download finishing.
+        private weak var markedMapView: MKMapView?
+
+        /// Re-marks every aeroplane on the map.
+        ///
+        /// Called at the end of every traffic pass, which is also every pan and
+        /// every pinch (the region callbacks re-sync on their own throttle), and
+        /// again when a logo download lands. That covers all four things that
+        /// can change a mark without the aircraft itself changing: the setting,
+        /// the zoom, which aeroplane is open, and the directory answering.
+        ///
+        /// Cheap on a settled map: `applyMarks` compares a small key and does
+        /// nothing when it matches, which on most passes is every aeroplane.
+        func refreshMarks(on mapView: MKMapView) {
+            // Held so a logo landing between passes has something to repaint
+            // into. Deliberately not `flyingMapView`, which is the smoothing's
+            // and is nil whenever the display link is not running — which is
+            // most of the time, and is exactly when a download lands.
+            markedMapView = mapView
+
+            lastMarksFit = marksFitOnScreen(mapView)
+            let selectedId = parent.selection?.id
+
+            for annotation in mapView.annotations {
+                guard let flight = annotation as? FlightAnnotation,
+                      let view = mapView.view(for: flight) as? FlightAnnotationView
+                else { continue }
+
+                applyMarks(
+                    annotation: flight,
+                    to: view,
+                    selected: flight.flightId == selectedId,
+                    zoomedIn: lastMarksFit
+                )
+            }
         }
 
         // MARK: Selection
@@ -3368,9 +3523,14 @@ struct TrackerMapView: UIViewRepresentable {
             let view = mapView.dequeueReusableAnnotationView(
                 withIdentifier: Coordinator.reuseIdentifier,
                 for: flightAnnotation
+            ) as? FlightAnnotationView ?? FlightAnnotationView(
+                annotation: flightAnnotation,
+                reuseIdentifier: Coordinator.reuseIdentifier
             )
             view.canShowCallout = false
             view.displayPriority = .required
+            // Unchanged, and it stays honest because the marks are drawn
+            // outside the view's bounds — see `FlightAnnotationView`.
             view.collisionMode = .circle
 
             apply(

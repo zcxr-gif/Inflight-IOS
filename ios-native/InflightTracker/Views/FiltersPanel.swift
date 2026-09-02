@@ -125,6 +125,33 @@ struct FiltersPanel: View {
                 }
             }
 
+            // MARK: What an aeroplane says about itself
+            //
+            // Its own card because it is the only one here about the MARKERS
+            // rather than about layers drawn under or around them — what an
+            // aeroplane wears, as opposed to what the map draws near it. Both
+            // rows are held to the same zoom floor, which is the thing that
+            // keeps "All" from being a mistake: see `MapFilters.labelZoomSpan`.
+            PanelSection(title: "ON THE AIRCRAFT") {
+                PanelPickerRow(
+                    title: "Callsigns",
+                    symbol: "character.cursor.ibeam",
+                    options: MarkerLabelMode.allCases,
+                    label: { $0.label },
+                    detail: filters.markerLabels.detail,
+                    selection: $filters.markerLabels
+                )
+
+                PanelDivider()
+
+                PanelToggleRow(
+                    title: "Virtual airline logos",
+                    symbol: "airplane.circle",
+                    detail: "Puts a partner VA's own logo over the aeroplanes flying its callsign, so you can pick its traffic out of a busy server at a glance. Only where the callsign says so — never on a guess — and only once the map is zoomed in far enough to read them. Flat map only for now; the planet draws no marks on its traffic.",
+                    isOn: $filters.showsVaMarks
+                )
+            }
+
             // MARK: Controlled airspace
             //
             // Its own card, under the plan and above the traffic filters,

@@ -35,6 +35,16 @@ final class FlightAnnotation: NSObject, MKAnnotation {
     /// Heading currently applied as a rotation, for the same reason.
     var renderedHeading: Double?
 
+    /// The marks currently drawn over this aeroplane, as the key that says
+    /// whether they are still the right ones — the VA, whether its logo has
+    /// arrived, and the callsign text.
+    ///
+    /// Same bargain as the two above: the marks are re-derived for every
+    /// aeroplane on every traffic pass, and on a settled map the answer is the
+    /// one already on screen. Comparing a short string is what stops that pass
+    /// from touching a view.
+    var renderedMarkKey: String?
+
     /// Dead reckoning between packets, while this aircraft is being smoothed.
     ///
     /// Nil is the ordinary case and the old behaviour exactly: the annotation
