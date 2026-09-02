@@ -429,6 +429,19 @@ struct FlightHero: View {
     /// the peak state sets one, the full window leaves it open.
     var maxHeight: CGFloat = .greatestFiniteMagnitude
 
+    /// Whether the photograph dissolves into whatever it is sitting on.
+    ///
+    /// True everywhere the header is the top of the window itself: the picture
+    /// fades out at its foot, the window's ground comes through, and the
+    /// identity block rides the seam between the two.
+    ///
+    /// False where the photograph is a card in a stack rather than the top of
+    /// the sheet — the detail look, which takes the window's own corner on it
+    /// and puts the route in a card of its own underneath. A picture that
+    /// dissolves in the middle of a stack reads as a rendering fault rather
+    /// than as a seam.
+    var fadesIntoGround: Bool = true
+
     @State private var page = 0
 
     private var isGallery: Bool { photos.count > 1 }
@@ -502,7 +515,13 @@ struct FlightHero: View {
         .overlay { PhotoScrim(theme: theme).allowsHitTesting(false) }
         // The photo's own alpha is faded out at the bottom, so it melts into
         // the window's ground rather than ending on a black band.
-        .mask { PhotoFadeMask() }
+        .mask {
+            if fadesIntoGround {
+                PhotoFadeMask()
+            } else {
+                Rectangle()
+            }
+        }
         // Both of these go on after the mask, so neither fades out with the
         // bottom of the photograph.
         //

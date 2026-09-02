@@ -541,15 +541,35 @@ struct FlightDetailView: View {
     private func scrollBody(for flight: Flight, width: CGFloat) -> some View {
         ScrollView(.vertical) {
             VStack(spacing: 0) {
-                // Full bleed, flush with the top of the sheet: the photo is the
+                // Full bleed, flush with the top of the sheet: the head is the
                 // window's header, not a card inside it.
                 //
-                // Except under the detail look, which puts the operator's own
-                // bar ABOVE the photograph — so there the head owns the hero
-                // and draws it itself. Two heroes is the bug this guard is
-                // here to prevent, and it would be a silent one: the second
-                // would simply look like a very tall header.
-                if !usesDetailHead {
+                // Under the detail look that head is the whole arrangement of
+                // bands — the photograph is one of them, and which one is the
+                // reader's business — so it takes this slot entire and owns the
+                // hero itself. It has to be HERE rather than inside the column
+                // below: its bands run to both edges of the sheet, and a band
+                // drawn inside a fourteen-point inset is a card, which is the
+                // look it exists not to be.
+                if usesDetailHead {
+                    FlightDetailHead(
+                        flight: flight,
+                        registration: registration(for: flight),
+                        theme: theme,
+                        image: imageLoader.image,
+                        contributor: photoLoader.photo?.contributor,
+                        photos: photoLoader.photos,
+                        isAutoplaying: !isCollapsed,
+                        width: width,
+                        began: departed,
+                        // The window's pull handle floats over the top of the
+                        // sheet. A photograph is what a floating pill is
+                        // designed to sit on; a callsign is not.
+                        handleClearance: WindowGrabber.bandHeight,
+                        onSelectAirport: onSelectAirport
+                    )
+                    .id(Self.topAnchor)
+                } else {
                     FlightHero(
                         image: imageLoader.image,
                         spriteKey: flight.spriteKey,
@@ -609,7 +629,14 @@ struct FlightDetailView: View {
                         )
                     }
 
-                    telemetry(for: flight)
+                    // Not under the detail look, which carries all four of
+                    // these in its own live-numbers block — and carried two of
+                    // them twice before this, once at the top of the window and
+                    // once again four cards down. One place, and under that
+                    // look it is the one you can move and colour.
+                    if !usesDetailHead {
+                        telemetry(for: flight)
+                    }
 
                     if instruments.isEnabled {
                         InstrumentsCard(
@@ -648,7 +675,13 @@ struct FlightDetailView: View {
                 // Negative, so the identity block rides the seam where the
                 // photo dissolves into the window instead of sitting inside
                 // one or the other.
-                .padding(.top, -FlightInfoLayout.heroSeamLift)
+                //
+                // Only where there IS a seam. The detail look's head ends on a
+                // hairline rather than dissolving into the window, so there is
+                // nothing to close up — and the lift would pull the first card
+                // up over the rule the head closes itself with. A plain gap
+                // instead, the same one the cards keep between each other.
+                .padding(.top, usesDetailHead ? 12 : -FlightInfoLayout.heroSeamLift)
                 // Clears the home indicator, which the window now draws under.
                 .padding(.bottom, 40)
                 // iPad and landscape keep a phone-width column rather than
@@ -680,20 +713,10 @@ struct FlightDetailView: View {
         VStack(spacing: 12) {
             if let origin = origin { backRow(origin) }
 
+            // Nothing for the detail look: its head is drawn above this column,
+            // full bleed, in the slot the photograph has under the other two.
             if usesDetailHead {
-                FlightDetailHead(
-                    flight: flight,
-                    registration: registration(for: flight),
-                    theme: theme,
-                    image: imageLoader.image,
-                    contributor: photoLoader.photo?.contributor,
-                    photos: photoLoader.photos,
-                    isAutoplaying: !isCollapsed,
-                    width: width,
-                    began: departed,
-                    onSelectAirport: onSelectAirport
-                )
-                .id(Self.topAnchor)
+                EmptyView()
             } else if let progress = boardProgress(for: flight) {
                 FlightInfoBoard(
                     flight: flight,

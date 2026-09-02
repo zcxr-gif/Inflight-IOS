@@ -29,12 +29,20 @@ struct FlightWindowPanel: View {
 
     @ObservedObject private var appearance = FlightInfoAppearance.shared
 
+    /// Observed, not just read: the row below counts what is switched on, and
+    /// the editor that changes that count is a sheet over this page.
+    @ObservedObject private var arrangement = FlightInfoBlocks.shared
+
     /// Which half of the window the preview is showing. The peek and the open
     /// window are two different sets of choices, and each one is worth seeing
     /// while it is being made.
     @State private var stage: Stage = .peek
 
     @State private var isShowingPaywall = false
+
+    /// The blocks editor, which is a list rather than a choice — see
+    /// `FlightInfoBlocksPanel` for why it is not a section on this page.
+    @State private var isShowingBlocks = false
 
     /// How wide the drawing actually came out.
     ///
@@ -74,6 +82,15 @@ struct FlightWindowPanel: View {
     }
 
     private var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
+
+    /// What the blocks row says it will do, counting what is actually on. A
+    /// number rather than a description: the list itself is the description,
+    /// and this is the line that says whether it is worth opening.
+    private var blocksDetail: String {
+        let shown = arrangement.visible.count
+        let all = arrangement.blocks.count
+        return "Reorder them, switch them off, give each one a colour. \(shown) of \(all) on."
+    }
 
     /// The peek picker's binding, with the Pro case intercepted.
     ///
@@ -137,6 +154,21 @@ struct FlightWindowPanel: View {
                     detail: appearance.resolvedWindowStyle.detail,
                     selection: windowSelection
                 )
+
+                // Only under Detail, and not because the other two are lesser:
+                // they are fixed arrangements on purpose, and a row offering to
+                // rearrange a window that cannot be rearranged is a row that
+                // has to explain itself. See `FlightInfoBlocks`.
+                if appearance.resolvedWindowStyle == .detail {
+                    PanelDivider()
+
+                    PanelActionRow(
+                        title: "Blocks",
+                        symbol: "square.stack.3d.up",
+                        detail: blocksDetail,
+                        action: { isShowingBlocks = true }
+                    )
+                }
             }
             .panelEntrance(2)
 
@@ -168,6 +200,9 @@ struct FlightWindowPanel: View {
         }
         .sheet(isPresented: $isShowingPaywall) {
             ProPanel(highlighted: .flightInfoLook)
+        }
+        .sheet(isPresented: $isShowingBlocks) {
+            FlightInfoBlocksPanel()
         }
     }
 
@@ -258,8 +293,12 @@ struct FlightWindowPanel: View {
             )
 
         case .open:
+            // The detail look's head runs to both edges of the window it is
+            // drawn in, so the preview must not inset it either — a drawing of
+            // a full-bleed face inside a fourteen-point margin is a drawing of
+            // something else.
             openHead
-                .padding(.horizontal, 14)
+                .padding(.horizontal, appearance.resolvedWindowStyle == .detail ? 0 : 14)
                 .padding(.top, 4)
         }
     }
