@@ -260,6 +260,24 @@ final class VaAdsService {
         matched(callsign: callsign)
     }
 
+    /// One listing from the warm directory, by id.
+    ///
+    /// For the widget snapshot, which is rebuilt from every packet and holds a
+    /// pinned VA's id rather than a copy of its fields — a copy would be a
+    /// second place for a VA's name and hubs to go stale, and the directory is
+    /// already in memory. Nil until the directory lands, which leaves the tile
+    /// showing what it showed before rather than blanking it.
+    func warmListing(id: String) -> VaAd? {
+        let wanted = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !wanted.isEmpty else { return nil }
+
+        lock.lock()
+        let entries = directory
+        lock.unlock()
+
+        return entries.first { $0.ad.id == wanted }?.ad
+    }
+
     /// Starts the directory load without waiting for it.
     ///
     /// The directory used to be fetched only when a flight window asked for a

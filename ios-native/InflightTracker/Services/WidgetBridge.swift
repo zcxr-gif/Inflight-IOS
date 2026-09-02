@@ -23,8 +23,17 @@ final class WidgetBridge: ObservableObject {
     /// The field the user chose to keep on their home screen.
     @Published private(set) var pinnedAirportIcao: String?
 
+    /// The VA the user chose to keep on their home screen, as a listing id.
+    ///
+    /// The id and nothing else. The tile needs the VA's name, callsign and
+    /// hubs too, but those are rebuilt from the directory on every packet
+    /// rather than copied here — a copy is a second place for a VA's own
+    /// details to go stale, and the directory is already in memory.
+    @Published private(set) var pinnedVaId: String?
+
     private static let pinnedKey = "widget.pinnedFlightId"
     private static let pinnedAirportKey = "widget.pinnedAirportIcao"
+    private static let pinnedVaKey = "widget.pinnedVaId"
 
     /// How many watched pilots the snapshot carries.
     ///
@@ -49,6 +58,7 @@ final class WidgetBridge: ObservableObject {
         defaults = UserDefaults(suiteName: SharedStore.appGroupIdentifier) ?? .standard
         pinnedFlightId = defaults.string(forKey: Self.pinnedKey)
         pinnedAirportIcao = defaults.string(forKey: Self.pinnedAirportKey)
+        pinnedVaId = defaults.string(forKey: Self.pinnedVaKey)
     }
 
     // MARK: - Pinning
@@ -79,6 +89,53 @@ final class WidgetBridge: ObservableObject {
 
     func isAirportPinned(_ icao: String) -> Bool {
         pinnedAirportIcao == icao.uppercased()
+    }
+
+    /// Pins a VA, and fetches its logo into the shared cache while doing it.
+    ///
+    /// The logo is fetched HERE rather than in the snapshot pass. The snapshot
+    /// is rebuilt several times a minute and the logo changes about never, so
+    /// putting the download on the pin means one request for as long as the
+    /// tile is on the home screen — and it means the picture is already in the
+    /// cache by the time the first tile renders, rather than the widget's first
+    /// impression being a monogram.
+    func pinVa(_ ad: VaAd?) {
+        pinnedVaId = ad?.id
+        if let ad = ad {
+            defaults.set(ad.id, forKey: Self.pinnedVaKey)
+            // The snapshot is built from the warm directory, so a VA pinned
+            // before the directory has landed would sit blank until something
+            // else asked for it.
+            VaAdsService.shared.warmDirectory()
+            cacheLogo(for: ad)
+        } else {
+            defaults.removeObject(forKey: Self.pinnedVaKey)
+        }
+        lastReload = .distantPast
+    }
+
+    func isVaPinned(_ ad: VaAd) -> Bool { pinnedVaId == ad.id }
+
+    /// Puts a VA's logo where the widget process can read it.
+    ///
+    /// Skipped when it is already there — a re-pin of the same VA, or a second
+    /// launch — so this costs one request per VA ever, not one per pin.
+    private func cacheLogo(for ad: VaAd) {
+        let key = PhotoKey.make(type: "va", livery: ad.id)
+        guard let url = ad.logo, !SharedStore.hasPhoto(for: key) else { return }
+
+        URLSession.shared.dataTask(with: url) { data, response, _ in
+            guard let data = data, !data.isEmpty, data.count <= 4_000_000 else { return }
+            if let http = response as? HTTPURLResponse,
+               !(200..<300).contains(http.statusCode) { return }
+            guard SharedStore.storePhoto(data, for: key) else { return }
+
+            // The tile it was fetched for is on screen already, drawing a
+            // monogram. Worth a reload of its own.
+            DispatchQueue.main.async {
+                WidgetCenter.shared.reloadAllTimelines()
+            }
+        }.resume()
     }
 
     // MARK: - Snapshot
@@ -132,6 +189,7 @@ final class WidgetBridge: ObservableObject {
             mine: mine,
             friendCount: FriendsStore.shared.count,
             airport: pinnedAirport(in: flights, atcStations: atcStations),
+            va: pinnedVa(in: flights),
             updatedAt: Date()
         )
         SharedStore.save(snapshot)
@@ -173,6 +231,58 @@ final class WidgetBridge: ObservableObject {
             hasPhoto: SharedStore.hasPhoto(for: PhotoKey.make(type: "airport", livery: airport.icao)),
             capturedAt: Date()
         )
+    }
+
+    /// The pinned VA's fleet, worked out on the packet the app already has.
+    ///
+    /// `VaAdsService.fleet(of:in:)` is the same matcher the VA's own panel
+    /// uses, so the tile and the panel cannot disagree about whose aeroplane is
+    /// whose. Nil while the directory is still loading, which leaves the tile
+    /// showing its last good render rather than blanking it.
+    private func pinnedVa(in flights: [Flight]) -> WidgetVa? {
+        guard let id = pinnedVaId,
+              let ad = VaAdsService.shared.warmListing(id: id) else { return nil }
+
+        let fleet = VaAdsService.shared.fleet(of: ad, in: flights)
+
+        // Airborne first, then highest — the aeroplane at cruise is the one
+        // worth the top row, and one on a stand is the one worth the last.
+        let sorted = fleet.sorted { lhs, rhs in
+            let lhsUp = lhs.altitudeFeet >= 1_000 || lhs.groundSpeedKnots >= 40
+            let rhsUp = rhs.altitudeFeet >= 1_000 || rhs.groundSpeedKnots >= 40
+            if lhsUp != rhsUp { return lhsUp }
+            return lhs.altitudeFeet > rhs.altitudeFeet
+        }
+
+        let airborne = sorted.filter { $0.altitudeFeet >= 1_000 || $0.groundSpeedKnots >= 40 }
+
+        return WidgetVa(
+            id: ad.id,
+            name: ad.name,
+            callsign: ad.callsign,
+            hubs: Array(ad.hubs.prefix(4)),
+            totalCount: sorted.count,
+            airborneCount: airborne.count,
+            // Six, like the airport tile's arrivals: more than the largest
+            // family draws, so one snapshot serves them all.
+            fleet: sorted.prefix(6).map { flight in
+                WidgetMovement(
+                    id: flight.id,
+                    callsign: flight.displayName,
+                    aircraftType: flight.aircraftName,
+                    detail: "\(endpoint(flight.departureIcao)) → \(endpoint(flight.arrivalIcao))"
+                )
+            },
+            hasLogo: SharedStore.hasPhoto(for: PhotoKey.make(type: "va", livery: ad.id)),
+            capturedAt: Date()
+        )
+    }
+
+    /// An endpoint, or the mark that stands in for one that was never filed —
+    /// the same one `VaDetailSheet` prints, so the tile reads like the panel.
+    private func endpoint(_ icao: String?) -> String {
+        let value = (icao ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? "———" : value
     }
 
     private func atcPositions(at icao: String, in stations: [AtcStation]) -> [String] {

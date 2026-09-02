@@ -1,7 +1,7 @@
 import SwiftUI
 import WidgetKit
 
-/// Everything the extension publishes: two home-screen tiles and the live
+/// Everything the extension publishes: four home-screen tiles and the live
 /// banner.
 @main
 struct InflightWidgetBundle: WidgetBundle {
@@ -10,6 +10,7 @@ struct InflightWidgetBundle: WidgetBundle {
         FlightWidget()
         FriendsWidget()
         AirportWidget()
+        VaWidget()
         InflightLiveActivity()
     }
 }

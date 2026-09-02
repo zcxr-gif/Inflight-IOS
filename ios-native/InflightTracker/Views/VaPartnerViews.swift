@@ -521,6 +521,7 @@ struct VaDetailSheet: View {
 
     @EnvironmentObject private var feed: LiveFeed
     @ObservedObject private var appearance = FlightInfoAppearance.shared
+    @ObservedObject private var widgets = WidgetBridge.shared
 
     /// Filled once the roster has answered, which is what lets the live count
     /// include pilots the VA claims but whose callsigns carry no tag.
@@ -543,6 +544,8 @@ struct VaDetailSheet: View {
             identity
 
             liveFleet
+
+            homeScreen
 
             about
 
@@ -705,6 +708,52 @@ struct VaDetailSheet: View {
         let value = (icao ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         return value.isEmpty ? "———" : value
     }
+
+    // MARK: Home screen
+
+    /// Puts this VA on the home-screen widget.
+    ///
+    /// One pinned VA at a time, so it is a toggle rather than a list to
+    /// manage — pinning a second replaces the first, which is the bargain the
+    /// flight and airport tiles already make.
+    private var homeScreen: some View {
+        PanelSection(title: "HOME SCREEN") {
+            Button {
+                widgets.pinVa(isPinned ? nil : ad)
+            } label: {
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        PanelRowLabel(
+                            title: isPinned ? "Pinned to home screen" : "Pin to home screen",
+                            symbol: isPinned ? "square.grid.2x2.fill" : "square.grid.2x2"
+                        )
+
+                        Text(isPinned
+                             ? "The Virtual airline widget is showing \(ad.name)."
+                             : "Puts this VA's mark, and who is flying for it right now, on the Virtual airline widget.")
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundStyle(theme.textDim)
+                            .padding(.leading, 30)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer(minLength: 8)
+
+                    if isPinned {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(theme.textPrimary)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var isPinned: Bool { widgets.isVaPinned(ad) }
 
     // MARK: About
 
