@@ -114,12 +114,15 @@ workflows:
             exit 1
           fi
 
-          # The airport table is a loose bundle resource; if it misses the copy
-          # phase, every route card comes up blank — at runtime, with no build
-          # error to explain it. The aircraft marks used to need the same guard
-          # when they were a sprite sheet; they are Swift now, so a missing one
-          # is a compile error rather than an empty map.
-          for RESOURCE in airports.txt; do
+          # Loose bundle resources; if one misses the copy phase it fails at
+          # runtime with no build error to explain it. The airport table blanks
+          # every route card, the borders leave the planet without coastlines,
+          # and the boundary set gives the airspace layer a switch that turns on
+          # and draws nothing — that one behind a paywall, so the first person
+          # to find it has paid for it. The aircraft marks used to be on this
+          # list when they were a sprite sheet; they are Swift now, so a missing
+          # one is a compile error rather than an empty map.
+          for RESOURCE in airports.txt atc-boundaries.bin world-borders.bin; do
             if ! grep -q "$RESOURCE" "$XCODE_PROJECT/project.pbxproj"; then
               echo "FATAL: $RESOURCE is not part of the app target."
               exit 1
