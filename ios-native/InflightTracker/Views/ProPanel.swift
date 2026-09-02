@@ -25,10 +25,12 @@ struct ProPanel: View {
 
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @ObservedObject private var store = ProStore.shared
+    @ObservedObject private var web = WebSubscription.shared
     @ObservedObject private var entitlements = Entitlements.shared
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
 
     private var theme: FlightInfoTheme { appearance.theme }
 
@@ -80,6 +82,15 @@ struct ProPanel: View {
         // an admission that the gesture does not work.
         .presentationDragIndicator(.hidden)
         .task { await store.loadProducts() }
+        // Back from the web checkout. The paywall is still the screen the
+        // pilot left, so it is the screen that should answer for what happened
+        // in the browser — and it does nothing at all unless a checkout was
+        // actually started from here.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                Task { await web.confirmIfAwaitingReturn() }
+            }
+        }
         // Bought here, or bought on another device while this was open: either
         // way the sheet has nothing left to sell.
         .onChange(of: entitlements.isPro) { _, isPro in
@@ -194,10 +205,11 @@ struct ProPanel: View {
         .padding(.vertical, 13)
     }
 
-    /// The web subscription is honoured but deliberately not *sold* here: an
-    /// in-app link out to a payment page for the app's own features is what
-    /// App Review rejects builds over. This says where an existing
-    /// subscription is recognised from, and offers nothing to tap.
+    /// Where a subscription bought somewhere else is recognised from.
+    ///
+    /// Not the same thing as the button at the bottom, and worth saying
+    /// separately: somebody who already pays on the website has nothing to buy
+    /// here at all, and the answer is to sign in rather than to pay again.
     private var alreadySubscribed: some View {
         Text("Already subscribed on inflight.info? Sign into that account under Account and Pro unlocks here too.")
             .font(.system(size: 10.5, weight: .medium))
@@ -226,6 +238,8 @@ struct ProPanel: View {
             }
 
             buyButton
+
+            webOption
 
             legal
         }
@@ -363,8 +377,65 @@ struct ProPanel: View {
     private var buttonTitle: String {
         if store.purchasing != nil { return "Contacting the App Store…" }
         if store.product(for: store.selected) == nil { return "Loading prices…" }
-        if store.isEligibleForIntroOffer == true { return "Start free trial" }
         return "Continue"
+    }
+
+    // MARK: - Paying on the website instead
+
+    /// The other way to pay: the monthly subscription inflight.info sells
+    /// through Stripe.
+    ///
+    /// Secondary on purpose, and drawn as a link rather than a second filled
+    /// button — the App Store plans above are the ones most people should take
+    /// and two equal buttons would only make the screen ask a question it does
+    /// not need to. What this is for is the pilot who already pays for things
+    /// on the website, or who wants the subscription on an account rather than
+    /// on an Apple Account.
+    ///
+    /// One plan, because Stripe has one: a month. Nothing here offers a year,
+    /// and nothing offers a trial.
+    ///
+    /// The tap creates the checkout and opens Stripe's own hosted page in
+    /// Safari. Nothing about the payment happens in this app, and nothing in
+    /// this app decides whether it worked — see `WebSubscription`.
+    private var webOption: some View {
+        VStack(spacing: 8) {
+            if let problem = web.problem {
+                note(problem, symbol: "exclamationmark.triangle")
+            }
+
+            if let notice = web.notice {
+                note(notice, symbol: "info.circle")
+            }
+
+            Button {
+                Task {
+                    if let checkout = await web.begin() { openURL(checkout) }
+                }
+            } label: {
+                HStack(spacing: 7) {
+                    if web.isStarting || web.isConfirming {
+                        ProgressView().controlSize(.small).tint(theme.textSecondary)
+                    }
+                    Text(webButtonTitle)
+                        .font(.system(size: 12.5, weight: .semibold))
+                }
+                .foregroundStyle(theme.textSecondary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 11)
+                .flightInfoSurface(theme, radius: theme.radiusMedium, interactive: true)
+                .contentShape(RoundedRectangle(cornerRadius: theme.radiusMedium, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(web.isStarting || web.isConfirming || store.purchasing != nil)
+            .opacity(web.isStarting || web.isConfirming ? 0.6 : 1)
+        }
+    }
+
+    private var webButtonTitle: String {
+        if web.isConfirming { return "Checking your subscription…" }
+        if web.isStarting { return "Opening inflight.info…" }
+        return "Subscribe monthly on inflight.info"
     }
 
     /// The renewal terms, and the two links App Review requires to be on the

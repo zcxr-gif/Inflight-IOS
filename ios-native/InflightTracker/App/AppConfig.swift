@@ -186,6 +186,48 @@ enum AppConfig {
         URL(string: "\(supabaseURLString)/rest/v1/rpc/pro_entitlement")
     }
 
+    // MARK: - The subscription sold on the website
+
+    /// Where the website's Stripe checkout session is created.
+    ///
+    /// The same Edge Function inflight.info's own upgrade button calls, given
+    /// the arguments an *upgrade* sends: this app is signed in, so it knows
+    /// exactly which account is paying and says so, rather than leaving Stripe
+    /// to match on an email that a pilot can change. Source in the tracker
+    /// repository, `supabase/functions/create-stripe-checkout/`.
+    ///
+    /// What it sells is one thing — a month. There is no yearly price on
+    /// Stripe, so there is no plan to choose here and nothing asks.
+    static var stripeCheckoutURL: URL? {
+        URL(string: "\(supabaseURLString)/functions/v1/create-stripe-checkout")
+    }
+
+    /// Where a subscription that is already live at Stripe becomes the
+    /// entitlement on the account.
+    ///
+    /// Not what grants Pro — `stripe-webhook` does that, called by Stripe
+    /// itself and retried for days, so a pilot who pays and never comes back
+    /// still ends up with what they paid for. This is the *impatient* half:
+    /// asked on the way back so the answer arrives while the paywall is still
+    /// on screen, and a safety net for a webhook that has not landed yet.
+    ///
+    /// It asks Stripe directly whether the *calling* account has a live
+    /// subscription — taking no word from the client about who it is or what
+    /// it is owed — and writes the row `pro_entitlement()` reads.
+    static var restoreWebSubscriptionURL: URL? {
+        URL(string: "\(supabaseURLString)/functions/v1/restore-pro-access")
+    }
+
+    /// Where Stripe sends the browser when the web checkout is over.
+    ///
+    /// A page whose only job is to hand the pilot back: it bounces to
+    /// `inflight://open`, which brings this app forward, and the paywall then
+    /// asks the server what changed. Deliberately not a page that grants
+    /// anything — see `tracker/app-return.html` for why.
+    static func webCheckoutReturnURL(paid: Bool) -> String {
+        "https://inflight.info/app-return.html?payment=\(paid ? "success" : "cancel")"
+    }
+
     // MARK: - Profiles
 
     /// PostgREST, for the handful of rows the app writes directly.

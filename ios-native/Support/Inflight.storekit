@@ -40,11 +40,7 @@
           "familyShareable" : false,
           "groupNumber" : 1,
           "internalID" : "C41A9E30",
-          "introductoryOffer" : {
-            "internalID" : "D9B23C77",
-            "paymentMode" : "free",
-            "subscriptionPeriod" : "P1W"
-          },
+          "introductoryOffer" : null,
           "localizations" : [
             {
               "description" : "Flight replay, the whole watchlist, your own colours and the globe.",

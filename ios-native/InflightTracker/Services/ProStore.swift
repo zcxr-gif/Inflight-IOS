@@ -46,11 +46,6 @@ final class ProStore: ObservableObject {
     /// Set while a restore is running.
     @Published private(set) var isRestoring = false
 
-    /// Whether this Apple Account has never had an introductory offer in the
-    /// subscription group. Nil until asked. Only used to say so when it is
-    /// true — an offer nobody is eligible for is not worth advertising.
-    @Published private(set) var isEligibleForIntroOffer: Bool?
-
     /// The last thing that went wrong, if it was worth saying. A cancelled
     /// purchase is not — the user knows, they cancelled it.
     @Published var problem: String?
@@ -113,19 +108,11 @@ final class ProStore: ObservableObject {
                 }
             }
             products = mapped
-
-            await loadIntroEligibility()
         } catch {
             // Left as it was. The paywall says what Pro is either way and
             // offers the buttons disabled, which is a better answer than an
             // error about StoreKit to someone who is only browsing.
         }
-    }
-
-    @MainActor
-    private func loadIntroEligibility() async {
-        guard let subscription = products[.annual]?.subscription else { return }
-        isEligibleForIntroOffer = await subscription.isEligibleForIntroOffer
     }
 
     func product(for plan: AppConfig.ProProduct) -> Product? { products[plan] }
