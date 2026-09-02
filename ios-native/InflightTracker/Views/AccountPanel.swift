@@ -660,6 +660,26 @@ struct AccountPanel: View {
                     detail: "From your subscription on inflight.info. Nothing to buy here."
                 )
 
+                PanelDivider()
+
+                // The App Store cannot cancel a subscription it never sold, so
+                // the row above it would otherwise be a status with no way to
+                // act on it. Now that this subscription can be *started* from
+                // the paywall, saying where it is changed is not optional.
+                Link(destination: AppConfig.siteURL) {
+                    HStack(spacing: 10) {
+                        PanelRowLabel(title: "Manage on inflight.info", symbol: "creditcard")
+                        Spacer(minLength: 8)
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(theme.textDim)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
             case .legacy:
                 statusRow(
                     symbol: "checkmark.seal.fill",

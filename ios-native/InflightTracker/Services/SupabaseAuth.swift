@@ -376,6 +376,89 @@ enum SupabaseAuth {
         }
     }
 
+    // MARK: - The subscription sold on the website
+
+    /// Starts the website's Stripe checkout for the signed-in account and
+    /// hands back the hosted page to open.
+    ///
+    /// Sent as an upgrade — `is_renew` with the account id — because that is
+    /// what it is: the account already exists and it is the one that will hold
+    /// the subscription, so the payment never has to be matched back to a
+    /// pilot by email. Nothing here asks for a trial: what is sold on the
+    /// website is a month, paid for from the first day.
+    static func webCheckoutSession(
+        email: String,
+        userID: String,
+        accessToken: String
+    ) async throws -> URL {
+        guard let url = AppConfig.stripeCheckoutURL else {
+            throw Failure(message: "Subscribing on the website isn't configured.")
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(AppConfig.supabaseAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "email": email,
+            "user_id": userID,
+            "is_renew": true,
+            "success_url": AppConfig.webCheckoutReturnURL(paid: true),
+            "cancel_url": AppConfig.webCheckoutReturnURL(paid: false),
+        ])
+        request.timeoutInterval = 25
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(status) else {
+            throw Failure.from(data: data, status: status)
+        }
+
+        struct Body: Decodable {
+            let url: String?
+            let error: String?
+        }
+
+        let body = try? decoder.decode(Body.self, from: data)
+        guard let link = body?.url, let checkout = URL(string: link) else {
+            throw Failure(message: body?.error ?? "Stripe didn't send a checkout page back.")
+        }
+        return checkout
+    }
+
+    /// Asks the server to look this account's subscription up at Stripe and
+    /// apply it. True when it found a live one.
+    ///
+    /// Safe to call whenever, and it is: the checkout is over in a browser this
+    /// app cannot see, so "did that go through?" has no answer here other than
+    /// asking. The function identifies the caller from this token and never
+    /// from anything in the body, so the worst a tampered call achieves is
+    /// asking whether your own account has already paid.
+    @discardableResult
+    static func restoreWebSubscription(accessToken: String) async throws -> Bool {
+        guard let url = AppConfig.restoreWebSubscriptionURL else {
+            throw Failure(message: "Subscribing on the website isn't configured.")
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(AppConfig.supabaseAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("{}".utf8)
+        request.timeoutInterval = 25
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(status) else {
+            throw Failure.from(data: data, status: status)
+        }
+
+        struct Body: Decodable { let restored: Bool? }
+        return (try? decoder.decode(Body.self, from: data))?.restored ?? false
+    }
+
     // MARK: - Plumbing
 
     private static let decoder = JSONDecoder()

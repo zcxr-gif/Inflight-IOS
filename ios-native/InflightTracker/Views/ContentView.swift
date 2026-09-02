@@ -1017,6 +1017,15 @@ struct ContentView: View {
         .sheet(isPresented: $isShowingStylePaywall) { ProPanel(highlighted: stylePaywallFeature) }
         .sheet(isPresented: $isShowingFindMePaywall) { ProPanel(highlighted: .findMyAircraft) }
         .onOpenURL { url in
+            // Coming back from the web checkout, which is not a place in the
+            // app and so is not an `InflightLink`. Handled before the parse
+            // rather than after it, because `parse` answers nil for this and
+            // the guard below would swallow it.
+            if let paid = WebSubscription.paymentOutcome(from: url) {
+                Task { await WebSubscription.shared.settled(paid: paid) }
+                return
+            }
+
             guard let link = InflightLink.parse(url) else { return }
             open(link)
         }
@@ -1040,6 +1049,11 @@ struct ContentView: View {
             switch phase {
             case .active:
                 Task { await Entitlements.shared.refreshFromServer() }
+                // And, if a web checkout is still unaccounted for, ask the
+                // server about it. Here rather than on the paywall because the
+                // pilot need not ever open the paywall again: they paid in
+                // Safari, and this app may have been killed while they did.
+                Task { await WebSubscription.shared.confirmIfAwaitingReturn() }
                 // And the same argument for the settings: another device may
                 // have changed a colour or added somebody to the watchlist
                 // while this one was in a pocket. One row, and nothing is

@@ -54,10 +54,13 @@ still be tested locally even though nothing sells it.
    level 1: they are the same thing at two billing periods, not two tiers.
 2. Give the group a **localised display name and description** — a group
    without one is why a subscription sits in "Missing Metadata" forever.
-3. The annual product's **introductory offer** (a one-week free trial in the
-   test configuration) is optional. The paywall's button reads "Start free
-   trial" only when StoreKit says this Apple Account is actually eligible, so
-   removing the offer changes the copy on its own.
+3. **No introductory offer on either product.** There is no free trial in this
+   app: the paywall does not offer one, `ProStore` no longer asks StoreKit
+   whether the Apple Account is eligible for one, and
+   `Support/Inflight.storekit` has none to test against. An offer added on App
+   Store Connect would be sold by the App Store without the paywall ever
+   mentioning it, so if a trial is ever wanted again it is a decision to take
+   here and there together.
 4. **App Information → App Store Server Notifications**, both production and
    sandbox URLs:
 
@@ -68,6 +71,85 @@ still be tested locally even though nothing sells it.
    Version 2 notifications. Without this, a renewal or a refund that happens
    while the app is closed never reaches the account, and the website goes on
    thinking a lapsed subscriber is Pro until they next open the app.
+
+## Paying on the website instead
+
+The paywall sells two things, and they are not the same product bought two
+ways:
+
+| | App Store | inflight.info |
+| --- | --- | --- |
+| What | a year or a month | **a month, and only a month** |
+| Sold by | StoreKit, in the app | Stripe, on its own hosted page in Safari |
+| Attached to | the Apple Account | the Inflight account |
+| Free trial | none | none |
+| Cancelled in | iOS Settings | inflight.info |
+
+There is no yearly price on Stripe and the app does not pretend there is: the
+web option is one button, not a plan list, because there is nothing to choose.
+
+### What actually happens
+
+1. `WebSubscription.begin()` calls `create-stripe-checkout` with this account's
+   id and email, as an **upgrade** (`is_renew`) — the account already exists.
+   Nothing asks for `trial_days`.
+2. The hosted Stripe page opens in Safari. No payment detail ever touches this
+   app.
+3. Stripe returns the browser to `inflight.info/app-return.html`, which does
+   nothing but bounce to `inflight://open`.
+4. The app asks **`restore-pro-access`** — which identifies the caller from
+   their own token, asks Stripe whether *that* account has a live
+   subscription, and writes the row — then re-reads `pro_entitlement()`. Five
+   tries over about twelve seconds while the paywall is up.
+5. And again on **every foreground** afterwards, until it is accounted for.
+   The claim is kept in `UserDefaults`, not in memory: the checkout happens in
+   Safari and iOS may kill this app while it is there, so a pilot who pays and
+   comes back to a freshly launched app is the case the claim exists for. It
+   expires after a day.
+
+Nothing in the app decides whether a payment worked, and nothing on the return
+page grants anything — the server is asked, always. That is deliberate: a
+redirect is the one step in this flow a person can close halfway.
+
+### `stripe-webhook`, and why the app does not rely on it
+
+`stripe-webhook` is deployed, handles `checkout.session.completed` and the
+subscription lifecycle, and would make all of the above a mere speed-up. **It
+is not currently receiving anything.** As of 2026-09-02, no row in
+`public.subscriptions` had ever been written a second time — 19 rows going back
+to 2026-07-29, fifteen of them active monthly subscriptions, so renewals had
+certainly happened — and the function had no invocations at all in the
+available log window. The endpoint looks unregistered in the Stripe dashboard.
+
+Two consequences, and only the second is this app's problem:
+
+- **On the website**, renewals never refresh `current_period_end` and
+  cancellations never revoke. Eleven active rows carry a NULL period end,
+  which `pro_entitlement()` reads as "never expires". That is a billing
+  correctness bug, it predates any of this, and a subscription sold from this
+  app would land in the same state — so it is worth fixing before this
+  ships, not after.
+- **Here**, it means step 4 is not a speed-up but the actual grant, which is
+  why it repeats on every foreground rather than only on the return trip.
+
+If the endpoint is registered later, none of this changes: `restore-pro-access`
+is idempotent, and finding the row already written is a no-op.
+
+### Sign-in is required
+
+A subscription belongs to an account, so the button says so and stops rather
+than taking a payment that nothing could be given for. The App Store plans have
+no such requirement — a purchase made signed out attaches to the account the
+next time the app runs signed in.
+
+### App Review
+
+Linking out of the app to pay for the app's own features is Guideline 3.1.1
+territory. In the United States this is currently permitted following the
+*Epic v. Apple* injunction; elsewhere it needs the **External Purchase Link**
+entitlement, requested per-storefront in the Apple Developer portal. The App
+Store purchase is kept as the primary path on the paywall for exactly this
+reason — it is what most people will use, and it is what a reviewer sees first.
 
 ## Sign in with Apple
 
