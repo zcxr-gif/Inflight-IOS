@@ -1030,7 +1030,8 @@ struct TrackerMapView: UIViewRepresentable {
 
             for annotation in mapView.annotations {
                 guard let flight = annotation as? FlightAnnotation,
-                      let view = mapView.view(for: flight) else { continue }
+                      let view = mapView.view(for: flight) as? FlightAnnotationView
+                else { continue }
                 apply(
                     annotation: flight,
                     to: view,
@@ -3553,7 +3554,8 @@ struct TrackerMapView: UIViewRepresentable {
                 return
             }
 
-            guard let annotation = view.annotation as? FlightAnnotation else { return }
+            guard let annotation = view.annotation as? FlightAnnotation,
+                  let view = view as? FlightAnnotationView else { return }
 
             apply(annotation: annotation, to: view, selected: true, on: mapView)
 
@@ -3563,7 +3565,8 @@ struct TrackerMapView: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, didDeselect view: MKAnnotationView) {
-            guard let annotation = view.annotation as? FlightAnnotation else { return }
+            guard let annotation = view.annotation as? FlightAnnotation,
+                  let view = view as? FlightAnnotationView else { return }
 
             apply(annotation: annotation, to: view, selected: false, on: mapView)
 
