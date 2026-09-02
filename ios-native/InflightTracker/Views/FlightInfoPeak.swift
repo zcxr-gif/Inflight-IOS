@@ -97,10 +97,11 @@ struct FlightInfoPeak: View {
                 // single face with its own internal divisions, and building it
                 // out of the compact bar's pieces would mean every future
                 // change to either having to be right for both.
+                // No theme: the detail look owns its own palette and takes
+                // nothing from the app's switches. See `FlightDetailLook`.
                 FlightDetailPeek(
                     flight: flight,
                     registration: registration,
-                    theme: theme,
                     image: image,
                     photos: photos,
                     isAutoplaying: isAutoplaying,

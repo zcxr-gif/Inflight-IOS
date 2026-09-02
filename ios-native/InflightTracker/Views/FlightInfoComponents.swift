@@ -429,6 +429,20 @@ struct FlightHero: View {
     /// the peak state sets one, the full window leaves it open.
     var maxHeight: CGFloat = .greatestFiniteMagnitude
 
+    /// Whether the photograph dissolves into whatever it is sitting on.
+    ///
+    /// True everywhere the header is the top of the window itself: the picture
+    /// fades out at its foot and the window's ground comes through, so there is
+    /// no band belonging to neither, and a wash over the lower third keeps the
+    /// identity block that rides the seam off a bright sky.
+    ///
+    /// False where the photograph is a band inside a face that has its own
+    /// grounds under it — the detail look, whose route sits on a field of its
+    /// own directly beneath the picture. There the fade has nothing to melt
+    /// into and reads as a rendering fault, and the wash is shading a photo
+    /// nothing is written on.
+    var blendsWithWindow: Bool = true
+
     @State private var page = 0
 
     private var isGallery: Bool { photos.count > 1 }
@@ -499,10 +513,20 @@ struct FlightHero: View {
         // swallows every touch that lands on the picture, and the swipe that
         // is supposed to page the gallery never reaches the pager underneath
         // it. The gradient has nothing to do with a finger; it says so.
-        .overlay { PhotoScrim(theme: theme).allowsHitTesting(false) }
+        .overlay {
+            if blendsWithWindow {
+                PhotoScrim(theme: theme).allowsHitTesting(false)
+            }
+        }
         // The photo's own alpha is faded out at the bottom, so it melts into
         // the window's ground rather than ending on a black band.
-        .mask { PhotoFadeMask() }
+        .mask {
+            if blendsWithWindow {
+                PhotoFadeMask()
+            } else {
+                Rectangle()
+            }
+        }
         // Both of these go on after the mask, so neither fades out with the
         // bottom of the photograph.
         //

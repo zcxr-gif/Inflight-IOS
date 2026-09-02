@@ -648,7 +648,13 @@ struct FlightDetailView: View {
                 // Negative, so the identity block rides the seam where the
                 // photo dissolves into the window instead of sitting inside
                 // one or the other.
-                .padding(.top, -FlightInfoLayout.heroSeamLift)
+                //
+                // Only where there IS a seam. The detail look draws no hero
+                // above this stack — it owns the photograph itself, further
+                // down its own face — so the lift had nothing to close up and
+                // simply pulled the whole window thirty points under the
+                // sheet's grabber.
+                .padding(.top, usesDetailHead ? 0 : -FlightInfoLayout.heroSeamLift)
                 // Clears the home indicator, which the window now draws under.
                 .padding(.bottom, 40)
                 // iPad and landscape keep a phone-width column rather than
@@ -681,15 +687,20 @@ struct FlightDetailView: View {
             if let origin = origin { backRow(origin) }
 
             if usesDetailHead {
+                // No theme: the detail look owns its own palette and takes
+                // nothing from the app's switches. See `FlightDetailLook`.
                 FlightDetailHead(
                     flight: flight,
                     registration: registration(for: flight),
-                    theme: theme,
                     image: imageLoader.image,
                     contributor: photoLoader.photo?.contributor,
                     photos: photoLoader.photos,
                     isAutoplaying: !isCollapsed,
-                    width: width,
+                    // The head's own width, not the sheet's. Its photograph is
+                    // inside the column the cards are in — inset, and capped —
+                    // so handed the sheet's width it laid out wider than the
+                    // face it belongs to and had its ends clipped off.
+                    width: Self.headWidth(in: width),
                     began: departed,
                     onSelectAirport: onSelectAirport
                 )
@@ -764,6 +775,16 @@ struct FlightDetailView: View {
     /// route band inside it says "———" and the window is still the window.
     private var usesDetailHead: Bool {
         appearance.resolvedWindowStyle == .detail
+    }
+
+    /// The width the detail head is actually drawn at.
+    ///
+    /// The window's cards sit in a column: inset by fourteen either side, and
+    /// capped so an iPad keeps a phone-width column rather than stretching them
+    /// across the sheet. The head is one of those cards, and its photograph has
+    /// to be the width of the column rather than of the sheet the column is in.
+    private static func headWidth(in width: CGFloat) -> CGFloat {
+        max(0, min(width, 560) - 28)
     }
 
     private func registration(for flight: Flight) -> String {
