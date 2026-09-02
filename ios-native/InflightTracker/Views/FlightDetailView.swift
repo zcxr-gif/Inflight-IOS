@@ -687,11 +687,10 @@ struct FlightDetailView: View {
             if let origin = origin { backRow(origin) }
 
             if usesDetailHead {
-                // No theme: the detail look owns its own palette and takes
-                // nothing from the app's switches. See `FlightDetailLook`.
                 FlightDetailHead(
                     flight: flight,
                     registration: registration(for: flight),
+                    theme: theme,
                     image: imageLoader.image,
                     contributor: photoLoader.photo?.contributor,
                     photos: photoLoader.photos,

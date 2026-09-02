@@ -432,16 +432,15 @@ struct FlightHero: View {
     /// Whether the photograph dissolves into whatever it is sitting on.
     ///
     /// True everywhere the header is the top of the window itself: the picture
-    /// fades out at its foot and the window's ground comes through, so there is
-    /// no band belonging to neither, and a wash over the lower third keeps the
-    /// identity block that rides the seam off a bright sky.
+    /// fades out at its foot, the window's ground comes through, and the
+    /// identity block rides the seam between the two.
     ///
-    /// False where the photograph is a band inside a face that has its own
-    /// grounds under it — the detail look, whose route sits on a field of its
-    /// own directly beneath the picture. There the fade has nothing to melt
-    /// into and reads as a rendering fault, and the wash is shading a photo
-    /// nothing is written on.
-    var blendsWithWindow: Bool = true
+    /// False where the photograph is a card in a stack rather than the top of
+    /// the sheet — the detail look, which takes the window's own corner on it
+    /// and puts the route in a card of its own underneath. A picture that
+    /// dissolves in the middle of a stack reads as a rendering fault rather
+    /// than as a seam.
+    var fadesIntoGround: Bool = true
 
     @State private var page = 0
 
@@ -513,15 +512,11 @@ struct FlightHero: View {
         // swallows every touch that lands on the picture, and the swipe that
         // is supposed to page the gallery never reaches the pager underneath
         // it. The gradient has nothing to do with a finger; it says so.
-        .overlay {
-            if blendsWithWindow {
-                PhotoScrim(theme: theme).allowsHitTesting(false)
-            }
-        }
+        .overlay { PhotoScrim(theme: theme).allowsHitTesting(false) }
         // The photo's own alpha is faded out at the bottom, so it melts into
         // the window's ground rather than ending on a black band.
         .mask {
-            if blendsWithWindow {
+            if fadesIntoGround {
                 PhotoFadeMask()
             } else {
                 Rectangle()

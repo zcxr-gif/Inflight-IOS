@@ -294,12 +294,10 @@ struct FlightWindowPanel: View {
             )
 
         case .detail:
-            // No theme: the detail look owns its own palette and takes nothing
-            // from the app's switches — which is exactly what this preview has
-            // to show, since the row above it is a list of the switches.
             FlightDetailHead(
                 flight: Self.sample,
                 registration: Self.registration,
+                theme: theme,
                 // No photograph in the preview: there is no lookup behind an
                 // aeroplane that does not exist, so the hero draws its sprite
                 // fallback — which is what a real one does until the picture
