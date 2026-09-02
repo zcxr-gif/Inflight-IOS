@@ -2,18 +2,36 @@ import Foundation
 
 /// One virtual airline, as the VA-Ads directory describes it.
 ///
-/// The name, the callsign it flies under, and the fields it calls home — and
-/// nothing else. The directory also carries logos, banner artwork, taglines and
-/// links, and none of it is parsed here on purpose: that material belongs to
-/// the VAs who uploaded it, and the app has no licence to redraw it. What the
-/// app shows of a partner is its NAME, as text. Anything more is a copyright
-/// question this file is deliberately not in a position to get wrong.
+/// The name, the callsign it flies under, the fields it calls home, and the
+/// mark it goes by.
+///
+/// That last one used to be deliberately absent, on the reasoning that the
+/// artwork belongs to the VAs who uploaded it and the app had no licence to
+/// redraw it. That reasoning was answering the wrong question. A logo reaching
+/// this struct is one a VA uploaded to OUR directory, through our own form, to
+/// be shown against its own name — and every other surface we run already
+/// shows it: the web directory, the crew centres, the airport banners, the
+/// Discord flight cards. The app was the only place a partner appeared without
+/// its own mark, which read as an omission rather than as restraint.
+///
+/// The banner artwork is still not parsed, for a plainer reason than licence:
+/// there is nowhere in this app to put a 5:1 image that isn't an advert
+/// occupying a window the pilot opened to look at an aeroplane.
 struct VaAd: Identifiable, Equatable {
 
     let id: String
 
     /// What the VA calls itself.
     let name: String
+
+    /// The mark it goes by, when it has uploaded one.
+    ///
+    /// In practice always our own bucket — the field is written by the upload
+    /// pipeline rather than typed into a form, so nothing a VA submits lands
+    /// here as a URL of its choosing. It goes through `safeURL` anyway: an
+    /// image URL is fetched without anybody reading it first, which is exactly
+    /// where a guard is worth having whether or not it can currently fire.
+    let logo: URL?
 
     /// The callsign template its members fly under — "Air Canada 001VA".
     let callsign: String
@@ -550,6 +568,7 @@ final class VaAdsService {
         return VaAd(
             id: identifier,
             name: name,
+            logo: safeURL(firstText(in: raw, keys: ["logoUrl", "logo", "logo_url"])),
             callsign: callsign,
             hubs: hubs(in: raw),
             tagline: firstText(in: raw, keys: ["tagline", "slogan"]) ?? "",
@@ -565,10 +584,10 @@ final class VaAdsService {
         )
     }
 
-    /// Deliberately absent from everything above: `logo`, `bannerUrl` and the
-    /// rest of the artwork. The VAs own those, and the app has no licence to
-    /// redraw them — so they are never parsed, and there is nothing here for a
-    /// later change to start showing by accident.
+    /// Still absent from everything above: `bannerUrl` and the rest of the
+    /// wide artwork. Not a licence question — see the note on `VaAd` — but a
+    /// layout one: nothing in this app has a place to put a banner that isn't
+    /// an advert taking over a window the pilot opened to read a flight.
 
     private static func flag(_ value: Any?) -> Bool {
         if let bool = value as? Bool { return bool }

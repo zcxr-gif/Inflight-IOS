@@ -4,9 +4,79 @@ import SwiftUI
 /// in the airport window listing the VAs hubbed at that field, and the panel
 /// both of them open.
 ///
-/// What is shown of a partner is its own words and its own links — never its
-/// artwork. The directory carries logos and banner images; `VaAd` does not
-/// parse them, so there is nothing here for a later change to start drawing.
+/// A partner is shown as its mark, its own words and its own links. The mark is
+/// small everywhere — 16pt on the flight line, 26pt in an airport row, 30pt
+/// against the panel title — because it is there to let a VA be recognised at a
+/// glance, not to turn a flight window into a billboard. See `VaAd` for why the
+/// logo is drawn and the banner still isn't.
+
+// MARK: - The mark
+
+/// A VA's own logo, at whatever size the surface has room for.
+///
+/// Falls back to a monogram on the theme's accent rather than to an empty
+/// square: a VA that never uploaded a logo, and one whose image is still in the
+/// air, should both read as an airline rather than as a broken asset. Same
+/// bargain `PilotAvatar` makes for a pilot with no picture, and the same loader
+/// behind it.
+struct VaLogoMark: View {
+
+    let ad: VaAd
+
+    /// Sized by the caller — the same mark is a 16pt glyph on the flight line
+    /// and a 30pt one beside a panel title.
+    var side: CGFloat = 22
+
+    @ObservedObject private var appearance = FlightInfoAppearance.shared
+    @StateObject private var loader = RemoteImageLoader()
+
+    private var theme: FlightInfoTheme { appearance.theme }
+
+    private var corner: CGFloat { side * 0.26 }
+
+    /// Two letters at most, taken from the front of the VA's words: "Air
+    /// Canada Virtual" is AC, "Skyward" is S.
+    private var monogram: String {
+        let letters = ad.name
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .prefix(2)
+            .compactMap(\.first)
+        return String(letters).uppercased()
+    }
+
+    var body: some View {
+        Group {
+            if let image = loader.image {
+                Image(uiImage: image)
+                    .resizable()
+                    // Fitted, not filled. The uploads are square 512s but a
+                    // wordmark sitting inside one is wider than it is tall, and
+                    // filling would crop the ends off the VA's own name.
+                    .scaledToFit()
+                    .padding(side * 0.08)
+            } else {
+                Text(monogram)
+                    .font(.system(size: side * 0.42, weight: .bold, design: .rounded))
+                    .foregroundStyle(theme.onAccent)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background { theme.accent }
+            }
+        }
+        .frame(width: side, height: side)
+        .background(theme.elevatedFill)
+        .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: corner, style: .continuous)
+                .strokeBorder(theme.stroke, lineWidth: 0.8)
+        }
+        .motion(Motion.content, value: loader.image != nil)
+        // The VA's name is always the next thing along, so the mark has nothing
+        // to add to what VoiceOver already reads.
+        .accessibilityHidden(true)
+        .onAppear { loader.load(ad.logo) }
+        .onChange(of: ad.logo) { _, new in loader.load(new) }
+    }
+}
 
 // MARK: - Flight window
 
@@ -62,6 +132,14 @@ struct VaPartnerLine: View {
                 .tracking(0.9)
                 .foregroundStyle(theme.textDim)
                 .fixedSize()
+
+            // After the kicker rather than in front of it, which is the whole
+            // argument of the note below in picture form: a logo is the
+            // loudest thing on this line, and a line that opens with an
+            // airline's mark says "this is that airline" before it has said
+            // "VA". The kicker gets read first; the mark and the name then
+            // arrive together as the one thing they describe.
+            VaLogoMark(ad: partner.ad, side: 16)
 
             Text(partner.ad.name)
                 .font(.system(size: 11, weight: .bold, design: .rounded))
@@ -170,6 +248,12 @@ struct AirportPartnersSection: View {
 
     private func row(_ ad: VaAd, isLink: Bool) -> some View {
         HStack(spacing: 10) {
+            // Leading here, unlike the flight line: the section is titled
+            // VIRTUAL AIRLINES and carries its own disclaimer underneath, so
+            // there is no claim about an aeroplane for a mark to get in front
+            // of, and a column of logos is what makes six rows scannable.
+            VaLogoMark(ad: ad, side: 26)
+
             Text(ad.name)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(theme.textPrimary)
@@ -203,8 +287,8 @@ struct AirportPartnersSection: View {
 /// One partner virtual airline: who they are, what they fly, and every way
 /// there is to reach them.
 ///
-/// Their words and their links. No logo, no banner — see the note at the top of
-/// this file, and the one in `VaAdsService`.
+/// Their mark, their words and their links. No banner — see the note at the top
+/// of this file, and the one in `VaAdsService`.
 struct VaDetailSheet: View {
 
     let ad: VaAd
@@ -234,7 +318,7 @@ struct VaDetailSheet: View {
     }
 
     var body: some View {
-        MapPanel(title: ad.name, subtitle: subtitle) {
+        MapPanel(title: ad.name, subtitle: subtitle, accessory: AnyView(brandMark)) {
             identity
 
             liveFleet
@@ -247,6 +331,18 @@ struct VaDetailSheet: View {
             _ = await VaAdsService.shared.roster(for: ad.id)
             hasRoster = true
         }
+    }
+
+    /// The VA's mark, opposite its name in the panel's title bar.
+    ///
+    /// The header aligns its row on the title's first baseline, and a view with
+    /// no text in it answers that with its own bottom edge — which would hang
+    /// the whole square above the title's cap. The guide moves the mark's
+    /// alignment point 5pt up from its bottom, dropping it by that much, which
+    /// centres a 30pt square on a 26pt title.
+    private var brandMark: some View {
+        VaLogoMark(ad: ad, side: 30)
+            .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 5 }
     }
 
     /// Always says "virtual airline", even when the VA has written its own
