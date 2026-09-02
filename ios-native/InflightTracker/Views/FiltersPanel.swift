@@ -132,19 +132,28 @@ struct FiltersPanel: View {
             // aeroplanes or ground — and because it is the only one that is off
             // until asked for, which a row buried in a list of six would not
             // make obvious.
-            PanelSection(title: "CONTROLLED AIRSPACE") {
-                if !entitlements.isPro {
-                    ProUpsellRow(feature: .atcBoundaries) { isShowingPaywall = true }
-                    PanelDivider()
-                }
+            //
+            // Only where the boundary set actually shipped. Every correct
+            // build has it, so this is a guard against one that is wrong
+            // rather than a state anybody should reach: without it a missing
+            // resource gives a switch that turns on, reports on, and draws
+            // nothing — and behind a paywall, so the first person to find it
+            // has paid for it.
+            if AtcBoundaryStore.shared.isBundled {
+                PanelSection(title: "CONTROLLED AIRSPACE") {
+                    if !entitlements.isPro {
+                        ProUpsellRow(feature: .atcBoundaries) { isShowingPaywall = true }
+                        PanelDivider()
+                    }
 
-                PanelToggleRow(
-                    title: "ATC boundaries",
-                    symbol: "square.dashed",
-                    detail: "Outlines the airspace of every centre with somebody working it, and names the station on it. Only staffed sectors — the whole boundary network would be a second map over the first. Off until you ask for it.",
-                    isOn: atcBoundaries
-                )
-                .proLocked(entitlements.isPro) { isShowingPaywall = true }
+                    PanelToggleRow(
+                        title: "ATC boundaries",
+                        symbol: "square.dashed",
+                        detail: "Outlines the airspace of every centre with somebody working it, and names the station on it. Only staffed sectors — the whole boundary network would be a second map over the first. Off until you ask for it.",
+                        isOn: atcBoundaries
+                    )
+                    .proLocked(entitlements.isPro) { isShowingPaywall = true }
+                }
             }
 
             PanelSection(title: "PHASE") {

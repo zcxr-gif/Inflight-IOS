@@ -163,11 +163,23 @@ final class AtcBoundaryStore {
 
     /// Whether the boundary set is there at all, for a settings row that should
     /// not offer a layer the bundle cannot draw.
-    var isAvailable: Bool {
-        load()
-        lock.lock()
-        defer { lock.unlock() }
-        return sectors.contains { !$0.rings.isEmpty }
+    ///
+    /// The bundle is asked for the file rather than the store for its contents,
+    /// which is the whole point: opening the filters panel must not be what
+    /// pays for the decode. A free account browsing the panel would otherwise
+    /// read 388 KB and build fifty thousand coordinates to answer a question
+    /// about whether a row should be drawn, and never turn the layer on.
+    ///
+    /// So this answers the cheaper question — is the resource in the app at
+    /// all — and a present-but-damaged file is left to `decode`, which reads
+    /// short rather than off the end and simply draws fewer sectors. A file
+    /// that never made it into the target is the failure worth catching here,
+    /// and `codemagic.yaml` now refuses to build one.
+    ///
+    /// `Bundle.url(forResource:)` hits the bundle's cached resource map, not
+    /// the disk, so this is fine to read from a view body.
+    var isBundled: Bool {
+        Bundle.main.url(forResource: "atc-boundaries", withExtension: "bin") != nil
     }
 
     // MARK: - Reading the blob
