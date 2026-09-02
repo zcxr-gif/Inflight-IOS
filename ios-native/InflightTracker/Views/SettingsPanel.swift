@@ -25,6 +25,9 @@ struct SettingsPanel: View {
 
     @EnvironmentObject private var feed: LiveFeed
     @ObservedObject private var appearance = FlightInfoAppearance.shared
+    // Observed so the layers row says which of them are actually on rather
+    // than only that there are layers.
+    @ObservedObject private var filters = MapFilters.shared
     @ObservedObject private var hints = HintsStore.shared
     @ObservedObject private var instruments = InstrumentPreferences.shared
     @ObservedObject private var accounts = AccountStore.shared
@@ -53,6 +56,7 @@ struct SettingsPanel: View {
     @State private var isShowingNotifications = false
     @State private var isShowingFlightWindow = false
     @State private var isShowingMap = false
+    @State private var isShowingLayers = false
     @State private var isShowingInstruments = false
     @State private var isShowingAppearance = false
     @State private var isShowingFeed = false
@@ -141,6 +145,21 @@ struct SettingsPanel: View {
                     detail: mapDetail
                 ) {
                     isShowingMap = true
+                }
+
+                PanelDivider()
+
+                // Directly under the map, because it is the same map: that row
+                // is what the world is drawn as, this one is what is drawn on
+                // top of it. These used to be reachable only from the filter
+                // button, which is a door nobody opens looking for a preference
+                // — and once opened, buried them above the filters themselves.
+                PanelActionRow(
+                    title: "Layers",
+                    symbol: "square.3.layers.3d",
+                    detail: layersDetail
+                ) {
+                    isShowingLayers = true
                 }
 
                 PanelDivider()
@@ -241,6 +260,7 @@ struct SettingsPanel: View {
         }
         .sheet(isPresented: $isShowingFlightWindow) { FlightWindowPanel() }
         .sheet(isPresented: $isShowingMap) { MapStyleSettingsPanel() }
+        .sheet(isPresented: $isShowingLayers) { MapLayersSettingsPanel() }
         .sheet(isPresented: $isShowingInstruments) { InstrumentsSettingsPanel() }
         .sheet(isPresented: $isShowingAppearance) { AppearanceSettingsPanel() }
         .sheet(isPresented: $isShowingFeed) { FeedSettingsPanel().environmentObject(feed) }
@@ -261,6 +281,26 @@ struct SettingsPanel: View {
             ? ", full detail"
             : ""
         return "\(shape), \(style)\(detail)"
+    }
+
+    /// The layers row: the ones that are on, named, and nothing about the ones
+    /// that are not.
+    ///
+    /// Named rather than counted. "4 of 8 on" says a number about a screen
+    /// nobody has memorised the contents of; "airports, ground, day and night"
+    /// is the answer to what somebody actually came to check.
+    private var layersDetail: String {
+        var on: [String] = []
+        if filters.showsAirports { on.append("airports") }
+        if filters.showsGroundLayout { on.append("ground") }
+        if filters.showsFlownPath { on.append("flown path") }
+        if filters.showsTerminator { on.append("day and night") }
+        if filters.showsNatTracks { on.append("tracks") }
+        if filters.showsAtcBoundaries { on.append("airspace") }
+        if filters.markerLabels != .off { on.append("callsigns") }
+
+        guard !on.isEmpty else { return "Nothing drawn over the map but the traffic." }
+        return on.joined(separator: ", ")
     }
 
     /// The flight window's row, saying what it is currently set to rather than

@@ -153,6 +153,14 @@ final class VaAdsService {
     /// request is not cached as "no partners".
     private var hubCache: [String: [VaAd]] = [:]
 
+    /// Callsign → the VA flying it, once the directory has answered — including
+    /// the many callsigns whose answer is no VA at all. See `matched`.
+    private var matchCache: [String: VaAd?] = [:]
+
+    /// Distinct callsigns worth remembering before the cache is simply thrown
+    /// away and rebuilt. Comfortably past a full server.
+    private static let matchCacheLimit = 8_000
+
     private static let retryCooldown: TimeInterval = 20
     private static let directoryPages = 3
     private static let pageSize = 100
@@ -226,17 +234,57 @@ final class VaAdsService {
     /// whose name is a fragment of a longer one from hijacking the flight: "UNI"
     /// (Uni Air) cannot swallow "United 123", because the boundary after "UNI"
     /// is not a boundary of that callsign.
+    ///
+    /// ## Why the answers are kept
+    ///
+    /// This is the map's inner loop. It is asked about every aeroplane on
+    /// screen, on every traffic pass and again on every pan, and working an
+    /// answer out from scratch means tokenising the callsign twice — a trim, an
+    /// uppercase, a split, a join — building a `Set` of word boundaries from
+    /// it, and then walking the whole directory. That is a few microseconds
+    /// nobody would notice once and a visible stutter five hundred aeroplanes
+    /// at a time, which is what a busy server zoomed in with the callsigns on
+    /// actually is.
+    ///
+    /// So a callsign is worked out once and remembered. The answer depends on
+    /// nothing but the callsign and the directory, and the directory is
+    /// replaced in exactly one place — `finish`, which empties this with it.
+    /// Nothing is remembered before the directory has landed: nil then means
+    /// "not known yet" rather than "no VA", and caching it would leave every
+    /// aeroplane unmarked for the life of the process.
     private func matched(callsign: String?) -> VaAd? {
-        let compact = Self.compact(callsign)
-        guard !compact.isEmpty else { return nil }
-
-        let bounds = Self.boundaries(callsign)
+        let key = callsign ?? ""
+        guard !key.isEmpty else { return nil }
 
         lock.lock()
+        let loaded = directoryLoaded
+        if loaded, let remembered = matchCache[key] {
+            lock.unlock()
+            return remembered
+        }
         let entries = directory
         lock.unlock()
 
-        return entries.first { compact.hasPrefix($0.code) && bounds.contains($0.code.count) }?.ad
+        guard !entries.isEmpty else { return nil }
+
+        let compact = Self.compact(key)
+        guard !compact.isEmpty else { return nil }
+
+        let bounds = Self.boundaries(key)
+        let hit = entries.first { compact.hasPrefix($0.code) && bounds.contains($0.code.count) }?.ad
+
+        guard loaded else { return hit }
+
+        lock.lock()
+        // Emptied rather than evicted one at a time. Distinct callsigns are
+        // bounded by the size of the server, the ceiling is well past any of
+        // them, and reaching it at all means something has gone strange enough
+        // that starting over is the cheapest thing to do about it.
+        if matchCache.count >= Self.matchCacheLimit { matchCache.removeAll(keepingCapacity: true) }
+        matchCache.updateValue(hit, forKey: key)
+        lock.unlock()
+
+        return hit
     }
 
     // MARK: - The map's lookup
@@ -611,6 +659,9 @@ final class VaAdsService {
             .map { DirectoryEntry(code: Self.code(fromCallsign: $0.callsign), ad: $0) }
             .filter { !$0.code.isEmpty }
             .sorted { $0.code.count > $1.code.count }
+        // Every remembered answer was worked out against the directory being
+        // replaced, so none of them survive it.
+        matchCache.removeAll(keepingCapacity: true)
         directoryLoaded = true
         directoryRetryAfter = nil
     }

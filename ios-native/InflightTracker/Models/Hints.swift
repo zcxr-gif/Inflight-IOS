@@ -80,7 +80,7 @@ struct Hint: Identifiable, Equatable {
         Hint(
             id: "map.natTracks",
             placement: .map,
-            text: "Filters can draw the North Atlantic tracks, coloured by letter with the levels each is valid at — which is what explains a hundred aircraft flying in parallel across the ocean."
+            text: "Settings \u{203A} Layers can draw the North Atlantic tracks, coloured by letter with the levels each is valid at — which is what explains a hundred aircraft flying in parallel across the ocean."
         ),
         Hint(
             id: "map.styleAxes",
@@ -95,12 +95,12 @@ struct Hint: Identifiable, Equatable {
         Hint(
             id: "map.filedRoute",
             placement: .map,
-            text: "Open a flight and the map draws the plan it filed — the line, and every fix on it named. Filters has the switch if you would rather it didn't."
+            text: "Open a flight and the map draws the plan it filed — the line, and every fix on it named. Settings \u{203A} Layers has the switch if you would rather it didn't."
         ),
         Hint(
             id: "map.filters",
             placement: .map,
-            text: "Filters change only what is drawn, never what is received, so turning them all back on is instant."
+            text: "Filters only ever take traffic away, and never touch what is received — so turning them all back on is instant. What is drawn over the traffic is in Settings \u{203A} Layers."
         ),
 
         // MARK: A flight

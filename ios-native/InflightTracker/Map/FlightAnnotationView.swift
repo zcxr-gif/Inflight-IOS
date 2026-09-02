@@ -27,6 +27,23 @@ import UIKit
 /// and would put a tap target over a label nobody is trying to tap. The marks
 /// are decoration — they render outside the frame, collide with nothing, and
 /// receive no touches, which is exactly right for all three.
+///
+/// ## Why neither mark casts a layer shadow any more
+///
+/// Both used to, and it is what made a map full of callsigns crawl. A
+/// `CALayer` shadow with no `shadowPath` cannot be drawn in place: Core
+/// Animation has to render the layer offscreen, read its alpha, blur it, and
+/// composite the result — per layer, per frame. One of those is free. Two
+/// hundred aeroplanes wearing their callsigns, moved every frame by the
+/// smoothing and again by every pan, is two hundred offscreen passes a frame,
+/// and the map drops to a slideshow exactly when the labels are switched on.
+///
+/// So the halo is drawn *into* the text instead, as a stroke on the glyphs —
+/// one ordinary draw, no offscreen pass, and legible over a light map, a dark
+/// one and satellite imagery the same way the blur was. The VA logo keeps its
+/// blurred edge, because a wordmark needs one and a stroke cannot give it, but
+/// it is rasterised: the shadow is computed once when the logo is set and the
+/// cached bitmap is what moves, rather than the blur being redone every frame.
 final class FlightAnnotationView: MKAnnotationView {
 
     static let reuseIdentifier = "flightAnnotation"
@@ -45,6 +62,40 @@ final class FlightAnnotationView: MKAnnotationView {
 
     private static let markSide: CGFloat = 18
 
+    /// How the callsign is drawn: white, with the halo stroked into the glyphs
+    /// rather than blurred behind them.
+    ///
+    /// A negative `strokeWidth` is the one that fills *and* strokes — a
+    /// positive one would give hollow letters. The figure is a percentage of
+    /// the point size, so eight is a little over three quarters of a point of
+    /// pen at this size: enough to sit the text off a bright coastline, not so
+    /// much that it closes up the counters of heavy 9.5pt type.
+    private static let callsignAttributes: [NSAttributedString.Key: Any] = {
+        // Carried in the string rather than left to the label's own properties:
+        // assigning `attributedText` hands the string's attributes authority
+        // over how it is drawn, so alignment and truncation belong here beside
+        // the rest of them or they are two answers to the same question.
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.lineBreakMode = .byTruncatingTail
+
+        return [
+            .font: UIFont.systemFont(ofSize: 9.5, weight: .heavy),
+            .foregroundColor: UIColor.white,
+            .strokeColor: UIColor.black,
+            .strokeWidth: -8.0,
+            .paragraphStyle: paragraph
+        ]
+    }()
+
+    /// The width the current callsign measured to, so a label that has not
+    /// changed is never measured twice.
+    ///
+    /// Measuring is not expensive on its own; it is expensive at the rate this
+    /// view is asked to lay itself out, which is every time the sprite is
+    /// reassigned as well as every time the marks are.
+    private var callsignWidth: CGFloat = 0
+
     override init(annotation: MKAnnotation?, reuseIdentifier: String?) {
         super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
 
@@ -56,26 +107,33 @@ final class FlightAnnotationView: MKAnnotationView {
         mark.contentMode = .scaleAspectFit
         mark.isHidden = true
         // A logo drawn straight onto the map has no edge of its own, and a
-        // white wordmark over a snowfield is nothing at all. The same shadow
-        // the ground labels use, for the same reason.
+        // white wordmark over a snowfield is nothing at all — so this one keeps
+        // its blur, and pays for it once. See the note at the top: rasterising
+        // turns a per-frame offscreen pass into a bitmap that is computed when
+        // the logo lands and simply moved thereafter.
         mark.layer.shadowColor = UIColor.black.cgColor
         mark.layer.shadowOpacity = 0.55
         mark.layer.shadowRadius = 2.5
         mark.layer.shadowOffset = .zero
+        mark.layer.shouldRasterize = true
+        mark.layer.rasterizationScale = Self.rasterScale(for: traitCollection)
         addSubview(mark)
 
-        // Lifted from `GroundLabelView`: white with a black halo is what stays
-        // legible over a light map, a dark one and satellite imagery alike, and
-        // the map already says every other piece of text this way.
-        callsign.font = .systemFont(ofSize: 9.5, weight: .heavy)
-        callsign.textColor = .white
-        callsign.textAlignment = .center
-        callsign.layer.shadowColor = UIColor.black.cgColor
-        callsign.layer.shadowOpacity = 0.9
-        callsign.layer.shadowRadius = 2
-        callsign.layer.shadowOffset = .zero
+        // Alignment and truncation ride in the attributes — see above. What is
+        // left here is the one thing the string cannot say: that there is no
+        // backing plate for Core Animation to blend the map through.
+        callsign.backgroundColor = .clear
         callsign.isHidden = true
         addSubview(callsign)
+
+        // A cache built at the wrong scale is a blurred logo, so this is
+        // correctness rather than housekeeping — moving between displays is
+        // exactly when it would otherwise go soft. Registered the same way the
+        // other annotation views watch their traits.
+        registerForTraitChanges([UITraitDisplayScale.self]) { (view: FlightAnnotationView, _) in
+            view.mark.layer.rasterizationScale =
+                FlightAnnotationView.rasterScale(for: view.traitCollection)
+        }
     }
 
     @available(*, unavailable)
@@ -91,8 +149,9 @@ final class FlightAnnotationView: MKAnnotationView {
         // otherwise inherit somebody else's callsign.
         mark.image = nil
         mark.isHidden = true
-        callsign.text = nil
+        callsign.attributedText = nil
         callsign.isHidden = true
+        callsignWidth = 0
         spriteTransform = .identity
     }
 
@@ -129,9 +188,31 @@ final class FlightAnnotationView: MKAnnotationView {
 
         mark.image = image
         mark.isHidden = image == nil
+        if image != nil {
+            // The trait registration above covers every later change; this
+            // covers the first, for a view built before it had a screen.
+            mark.layer.rasterizationScale = Self.rasterScale(for: traitCollection)
+        }
 
-        callsign.text = trimmed.isEmpty ? nil : trimmed
-        callsign.isHidden = trimmed.isEmpty
+        if trimmed.isEmpty {
+            callsign.attributedText = nil
+            callsign.isHidden = true
+            callsignWidth = 0
+        } else {
+            let drawn = NSAttributedString(string: trimmed, attributes: Self.callsignAttributes)
+            callsign.attributedText = drawn
+            callsign.isHidden = false
+            // Measured here, once, rather than in `layoutMarks` — which also
+            // runs whenever the sprite changes, and the text has not.
+            //
+            // Capped, because a callsign is typed by a pilot and some of them
+            // are very long indeed. A band wider than this stops being a label
+            // on an aeroplane and starts being a banner across the map.
+            //
+            // The couple of points on top are the stroke: the measurement is of
+            // the glyph run, and the pen sits half outside it.
+            callsignWidth = min(ceil(drawn.size().width) + 2, 96)
+        }
 
         layoutMarks()
     }
@@ -151,19 +232,7 @@ final class FlightAnnotationView: MKAnnotationView {
 
         let gap: CGFloat = hasMark && hasText ? 4 : 0
         let markWidth = hasMark ? Self.markSide : 0
-
-        let textWidth: CGFloat
-        if hasText {
-            let ideal = callsign.sizeThatFits(
-                CGSize(width: .greatestFiniteMagnitude, height: Self.markSide)
-            ).width
-            // Capped, because a callsign is typed by a pilot and some of them
-            // are very long indeed. A band wider than this stops being a label
-            // on an aeroplane and starts being a banner across the map.
-            textWidth = min(ceil(ideal), 96)
-        } else {
-            textWidth = 0
-        }
+        let textWidth = hasText ? callsignWidth : 0
 
         let total = markWidth + gap + textWidth
         let height = Self.markSide
@@ -178,5 +247,11 @@ final class FlightAnnotationView: MKAnnotationView {
         if hasText {
             callsign.frame = CGRect(x: x, y: top, width: textWidth, height: height)
         }
+    }
+
+    /// The scale a rasterised layer has to be built at to stay sharp. Zero
+    /// while the view has no screen yet, which would cache a one-pixel logo.
+    private static func rasterScale(for traits: UITraitCollection) -> CGFloat {
+        traits.displayScale > 0 ? traits.displayScale : 3
     }
 }
