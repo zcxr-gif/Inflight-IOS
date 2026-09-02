@@ -13,25 +13,30 @@ import SwiftUI
 ///
 /// ## What it contributes, and what it takes
 ///
-/// It contributes CONTAINERS, and they are plugged into the window that is
-/// already there. The band, the picture, the route, the cells: each is a card
-/// on the window's own ground, at the window's own spacing, drawn through the
-/// window's own `FlightInfoTheme` — so it is light on a light phone, glass
-/// where the app is glass, and wearing the open airline's colour like every
-/// other card in the sheet.
+/// It contributes an ARRANGEMENT, and it takes its colours from the window it
+/// is drawn in. Every band here reads the window's own `FlightInfoTheme` — so
+/// the look is light on a light phone, glass where the app is glass, and
+/// wearing the open airline's accent like everything else in the sheet.
 ///
-/// It was briefly built the other way: one self-contained face with a palette
-/// of its own, laid into the window like a photograph in an album. Two things
-/// were wrong with that. A panel with its own ground sitting inside a panel
-/// with a different one is a box in a box — the window stops being a window and
-/// becomes a frame around somebody else's card. And a fixed palette is a fixed
-/// palette: it ignores light and dark, it ignores glass, and it throws away the
-/// airline accent, which is the one thing on this window that is actually ours.
+/// It was briefly built with a palette of its own: a near-black bar, a gold
+/// callsign, grey cards on white. Two things were wrong with that. It was
+/// recognisably somebody else's design rather than a description of what the
+/// layout does — and what the layout does survives losing all of it. And a
+/// fixed palette cannot be right anyway: it ignores light and dark, it ignores
+/// glass, and it threw away the airline accent, which is the one colour on this
+/// window that is genuinely ours.
 ///
-/// So what is different about this look is the ARRANGEMENT and the emphasis —
-/// what is on top, what is beside what, what is big. Not the colours. A look
-/// that has to bring its own colours to be a look was not a layout worth
-/// choosing in the first place.
+/// ## Two states, two shapes, on purpose
+///
+/// The PEEK is a small stack of cards, because it is a card lying on the map
+/// with the map showing round it — a bar, not a page.
+///
+/// The OPEN window is full-bleed bands with a hairline between them, because it
+/// is a page. Building it out of inset cards with gaps between them, which is
+/// what it was for a version, made it a worse cards look rather than a
+/// different thing: eight little islands floating in a column, none of them
+/// reading as part of the one before. A dense face is a face, and a face has
+/// edges rather than gaps.
 ///
 /// ## What is sold, and what is not
 ///
@@ -79,6 +84,10 @@ struct FlightDetailOperatorBar: View {
 
     var registration: String = ""
 
+    /// How far in from the edge the type sits. The peek's card sets its own;
+    /// the open window hands in the one every band down the face shares.
+    var inset: CGFloat = 13
+
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 7) {
@@ -115,8 +124,8 @@ struct FlightDetailOperatorBar: View {
             }
             .motion(Motion.control, value: flight.pilotState)
         }
-        .padding(.horizontal, 13)
-        .padding(.vertical, 11)
+        .padding(.horizontal, inset)
+        .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -471,22 +480,40 @@ struct FlightDetailPeek: View {
 
 // MARK: - The open window's head
 
-/// What replaces the identity block when this look is chosen and the window is
-/// open.
+/// What the open window is made of under this look.
 ///
-/// A stack of blocks, in whatever order `FlightInfoBlocks` says, each wearing
-/// whatever colour it has been given. The window's own cards follow underneath
-/// unchanged — this look decides what the top of the sheet is made of, and the
-/// sheet goes on being a sheet.
+/// ## One face, cut by lines
 ///
-/// ## Nothing here is said twice
+/// Full-bleed bands with a hairline between them, on the window's own ground —
+/// not a stack of rounded cards. That is the whole difference between this look
+/// and the cards look, and building it out of inset cards with gaps between
+/// them made it a worse cards look rather than a different thing: eight little
+/// islands floating in a column, none of them reading as part of the one before.
+/// A dense face is a face, and a face has edges rather than gaps.
 ///
-/// The look owns the live numbers now. Before this it printed the height and
-/// the speed at the top of the window and the window printed them again in its
-/// telemetry card four cards down, which is the sort of thing you only notice
-/// once and then cannot stop noticing. So the telemetry block carries all four
-/// — height, speed, climb, heading — and `FlightDetailView` draws no telemetry
-/// card of its own under this look. One place, and it is the one you can move.
+/// So there is no card, no corner and no inset here. The bands run to both
+/// edges of the sheet, the picture runs to both edges of the sheet, and what
+/// separates one from the next is a rule. The window's own cards resume
+/// underneath, in their column, exactly as they always have — the seam between
+/// the two is the last hairline this draws.
+///
+/// ## Clearing the pull handle
+///
+/// The window's grabber is an overlay pinned to the top of the sheet, floating
+/// over whatever the first thing in the window is. Under the other looks that
+/// is a photograph, which is what a floating pill is designed to sit on. Under
+/// this one it can be the identity band, and a pill laid across a callsign is
+/// the bug this clearance exists to prevent — so the first band gets the
+/// handle's own height above it, unless it is the photograph, which wants the
+/// pill on top of it like every other look.
+///
+/// ## Nothing is said twice
+///
+/// The look owns the live numbers. Before this it printed the height and the
+/// speed at the top of the window and the window printed them again in its
+/// telemetry card four cards down. So the telemetry band carries all four —
+/// height, speed, climb, heading — and `FlightDetailView` draws no telemetry
+/// card of its own under this look.
 struct FlightDetailHead: View {
 
     let flight: Flight
@@ -498,10 +525,16 @@ struct FlightDetailHead: View {
     var photos: [AircraftPhoto] = []
     var isAutoplaying: Bool = true
 
-    /// The width the photograph has to fill.
+    /// The width the photograph has to fill — the sheet's, since this runs
+    /// full bleed.
     let width: CGFloat
 
     let began: Date?
+
+    /// Room above the first band for the window's floating pull handle. The
+    /// settings preview draws its grabber in a band of its own and passes
+    /// nothing.
+    var handleClearance: CGFloat = 0
 
     var onSelectAirport: ((Airport) -> Void)? = nil
 
@@ -513,26 +546,47 @@ struct FlightDetailHead: View {
         return FlightProgress(flight: flight)
     }
 
+    /// How far in from the sheet's edges the type sits. One number, so every
+    /// band's left edge lines up down the whole face.
+    private static let inset: CGFloat = 16
+
     var body: some View {
-        VStack(spacing: 10) {
-            ForEach(arrangement.visible) { block in
+        let shown = arrangement.visible
+
+        return VStack(spacing: 0) {
+            ForEach(shown) { block in
+                if block.id != shown.first?.id { hairline }
+
                 content(for: block)
-                    // Keyed on the block rather than on its kind, so changing a
-                    // colour in the editor with the window open crosses to the
-                    // new one instead of cutting to it.
+                    .padding(.top, topGap(for: block, first: shown.first))
+                    // Keyed on the block, so changing a colour in the editor
+                    // with the window open crosses to the new one rather than
+                    // cutting to it.
                     .motion(Motion.panel, value: block)
             }
+
+            // The seam. Without it the last band and the first card below run
+            // into each other with nothing between them but the gap the sheet's
+            // own stack puts there, which reads as the face having stopped
+            // half way.
+            hairline
         }
-        // The whole stack re-lays out when a block is moved, switched off or
-        // added, and it does it as a movement rather than as a jump.
         .motion(Motion.panel, value: arrangement.blocks)
     }
 
-    /// One block, drawn and dressed.
-    ///
-    /// The photograph is the one that takes no card: it is a picture, and a
-    /// picture in a tinted card with a rule along the top is a picture in a
-    /// frame. It takes the corner and nothing else.
+    /// The handle's clearance, and only above the first band, and only when
+    /// that band is not the photograph.
+    private func topGap(for block: FlightInfoBlock, first: FlightInfoBlock?) -> CGFloat {
+        guard block.id == first?.id, block.kind != .photo else { return 0 }
+        return handleClearance
+    }
+
+    private var hairline: some View {
+        Rectangle().fill(theme.stroke).frame(height: 1)
+    }
+
+    // MARK: - One band
+
     @ViewBuilder
     private func content(for block: FlightInfoBlock) -> some View {
         let dressed = theme.wearing(block)
@@ -545,43 +599,42 @@ struct FlightDetailHead: View {
                 callsignSize: 24,
                 showsTypeChip: true,
                 showsTailChip: true,
-                registration: registration
+                registration: registration,
+                inset: Self.inset
             )
-            .flightInfoBlock(block, theme: dressed, elevated: true)
+            .flightInfoBand(block, theme: dressed)
 
         case .photo:
             photograph
 
         case .route:
-            route(dressed).flightInfoBlock(block, theme: dressed)
+            route(dressed).flightInfoBand(block, theme: dressed)
 
         case .progress:
-            run(dressed).flightInfoBlock(block, theme: dressed)
+            run(dressed).flightInfoBand(block, theme: dressed)
 
         case .times:
-            times(dressed).flightInfoBlock(block, theme: dressed)
+            times(dressed).flightInfoBand(block, theme: dressed)
 
         case .telemetry:
-            telemetry(dressed).flightInfoBlock(block, theme: dressed)
+            telemetry(dressed).flightInfoBand(block, theme: dressed)
 
         case .aircraft:
-            aircraft(dressed).flightInfoBlock(block, theme: dressed)
+            aircraft(dressed).flightInfoBand(block, theme: dressed)
 
         case .position:
-            coordinates(dressed).flightInfoBlock(block, theme: dressed)
+            coordinates(dressed).flightInfoBand(block, theme: dressed)
         }
     }
 
     // MARK: The picture
 
-    /// The photograph as a card of its own.
+    /// Edge to edge, with no corner and no fade.
     ///
-    /// The window's other looks run it full bleed off the top of the sheet,
-    /// where it is the header and has an edge of the screen to end on. Here it
-    /// is one block among several with cards above and below it, so it takes
-    /// the same corner as they do and does not fade out at its foot — a picture
-    /// dissolving into the middle of a stack reads as a rendering fault rather
-    /// than as a seam.
+    /// The fade exists so a photograph can dissolve into the window's ground
+    /// where it is the top of the sheet and has nothing under it. Here it has a
+    /// hairline and a band of type under it, and a picture melting into those
+    /// reads as a rendering fault rather than as a seam.
     private var photograph: some View {
         FlightHero(
             image: image,
@@ -593,7 +646,6 @@ struct FlightDetailHead: View {
             isAutoplaying: isAutoplaying,
             fadesIntoGround: false
         )
-        .clipShape(RoundedRectangle(cornerRadius: theme.radiusMedium, style: .continuous))
     }
 
     // MARK: Where
@@ -603,30 +655,25 @@ struct FlightDetailHead: View {
             flight: flight,
             progress: progress,
             theme: theme,
-            codeSize: 36,
-            nameSize: 11,
-            badgeSize: 40,
+            codeSize: 40,
+            nameSize: 10.5,
+            badgeSize: 44,
             onSelectAirport: onSelectAirport,
             showsFlag: true
         )
-        .padding(.horizontal, 14)
-        .padding(.vertical, 14)
+        .padding(.horizontal, Self.inset)
+        .padding(.vertical, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// The bar, and the two distances either side of it.
     ///
-    /// Draws the distances as dashes rather than drawing nothing when there is
-    /// no route: a block that is on and empty is a block that looks broken,
-    /// where a block saying "—" is a block saying nothing is filed.
-    @ViewBuilder
+    /// Draws dashes rather than drawing nothing when there is no route: a band
+    /// that is on and empty is a band that looks broken, where one saying "no
+    /// route" is a band saying nothing is filed.
     private func run(_ theme: FlightInfoTheme) -> some View {
-        VStack(alignment: .leading, spacing: 9) {
-            RouteTrack(
-                fraction: progress?.fraction ?? 0,
-                theme: theme,
-                planeSize: 13
-            )
+        VStack(alignment: .leading, spacing: 10) {
+            RouteTrack(fraction: progress?.fraction ?? 0, theme: theme, planeSize: 13)
 
             HStack(spacing: 8) {
                 Text(flownLine)
@@ -642,7 +689,7 @@ struct FlightDetailHead: View {
             .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
             .foregroundStyle(theme.textDim)
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, Self.inset)
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -650,37 +697,58 @@ struct FlightDetailHead: View {
     // MARK: How
 
     private func times(_ theme: FlightInfoTheme) -> some View {
-        HStack(spacing: 0) {
+        pair(theme) {
             cell("DEPARTED", departedValue, theme: theme, isEstimate: false)
-
-            divider(theme)
-
+        } trailing: {
             cell("ARRIVING", arrivingValue, theme: theme, isEstimate: true)
         }
-        .padding(.vertical, 12)
     }
 
     /// The four live numbers, as two rows of two.
     ///
-    /// All four, and this is the only place they are printed under this look —
-    /// see the note on the type. Height and speed lead because they are what a
-    /// glance is for; climb and heading follow because they are what you read
-    /// once you have decided to look properly.
+    /// All four, and this is the only place they are printed under this look.
+    /// Height and speed lead because they are what a glance is for; climb and
+    /// heading follow because they are what you read once you have decided to
+    /// look properly.
     private func telemetry(_ theme: FlightInfoTheme) -> some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 0) {
+        VStack(spacing: 0) {
+            pair(theme) {
                 cell("ALTITUDE", FlightDetailLook.altitude(flight), theme: theme, isEstimate: false)
-                divider(theme)
+            } trailing: {
                 cell("GROUND SPEED", FlightDetailLook.speed(flight), theme: theme, isEstimate: false)
             }
 
-            HStack(spacing: 0) {
+            Rectangle().fill(theme.stroke).frame(height: 1)
+
+            pair(theme) {
                 cell("VERTICAL", FlightDetailLook.vertical(flight), theme: theme, isEstimate: false)
-                divider(theme)
+            } trailing: {
                 cell("HEADING", FlightDetailLook.heading(flight), theme: theme, isEstimate: false)
             }
         }
-        .padding(.vertical, 12)
+    }
+
+    /// Two cells side by side with a rule down the middle.
+    ///
+    /// The rule is an overlay rather than a third view in the row, and that is
+    /// what makes it the height of the row: an overlay is proposed the size of
+    /// what it is drawn over, where a rectangle standing between two cells in a
+    /// row that sizes itself is proposed no height at all and comes back ten
+    /// points tall.
+    private func pair<Leading: View, Trailing: View>(
+        _ theme: FlightInfoTheme,
+        @ViewBuilder leading: () -> Leading,
+        @ViewBuilder trailing: () -> Trailing
+    ) -> some View {
+        HStack(spacing: 0) {
+            leading()
+            trailing()
+        }
+        .overlay {
+            Rectangle()
+                .fill(theme.stroke)
+                .frame(width: 1)
+        }
     }
 
     private func cell(
@@ -689,7 +757,7 @@ struct FlightDetailHead: View {
         theme: FlightInfoTheme,
         isEstimate: Bool
     ) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 5) {
                 // The mark that says this one is arithmetic rather than
                 // observation — the difference between a time and a promise.
@@ -698,61 +766,70 @@ struct FlightDetailHead: View {
                 }
 
                 Text(kicker)
-                    .font(.system(size: 8.5, weight: .bold))
+                    .font(.system(size: 9, weight: .bold))
                     .tracking(0.7)
                     .foregroundStyle(theme.textDim)
                     .flightInfoLine(minimumScale: 0.7)
             }
 
             Text(value)
-                .font(.system(size: 19, weight: .heavy, design: .rounded))
+                .font(.system(size: 21, weight: .heavy, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
                 .flightInfoLine(minimumScale: 0.55)
                 .motionWords(value)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 14)
-    }
-
-    /// The rule between two cells of one block.
-    ///
-    /// Cells inside a card rather than cards of their own, which is the change
-    /// this block made when it stopped being two rows of tiles: a block is one
-    /// thing you can move, colour and switch off, and a block made of four
-    /// separate cards is four things wearing the same colour.
-    private func divider(_ theme: FlightInfoTheme) -> some View {
-        Rectangle()
-            .fill(theme.stroke)
-            // A height rather than `maxHeight: .infinity`: a rectangle in a row
-            // that sizes itself is proposed no height at all and comes back ten
-            // points tall, which is a hairline hyphen between two cells.
-            .frame(width: 1, height: 32)
+        .padding(.horizontal, Self.inset)
+        .padding(.vertical, 13)
     }
 
     // MARK: What, and where exactly
 
     /// What the aeroplane is, as rows.
     ///
-    /// Label on the left, value on the right, one per line — the shape every
-    /// tracker reaches for when the answer is a word rather than a number, and
-    /// the right one here: a registration set in the same 19pt as a ground
-    /// speed reads as though it were changing.
+    /// Label on the left, value on the right, one per line, a rule between —
+    /// the shape every tracker reaches for when the answer is a word rather
+    /// than a number, and the right one here: a registration set in the same
+    /// 21pt as a ground speed reads as though it were changing.
     private func aircraft(_ theme: FlightInfoTheme) -> some View {
         VStack(spacing: 0) {
             row("TYPE", flight.aircraftName.isEmpty ? "—" : flight.aircraftName, theme: theme)
+            rule(theme)
             row("REGISTRATION", registration.isEmpty ? "—" : registration, theme: theme, mono: true)
+            rule(theme)
             row("OPERATOR", operatorLine, theme: theme)
+            rule(theme)
             row("PILOT", flight.username ?? "—", theme: theme)
         }
-        .padding(.vertical, 4)
     }
 
     private func coordinates(_ theme: FlightInfoTheme) -> some View {
         VStack(spacing: 0) {
-            row("LATITUDE", FlightDetailLook.degrees(flight.latitude, positive: "N", negative: "S"), theme: theme, mono: true)
-            row("LONGITUDE", FlightDetailLook.degrees(flight.longitude, positive: "E", negative: "W"), theme: theme, mono: true)
+            row(
+                "LATITUDE",
+                FlightDetailLook.degrees(flight.latitude, positive: "N", negative: "S"),
+                theme: theme,
+                mono: true
+            )
+
+            rule(theme)
+
+            row(
+                "LONGITUDE",
+                FlightDetailLook.degrees(flight.longitude, positive: "E", negative: "W"),
+                theme: theme,
+                mono: true
+            )
         }
-        .padding(.vertical, 4)
+    }
+
+    /// The rule between two rows of one band. Inset on both sides, so it reads
+    /// as dividing a list rather than as ending the band.
+    private func rule(_ theme: FlightInfoTheme) -> some View {
+        Rectangle()
+            .fill(theme.stroke)
+            .frame(height: 1)
+            .padding(.leading, Self.inset)
     }
 
     private func row(
@@ -771,14 +848,14 @@ struct FlightDetailHead: View {
             Spacer(minLength: 8)
 
             Text(value)
-                .font(.system(size: 13, weight: .semibold, design: mono ? .monospaced : .default))
+                .font(.system(size: 14, weight: .semibold, design: mono ? .monospaced : .default))
                 .foregroundStyle(theme.textPrimary)
                 .multilineTextAlignment(.trailing)
                 .flightInfoLine(minimumScale: 0.6)
                 .motionWords(value)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Self.inset)
+        .padding(.vertical, 11)
     }
 
     // MARK: Lines
@@ -811,68 +888,53 @@ struct FlightDetailHead: View {
     }
 }
 
-// MARK: - Dressing a block
+// MARK: - Dressing a band
 
 extension View {
 
-    /// A block's card: the window's own surface, plus whatever colour the block
-    /// has been given.
+    /// A band's colour, if it has been given one.
     ///
-    /// The four treatments are four different places to put a colour rather
-    /// than four amounts of it — a rule on the edge, the accents inside, the
-    /// whole ground, or none — and only the last two reach the content, which
-    /// `FlightInfoTheme.wearing(_:)` has already done by the time this is
-    /// applied.
-    fileprivate func flightInfoBlock(
+    /// No card and no corner: a band's ground is the window's ground, and what
+    /// separates it from the band above is the hairline between them. The four
+    /// treatments are four places to put a colour rather than four amounts of
+    /// it — none, a rule along the top, the accents inside, or the ground
+    /// itself — and the two that reach the content have already done so through
+    /// `FlightInfoTheme.wearing(_:)` by the time this is applied.
+    fileprivate func flightInfoBand(
         _ block: FlightInfoBlock,
-        theme: FlightInfoTheme,
-        elevated: Bool = false
+        theme: FlightInfoTheme
     ) -> some View {
-        modifier(FlightInfoBlockSurface(block: block, theme: theme, elevated: elevated))
+        modifier(FlightInfoBandTint(block: block, theme: theme))
     }
 }
 
-private struct FlightInfoBlockSurface: ViewModifier {
+private struct FlightInfoBandTint: ViewModifier {
 
     let block: FlightInfoBlock
     let theme: FlightInfoTheme
-    let elevated: Bool
 
-    /// The colour this block is actually drawn in: its own, or the window's
-    /// accent for a block that has been given a treatment but no colour.
+    /// The colour this band is drawn in: its own, or the window's accent for a
+    /// band given a treatment but no colour of its own.
     private var colour: Color { block.colour ?? theme.accent }
 
-    private var shape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: theme.radiusMedium, style: .continuous)
-    }
-
+    @ViewBuilder
     func body(content: Content) -> some View {
         switch block.tint {
-        case .plain:
-            content.flightInfoSurface(theme, radius: theme.radiusMedium, elevated: elevated)
+        case .plain, .accent:
+            content
 
         case .line:
-            content
-                .flightInfoSurface(theme, radius: theme.radiusMedium, elevated: elevated)
-                // Inside the card's own clip, so the rule takes the corner
-                // rather than crossing it.
-                .overlay(alignment: .top) {
-                    Rectangle().fill(colour).frame(height: 3)
-                }
-                .clipShape(shape)
-
-        case .accent:
-            content.flightInfoSurface(theme, radius: theme.radiusMedium, elevated: elevated)
+            content.overlay(alignment: .top) {
+                Rectangle().fill(colour).frame(height: 3)
+            }
 
         case .filled:
-            // A real fill rather than a tinted piece of glass. Glass takes its
-            // colour from what is behind it, so a tint on it is a suggestion —
-            // and a block somebody has deliberately painted should be the
-            // colour they picked on every ground the window has.
-            content
-                .background { shape.fill(colour.opacity(theme.isLight ? 0.16 : 0.22)) }
-                .overlay { shape.strokeBorder(colour.opacity(0.45), lineWidth: 1) }
-                .clipShape(shape)
+            // A wash rather than a fill. The type on a band is the window's
+            // own ink and has to stay readable on whatever colour a colour
+            // well hands back, so what a filled band takes is a tint of it —
+            // enough to read as painted, not enough to become a ground of its
+            // own with its own contrast problem.
+            content.background(colour.opacity(theme.isLight ? 0.16 : 0.22))
         }
     }
 }

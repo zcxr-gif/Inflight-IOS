@@ -293,8 +293,12 @@ struct FlightWindowPanel: View {
             )
 
         case .open:
+            // The detail look's head runs to both edges of the window it is
+            // drawn in, so the preview must not inset it either — a drawing of
+            // a full-bleed face inside a fourteen-point margin is a drawing of
+            // something else.
             openHead
-                .padding(.horizontal, 14)
+                .padding(.horizontal, appearance.resolvedWindowStyle == .detail ? 0 : 14)
                 .padding(.top, 4)
         }
     }
@@ -339,9 +343,7 @@ struct FlightWindowPanel: View {
                 // lands, and is honest about what this look is shaped like.
                 image: nil,
                 contributor: nil,
-                // The head's own width: this one is inset fourteen either side
-                // by `content`, exactly as the real window insets it.
-                width: max(0, width - 28),
+                width: width,
                 began: Self.departed
             )
         }
