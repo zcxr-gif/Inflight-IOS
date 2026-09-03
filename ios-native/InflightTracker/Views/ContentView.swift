@@ -62,6 +62,24 @@ struct ContentView: View {
     /// The flight window's handle, held under a finger.
     @GestureState private var isWindowHeld = false
 
+    /// Which stop the flight window was at when the pull on its handle began,
+    /// or nil between pulls.
+    ///
+    /// Remembered because the pull changes the answer under itself. A pull down
+    /// on the full window puts it back on its peak while the finger is still
+    /// moving, so by the time it is let go `isWindowExpanded` describes where
+    /// the window is, not where the gesture started — and the two want opposite
+    /// endings. A pull that began at the full window has done its job by
+    /// landing on the peak; one that began at the peak is the gesture that
+    /// closes the window. Reading the live flag at that point is what used to
+    /// make a small flick down from the full window close it outright, which is
+    /// the opposite of what a small flick down asks for.
+    ///
+    /// Cleared when the finger leaves rather than only in `onEnded`: collapsing
+    /// moves the pill out from under the touch, which is one of the ways a
+    /// gesture is cancelled, and a cancelled gesture never ends.
+    @State private var windowPullFromFull: Bool?
+
     /// Which phase the info window is in. Owned here so it can be reset to the
     /// peak state each time a different aircraft is tapped.
     ///
@@ -517,10 +535,10 @@ struct ContentView: View {
         MapDock.reservedHeight + MapDock.legalLane
     }
 
-    /// How far a pull on the flight window's handle has to be heading to close
-    /// it, and how far the other way to open it out. Judged on where the drag
-    /// was predicted to end rather than where the finger stopped, so a flick
-    /// does it without the travel.
+    /// How far a pull on the flight window's handle has to be heading, from the
+    /// peak, to close it — and how far the other way to open it out. Judged on
+    /// where the drag was predicted to end rather than where the finger
+    /// stopped, so a flick does it without the travel.
     ///
     /// The close figure was ninety, which was most of the height of the peak
     /// state: a pull that had visibly dragged the window most of the way off
@@ -528,21 +546,38 @@ struct ContentView: View {
     /// window as to open it out was never the right way round. It is the same
     /// distance as the other now — both are the same question, has this pull
     /// committed.
+    ///
+    /// Both are asked of a pull that *started* at the peak. A pull that started
+    /// at the full window is a different question and is answered by the figure
+    /// below.
     private static let windowCloseTravel: CGFloat = 44
     private static let windowOpenTravel: CGFloat = 44
 
-    /// How far down a pull has to be before the full window starts collapsing
-    /// under it, so the pull has something to show for itself on the way.
-    private static let windowCollapseTravel: CGFloat = 44
+    /// How far a pull down on the full window has to go — or, on a flick, to be
+    /// heading — before the window falls back to its peak.
+    ///
+    /// Small on purpose. This is the whole of what a pull down on an open
+    /// window means: put it back. It was forty-four and was only ever read
+    /// while the finger was still moving, so a short flick — which is what
+    /// asking for the peak actually looks like — travelled no distance at all,
+    /// fell through to the figures above, and closed the window instead. Now it
+    /// is asked on release too, and a pull from the full window can only ever
+    /// land on the peak.
+    private static let windowFallTravel: CGFloat = 32
 
     /// How far a pull has actually travelled — not where it is predicted to end
     /// — before the window closes without waiting to be let go.
     ///
     /// The safety net rather than the way out, which is why it is well beyond
-    /// the figure above: collapsing resizes the sheet under the finger, and a
+    /// the figures above: collapsing resizes the sheet under the finger, and a
     /// gesture whose view moves that far can be cancelled, taking `onEnded`
     /// with it. Past this, a pull is heading off the bottom of the screen
     /// whatever happens next, so there is nothing left worth waiting for.
+    ///
+    /// Counted from the peak. A pull that began at the full window spends
+    /// `windowFallTravel` getting there first and this distance is measured
+    /// after it, so the window is never a short pull away from being gone:
+    /// let go anywhere in between and it simply stays on its peak.
     private static let windowCloseCommit: CGFloat = 96
 
     /// How tall the map's own control stack is: its rows, with a hairline
@@ -1136,6 +1171,22 @@ struct ContentView: View {
                 FlightDetailView(
                     flightId: selected.id,
                     peakHeight: $peakHeight,
+                    // A pull down on the open window has been let go, and it
+                    // went far enough to have meant it. The drag itself is the
+                    // sheet's own from start to finish — see
+                    // `FlightDetailView.trackFall(to:)` — and this is the only
+                    // thing the app adds to it: the stop it lands on. Without
+                    // it the window springs back to full unless the pull
+                    // dragged it past the middle of the phone.
+                    //
+                    // Guarded because the peak is also where a pull that UIKit
+                    // itself sent there ends up, and being told to go where it
+                    // already is would be a state change with nothing behind
+                    // it.
+                    onFallToPeak: {
+                        guard isWindowExpanded else { return }
+                        isWindowExpanded = false
+                    },
                     onReplay: { track in startReplay(of: selected.id, track: track) },
                     onSelectAirport: { field in openAirport(field, from: selected) },
                     origin: flightReturn(for: selected)
@@ -1181,8 +1232,9 @@ struct ContentView: View {
     /// drag could not do was close: from full height a pull down landed on the
     /// peak, so shutting the window took two separate gestures, and the second
     /// only worked if you had not scrolled. This pill is the way through both.
-    /// Pull it and the window collapses as you go and closes when you let go;
-    /// push it and the whole window opens.
+    /// Pull it and the window steps down — to the peak from the full window, and
+    /// shut from the peak — or keep pulling and it does both at once; push it
+    /// and the whole window opens.
     ///
     /// Only as wide as the pill it draws. The rest of the top of the window is
     /// left to the sheet's own gesture, which is better at following a finger
@@ -1202,6 +1254,14 @@ struct ContentView: View {
             .frame(width: 132)
             .frame(maxWidth: .infinity)
             .gesture(flightWindowPull)
+            // The pull's memory of where it started, let go of when the finger
+            // is. `onEnded` clears it too, and cannot be relied on to: bringing
+            // the window down moves this pill away from the touch, which
+            // cancels the gesture rather than ending it. A stale answer here
+            // would spend the next pull as the wrong kind.
+            .onChange(of: isWindowHeld) { _, held in
+                if !held { windowPullFromFull = nil }
+            }
             // After the drag, so a pull is never read as a tap. A tap on its
             // own still lands here: the pull needs four points of travel before
             // it claims the touch.
@@ -1216,10 +1276,32 @@ struct ContentView: View {
     /// Global, like every other pull in the app: the sheet resizes underneath
     /// the finger while this is running, and a translation measured against
     /// something that is itself moving is a translation that fights itself.
+    ///
+    /// One pull is one step down. From the full window it lands on the peak;
+    /// from the peak it closes. Only a pull that carries on well past the point
+    /// the window came to rest — `windowCloseCommit` beyond it — takes both
+    /// steps at once, which is the gesture somebody makes when they want the
+    /// window gone and are not stopping to look at it on the way.
     private var flightWindowPull: some Gesture {
         DragGesture(minimumDistance: 4, coordinateSpace: .global)
             .updating($isWindowHeld) { _, state, _ in state = true }
             .onChanged { value in
+                // Where this pull started, taken on its first update and kept
+                // for the rest of it. See `windowPullFromFull`: the next few
+                // lines are about to change the thing it would otherwise be
+                // read from.
+                let fromFull = windowPullFromFull ?? isWindowExpanded
+                if windowPullFromFull == nil { windowPullFromFull = fromFull }
+
+                let travel = value.translation.height
+
+                // The window comes down with the finger rather than waiting to
+                // be let go, so the pull has something to show for itself on
+                // the way.
+                if fromFull, isWindowExpanded, travel > Self.windowFallTravel {
+                    isWindowExpanded = false
+                }
+
                 // Closing is decided here as well as on release. Collapsing
                 // sets the detent, which resizes the sheet under the finger and
                 // moves this pill most of the screen away from it — and a
@@ -1229,20 +1311,30 @@ struct ContentView: View {
                 // window sitting at the peak instead. That is the second half
                 // of why closing this window used to take a drag and then
                 // another drag.
-                if value.translation.height > Self.windowCloseCommit {
-                    sheet = nil
-                    return
-                }
-
-                // Collapses on the way down, so the pull has something to show
-                // for itself before it commits to closing.
-                guard isWindowExpanded, value.translation.height > Self.windowCollapseTravel else {
-                    return
-                }
-                isWindowExpanded = false
+                //
+                // Measured from wherever this pull's first step ended, so the
+                // distance that closes the window is the same whichever stop
+                // the pull began at.
+                let commit = fromFull
+                    ? Self.windowFallTravel + Self.windowCloseCommit
+                    : Self.windowCloseCommit
+                if travel > commit { sheet = nil }
             }
             .onEnded { value in
+                let fromFull = windowPullFromFull ?? isWindowExpanded
+                windowPullFromFull = nil
+
                 let landing = value.predictedEndTranslation.height
+
+                // A pull that began at the full window has done everything it
+                // was ever going to do by landing on the peak — including the
+                // flick that never travelled far enough to bring the window
+                // down on the way, which is the whole reason this is asked on
+                // release as well.
+                if fromFull {
+                    if landing > Self.windowFallTravel { isWindowExpanded = false }
+                    return
+                }
 
                 if landing > Self.windowCloseTravel {
                     sheet = nil
