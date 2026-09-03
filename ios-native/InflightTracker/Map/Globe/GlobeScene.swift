@@ -40,6 +40,24 @@ struct GlobeTrafficDot: Equatable {
     /// Whether it is the aircraft whose window is open, which is drawn larger
     /// and over the rest.
     let isOpen: Bool
+
+    /// What it is called, for the label beside it.
+    ///
+    /// Carried here rather than looked up while drawing for the reason
+    /// everything else here is: the drawing runs at the frame rate and the
+    /// packet does not. It costs nothing — a `String` on the dot is the same
+    /// string the flight already holds.
+    let callsign: String?
+
+    /// The partner VA whose logo goes above it, as the id `VaMarkStore` keeps
+    /// its picture under. Nil when the callsign matches no partner, and nil for
+    /// everything when the setting is off — see `rebuild`, which is where the
+    /// lookup happens and where not doing it is free.
+    ///
+    /// The id rather than the listing: three thousand copies of a directory
+    /// entry, rebuilt on every packet, to draw the handful of logos that are
+    /// ever on screen at once.
+    let vaId: String?
 }
 
 /// One field on the planet: where it is, what it is called, and whether
@@ -398,6 +416,12 @@ final class GlobeScene: ObservableObject {
         natTracks: [[CLLocationCoordinate2D]],
         atcSectors: [AtcActiveSector],
         smoothsTraffic: Bool,
+        // Whether any aeroplane could be wearing a VA logo. The lookup is
+        // memoised and cheap, but it is still a lock and a dictionary per
+        // aircraft per packet — so with the setting off it is not done at all.
+        // The caller's signature carries this, or a flip of the switch would
+        // not rebuild anything.
+        showsVaMarks: Bool,
         palette: GlobePalette
     ) {
         guard stamp != signature else { return }
@@ -442,7 +466,17 @@ final class GlobeScene: ObservableObject {
                 ),
                 spriteKey: flight.spriteKey,
                 tint: highlighting.tint(for: flight.username),
-                isOpen: flight.id == openFlightId
+                isOpen: flight.id == openFlightId,
+                callsign: flight.callsign,
+                // Asking is also what starts the download, which is why the
+                // picture is asked for here and read back by id when it is
+                // drawn — see `VaMarkStore.mark(id:)`.
+                vaId: showsVaMarks
+                    ? VaMarkStore.shared.partner(callsign: flight.callsign).map { ad in
+                        _ = VaMarkStore.shared.mark(for: ad)
+                        return ad.id
+                    }
+                    : nil
             ))
         }
 

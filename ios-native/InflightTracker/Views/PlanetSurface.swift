@@ -180,6 +180,12 @@ struct PlanetSurface: View {
             showsPlanes: appearance.resolvedGlobeShowsPlanes,
             showsFields: filters.showsAirports,
             showsPlanNames: filters.showsPlanNames,
+            // The same two the flat map is handed. The planet drew neither, so
+            // an aeroplane lost its callsign and its VA's logo the moment the
+            // world changed shape — with the settings still switched on, and
+            // nothing on screen to say why.
+            markerLabels: filters.markerLabels,
+            showsVaMarks: filters.showsVaMarks,
             sun: filters.showsTerminator ? sun : nil,
             replay: replayMark,
             smoothsTraffic: smoothsTraffic,
@@ -210,7 +216,18 @@ struct PlanetSurface: View {
         // `updateUIView`, to move a value nothing in SwiftUI ever read.
         .onAppear {
             sun = Self.sunVector()
+            // The marks need the VA directory and nothing else here was ever
+            // going to ask for it — the flat map says this from its own setup,
+            // which does not run when the planet is what the map is. Said once,
+            // and answered from the warm copy for every aeroplane after that.
+            if filters.showsVaMarks { VaMarkStore.shared.warm() }
             rebuild()
+        }
+        // Switched on while the planet is up: the directory still has to be
+        // asked for, and the scene still has to resolve every aeroplane's VA.
+        // The signature covers the rebuild; this covers the fetch.
+        .onChange(of: filters.showsVaMarks) { _, on in
+            if on { VaMarkStore.shared.warm() }
         }
         .onReceive(Self.clock) { _ in sun = Self.sunVector() }
         .onChange(of: sceneSignature) { _, _ in rebuild() }
@@ -389,6 +406,11 @@ struct PlanetSurface: View {
         hasher.combine(atcStationStamp)
         hasher.combine(filters.showsFlownPath)
         hasher.combine(smoothsTraffic)
+        // The scene resolves each aeroplane's VA only when this is on, so
+        // flipping it has to rebuild — otherwise switching the logos on leaves
+        // every aeroplane carrying the nil it was built with until the next
+        // packet moves something else.
+        hasher.combine(filters.showsVaMarks)
         return hasher.finalize()
     }
 
@@ -485,6 +507,7 @@ struct PlanetSurface: View {
             natTracks: filters.showsNatTracks ? natTracks.tracks.map(\.coordinates) : [],
             atcSectors: atcSectors,
             smoothsTraffic: smoothsTraffic,
+            showsVaMarks: filters.showsVaMarks,
             palette: palette
         )
     }
