@@ -15,9 +15,22 @@ import Foundation
 /// there is no plan to choose and nothing here asks — and there is no trial,
 /// because it is not something the website sells.
 ///
+/// ## Where it happens
+///
+/// In a sheet over the app — Safari's own view controller, slid up from the
+/// bottom like every other sheet here, rather than a jump out to the Safari
+/// app and back. The payment is still Stripe's hosted page in Safari's engine
+/// and no card detail ever touches this app; what changed is that the pilot
+/// keeps the paywall, and the map, behind it.
+///
+/// That is also why `page` lives here rather than in the view. The sheet has
+/// to close on something the *view* cannot see — the return page bouncing to
+/// `inflight://open?payment=…` — so the one thing that knows a checkout is in
+/// flight is the same thing that hears it end.
+///
 /// ## Why the confirmation is its own step
 ///
-/// The checkout happens in Safari, in a browser this app cannot see. Nothing
+/// The checkout happens in a browser this app cannot read. Nothing
 /// here ever grants Pro on the strength of somebody having come back: the
 /// entitlement is written by `stripe-webhook`, which Stripe calls directly and
 /// retries for days, from the account id this app puts on the checkout. That
@@ -36,8 +49,23 @@ final class WebSubscription: ObservableObject {
 
     static let shared = WebSubscription()
 
-    /// Set while the checkout session is being created, before Safari opens.
+    /// Set while the checkout session is being created, before the sheet opens.
     @Published private(set) var isStarting = false
+
+    /// The checkout page, while one is up.
+    ///
+    /// Settable from outside so a view can bind a sheet straight to it: the
+    /// pilot closing that sheet is the one end this cannot hear for itself.
+    /// Everything else that ends a checkout clears it from in here.
+    @Published var page: CheckoutPage?
+
+    /// A checkout page, identified so it can drive a `sheet(item:)`. The URL
+    /// is not the identity — Stripe would happily hand back the same session
+    /// twice, and re-presenting is not the same as never having closed.
+    struct CheckoutPage: Identifiable, Equatable {
+        let id = UUID()
+        let url: URL
+    }
 
     /// Set while the app is asking the server whether the payment landed.
     @Published private(set) var isConfirming = false
@@ -51,11 +79,12 @@ final class WebSubscription: ObservableObject {
 
     /// When a checkout was started from here, if one is still unaccounted for.
     ///
-    /// On disk rather than in memory, and that is the whole point: the checkout
-    /// happens in *another app*, and iOS is free to kill this one while Safari
-    /// has the screen. A claim held only in memory is exactly the claim that
-    /// goes missing in the case it exists for — somebody pays, comes back to a
-    /// freshly launched app, and nothing ever asks whether they did.
+    /// On disk rather than in memory, and that is still the point even now the
+    /// sheet keeps the app forward: a checkout can be left open, the phone
+    /// locked, and this app killed for memory while it sits there. A claim held
+    /// only in memory is exactly the claim that goes missing in the case it
+    /// exists for — somebody pays, comes back to a freshly launched app, and
+    /// nothing ever asks whether they did.
     ///
     /// It records only that a checkout was started. Not which session, not
     /// whether anybody paid: the server is asked for that, and is the only
@@ -130,6 +159,12 @@ final class WebSubscription: ObservableObject {
     /// something nobody bought.
     @MainActor
     func settled(paid: Bool) async {
+        // Whichever way it went, the checkout is over — so the sheet goes,
+        // first and unconditionally. The return page bounces to
+        // `inflight://open?payment=…` from inside that very sheet, and this is
+        // the only thing that hears it.
+        page = nil
+
         if paid {
             // Already asking, because coming forward beat the link here. The
             // link adds nothing to that, and staking a fresh claim over the
@@ -152,21 +187,23 @@ final class WebSubscription: ObservableObject {
 
     // MARK: - Buying
 
-    /// Creates the checkout session and hands back the page to open.
+    /// Creates the checkout session and puts its page up.
     ///
-    /// Returns nil when it could not get that far, having already said why.
-    /// The view opens the URL rather than this doing it, so the one thing that
-    /// puts something on screen stays in the layer that owns the screen.
+    /// Sets `page`, which a view has a sheet bound to; on any failure it sets
+    /// `problem` instead and leaves the sheet shut. The view still owns what
+    /// is on screen — it decides how a page is shown, and closing it is its
+    /// call — but *whether there is a checkout in flight* is this object's
+    /// business, because it is what the return link reports back to.
     @MainActor
-    func begin() async -> URL? {
-        guard !isStarting else { return nil }
+    func begin() async {
+        guard !isStarting else { return }
 
         // The subscription is attached to an account, so there has to be one.
         // Signing in first is a real requirement rather than a formality: a
         // payment made under no account is a payment nothing can be given for.
         guard let account = AccountStore.shared.account else {
             problem = "Sign into your Inflight account first — a subscription belongs to an account."
-            return nil
+            return
         }
 
         isStarting = true
@@ -176,7 +213,7 @@ final class WebSubscription: ObservableObject {
 
         guard let token = await AccountStore.shared.currentAccessToken() else {
             problem = "Your session has expired. Sign in again and try once more."
-            return nil
+            return
         }
 
         do {
@@ -187,11 +224,32 @@ final class WebSubscription: ObservableObject {
             )
             awaitingReturn = true
             wasCancelled = false
-            return checkout
+            page = CheckoutPage(url: checkout)
         } catch {
             problem = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-            return nil
         }
+    }
+
+    /// The checkout sheet has gone — Cancel, a swipe down, or the return link
+    /// having closed it.
+    ///
+    /// Closing it is not cancelling at Stripe and must not be read as one: the
+    /// return page is the only thing that says a checkout was abandoned, and
+    /// somebody who swipes away Stripe's own receipt has paid. So this asks,
+    /// exactly as coming back from Safari used to.
+    ///
+    /// It has to be asked *here* rather than left to the foreground check,
+    /// because with the sheet inside the app there is no longer a foreground to
+    /// come back to: the app never left. Without this a payment made in the
+    /// sheet and then dismissed by hand would go unclaimed until the next
+    /// launch.
+    ///
+    /// Safe on the return-link path too, where `settled(paid:)` has already
+    /// started asking: `confirm()` runs one at a time and a settled claim is
+    /// no longer awaiting one.
+    @MainActor
+    func checkoutSheetClosed() async {
+        await confirmIfAwaitingReturn()
     }
 
     // MARK: - Coming back

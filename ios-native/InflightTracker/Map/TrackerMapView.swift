@@ -571,7 +571,7 @@ struct TrackerMapView: UIViewRepresentable {
 
             // A logo arriving is not a packet and not a gesture, so nothing
             // else would repaint the aeroplanes that were waiting for it.
-            VaMarkStore.shared.onMarkArrived = { [weak self] in
+            VaMarkStore.shared.observeMarks(self) { [weak self] in
                 guard let self = self, let mapView = self.markedMapView else { return }
                 self.refreshMarks(on: mapView)
             }

@@ -13,20 +13,54 @@ import UIKit
 ///     small `UIImage` ready to hand straight to a layer.
 ///
 /// Everything here answers immediately or answers nil. A mark that isn't ready
-/// is simply not drawn yet, and `onMarkArrived` is how the map learns it can
-/// stop saying nil.
+/// is simply not drawn yet, and `observeMarks(_:_:)` is how a map learns it
+/// can stop saying nil.
 final class VaMarkStore {
 
     static let shared = VaMarkStore()
 
-    /// Called on the main thread whenever a logo finishes downloading, so the
-    /// map can redraw the aeroplanes that were waiting for it.
+    /// Who wants telling, on the main thread, when a logo finishes
+    /// downloading — so whatever is drawing the aeroplanes can redraw the ones
+    /// that were waiting for it.
     ///
-    /// One callback rather than a per-aircraft observation: a single VA's logo
-    /// landing is one redraw of the marks, not two hundred notifications.
-    var onMarkArrived: (() -> Void)?
+    /// One notification per arrival rather than a per-aircraft observation: a
+    /// single VA's logo landing is one redraw of the marks, not two hundred
+    /// callbacks.
+    ///
+    /// A list rather than one slot, and that is not tidiness. Both shapes of
+    /// the world draw these marks now — MapKit's annotations and the planet's
+    /// canvas — and while only one of them is on screen at a time, a single
+    /// `var` makes their setup order decide which one ever hears about a logo.
+    /// Keyed by owner so re-registering replaces rather than stacks.
+    private var observers: [(owner: ObjectIdentifier, block: () -> Void)] = []
 
     private init() {}
+
+    /// Registers `block` to run when a logo lands, replacing anything `owner`
+    /// registered before. Held until `stopObservingMarks(_:)`; the owner is
+    /// only ever an identity here, never retained.
+    func observeMarks(_ owner: AnyObject, _ block: @escaping () -> Void) {
+        let key = ObjectIdentifier(owner)
+        lock.lock()
+        observers.removeAll { $0.owner == key }
+        observers.append((owner: key, block: block))
+        lock.unlock()
+    }
+
+    func stopObservingMarks(_ owner: AnyObject) {
+        let key = ObjectIdentifier(owner)
+        lock.lock()
+        observers.removeAll { $0.owner == key }
+        lock.unlock()
+    }
+
+    private func announceArrival() {
+        lock.lock()
+        let blocks = observers.map(\.block)
+        lock.unlock()
+        guard !blocks.isEmpty else { return }
+        DispatchQueue.main.async { blocks.forEach { $0() } }
+    }
 
     // MARK: - State
 
@@ -79,6 +113,19 @@ final class VaMarkStore {
         return nil
     }
 
+    /// The mark for a VA already asked for, by id, or nil.
+    ///
+    /// For the planet, whose traffic carries the VA's id rather than the whole
+    /// listing — three thousand copies of a directory entry, rebuilt on every
+    /// packet, to draw the handful of logos on screen. Unlike `mark(for:)` this
+    /// never starts a download: the id got onto the aeroplane by way of a
+    /// `mark(for:)` that already did.
+    func mark(id adId: String) -> UIImage? {
+        lock.lock()
+        defer { lock.unlock() }
+        return marks[adId]
+    }
+
     /// Says the map would like the directory, so `partner(callsign:)` has
     /// something to answer from. Cheap to call repeatedly.
     func warm() {
@@ -103,7 +150,7 @@ final class VaMarkStore {
             self.lock.unlock()
 
             guard image != nil else { return }
-            DispatchQueue.main.async { self.onMarkArrived?() }
+            self.announceArrival()
         }.resume()
     }
 

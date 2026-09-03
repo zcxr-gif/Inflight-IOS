@@ -58,6 +58,15 @@ struct GlobeCanvas: UIViewRepresentable {
     /// either way — see `MapFilters.showsPlanFixNames`.
     var showsPlanNames: Bool = true
 
+    /// Which aeroplanes wear their callsign, and whether a partner VA's logo
+    /// goes above it. The same two settings the flat map is given, answered the
+    /// same three ways — see `MarkerLabelMode` and `MapFilters.showsVaMarks`.
+    ///
+    /// Defaulted off so a swatch, which draws a planet forty-eight points
+    /// across, does not try to letter it.
+    var markerLabels: MarkerLabelMode = .off
+    var showsVaMarks: Bool = false
+
     /// Where the sun is overhead, or nil to draw the planet evenly lit.
     var sun: SIMD3<Float>? = nil
 
@@ -118,6 +127,8 @@ struct GlobeCanvas: UIViewRepresentable {
             showsPlanes: showsPlanes,
             showsFields: showsFields,
             showsPlanNames: showsPlanNames,
+            markerLabels: markerLabels,
+            showsVaMarks: showsVaMarks,
             sun: sun,
             replay: replay,
             smoothsTraffic: smoothsTraffic,
@@ -169,6 +180,20 @@ enum GlobeMarkMetrics {
     /// sky the size of a country, and the things inside it are what somebody is
     /// actually reading.
     static let atcFontSize: CGFloat = 9
+
+    /// The marks an aeroplane wears: the VA's logo and its callsign, in the
+    /// row above it.
+    ///
+    /// The flat map's own numbers — see `FlightAnnotationView` — so an
+    /// aeroplane looks the same whichever shape of the world it is on. Anything
+    /// else here would read as a different app underneath the same chrome.
+    static let planeMarkSide: CGFloat = 18
+    static let planeMarkGap: CGFloat = 5
+    static let callsignFontSize: CGFloat = 9.5
+
+    /// How wide a callsign is allowed to get. A callsign is typed by a pilot
+    /// and some of them are paragraphs.
+    static let callsignMaxWidth: CGFloat = 96
 
     /// How near a tap has to land, in points.
     static let touchRadius: CGFloat = 22
@@ -250,6 +275,8 @@ final class GlobeCanvasView: UIView {
     private var showsPlanes = true
     private var showsFields = true
     private var showsPlanNames = true
+    private var markerLabels: MarkerLabelMode = .off
+    private var showsVaMarks = false
     private var sun: SIMD3<Float>?
     private var replay: GlobeReplayMark?
     private var smoothsTraffic = true
@@ -457,6 +484,19 @@ final class GlobeCanvasView: UIView {
     /// wrong bitmap to whichever asked second.
     private var atcTextLabels: [String: UIImage] = [:]
 
+    /// Callsigns, rendered once each.
+    ///
+    /// A fourth cache, and not merged with the others for the same reason they
+    /// are not merged with each other: this one is drawn the flat map's way —
+    /// white with the halo stroked into the glyphs — rather than in a palette
+    /// colour under a blur, so it is not cleared when the palette changes,
+    /// because nothing about the palette can make one wrong.
+    ///
+    /// Bounded by the callsigns on screen, which is bounded by the zoom the
+    /// labels appear at, and emptied wholesale rather than evicted one at a
+    /// time on the rare occasion it runs away.
+    private var callsignLabels: [String: UIImage] = [:]
+
     /// Scratch for the land fill: one landmass projected, and the same one
     /// part way through being clipped. Held by the view rather than made per
     /// ring, so a frame that walks three hundred coastlines does not allocate
@@ -533,15 +573,26 @@ final class GlobeCanvasView: UIView {
         guard window == nil else {
             // Back on screen, and the traffic goes back to flying.
             updateTrafficClock()
+            // A logo arriving is not a packet and not a gesture, so without
+            // this nothing would repaint the aeroplanes that were waiting for
+            // it — a planet standing still would simply never grow its logos.
+            VaMarkStore.shared.observeMarks(self) { [weak self] in
+                guard let self = self, self.window != nil, self.showsVaMarks else { return }
+                self.setNeedsDisplay()
+            }
             return
         }
+        VaMarkStore.shared.stopObservingMarks(self)
         momentum = nil
         zoomProgress = 0
         zoomAnchor = nil
         stopAnimator()
     }
 
-    deinit { animator?.invalidate() }
+    deinit {
+        animator?.invalidate()
+        VaMarkStore.shared.stopObservingMarks(self)
+    }
 
     /// The same set of gestures Maps has, because this is a map.
     /// A planet handed a fixed camera is a swatch — a forty-eight point
@@ -613,6 +664,8 @@ final class GlobeCanvasView: UIView {
         showsPlanes: Bool,
         showsFields: Bool,
         showsPlanNames: Bool,
+        markerLabels: MarkerLabelMode,
+        showsVaMarks: Bool,
         sun: SIMD3<Float>?,
         replay: GlobeReplayMark?,
         smoothsTraffic: Bool,
@@ -651,6 +704,8 @@ final class GlobeCanvasView: UIView {
             || showsPlanes != self.showsPlanes
             || showsFields != self.showsFields
             || showsPlanNames != self.showsPlanNames
+            || markerLabels != self.markerLabels
+            || showsVaMarks != self.showsVaMarks
             || smoothsTraffic != self.smoothsTraffic
 
         if palette != self.palette {
@@ -669,6 +724,8 @@ final class GlobeCanvasView: UIView {
         self.showsPlanes = showsPlanes
         self.showsFields = showsFields
         self.showsPlanNames = showsPlanNames
+        self.markerLabels = markerLabels
+        self.showsVaMarks = showsVaMarks
         self.sun = sun
         self.replay = replay
         self.smoothsTraffic = smoothsTraffic
@@ -3053,6 +3110,25 @@ final class GlobeCanvasView: UIView {
         camera.radius > 520 ? palette.planeSize : palette.planeSize * 0.72
     }
 
+    /// Whether the planet is close enough in for every aeroplane to be
+    /// lettered.
+    ///
+    /// The flat map's own threshold, asked of a planet: `MapFilters
+    /// .labelZoomSpan` is a span in degrees of latitude, and what is across the
+    /// short side here is a span in metres, so the comparison is made in metres
+    /// and the two maps drop their labels at the same distance. Above it the
+    /// aeroplanes are closer together than their own callsigns are wide, and a
+    /// thousand of them is a smear rather than a map.
+    private var marksFit: Bool {
+        let metresPerPoint = camera.metresPerPoint
+        guard metresPerPoint.isFinite, metresPerPoint > 0 else { return false }
+
+        let across = max(1, min(bounds.width - trailingInset, bounds.height - bottomInset))
+        let span = metresPerPoint * Double(across)
+        let ceiling = MapFilters.labelZoomSpan * GlobeCamera.earthRadiusMetres * .pi / 180
+        return span <= ceiling
+    }
+
     private func drawPlanes(
         in context: CGContext,
         basis: GlobeCamera.Basis
@@ -3060,6 +3136,17 @@ final class GlobeCanvasView: UIView {
         let sprites = PlaneSprites.shared
         let size = spriteSize
         var open: [(CGPoint, CGFloat, GlobeTrafficDot)] = []
+
+        // Worked out once for the frame rather than per aeroplane: it is a
+        // division and two comparisons, and there can be three thousand of
+        // them. The open aircraft is exempt from the zoom gate for the reason
+        // the flat map exempts it — it is one label, on the thing being read
+        // about, and it never collides with a second of itself.
+        let fits = marksFit
+        let wantsMarks = markerLabels != .off || showsVaMarks
+        // Where the marks go, collected here and drawn after the traffic, so a
+        // callsign is never half-covered by an aeroplane drawn after it.
+        var marked: [(point: CGPoint, dot: GlobeTrafficDot)] = []
 
         // A rotated blit is a resampled one, and this is the only place in the
         // frame that asks for hundreds of them. The artwork is drawn at its own
@@ -3093,6 +3180,10 @@ final class GlobeCanvasView: UIView {
 
             draw(dot, at: mark.point, angle: mark.angle,
                  size: size, in: context, sprites: sprites)
+
+            // Only the aeroplanes that were actually drawn, so a callsign
+            // never floats over the gap where crowding dropped one.
+            if wantsMarks, fits { marked.append((mark.point, dot)) }
         }
 
         if let replay = replay {
@@ -3106,7 +3197,11 @@ final class GlobeCanvasView: UIView {
                     heading: replay.heading,
                     spriteKey: replay.spriteKey,
                     tint: nil,
-                    isOpen: true
+                    isOpen: true,
+                    // A playback is a track, not a flight in the packet: there
+                    // is no callsign to be sure of and no VA to claim.
+                    callsign: nil,
+                    vaId: nil
                 )))
             }
         }
@@ -3127,7 +3222,146 @@ final class GlobeCanvasView: UIView {
         // to, here and on the flat map alike.
         for (point, angle, dot) in open {
             draw(dot, at: point, angle: angle, size: size, in: context, sprites: sprites)
+            if wantsMarks { marked.append((point, dot)) }
         }
+
+        // After every aeroplane, and in one pass: a label drawn between two
+        // aircraft would be painted over by the second of them.
+        guard wantsMarks, !marked.isEmpty else { return }
+
+        // Rendered before the run of drawing starts rather than inside it, for
+        // the same reason the plan's fix names are — a label is made through an
+        // image renderer, which pushes a context of its own, and doing that
+        // part way through this one would disturb it. Cached across frames, so
+        // after the first pass this is a dictionary lookup apiece.
+        for (_, dot) in marked {
+            if let text = callsignText(for: dot) { _ = callsignLabel(text) }
+        }
+
+        for (point, dot) in marked {
+            drawMarks(for: dot, at: point, size: size)
+        }
+    }
+
+    /// The callsign this aeroplane should be wearing, or nil. The same three
+    /// answers the flat map gives — see `MarkerLabelMode`.
+    private func callsignText(for dot: GlobeTrafficDot) -> String? {
+        let wants: Bool
+        switch markerLabels {
+        case .off:      wants = false
+        case .selected: wants = dot.isOpen
+        case .all:      wants = true
+        }
+        guard wants else { return nil }
+
+        let text = (dot.callsign ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
+    }
+
+    /// The VA's logo and the callsign, in a row above one aeroplane.
+    ///
+    /// Laid out exactly as `FlightAnnotationView.layoutMarks` does it — logo,
+    /// gap, text, the row centred on the aircraft and sitting a little above
+    /// its top edge — because it is the same mark on the same aeroplane and
+    /// the only difference should be what is drawn underneath.
+    ///
+    /// Upright, never turned. The aircraft rotates to its heading; a callsign
+    /// that rotated with it would be unreadable on half the traffic, and the
+    /// rotation is confined to `draw(_:at:angle:…)` for exactly that reason.
+    /// Drawn through UIKit's current context rather than the `CGContext` every
+    /// other layer here is handed: `UIImage.draw` is what composites a logo's
+    /// alpha correctly, and inside `UIView.draw(_:)` the two are the same
+    /// context anyway.
+    private func drawMarks(
+        for dot: GlobeTrafficDot,
+        at point: CGPoint,
+        size: CGFloat
+    ) {
+        let label = callsignText(for: dot).map { callsignLabel($0) }
+
+        // The logo only where the callsign matched a partner, and only once its
+        // picture has landed — `VaMarkStore` answers nil until then, and the
+        // aeroplane simply wears no logo for a moment rather than a placeholder
+        // for a VA it might not belong to.
+        let logo = showsVaMarks ? dot.vaId.flatMap { VaMarkStore.shared.mark(id: $0) } : nil
+
+        guard label != nil || logo != nil else { return }
+
+        let side = GlobeMarkMetrics.planeMarkSide
+        let gap: CGFloat = (label != nil && logo != nil) ? GlobeMarkMetrics.labelGap : 0
+        let logoWidth = logo == nil ? 0 : side
+        let textWidth = label?.size.width ?? 0
+
+        let top = point.y - size / 2 - GlobeMarkMetrics.planeMarkGap - side
+        var x = point.x - (logoWidth + gap + textWidth) / 2
+
+        if let logo = logo {
+            // Fitted into the square, keeping its own proportions — the store
+            // has already downsampled it to fit, so this only centres what
+            // came back.
+            let fitted = CGSize(
+                width: min(logo.size.width, side),
+                height: min(logo.size.height, side)
+            )
+            logo.draw(in: CGRect(
+                x: x + (side - fitted.width) / 2,
+                y: top + (side - fitted.height) / 2,
+                width: fitted.width,
+                height: fitted.height
+            ))
+            x += side + gap
+        }
+
+        if let label = label {
+            label.draw(at: CGPoint(x: x, y: top + (side - label.size.height) / 2))
+        }
+    }
+
+    /// A callsign, rendered once into a bitmap.
+    ///
+    /// White with the halo stroked into the glyphs rather than blurred behind
+    /// them — the flat map's own attributes, and for the flat map's own reason:
+    /// a blurred shadow cannot be drawn in place, and this runs several hundred
+    /// times a frame. A negative `strokeWidth` is the one that fills as well as
+    /// strokes; a positive one gives hollow letters.
+    private func callsignLabel(_ text: String) -> UIImage {
+        if let cached = callsignLabels[text] { return cached }
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: GlobeMarkMetrics.callsignFontSize, weight: .heavy),
+            .foregroundColor: UIColor.white,
+            .strokeColor: UIColor.black,
+            .strokeWidth: -8.0
+        ]
+
+        let drawn = NSAttributedString(string: text, attributes: attributes)
+        let measured = drawn.size()
+        // Room for the pen, which strokes outside the glyphs.
+        let inset: CGFloat = 2
+        let size = CGSize(
+            width: min(measured.width.rounded(.up), GlobeMarkMetrics.callsignMaxWidth) + inset * 2,
+            height: measured.height.rounded(.up) + inset * 2
+        )
+
+        let format = UIGraphicsImageRendererFormat.default()
+        format.opaque = false
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            drawn.draw(in: CGRect(
+                x: inset,
+                y: inset,
+                width: size.width - inset * 2,
+                height: size.height - inset * 2
+            ))
+        }
+
+        // Bounded by the callsigns on screen, but a long session over a busy
+        // server sees a great many of them. Emptied wholesale on the rare
+        // occasion it runs away — the same answer `VaAdsService` gives its own
+        // cache, and for the same reason: reaching the ceiling at all means
+        // starting over is the cheapest thing to do about it.
+        if callsignLabels.count >= 4096 { callsignLabels.removeAll(keepingCapacity: true) }
+        callsignLabels[text] = image
+        return image
     }
 
     private func draw(
@@ -3309,13 +3543,28 @@ final class GlobeCanvasView: UIView {
         var open: [CGPoint] = []
         let size = palette.dotRadius
 
+        // The marks are a fact about the settings, not about which shape the
+        // traffic is drawn in. A planet set to dots with the callsigns switched
+        // on is still a planet with the callsigns switched on.
+        let fits = marksFit
+        let wantsMarks = markerLabels != .off || showsVaMarks
+        var marked: [(point: CGPoint, dot: GlobeTrafficDot)] = []
+
         for mark in marks {
             let dot = scene.traffic[mark.index]
 
             if dot.isOpen {
-                if replay == nil { open.append(mark.point) }
+                // A playback is driving this one, so where the feed last saw it
+                // is not where it is being shown — and a callsign pinned to the
+                // stale place is worse than none.
+                if replay == nil {
+                    open.append(mark.point)
+                    if wantsMarks { marked.append((mark.point, dot)) }
+                }
                 continue
             }
+
+            if wantsMarks, fits { marked.append((mark.point, dot)) }
 
             let colour = dot.tint ?? palette.traffic
             let box = CGRect(
@@ -3358,6 +3607,18 @@ final class GlobeCanvasView: UIView {
                 x: point.x - size * 1.4, y: point.y - size * 1.4,
                 width: size * 2.8, height: size * 2.8
             ))
+        }
+
+        // After the traffic, and pre-rendered before any of it is drawn — see
+        // `drawPlanes`, where both of those have their reasons. The row sits
+        // above the dot rather than above a silhouette, so it is handed the
+        // dot's own diameter.
+        guard wantsMarks, !marked.isEmpty else { return }
+        for (_, dot) in marked {
+            if let text = callsignText(for: dot) { _ = callsignLabel(text) }
+        }
+        for (point, dot) in marked {
+            drawMarks(for: dot, at: point, size: size * 2)
         }
     }
 
