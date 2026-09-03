@@ -27,6 +27,15 @@ struct ProPanel: View {
     @ObservedObject private var store = ProStore.shared
     @ObservedObject private var web = WebSubscription.shared
     @ObservedObject private var entitlements = Entitlements.shared
+    /// Only for the website option: a subscription there belongs to an Inflight
+    /// account, so whether there is one decides what that button does.
+    @ObservedObject private var accounts = AccountStore.shared
+
+    /// Up when somebody tapped the website option without an account. They came
+    /// here to buy something, so it opens on "Create account" rather than on
+    /// sign-in — and the moment there is an account, it closes and the checkout
+    /// they were after carries on.
+    @State private var isMakingAccount = false
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
@@ -39,7 +48,48 @@ struct ProPanel: View {
         return [highlighted] + ProFeature.allCases.filter { $0 != highlighted }
     }
 
+    /// The paywall, and the two things it can put on screen over itself.
+    ///
+    /// Split in two for the same reason `ContentView`'s body is: one
+    /// expression carrying twenty-odd modifiers, several of them presenting
+    /// view trees of their own, is the sort the type-checker gives up on.
     var body: some View {
+        paywall
+        // Stripe's page, over the paywall rather than out in the Safari app.
+        // Bound straight to `WebSubscription` because the thing that closes it
+        // is the return link, which arrives there and not here.
+        .sheet(item: $web.page) { checkout in
+            WebCheckoutSheet(page: checkout.url, tint: theme.accent) {
+                // Cancel, inside Safari's own chrome. It has nothing to dismiss
+                // itself from, so clearing what presented it is this side's job.
+                web.page = nil
+            }
+            // Whichever way it went — Cancel, a swipe, or the return link
+            // closing it — ask the server what happened. This is the only ask
+            // there is now: the app never backgrounded, so the foreground check
+            // that used to cover the trip to Safari never fires.
+            .onDisappear { Task { await web.checkoutSheetClosed() } }
+        }
+        // Sent here by the website option with nobody signed in.
+        .sheet(isPresented: $isMakingAccount) {
+            AccountPanel(initialIntent: .signUp)
+        }
+        // An account now exists, and the only reason that sheet was up is that
+        // one didn't. Close it and go on to the payment they came for, rather
+        // than leaving them on an account screen wondering what became of it.
+        .onChange(of: accounts.account?.id) { _, id in
+            guard id != nil, isMakingAccount else { return }
+            isMakingAccount = false
+            Task {
+                // One sheet at a time: presenting the checkout while the
+                // account sheet is still dismissing loses it silently.
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                await web.begin()
+            }
+        }
+    }
+
+    private var paywall: some View {
         VStack(spacing: 0) {
             chrome
 
@@ -81,9 +131,9 @@ struct ProPanel: View {
         // an admission that the gesture does not work.
         .presentationDragIndicator(.hidden)
         .task { await store.loadProducts() }
-        // A checkout left unaccounted for — paid in Safari on a launch that has
-        // since ended, say. `ContentView` asks on every foreground too; this is
-        // for the pilot who reopens the paywall rather than the app.
+        // A checkout left unaccounted for — paid in the sheet on a launch that
+        // has since ended, say. `ContentView` asks on every foreground too;
+        // this is for the pilot who reopens the paywall rather than the app.
         .task { await web.confirmIfAwaitingReturn() }
         // Bought here, or bought on another device while this was open: either
         // way the sheet has nothing left to sell.
@@ -389,9 +439,16 @@ struct ProPanel: View {
     /// One plan, because Stripe has one: a month. Nothing here offers a year,
     /// and nothing offers a trial.
     ///
-    /// The tap creates the checkout and opens Stripe's own hosted page in
-    /// Safari. Nothing about the payment happens in this app, and nothing in
-    /// this app decides whether it worked — see `WebSubscription`.
+    /// The tap creates the checkout and brings Stripe's own hosted page up in
+    /// a sheet over this one — Safari's view controller, so it is Safari
+    /// rendering the payment form and this app cannot see inside it. Nothing
+    /// about the payment happens here, and nothing here decides whether it
+    /// worked — see `WebSubscription`.
+    ///
+    /// Signed out, the tap does not attempt a checkout and then apologise: a
+    /// website subscription is attached to an Inflight account, so it opens the
+    /// account panel on "Create account" and picks the payment back up once
+    /// there is one.
     private var webOption: some View {
         VStack(spacing: 8) {
             if let problem = web.problem {
@@ -403,9 +460,12 @@ struct ProPanel: View {
             }
 
             Button {
-                Task {
-                    if let checkout = await web.begin() { openURL(checkout) }
+                guard accounts.account != nil else {
+                    web.problem = nil
+                    isMakingAccount = true
+                    return
                 }
+                Task { await web.begin() }
             } label: {
                 HStack(spacing: 7) {
                     if web.isStarting || web.isConfirming {
@@ -428,7 +488,11 @@ struct ProPanel: View {
 
     private var webButtonTitle: String {
         if web.isConfirming { return "Checking your subscription…" }
-        if web.isStarting { return "Opening inflight.info…" }
+        if web.isStarting { return "Opening checkout…" }
+        // Said before the tap rather than after it. The alternative is a button
+        // that looks like it will sell you something and then tells you it
+        // cannot — and an account is a step, not a refusal.
+        if accounts.account == nil { return "Create an account to subscribe monthly" }
         return "Subscribe monthly on inflight.info"
     }
 

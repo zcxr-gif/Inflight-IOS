@@ -27,7 +27,11 @@ struct AccountPanel: View {
     /// Sign in, or make one. One form either way — the fields are the same and
     /// the difference is one word on the button — so this is a segmented
     /// control rather than two screens.
-    private enum Intent: String, CaseIterable, Identifiable {
+    ///
+    /// Not private, because the paywall opens this panel on the half it means:
+    /// somebody sent here to buy a website subscription needs an account, not
+    /// a sign-in form they have nothing to type into.
+    enum Intent: String, CaseIterable, Identifiable {
         case signIn
         case signUp
 
@@ -41,7 +45,14 @@ struct AccountPanel: View {
         }
     }
 
-    @State private var intent: Intent = .signIn
+    @State private var intent: Intent
+
+    /// Opens on sign-in unless somebody says otherwise. `ProPanel` does: it
+    /// sends people here to *make* an account, and landing on the wrong half of
+    /// the control is the sort of small wrongness that reads as a dead end.
+    init(initialIntent: Intent = .signIn) {
+        _intent = State(initialValue: initialIntent)
+    }
 
     /// Ticked before an account can be made.
     ///

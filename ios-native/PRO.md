@@ -80,7 +80,7 @@ ways:
 | | App Store | inflight.info |
 | --- | --- | --- |
 | What | a year or a month | **a month, and only a month** |
-| Sold by | StoreKit, in the app | Stripe, on its own hosted page in Safari |
+| Sold by | StoreKit, in the app | Stripe, on its own hosted page, in a Safari sheet over the app |
 | Attached to | the Apple Account | the Inflight account |
 | Free trial | none | none |
 | Cancelled in | iOS Settings | inflight.info |
@@ -90,22 +90,39 @@ web option is one button, not a plan list, because there is nothing to choose.
 
 ### What actually happens
 
+0. The paywall checks there is an account first. There has to be one — a
+   website subscription belongs to an Inflight account — so signed out the
+   button says so and opens `AccountPanel` on **Create account**, then picks
+   the checkout up by itself once one exists. It never starts a payment that
+   nothing could be given for.
 1. `WebSubscription.begin()` calls `create-stripe-checkout` with this account's
    id and email, as an **upgrade** (`is_renew`) — the account already exists.
    Nothing asks for `trial_days`.
-2. The hosted Stripe page opens in Safari. No payment detail ever touches this
-   app.
+2. The hosted Stripe page comes up **in a sheet over the app** —
+   `WebCheckoutSheet`, an `SFSafariViewController`, so Safari renders it and
+   this app cannot see inside it. No payment detail ever touches this app, and
+   the pilot keeps the paywall and the map behind the sheet instead of being
+   sent to another app and back.
 3. Stripe returns the browser to `inflight.info/app-return.html`, which does
-   nothing but bounce to `inflight://open`.
+   nothing but bounce to `inflight://open`. That link is also what **closes the
+   sheet**: `settled(paid:)` clears `page`. Safari's controller is walled off
+   from this app, so a deep link is the only thing that can report a finished
+   checkout — which is exactly why the return page still exists now that the
+   flow never leaves.
 4. The app asks **`restore-pro-access`** — which identifies the caller from
    their own token, asks Stripe whether *that* account has a live
    subscription, and writes the row — then re-reads `pro_entitlement()`. Five
    tries over about twelve seconds while the paywall is up.
-5. And again on **every foreground** afterwards, until it is accounted for.
-   The claim is kept in `UserDefaults`, not in memory: the checkout happens in
-   Safari and iOS may kill this app while it is there, so a pilot who pays and
-   comes back to a freshly launched app is the case the claim exists for. It
-   expires after a day.
+5. **Closing the sheet by hand asks too** (`dismissedByPilot()`). This is not
+   belt and braces: with the checkout inside the app there is no longer a
+   foreground to come back to, so the `scenePhase` check below never fires
+   during the flow. Somebody who pays and then taps Cancel on Stripe's own
+   receipt would otherwise go unclaimed until the next launch.
+6. And again on **every foreground** afterwards, until it is accounted for.
+   The claim is kept in `UserDefaults`, not in memory: a checkout can be left
+   open, the phone locked, and this app killed for memory while it sits there,
+   so a pilot who pays and comes back to a freshly launched app is still the
+   case the claim exists for. It expires after a day.
 
 Nothing in the app decides whether a payment worked, and nothing on the return
 page grants anything — the server is asked, always. That is deliberate: a
@@ -150,6 +167,16 @@ territory. In the United States this is currently permitted following the
 entitlement, requested per-storefront in the Apple Developer portal. The App
 Store purchase is kept as the primary path on the paywall for exactly this
 reason — it is what most people will use, and it is what a reviewer sees first.
+
+**The sheet is the part to watch.** Apple's External Purchase Link rules are
+written around opening the *default browser* — with `StoreKit`'s
+`ExternalPurchaseLink` API and the system disclosure sheet — and an in-app
+`SFSafariViewController` is not that. It is a deliberate trade: the flow is far
+better for the pilot, and it is still Safari rendering Stripe's own page rather
+than a web view this app could read. If a reviewer objects, the fix is small
+and local — `WebCheckoutSheet` is one file, and `ProPanel` opening
+`web.page` with `openURL` instead of a sheet is the old behaviour back — so
+this is worth knowing before the rejection rather than after it.
 
 ## Sign in with Apple
 
