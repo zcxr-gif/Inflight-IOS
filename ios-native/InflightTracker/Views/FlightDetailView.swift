@@ -69,6 +69,21 @@ struct FlightDetailView: View {
     @State private var openHeight: CGFloat = 0
     @State private var pulledHeight: CGFloat = 0
 
+    /// The height before this one, and how many heights in a row have been
+    /// taller than the one before.
+    ///
+    /// The turn at the bottom of a pull is what has to be caught, and caught
+    /// within a frame or two of it happening: everything after it is the sheet
+    /// climbing back to the full window, and every point it climbs before the
+    /// app says otherwise is a point it has to come back down — which is the
+    /// hesitation that would make this window feel unlike every other one in
+    /// the app. A run of rising frames is what tells a spring from a finger:
+    /// a spring climbs and keeps climbing, while a hand holding the window
+    /// still wanders a fraction of a point either way and never twice the same
+    /// way. See `trackFall(to:)`.
+    @State private var lastHeight: CGFloat = 0
+    @State private var climb = 0
+
     /// The partner whose own panel is open over this window, when one is.
     @State private var viewingPartner: VaAd?
 
@@ -381,30 +396,40 @@ struct FlightDetailView: View {
     /// UIKit's, and the part it takes is deliberately the smallest one there
     /// is. The sheet's own pan knows whether a finger belongs to the window or
     /// to the list inside it, follows it one to one, and rubber-bands — none of
-    /// which is worth re-implementing. What it decides badly is only *where the
-    /// pull lands*: its rule is the nearer of the two stops, projected forward
-    /// a little for a flick, and this window's two stops are half a screen
-    /// apart. So a short pull down — the gesture everybody makes to put a
-    /// window back where it was — travels, achieves nothing and springs back to
-    /// full, and getting to the peak meant dragging the window to the middle of
-    /// the phone. That is the report this comes from.
+    /// which is worth re-implementing, and all of which is what makes this
+    /// window feel like every other one in the app. What the pan decides badly
+    /// is only *where the pull lands*: its rule is the nearer of the two stops,
+    /// projected forward a little for a flick, and this window's two stops are
+    /// half a screen apart. So a short pull down — the gesture everybody makes
+    /// to put a window back where it was — travels, achieves nothing and
+    /// springs back to full, and getting to the peak meant dragging the window
+    /// to the middle of the phone. That is the report this comes from.
     ///
     /// Nothing here touches the sheet while the finger is on it. The pull is
     /// watched through the one number it publishes — the height this view is
     /// laid out in, already measured every pass for the cross-fade — and the
-    /// window is only sent to the peak at the moment the sheet starts climbing
-    /// back, which is UIKit announcing that the finger is off and it has chosen
-    /// the full window. Changing the answer *then* costs nothing: the sheet is
-    /// already in the air with no gesture attached to it, so it simply goes the
-    /// other way. A detent set while the pan is still live would be a resize
-    /// underneath a finger that is still dragging, which is a fight the app
-    /// would not win.
+    /// window is sent to the peak at the turn: the moment the sheet stops
+    /// falling and starts climbing, which is UIKit saying the finger is off and
+    /// it has chosen the full window. A detent set while the pan is still live
+    /// would be a resize underneath a finger that is still dragging, which is a
+    /// fight the app would not win.
     ///
-    /// A pull that is dragged back up by hand reads the same as one that was
-    /// let go, and lands on the peak too. That is the one honest imprecision
-    /// here — the alternative is a gesture of our own over the whole window,
-    /// which is a far worse thing to have wrong, and the outcome is a window at
-    /// its peak rather than anything that cannot be undone with a second drag.
+    /// The turn has to be caught within a frame or two, and that is what the
+    /// run of rising frames below is for. Every point the sheet climbs before
+    /// the answer changes is a point it then has to come back down, and a
+    /// window that goes up before it goes down is the one thing here that would
+    /// read as unfinished. Two rising frames is two hundredths of a second, or
+    /// nothing at all on the gesture this is really for: a flick down has
+    /// speed, so UIKit's spring carries the sheet *past* where the finger left
+    /// it before it turns, and the fall simply continues the movement that was
+    /// already happening.
+    ///
+    /// A pull that is dragged back up by hand turns the same way as one that
+    /// was let go, and lands on the peak too. That is the one honest
+    /// imprecision here — the alternative is a gesture of our own over the
+    /// whole window, which is a far worse thing to have wrong, and the outcome
+    /// is a window at its peak rather than anything that cannot be undone with
+    /// a second drag.
     ///
     /// Everything that is not a pull never gets this far: a scroll inside the
     /// window doesn't move the sheet, and neither does the peak remeasuring
@@ -413,11 +438,13 @@ struct FlightDetailView: View {
         // A pane is one height and it means nothing about how open anything is.
         guard presentation == .sheet else { return }
 
+        let previous = lastHeight
+        lastHeight = height
+
         // At rest. Whatever the last pull reached is history — the marks are
         // set again by wherever the window is next taken.
         guard expansion(atHeight: height) > 0.02 else {
-            openHeight = 0
-            pulledHeight = 0
+            forgetPull()
             return
         }
 
@@ -426,37 +453,58 @@ struct FlightDetailView: View {
         if height > openHeight {
             openHeight = height
             pulledHeight = height
+            if climb != 0 { climb = 0 }
             return
         }
 
         // Still going down. Nothing is decided on the way — see above.
         if height < pulledHeight {
             pulledHeight = height
+            if climb != 0 { climb = 0 }
             return
         }
 
-        // Climbing back. The pull is over and the sheet is on its way to the
-        // stop UIKit picked, which is the full window it just came from. If the
-        // pull went far enough to have meant it, it lands on the peak instead.
-        //
-        // The rise has to be worth something: a sheet held still under a finger
-        // reports the same height back and forth by a fraction of a point, and
-        // a fraction of a point is not a spring.
-        guard height - pulledHeight > Self.riseSlack,
+        // Neither: the sheet is somewhere above the bottom of the pull. Only a
+        // frame taller than the one before it counts towards the turn, and a
+        // single one of those is a wobble rather than a spring.
+        guard height > previous + Self.climbStep else {
+            if climb != 0 { climb = 0 }
+            return
+        }
+        climb += 1
+
+        guard climb >= Self.climbFrames,
+              height - pulledHeight > Self.riseSlack,
               openHeight - pulledHeight > FlightInfoLayout.fallTravel,
               openHeight > restingHeight + FlightInfoLayout.phaseDeadZone + FlightInfoLayout.fallTravel
         else { return }
 
         // Read once. The fall that follows is a fall like any other, and it
         // should not be read as a second pull on the way down.
-        openHeight = 0
-        pulledHeight = 0
+        forgetPull()
         onFallToPeak()
     }
 
-    /// How far the sheet has to climb back before that counts as it climbing
-    /// back rather than as layout noise.
-    private static let riseSlack: CGFloat = 6
+    /// Put the pull's marks back to knowing nothing.
+    private func forgetPull() {
+        if openHeight != 0 { openHeight = 0 }
+        if pulledHeight != 0 { pulledHeight = 0 }
+        if climb != 0 { climb = 0 }
+    }
+
+    /// What counts as a frame that rose rather than one that sat still. Below
+    /// a half point is the sheet reporting the same height twice with different
+    /// rounding.
+    private static let climbStep: CGFloat = 0.5
+
+    /// How many rising frames in a row are a spring rather than a hand.
+    private static let climbFrames = 2
+
+    /// And how far the sheet has to have climbed off the bottom of the pull in
+    /// total. Small enough not to be seen — the two frames above are what
+    /// actually decides; this is the floor under them, so a pair of frames that
+    /// rose by a rounding error each cannot add up to an answer.
+    private static let riseSlack: CGFloat = 2
 
     /// The height the window rests at when it is closed — which is the peak's
     /// own measurement, not the detent asked for on its behalf.
@@ -573,8 +621,8 @@ struct FlightDetailView: View {
     /// in it. Clearing it is what made the sheet collapse to a guess and grow
     /// back on every tap.
     private func resetForNewFlight() {
-        openHeight = 0
-        pulledHeight = 0
+        forgetPull()
+        lastHeight = 0
         track = []
         plan = []
         sim = nil
