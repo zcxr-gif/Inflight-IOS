@@ -71,6 +71,47 @@ still be tested locally even though nothing sells it.
    Version 2 notifications. Without this, a renewal or a refund that happens
    while the app is closed never reaches the account, and the website goes on
    thinking a lapsed subscriber is Pro until they next open the app.
+5. **Put the Terms of Use (EULA) link in the App Description.** This is the
+   one below, and it is the rejection this app has already had once.
+
+### The Terms of Use link on the product page
+
+An app that sells an auto-renewable subscription has to show the Terms of Use
+(EULA) in **two** places, and they are not the same place:
+
+- **In the app**, on the paywall. Done, and done in code:
+  `AppConfig.termsURL` is Apple's standard EULA, and `ProPanel`'s `legal`
+  section puts it next to Privacy under the plan list. `TermsGateView` and the
+  Settings legal rows use the same constant.
+- **In the App Store metadata**, on the product page. *Not* done in code —
+  nothing in this repository is uploaded as the description — and this is
+  what Guideline 3.1.2 was cited for.
+
+Because the app uses **Apple's standard EULA** rather than a custom one, the
+metadata half is a line of text in the **App Description** field, in App Store
+Connect → the app → the version being reviewed → Description. Paste the URL as
+plain text — the description does not render links, and App Review reads the
+URL, not a hyperlink:
+
+```
+Terms of Use (EULA): https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
+```
+
+Put it near the subscription disclosure at the bottom of the description,
+alongside the privacy policy link, and keep it there: the description is
+per-version and per-localisation, so **every** localisation of **every** future
+version needs the line. Dropping it is a rejection, not a warning.
+
+The alternative is a **custom EULA**, which is a different field entirely: App
+Store Connect → App Information → License Agreement → Edit, then choose
+*Custom License Agreement* and paste the text. That is only worth doing if
+inflight.info ever writes terms of its own — and if it does, `termsURL` in
+`App/AppConfig.swift` has to move to them at the same time, because the two
+halves must agree about which agreement is in force.
+
+Note what does **not** fix this: the paywall links, the terms gate at first
+launch, and the Settings legal rows are all already there and were there for
+the rejected build. Review was looking at the product page.
 
 ## Paying on the website instead
 
