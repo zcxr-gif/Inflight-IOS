@@ -1336,6 +1336,27 @@ enum FlightInfoLayout {
     /// peak read as a sheet sitting at its peak either way. It costs the first
     /// forty points of a drag, out of two hundred and twenty.
     static let phaseDeadZone: CGFloat = 44
+
+    /// How far the open window has to be pulled down before it stops waiting to
+    /// be pulled the rest of the way and simply falls back to the peak.
+    ///
+    /// The system's own answer is the midpoint. A sheet with two stops lands on
+    /// whichever it is nearer to when you let go — projected forward a little
+    /// for a flick, but a midpoint all the same. Between a peak of three
+    /// hundred-odd points and a full window of eight hundred that tipping point
+    /// is a quarter of the screen down, so the gesture everybody actually makes
+    /// to put a window back where it was — a short pull, an inch at most —
+    /// travels, achieves nothing, and springs back to full. Getting to the peak
+    /// meant dragging the window to the middle of the phone, which is the
+    /// report this number comes from.
+    ///
+    /// Eighty points is well past a wobble and well short of the midpoint of
+    /// any phone. And it is counted against the *sheet's* height rather than
+    /// against a finger, which is what keeps the lists out of it: a drag inside
+    /// the window scrolls the window, and the sheet only starts moving once
+    /// UIKit has decided the sheet is the thing being dragged. See
+    /// `FlightDetailView.trackFall(to:)`.
+    static let fallTravel: CGFloat = 80
 }
 
 /// Why the peak state has no detent type of its own any more.

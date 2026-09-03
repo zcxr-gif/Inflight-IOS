@@ -57,6 +57,18 @@ struct FlightDetailView: View {
     /// most passes are passes where it has not.
     @State private var peakContentHeight: CGFloat = 0
 
+    /// The tallest this window has been since it was last at rest, and the
+    /// shortest it has been since — the two marks a pull down is read from.
+    ///
+    /// High-water and low-water rather than the previous height, because a
+    /// height on its own says nothing: the sheet arrives at the full window
+    /// over a dozen frames of animation and each is taller than the last, so
+    /// the top mark simply follows that up. What matters is the shape of a
+    /// pull — down away from the top, then, when the finger comes off, back up
+    /// — and that needs both ends of it. See `trackFall(to:)`.
+    @State private var openHeight: CGFloat = 0
+    @State private var pulledHeight: CGFloat = 0
+
     /// The partner whose own panel is open over this window, when one is.
     @State private var viewingPartner: VaAd?
 
@@ -79,6 +91,21 @@ struct FlightDetailView: View {
     /// between, a ground the system hangs behind it, and a bottom safe area it
     /// draws through.
     var presentation: FlightWindowPresentation = .sheet
+
+    /// A pull down on the open window has just been let go, and it went far
+    /// enough to have meant it: send the window to its peak rather than letting
+    /// it spring back to full.
+    ///
+    /// Reported from here rather than decided where the detent lives, because
+    /// this is the only place the pull can be seen at all. The drag belongs to
+    /// UIKit — it is the sheet's own pan, already negotiated with the list
+    /// inside the window — and the one thing it leaves for anybody else to read
+    /// is the height it hands this view, which is measured every pass anyway
+    /// for the cross-fade. See `trackFall(to:)`, which is where the shape of a
+    /// pull is picked out of those heights.
+    ///
+    /// Nothing in a pane, which has no second stop to fall to.
+    var onFallToPeak: () -> Void = {}
 
     /// Asked for from the window, carried out by the map: the replay needs the
     /// sheet out of the way and the map free, neither of which is this view's
@@ -240,6 +267,9 @@ struct FlightDetailView: View {
             // Derived in the layout pass rather than read back off the proxy
             // afterwards, which is not something a GeometryProxy promises.
             .onChange(of: settled) { _, newValue in isCollapsed = newValue }
+            // Every height this window is handed, including the ones in the
+            // middle of a drag — which is the point of watching it here.
+            .onChange(of: geometry.size.height) { _, height in trackFall(to: height) }
             .onPreferenceChange(PeakContentHeightKey.self) { measured in
                 // Zero means the peak state isn't in the tree at all — the
                 // aircraft stopped reporting — which is not a reason to
@@ -331,10 +361,102 @@ struct FlightDetailView: View {
         // nothing about how far open anything is.
         guard presentation == .sheet else { return 1 }
 
-        let travelled = (geometry.size.height - restingHeight - FlightInfoLayout.phaseDeadZone)
+        return expansion(atHeight: geometry.size.height)
+    }
+
+    /// The same fraction, from a height on its own.
+    ///
+    /// Split out so the watcher below can ask the question about a height it
+    /// has been handed rather than about a proxy it does not have.
+    private func expansion(atHeight height: CGFloat) -> Double {
+        let travelled = (height - restingHeight - FlightInfoLayout.phaseDeadZone)
             / FlightInfoLayout.phaseTravel
         return Double(min(max(travelled, 0), 1))
     }
+
+    /// Watch the sheet's height, and let a pull down land on the peak instead
+    /// of springing back to the full window.
+    ///
+    /// This is the whole of the app's part in a gesture that is otherwise
+    /// UIKit's, and the part it takes is deliberately the smallest one there
+    /// is. The sheet's own pan knows whether a finger belongs to the window or
+    /// to the list inside it, follows it one to one, and rubber-bands — none of
+    /// which is worth re-implementing. What it decides badly is only *where the
+    /// pull lands*: its rule is the nearer of the two stops, projected forward
+    /// a little for a flick, and this window's two stops are half a screen
+    /// apart. So a short pull down — the gesture everybody makes to put a
+    /// window back where it was — travels, achieves nothing and springs back to
+    /// full, and getting to the peak meant dragging the window to the middle of
+    /// the phone. That is the report this comes from.
+    ///
+    /// Nothing here touches the sheet while the finger is on it. The pull is
+    /// watched through the one number it publishes — the height this view is
+    /// laid out in, already measured every pass for the cross-fade — and the
+    /// window is only sent to the peak at the moment the sheet starts climbing
+    /// back, which is UIKit announcing that the finger is off and it has chosen
+    /// the full window. Changing the answer *then* costs nothing: the sheet is
+    /// already in the air with no gesture attached to it, so it simply goes the
+    /// other way. A detent set while the pan is still live would be a resize
+    /// underneath a finger that is still dragging, which is a fight the app
+    /// would not win.
+    ///
+    /// A pull that is dragged back up by hand reads the same as one that was
+    /// let go, and lands on the peak too. That is the one honest imprecision
+    /// here — the alternative is a gesture of our own over the whole window,
+    /// which is a far worse thing to have wrong, and the outcome is a window at
+    /// its peak rather than anything that cannot be undone with a second drag.
+    ///
+    /// Everything that is not a pull never gets this far: a scroll inside the
+    /// window doesn't move the sheet, and neither does the peak remeasuring
+    /// itself, so there is no height change to read.
+    private func trackFall(to height: CGFloat) {
+        // A pane is one height and it means nothing about how open anything is.
+        guard presentation == .sheet else { return }
+
+        // At rest. Whatever the last pull reached is history — the marks are
+        // set again by wherever the window is next taken.
+        guard expansion(atHeight: height) > 0.02 else {
+            openHeight = 0
+            pulledHeight = 0
+            return
+        }
+
+        // A new top, under a finger or under the opening animation. Anything
+        // dipped away from an older one is history with it.
+        if height > openHeight {
+            openHeight = height
+            pulledHeight = height
+            return
+        }
+
+        // Still going down. Nothing is decided on the way — see above.
+        if height < pulledHeight {
+            pulledHeight = height
+            return
+        }
+
+        // Climbing back. The pull is over and the sheet is on its way to the
+        // stop UIKit picked, which is the full window it just came from. If the
+        // pull went far enough to have meant it, it lands on the peak instead.
+        //
+        // The rise has to be worth something: a sheet held still under a finger
+        // reports the same height back and forth by a fraction of a point, and
+        // a fraction of a point is not a spring.
+        guard height - pulledHeight > Self.riseSlack,
+              openHeight - pulledHeight > FlightInfoLayout.fallTravel,
+              openHeight > restingHeight + FlightInfoLayout.phaseDeadZone + FlightInfoLayout.fallTravel
+        else { return }
+
+        // Read once. The fall that follows is a fall like any other, and it
+        // should not be read as a second pull on the way down.
+        openHeight = 0
+        pulledHeight = 0
+        onFallToPeak()
+    }
+
+    /// How far the sheet has to climb back before that counts as it climbing
+    /// back rather than as layout noise.
+    private static let riseSlack: CGFloat = 6
 
     /// The height the window rests at when it is closed — which is the peak's
     /// own measurement, not the detent asked for on its behalf.
@@ -451,6 +573,8 @@ struct FlightDetailView: View {
     /// in it. Clearing it is what made the sheet collapse to a guess and grow
     /// back on every tap.
     private func resetForNewFlight() {
+        openHeight = 0
+        pulledHeight = 0
         track = []
         plan = []
         sim = nil
