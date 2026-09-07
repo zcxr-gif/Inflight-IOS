@@ -38,12 +38,35 @@ import UIKit
 /// smoothing and again by every pan, is two hundred offscreen passes a frame,
 /// and the map drops to a slideshow exactly when the labels are switched on.
 ///
-/// So the halo is drawn *into* the text instead, as a stroke on the glyphs —
-/// one ordinary draw, no offscreen pass, and legible over a light map, a dark
-/// one and satellite imagery the same way the blur was. The VA logo keeps its
-/// blurred edge, because a wordmark needs one and a stroke cannot give it, but
-/// it is rasterised: the shadow is computed once when the logo is set and the
-/// cached bitmap is what moves, rather than the blur being redone every frame.
+/// So the callsign sits on a **plate** instead: a plain `UIView` with a
+/// background colour and a corner radius, no `drawRect`, no sublayers and no
+/// `masksToBounds` — which Core Animation composites on the GPU as an ordinary
+/// rounded rectangle, with none of the offscreen work a shadow costs. The VA
+/// logo keeps its blurred edge, because a wordmark needs one and nothing else
+/// will give it, but it is rasterised: the shadow is computed once when the
+/// logo is set and the cached bitmap is what moves.
+///
+/// ## Why the plate, rather than a stroke on the glyphs
+///
+/// The stroke was the first answer, and it was the wrong one for three reasons
+/// that all showed up as "the callsign is hard to read":
+///
+/// 1. **It was always white.** The map has a **Light** palette, and white text
+///    with a hairline dark edge on daytime cartography is very nearly nothing.
+///    Both the text and the plate now follow the map's own scheme —
+///    `isOverLightMap` — so the label is dark on a light map and light on a
+///    dark one, rather than betting the map is always dark.
+/// 2. **The pen ate the letters.** `strokeWidth` is a percentage of point
+///    size and the stroke is centred on the outline, so -8 at 9.5pt heavy put
+///    about four tenths of a point *inside* every stem. At that size it closes
+///    the counters of a, e, 6, 8, 9 and 0 and the word turns into a bar. There
+///    is no stroke now, so the glyphs are the shape the typeface drew.
+/// 3. **It truncated.** The frame was measured from the glyph run plus two
+///    points for a pen that sits half outside it; when that guess came up
+///    short, `byTruncatingTail` quietly ate the last character and the label
+///    showed the *wrong callsign*. The width now carries real padding on both
+///    sides — which is also what the plate needs — so a fractional
+///    under-measure has somewhere to go.
 final class FlightAnnotationView: MKAnnotationView {
 
     static let reuseIdentifier = "flightAnnotation"
@@ -57,20 +80,64 @@ final class FlightAnnotationView: MKAnnotationView {
     /// The callsign, beside the mark or on its own.
     private let callsign = UILabel()
 
+    /// What the callsign is written on.
+    ///
+    /// Its own view rather than the label's `backgroundColor`: a `UILabel`
+    /// draws its background into the same backing store as its text, so
+    /// rounding *that* needs `masksToBounds` — which is the offscreen pass this
+    /// file exists to avoid. A bare `UIView` has no drawn content, so its
+    /// corner radius is the compositor's job and costs nothing.
+    private let plate = UIView()
+
     /// How far above the sprite's top edge the marks sit.
     private static let markGap: CGFloat = 5
 
     private static let markSide: CGFloat = 18
 
-    /// How the callsign is drawn: white, with the halo stroked into the glyphs
-    /// rather than blurred behind them.
+    /// The plate's height, and how far the text sits in from each end.
     ///
-    /// A negative `strokeWidth` is the one that fills *and* strokes — a
-    /// positive one would give hollow letters. The figure is a percentage of
-    /// the point size, so eight is a little over three quarters of a point of
-    /// pen at this size: enough to sit the text off a bright coastline, not so
-    /// much that it closes up the counters of heavy 9.5pt type.
-    private static let callsignAttributes: [NSAttributedString.Key: Any] = {
+    /// The padding is doing two jobs: it is the plate's own inset, and it is
+    /// the slack that stops a fractional under-measure from truncating the
+    /// callsign. See the note at the top.
+    private static let callsignHeight: CGFloat = 15
+    private static let callsignPadding: CGFloat = 5
+    private static let callsignRadius: CGFloat = 4.5
+
+    /// The widest a callsign may be drawn.
+    ///
+    /// A callsign is typed by a pilot and some of them are very long indeed. A
+    /// band wider than this stops being a label on an aeroplane and starts
+    /// being a banner across the map.
+    private static let callsignMaxWidth: CGFloat = 108
+
+    /// How the callsign is drawn, for one way round the map.
+    private struct CallsignStyle {
+        let attributes: [NSAttributedString.Key: Any]
+        let plate: UIColor
+    }
+
+    /// Both ways round, built once.
+    ///
+    /// The font is the same in each, which is what lets a scheme change restyle
+    /// the label without re-measuring it — the glyph run is identical and only
+    /// its colour moves.
+    ///
+    /// Ten point bold rather than nine and a half heavy: at this size heavy is
+    /// most of the way to a solid bar before anything is drawn over it, and the
+    /// plate is doing the job the extra weight was there to do. The small
+    /// positive kern is for the same reason — callsigns are all caps and
+    /// digits, which set tight.
+    private static let darkMapStyle = FlightAnnotationView.style(
+        text: .white,
+        plate: UIColor(white: 0, alpha: 0.62)
+    )
+
+    private static let lightMapStyle = FlightAnnotationView.style(
+        text: UIColor(white: 0.08, alpha: 1),
+        plate: UIColor(white: 1, alpha: 0.80)
+    )
+
+    private static func style(text colour: UIColor, plate: UIColor) -> CallsignStyle {
         // Carried in the string rather than left to the label's own properties:
         // assigning `attributedText` hands the string's attributes authority
         // over how it is drawn, so alignment and truncation belong here beside
@@ -79,14 +146,47 @@ final class FlightAnnotationView: MKAnnotationView {
         paragraph.alignment = .center
         paragraph.lineBreakMode = .byTruncatingTail
 
-        return [
-            .font: UIFont.systemFont(ofSize: 9.5, weight: .heavy),
-            .foregroundColor: UIColor.white,
-            .strokeColor: UIColor.black,
-            .strokeWidth: -8.0,
-            .paragraphStyle: paragraph
-        ]
-    }()
+        return CallsignStyle(
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 10, weight: .bold),
+                .foregroundColor: colour,
+                .kern: 0.2,
+                .paragraphStyle: paragraph
+            ],
+            plate: plate
+        )
+    }
+
+    private var callsignStyle: CallsignStyle {
+        isOverLightMap ? Self.lightMapStyle : Self.darkMapStyle
+    }
+
+    /// Which way round the map underneath is drawn.
+    ///
+    /// Told, not read: this view has no business reading the appearance
+    /// setting, and the palette can say something different from it — the map
+    /// is light while the app is dark whenever somebody has picked the Light
+    /// palette. `TrackerMapView` resolves the two and hands the answer down.
+    var isOverLightMap = false {
+        didSet {
+            guard isOverLightMap != oldValue else { return }
+            restyleCallsign()
+        }
+    }
+
+    /// Re-colours the label and its plate in place.
+    ///
+    /// The string is rebuilt because attributes are what colour it, and the
+    /// width is deliberately *not* recomputed: both styles set the same font at
+    /// the same size, so the run measures identically and the frames already
+    /// laid out are still right.
+    private func restyleCallsign() {
+        let look = callsignStyle
+        plate.backgroundColor = look.plate
+
+        guard let existing = callsign.attributedText?.string, !existing.isEmpty else { return }
+        callsign.attributedText = NSAttributedString(string: existing, attributes: look.attributes)
+    }
 
     /// The width the current callsign measured to, so a label that has not
     /// changed is never measured twice.
@@ -119,12 +219,28 @@ final class FlightAnnotationView: MKAnnotationView {
         mark.layer.rasterizationScale = Self.rasterScale(for: traitCollection)
         addSubview(mark)
 
+        // Added before the label, so it is behind it. Rounded without
+        // `masksToBounds`: nothing is drawn into this view, so the radius
+        // applies to a background colour the compositor paints and there is no
+        // content to clip. See the note on `plate`.
+        plate.isHidden = true
+        plate.isUserInteractionEnabled = false
+        plate.layer.cornerRadius = Self.callsignRadius
+        plate.layer.cornerCurve = .continuous
+        addSubview(plate)
+
         // Alignment and truncation ride in the attributes — see above. What is
-        // left here is the one thing the string cannot say: that there is no
-        // backing plate for Core Animation to blend the map through.
+        // left here is the one thing the string cannot say: that the label
+        // itself paints nothing behind the glyphs, because the plate under it
+        // is what does.
         callsign.backgroundColor = .clear
         callsign.isHidden = true
         addSubview(callsign)
+
+        // The plate's colour is the only part of the style that is not carried
+        // in the string, so it needs saying once at the start as well as on
+        // every later change.
+        restyleCallsign()
 
         // A cache built at the wrong scale is a blurred logo, so this is
         // correctness rather than housekeeping — moving between displays is
@@ -151,6 +267,7 @@ final class FlightAnnotationView: MKAnnotationView {
         mark.isHidden = true
         callsign.attributedText = nil
         callsign.isHidden = true
+        plate.isHidden = true
         callsignWidth = 0
         spriteTransform = .identity
     }
@@ -197,21 +314,25 @@ final class FlightAnnotationView: MKAnnotationView {
         if trimmed.isEmpty {
             callsign.attributedText = nil
             callsign.isHidden = true
+            plate.isHidden = true
             callsignWidth = 0
         } else {
-            let drawn = NSAttributedString(string: trimmed, attributes: Self.callsignAttributes)
+            let drawn = NSAttributedString(string: trimmed, attributes: callsignStyle.attributes)
             callsign.attributedText = drawn
             callsign.isHidden = false
+            plate.isHidden = false
             // Measured here, once, rather than in `layoutMarks` — which also
             // runs whenever the sprite changes, and the text has not.
             //
-            // Capped, because a callsign is typed by a pilot and some of them
-            // are very long indeed. A band wider than this stops being a label
-            // on an aeroplane and starts being a banner across the map.
-            //
-            // The couple of points on top are the stroke: the measurement is of
-            // the glyph run, and the pen sits half outside it.
-            callsignWidth = min(ceil(drawn.size().width) + 2, 96)
+            // The padding on each side is the plate's inset and the label's
+            // safety margin at the same time: `size()` measures a glyph run and
+            // rounds, and the old two-point allowance was tight enough that a
+            // short measurement truncated the callsign rather than merely
+            // crowding it.
+            callsignWidth = min(
+                ceil(drawn.size().width) + Self.callsignPadding * 2,
+                Self.callsignMaxWidth
+            )
         }
 
         layoutMarks()
@@ -245,7 +366,13 @@ final class FlightAnnotationView: MKAnnotationView {
         }
 
         if hasText {
-            callsign.frame = CGRect(x: x, y: top, width: textWidth, height: height)
+            // Its own height, centred against the logo's, so a label beside a
+            // mark lines up with it rather than being a band the same height as
+            // a square.
+            let inset = (height - Self.callsignHeight) / 2
+            let box = CGRect(x: x, y: top + inset, width: textWidth, height: Self.callsignHeight)
+            plate.frame = box
+            callsign.frame = box
         }
     }
 

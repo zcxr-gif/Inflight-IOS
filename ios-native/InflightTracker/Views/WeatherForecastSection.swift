@@ -55,15 +55,6 @@ struct WeatherForecastSection: View {
                     outlook(snapshot)
                     sky(snapshot)
                 }
-
-                // Everything above came from here. One card, at the foot of
-                // the block it attributes — Apple's mark and the link to their
-                // legal page are required wherever their data is shown, and
-                // this is the end of where it is shown.
-                VStack(spacing: 0) {
-                    WeatherAttributionRow(attribution: weather.attribution)
-                }
-                .flightInfoSurface(theme, radius: theme.radiusMedium)
             }
         }
         .task(id: key) {
@@ -73,6 +64,26 @@ struct WeatherForecastSection: View {
             // runways, and this may be the first thing at this field to want
             // them.
             layouts.load(airport)
+        }
+    }
+
+    // MARK: - Whose data this is
+
+    /// Apple's mark and their legal link, as the last row of a card.
+    ///
+    /// On **every** card that draws WeatherKit data, not once at the foot of
+    /// the block. A panel this long scrolls past several screens' worth, and a
+    /// single mark under the last section is a mark that is off screen for most
+    /// of the reading — which is not what "wherever the data is shown" means.
+    /// One card, one source, one mark: the row says the card above it is
+    /// Apple's, and there is no card of theirs without one.
+    ///
+    /// The exception is the runway section, which is Apple's only when the
+    /// wind is. See `runways`.
+    private var appleMark: some View {
+        Group {
+            PanelDivider()
+            WeatherAttributionRow(attribution: weather.attribution)
         }
     }
 
@@ -86,6 +97,8 @@ struct WeatherForecastSection: View {
                     if alert.id != snapshot.alerts.first?.id { PanelDivider() }
                     alertRow(alert)
                 }
+
+                appleMark
             }
         }
     }
@@ -158,6 +171,8 @@ struct WeatherForecastSection: View {
                     PanelDivider()
                     minuteGraph(next)
                 }
+
+                appleMark
             }
         }
     }
@@ -220,6 +235,16 @@ struct WeatherForecastSection: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
+
+                    // The one card here that is not always Apple's. Where the
+                    // field filed a report, this arithmetic is the *report's*
+                    // wind against OpenStreetMap's centrelines and Apple had no
+                    // part in it — so marking it would be crediting them with
+                    // somebody else's observation, which is as wrong as leaving
+                    // their own unmarked.
+                    if isWindFromApple {
+                        appleMark
+                    }
                 }
             }
         }
@@ -227,14 +252,21 @@ struct WeatherForecastSection: View {
 
     /// The METAR's wind where the field filed one, Apple's otherwise.
     private var runwayWind: RunwayWind.Wind? {
-        if let metar = metar, let filed = RunwayWind.Wind(metar: metar) { return filed }
-        return weather.wind(for: key)
+        filedWind ?? weather.wind(for: key)
     }
 
+    /// The field's own report, where it filed a wind worth using.
+    private var filedWind: RunwayWind.Wind? {
+        metar.flatMap { RunwayWind.Wind(metar: $0) }
+    }
+
+    /// Whether the numbers on the runway card are Apple's. Asked once and used
+    /// by both the footnote and the mark, so the two cannot end up crediting
+    /// different sources for the same arithmetic.
+    private var isWindFromApple: Bool { filedWind == nil }
+
     private var runwayFootnote: String {
-        let source = (metar.flatMap { RunwayWind.Wind(metar: $0) } != nil)
-            ? "the \(airport.icao) report"
-            : "Apple Weather"
+        let source = isWindFromApple ? "Apple Weather" : "the \(airport.icao) report"
         return "Worked from \(source) against the runway centrelines as mapped. True bearings, not the painted numbers — and a wind calculation, not a recommendation."
     }
 
@@ -300,6 +332,7 @@ struct WeatherForecastSection: View {
             hourStrip(snapshot)
             PanelDivider()
             readings(snapshot)
+            appleMark
         }
     }
 
@@ -414,6 +447,8 @@ struct WeatherForecastSection: View {
                 if day.id != snapshot.days.first?.id { PanelDivider() }
                 dayRow(day, across: snapshot.days)
             }
+
+            appleMark
         }
     }
 
@@ -537,6 +572,8 @@ struct WeatherForecastSection: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
+
+                appleMark
             }
         }
     }
@@ -724,6 +761,28 @@ struct AppleWeatherWordmark: View {
             .foregroundStyle(colour)
             .fixedSize()
             .accessibilityLabel("Apple Weather")
+    }
+}
+
+/// The  on a row whose numbers came from Apple.
+///
+/// Not the attribution itself — the card this sits on carries
+/// `WeatherAttributionRow` for that, with the wordmark and the legal link. This
+/// is the smaller job a *shared* card creates: a list mixing a field's own
+/// filed report with Apple's model for the field next to it has to say, row by
+/// row, which is which. Without it, a card that attributes the whole list to
+/// Apple has credited them with somebody else's observation.
+struct AppleWeatherSourceMark: View {
+
+    var size: CGFloat = 9
+    var colour: Color
+
+    var body: some View {
+        Text("")
+            .font(.system(size: size, weight: .semibold))
+            .foregroundStyle(colour)
+            .fixedSize()
+            .accessibilityLabel("From Apple Weather")
     }
 }
 

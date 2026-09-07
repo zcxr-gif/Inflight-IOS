@@ -618,6 +618,20 @@ struct TrackerMapView: UIViewRepresentable {
             // a repaint is not enough for them. Light to dark is exactly the
             // switch this is for.
             refreshGroundLook(on: mapView)
+
+            // And so do the callsigns. They are written in a colour and sat on
+            // a plate, and both are chosen against the map underneath — so a
+            // palette change has to reach them or the labels stay in the old
+            // map's colours until something else happens to repaint them, which
+            // on a settled map is nothing at all.
+            //
+            // Only here, rather than on every mark pass: `applyMarks` sets the
+            // same property, but it runs on traffic and on pans, and neither is
+            // guaranteed to happen when somebody switches palette.
+            let isLight = scheme == .light
+            for annotation in annotations.values {
+                (mapView.view(for: annotation) as? FlightAnnotationView)?.isOverLightMap = isLight
+            }
         }
 
         /// Applies a look to the map, and says whether it actually swapped the
@@ -1440,6 +1454,14 @@ struct TrackerMapView: UIViewRepresentable {
             selected: Bool,
             zoomedIn: Bool
         ) {
+            // Before the key guard, and deliberately: the key says what the
+            // marks *are*, and the scheme says how they are drawn. A dequeued
+            // view arrives wearing whatever the last aeroplane was drawn in,
+            // and one that has not changed its callsign still has to be told
+            // the map underneath it has changed colour. The setter compares and
+            // does nothing when it matches, so this costs a bool.
+            view.isOverLightMap = parent.colorScheme == .light
+
             let wanted = marks(for: annotation, selected: selected, zoomedIn: zoomedIn)
             guard annotation.renderedMarkKey != wanted.key else { return }
             annotation.renderedMarkKey = wanted.key

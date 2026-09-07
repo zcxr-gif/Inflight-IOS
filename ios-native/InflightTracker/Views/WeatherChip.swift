@@ -158,10 +158,21 @@ struct WeatherChip: View {
                 .motionWords(temperature(for: station))
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(station.airport.icao)
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(theme.textSecondary)
-                    .motionWords(station.airport.icao)
+                HStack(spacing: 4) {
+                    Text(station.airport.icao)
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(theme.textSecondary)
+                        .motionWords(station.airport.icao)
+
+                    // Beside the code, because the code is what the reader is
+                    // matching the temperature to. The capsule stays marked
+                    // whether the chip is shut or open — the badge under it
+                    // carries the legal link only while it is shut, and the
+                    // opened card carries the full row.
+                    if fallback(for: station) != nil {
+                        AppleWeatherSourceMark(colour: theme.textDim)
+                    }
+                }
 
                 Text(detail(for: station))
                     .font(.system(size: 10, weight: .medium))
@@ -253,6 +264,14 @@ struct WeatherChip: View {
                     Text(station.airport.icao)
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(theme.textPrimary)
+
+                    // Per row, because this card mixes sources: a field that
+                    // filed a report and one that did not sit one above the
+                    // other, and the mark at the foot would otherwise be
+                    // claiming both of them.
+                    if fallback(for: station) != nil {
+                        AppleWeatherSourceMark(colour: theme.textDim)
+                    }
 
                     dayNight(for: station)
                 }
