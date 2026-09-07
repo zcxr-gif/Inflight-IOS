@@ -9,6 +9,19 @@ import Foundation
 /// What was missing was a way to *start* one from here, so a pilot who wanted
 /// the website's monthly plan had to go and find it themselves.
 ///
+/// ## Currently off
+///
+/// `AppConfig.offersWebCheckout` is `false`, `begin()` returns immediately, and
+/// the paywall draws no button. Starting a subscription for the app's own
+/// features anywhere but In-App Purchase is Guideline 3.1.1 without the
+/// External Purchase Link entitlement, and a second monthly auto-renewable
+/// subscription with no App Store product behind it is half of what the 2026-09
+/// rejection named. See `AppConfig.offersWebCheckout` and `PRO.md`.
+///
+/// The *confirming* half below is deliberately still live: somebody who started
+/// a checkout on an earlier build is still owed the answer, and a subscription
+/// that already exists is still honoured everywhere it was before.
+///
 /// ## The shape of it
 ///
 /// One month, at the price Stripe has. There is no yearly price on Stripe, so
@@ -196,6 +209,13 @@ final class WebSubscription: ObservableObject {
     /// business, because it is what the return link reports back to.
     @MainActor
     func begin() async {
+        // The one gate that cannot be got round by a stale view. `ProPanel`
+        // does not draw the button while `offersWebCheckout` is off, but a
+        // checkout is an *external payment for the app's own features*, and
+        // "no button is currently drawn" is not the same guarantee as "nothing
+        // can start one". See `AppConfig.offersWebCheckout` for why it is off.
+        guard AppConfig.offersWebCheckout else { return }
+
         guard !isStarting else { return }
 
         // The subscription is attached to an account, so there has to be one.

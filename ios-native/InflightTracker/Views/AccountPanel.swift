@@ -675,8 +675,10 @@ struct AccountPanel: View {
 
                 // The App Store cannot cancel a subscription it never sold, so
                 // the row above it would otherwise be a status with no way to
-                // act on it. Now that this subscription can be *started* from
-                // the paywall, saying where it is changed is not optional.
+                // act on it. Only ever drawn for somebody who *already has* a
+                // website subscription, and it manages rather than sells: the
+                // paywall no longer offers to start one at all — see
+                // `AppConfig.offersWebCheckout`.
                 Link(destination: AppConfig.siteURL) {
                     HStack(spacing: 10) {
                         PanelRowLabel(title: "Manage on inflight.info", symbol: "creditcard")
@@ -702,8 +704,8 @@ struct AccountPanel: View {
                 PanelActionRow(
                     title: "Get Inflight Pro",
                     symbol: "sparkles",
-                    detail: store.displayPrice.map { "From \($0) a year. Cancel any time." }
-                        ?? "A year or a month. Cancel any time."
+                    detail: store.priceSummary.map { "From \($0). Cancel any time." }
+                        ?? "Everything the tracker can do. Cancel any time."
                 ) {
                     isShowingPaywall = true
                 }

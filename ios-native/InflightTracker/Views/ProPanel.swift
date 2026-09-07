@@ -269,8 +269,23 @@ struct ProPanel: View {
     /// App Review looks for.
     private var checkout: some View {
         VStack(spacing: 10) {
-            ForEach(AppConfig.ProProduct.forSale) { plan in
+            // `plansForSale`, never `ProProduct.forSale`: a plan the App Store
+            // has not confirmed it sells is not drawn, not named and not
+            // priced. A row for a product still in review is precisely the
+            // "reference to a subscription that has not been submitted" that
+            // App Review rejects a build for — and to somebody who is not a
+            // reviewer it is a greyed-out row that never explains itself.
+            ForEach(store.plansForSale) { plan in
                 planRow(plan)
+            }
+
+            if store.hasNothingToSell {
+                note(
+                    "The App Store isn't offering Inflight Pro on this account right now. If you have bought it before, Restore at the top brings it back.",
+                    symbol: "exclamationmark.triangle"
+                )
+            } else if store.plansForSale.isEmpty {
+                loadingPlans
             }
 
             if let problem = store.problem {
@@ -281,9 +296,16 @@ struct ProPanel: View {
                 note(notice, symbol: "info.circle")
             }
 
-            buyButton
+            if !store.plansForSale.isEmpty {
+                buyButton
+            }
 
-            webOption
+            // Off by default — see `AppConfig.offersWebCheckout`. A second
+            // monthly auto-renewable subscription, sold outside the App Store,
+            // is the other half of what the 2026-09 rejection was about.
+            if AppConfig.offersWebCheckout {
+                webOption
+            }
 
             legal
         }
@@ -299,6 +321,20 @@ struct ProPanel: View {
             }
             .ignoresSafeArea(edges: .bottom)
         }
+    }
+
+    /// While the App Store is still answering. Deliberately not a row of
+    /// disabled plans with em dashes where the prices go: nothing here claims
+    /// a product exists until the App Store has said it does.
+    private var loadingPlans: some View {
+        HStack(spacing: 9) {
+            ProgressView().controlSize(.small).tint(theme.textSecondary)
+            Text("Fetching prices from the App Store…")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(theme.textDim)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 18)
     }
 
     private func planRow(_ plan: AppConfig.ProProduct) -> some View {
@@ -500,11 +536,17 @@ struct ProPanel: View {
     /// paywall itself rather than three taps into Settings.
     private var legal: some View {
         VStack(spacing: 7) {
-            Text(renewalTerms)
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(theme.textDim)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
+            // Only where there is a plan to renew. With nothing on sale the
+            // sentence would be describing a subscription this build cannot
+            // sell, which is the thing being fixed rather than a smaller
+            // version of it.
+            if !store.plansForSale.isEmpty {
+                Text(renewalTerms)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(theme.textDim)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             HStack(spacing: 14) {
                 if let terms = AppConfig.termsURL {

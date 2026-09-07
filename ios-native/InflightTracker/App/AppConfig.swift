@@ -188,6 +188,33 @@ enum AppConfig {
 
     // MARK: - The subscription sold on the website
 
+    /// Whether the paywall offers to start a Stripe subscription from inside
+    /// the app.
+    ///
+    /// **Off.** The 2026-09 rejection said the app "includes references to
+    /// monthly auto-renewable subscription" whose In-App Purchase products had
+    /// not been submitted for review — and the app had two monthly
+    /// subscriptions on that paywall, only one of them an IAP. The other is
+    /// this one: a monthly auto-renewable subscription, sold by Stripe, with no
+    /// App Store product behind it at all and therefore nothing that *could*
+    /// be submitted.
+    ///
+    /// It is also Guideline 3.1.1 on its own terms, which `PRO.md` has said
+    /// since the flow was built: taking payment for the app's own features
+    /// through anything but In-App Purchase needs the External Purchase Link
+    /// entitlement outside the United States, and this app does not hold one.
+    ///
+    /// What is *not* switched off is honouring a subscription somebody already
+    /// has. `pro_entitlement()` still folds one in, `Entitlements` still
+    /// unlocks Pro for it, `WebSubscription` still confirms a checkout that was
+    /// started before this flag existed, and the paywall still says — in words,
+    /// with no link — that signing into that account unlocks Pro here. That is
+    /// Guideline 3.1.3(b), and it is allowed; a button that starts the payment
+    /// is what is not.
+    ///
+    /// Turn it back on only alongside the entitlement, per storefront.
+    static let offersWebCheckout = false
+
     /// Where the website's Stripe checkout session is created.
     ///
     /// The same Edge Function inflight.info's own upgrade button calls, given

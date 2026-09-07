@@ -74,6 +74,7 @@ final class WeatherPreferences: ObservableObject {
     private static let windsKey = "weather.showsWinds"
     private static let windLevelKey = "weather.windLevel"
     private static let fieldsKey = "weather.showsFieldConditions"
+    private static let outlookKey = "weather.showsOutlook"
 
     @Published var temperatureUnit: TemperatureUnit {
         didSet { UserDefaults.standard.set(temperatureUnit.rawValue, forKey: Self.temperatureKey) }
@@ -128,6 +129,18 @@ final class WeatherPreferences: ObservableObject {
         didSet { UserDefaults.standard.set(showsFieldConditions, forKey: Self.fieldsKey) }
     }
 
+    /// Whether an airport's panel carries the ten-day outlook and the sun and
+    /// moon times under its forecast.
+    ///
+    /// Free, like the field conditions above and for the same reason: all of it
+    /// arrived in the one request the forecast already made, so this decides
+    /// how far the panel scrolls and nothing else. On by default — it is the
+    /// half of a field's weather a METAR cannot carry — and off for anybody who
+    /// opens an airport to see its traffic rather than its fortnight.
+    @Published var showsOutlook: Bool {
+        didSet { UserDefaults.standard.set(showsOutlook, forKey: Self.outlookKey) }
+    }
+
     private init() {
         let defaults = UserDefaults.standard
 
@@ -143,6 +156,9 @@ final class WeatherPreferences: ObservableObject {
         // On by default, because it costs nothing and it is the one piece of
         // weather that is already on the device.
         showsFieldConditions = defaults.object(forKey: Self.fieldsKey) as? Bool ?? true
+        // On by default: it costs no request, and it is the part of a field's
+        // weather nothing else in the app can tell you.
+        showsOutlook = defaults.object(forKey: Self.outlookKey) as? Bool ?? true
 
         temperatureUnit = TemperatureUnit(rawValue: defaults.string(forKey: Self.temperatureKey) ?? "")
             ?? .celsius
