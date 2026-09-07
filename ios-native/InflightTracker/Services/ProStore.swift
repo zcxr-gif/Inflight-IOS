@@ -43,6 +43,15 @@ final class ProStore: ObservableObject {
     /// prices arriving rather than a row of blanks.
     @Published private(set) var isLoadingProducts = false
 
+    /// Whether the App Store has answered at all yet — as distinct from having
+    /// answered with nothing.
+    ///
+    /// The paywall needs both. "Still loading" and "the App Store does not
+    /// offer this product" look identical from `products` alone, and they call
+    /// for opposite copy: one is a spinner, the other is a sentence explaining
+    /// that there is nothing to buy here right now.
+    @Published private(set) var didAnswer = false
+
     /// Set while a restore is running.
     @Published private(set) var isRestoring = false
 
@@ -108,14 +117,43 @@ final class ProStore: ObservableObject {
                 }
             }
             products = mapped
+            didAnswer = true
+
+            // Never leave the selection on a plan the App Store did not return.
+            // A product still in review, or removed from sale, comes back from
+            // `Product.products(for:)` as simply absent — and a paywall whose
+            // chosen row is a product that does not exist is a paywall whose
+            // button can only fail.
+            if products[selected] == nil, let first = plansForSale.first {
+                selected = first
+            }
         } catch {
-            // Left as it was. The paywall says what Pro is either way and
-            // offers the buttons disabled, which is a better answer than an
-            // error about StoreKit to someone who is only browsing.
+            // Left as it was, and `didAnswer` stays false so the paywall keeps
+            // saying "loading" rather than "unavailable". The paywall says what
+            // Pro is either way and offers the buttons disabled, which is a
+            // better answer than an error about StoreKit to someone who is only
+            // browsing.
         }
     }
 
     func product(for plan: AppConfig.ProProduct) -> Product? { products[plan] }
+
+    /// The plans the paywall may actually show: what this app offers, narrowed
+    /// to what the App Store has confirmed it sells.
+    ///
+    /// The narrowing is the point. `AppConfig.ProProduct.forSale` is this
+    /// build's intention; `products` is App Store Connect's answer, and the two
+    /// disagree whenever a product has not finished review, sits in Missing
+    /// Metadata, or was not attached to the submitted version. Showing a row
+    /// for a plan in that state is exactly what App Review reads as "the app
+    /// references a subscription that has not been submitted" — so a plan the
+    /// App Store will not sell is not named, priced, or offered here at all.
+    var plansForSale: [AppConfig.ProProduct] {
+        AppConfig.ProProduct.forSale.filter { products[$0] != nil }
+    }
+
+    /// Nothing to sell, and not because the answer is still on its way.
+    var hasNothingToSell: Bool { didAnswer && plansForSale.isEmpty }
 
     /// The App Store's own formatted price, or nil while the catalogue is on
     /// its way. Nothing pretending to be a price is ever shown in its place.
@@ -123,10 +161,27 @@ final class ProStore: ObservableObject {
         products[plan]?.displayPrice
     }
 
-    /// The cheapest way in, for the rows elsewhere in the app that mention what
-    /// Pro costs without opening the paywall.
-    var displayPrice: String? {
-        displayPrice(for: .annual) ?? displayPrice(for: .monthly)
+    /// What Pro costs, said with the period that price is actually for —
+    /// "£19.99 a year", "£3.49 a month".
+    ///
+    /// For the rows outside the paywall that mention a price in a sentence.
+    /// They used to take a bare `displayPrice` — the annual price *or* the
+    /// monthly one — and print it under a fixed "a year", so an account whose
+    /// annual product had not loaded was told Pro cost £3.49 a year. And, like
+    /// the paywall, it names only a plan the App Store has confirmed it sells:
+    /// a price for a product still in review is a reference to a subscription
+    /// that has not been submitted, wherever in the app it is printed.
+    var priceSummary: String? {
+        let plan = plansForSale.contains(.annual) ? AppConfig.ProProduct.annual : plansForSale.first
+        guard let plan = plan, let price = displayPrice(for: plan) else { return nil }
+
+        switch plan {
+        case .annual: return "\(price) a year"
+        case .monthly: return "\(price) a month"
+        // Not for sale, so not reachable through `plansForSale` — but the
+        // switch has to be exhaustive, and a bare price says the true thing.
+        case .lifetime: return price
+        }
     }
 
     /// What a year works out at per month, in the storefront's own currency.

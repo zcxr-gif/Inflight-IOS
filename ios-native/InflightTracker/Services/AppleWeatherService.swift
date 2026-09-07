@@ -76,9 +76,23 @@ final class AppleWeatherService: ObservableObject {
 
     @Published private(set) var states: [String: State] = [:]
 
-    /// Apple's mark and legal link, fetched once. Nil until it arrives, and the
-    /// data is not shown without it.
+    /// Apple's mark and legal link.
+    ///
+    /// Nil only until it arrives. Nothing on screen waits on it —
+    /// `WeatherAttributionRow` draws the  Weather wordmark and a link to
+    /// Apple's own legal page from `Self.legalPageURL` in the meantime —
+    /// because the mark is a *requirement* wherever this data is shown, and a
+    /// requirement that vanishes when a CDN is slow is not one that has been met.
     @Published private(set) var attribution: WeatherAttribution?
+
+    /// Apple's legal attribution page, as a constant.
+    ///
+    /// The framework hands back the same page on `WeatherAttribution.legalPageURL`,
+    /// and that one is preferred wherever it has arrived. This is what the row
+    /// links to before it does — and if it never does. A mark fetch that failed
+    /// is not a reason to show WeatherKit data with no way through to Apple's
+    /// terms.
+    static let legalPageURL = URL(string: "https://weatherkit.apple.com/legal-attribution.html")!
 
     /// Hourly forecasts do not change faster than this, and a panel reopened
     /// twice in a minute should not spend two calls.
@@ -89,7 +103,36 @@ final class AppleWeatherService: ObservableObject {
 
     private var inFlight: Set<String> = []
 
+    /// The mark fetch, while one is running. One at a time, and not repeated
+    /// once it has landed.
+    private var attributionFetch: Task<Void, Never>?
+
     private init() {}
+
+    // MARK: - The mark
+
+    /// Fetches Apple's attribution mark, once.
+    ///
+    /// Its own call rather than something `load` does on the side, because the
+    /// two are needed at different moments: a screen showing a cached forecast
+    /// asks for no weather at all, and used to therefore never ask for the mark
+    /// either. Safe to call from any `task` that is about to put WeatherKit
+    /// data on screen — already fetched or already fetching both do nothing,
+    /// and a fetch that failed is retried by the next caller rather than
+    /// leaving the mark permanently missing.
+    func loadAttribution() {
+        guard attribution == nil, attributionFetch == nil else { return }
+
+        attributionFetch = Task { [weak self] in
+            let mark = try? await WeatherKit.WeatherService.shared.attribution
+
+            await MainActor.run { [weak self] in
+                guard let self = self else { return }
+                self.attributionFetch = nil
+                if let mark = mark { self.attribution = mark }
+            }
+        }
+    }
 
     func state(for key: String) -> State { states[key] ?? .idle }
 
@@ -120,6 +163,11 @@ final class AppleWeatherService: ObservableObject {
     /// Loads a point's weather. Safe to call on every appearance: fresh, in
     /// flight, or already refused all do nothing.
     func load(key: String, coordinate: CLLocationCoordinate2D) {
+        // Before the early returns, not after: the mark is owed the moment
+        // anything intends to show this data, including the appearance that
+        // finds a fresh snapshot already cached and fetches no weather at all.
+        loadAttribution()
+
         switch state(for: key) {
         case .loading, .unavailable: return
         case .ready(let snapshot) where Date().timeIntervalSince(snapshot.fetched) < Self.lifetime: return
@@ -132,7 +180,6 @@ final class AppleWeatherService: ObservableObject {
 
         Task { [weak self] in
             let snapshot = await Self.fetch(coordinate)
-            let mark = try? await WeatherKit.WeatherService.shared.attribution
 
             // Weak again on the way in rather than reaching for the outer
             // closure's `self`, which is a mutable capture crossing into
@@ -140,7 +187,6 @@ final class AppleWeatherService: ObservableObject {
             await MainActor.run { [weak self] in
                 guard let self = self else { return }
                 self.inFlight.remove(key)
-                if let mark = mark { self.attribution = mark }
                 self.states[key] = snapshot.map(State.ready) ?? .unavailable
             }
         }

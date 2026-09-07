@@ -22,6 +22,18 @@ Every storefront has its own number and the paywall shows the App Store's own
 localised price or nothing at all; the tiers above are only what
 `Support/Inflight.storekit` uses for local testing.
 
+`forSale` is this build's *intention*, and it is not what the paywall draws.
+`ProStore.plansForSale` narrows it to the products `Product.products(for:)`
+actually returned — App Store Connect's own answer — and `ProPanel` iterates
+that. A product that has not finished review, sits in **Missing Metadata**, or
+was not attached to the submitted version comes back simply absent, and a plan
+in that state is then not named, not priced and not offered anywhere in the
+app. See [App Review](#app-review) for why that matters more than it looks.
+
+While nothing has come back yet the paywall says so — one line, with a spinner
+— rather than drawing rows with em dashes where the prices go. If the App Store
+answers with nothing at all, it says that instead and keeps **Restore**.
+
 Annual is level 1 — the *higher* tier — on purpose. Monthly to annual is then
 an upgrade: it takes effect immediately and Apple prorates a refund for the
 unused part of the month. Annual to monthly is a downgrade and waits for the
@@ -72,7 +84,71 @@ still be tested locally even though nothing sells it.
    while the app is closed never reaches the account, and the website goes on
    thinking a lapsed subscriber is Pro until they next open the app.
 
+### Submitting the products with the binary
+
+**This is not something the app can do, and it is what the 2026-09 rejection
+was about.** An auto-renewable subscription is reviewed *with a version*, not
+on its own, and a product that has never been attached to a submitted build
+stays in **Waiting for Review**/**Missing Metadata** forever while every
+submission that mentions it is rejected:
+
+> We are unable to complete the review of the app because one or more of the
+> In-App Purchase products have not been submitted for review. Specifically,
+> the app includes references to monthly auto-renewable subscription but the
+> associated In-App Purchase products have not been submitted for review.
+
+Per product, in App Store Connect, before submitting:
+
+1. **Subscription Prices** set for the base storefront. A product with no price
+   cannot leave Missing Metadata.
+2. **Localizations** — display name and description — on the product *and* on
+   the subscription group. The group's is the one most often missed.
+3. **App Review screenshot**, 640 × 920 or larger, on each product. It is
+   mandatory metadata for an In-App Purchase and its absence alone blocks the
+   submission. A screenshot of the paywall with that plan selected is a fine
+   answer.
+4. **Review notes** saying where the paywall is reached from — Settings →
+   Inflight Pro, or any locked feature.
+5. On the **version** page, under *In-App Purchases and Subscriptions*, tick
+   **both** `com.tracker.Inflight.pro.annual` and
+   `com.tracker.Inflight.pro.monthly` so they are submitted **with** the
+   binary. This is the step that was missed.
+
+Until a product has cleared review it will not come back from
+`Product.products(for:)` on a production build, and the paywall will simply not
+show that plan — which is deliberate, and is why a repeat of this rejection
+cannot be caused by the app itself.
+
+### The Sandbox check before submitting
+
+`Product.products(for:)` returning both identifiers is the only proof that App
+Store Connect and `ProProduct.forSale` agree. On a TestFlight or Sandbox build,
+open the paywall and confirm **two** plans with real localised prices. One plan
+means one product is not approved; the loading line means the App Store has not
+answered; the "isn't offering Inflight Pro" line means it answered with nothing
+at all.
+
 ## Paying on the website instead
+
+> **Switched off since 2026-09.** `AppConfig.offersWebCheckout` is `false` and
+> the paywall does not draw the button. Everything below still describes the
+> code, which is all still there and all still works — what changed is that
+> nothing in the app starts a checkout.
+>
+> Two reasons, and either alone is enough. It is a **monthly auto-renewable
+> subscription with no In-App Purchase behind it**, which is half of what the
+> 2026-09 rejection was about; and it is **Guideline 3.1.1**, which the section
+> below has warned about since the flow was built.
+>
+> What is *not* switched off is honouring a subscription somebody already has.
+> `pro_entitlement()` still folds one in, `Entitlements` still unlocks Pro for
+> it, `WebSubscription` still confirms a checkout started before the flag
+> existed, and the paywall still says in words — with no link and no button —
+> that signing into that account unlocks Pro here. That is Guideline 3.1.3(b),
+> and it is allowed.
+>
+> Turning it back on is one `true`, and should happen only alongside the
+> External Purchase Link entitlement, per storefront.
 
 The paywall sells two things, and they are not the same product bought two
 ways:
@@ -164,19 +240,17 @@ next time the app runs signed in.
 Linking out of the app to pay for the app's own features is Guideline 3.1.1
 territory. In the United States this is currently permitted following the
 *Epic v. Apple* injunction; elsewhere it needs the **External Purchase Link**
-entitlement, requested per-storefront in the Apple Developer portal. The App
-Store purchase is kept as the primary path on the paywall for exactly this
-reason — it is what most people will use, and it is what a reviewer sees first.
+entitlement, requested per-storefront in the Apple Developer portal, and this
+app does not hold one.
 
-**The sheet is the part to watch.** Apple's External Purchase Link rules are
+**The sheet was the part to watch.** Apple's External Purchase Link rules are
 written around opening the *default browser* — with `StoreKit`'s
 `ExternalPurchaseLink` API and the system disclosure sheet — and an in-app
-`SFSafariViewController` is not that. It is a deliberate trade: the flow is far
-better for the pilot, and it is still Safari rendering Stripe's own page rather
-than a web view this app could read. If a reviewer objects, the fix is small
-and local — `WebCheckoutSheet` is one file, and `ProPanel` opening
-`web.page` with `openURL` instead of a sheet is the old behaviour back — so
-this is worth knowing before the rejection rather than after it.
+`SFSafariViewController` is not that.
+
+That is now moot: `AppConfig.offersWebCheckout` is `false`, so the app offers
+no external payment path at all. `WebCheckoutSheet` and `WebSubscription` are
+still compiled and still correct; nothing calls `begin()`.
 
 ## Sign in with Apple
 

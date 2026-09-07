@@ -59,6 +59,17 @@ struct WeatherChip: View {
     /// so it stays shut and stops being a button.
     private var isExpandable: Bool { stations.count >= 2 || isShowingApple }
 
+    /// Whether the *collapsed* capsule — the field being passed over, and the
+    /// only thing on screen until somebody taps — is drawing Apple's numbers.
+    ///
+    /// Separate from `isShowingApple`, which asks about every station the
+    /// opened card would list. What is owed an attribution is the screen the
+    /// data is actually on, and collapsed that is one field.
+    private var collapsedShowsApple: Bool {
+        guard let nearby = model.nearby else { return false }
+        return fallback(for: nearby) != nil
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let nearby = model.nearby {
@@ -74,6 +85,14 @@ struct WeatherChip: View {
                 } else {
                     summary(for: nearby)
                 }
+            }
+
+            // Apple's terms: the mark and the legal link on the screen showing
+            // their data, not one tap into it. Opened, the card below carries
+            // the full attribution row; collapsed, this capsule *is* the screen
+            // showing the temperature, so it carries its own.
+            if collapsedShowsApple, !isExpanded {
+                collapsedAttribution
             }
 
             if isExpanded, isExpandable {
@@ -154,6 +173,34 @@ struct WeatherChip: View {
         // towards the finger and the light on it moves.
         .flightInfoChrome(theme, in: Capsule(), interactive: true)
         .contentShape(Capsule())
+    }
+
+    // MARK: - Attribution, collapsed
+
+    /// The wordmark and the link, sized for a chip.
+    ///
+    /// A `Link` rather than a label, so the legal page is reachable without
+    /// opening the card — the mark on its own is half of what Apple asks for.
+    /// It uses the framework's page where that has arrived and the same page
+    /// as a constant where it has not, so the link is never the thing that is
+    /// missing.
+    private var collapsedAttribution: some View {
+        Link(destination: apple.attribution?.legalPageURL ?? AppleWeatherService.legalPageURL) {
+            HStack(spacing: 5) {
+                AppleWeatherWordmark(size: 9, colour: theme.textDim)
+
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundStyle(theme.textDim)
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .flightInfoChrome(theme, in: Capsule(), interactive: true)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Weather from Apple Weather. Open Apple's legal attribution page.")
+        .transition(.opacity)
     }
 
     // MARK: - Expanded

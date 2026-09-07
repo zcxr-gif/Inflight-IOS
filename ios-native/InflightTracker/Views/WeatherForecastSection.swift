@@ -160,11 +160,43 @@ struct WeatherForecastSection: View {
     }
 }
 
+/// The  Weather wordmark, drawn in text.
+///
+/// What the attribution row falls back to, and what the collapsed weather chip
+/// carries. U+F8FF is the Apple logo on every Apple platform, so this is the
+/// trademark itself rather than a description of it — and unlike the combined
+/// mark it needs no network, which is the whole reason it exists: the
+/// requirement is on the screen showing the data, and a screen that shows the
+/// data while an image is still downloading is a screen with no attribution on
+/// it.
+struct AppleWeatherWordmark: View {
+
+    var size: CGFloat = 10
+    var colour: Color
+
+    var body: some View {
+        Text(" Weather")
+            .font(.system(size: size, weight: .semibold))
+            .foregroundStyle(colour)
+            .fixedSize()
+            .accessibilityLabel("Apple Weather")
+    }
+}
+
 /// Apple's mark and the link to their legal page.
 ///
 /// Required wherever WeatherKit data is shown — not a courtesy, a term of use.
-/// Drawn from the URLs the framework itself hands back, so it stays whatever
-/// Apple currently requires rather than a copy of it baked into the bundle.
+/// Both halves are required, and both are therefore unconditional here:
+///
+/// - **The mark.** Apple's own combined image where it has arrived, because it
+///   is the artwork they would rather see; the  Weather wordmark until then, and
+///   for good if the fetch never lands. There is no state in which this row
+///   draws neither.
+/// - **The link.** `WeatherAttribution.legalPageURL` where the framework has
+///   answered, and `AppleWeatherService.legalPageURL` — the same page, as a
+///   constant — where it has not. It used to be dropped entirely on that path,
+///   which meant a slow or failed mark fetch produced a compliant-looking row
+///   with no way through to Apple's terms.
 struct WeatherAttributionRow: View {
 
     let attribution: WeatherAttribution?
@@ -173,33 +205,35 @@ struct WeatherAttributionRow: View {
 
     private var theme: FlightInfoTheme { appearance.theme }
 
+    /// Apple's own artwork, in the shade that reads against this theme.
+    private var markURL: URL? {
+        guard let attribution = attribution else { return nil }
+        return theme.isLight ? attribution.combinedMarkLightURL : attribution.combinedMarkDarkURL
+    }
+
     var body: some View {
         HStack(spacing: 8) {
-            if let attribution = attribution {
-                AsyncImage(
-                    url: theme.isLight
-                        ? attribution.combinedMarkLightURL
-                        : attribution.combinedMarkDarkURL
-                ) { image in
+            if let markURL = markURL {
+                AsyncImage(url: markURL) { image in
                     image.resizable().scaledToFit()
                 } placeholder: {
-                    Color.clear
+                    // The wordmark, not a blank: the mark is owed for as long
+                    // as the data is up, including while the image is on its way.
+                    AppleWeatherWordmark(colour: theme.textDim)
                 }
                 .frame(height: 14)
-
-                Spacer(minLength: 8)
-
-                Link("Legal", destination: attribution.legalPageURL)
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(theme.textDim)
             } else {
-                Text("Weather data from Apple Weather")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(theme.textDim)
-                Spacer(minLength: 8)
+                AppleWeatherWordmark(colour: theme.textDim)
             }
+
+            Spacer(minLength: 8)
+
+            Link("Legal", destination: attribution?.legalPageURL ?? AppleWeatherService.legalPageURL)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(theme.textDim)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
+        .task { AppleWeatherService.shared.loadAttribution() }
     }
 }

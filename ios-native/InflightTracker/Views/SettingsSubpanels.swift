@@ -1188,7 +1188,7 @@ struct ProPromoCard: View {
     /// the features and stays quiet about the number rather than guessing at
     /// one or showing a gap where a price is going to appear.
     private var price: String {
-        guard let price = store.displayPrice else { return "Seven features, one subscription." }
-        return "From \(price) a year."
+        guard let price = store.priceSummary else { return "Seven features, one subscription." }
+        return "From \(price)."
     }
 }
