@@ -189,11 +189,34 @@ enum GlobeMarkMetrics {
     /// else here would read as a different app underneath the same chrome.
     static let planeMarkSide: CGFloat = 18
     static let planeMarkGap: CGFloat = 5
-    static let callsignFontSize: CGFloat = 9.5
 
-    /// How wide a callsign is allowed to get. A callsign is typed by a pilot
-    /// and some of them are paragraphs.
-    static let callsignMaxWidth: CGFloat = 96
+    /// Ten point bold, on a plate, exactly as the flat map sets it.
+    ///
+    /// It was nine and a half heavy with a `-8` stroke, which is what the flat
+    /// map used to do and stopped doing for three reasons that applied here
+    /// just as squarely: the stroke is centred on the outline, so at this size
+    /// it closes the counters of a, e, 6, 8, 9 and 0 and the callsign reads as
+    /// a bar; the white was drawn over pale planets — Daylight and Paper —
+    /// where white on a hairline of black is very nearly nothing; and the two
+    /// point allowance for the pen was tight enough that a short measurement
+    /// truncated the last character. The plate below does the halo's job, so
+    /// there is no stroke and the glyphs are the shape the typeface drew.
+    static let callsignFontSize: CGFloat = 10
+
+    /// The plate: its height, how far the text sits in from each end, and how
+    /// round its corners are. The flat map's numbers, because it is the same
+    /// mark on the same aeroplane.
+    static let callsignHeight: CGFloat = 15
+    static let callsignPadding: CGFloat = 5
+    static let callsignRadius: CGFloat = 4.5
+
+    /// How wide a callsign is allowed to get, plate and all. A callsign is
+    /// typed by a pilot and some of them are paragraphs.
+    ///
+    /// 108 rather than 96: the padding is real width now, and taking it out of
+    /// the old cap would have cost a character on the longest callsigns rather
+    /// than the crowding it exists to prevent.
+    static let callsignMaxWidth: CGFloat = 108
 
     /// How near a tap has to land, in points.
     static let touchRadius: CGFloat = 22
@@ -488,9 +511,13 @@ final class GlobeCanvasView: UIView {
     ///
     /// A fourth cache, and not merged with the others for the same reason they
     /// are not merged with each other: this one is drawn the flat map's way —
-    /// white with the halo stroked into the glyphs — rather than in a palette
-    /// colour under a blur, so it is not cleared when the palette changes,
-    /// because nothing about the palette can make one wrong.
+    /// type on a plate — rather than in a palette colour under a blur.
+    ///
+    /// Cleared when the palette changes, along with the rest. It did not have
+    /// to be while the callsign was always white, and that was the trouble:
+    /// always white is what made it unreadable over Daylight and Paper. The
+    /// plate takes its colours from `palette.isLight` now, so a bitmap drawn
+    /// for one planet is wrong on the other.
     ///
     /// Bounded by the callsigns on screen, which is bounded by the zoom the
     /// labels appear at, and emptied wholesale rather than evicted one at a
@@ -712,6 +739,10 @@ final class GlobeCanvasView: UIView {
             labels.removeAll()
             fixLabels.removeAll()
             atcTextLabels.removeAll()
+            // The callsigns too, since the plate under them is the palette's
+            // now: without this, switching to Daylight kept a planet full of
+            // labels drawn for the dark one.
+            callsignLabels.removeAll()
         }
         let skyMoved = backdrop != self.backdrop
 
@@ -3317,40 +3348,94 @@ final class GlobeCanvasView: UIView {
         }
     }
 
-    /// A callsign, rendered once into a bitmap.
+    /// How a callsign is drawn, for one way round the planet.
+    private struct CallsignStyle {
+        let attributes: [NSAttributedString.Key: Any]
+        let plate: UIColor
+    }
+
+    /// Both ways round, built once — the flat map's own colours and weights,
+    /// so an aeroplane wears the same tag whichever shape of the world it is
+    /// on. The small positive kern is there for the same reason it is there:
+    /// callsigns are all caps and digits, and those set tight.
+    private static let darkCallsign = GlobeCanvasView.callsignStyle(
+        text: .white,
+        plate: UIColor(white: 0, alpha: 0.62)
+    )
+
+    private static let lightCallsign = GlobeCanvasView.callsignStyle(
+        text: UIColor(white: 0.08, alpha: 1),
+        plate: UIColor(white: 1, alpha: 0.80)
+    )
+
+    private static func callsignStyle(text colour: UIColor, plate: UIColor) -> CallsignStyle {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.lineBreakMode = .byTruncatingTail
+
+        return CallsignStyle(
+            attributes: [
+                .font: UIFont.systemFont(
+                    ofSize: GlobeMarkMetrics.callsignFontSize,
+                    weight: .bold
+                ),
+                .foregroundColor: colour,
+                .kern: 0.2,
+                .paragraphStyle: paragraph
+            ],
+            plate: plate
+        )
+    }
+
+    /// A callsign on its plate, rendered once into a bitmap.
     ///
-    /// White with the halo stroked into the glyphs rather than blurred behind
-    /// them — the flat map's own attributes, and for the flat map's own reason:
-    /// a blurred shadow cannot be drawn in place, and this runs several hundred
-    /// times a frame. A negative `strokeWidth` is the one that fills as well as
-    /// strokes; a positive one gives hollow letters.
+    /// The flat map draws this as a `UILabel` over a plain `UIView` with a
+    /// corner radius, because there it is a view and the compositor rounds it
+    /// for free. Here there are no views — several hundred aeroplanes are one
+    /// `draw(_:)` into one bitmap — so the plate is a rounded rectangle filled
+    /// into the same cached image as the text, which costs nothing per frame
+    /// for the same reason the label already did: it is drawn once per
+    /// callsign, not once per frame.
+    ///
+    /// Dark type on a pale planet, light type on a dark one, from
+    /// `palette.isLight` — the same flip `FlightAnnotationView.isOverLightMap`
+    /// makes, and the reason the cache is emptied when the palette changes.
     private func callsignLabel(_ text: String) -> UIImage {
         if let cached = callsignLabels[text] { return cached }
 
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: GlobeMarkMetrics.callsignFontSize, weight: .heavy),
-            .foregroundColor: UIColor.white,
-            .strokeColor: UIColor.black,
-            .strokeWidth: -8.0
-        ]
+        let style = palette.isLight ? Self.lightCallsign : Self.darkCallsign
 
-        let drawn = NSAttributedString(string: text, attributes: attributes)
-        let measured = drawn.size()
-        // Room for the pen, which strokes outside the glyphs.
-        let inset: CGFloat = 2
-        let size = CGSize(
-            width: min(measured.width.rounded(.up), GlobeMarkMetrics.callsignMaxWidth) + inset * 2,
-            height: measured.height.rounded(.up) + inset * 2
+        let drawn = NSAttributedString(string: text, attributes: style.attributes)
+        let padding = GlobeMarkMetrics.callsignPadding
+
+        // The padding is the plate's inset and the text's safety margin at
+        // once: `size()` measures a glyph run and rounds, and a measurement a
+        // fraction short used to cost the last character rather than merely
+        // crowding it.
+        let width = min(
+            drawn.size().width.rounded(.up) + padding * 2,
+            GlobeMarkMetrics.callsignMaxWidth
         )
+        let size = CGSize(width: width, height: GlobeMarkMetrics.callsignHeight)
 
         let format = UIGraphicsImageRendererFormat.default()
         format.opaque = false
         let image = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            let plate = UIBezierPath(
+                roundedRect: CGRect(origin: .zero, size: size),
+                cornerRadius: GlobeMarkMetrics.callsignRadius
+            )
+            style.plate.setFill()
+            plate.fill()
+
+            // Centred in the plate on its own line height, so the type sits on
+            // the plate rather than on its top edge.
+            let line = drawn.size().height.rounded(.up)
             drawn.draw(in: CGRect(
-                x: inset,
-                y: inset,
-                width: size.width - inset * 2,
-                height: size.height - inset * 2
+                x: padding,
+                y: ((size.height - line) / 2).rounded(),
+                width: size.width - padding * 2,
+                height: line
             ))
         }
 

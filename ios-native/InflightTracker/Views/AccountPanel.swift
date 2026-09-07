@@ -133,7 +133,19 @@ struct AccountPanel: View {
             }
             Button("Keep it", role: .cancel) {}
         } message: {
-            Text("This cannot be undone. Your account and everything stored against it are erased.")
+            // Two things, because deleting an account is the moment somebody
+            // is most likely to believe a third: that it also stops the money.
+            // It does not — a subscription belongs to the Apple Account or to
+            // the card, not to this account — and Pro already paid for keeps
+            // working on this device until the period it was paid for ends.
+            // Saying so here is the difference between a refund request and a
+            // pilot who knows where the switch is.
+            Text(
+                "This cannot be undone. Your account and everything stored against it are erased.\n\n"
+                + "It does not cancel a subscription. Pro you have already paid for stays on this "
+                + "device until that period ends — cancel in Settings › Apple Account, or on "
+                + "inflight.info if you subscribed there."
+            )
         }
     }
 

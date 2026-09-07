@@ -130,6 +130,8 @@ enum GlobeSkin: String, CaseIterable, Identifiable {
     )
 
     private static let daylightPalette = GlobePalette(
+        // The two pale planets. Read by the callsign plate, which flips with it.
+        isLight: true,
         ocean: UIColor(white: 0.93, alpha: 1),
         land: nil,
         limb: UIColor(white: 0.35, alpha: 0.7),
@@ -248,6 +250,8 @@ enum GlobeSkin: String, CaseIterable, Identifiable {
     )
 
     private static let paperPalette = GlobePalette(
+        // The two pale planets. Read by the callsign plate, which flips with it.
+        isLight: true,
         ocean: UIColor(red: 0.827, green: 0.886, blue: 0.929, alpha: 1),
         land: UIColor(red: 0.957, green: 0.937, blue: 0.878, alpha: 1),
         limb: UIColor(red: 0.35, green: 0.31, blue: 0.26, alpha: 0.65),

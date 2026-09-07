@@ -312,6 +312,17 @@ final class AccountStore: ObservableObject {
 
         await run {
             let token = try await self.validAccessToken()
+
+            // Before the account goes, because this is the last moment there
+            // is a credential for it. The row tying this device to this
+            // account lives on the tracker backend rather than in Postgres, so
+            // nothing about deleting the auth user reaches it: left behind, it
+            // would go on addressing a deleted pilot's own-flight notices at
+            // this phone, and the only token that could remove it has just
+            // stopped existing. Sign-out has always done this; deletion, which
+            // needs it more, did not.
+            PushService.shared.clearAccountRegistration(accessToken: token)
+
             try await SupabaseAuth.deleteAccount(accessToken: token)
 
             SessionKeychain.clear()
@@ -322,9 +333,22 @@ final class AccountStore: ObservableObject {
             Entitlements.shared.accountChanged()
             ProfileStore.shared.accountChanged()
             PilotDirectory.shared.accountChanged()
+            // The flight plans too, exactly as on the way out of a sign-out.
+            // They are one pilot's intentions, filed against an account that
+            // no longer exists, and leaving them in the panel is most of what
+            // "deleting my account did nothing" looks like from the outside.
+            FlightPlanBook.shared.clear()
             // Awaited because `run`'s closure is not on the main actor and
             // this is: the sync's own state is published to the account panel.
             await self.stopCarryingSettings()
+        }
+
+        // Still signed in means the deletion failed and said so. The push
+        // registration was cleared on the way in, so it is put back: the
+        // account is still here and still owed its own flight notices. Launch
+        // and sign-in re-send it anyway — this is only sooner.
+        if account != nil {
+            PushService.shared.syncAccountRegistration()
         }
     }
 

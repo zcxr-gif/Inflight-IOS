@@ -24,6 +24,14 @@ enum SupabaseAuth {
 
         let message: String
 
+        /// GoTrue's machine-readable reason, where it sent one.
+        ///
+        /// Kept beside the wording because the wording is what somebody reads
+        /// and this is what code should branch on: "Invalid login credentials"
+        /// is a sentence Supabase is free to reword, and a comparison against
+        /// it would fail silently on the day they do.
+        var code: String?
+
         var errorDescription: String? { message }
 
         /// GoTrue's own wording, when it sent any. Its messages are written for
@@ -35,15 +43,34 @@ enum SupabaseAuth {
                 let message: String?
                 let error_description: String?
                 let error: String?
+                let error_code: String?
             }
 
-            if let body = try? JSONDecoder().decode(Body.self, from: data),
+            let body = try? JSONDecoder().decode(Body.self, from: data)
+
+            if let body,
                let text = body.msg ?? body.message ?? body.error_description ?? body.error,
                !text.isEmpty {
-                return Failure(message: text)
+                return Failure(message: text, code: body.error_code ?? body.error)
             }
 
-            return Failure(message: "The server refused that (HTTP \(status)).")
+            return Failure(
+                message: "The server refused that (HTTP \(status)).",
+                code: body?.error_code
+            )
+        }
+
+        /// Whether this is "that email and password do not go together".
+        ///
+        /// One answer for a wrong password and for an address that has no
+        /// account, deliberately, and not only because GoTrue says so: telling
+        /// the two apart would let anybody type an address and learn whether a
+        /// pilot has an account here.
+        var isBadCredentials: Bool {
+            if let code, code == "invalid_credentials" || code == "invalid_grant" {
+                return true
+            }
+            return message.localizedCaseInsensitiveContains("invalid login credentials")
         }
     }
 
@@ -183,12 +210,34 @@ enum SupabaseAuth {
 
     // MARK: - Requests
 
+    /// Signs in, and says something useful when it does not.
+    ///
+    /// GoTrue answers a wrong password and an address with no account with the
+    /// same four words — "Invalid login credentials" — and that is the right
+    /// thing for it to do: telling them apart would let anybody type an
+    /// address and learn whether that pilot has an account here. But the four
+    /// words leave somebody staring at a form with no idea which half to
+    /// change, and the two halves have very different remedies. So the wording
+    /// names both, without saying which: check the password, or the address
+    /// may be one you have never signed up with.
+    ///
+    /// Only this one error is reworded. Everything else GoTrue says — a rate
+    /// limit, an unconfirmed address, a server down — is already written for
+    /// people and is better than anything invented here.
     static func signIn(email: String, password: String) async throws -> Session {
-        try await post(
-            path: "/auth/v1/token",
-            query: [URLQueryItem(name: "grant_type", value: "password")],
-            body: ["email": email, "password": password]
-        )
+        do {
+            return try await post(
+                path: "/auth/v1/token",
+                query: [URLQueryItem(name: "grant_type", value: "password")],
+                body: ["email": email, "password": password]
+            )
+        } catch let failure as Failure where failure.isBadCredentials {
+            throw Failure(
+                message: "That email and password don't go together. "
+                    + "Check the password, or try a different email address.",
+                code: failure.code
+            )
+        }
     }
 
     /// Signs in with the identity token Apple just handed us.

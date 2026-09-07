@@ -14,6 +14,17 @@ import UIKit
 /// one `GlobeSkin`, and the skin is a setting. See `GlobeSkin.palette(for:)`.
 struct GlobePalette: Equatable {
 
+    /// Whether the planet under the traffic is drawn light.
+    ///
+    /// Carried on the palette rather than worked out from `ocean`, because the
+    /// thing that needs it is not cartography: it is the callsign plate over an
+    /// aeroplane, which has to be dark on a pale planet and light on a dark one
+    /// exactly as it is on the flat map. `GlobeSkin.isLight(scheme:)` answers
+    /// the same question for the sky behind, and the two must not be able to
+    /// disagree — so a skin sets this on the palette it hands over, and the
+    /// canvas is told rather than guessing from a colour.
+    var isLight: Bool
+
     /// The disc itself, where there is no land on it.
     var ocean: UIColor
 
@@ -116,6 +127,7 @@ struct GlobePalette: Equatable {
     var fieldPlain: UIColor
 
     init(
+        isLight: Bool = false,
         ocean: UIColor,
         land: UIColor? = nil,
         limb: UIColor,
@@ -143,6 +155,7 @@ struct GlobePalette: Equatable {
         fieldControlled: UIColor = UIColor(red: 0.42, green: 0.85, blue: 0.45, alpha: 1),
         fieldPlain: UIColor
     ) {
+        self.isLight = isLight
         self.ocean = ocean
         self.land = land
         self.limb = limb
