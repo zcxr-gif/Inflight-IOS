@@ -213,7 +213,10 @@ struct AirportPanel: View {
 
             weather
 
-            WeatherForecastSection(key: airport.icao, coordinate: airport.coordinate)
+            // Handed the report as well as the field: the wind on the
+            // runways is worked from the METAR where there is one, and Apple's
+            // wind only where there is not.
+            WeatherForecastSection(airport: airport, metar: metar)
 
             gates(activity)
 

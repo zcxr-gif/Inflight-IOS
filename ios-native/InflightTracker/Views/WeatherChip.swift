@@ -127,14 +127,18 @@ struct WeatherChip: View {
         return "\(Int(preferences.temperatureUnit.convert(fromCelsius: apple.temperatureC).rounded()))°"
     }
 
-    /// The line under the code: the wind where there is a report, what it is
-    /// doing where there is only Apple, and the field's name where there is
-    /// neither.
+    /// The line under the code: conditions and wind from whichever source
+    /// answered, and the field's name where neither did.
+    ///
+    /// Apple carries a wind too, so this says one where it used to stop at the
+    /// conditions — the same shape as the report's line, because half the
+    /// point of the chip is comparing two fields at a glance.
     private func detail(for station: WeatherModel.Station) -> String {
         if let metar = station.metar {
             return "\(metar.conditionLabel) · \(metar.windLabel(in: preferences.windUnit))"
         }
-        return fallback(for: station)?.label ?? station.airport.name
+        guard let apple = fallback(for: station) else { return station.airport.name }
+        return "\(apple.label) · \(apple.windLabel(in: preferences.windUnit))"
     }
 
     // MARK: - Collapsed

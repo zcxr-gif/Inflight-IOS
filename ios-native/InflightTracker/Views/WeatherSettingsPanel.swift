@@ -170,6 +170,15 @@ struct WeatherSettingsPanel: View {
                 .opacity(preferences.isChipVisible ? 1 : 0.45)
             }
 
+            PanelSection(title: "ON A FIELD") {
+                PanelToggleRow(
+                    title: "Ten days and the sky",
+                    symbol: "calendar",
+                    detail: "Adds the ten-day outlook and the sun, twilight and moon times to an airport's panel, under the forecast. All of it arrived in the same request the forecast did, so this only decides how far the panel scrolls.",
+                    isOn: $preferences.showsOutlook
+                )
+            }
+
             HintStrip(placement: .weather)
 
             Text("Reports come from VATSIM's METAR service, the same source the tracker has always used, and each station issues one an hour. Where a field files none — which is most of the world's airfields — the reading is Apple's, and says so. The radar tiles are RainViewer's; the satellite imagery is from NASA's Global Imagery Browse Services, part of their Earth Science Data and Information System; the winds aloft are Open-Meteo's model data. None of it costs anything to use.")
@@ -232,7 +241,7 @@ struct WeatherSettingsPanel: View {
                 }
 
                 Text(station.metar.map { "\($0.conditionLabel) · \($0.windLabel(in: preferences.windUnit))" }
-                     ?? sampleFallback?.label
+                     ?? sampleFallback.map { "\($0.label) · \($0.windLabel(in: preferences.windUnit))" }
                      ?? station.airport.name)
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(theme.textDim)
