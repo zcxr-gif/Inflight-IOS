@@ -238,6 +238,14 @@ struct WeatherSettingsPanel: View {
                     if !station.airport.flag.isEmpty {
                         Text(station.airport.flag).font(.system(size: 10))
                     }
+
+                    // The sample is whichever source answered for the nearest
+                    // field, and the panel is a place people come to compare
+                    // the two. Saying which one is on screen costs a glyph, and
+                    // the attribution row below carries the legal link.
+                    if sampleFallback != nil {
+                        AppleWeatherSourceMark(size: 10, colour: theme.textDim)
+                    }
                 }
 
                 Text(station.metar.map { "\($0.conditionLabel) · \($0.windLabel(in: preferences.windUnit))" }
