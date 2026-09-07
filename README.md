@@ -122,6 +122,23 @@ Until it is, the button reports that deletion isn't available on the server yet.
 Deleting an auth user needs the `service_role` key, which is why it cannot be
 done from the client.
 
+**A redeploy is needed for the fix in `20260907000000_account_deletion_unblock.sql`.**
+Deletion had been failing, silently as far as the panel showed, for anybody who
+had founded a VA: four columns — `vas.ceo_user_id`, `va_staff.granted_by` and
+the `reviewed_by` on `va_applications` and `va_events` — referenced
+`auth.users` with no delete rule, and Postgres refuses to delete a row anything
+still points at. The function now releases those references itself, so it works
+whether or not the migration has been applied; the migration re-points the
+constraints so it stops depending on the favour. It also leaves behind
+
+```
+select * from public.account_deletion_blockers();
+```
+
+which lists any reference to `auth.users` that would refuse a delete. It should
+answer with no rows. Anything it does list breaks in-app account deletion, and
+therefore App Store review, for every pilot who has one.
+
 ### Pro
 
 `com.tracker.Inflight.pro`, a **non-consumable** at the US $1.99 tier. It needs
