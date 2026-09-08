@@ -118,6 +118,14 @@ struct PanelSection<Content: View>: View {
 
     let title: String
 
+    /// Sits opposite the title, in the same dim weight: whose data the card is.
+    ///
+    /// Written for Apple's weather mark, which is owed on the card rather than
+    /// at the foot of the panel — see `WeatherForecastSection`. A source stated
+    /// beside the heading is read on the way in, which a row under twenty-four
+    /// hours of forecast is not.
+    var accessory: AnyView? = nil
+
     @ObservedObject private var appearance = FlightInfoAppearance.shared
 
     @ViewBuilder let content: Content
@@ -126,11 +134,18 @@ struct PanelSection<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text(title)
-                .font(.system(size: 9, weight: .bold))
-                .tracking(1)
-                .foregroundStyle(theme.textDim)
-                .padding(.leading, 2)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(title)
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(1)
+                    .foregroundStyle(theme.textDim)
+
+                if let accessory = accessory {
+                    Spacer(minLength: 8)
+                    accessory
+                }
+            }
+            .padding(.horizontal, 2)
 
             VStack(spacing: 0) {
                 content

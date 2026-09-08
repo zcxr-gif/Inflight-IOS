@@ -63,7 +63,15 @@ struct WeatherSettingsPanel: View {
     var body: some View {
         MapPanel(title: "Weather", subtitle: subtitle) {
             if let station = model.nearby {
-                PanelSection(title: "SAMPLE") {
+                // The heading says whose reading this is, on the same condition
+                // as the row at the foot of the card — the wordmark beside the
+                // title, the legal link under the sample.
+                PanelSection(
+                    title: "SAMPLE",
+                    accessory: sampleFallback == nil
+                        ? nil
+                        : AnyView(AppleWeatherWordmark(size: 9, colour: theme.textDim))
+                ) {
                     sample(for: station)
 
                     // Whose reading it is, when it is not the field's own.
