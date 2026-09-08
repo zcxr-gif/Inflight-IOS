@@ -82,6 +82,19 @@ struct WeatherSettingsPanel: View {
                 }
             }
 
+            // What Apple is actually doing, said out loud.
+            //
+            // Every other surface treats a WeatherKit failure as a section that
+            // quietly does not appear, which is right for somebody reading an
+            // aerodrome and useless for anybody trying to find out whether the
+            // thing works at all. "Apple has no forecast for this field" and
+            // "the capability was never enabled on the App ID, so nothing has
+            // worked since this shipped" are the same empty screen. This is
+            // the one place that tells them apart.
+            PanelSection(title: "APPLE WEATHER") {
+                AppleWeatherStatusRow(apple: apple, theme: theme)
+            }
+
             PanelSection(title: "UNITS") {
                 PanelPickerRow(
                     title: "Temperature",
@@ -297,5 +310,65 @@ struct WeatherSettingsPanel: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 13)
+    }
+}
+
+/// Whether Apple's forecast is arriving, and what is wrong when it is not.
+///
+/// Deliberately not on any screen a passenger reads. It says nothing anybody
+/// watching an aeroplane needs, and everything somebody wondering why an
+/// airport panel has no forecast on it needs — which is why it sits in the
+/// weather settings beside the radar's own failure line rather than on the
+/// panel it is about.
+private struct AppleWeatherStatusRow: View {
+
+    @ObservedObject var apple: AppleWeatherService
+    let theme: FlightInfoTheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 10) {
+                PanelRowLabel(title: "Forecast and alerts", symbol: "cloud.sun")
+                Spacer(minLength: 8)
+                Text(state)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(tint)
+            }
+
+            Text(detail)
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(theme.textDim)
+                .padding(.leading, 30)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+    }
+
+    private var state: String {
+        if apple.hasAnswered { return "ANSWERING" }
+        if apple.failure != nil { return "NOT ANSWERING" }
+        return "NOT ASKED"
+    }
+
+    private var tint: Color {
+        if apple.hasAnswered { return theme.textSecondary }
+        if apple.failure != nil { return theme.accent }
+        return theme.textDim
+    }
+
+    private var detail: String {
+        if let failure = apple.failure, !apple.hasAnswered {
+            return "\(failure)\n\nNothing on any airport panel is Apple's while this is true, and nothing carries their mark — there is nothing to attribute."
+        }
+
+        if apple.hasAnswered {
+            let mark = apple.markUnavailable
+                ? " Apple's own attribution artwork did not download, so the cards draw the  Weather wordmark instead — which is the fallback, not a failure."
+                : ""
+            return "Apple has answered this session. The forecast, the ten-day outlook, the next hour, the sun and moon, and any severe-weather alerts on an airport's panel are theirs, and every card carrying them carries their mark and a link to their legal page.\(mark)"
+        }
+
+        return "Nothing asked for yet. Open an airport, or let the map's weather chip settle on a field, and the first request goes out."
     }
 }

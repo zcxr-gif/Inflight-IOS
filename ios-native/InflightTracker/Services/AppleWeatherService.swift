@@ -230,6 +230,41 @@ final class AppleWeatherService: ObservableObject {
     /// requirement that vanishes when a CDN is slow is not one that has been met.
     @Published private(set) var attribution: WeatherAttribution?
 
+    /// Why the last request failed, if one did — and nil the moment one
+    /// succeeds.
+    ///
+    /// ## Why a silent failure was the wrong thing to build
+    ///
+    /// The rule everywhere else here is that a WeatherKit failure is a section
+    /// that quietly does not appear, rather than an error laid over a working
+    /// panel. That is right for the reader: somebody looking at an aerodrome
+    /// does not want a stack trace where the forecast should be, and Apple
+    /// genuinely has nothing for some places.
+    ///
+    /// It is wrong for everybody else, because those two cases look identical
+    /// from the outside. "Apple has no forecast here" and "this build's App ID
+    /// never had the WeatherKit capability ticked, so every request has been
+    /// failing since it shipped" produce exactly the same screen — no section,
+    /// no mark, nothing to tap, nothing to read. The second one is a
+    /// configuration mistake that can survive a release, and the only symptom
+    /// is an absence.
+    ///
+    /// So the reason is kept. Nothing on an aerodrome's panel shows it — that
+    /// stays as quiet as it was — and the weather settings screen says it
+    /// plainly, which is the same bargain `RainViewerService.tileFailure`
+    /// already makes for the radar.
+    @Published private(set) var failure: String?
+
+    /// Whether Apple has answered at all this session.
+    ///
+    /// The one question that separates "no forecast for this field" from "no
+    /// forecast for anywhere, ever, because the entitlement is not live".
+    @Published private(set) var hasAnswered = false
+
+    /// Whether Apple's own attribution artwork failed to download. The
+    /// wordmark stands in either way — see `WeatherAttributionRow`.
+    @Published private(set) var markUnavailable = false
+
     /// Apple's legal attribution page, as a constant.
     ///
     /// The framework hands back the same page on `WeatherAttribution.legalPageURL`,
@@ -278,7 +313,15 @@ final class AppleWeatherService: ObservableObject {
             await MainActor.run { [weak self] in
                 guard let self = self else { return }
                 self.attributionFetch = nil
-                if let mark = mark { self.attribution = mark }
+                if let mark = mark {
+                    self.attribution = mark
+                } else {
+                    // Not a compliance failure — the row falls back to the
+                    // wordmark and the constant legal URL, which is the whole
+                    // reason those exist. Recorded because it is one more
+                    // thing that can be true while a screen looks empty.
+                    self.markUnavailable = true
+                }
             }
         }
     }
@@ -348,7 +391,7 @@ final class AppleWeatherService: ObservableObject {
         states[key] = .loading
 
         Task { [weak self] in
-            let snapshot = await Self.fetch(coordinate)
+            let answer = await Self.fetch(coordinate)
 
             // Weak again on the way in rather than reaching for the outer
             // closure's `self`, which is a mutable capture crossing into
@@ -356,12 +399,25 @@ final class AppleWeatherService: ObservableObject {
             await MainActor.run { [weak self] in
                 guard let self = self else { return }
                 self.inFlight.remove(key)
-                self.states[key] = snapshot.map(State.ready) ?? .unavailable
+                self.states[key] = answer.snapshot.map(State.ready) ?? .unavailable
+
+                if answer.snapshot != nil {
+                    self.hasAnswered = true
+                    self.failure = nil
+                } else {
+                    self.failure = answer.failure
+                }
             }
         }
     }
 
-    private static func fetch(_ coordinate: CLLocationCoordinate2D) async -> Snapshot? {
+    /// What a fetch came back with: the weather, or the reason there is none.
+    private struct Answer {
+        var snapshot: Snapshot?
+        var failure: String?
+    }
+
+    private static func fetch(_ coordinate: CLLocationCoordinate2D) async -> Answer {
         let location = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
 
         do {
@@ -380,7 +436,7 @@ final class AppleWeatherService: ObservableObject {
                 .prefix(dayCount)
                 .map { day in Self.day(day, at: coordinate) }
 
-            return Snapshot(
+            let snapshot = Snapshot(
                 conditionLabel: current.condition.description,
                 symbolName: current.symbolName,
                 temperatureC: current.temperature.converted(to: .celsius).value,
@@ -410,9 +466,33 @@ final class AppleWeatherService: ObservableObject {
                 },
                 fetched: Date()
             )
+
+            return Answer(snapshot: snapshot)
         } catch {
-            return nil
+            return Answer(failure: Self.describe(error))
         }
+    }
+
+    /// A failure in words somebody can act on.
+    ///
+    /// WeatherKit's own errors are terse and its most common one in practice —
+    /// a build whose App ID never had the capability enabled — arrives as a
+    /// bare authentication failure that says nothing about App IDs. So the
+    /// likely cause is named alongside the error rather than instead of it:
+    /// the framework's description is what is actually true, and the sentence
+    /// after it is where to go and look.
+    private static func describe(_ error: Error) -> String {
+        let detail = (error as NSError).localizedDescription
+
+        // Named only for the one error that actually means it. A timeout or a
+        // server fault gets the framework's own words and nothing else —
+        // telling somebody to go and check an App ID because their train went
+        // into a tunnel is worse than saying nothing.
+        if (error as? WeatherError) == .permissionDenied {
+            return detail + " — WeatherKit refused this build. The capability has to be enabled on the com.tracker.Inflight App ID as well as declared in the entitlements file; see WEATHERKIT.md."
+        }
+
+        return detail
     }
 
     private static func hour(_ hour: HourWeather) -> Hour {
