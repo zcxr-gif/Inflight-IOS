@@ -75,15 +75,15 @@ nothing here knows the aircraft, the surface or the length.
 
 | Screen | WeatherKit data | Attribution |
 | --- | --- | --- |
-| **Airport panel → WEATHER ALERTS** (`Views/WeatherForecastSection.swift`) | severe-weather alerts, with issuer and region | `WeatherAttributionRow`, last row of that card |
-| **Airport panel → NEXT HOUR** | minute-by-minute precipitation graph and summary | `WeatherAttributionRow`, last row of that card |
-| **Airport panel → WIND ON THE RUNWAYS** | the wind, but **only** where the field filed no METAR | `WeatherAttributionRow` — and only on that same condition. See below |
-| **Airport panel → FORECAST** | 24-hour strip, and eight current readings | `WeatherAttributionRow`, last row of that card |
-| **Airport panel → TEN DAYS** | the outlook. Optional — Weather settings, "Ten days and the sky" | `WeatherAttributionRow`, last row of that card |
-| **Airport panel → SUN AND MOON** | sunrise, sunset, civil dawn and dusk, moon phase and times. Same toggle | `WeatherAttributionRow`, last row of that card |
+| **Airport panel → WEATHER ALERTS** (`Views/WeatherForecastSection.swift`) | severe-weather alerts, with issuer and region | ** Weather** beside the heading, and `WeatherAttributionRow` as the card's last row |
+| **Airport panel → NEXT HOUR** | minute-by-minute precipitation graph and summary | the same, head and foot |
+| **Airport panel → WIND ON THE RUNWAYS** | the wind, but **only** where the field filed no METAR | the same — and both halves only on that condition, decided by the one value. See below |
+| **Airport panel → FORECAST** | 24-hour strip, and eight current readings | the same, head and foot |
+| **Airport panel → TEN DAYS** | the outlook. Optional — Weather settings, "Ten days and the sky" | the same, head and foot |
+| **Airport panel → SUN AND MOON** | sunrise, sunset, civil dawn and dusk, moon phase and times. Same toggle | the same, head and foot |
 | **Map weather chip, collapsed** (`Views/WeatherChip.swift`) | temperature, symbol, conditions and wind for a field that files no METAR | `AppleWeatherSourceMark` beside the ICAO in the capsule, and `collapsedAttribution` — the  Weather wordmark and a link — in a capsule under it |
 | **Map weather chip, opened** | the same, for the field being passed and both ends of the route | `AppleWeatherSourceMark` on each Apple-sourced row, and `WeatherAttributionRow` as the card's last row |
-| **Weather settings → SAMPLE** (`Views/WeatherSettingsPanel.swift`) | the sampled field's conditions and wind, where it files no METAR | `AppleWeatherSourceMark` beside the ICAO, and `WeatherAttributionRow` under the sample |
+| **Weather settings → SAMPLE** (`Views/WeatherSettingsPanel.swift`) | the sampled field's conditions and wind, where it files no METAR | ** Weather** beside the heading, `AppleWeatherSourceMark` beside the ICAO, and `WeatherAttributionRow` under the sample |
 
 Nothing else in the app touches WeatherKit. The map's airport annotations draw
 their conditions line from the filed METAR only, and the widgets draw no
@@ -99,6 +99,18 @@ most of the reading, so **every card that draws WeatherKit data ends with
  Weather wordmark where it has not, and the legal link either way.
 
 One card, one source, one mark. There is no card of Apple's data without one.
+
+### And once at the top of it
+
+The foot of the card is where the *link* has to be, but a card can be
+twenty-four hours of forecast or ten days of outlook tall, and a reader half
+way down one of those has the numbers on screen and the mark below the fold.
+So the heading carries the trademark too: `PanelSection`'s `accessory` slot
+draws ** Weather** opposite the title, in the title's own dim weight, on every
+card the attribution row appears on and on no others.
+
+The wordmark only. The legal link stays at the foot, once — a card with Apple's
+legal page at both ends is not better attributed, only harder to read.
 
 ## The two exceptions, and why they are not oversights
 

@@ -87,12 +87,33 @@ struct WeatherForecastSection: View {
         }
     }
 
+    /// The same claim, made at the top of the card instead of the bottom.
+    ///
+    /// The attribution row is the compliant half — the mark *and* the legal
+    /// link, which is what Apple's terms ask for — but it is the last row of a
+    /// card that can be twenty-four hours of forecast or ten days of outlook
+    /// tall, and a reader half way down one of those has the numbers on screen
+    /// and the source off it. The heading is where a card says what it is, so
+    /// it is also where it says whose it is: the wordmark rides beside the
+    /// title, in the title's own dim weight, and is on screen for as long as
+    /// the heading is.
+    ///
+    /// The trademark only. The link stays at the foot, once per card — a card
+    /// with Apple's legal page at both ends is not better attributed, it is
+    /// just harder to read.
+    private var appleHeaderMark: AnyView {
+        AnyView(AppleWeatherWordmark(size: 9, colour: theme.textDim))
+    }
+
     // MARK: - Warnings
 
     @ViewBuilder
     private func alerts(_ snapshot: AppleWeatherService.Snapshot) -> some View {
         if !snapshot.alerts.isEmpty {
-            PanelSection(title: snapshot.alerts.count == 1 ? "WEATHER ALERT" : "WEATHER ALERTS") {
+            PanelSection(
+                title: snapshot.alerts.count == 1 ? "WEATHER ALERT" : "WEATHER ALERTS",
+                accessory: appleHeaderMark
+            ) {
                 ForEach(snapshot.alerts) { alert in
                     if alert.id != snapshot.alerts.first?.id { PanelDivider() }
                     alertRow(alert)
@@ -148,7 +169,7 @@ struct WeatherForecastSection: View {
     @ViewBuilder
     private func nextHour(_ snapshot: AppleWeatherService.Snapshot) -> some View {
         if let next = snapshot.nextHour {
-            PanelSection(title: "NEXT HOUR") {
+            PanelSection(title: "NEXT HOUR", accessory: appleHeaderMark) {
                 HStack(spacing: 10) {
                     Image(systemName: next.hasPrecipitation ? "cloud.rain.fill" : "checkmark.circle")
                         .font(.system(size: 14))
@@ -220,7 +241,13 @@ struct WeatherForecastSection: View {
             let components = RunwayWind.components(for: layout, wind: wind)
 
             if !components.isEmpty {
-                PanelSection(title: "WIND ON THE RUNWAYS") {
+                // Marked at the head on the same condition as at the foot, and
+                // from the same value, so the heading, the footnote and the
+                // attribution row can never end up naming different sources.
+                PanelSection(
+                    title: "WIND ON THE RUNWAYS",
+                    accessory: isWindFromApple ? appleHeaderMark : nil
+                ) {
                     ForEach(Array(components.prefix(6).enumerated()), id: \.element.id) { index, runway in
                         if index > 0 { PanelDivider() }
                         runwayRow(runway, isFavoured: index == 0)
@@ -328,7 +355,7 @@ struct WeatherForecastSection: View {
     // MARK: - The next day
 
     private func forecast(_ snapshot: AppleWeatherService.Snapshot) -> some View {
-        PanelSection(title: "FORECAST") {
+        PanelSection(title: "FORECAST", accessory: appleHeaderMark) {
             hourStrip(snapshot)
             PanelDivider()
             readings(snapshot)
@@ -442,7 +469,7 @@ struct WeatherForecastSection: View {
     // MARK: - The next ten days
 
     private func outlook(_ snapshot: AppleWeatherService.Snapshot) -> some View {
-        PanelSection(title: "TEN DAYS") {
+        PanelSection(title: "TEN DAYS", accessory: appleHeaderMark) {
             ForEach(snapshot.days) { day in
                 if day.id != snapshot.days.first?.id { PanelDivider() }
                 dayRow(day, across: snapshot.days)
@@ -531,7 +558,7 @@ struct WeatherForecastSection: View {
     @ViewBuilder
     private func sky(_ snapshot: AppleWeatherService.Snapshot) -> some View {
         if let today = snapshot.today {
-            PanelSection(title: "SUN AND MOON") {
+            PanelSection(title: "SUN AND MOON", accessory: appleHeaderMark) {
                 HStack(spacing: 0) {
                     skyReading("Sunrise", today.sunrise, symbol: "sunrise.fill")
                     skyReading("Sunset", today.sunset, symbol: "sunset.fill")
