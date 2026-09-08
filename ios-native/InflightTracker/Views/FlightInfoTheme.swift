@@ -433,9 +433,15 @@ final class FlightInfoAppearance: ObservableObject {
             ?? .cards
         showsAirlineAccent = defaults.object(forKey: Self.airlineAccentKey) as? Bool ?? true
         smoothsTraffic = defaults.object(forKey: Self.smoothTrafficKey) as? Bool ?? true
+        // Everybody who has not chosen gets the docked column, including
+        // installs that predate it having a left. A tablet's flight window has
+        // always wanted to be a column — that is what the extra screen is for —
+        // and the centred card was the default only because it was the shape
+        // the phone already had. Anybody who has chosen has a stored value and
+        // keeps it.
         flightWindowPlacement = FlightWindowPlacement(
             rawValue: defaults.string(forKey: Self.windowPlacementKey) ?? ""
-        ) ?? .centred
+        ) ?? .leading
         pilotCardBackdrop = PilotCardBackdrop(
             rawValue: defaults.string(forKey: Self.pilotCardBackdropKey) ?? ""
         ) ?? .picture
@@ -498,11 +504,26 @@ final class FlightInfoAppearance: ObservableObject {
 /// and nowhere else, and the phone ignores this entirely.
 enum FlightWindowPlacement: String, CaseIterable, Identifiable {
 
+    /// The whole window as a column down the left-hand edge, full height, with
+    /// the map running beside it.
+    ///
+    /// The default on a tablet, and the arrangement every other traffic map on
+    /// a tablet has settled on. There is a reason it is the left rather than
+    /// the right, and it is not taste: the map is the thing being read and a
+    /// column is the thing being referred to, and a left-to-right reader looks
+    /// at the reference first and the subject second. It is also the side the
+    /// hand holding the tablet is least often over.
+    ///
+    /// Which is an argument and not a fact, so it is a setting — see `trailing`,
+    /// which is the same column on the other side for anybody who disagrees, or
+    /// who holds the thing the other way round.
+    case leading
+
     /// Low and centred: the window sits near the bottom edge, the way it does
     /// on a phone, with the map above and to both sides of it.
     ///
     /// Named for where it is across the screen rather than up it, because the
-    /// across is the part that distinguishes it from the other one. It is not
+    /// across is the part that distinguishes it from the other two. It is not
     /// vertically centred and deliberately never was — a window floating in the
     /// dead middle of a tablet covers the one part of the map you are looking
     /// at, which is wherever you just tapped.
@@ -514,8 +535,24 @@ enum FlightWindowPlacement: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// Which edge this stands on, or nil for the one that stands on neither.
+    ///
+    /// The two columns are one layout drawn on opposite sides, and everything
+    /// that has to reason about them — the pane's own alignment, how much of
+    /// the map is covered, which side the camera keeps clear — wants the side
+    /// rather than the case. Reading it off here means a third column, if there
+    /// is ever a reason for one, is a case and not a search for every `if`.
+    var dockedEdge: HorizontalEdge? {
+        switch self {
+        case .leading: return .leading
+        case .trailing: return .trailing
+        case .centred: return nil
+        }
+    }
+
     var label: String {
         switch self {
+        case .leading: return "Left"
         case .centred: return "Centre"
         case .trailing: return "Right"
         }
@@ -523,6 +560,7 @@ enum FlightWindowPlacement: String, CaseIterable, Identifiable {
 
     var detail: String {
         switch self {
+        case .leading: return "A column down the left, with the map beside it"
         case .centred: return "Low and centred, with the map around it"
         case .trailing: return "A column down the right, with the map beside it"
         }

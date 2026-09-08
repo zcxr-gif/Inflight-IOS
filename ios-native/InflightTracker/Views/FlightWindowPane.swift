@@ -17,14 +17,18 @@ enum FlightWindowPaneMetrics {
     /// sitting on a margin of its own.
     static let margin: CGFloat = 14
 
-    /// How wide the column down the right-hand edge is.
+    /// How wide a docked column is, on whichever edge it stands.
     ///
     /// Capped as well as proportional. A share of the width alone gives a
     /// sensible column on an 11-inch iPad and an absurd one on a 13-inch in
     /// landscape — the window's content is a single column of cards, and past
     /// four hundred points it is not a window any more, it is a wall.
-    static let trailingWidth: CGFloat = 400
-    static let trailingShare: CGFloat = 0.42
+    ///
+    /// One figure for both sides. A left column and a right column are the same
+    /// column, and a tablet that gave you a narrower window for preferring your
+    /// left hand would be a strange thing to have built.
+    static let dockedWidth: CGFloat = 400
+    static let dockedShare: CGFloat = 0.42
 
     /// The centred pane's shape.
     ///
@@ -47,18 +51,22 @@ enum FlightWindowPaneMetrics {
     /// route framed a little higher than it needed to be, where under-reporting
     /// puts it behind the window.
     static func bottomInset(for placement: FlightWindowPlacement) -> CGFloat {
-        switch placement {
-        case .centred: return centredHeight + margin * 2
-        case .trailing: return 0
-        }
+        placement.dockedEdge == nil ? centredHeight + margin * 2 : 0
     }
 
-    /// And the same for the trailing edge.
+    /// And the same for each side, which is the question a docked column
+    /// answers and the centred one does not.
+    ///
+    /// Asked per edge rather than as one "how wide is the window" so the map
+    /// underneath knows *which* side of itself is covered: a route framed to
+    /// avoid a column on the left has to be pushed right, and the same
+    /// arithmetic with the sign the other way is a route framed underneath it.
+    static func leadingInset(for placement: FlightWindowPlacement) -> CGFloat {
+        placement.dockedEdge == .leading ? dockedWidth + margin * 2 : 0
+    }
+
     static func trailingInset(for placement: FlightWindowPlacement) -> CGFloat {
-        switch placement {
-        case .centred: return 0
-        case .trailing: return trailingWidth + margin * 2
-        }
+        placement.dockedEdge == .trailing ? dockedWidth + margin * 2 : 0
     }
 }
 
@@ -166,28 +174,30 @@ struct FlightWindowPane<Content: View>: View {
     /// aircraft that opened it, which is the one thing on the map you are
     /// certain to be looking at.
     private var alignment: Alignment {
-        switch placement {
-        case .centred: return .bottom
-        case .trailing: return .trailing
+        switch placement.dockedEdge {
+        case .leading?: return .leading
+        case .trailing?: return .trailing
+        case nil: return .bottom
         }
     }
 
     private func width(in available: CGSize) -> CGFloat {
-        switch placement {
-        case .centred:
+        guard placement.dockedEdge != nil else {
             return min(FlightWindowPaneMetrics.centredWidth, available.width)
-
-        case .trailing:
-            let share = max(available.width * FlightWindowPaneMetrics.trailingShare, 0)
-            return min(FlightWindowPaneMetrics.trailingWidth, share)
         }
+        let share = max(available.width * FlightWindowPaneMetrics.dockedShare, 0)
+        return min(FlightWindowPaneMetrics.dockedWidth, share)
     }
 
+    /// A docked column is the height of the screen. That is the whole of what
+    /// makes it a column rather than a tall card: the map beside it runs top to
+    /// bottom, and the window is the other half of the display rather than
+    /// something lying on it.
     private func height(in available: CGSize) -> CGFloat {
-        switch placement {
-        case .centred: return min(FlightWindowPaneMetrics.centredHeight, available.height)
-        case .trailing: return available.height
+        guard placement.dockedEdge != nil else {
+            return min(FlightWindowPaneMetrics.centredHeight, available.height)
         }
+        return available.height
     }
 }
 

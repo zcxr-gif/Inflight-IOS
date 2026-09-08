@@ -81,7 +81,19 @@ struct FlightWindowPanel: View {
         )
     }
 
-    private var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
+    /// Through `Device` rather than asking UIKit here, so this row and the code
+    /// that actually draws the pane are answering the same question from the
+    /// same place — they used to disagree, and a setting shown on a device that
+    /// ignores it is worse than no setting.
+    private var isPad: Bool { Device.hasRoomForPanes }
+
+    private var placementSymbol: String {
+        switch appearance.flightWindowPlacement.dockedEdge {
+        case .leading?: return "sidebar.left"
+        case .trailing?: return "sidebar.right"
+        case nil: return "rectangle.portrait.bottomhalf.filled"
+        }
+    }
 
     /// What the blocks row says it will do, counting what is actually on. A
     /// number rather than a description: the list itself is the description,
@@ -200,7 +212,10 @@ struct FlightWindowPanel: View {
                 PanelSection(title: "PLACEMENT") {
                     PanelPickerRow(
                         title: "Window",
-                        symbol: "sidebar.right",
+                        // The icon follows the choice. A row that offers left,
+                        // centre and right and draws a right-hand sidebar
+                        // whichever is picked is a row arguing with itself.
+                        symbol: placementSymbol,
                         options: FlightWindowPlacement.allCases,
                         label: { $0.label },
                         detail: appearance.flightWindowPlacement.detail,

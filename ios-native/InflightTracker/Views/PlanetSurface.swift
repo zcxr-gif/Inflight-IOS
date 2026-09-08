@@ -101,6 +101,7 @@ struct PlanetSurface: View {
     /// thing MapKit's layout margins do for the flat map. Without it the one
     /// aeroplane you have opened a window on is centred behind that window.
     var bottomInset: CGFloat = 0
+    var leadingInset: CGFloat = 0
     var trailingInset: CGFloat = 0
 
     var onSelectFlight: (Flight) -> Void = { _ in }
@@ -191,6 +192,7 @@ struct PlanetSurface: View {
             smoothsTraffic: smoothsTraffic,
             start: start,
             bottomInset: bottomInset,
+            leadingInset: leadingInset,
             trailingInset: trailingInset,
             command: globeCommand,
             onCameraMoved: { centre, span in

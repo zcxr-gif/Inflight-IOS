@@ -389,7 +389,9 @@ struct ConnectPanel: View {
         .padding(.top, 2)
     }
 
-    private var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
+    /// `isPad` and not `hasRoomForPanes`: the line this decides is about Split
+    /// View, which is an iPad feature and not a "big screen" one. See `Device`.
+    private var isPad: Bool { Device.isPad }
 
     private func catchUpSymbol(_ result: ConnectSession.CatchUpResult) -> String {
         switch result {
