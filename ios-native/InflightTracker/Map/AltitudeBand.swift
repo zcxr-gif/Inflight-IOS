@@ -93,6 +93,26 @@ enum AltitudeBand {
     /// light. Mid grey reads on both maps and needs no resolving.
     static let unknownColor = UIColor(white: 0.62, alpha: 0.95)
 
+    /// What a stretch of path draws in while the aircraft is on the ground.
+    ///
+    /// Held apart from the ramp for the same kind of reason `unknownColor` is:
+    /// the ramp answers "how high", and on the ground that question has no
+    /// interesting answer. Every field is somewhere between sea level and eight
+    /// thousand feet, so a taxi is coloured by the *elevation of the aerodrome*
+    /// — crimson at Toronto, orange at Denver — which says nothing about the
+    /// aeroplane and quietly implies the two were at different heights when
+    /// both were parked.
+    ///
+    /// White also happens to be the one colour a taxi needs. The ground part of
+    /// a path is the part drawn over an airport diagram — pavement, hold bars,
+    /// runway markings, stand numbers, the busiest square mile on the map — and
+    /// it is drawn there at the closest zoom anyone ever uses. A hue in among
+    /// all that is one more coloured line; white is the aircraft's own trail.
+    ///
+    /// Fixed rather than trait-dependent, like everything else here. What makes
+    /// it read on a light map is the halo behind it — see `FlownPathStyle.halo`.
+    static let groundColor = UIColor(white: 1, alpha: 0.95)
+
     /// The height at the middle of a band, used to place its stop on the ramp.
     private static func midpoint(of band: Int) -> Double {
         let low = band == 0 ? 0 : ceilings[band - 1]

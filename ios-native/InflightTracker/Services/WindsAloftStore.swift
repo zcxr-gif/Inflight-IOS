@@ -2,7 +2,7 @@ import CoreLocation
 import Foundation
 import MapKit
 
-/// Model wind at a chosen flight level, on a grid across whatever the map is
+/// Model weather at a chosen flight level, on a grid across whatever the map is
 /// looking at.
 ///
 /// Shaped like `AirportLayoutStore`: the map asks synchronously while it lays
@@ -19,11 +19,22 @@ import MapKit
 /// visible region is rounded out to a lattice whose step is a whole number of
 /// degrees, and every camera position inside one lattice cell asks the same
 /// question and gets the cached answer.
+///
+/// ## Why one store serves three layers
+///
+/// The barbs, the particles and the coloured field all want the same thing —
+/// what the air is doing over the piece of world on screen — and Open-Meteo
+/// answers for a list of coordinates and a list of variables in a single call.
+/// So there is one request, and everything on the weather layer is drawn from
+/// its answer. That is a third of the network it would otherwise be, and it is
+/// also the only way to guarantee the layers agree: an arrow pointing one way
+/// with a particle drifting the other beside it is the map arguing with itself,
+/// and it cannot happen if there is only one set of numbers.
 final class WindsAloftStore: ObservableObject {
 
     static let shared = WindsAloftStore()
 
-    /// One point on the grid.
+    /// One point on the grid, as the barbs want it.
     struct Barb: Equatable, Identifiable {
         let coordinate: CLLocationCoordinate2D
         /// Where the wind is coming *from*, in degrees true.
@@ -42,21 +53,57 @@ final class WindsAloftStore: ObservableObject {
         }
     }
 
+    /// What a caller wants drawn, which is what decides how much is asked for.
+    ///
+    /// Barbs alone keep the request exactly as small as it always was — twenty
+    /// points, two variables. Everything else is opt-in, and nobody who has not
+    /// turned a field on pays for one.
+    struct Demand: Equatable {
+        var level: WindLevel = .fl340
+        /// Whether anything needs to interpolate between the samples, which is
+        /// what the dense lattice is for.
+        var needsField = false
+        var needsTemperature = false
+        var needsShear = false
+
+        /// The identity of the *question*. Two demands with the same key have
+        /// the same answer, so they share a cache entry.
+        var key: String {
+            [
+                level.rawValue,
+                needsField ? "f" : "b",
+                needsTemperature ? "t" : "-",
+                needsShear ? "s" : "-"
+            ].joined()
+        }
+    }
+
     /// Whatever the map should currently be drawing. Replaced wholesale when a
     /// new grid lands, so there is never half of one grid and half of another.
     @Published private(set) var barbs: [Barb] = []
 
-    /// The grid on screen, so the map can tell whether the barbs it is holding
-    /// are the ones for where it is now.
+    /// The same numbers as something that can be asked about the places between
+    /// them. Nil until a demand asks for one.
+    @Published private(set) var field: WeatherField?
+
+    /// The grid on screen, so the map can tell whether what it is holding is
+    /// for where it is now.
     @Published private(set) var key: String?
 
-    /// Roughly how many points across and down. Twenty barbs is a chart; a
-    /// hundred is a texture, and it is also a hundred columns of model data
-    /// asked for in one URL.
-    private static let columns = 5
-    private static let rows = 4
+    /// How many points across and down, for each of the two densities.
+    ///
+    /// Twenty barbs is a chart; seventy points is a field. The sparse one is
+    /// what the arrows have always used and is left exactly as it was, because
+    /// every point is a location on somebody's daily quota — the dense one is
+    /// only ever fetched for a layer that genuinely cannot be drawn without it.
+    private static let sparse = (columns: 5, rows: 4)
+    private static let dense = (columns: 10, rows: 7)
 
-    /// The span of map the barbs are drawn over, in degrees of latitude.
+    /// Which of the field's points get an arrow, so a dense grid does not draw
+    /// seventy barbs on top of each other.
+    private static let barbStride = 2
+
+    /// The span of map the grid is drawn over, in degrees of latitude.
     ///
     /// Both ends used to be much tighter, on the reasoning that five points
     /// across a hemisphere say nothing and five points across an airfield all
@@ -65,10 +112,6 @@ final class WindsAloftStore: ObservableObject {
     /// jet is running, and twenty arrows across the North Atlantic answer it
     /// exactly the way a chart does. The second half is true but harmless — the
     /// wind at the field is still the wind at the field.
-    ///
-    /// So this is now as wide as a hemisphere and as close as a circuit, and
-    /// the barbs stop being a layer that appears only at the one zoom nobody
-    /// was at.
     private static let minimumSpanDegrees: Double = 0.15
     private static let maximumSpanDegrees: Double = 120
 
@@ -78,6 +121,7 @@ final class WindsAloftStore: ObservableObject {
 
     private struct Entry {
         let barbs: [Barb]
+        let field: WeatherField?
         let fetched: Date
     }
 
@@ -94,14 +138,15 @@ final class WindsAloftStore: ObservableObject {
     /// Point the store at what the map is showing. Cheap and idempotent — it
     /// resolves to a lattice key and does nothing when that key is already
     /// drawn and fresh.
-    func load(region: MKCoordinateRegion, level: WindLevel) {
-        guard let grid = Self.grid(for: region) else {
+    func load(region: MKCoordinateRegion, demand: Demand) {
+        let size = demand.needsField ? Self.dense : Self.sparse
+        guard let grid = Self.grid(for: region, size: size) else {
             // Zoomed somewhere the grid cannot say anything useful about.
-            publish(key: nil, barbs: [])
+            publish(key: nil, barbs: [], field: nil)
             return
         }
 
-        let wanted = "\(level.rawValue)|\(grid.key)"
+        let wanted = "\(demand.key)|\(grid.key)"
 
         lock.lock()
         let entry = cache[wanted]
@@ -109,17 +154,17 @@ final class WindsAloftStore: ObservableObject {
         lock.unlock()
 
         if fresh, let entry = entry {
-            publish(key: wanted, barbs: entry.barbs)
+            publish(key: wanted, barbs: entry.barbs, field: entry.field)
             return
         }
 
-        fetch(grid: grid, level: level, key: wanted)
+        fetch(grid: grid, demand: demand, key: wanted)
     }
 
-    /// Drop what is drawn. For the switch going off — barbs for a level nobody
-    /// is looking at are barbs the map should not be holding.
+    /// Drop what is drawn. For the switch going off — a grid for a layer nobody
+    /// is looking at is a grid the map should not be holding.
     func clear() {
-        publish(key: nil, barbs: [])
+        publish(key: nil, barbs: [], field: nil)
     }
 
     /// Announce a new grid, never synchronously.
@@ -131,17 +176,19 @@ final class WindsAloftStore: ObservableObject {
     /// one frame and makes the whole thing ordinary: the assignment lands, the
     /// map is asked to update, and it reads the new grid on the next pass.
     ///
-    /// The comparison happens twice on purpose — once to avoid scheduling work
-    /// that would change nothing, and again on arrival, because several passes
-    /// can be queued before the first one runs.
-    private func publish(key newKey: String?, barbs newBarbs: [Barb]) {
-        guard key != newKey || barbs != newBarbs else { return }
+    /// Keyed on the key alone now that a field rides along with the barbs. The
+    /// key already names the region, the level and everything asked for, so two
+    /// publishes that share one are the same answer by construction — and
+    /// comparing a whole interpolable field for equality on every layout pass
+    /// would be a great deal of work to discover that.
+    private func publish(key newKey: String?, barbs newBarbs: [Barb], field newField: WeatherField?) {
+        guard key != newKey else { return }
 
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            guard self.key != newKey || self.barbs != newBarbs else { return }
+            guard let self = self, self.key != newKey else { return }
             self.key = newKey
             self.barbs = newBarbs
+            self.field = newField
         }
     }
 
@@ -149,11 +196,30 @@ final class WindsAloftStore: ObservableObject {
 
     private struct Grid {
         let coordinates: [CLLocationCoordinate2D]
+        let columns: Int
+        let rows: Int
+        /// The lattice's own origin and spacing, which is what a field is.
+        let south: CLLocationDegrees
+        let west: CLLocationDegrees
+        let latitudeStep: CLLocationDegrees
+        let longitudeStep: CLLocationDegrees
         let key: String
     }
 
     /// The points to ask about, and the identity of that question.
-    private static func grid(for region: MKCoordinateRegion) -> Grid? {
+    ///
+    /// A genuinely rectangular lattice, which it did not used to be: the
+    /// longitude step used to be stretched by the cosine of each *row's* own
+    /// latitude, so no two rows lined up and the result was a scatter of points
+    /// rather than a grid. That was fine while the only consumer drew one arrow
+    /// per point and never asked about the gaps. It is not fine for anything
+    /// that interpolates, so the stretch is now taken once at the centre and
+    /// applied to the whole grid — square enough on screen over any region
+    /// small enough to be worth drawing, and an actual lattice.
+    private static func grid(
+        for region: MKCoordinateRegion,
+        size: (columns: Int, rows: Int)
+    ) -> Grid? {
         let span = region.span
         guard span.latitudeDelta.isFinite, span.longitudeDelta.isFinite else { return nil }
         guard span.latitudeDelta >= minimumSpanDegrees,
@@ -162,29 +228,37 @@ final class WindsAloftStore: ObservableObject {
         // A step of a whole number of degrees where the span allows one, and a
         // clean fraction below that — so the lattice lands on the same numbers
         // whichever direction the map arrived from.
-        let step = niceStep(span.latitudeDelta / Double(rows))
+        let step = niceStep(span.latitudeDelta / Double(size.rows))
         guard step > 0 else { return nil }
 
         let centreLat = (region.center.latitude / step).rounded() * step
         let centreLon = (region.center.longitude / step).rounded() * step
 
+        let stretch = max(cos(centreLat * .pi / 180), 0.2)
+        let longitudeStep = step / stretch
+
+        let south = centreLat - Double(size.rows - 1) / 2 * step
+        let west = centreLon - Double(size.columns - 1) / 2 * longitudeStep
+
+        // Off the top or the bottom of the world is a grid whose rows are not
+        // where it says they are. Slid back rather than clipped, so the field
+        // stays a rectangle.
+        let north = south + Double(size.rows - 1) * step
+        let slide: Double
+        if north > 85 { slide = 85 - north }
+        else if south < -85 { slide = -85 - south }
+        else { slide = 0 }
+
         var coordinates: [CLLocationCoordinate2D] = []
-        for row in 0..<rows {
-            let latitude = centreLat + (Double(row) - Double(rows - 1) / 2) * step
-            guard abs(latitude) <= 85 else { continue }
-
-            for column in 0..<columns {
-                // Longitude degrees are shorter than latitude ones away from
-                // the equator, so the lattice is stretched to keep the barbs
-                // roughly evenly spaced on screen rather than on the globe.
-                let stretch = max(cos(latitude * .pi / 180), 0.2)
-                var longitude = centreLon
-                    + (Double(column) - Double(columns - 1) / 2) * step / stretch
-                while longitude > 180 { longitude -= 360 }
-                while longitude < -180 { longitude += 360 }
-
+        coordinates.reserveCapacity(size.columns * size.rows)
+        for row in 0..<size.rows {
+            let latitude = south + slide + Double(row) * step
+            for column in 0..<size.columns {
                 coordinates.append(
-                    CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+                    CLLocationCoordinate2D(
+                        latitude: latitude,
+                        longitude: WeatherField.wrapped(west + Double(column) * longitudeStep)
+                    )
                 )
             }
         }
@@ -193,7 +267,16 @@ final class WindsAloftStore: ObservableObject {
 
         return Grid(
             coordinates: coordinates,
-            key: String(format: "%.3f|%.3f|%.3f", step, centreLat, centreLon)
+            columns: size.columns,
+            rows: size.rows,
+            south: south + slide,
+            west: west,
+            latitudeStep: step,
+            longitudeStep: longitudeStep,
+            key: String(
+                format: "%dx%d|%.3f|%.3f|%.3f",
+                size.columns, size.rows, step, centreLat + slide, centreLon
+            )
         )
     }
 
@@ -210,38 +293,61 @@ final class WindsAloftStore: ObservableObject {
 
     // MARK: - Fetching
 
-    private func fetch(grid: Grid, level: WindLevel, key wanted: String) {
+    private func fetch(grid: Grid, demand: Demand, key wanted: String) {
         lock.lock()
         let running = inFlight.contains(wanted)
         if !running { inFlight.insert(wanted) }
         lock.unlock()
 
-        guard !running, let url = Self.url(for: grid, level: level) else { return }
+        guard !running, let url = Self.url(for: grid, demand: demand) else { return }
 
         URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
             guard let self = self else { return }
-            let parsed = Self.parse(data, coordinates: grid.coordinates)
+            let field = Self.parse(data, grid: grid, demand: demand)
+            let barbs = field?.barbs(stride: demand.needsField ? Self.barbStride : 1) ?? []
 
             self.lock.lock()
             self.inFlight.remove(wanted)
             // Stored even when empty: a level the model has no data for at
             // these points is an answer, and re-asking every pan is what this
             // cache exists to stop.
-            self.cache[wanted] = Entry(barbs: parsed, fetched: Date())
+            self.cache[wanted] = Entry(barbs: barbs, field: field, fetched: Date())
             if self.cache.count > Self.capacity {
                 let oldest = self.cache.min { $0.value.fetched < $1.value.fetched }
                 if let stale = oldest?.key { self.cache.removeValue(forKey: stale) }
             }
             self.lock.unlock()
 
-            self.publish(key: wanted, barbs: parsed)
+            self.publish(key: wanted, barbs: barbs, field: field)
         }.resume()
+    }
+
+    /// The series this demand needs, named exactly.
+    ///
+    /// Exactly, and not by prefix, because the shear layer asks for two levels
+    /// at once and `wind_speed_250hPa` and `wind_speed_300hPa` both start with
+    /// `wind_speed_`. Reading whichever one the dictionary happened to hand
+    /// back first is a shear field computed against itself.
+    private static func series(for demand: Demand) -> [String] {
+        var names = [
+            "wind_speed_\(demand.level.pressureLevel)",
+            "wind_direction_\(demand.level.pressureLevel)"
+        ]
+        if demand.needsTemperature {
+            names.append("temperature_\(demand.level.pressureLevel)")
+        }
+        if demand.needsShear {
+            names.append("wind_speed_\(demand.level.below.pressureLevel)")
+            names.append("wind_direction_\(demand.level.below.pressureLevel)")
+        }
+        return names
     }
 
     /// Open-Meteo takes a list of coordinates in one request and answers with
     /// one result per coordinate, in order — which is the whole reason a grid
-    /// is affordable at all.
-    private static func url(for grid: Grid, level: WindLevel) -> URL? {
+    /// is affordable at all. It takes a list of variables the same way, which
+    /// is why three layers cost one call rather than three.
+    private static func url(for grid: Grid, demand: Demand) -> URL? {
         let latitudes = grid.coordinates.map { String(format: "%.4f", $0.latitude) }
         let longitudes = grid.coordinates.map { String(format: "%.4f", $0.longitude) }
 
@@ -249,13 +355,12 @@ final class WindsAloftStore: ObservableObject {
         components?.queryItems = [
             URLQueryItem(name: "latitude", value: latitudes.joined(separator: ",")),
             URLQueryItem(name: "longitude", value: longitudes.joined(separator: ",")),
-            URLQueryItem(
-                name: "hourly",
-                value: "wind_speed_\(level.pressureLevel),wind_direction_\(level.pressureLevel)"
-            ),
-            // Knots, so nothing has to be converted on the way to a barb —
-            // which is drawn in knots by definition.
-            URLQueryItem(name: "wind_speed_unit", value: "kn"),
+            URLQueryItem(name: "hourly", value: series(for: demand).joined(separator: ",")),
+            // Metres per second, because the field holds components and
+            // everything physical downstream — how far a particle moves in a
+            // second — is metric. Knots are put back on at the one place they
+            // are read, which is the barb.
+            URLQueryItem(name: "wind_speed_unit", value: "ms"),
             // Integers rather than local ISO strings, so picking the hour
             // nearest now is arithmetic instead of date parsing.
             URLQueryItem(name: "timeformat", value: "unixtime"),
@@ -266,9 +371,14 @@ final class WindsAloftStore: ObservableObject {
 
     /// One result per coordinate, each carrying an hourly series. The hour
     /// nearest now is the one drawn.
-    private static func parse(_ data: Data?, coordinates: [CLLocationCoordinate2D]) -> [Barb] {
+    ///
+    /// The results come back in the order they were asked for, which is what
+    /// makes the answer a grid rather than a scatter — position `i` in the
+    /// response is position `i` in the lattice, and a result that fails to
+    /// parse leaves a hole rather than shifting everything after it.
+    private static func parse(_ data: Data?, grid: Grid, demand: Demand) -> WeatherField? {
         guard let data = data,
-              let root = try? JSONSerialization.jsonObject(with: data) else { return [] }
+              let root = try? JSONSerialization.jsonObject(with: data) else { return nil }
 
         // A single coordinate comes back as an object, several as an array.
         // The grid always asks for several, but reading both costs one line
@@ -279,49 +389,95 @@ final class WindsAloftStore: ObservableObject {
         } else if let single = root as? [String: Any] {
             results = [single]
         } else {
-            return []
+            return nil
         }
 
+        let points = grid.columns * grid.rows
+        guard results.count >= points else { return nil }
+
+        var u = [Double](repeating: 0, count: points)
+        var v = [Double](repeating: 0, count: points)
+        var temperature = [Double](repeating: 0, count: points)
+        var shear = [Double](repeating: 0, count: points)
+        var filled = 0
+
         let now = Date().timeIntervalSince1970
-        var out: [Barb] = []
+        let level = demand.level
+        let lower = level.below
+        // The vertical gap the shear is divided by, in thousands of feet.
+        let gap = max(Double(level.approximateFeet - lower.feet) / 1_000, 0.5)
 
-        for (index, result) in results.enumerated() {
-            guard index < coordinates.count,
-                  let hourly = result["hourly"] as? [String: Any],
+        for index in 0..<points {
+            let result = results[index]
+            guard let hourly = result["hourly"] as? [String: Any],
                   let times = hourly["time"] as? [Double] else { continue }
-
-            // The response names its series by pressure level, and there is
-            // exactly one speed series and one direction series in it.
-            let speeds = hourly.first { $0.key.hasPrefix("wind_speed_") }?.value as? [Any]
-            let directions = hourly.first { $0.key.hasPrefix("wind_direction_") }?.value as? [Any]
-            guard let speeds = speeds, let directions = directions else { continue }
 
             guard let hour = times.indices.min(by: {
                 abs(times[$0] - now) < abs(times[$1] - now)
             }) else { continue }
-            guard hour < speeds.count, hour < directions.count else { continue }
 
-            guard let speed = (speeds[hour] as? NSNumber)?.doubleValue,
-                  let direction = (directions[hour] as? NSNumber)?.doubleValue,
-                  speed.isFinite, direction.isFinite else { continue }
+            func read(_ name: String) -> Double? {
+                guard let series = hourly[name] as? [Any], hour < series.count,
+                      let value = (series[hour] as? NSNumber)?.doubleValue,
+                      value.isFinite else { return nil }
+                return value
+            }
 
-            // The model reports the coordinate it actually resolved to, which
-            // can be a fraction off the one asked for. Its answer wins.
-            let latitude = (result["latitude"] as? NSNumber)?.doubleValue
-                ?? coordinates[index].latitude
-            let longitude = (result["longitude"] as? NSNumber)?.doubleValue
-                ?? coordinates[index].longitude
-            guard abs(latitude) <= 90, abs(longitude) <= 180 else { continue }
+            guard let speed = read("wind_speed_\(level.pressureLevel)"),
+                  let direction = read("wind_direction_\(level.pressureLevel)")
+            else { continue }
 
-            out.append(
-                Barb(
-                    coordinate: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
-                    directionDegrees: direction,
-                    speedKnots: speed
-                )
-            )
+            let components = Self.components(speed: speed, from: direction)
+            u[index] = components.u
+            v[index] = components.v
+            filled += 1
+
+            if demand.needsTemperature {
+                temperature[index] = read("temperature_\(level.pressureLevel)") ?? 0
+            }
+
+            if demand.needsShear,
+               let lowerSpeed = read("wind_speed_\(lower.pressureLevel)"),
+               let lowerDirection = read("wind_direction_\(lower.pressureLevel)") {
+                let below = Self.components(speed: lowerSpeed, from: lowerDirection)
+                // The *vector* difference, which is the whole point: a wind
+                // that keeps its speed and swings ninety degrees between two
+                // levels has enormous shear, and a scalar subtraction of two
+                // speeds would call it nothing at all.
+                let du = components.u - below.u
+                let dv = components.v - below.v
+                shear[index] = (du * du + dv * dv).squareRoot()
+                    * WeatherField.knotsPerMetrePerSecond / gap
+            }
         }
 
-        return out
+        // A grid where most points failed is a level the model does not carry
+        // here, and drawing the handful that did is worse than drawing nothing:
+        // the interpolation would spread a few real numbers across a rectangle
+        // of zeroes and present the result as a field.
+        guard filled >= points * 3 / 4 else { return nil }
+
+        var scalars: [WeatherHeat: [Double]] = [:]
+        if demand.needsTemperature { scalars[.temperature] = temperature }
+        if demand.needsShear { scalars[.shear] = shear }
+
+        return WeatherField(
+            south: grid.south,
+            west: grid.west,
+            latitudeStep: grid.latitudeStep,
+            longitudeStep: grid.longitudeStep,
+            columns: grid.columns,
+            rows: grid.rows,
+            u: u,
+            v: v,
+            scalars: scalars
+        )
+    }
+
+    /// A meteorological wind — a speed and the direction it blows *from* — as
+    /// the eastward and northward components everything downstream wants.
+    private static func components(speed: Double, from direction: Double) -> (u: Double, v: Double) {
+        let radians = direction * .pi / 180
+        return (u: -speed * sin(radians), v: -speed * cos(radians))
     }
 }

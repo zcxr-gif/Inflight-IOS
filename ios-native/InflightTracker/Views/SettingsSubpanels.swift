@@ -105,6 +105,29 @@ struct MapStyleSettingsPanel: View {
             }
             .panelEntrance(1)
 
+            // Not part of STYLE above, and deliberately: those four rows are a
+            // choice between maps, and this is the one map you chose, turned up
+            // or down. It also applies to all four of them — including the
+            // imagery, which has no palette to pick and is the look most often
+            // too bright at night.
+            //
+            // Nothing to act on when the app is drawing the world itself: the
+            // wash is an overlay on MapKit's cartography, and the planet is not
+            // MapKit. Its colours are the four sections below this one.
+            if !appearance.mapProjection.isDrawn {
+                PanelSection(title: "LIGHT") {
+                    PanelSliderRow(
+                        title: "Brightness",
+                        symbol: "sun.max",
+                        detail: "Washes the map down towards black or up towards white, underneath the traffic. The aircraft, the routes and the airport diagrams are untouched — only the map behind them moves.",
+                        reading: { Self.brightnessReading($0) },
+                        neutral: MapLook.neutralBrightness,
+                        value: $appearance.mapBrightness
+                    )
+                }
+                .panelEntrance(2)
+            }
+
             // The planet's own three, and only when the planet is what the map
             // is. Fifteen rows about a shape you have not picked is most of
             // this screen spent on a map you are not looking at — and the row
@@ -217,8 +240,22 @@ struct MapStyleSettingsPanel: View {
             projection: projection,
             palette: palette,
             isTerrain: appearance.isMapTerrain,
-            isDetailed: appearance.isMapDetailed
+            isDetailed: appearance.isMapDetailed,
+            brightness: appearance.mapBrightness
         )
+    }
+
+    /// What the brightness slider reads at.
+    ///
+    /// Signed percentages away from the middle rather than a number from nought
+    /// to a hundred, because the middle is the map as it comes and both
+    /// directions are a departure from it. "Normal" rather than "0%" at the
+    /// centre: nought per cent of anything is the wrong thing to call a map at
+    /// its own brightness.
+    private static func brightnessReading(_ value: CGFloat) -> String {
+        let travel = (value - MapLook.neutralBrightness) / MapLook.neutralBrightness
+        guard abs(travel) > 0.01 else { return "Normal" }
+        return String(format: "%+.0f%%", Double(travel * 100))
     }
 }
 

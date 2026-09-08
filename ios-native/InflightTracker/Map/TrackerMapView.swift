@@ -209,6 +209,19 @@ struct TrackerMapView: UIViewRepresentable {
     var showsWinds = false
     var windLevel: WindLevel = .fl340
 
+    /// Whether the air is drawn moving. See `WindParticleOverlay`.
+    ///
+    /// Its own switch rather than part of the barbs, because they answer
+    /// different questions and people want them separately: barbs are a chart
+    /// you read a number off, and this is a picture of where the air is going.
+    /// Both at once is also the pairing that reads best, which is why neither
+    /// turns the other off.
+    var showsWindParticles = false
+
+    /// Which scalar field is washed under the traffic, if any. See
+    /// `WeatherHeat`.
+    var windHeat: WeatherHeat = .off
+
     /// Whether a marked field carries its wind and temperature once the map is
     /// close enough for them to be read.
     var showsFieldConditions = true
@@ -645,6 +658,16 @@ struct TrackerMapView: UIViewRepresentable {
             let previous = appliedStyle
             appliedStyle = style
 
+            // A change of brightness alone is one overlay repainting, and it
+            // has to be: assigning `preferredConfiguration` below tears
+            // MapKit's map down and builds another, and a slider is a hundred
+            // of these on the way across. Nothing else about the map moved, so
+            // nothing else here has anything to do.
+            if let previous = previous, previous.sameCartography(as: style) {
+                syncDimming(style, on: mapView)
+                return false
+            }
+
             // Pavement is coloured against the ground under it, and the ground
             // has just changed. Cartography to imagery is the case that matters:
             // the concrete is in the photograph now, so the layer stops painting
@@ -767,14 +790,15 @@ struct TrackerMapView: UIViewRepresentable {
             return true
         }
 
-        /// The black palette's wash, put on or taken off.
+        /// The wash over the cartography, put on or taken off.
         ///
         /// Inserted at the bottom of its level rather than added to the top of
-        /// it, so it dims the cartography and not the weather tiles, the night
-        /// or the routes — all of which are added to the same level and would
-        /// otherwise end up underneath it.
+        /// it, so it works on the cartography and not on the weather tiles, the
+        /// night or the routes — all of which are added to the same level and
+        /// would otherwise end up underneath it.
         private func syncDimming(_ style: MapLook, on mapView: MKMapView) {
-            guard style.dimming > 0 else {
+            let wash = style.wash
+            guard wash.isVisible else {
                 if let overlay = dimmingOverlay {
                     mapView.removeOverlay(overlay)
                     dimmingOverlay = nil
@@ -790,10 +814,11 @@ struct TrackerMapView: UIViewRepresentable {
             }
 
             // Already up, so this is a change of depth rather than of state —
-            // which today only happens on the way in and out of black, but the
-            // renderer repaints for it either way rather than holding whatever
-            // it was built with.
-            (mapView.renderer(for: overlay) as? MapDimming.Renderer)?.dimming = style.dimming
+            // a palette swap, or a finger on the brightness slider. The
+            // renderer repaints for it rather than holding whatever it was
+            // built with, which is what makes the slider follow the drag
+            // instead of landing when it is let go.
+            (mapView.renderer(for: overlay) as? MapDimming.Renderer)?.wash = wash
         }
 
         /// Whether the camera has moved enough since the last pass to be worth
@@ -1665,6 +1690,40 @@ struct TrackerMapView: UIViewRepresentable {
 
             flownOverlay = nil
 
+            // MARK: The filed plan
+            //
+            // First into the array, and that is the whole of what fixes it:
+            // overlays draw in the order they sit in their level, so whatever
+            // goes in first is what everything else is drawn over. The plan is
+            // what the pilot *intends*, and the coloured track is what they
+            // have actually done — so when the two run together, which on a
+            // well-flown leg is most of the way, the one you should be reading
+            // is the one on top.
+            //
+            // It used to be appended last, which put a dashed blue line over
+            // every height the track was carrying underneath it.
+            //
+            // The fixes are labelled because a line through unnamed corners is
+            // a shape rather than a route — the names are the whole reason for
+            // plotting the plan instead of just its ends.
+            if plan.count >= 2 {
+                let coordinates = plan.map(\.coordinate)
+
+                // Two overlays for one line: a dark casing, then the white line
+                // in the same dash on top of it. See `PlanStyle.casing` — a
+                // white route over pale cartography is not a route anybody can
+                // see, and the casing is what lets the line be white on every
+                // map rather than one colour on the dark ones and another on
+                // the light.
+                let casing = MKGeodesicPolyline(coordinates: coordinates, count: coordinates.count)
+                casing.title = Self.planCasingTitle
+                routeOverlays.append(casing)
+
+                let line = MKGeodesicPolyline(coordinates: coordinates, count: coordinates.count)
+                line.title = Self.planTitle
+                routeOverlays.append(line)
+            }
+
             if parent.showsFlownPath {
                 // On the ground, the track goes the way the concrete goes.
                 //
@@ -1680,43 +1739,33 @@ struct TrackerMapView: UIViewRepresentable {
                 // drawing its own halo underneath itself. See `FlownPath` for
                 // what this replaced and why none of it survived.
                 let path = FlownPath(
-                    points: drawn,
-                    bands: FlownPath.heightBands(of: drawn),
+                    points: drawn.points,
+                    bands: FlownPath.heightBands(of: drawn.points),
+                    onPavement: drawn.onPavement,
                     title: Self.flownTitle
                 )
-                flownOverlay = path?.overlay
-                if let overlay = path?.overlay {
-                    routeOverlays.append(overlay)
-                }
 
-                // Before we were watching: departure to the first point we have.
+                // Before we were watching: departure to the first point we
+                // have. Into the array ahead of the track for the same reason
+                // the plan is — it is a guess, and a guess does not go over a
+                // measurement.
                 if let departure = AirportStore.shared.airport(flight.departureIcao),
                    let first = flown.first,
                    FlightProgress.distanceNM(from: departure.coordinate, to: first.coordinate) > 1 {
                     routeOverlays.append(dashed(from: departure.coordinate, to: first.coordinate))
+                }
+
+                // And the track itself, last, so nothing on this map is drawn
+                // over it.
+                flownOverlay = path?.overlay
+                if let overlay = path?.overlay {
+                    routeOverlays.append(overlay)
                 }
             }
 
             // What is still to come is not drawn here. It starts at the
             // aeroplane, and the aeroplane moves between rebuilds of this
             // array — see `directOverlay`, which follows it on the frame clock.
-
-            // MARK: The filed plan
-            //
-            // Drawn under everything else it shares the screen with: it is what
-            // the pilot *intends*, where the coloured track behind them is what
-            // they have actually done, and the two should not compete. The
-            // fixes are labelled because a line through unnamed corners is a
-            // shape rather than a route — the names are the whole reason for
-            // plotting the plan instead of just its ends.
-            if plan.count >= 2 {
-                let line = MKGeodesicPolyline(
-                    coordinates: plan.map(\.coordinate),
-                    count: plan.count
-                )
-                line.title = Self.planTitle
-                routeOverlays.append(line)
-            }
 
             if !routeOverlays.isEmpty {
                 mapView.addOverlays(routeOverlays, level: .aboveRoads)
@@ -1943,6 +1992,18 @@ struct TrackerMapView: UIViewRepresentable {
         private var windAnnotations: [WindBarbAnnotation] = []
         private var renderedWindKey: String?
 
+        /// The two overlays the wind field feeds, and the key each was built
+        /// from — so a pan that lands on the same lattice does not rebuild a
+        /// raster or reseed a thousand particles for the same numbers.
+        private var heatOverlay: WeatherHeatOverlay?
+        private var heatKey: String?
+        private var particleOverlay: WindParticleOverlay?
+        private var particleKey: String?
+
+        /// The clock the particles are stepped on, which is deliberately not
+        /// the display's. See `WindParticleStyle.stepsPerSecond`.
+        private var lastParticleStep: CFTimeInterval = 0
+
         /// Swaps the weather tiles when the frame changes, and takes them away
         /// when the layer goes off.
         ///
@@ -1982,14 +2043,9 @@ struct TrackerMapView: UIViewRepresentable {
             mapView.addOverlay(overlay, level: .aboveRoads)
         }
 
-        /// Keeps the wind barbs matched to where the map is looking.
-        ///
-        /// The store does the deciding — which lattice this region rounds to,
-        /// whether that grid is already held, whether it is worth asking at
-        /// this zoom at all. This only draws whatever it currently holds.
-        /// Where the map was, and which level was wanted, the last time the
-        /// grid was asked for.
-        private var windRequest: (latitude: Double, longitude: Double, span: Double, level: String)?
+        /// Where the map was, and what was being asked for, the last time the
+        /// grid was requested.
+        private var windRequest: (latitude: Double, longitude: Double, span: Double, demand: String)?
         private var windRequestedAt = Date.distantPast
 
         /// How often the grid is re-asked for over a map that is sitting still.
@@ -1997,31 +2053,49 @@ struct TrackerMapView: UIViewRepresentable {
         /// is only about noticing that it has gone stale.
         private static let windRefreshInterval: TimeInterval = 20
 
+        /// The barbs, the coloured field and the moving air — all three off one
+        /// grid, and all three switched by their own settings.
+        ///
+        /// The store does the deciding about the data: which lattice this
+        /// region rounds to, whether that grid is already held, whether it is
+        /// worth asking at this zoom at all. This decides what is *drawn* from
+        /// whatever it currently holds — and asks for exactly as much as the
+        /// switches that are on actually need, so barbs alone still cost the
+        /// twenty points they always did. See `WindsAloftStore.Demand`.
         func syncWinds(on mapView: MKMapView) {
-            guard parent.showsWinds else {
-                if !windAnnotations.isEmpty {
-                    mapView.removeAnnotations(windAnnotations)
-                    windAnnotations.removeAll(keepingCapacity: true)
-                }
-                renderedWindKey = nil
-                windRequest = nil
+            let wantsBarbs = parent.showsWinds
+            let wantsParticles = parent.showsWindParticles
+            let wantsHeat = parent.windHeat != .off
+
+            guard wantsBarbs || wantsParticles || wantsHeat else {
+                clearWinds(on: mapView)
                 WindsAloftStore.shared.clear()
                 return
             }
 
             let store = WindsAloftStore.shared
 
+            let demand = WindsAloftStore.Demand(
+                level: parent.windLevel,
+                // Only the two layers that interpolate need the dense lattice.
+                // Barbs on their own ask for exactly what they always did.
+                needsField: wantsParticles || wantsHeat,
+                needsTemperature: parent.windHeat == .temperature,
+                needsShear: parent.windHeat == .shear
+            )
+
             // Working out which lattice this region rounds to builds the whole
             // grid of points and formats its identity, which is a good deal of
             // work to do on every redraw to arrive at the same answer as last
-            // time. The map moving is what changes that answer — plus the clock,
-            // so that a still map still notices stale model data.
+            // time. The map moving is what changes that answer — plus what is
+            // being asked for, plus the clock, so that a still map still
+            // notices stale model data.
             let region = mapView.region
             let here = (
                 latitude: region.center.latitude,
                 longitude: region.center.longitude,
                 span: region.span.latitudeDelta,
-                level: parent.windLevel.rawValue
+                demand: demand.key
             )
             let now = Date()
             if windRequest == nil
@@ -2029,20 +2103,165 @@ struct TrackerMapView: UIViewRepresentable {
                 || now.timeIntervalSince(windRequestedAt) >= Self.windRefreshInterval {
                 windRequest = here
                 windRequestedAt = now
-                store.load(region: region, level: parent.windLevel)
+                store.load(region: region, demand: demand)
             }
 
-            guard renderedWindKey != store.key else { return }
-            renderedWindKey = store.key
+            // The particles are told where the camera is on every pass, not
+            // only when the grid changes: it is what sets the density of the
+            // respawn and the speed of the clock, and both of those are
+            // questions about the camera rather than about the weather.
+            particleOverlay?.particles.look(
+                at: mapView.visibleMapRect,
+                latitude: region.center.latitude
+            )
 
+            // Every switch as well as the grid: flipping the barbs off does
+            // not change which lattice is loaded, so a key built from the
+            // lattice alone would leave them on screen.
+            let wanted = [
+                store.key ?? "-",
+                parent.windHeat.rawValue,
+                wantsBarbs ? "b" : "-",
+                wantsParticles ? "p" : "-"
+            ].joined(separator: "|")
+            guard renderedWindKey != wanted else { return }
+            renderedWindKey = wanted
+
+            syncWindBarbs(on: mapView, wanted: wantsBarbs, store: store)
+            syncWindHeat(on: mapView, store: store)
+            syncWindParticles(on: mapView, wanted: wantsParticles, store: store)
+        }
+
+        private func syncWindBarbs(on mapView: MKMapView, wanted: Bool, store: WindsAloftStore) {
             if !windAnnotations.isEmpty {
                 mapView.removeAnnotations(windAnnotations)
                 windAnnotations.removeAll(keepingCapacity: true)
             }
-
-            guard !store.barbs.isEmpty else { return }
+            guard wanted, !store.barbs.isEmpty else { return }
             windAnnotations = store.barbs.map { WindBarbAnnotation(barb: $0) }
             mapView.addAnnotations(windAnnotations)
+        }
+
+        /// The coloured wash. Rebuilt whenever the grid or the chosen field
+        /// changes, which is also the only time its raster could look any
+        /// different.
+        private func syncWindHeat(on mapView: MKMapView, store: WindsAloftStore) {
+            let product = parent.windHeat
+            let key = "\(store.key ?? "-")|\(product.rawValue)"
+            guard heatKey != key else { return }
+            heatKey = key
+
+            if let existing = heatOverlay {
+                mapView.removeOverlay(existing)
+                heatOverlay = nil
+            }
+
+            guard product != .off, let field = store.field else { return }
+            guard let overlay = WeatherHeatOverlay(
+                field: field,
+                product: product,
+                level: parent.windLevel
+            ) else { return }
+
+            heatOverlay = overlay
+            // At the bottom of the level, above only the black wash. This is a
+            // tint on the cartography, and everything the app draws — the
+            // pavement, the routes, the track — belongs over it rather than
+            // under it.
+            mapView.insertOverlay(overlay, at: Self.bottomOfBackdrop(on: mapView), level: .aboveRoads)
+        }
+
+        /// The moving air.
+        ///
+        /// Reseeded wholesale on a new grid rather than carried across: a
+        /// particle drifting on last lattice's numbers is drifting on numbers
+        /// that are no longer on screen, and the cost of starting again is one
+        /// frame in which every streak is short.
+        private func syncWindParticles(on mapView: MKMapView, wanted: Bool, store: WindsAloftStore) {
+            let key = wanted ? (store.key ?? "-") : "off"
+            guard particleKey != key else { return }
+            particleKey = key
+
+            if let existing = particleOverlay {
+                mapView.removeOverlay(existing)
+                particleOverlay = nil
+            }
+
+            guard wanted, let field = store.field, let grid = WindVelocityGrid(field: field) else {
+                return
+            }
+
+            let bounds = mapView.bounds
+            guard let overlay = WindParticleOverlay(
+                field: grid,
+                visible: mapView.visibleMapRect,
+                screenArea: Double(bounds.width * bounds.height)
+            ) else { return }
+
+            overlay.particles.look(
+                at: mapView.visibleMapRect,
+                latitude: mapView.region.center.latitude
+            )
+            particleOverlay = overlay
+            // Over the wash and under everything else. The streaks are the
+            // busiest thing the map draws; putting them above a route or an
+            // aeroplane would be a thousand moving lines across the one thing
+            // somebody opened the app to look at.
+            mapView.insertOverlay(
+                overlay,
+                at: Self.bottomOfBackdrop(on: mapView) + (heatOverlay == nil ? 0 : 1),
+                level: .aboveRoads
+            )
+        }
+
+        private func clearWinds(on mapView: MKMapView) {
+            if !windAnnotations.isEmpty {
+                mapView.removeAnnotations(windAnnotations)
+                windAnnotations.removeAll(keepingCapacity: true)
+            }
+            if let existing = heatOverlay {
+                mapView.removeOverlay(existing)
+                heatOverlay = nil
+            }
+            if let existing = particleOverlay {
+                mapView.removeOverlay(existing)
+                particleOverlay = nil
+            }
+            renderedWindKey = nil
+            heatKey = nil
+            particleKey = nil
+            windRequest = nil
+        }
+
+        /// One step of the wind field, from the map's own frame clock.
+        ///
+        /// Rate-limited here rather than by a display link of its own: there is
+        /// already a clock ticking for the traffic, a second one is a second
+        /// wake-up per frame, and what this needs is not a frame rate but a
+        /// step rate — twenty-four a second, whatever the screen is doing.
+        private func stepWindParticles(at now: CFTimeInterval, on mapView: MKMapView) {
+            guard let overlay = particleOverlay else { return }
+
+            let interval = 1 / WindParticleStyle.stepsPerSecond
+            let elapsed = now - lastParticleStep
+            guard elapsed >= interval else { return }
+            lastParticleStep = now
+
+            // Coming back from the background hands us however long the app was
+            // away. Integrating that in one step would fling every particle off
+            // the field and respawn the lot; a step of the ordinary size picks
+            // up where it left off.
+            overlay.particles.step(min(elapsed, interval * 3))
+
+            guard let renderer = mapView.renderer(for: overlay) as? WindParticleRenderer else {
+                return
+            }
+            renderer.colour = WindParticleStyle.colour(for: parent.colorScheme)
+            // Only what is on screen. The field is fetched for a lattice that
+            // can be a good deal larger than the camera — invalidating all of
+            // it twenty-four times a second would have MapKit re-rasterising
+            // tiles nobody is looking at.
+            renderer.setNeedsDisplay(mapView.visibleMapRect)
         }
 
         // MARK: The ruler
@@ -2431,16 +2650,33 @@ struct TrackerMapView: UIViewRepresentable {
             mapView.addAnnotations(groundLabels)
         }
 
-        /// The first slot in `.aboveRoads` that anything but the dimming wash
-        /// may occupy.
+        /// The first slot in `.aboveRoads` that is not part of the backdrop.
         ///
-        /// The wash is inserted at zero precisely so it sits under the whole
-        /// level and darkens the cartography rather than the things drawn on
-        /// it; sliding the pavement in beneath it would put the airport under
-        /// the dimmer and back at basemap brightness. Read off the map rather
-        /// than assumed to be one, so the answer stays right whether the wash
-        /// is up or not.
+        /// The backdrop is everything drawn *as the map* rather than *on* it:
+        /// the black wash, and the weather fields under the traffic. All of
+        /// them are inserted below this precisely so they act on the
+        /// cartography rather than on the things the app draws over it —
+        /// sliding the pavement in beneath them would put an airport under the
+        /// dimmer and back at basemap brightness, or tint its runways with the
+        /// jet stream.
+        ///
+        /// Read off the map rather than assumed to be a fixed number, so the
+        /// answer stays right however many of them happen to be up.
         private static func bottomOfRoadsLevel(on mapView: MKMapView) -> Int {
+            let overlays = mapView.overlays(in: .aboveRoads)
+            return overlays.firstIndex { !isBackdrop($0) } ?? overlays.count
+        }
+
+        private static func isBackdrop(_ overlay: MKOverlay) -> Bool {
+            overlay is MapDimming.Overlay
+                || overlay is WeatherHeatOverlay
+                || overlay is WindParticleOverlay
+        }
+
+        /// And the first slot the backdrop itself may occupy: under everything
+        /// except the dimmer, which stays at the very bottom because its whole
+        /// job is to darken what is beneath it.
+        private static func bottomOfBackdrop(on mapView: MKMapView) -> Int {
             let overlays = mapView.overlays(in: .aboveRoads)
             return overlays.firstIndex { !($0 is MapDimming.Overlay) } ?? overlays.count
         }
@@ -2534,6 +2770,10 @@ struct TrackerMapView: UIViewRepresentable {
         /// Marks the filed plan, so the renderer can draw it as intention
         /// rather than as track.
         static let planTitle = "plan"
+
+        /// The same geometry, drawn wider and darker underneath the plan, so a
+        /// white route reads over pale cartography. See `PlanStyle.casing`.
+        static let planCasingTitle = "planCasing"
 
         static let flownTitle = "flown"
         static let plannedTitle = "planned"
@@ -2747,6 +2987,11 @@ struct TrackerMapView: UIViewRepresentable {
             // aeroplane starts where the aeroplane is drawn, which is a
             // question with a new answer on every frame it is being carried on.
             syncDirectLine(on: mapView, pointsPerMetre: scale)
+
+            // And the air moves whether or not any traffic is being smoothed —
+            // it is weather, not an aeroplane — so this sits above the gate
+            // below rather than under it.
+            stepWindParticles(at: now, on: mapView)
 
             let smoothing = parent.smoothsTraffic
             guard smoothing || flyingCount > 0 else { return }
@@ -3289,7 +3534,7 @@ struct TrackerMapView: UIViewRepresentable {
             }
 
             if overlay is MapDimming.Overlay {
-                return MapDimming.Renderer(overlay: overlay, dimming: parent.style.dimming)
+                return MapDimming.Renderer(overlay: overlay, wash: parent.style.wash)
             }
 
             if let area = overlay as? MKPolygon {
@@ -3330,6 +3575,16 @@ struct TrackerMapView: UIViewRepresentable {
                 return GroundRenderer(overlay: pavement, ground: groundLook)
             }
 
+            if let heat = overlay as? WeatherHeatOverlay {
+                return WeatherHeatRenderer(overlay: heat)
+            }
+
+            if let particles = overlay as? WindParticleOverlay {
+                let renderer = WindParticleRenderer(overlay: particles)
+                renderer.colour = WindParticleStyle.colour(for: parent.colorScheme)
+                return renderer
+            }
+
             guard let line = overlay as? MKPolyline else {
                 return MKOverlayRenderer(overlay: overlay)
             }
@@ -3356,8 +3611,18 @@ struct TrackerMapView: UIViewRepresentable {
             renderer.lineCap = .round
             renderer.lineJoin = .round
 
+            if line.title == Self.planCasingTitle {
+                // The dark edge under the white line. Same dash, wider stroke —
+                // see `PlanStyle.casing` for why it is there at all, and why
+                // the two patterns have to match exactly.
+                renderer.strokeColor = PlanStyle.casing
+                renderer.lineWidth = PlanStyle.casingWidth
+                renderer.lineDashPattern = PlanStyle.dash
+                return renderer
+            }
+
             if line.title == Self.planTitle {
-                // The route as filed: dashed, and faint. It is a statement of
+                // The route as filed: dashed, and white. It is a statement of
                 // intent sitting underneath a track that actually happened, and
                 // it should read as the quieter of the two. The colour is
                 // shared with the fixes drawn along it, so the line and the
@@ -3376,8 +3641,8 @@ struct TrackerMapView: UIViewRepresentable {
                 // to the flown path, which has its own switch — so telling them
                 // apart at a glance is the whole point of the difference.
                 renderer.strokeColor = PlanStyle.line
-                renderer.lineWidth = 1.8
-                renderer.lineDashPattern = [7, 4]
+                renderer.lineWidth = PlanStyle.lineWidth
+                renderer.lineDashPattern = PlanStyle.dash
                 return renderer
             }
 

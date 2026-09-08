@@ -154,6 +154,18 @@ final class MapThumbnailLoader: ObservableObject {
     private var snapshotter: MKMapSnapshotter?
     private var requested: String?
 
+    /// The snapshot as MapKit drew it, before the map's wash goes over it, and
+    /// the wash currently on the published picture.
+    ///
+    /// Held apart because they change at completely different rates. The
+    /// snapshot is a render, cached across every row and every visit; the wash
+    /// is a finger on a slider, and re-photographing San Francisco for each
+    /// tick of it would be a hundred snapshots on the way across the panel. So
+    /// a change of brightness re-composites what is already here and takes no
+    /// picture at all.
+    private var base: UIImage?
+    private var appliedWash: MapWash?
+
     func key(for look: MapLook, scheme: ColorScheme, side: CGFloat) -> String {
         [
             look.projection.rawValue,
@@ -168,19 +180,35 @@ final class MapThumbnailLoader: ObservableObject {
         ].joined(separator: "|")
     }
 
+    /// The picture this row wants, taking it if it is not already had.
+    ///
+    /// The key deliberately says nothing about the wash — see `base` — so a
+    /// brightness that has moved under an unchanged look is answered by
+    /// recolouring the picture in hand.
     func load(look: MapLook, scheme: ColorScheme, side: CGFloat) {
         let key = self.key(for: look, scheme: scheme, side: side)
-        guard requested != key else { return }
+        let wash = look.wash
+
+        if requested == key {
+            guard appliedWash != wash else { return }
+            appliedWash = wash
+            if let base = base { image = Self.washed(base, with: wash) }
+            return
+        }
+
         requested = key
+        appliedWash = wash
 
         if let cached = Self.cache.object(forKey: key as NSString) {
-            image = cached
+            base = cached
+            image = Self.washed(cached, with: wash)
             return
         }
 
         // Whatever was on its way is a picture of a look this row is no longer
         // showing.
         snapshotter?.cancel()
+        base = nil
         image = nil
 
         let options = MKMapSnapshotter.Options()
@@ -201,15 +229,40 @@ final class MapThumbnailLoader: ObservableObject {
         self.snapshotter = snapshotter
 
         snapshotter.start(with: .global(qos: .userInitiated)) { [weak self] snapshot, _ in
-            guard let picture = snapshot?.image else { return }
-            Self.cache.setObject(picture, forKey: key as NSString)
+            guard let taken = snapshot?.image else { return }
+            // Cached bare. The wash goes on below, against whatever the slider
+            // says by the time this lands rather than what it said when the
+            // picture was asked for.
+            Self.cache.setObject(taken, forKey: key as NSString)
 
             // The outer capture is the weak one; this closure only needs the
             // optional it already holds.
             DispatchQueue.main.async {
                 guard let self = self, self.requested == key else { return }
+                self.base = taken
+                let picture = Self.washed(taken, with: self.appliedWash ?? wash)
                 withAnimation(Motion.content) { self.image = picture }
             }
+        }
+    }
+
+    /// The snapshot with the map's own wash laid over it, so a row is a
+    /// picture of what you will actually be looking at rather than of the
+    /// cartography underneath it.
+    ///
+    /// Returns the picture untouched when there is nothing to lay on, which is
+    /// the ordinary case and costs a comparison rather than a redraw.
+    private static func washed(_ picture: UIImage, with wash: MapWash) -> UIImage {
+        guard wash.isVisible else { return picture }
+
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = picture.scale
+        format.opaque = true
+
+        return UIGraphicsImageRenderer(size: picture.size, format: format).image { context in
+            picture.draw(at: .zero)
+            wash.color.withAlphaComponent(wash.alpha).setFill()
+            context.fill(CGRect(origin: .zero, size: picture.size))
         }
     }
 }
