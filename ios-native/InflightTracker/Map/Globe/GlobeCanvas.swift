@@ -81,9 +81,14 @@ struct GlobeCanvas: UIViewRepresentable {
     /// Which face is turned towards you the first time this is laid out.
     var start: CLLocationCoordinate2D = CLLocationCoordinate2D(latitude: 20, longitude: 0)
 
-    /// How much of the bottom and the right the chrome over this is standing
-    /// on. The planet is centred in what is left.
+    /// How much of the bottom and of each side the chrome over this is
+    /// standing on. The planet is centred in what is left.
+    ///
+    /// Two horizontal insets because the flight window's column can be docked
+    /// on either edge, and which one it is decides which way the planet slides
+    /// out from under it. At most one is ever non-zero.
     var bottomInset: CGFloat = 0
+    var leadingInset: CGFloat = 0
     var trailingInset: CGFloat = 0
 
     var command: GlobeCommand? = nil
@@ -134,6 +139,7 @@ struct GlobeCanvas: UIViewRepresentable {
             smoothsTraffic: smoothsTraffic,
             start: start,
             bottomInset: bottomInset,
+            leadingInset: leadingInset,
             trailingInset: trailingInset,
             still: still,
             command: command
@@ -305,6 +311,7 @@ final class GlobeCanvasView: UIView {
     private var smoothsTraffic = true
     private var start = CLLocationCoordinate2D(latitude: 20, longitude: 0)
     private var bottomInset: CGFloat = 0
+    private var leadingInset: CGFloat = 0
     private var trailingInset: CGFloat = 0
     private var still: GlobeCamera?
     private var lastCommand: UUID?
@@ -698,6 +705,7 @@ final class GlobeCanvasView: UIView {
         smoothsTraffic: Bool,
         start: CLLocationCoordinate2D,
         bottomInset: CGFloat,
+        leadingInset: CGFloat,
         trailingInset: CGFloat,
         still: GlobeCamera?,
         command: GlobeCommand?
@@ -746,7 +754,9 @@ final class GlobeCanvasView: UIView {
         }
         let skyMoved = backdrop != self.backdrop
 
-        let insetsMoved = bottomInset != self.bottomInset || trailingInset != self.trailingInset
+        let insetsMoved = bottomInset != self.bottomInset
+            || leadingInset != self.leadingInset
+            || trailingInset != self.trailingInset
 
         self.palette = palette
         self.backdrop = backdrop
@@ -762,6 +772,7 @@ final class GlobeCanvasView: UIView {
         self.smoothsTraffic = smoothsTraffic
         self.start = start
         self.bottomInset = bottomInset
+        self.leadingInset = leadingInset
         self.trailingInset = trailingInset
         self.still = still
         self.groundRevision = ground
@@ -835,7 +846,7 @@ final class GlobeCanvasView: UIView {
         guard bounds.width > 0, bounds.height > 0 else { return }
 
         let middle = CGPoint(
-            x: (bounds.width - trailingInset) / 2,
+            x: leadingInset + usableWidth / 2,
             y: (bounds.height - bottomInset) / 2
         )
 
@@ -907,7 +918,15 @@ final class GlobeCanvasView: UIView {
     /// split screen — which would otherwise be a negative radius and a planet
     /// that is not drawn.
     private var fittedRadius: CGFloat {
-        max(60, min(bounds.width - trailingInset, bounds.height - bottomInset) * 0.42)
+        max(60, min(usableWidth, bounds.height - bottomInset) * 0.42)
+    }
+
+    /// How much width is left once the chrome on either side has taken its
+    /// share. Was `bounds.width - trailingInset` written out at each of the
+    /// half-dozen places that needed it, which is exactly the shape of thing
+    /// that gets updated in five of six places when a second inset arrives.
+    private var usableWidth: CGFloat {
+        bounds.width - leadingInset - trailingInset
     }
 
     // MARK: - Turning it
@@ -920,7 +939,7 @@ final class GlobeCanvasView: UIView {
     private var maximumScale: CGFloat {
         let fitted = fittedRadius
         guard fitted > 0 else { return 1 }
-        let across = max(120, min(bounds.width - trailingInset, bounds.height - bottomInset))
+        let across = max(120, min(usableWidth, bounds.height - bottomInset))
         let closest = GlobeCamera.radius(forSpan: GlobeCamera.minimumSpanMetres, across: across)
         return max(GlobeCamera.minimumScale, closest / fitted)
     }
@@ -1552,7 +1571,7 @@ final class GlobeCanvasView: UIView {
     private func reportCamera() {
         guard let report = onCameraMoved, camera.radius > 0 else { return }
 
-        let across = max(1, min(bounds.width - trailingInset, bounds.height - bottomInset))
+        let across = max(1, min(usableWidth, bounds.height - bottomInset))
         let span = camera.metresPerPoint * Double(across)
         let here = (latitude: camera.latitude, longitude: camera.longitude, span: span)
 
@@ -2341,7 +2360,7 @@ final class GlobeCanvasView: UIView {
     /// is a tangle of switchbacks and a wide stroke stops being a line and
     /// becomes a shape.
     private var flownWidth: CGFloat {
-        let across = max(120, min(bounds.width - trailingInset, bounds.height - bottomInset))
+        let across = max(120, min(usableWidth, bounds.height - bottomInset))
         return FlownPathStyle.width(
             forCameraDistance: camera.metresPerPoint * Double(across)
         )
@@ -3154,7 +3173,7 @@ final class GlobeCanvasView: UIView {
         let metresPerPoint = camera.metresPerPoint
         guard metresPerPoint.isFinite, metresPerPoint > 0 else { return false }
 
-        let across = max(1, min(bounds.width - trailingInset, bounds.height - bottomInset))
+        let across = max(1, min(usableWidth, bounds.height - bottomInset))
         let span = metresPerPoint * Double(across)
         let ceiling = MapFilters.labelZoomSpan * GlobeCamera.earthRadiusMetres * .pi / 180
         return span <= ceiling

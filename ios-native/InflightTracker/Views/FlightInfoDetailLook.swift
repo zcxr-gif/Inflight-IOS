@@ -88,6 +88,14 @@ struct FlightDetailOperatorBar: View {
     /// the open window hands in the one every band down the face shares.
     var inset: CGFloat = 13
 
+    /// Whether ACTIVE / AWAY / AP+ rides on the operator line.
+    ///
+    /// On in the peek, which is the whole window until it is opened and has to
+    /// carry it. Off in the open window, where `FlightPilotCard` a band below
+    /// says the same thing beside the face and the grade it belongs with — the
+    /// state is a fact about the person, and it now sits with the person.
+    var showsPilotState: Bool = true
+
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 7) {
@@ -117,7 +125,7 @@ struct FlightDetailOperatorBar: View {
 
                 Spacer(minLength: 6)
 
-                if flight.pilotState.isNoteworthy {
+                if showsPilotState, flight.pilotState.isNoteworthy {
                     PilotStateChip(state: flight.pilotState, theme: theme, elevated: true)
                         .transition(.opacity.combined(with: .scale(scale: 0.85, anchor: .trailing)))
                 }
@@ -600,7 +608,8 @@ struct FlightDetailHead: View {
                 showsTypeChip: true,
                 showsTailChip: true,
                 registration: registration,
-                inset: Self.inset
+                inset: Self.inset,
+                showsPilotState: false
             )
             .flightInfoBand(block, theme: dressed)
 

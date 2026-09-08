@@ -91,6 +91,48 @@ enum AppPalette: String, CaseIterable, Identifiable {
     }
 }
 
+/// What sits behind the pilot block in the flight window.
+///
+/// A photograph of somebody's own choosing is the reason profiles have banners
+/// at all, and putting one behind their name on a tapped aeroplane is the first
+/// time it is seen by anybody who did not go looking for their profile. It is
+/// also the first time the flight window has drawn a picture it did not choose
+/// — the aircraft photo above it is ours, and this one is theirs — so it is a
+/// switch, and both settings are ordinary.
+///
+/// Nothing here is a Pro gate. The banner belongs to the pilot being *looked
+/// at*: a free account looking at a Pro pilot sees their photograph, because it
+/// is that pilot's, and a Pro account looking at a free pilot sees a painted
+/// gradient because that is what a free profile has. What this decides is
+/// whether the reader wants pictures in their window at all.
+enum PilotCardBackdrop: String, CaseIterable, Identifiable {
+
+    /// The window's own surface, like every other card in it.
+    case colour
+
+    /// The pilot's banner — their photograph if they are Pro, the gradient
+    /// they picked if they are not.
+    case picture
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .colour:  return "Plain"
+        case .picture: return "Their banner"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .colour:
+            return "The pilot block is drawn like every other card in the window."
+        case .picture:
+            return "Puts the pilot's own banner behind their name — their photograph if they have Pro, the gradient they picked if not."
+        }
+    }
+}
+
 /// Runtime appearance switches for the app.
 ///
 /// Every surface in the window — and every piece of chrome over the map — is
@@ -108,6 +150,7 @@ final class FlightInfoAppearance: ObservableObject {
     private static let airlineAccentKey = "flightInfoAirlineAccent"
     private static let smoothTrafficKey = "map.smoothTraffic"
     private static let windowPlacementKey = "flightWindowPlacement"
+    private static let pilotCardBackdropKey = "flightInfoPilotBackdrop"
     private static let modeKey = "appAppearanceMode"
     private static let paletteKey = "appPalette"
     /// The old single map style, read once so an install that predates the
@@ -166,6 +209,18 @@ final class FlightInfoAppearance: ObservableObject {
     @Published var flightWindowPlacement: FlightWindowPlacement {
         didSet {
             UserDefaults.standard.set(flightWindowPlacement.rawValue, forKey: Self.windowPlacementKey)
+        }
+    }
+
+    /// What is drawn behind the pilot block in the flight window. See
+    /// `PilotCardBackdrop`.
+    ///
+    /// Defaults to the picture. The banner is the one thing on a profile that
+    /// nobody else ever saw — you had to open somebody's profile to find it,
+    /// and almost nobody does — and the window is where it finally has a job.
+    @Published var pilotCardBackdrop: PilotCardBackdrop {
+        didSet {
+            UserDefaults.standard.set(pilotCardBackdrop.rawValue, forKey: Self.pilotCardBackdropKey)
         }
     }
 
@@ -378,9 +433,18 @@ final class FlightInfoAppearance: ObservableObject {
             ?? .cards
         showsAirlineAccent = defaults.object(forKey: Self.airlineAccentKey) as? Bool ?? true
         smoothsTraffic = defaults.object(forKey: Self.smoothTrafficKey) as? Bool ?? true
+        // Everybody who has not chosen gets the docked column, including
+        // installs that predate it having a left. A tablet's flight window has
+        // always wanted to be a column — that is what the extra screen is for —
+        // and the centred card was the default only because it was the shape
+        // the phone already had. Anybody who has chosen has a stored value and
+        // keeps it.
         flightWindowPlacement = FlightWindowPlacement(
             rawValue: defaults.string(forKey: Self.windowPlacementKey) ?? ""
-        ) ?? .centred
+        ) ?? .leading
+        pilotCardBackdrop = PilotCardBackdrop(
+            rawValue: defaults.string(forKey: Self.pilotCardBackdropKey) ?? ""
+        ) ?? .picture
         // Dark was the only look the app had, so an install that predates this
         // setting keeps what it had rather than turning light overnight. New
         // installs follow iOS.
@@ -440,11 +504,26 @@ final class FlightInfoAppearance: ObservableObject {
 /// and nowhere else, and the phone ignores this entirely.
 enum FlightWindowPlacement: String, CaseIterable, Identifiable {
 
+    /// The whole window as a column down the left-hand edge, full height, with
+    /// the map running beside it.
+    ///
+    /// The default on a tablet, and the arrangement every other traffic map on
+    /// a tablet has settled on. There is a reason it is the left rather than
+    /// the right, and it is not taste: the map is the thing being read and a
+    /// column is the thing being referred to, and a left-to-right reader looks
+    /// at the reference first and the subject second. It is also the side the
+    /// hand holding the tablet is least often over.
+    ///
+    /// Which is an argument and not a fact, so it is a setting — see `trailing`,
+    /// which is the same column on the other side for anybody who disagrees, or
+    /// who holds the thing the other way round.
+    case leading
+
     /// Low and centred: the window sits near the bottom edge, the way it does
     /// on a phone, with the map above and to both sides of it.
     ///
     /// Named for where it is across the screen rather than up it, because the
-    /// across is the part that distinguishes it from the other one. It is not
+    /// across is the part that distinguishes it from the other two. It is not
     /// vertically centred and deliberately never was — a window floating in the
     /// dead middle of a tablet covers the one part of the map you are looking
     /// at, which is wherever you just tapped.
@@ -456,8 +535,24 @@ enum FlightWindowPlacement: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// Which edge this stands on, or nil for the one that stands on neither.
+    ///
+    /// The two columns are one layout drawn on opposite sides, and everything
+    /// that has to reason about them — the pane's own alignment, how much of
+    /// the map is covered, which side the camera keeps clear — wants the side
+    /// rather than the case. Reading it off here means a third column, if there
+    /// is ever a reason for one, is a case and not a search for every `if`.
+    var dockedEdge: HorizontalEdge? {
+        switch self {
+        case .leading: return .leading
+        case .trailing: return .trailing
+        case .centred: return nil
+        }
+    }
+
     var label: String {
         switch self {
+        case .leading: return "Left"
         case .centred: return "Centre"
         case .trailing: return "Right"
         }
@@ -465,6 +560,7 @@ enum FlightWindowPlacement: String, CaseIterable, Identifiable {
 
     var detail: String {
         switch self {
+        case .leading: return "A column down the left, with the map beside it"
         case .centred: return "Low and centred, with the map around it"
         case .trailing: return "A column down the right, with the map beside it"
         }

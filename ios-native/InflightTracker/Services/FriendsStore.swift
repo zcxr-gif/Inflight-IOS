@@ -96,7 +96,7 @@ final class FriendsStore: ObservableObject {
     /// Adds a pilot to the watchlist, if this account may have another.
     ///
     /// THE FREE LIMIT IS ENFORCED HERE, not in the panel that calls it. It used
-    /// to be checked in `FriendsPanel.commit` and again in `FlightWatchRow`,
+    /// to be checked in `FriendsPanel.commit` and again in `FlightKeepMenu`,
     /// which worked exactly as long as those stayed the only two ways to watch
     /// somebody — and this app already has a URL scheme, widgets and a
     /// notification tap that reach the same store. A gate on the mutation is a

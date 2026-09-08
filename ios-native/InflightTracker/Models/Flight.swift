@@ -17,6 +17,25 @@ struct Flight: Identifiable, Equatable {
     let callsign: String?
     let username: String?
 
+    /// The pilot's Infinite Flight account id, as the feed sends it.
+    ///
+    /// Not shown anywhere. It is the key every one of the backend's user
+    /// routes is keyed by — grade, virtual organisation, career totals — and
+    /// without it the only way to ask about a pilot is to resolve their name
+    /// first, which is a second round trip for something the packet already
+    /// carried and the parser was throwing away.
+    let userId: String?
+
+    /// The virtual airline Infinite Flight itself has this pilot down as
+    /// flying for, sent alongside the position.
+    ///
+    /// The VA badges on a profile are a different thing and stay a different
+    /// thing: those are Inflight's own listings, worn by choice and resolved
+    /// against a roster. This is what the *server* says, it is not a claim
+    /// anybody made here, and it is the line that belongs beside a name on a
+    /// flight rather than on a profile.
+    let virtualOrganization: String?
+
     let latitude: Double
     let longitude: Double
     let altitudeFeet: Double
@@ -64,6 +83,8 @@ struct Flight: Identifiable, Equatable {
 
         self.callsign = Flight.text(payload["callsign"])
         self.username = Flight.text(payload["username"])
+        self.userId = Flight.text(payload["userId"])
+        self.virtualOrganization = Flight.text(payload["virtualOrganization"])
         // Via `number` because the backend has sent it as both a number and a
         // string; `Int(_:)` traps on a non-finite double, so it is checked
         // rather than force-converted.

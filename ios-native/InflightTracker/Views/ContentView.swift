@@ -418,7 +418,18 @@ struct ContentView: View {
     /// middle of the display with no way to move it, so anywhere there is room
     /// to make a choice about where the window goes, the window stops being a
     /// sheet. See `FlightWindowPane`.
-    private var usesFlightPane: Bool { horizontalSizeClass == .regular }
+    ///
+    /// **Both halves are load-bearing, and this used to be the size class
+    /// alone.** A large iPhone in landscape reports a regular horizontal size
+    /// class, so every Plus and Pro Max turned on its side was being handed the
+    /// tablet's docked column — while the setting that says which side it goes
+    /// on stayed hidden, because that was gated on the idiom. The phone got
+    /// half the behaviour and no way to change it. The idiom says what this is;
+    /// the size class says whether there is room for a column right now, which
+    /// an iPad in Slide Over has not got. See `Device`.
+    private var usesFlightPane: Bool {
+        Device.hasRoomForPanes && horizontalSizeClass == .regular
+    }
 
     /// Where the pane goes, when there is one.
     private var flightPlacement: FlightWindowPlacement { appearance.flightWindowPlacement }
@@ -509,6 +520,17 @@ struct ContentView: View {
     private var mapTrailingInset: CGFloat {
         guard isFlightPaneUp else { return 0 }
         return FlightWindowPaneMetrics.trailingInset(for: flightPlacement)
+    }
+
+    /// And the left-hand edge, for the column docked on that side.
+    ///
+    /// Its own number rather than one signed figure shared with the trailing
+    /// inset: the map has to know which side is covered, not merely how much
+    /// is. A route framed to clear four hundred points on the wrong side is a
+    /// route laid out underneath the window.
+    private var mapLeadingInset: CGFloat {
+        guard isFlightPaneUp else { return 0 }
+        return FlightWindowPaneMetrics.leadingInset(for: flightPlacement)
     }
 
     /// How far up the map has to hold Apple's "Legal" link so the app's own
@@ -643,6 +665,7 @@ struct ContentView: View {
             command: mapCommand,
             trailRevision: trails.seedRevision,
             bottomInset: mapBottomInset,
+            leadingInset: mapLeadingInset,
             trailingInset: mapTrailingInset,
             legalInset: mapLegalInset,
             replayFrame: replay.frame,
@@ -723,6 +746,7 @@ struct ContentView: View {
             // system's own request for less movement.
             smoothsTraffic: appearance.smoothsTraffic && !reduceMotion,
             bottomInset: mapBottomInset,
+            leadingInset: mapLeadingInset,
             trailingInset: mapTrailingInset,
             onSelectFlight: { flight in
                 selection = SelectedFlight(id: flight.id)
@@ -835,7 +859,13 @@ struct ContentView: View {
                     .transition(.opacity.combined(with: .move(edge: .leading)))
             }
         }
-        .padding(.horizontal, 14)
+        // Whichever edge a docked column stands on, the bars up here stop at
+        // it rather than running underneath. The search field is gone by the
+        // time there is a column — it gives way the moment an aircraft is open
+        // — but the weather and measure bars are not, and a measurement read
+        // out from behind the flight window is a measurement you cannot read.
+        .padding(.leading, 14 + mapLeadingInset)
+        .padding(.trailing, 14 + mapTrailingInset)
         .padding(.top, 8)
     }
 
@@ -1695,7 +1725,7 @@ struct ContentView: View {
     private var replayBar: some View {
         if replay.isActive {
             ReplayBar(replay: replay, theme: theme)
-                .padding(.leading, 14)
+                .padding(.leading, 14 + mapLeadingInset)
                 .padding(.trailing, 14 + mapTrailingInset)
                 // Straight onto the bottom of the screen, because for the
                 // length of a replay there is nothing under it: the flight
@@ -2001,7 +2031,10 @@ struct ContentView: View {
                 interactive: true
             )
             .environment(\.colorScheme, theme.colorScheme)
-            .padding(.leading, 16)
+            // The mirror of what the hub does with the trailing inset: in the
+            // corner a docked column stands in, the chip steps aside by the
+            // width of it. One of the two is always zero.
+            .padding(.leading, 16 + mapLeadingInset)
             .padding(.bottom, cornerInset + 8 + statsLift)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
             .ignoresSafeArea(.keyboard, edges: .bottom)

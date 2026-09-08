@@ -83,12 +83,14 @@ struct TrackerMapView: UIViewRepresentable {
     /// framed route isn't hidden behind it.
     var bottomInset: CGFloat = 0
 
-    /// And how much of its right-hand edge, for the same reason.
+    /// And how much of each side, for the same reason.
     ///
     /// Only ever non-zero on a screen wide enough to stand the flight window
     /// down the side of the map instead of across the bottom of it — a sheet
     /// covers the bottom and nothing else, so until there were panes there was
-    /// only ever one side of this to answer for.
+    /// only ever one side of this to answer for. There are two now, because the
+    /// column can be docked on either edge, and at most one of them is ever set.
+    var leadingInset: CGFloat = 0
     var trailingInset: CGFloat = 0
 
     /// How far up MapKit's own ornaments have to sit — which here means Apple's
@@ -3259,7 +3261,7 @@ struct TrackerMapView: UIViewRepresentable {
         private func edgeInsets(in bounds: CGRect) -> UIEdgeInsets {
             let wanted = UIEdgeInsets(
                 top: 96,
-                left: 44,
+                left: 44 + parent.leadingInset,
                 bottom: parent.bottomInset + 28,
                 right: 44 + parent.trailingInset
             )
