@@ -172,6 +172,18 @@ struct FlightWindowPanel: View {
             }
             .panelEntrance(2)
 
+            PanelSection(title: "THE PILOT") {
+                PanelPickerRow(
+                    title: "Behind their name",
+                    symbol: "person.crop.rectangle",
+                    options: PilotCardBackdrop.allCases,
+                    label: { $0.label },
+                    detail: appearance.pilotCardBackdrop.detail,
+                    selection: $appearance.pilotCardBackdrop
+                )
+            }
+            .panelEntrance(3)
+
             PanelSection(title: "COLOUR") {
                 PanelToggleRow(
                     title: "Airline colours",
@@ -180,7 +192,7 @@ struct FlightWindowPanel: View {
                     isOn: $appearance.showsAirlineAccent
                 )
             }
-            .panelEntrance(3)
+            .panelEntrance(4)
 
             // Only where there is a choice to make. A phone has one place to
             // put this window; see the note this was moved from.
@@ -195,7 +207,7 @@ struct FlightWindowPanel: View {
                         selection: $appearance.flightWindowPlacement
                     )
                 }
-                .panelEntrance(4)
+                .panelEntrance(5)
             }
         }
         .sheet(isPresented: $isShowingPaywall) {
@@ -293,13 +305,24 @@ struct FlightWindowPanel: View {
             )
 
         case .open:
-            // The detail look's head runs to both edges of the window it is
-            // drawn in, so the preview must not inset it either — a drawing of
-            // a full-bleed face inside a fourteen-point margin is a drawing of
-            // something else.
-            openHead
-                .padding(.horizontal, appearance.resolvedWindowStyle == .detail ? 0 : 14)
-                .padding(.top, 4)
+            VStack(spacing: 12) {
+                // The detail look's head runs to both edges of the window it is
+                // drawn in, so the preview must not inset it either — a drawing
+                // of a full-bleed face inside a fourteen-point margin is a
+                // drawing of something else. The pilot card under it is a card
+                // in the column like every other, and keeps its margin.
+                openHead
+                    .padding(.horizontal, appearance.resolvedWindowStyle == .detail ? 0 : 14)
+
+                FlightPilotCard(
+                    flight: Self.sample,
+                    theme: theme,
+                    stub: Self.sampleStats,
+                    stubBanner: .flightLevel
+                )
+                .padding(.horizontal, 14)
+            }
+            .padding(.top, 4)
         }
     }
 
@@ -313,7 +336,8 @@ struct FlightWindowPanel: View {
                 FlightIdentityBlock(
                     flight: Self.sample,
                     registration: Self.registration,
-                    theme: theme
+                    theme: theme,
+                    showsPilot: false
                 )
 
                 RouteCard(
@@ -386,6 +410,15 @@ struct FlightWindowPanel: View {
     /// for previews: the window is being shown exactly the kind of value it
     /// gets in flight, and a made-up `Flight` that skipped the parsing could
     /// hold a combination the real one never produces.
+    /// What Infinite Flight would say about the invented pilot. Grade 4 rather
+    /// than 5 on purpose: 5 is gold and the most eye-catching of the five, and
+    /// a preview should show the ordinary case rather than the best one.
+    private static let sampleStats = IFPilotStats(
+        username: "Inflight",
+        grade: 4,
+        virtualOrganization: "Ethiopian Virtual"
+    )
+
     private static let sample: Flight = {
         let payload: [String: Any] = [
             "flightId": "preview.window",

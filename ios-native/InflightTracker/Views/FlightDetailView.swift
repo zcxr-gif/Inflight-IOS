@@ -758,19 +758,32 @@ struct FlightDetailView: View {
                 VStack(spacing: 12) {
                     header(for: flight, width: width)
 
-                    FlightActionRow(
-                        flight: flight,
-                        theme: theme,
-                        track: track,
-                        onReplay: { onReplay(track) }
-                    )
+                    // Directly under the aeroplane's own identity, and above
+                    // everything you can do with it: who is flying this is the
+                    // second question anybody asks of a tapped aircraft, and
+                    // until now the window answered it with a 22-point avatar
+                    // wedged beside the callsign.
+                    FlightPilotCard(flight: flight, theme: theme)
 
                     // Grouped rather than two children of the stack, which is
                     // at the builder's ceiling. They belong together anyway:
                     // both are about keeping hold of this flight past the
                     // moment you are looking at it.
                     VStack(spacing: 12) {
-                        FlightWatchRow(flight: flight, theme: theme)
+                        // The three you reach for while looking, and — on the
+                        // end of the same row — the three you throw once and
+                        // leave running. `FlightKeepMenu` explains the split.
+                        HStack(spacing: 10) {
+                            FlightActionRow(
+                                flight: flight,
+                                theme: theme,
+                                track: track,
+                                onReplay: { onReplay(track) }
+                            )
+
+                            FlightKeepMenu(flight: flight, theme: theme)
+                        }
+                        .fixedSize(horizontal: false, vertical: true)
 
                         // Nothing at all on anybody else's aeroplane — see
                         // `FileThisFlightRow`.
@@ -902,7 +915,9 @@ struct FlightDetailView: View {
                 FlightIdentityBlock(
                     flight: flight,
                     registration: registration(for: flight),
-                    theme: theme
+                    theme: theme,
+                    // The pilot card below carries the face and the state.
+                    showsPilot: false
                 )
             }
         }

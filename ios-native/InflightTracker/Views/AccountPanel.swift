@@ -69,6 +69,10 @@ struct AccountPanel: View {
 
     /// The profile editor, and a preview of the profile as strangers see it.
     @State private var isShowingProfileEditor = false
+
+    /// The one-go setup, opened by the app rather than found.
+    @State private var isShowingProfileSetup = false
+
     @State private var viewing: ProfileLink?
 
     /// The IFC handle being edited. Committed on submit rather than per
@@ -122,6 +126,27 @@ struct AccountPanel: View {
         }
         .sheet(isPresented: $isShowingPaywall) { ProPanel() }
         .sheet(isPresented: $isShowingProfileEditor) { ProfileEditorView() }
+        .sheet(isPresented: $isShowingProfileSetup) { ProfileSetupView() }
+        // An account appearing where there was none is a sign-up or a first
+        // sign-in on this device. Both Apple's button and the email form land
+        // here, so neither of them has to remember to ask — and the setup is
+        // opened BY the app rather than waiting to be found, which is the whole
+        // change: a profile nobody was offered is a profile nobody made.
+        //
+        // Watched on the id rather than on a flag set in `submit()`, because
+        // there are three ways in (Apple, sign-up, sign-in) and a flag would
+        // have to be set in each of them.
+        .onChange(of: accounts.account?.id) { previous, current in
+            guard previous == nil, current != nil else { return }
+            Task {
+                // Read first, and awaited. Somebody signing in on a second
+                // device already has a profile, and walking them through
+                // making the one they made last year would be worse than not
+                // offering it at all.
+                await profiles.load()
+                if !profiles.hasProfile { isShowingProfileSetup = true }
+            }
+        }
         .sheet(item: $viewing) { link in PublicProfileView(link: link) }
         .confirmationDialog(
             "Delete your account?",
@@ -221,11 +246,11 @@ struct AccountPanel: View {
                 }
             } else {
                 PanelActionRow(
-                    title: "Claim a handle",
+                    title: "Set up your profile",
                     symbol: "person.crop.circle.badge.plus",
-                    detail: "A page with your picture, the aeroplane you fly, and the pilots you fly with. Anybody can open it — no app needed."
+                    detail: "Three questions: a handle, your Infinite Flight name, a picture. Then anybody can open your page — no app needed."
                 ) {
-                    isShowingProfileEditor = true
+                    isShowingProfileSetup = true
                 }
             }
         }

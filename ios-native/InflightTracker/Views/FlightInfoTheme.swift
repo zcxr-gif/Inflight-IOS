@@ -91,6 +91,48 @@ enum AppPalette: String, CaseIterable, Identifiable {
     }
 }
 
+/// What sits behind the pilot block in the flight window.
+///
+/// A photograph of somebody's own choosing is the reason profiles have banners
+/// at all, and putting one behind their name on a tapped aeroplane is the first
+/// time it is seen by anybody who did not go looking for their profile. It is
+/// also the first time the flight window has drawn a picture it did not choose
+/// — the aircraft photo above it is ours, and this one is theirs — so it is a
+/// switch, and both settings are ordinary.
+///
+/// Nothing here is a Pro gate. The banner belongs to the pilot being *looked
+/// at*: a free account looking at a Pro pilot sees their photograph, because it
+/// is that pilot's, and a Pro account looking at a free pilot sees a painted
+/// gradient because that is what a free profile has. What this decides is
+/// whether the reader wants pictures in their window at all.
+enum PilotCardBackdrop: String, CaseIterable, Identifiable {
+
+    /// The window's own surface, like every other card in it.
+    case colour
+
+    /// The pilot's banner — their photograph if they are Pro, the gradient
+    /// they picked if they are not.
+    case picture
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .colour:  return "Plain"
+        case .picture: return "Their banner"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .colour:
+            return "The pilot block is drawn like every other card in the window."
+        case .picture:
+            return "Puts the pilot's own banner behind their name — their photograph if they have Pro, the gradient they picked if not."
+        }
+    }
+}
+
 /// Runtime appearance switches for the app.
 ///
 /// Every surface in the window — and every piece of chrome over the map — is
@@ -108,6 +150,7 @@ final class FlightInfoAppearance: ObservableObject {
     private static let airlineAccentKey = "flightInfoAirlineAccent"
     private static let smoothTrafficKey = "map.smoothTraffic"
     private static let windowPlacementKey = "flightWindowPlacement"
+    private static let pilotCardBackdropKey = "flightInfoPilotBackdrop"
     private static let modeKey = "appAppearanceMode"
     private static let paletteKey = "appPalette"
     /// The old single map style, read once so an install that predates the
@@ -166,6 +209,18 @@ final class FlightInfoAppearance: ObservableObject {
     @Published var flightWindowPlacement: FlightWindowPlacement {
         didSet {
             UserDefaults.standard.set(flightWindowPlacement.rawValue, forKey: Self.windowPlacementKey)
+        }
+    }
+
+    /// What is drawn behind the pilot block in the flight window. See
+    /// `PilotCardBackdrop`.
+    ///
+    /// Defaults to the picture. The banner is the one thing on a profile that
+    /// nobody else ever saw — you had to open somebody's profile to find it,
+    /// and almost nobody does — and the window is where it finally has a job.
+    @Published var pilotCardBackdrop: PilotCardBackdrop {
+        didSet {
+            UserDefaults.standard.set(pilotCardBackdrop.rawValue, forKey: Self.pilotCardBackdropKey)
         }
     }
 
@@ -381,6 +436,9 @@ final class FlightInfoAppearance: ObservableObject {
         flightWindowPlacement = FlightWindowPlacement(
             rawValue: defaults.string(forKey: Self.windowPlacementKey) ?? ""
         ) ?? .centred
+        pilotCardBackdrop = PilotCardBackdrop(
+            rawValue: defaults.string(forKey: Self.pilotCardBackdropKey) ?? ""
+        ) ?? .picture
         // Dark was the only look the app had, so an install that predates this
         // setting keeps what it had rather than turning light overnight. New
         // installs follow iOS.

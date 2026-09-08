@@ -77,9 +77,14 @@ struct FlightInfoBoard: View {
                 FlightPhaseChip(phase: FlightPhase.from(flight), theme: theme, elevated: true)
             }
 
-            // The operator on the left the way a board prints it, and who is
-            // actually flying it on the right — which is the half a board at
-            // an airport has no equivalent of and this app cannot leave out.
+            // The operator, the way a board prints it.
+            //
+            // Who is actually flying it used to be squeezed onto the right of
+            // this line — a board at an airport has no equivalent of a pilot
+            // and the app could not leave one out. It has one now:
+            // `FlightPilotCard`, directly under this board in the window,
+            // which has room for the face, the grade and the virtual airline
+            // rather than an avatar the size of a full stop.
             HStack(spacing: 8) {
                 Text(operatorLine)
                     .font(.system(size: 13, weight: .semibold))
@@ -87,10 +92,6 @@ struct FlightInfoBoard: View {
                     .flightInfoLine(minimumScale: 0.7)
 
                 Spacer(minLength: 6)
-
-                FlightPilotBadge(username: flight.username, side: 20)
-
-                PilotStateChip(state: flight.pilotState, theme: theme, elevated: true)
             }
         }
         .padding(.horizontal, 2)

@@ -796,6 +796,15 @@ struct FlightIdentityBlock: View {
     let registration: String
     let theme: FlightInfoTheme
 
+    /// Whether the pilot's face and state ride along under the callsign.
+    ///
+    /// True in the peek, which is one block and has to carry everything. False
+    /// in the open window, where `FlightPilotCard` sits directly underneath and
+    /// says all of it properly — a face, a grade, a virtual airline — and this
+    /// block saying a quiet version of the same thing an inch above it is the
+    /// window telling you twice.
+    var showsPilot: Bool = true
+
     var body: some View {
         HStack(alignment: .bottom, spacing: 10) {
             VStack(alignment: .leading, spacing: 4) {
@@ -811,13 +820,14 @@ struct FlightIdentityBlock: View {
                     FlightPhaseChip(phase: FlightPhase.from(flight), theme: theme, elevated: true)
                 }
 
-                HStack(spacing: 6) {
-                    // The pilot's own picture when they have claimed a profile
-                    // here, and the plain glyph when they have not. Tappable in
-                    // this window, which is the one with room to leave for.
-                    FlightPilotBadge(username: flight.username, side: 22)
+                if showsPilot {
+                    HStack(spacing: 6) {
+                        // The pilot's own picture when they have claimed a
+                        // profile here, and the plain glyph when they have not.
+                        FlightPilotBadge(username: flight.username, side: 22)
 
-                    PilotStateChip(state: flight.pilotState, theme: theme, elevated: true)
+                        PilotStateChip(state: flight.pilotState, theme: theme, elevated: true)
+                    }
                 }
 
                 // Where the flight is in its day. What it is being flown in

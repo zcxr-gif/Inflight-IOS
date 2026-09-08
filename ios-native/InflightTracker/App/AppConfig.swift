@@ -47,6 +47,31 @@ enum AppConfig {
         return URL(string: "\(socketURLString)/api/flights/\(encoded)/plan")
     }
 
+    /// Everything Infinite Flight knows about one pilot, by account id — the
+    /// grade, the virtual airline, the career totals. The feed sends the id on
+    /// every aircraft, so this is the cheap way round.
+    static func pilotStatsURL(userId: String) -> URL? {
+        guard let encoded = userId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
+            return nil
+        }
+        return URL(string: "\(socketURLString)/api/users/\(encoded)/stats")
+    }
+
+    /// The same block found by the name somebody types.
+    ///
+    /// The expensive way round, and the only one available while setting up a
+    /// profile: a person knows the name they sign into Infinite Flight with and
+    /// does not know their account id. A 404 here is the answer that matters —
+    /// it means no such pilot, which is how a typo gets caught before it is
+    /// published on a profile.
+    static func pilotStatsURL(ifUsername: String) -> URL? {
+        let trimmed = ifUsername.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+        else { return nil }
+        return URL(string: "\(socketURLString)/api/pilots/\(encoded)/stats")
+    }
+
     /// The North Atlantic organised track system, republished twice a day.
     /// The same endpoint the web tracker read — see `old/www/natTracksLayer.js`.
     static var natTracksURL: URL? {

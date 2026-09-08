@@ -143,12 +143,80 @@ under our own domain.
 | `Services/LogbookRecorder.swift` | Watches the feed for your own aircraft and writes down what it sees |
 | `Views/ProfileComponents.swift` | Avatar, banner, rows, strips, badges — shared by every screen |
 | `Views/PublicProfileView.swift` | A pilot, as the world sees them |
-| `Views/ProfileEditorView.swift` | Setting up your own |
+| `Views/ProfileSetupView.swift` | Making one, in one sitting — see below |
+| `Views/ProfileEditorView.swift` | Changing one you already have |
 | `Views/PilotListPanel.swift` | Followers, following, search, and reporting |
+| `Views/FlightPilotCard.swift` | The pilot block in the flight window |
+| `Models/IFPilotStats.swift` | Grade and virtual airline, from the game rather than from us |
+| `Services/PilotStatsService.swift` | Fetches and caches that block |
 
 Ways in: the account panel, the friends panel (rows, and "Find a pilot"), and
-the Profile chip on any open aircraft — which is the one that matters, because
+the pilot block on any open aircraft — which is the one that matters, because
 it turns a tapped aeroplane into a person.
+
+## Setting one up
+
+`ProfileSetupView` opens by itself the first time an account appears on a
+device, and is what the account panel's own row leads to. It exists because the
+old path was four errands nobody was told about: make an account, find the
+editor, claim a handle, come back for a picture — and the Infinite Flight
+username, which is the join that makes any of this work, was on a different
+panel under a different heading and was nobody's idea of part of signing up.
+The result was accounts with a handle and no picture, and profiles joined to
+nothing.
+
+Three steps. The handle and the display name, both suggested from what is
+already known — the Infinite Flight name already on the device, Apple's full
+name, the local part of the email. Then the Infinite Flight username, **checked
+against Infinite Flight** rather than merely typed: the backend resolves it and
+hands back the grade and virtual airline, which is a confirmation of the only
+kind worth having, because it is the server reading something back that nobody
+entered. Then a picture.
+
+The row is written when the second step is left, not at the end. A picture has
+to be attached to something, and it makes the failure mode the right way round:
+somebody who closes the sheet on the last step still has a profile, a handle
+and a working join, and is missing only the photograph.
+
+Nothing on this screen is a paywall. The photographic banner is Pro and is
+offered in the editor instead — the last screen of somebody's first two minutes
+is the wrong place to explain what they cannot have.
+
+## The pilot in the flight window
+
+`FlightPilotCard` sits directly under the aircraft's identity in the open
+window, shaped like the PARKED AT block, and it is three sources kept apart on
+purpose:
+
+| | Where from | Is it a claim? |
+| --- | --- | --- |
+| The name | the live feed | it is what the server says |
+| Picture, banner, display name | `PilotDirectory` — Inflight's own profiles | **yes** — nothing verifies `if_username` |
+| Grade, virtual airline | Infinite Flight, via `PilotStatsService` | no — nobody types it |
+
+Only the third is drawn as a flat statement, and it is the only one that gets
+colour: `IFGrade` carries a fixed cool-to-warm ramp ending in gold, which is the
+one exception to the window's monochrome, because a grade is the only number on
+the card that is read comparatively.
+
+The pilot's banner goes behind the block — their photograph if they are Pro,
+the gradient they picked if not, which needs no entitlement check here because
+the server already blanks `banner_path` for a lapsed account. Whether pictures
+are drawn there at all is the reader's own setting, under Flight window › The
+pilot.
+
+Two backend routes feed it, both on the live-flights service and both cached
+five minutes there and ten minutes in the app:
+
+| Route | Answers |
+| --- | --- |
+| `GET /api/users/:userId/stats` | by the id the feed sends on every aircraft |
+| `GET /api/pilots/:username/stats` | by the name somebody types — the setup's check |
+
+The second is new. It resolves a Discourse handle through `POST /users` and then
+answers exactly as the first does, which makes a 404 from it the one thing the
+app could never establish before: that a typed Infinite Flight username is not
+anybody's.
 
 ### The website — the `database` repo
 

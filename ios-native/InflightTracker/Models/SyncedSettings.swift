@@ -57,6 +57,7 @@ struct SyncedSettings: Codable, Equatable {
     var peakStyle: String?
     var windowStyle: String?
     var windowPlacement: String?
+    var pilotCardBackdrop: String?
     var airlineAccent: Bool?
     var smoothTraffic: Bool?
 
@@ -143,6 +144,7 @@ struct SyncedSettings: Codable, Equatable {
         settings.peakStyle = appearance.peakStyle.rawValue
         settings.windowStyle = appearance.windowStyle.rawValue
         settings.windowPlacement = appearance.flightWindowPlacement.rawValue
+        settings.pilotCardBackdrop = appearance.pilotCardBackdrop.rawValue
         settings.airlineAccent = appearance.showsAirlineAccent
         settings.smoothTraffic = appearance.smoothsTraffic
 
@@ -243,6 +245,9 @@ struct SyncedSettings: Codable, Equatable {
         }
         if let value = windowPlacement.flatMap(FlightWindowPlacement.init(rawValue:)) {
             appearance.flightWindowPlacement = value
+        }
+        if let value = pilotCardBackdrop.flatMap(PilotCardBackdrop.init(rawValue:)) {
+            appearance.pilotCardBackdrop = value
         }
         if let airlineAccent = airlineAccent { appearance.showsAirlineAccent = airlineAccent }
         if let smoothTraffic = smoothTraffic { appearance.smoothsTraffic = smoothTraffic }
