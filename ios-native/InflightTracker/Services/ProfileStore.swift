@@ -46,6 +46,95 @@ final class ProfileStore: ObservableObject {
     /// opens the paywall off this rather than off an error string.
     @Published var needsProFor: ProFeature?
 
+    /// What moderation has said to this pilot, and whether they may add
+    /// pictures. Nil until read, and nil for a signed-out reader.
+    @Published private(set) var standing: Standing?
+
+    /// The pilot's side of moderation: what they were told, and what it stops
+    /// them doing.
+    ///
+    /// `uploadsNotice` is composed BY THE SERVER and shown verbatim. It would
+    /// be easy to build the sentence here from `uploadsRestrictedUntil` and
+    /// save a column — and then a pilot who has not updated the app in three
+    /// months would be reading three-month-old wording about a restriction
+    /// applied this morning, and the refusal they get from the upload button
+    /// would not match the banner sitting above it. One sentence, from one
+    /// place, is the whole point.
+    /// Timestamps are decoded as text and converted, not declared as `Date`.
+    /// `SupabaseData.rpc` decodes with a plain `JSONDecoder`, whose default
+    /// date strategy reads a number of seconds — handed a Postgres timestamp
+    /// it throws, and the throw would take the whole standing with it. The
+    /// same variable-fractional-digits problem `SupabaseAuth.Timestamp` was
+    /// written for, so it is what parses them.
+    struct Standing: Decodable, Equatable {
+        var warnings: [Warning] = []
+        var activeCount: Int = 0
+        var unacknowledgedCount: Int = 0
+        var uploadsRestricted: Bool = false
+        var uploadsRestrictedUntilText: String?
+        var uploadsNotice: String = ""
+
+        var uploadsRestrictedUntil: Date? {
+            uploadsRestrictedUntilText.flatMap(SupabaseAuth.Timestamp.date(from:))
+        }
+
+        /// Warnings that still stand, newest first — what the editor lists.
+        var standingWarnings: [Warning] { warnings.filter(\.isStanding) }
+
+        enum CodingKeys: String, CodingKey {
+            case warnings
+            case activeCount = "active_count"
+            case unacknowledgedCount = "unacknowledged_count"
+            case uploadsRestricted = "uploads_restricted"
+            case uploadsRestrictedUntilText = "uploads_restricted_until"
+            case uploadsNotice = "uploads_notice"
+        }
+
+        struct Warning: Decodable, Equatable, Identifiable {
+            let id: String
+            let level: String
+            let reason: String
+            let category: String?
+            let acknowledgedAtText: String?
+            let rescindedAtText: String?
+            let createdAtText: String?
+            let uploadBlock: Bool
+
+            var acknowledgedAt: Date? {
+                acknowledgedAtText.flatMap(SupabaseAuth.Timestamp.date(from:))
+            }
+            var createdAt: Date? {
+                createdAtText.flatMap(SupabaseAuth.Timestamp.date(from:))
+            }
+
+            var isAcknowledged: Bool { acknowledgedAtText != nil }
+
+            /// A rescinded warning is one we withdrew. It is still shown, and
+            /// shown as withdrawn: a warning issued in error is part of how
+            /// this pilot has been treated, and dropping it would make the
+            /// record we keep differ from the record they can see.
+            var isStanding: Bool { rescindedAtText == nil }
+
+            var title: String {
+                switch level {
+                case "notice": return "Notice"
+                case "first": return "First warning"
+                case "final": return "Final warning"
+                case "suspended": return "Profile suspended"
+                default: return "Warning"
+                }
+            }
+
+            enum CodingKeys: String, CodingKey {
+                case id, level, reason, category
+                case acknowledgedAtText = "acknowledged_at"
+                case rescindedAtText = "rescinded_at"
+                case createdAtText = "created_at"
+                case uploadBlock = "upload_block"
+            }
+        }
+    }
+
     /// A profile as its owner edits it.
     ///
     /// Deliberately not `PilotProfile`: that type is what a reader gets, it has
@@ -211,6 +300,9 @@ final class ProfileStore: ObservableObject {
             profile = nil
             problem = nil
             notice = nil
+            // Signing out has to drop this too. It is one account's warnings,
+            // and leaving it behind would show them to whoever signs in next.
+            standing = nil
             return
         }
         Task { await load() }
@@ -219,8 +311,19 @@ final class ProfileStore: ObservableObject {
     func load() async {
         guard let account = AccountStore.shared.account else {
             profile = nil
+            standing = nil
             return
         }
+
+        // Alongside the row, not after it. A pilot whose uploads are switched
+        // off should see that the moment the editor draws, not one round trip
+        // after the avatar button has already invited them to try.
+        //
+        // Its own task rather than sequenced into the body below, because that
+        // body returns early in three places when the URL cannot be built —
+        // and a pilot must not fail to be told about a restriction because
+        // some unrelated `URLComponents` came back nil.
+        Task { await self.loadStanding() }
         guard let token = await AccountStore.shared.currentAccessToken() else { return }
 
         isLoading = true
@@ -259,6 +362,54 @@ final class ProfileStore: ObservableObject {
             // profile that has been deleted, and blanking the editor because
             // the phone lost signal would look like exactly that.
         }
+    }
+
+    // MARK: - Where this pilot stands
+
+    /// Warnings this pilot has been sent about what they uploaded, and whether
+    /// adding pictures is currently switched off for them.
+    ///
+    /// Read separately from the profile row rather than joined onto it,
+    /// because it is a different KIND of thing: the profile is what the pilot
+    /// wrote and may rewrite, this is what was said to them and they cannot.
+    /// Keeping them apart is also why a failure here leaves the editor working
+    /// — a warning that could not be fetched must not stop somebody fixing
+    /// their bio.
+    func loadStanding() async {
+        guard AccountStore.shared.account != nil else {
+            standing = nil
+            return
+        }
+        guard let token = await AccountStore.shared.currentAccessToken() else { return }
+        do {
+            let rows: [Standing] = try await SupabaseData.rpc(
+                "pilot_my_standing",
+                accessToken: token
+            )
+            // No rows is the signed-out answer, and it arrives here whenever a
+            // token has just expired. Left as it was rather than blanked: a
+            // restriction that briefly failed to load must not read as one
+            // that has been lifted.
+            if let first = rows.first { standing = first }
+        } catch {
+            // Same reasoning as `load()`. Silence, not a blank.
+        }
+    }
+
+    /// Marks a warning as received. Not as agreed with — there is nowhere in
+    /// this app to disagree, and pretending otherwise would be worse than
+    /// saying plainly what the button does.
+    func acknowledgeWarning(_ id: String) async {
+        guard let token = await AccountStore.shared.currentAccessToken() else { return }
+        // Annotated rather than cast: `rpc` is generic over its return, so the
+        // type has to be stated somewhere, and a binding states it without
+        // wrapping the whole `try? await` in a postfix `as`.
+        let _: [Bool]? = try? await SupabaseData.rpc(
+            "pilot_acknowledge_warning",
+            arguments: ["p_warning_id": id],
+            accessToken: token
+        )
+        await loadStanding()
     }
 
     // MARK: - Writing
@@ -470,12 +621,20 @@ final class ProfileStore: ObservableObject {
                 let path: String?
                 let error: String?
                 let pro: Bool?
+                let uploadsPaused: Bool?
             }
             let answer = try? JSONDecoder().decode(Answer.self, from: data)
 
             guard (200..<300).contains(status), let path = answer?.path else {
                 if answer?.pro == true || status == 402 {
                     needsProFor = kind.feature ?? .profileBanner
+                }
+                // Refused because a warning has switched uploading off. The
+                // server's sentence is shown as-is — it is the same one the
+                // editor's banner carries — and the standing is re-read so
+                // that banner appears for a pilot who had not seen it yet.
+                if answer?.uploadsPaused == true {
+                    await loadStanding()
                 }
                 problem = answer?.error ?? "That picture couldn't be saved."
                 return

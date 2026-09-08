@@ -89,6 +89,42 @@ a classifier endpoint — the function will call it before storing anything, and
 refuses the upload when the classifier is unreachable rather than publishing on
 a failure.
 
+### 5. Somebody can look, remove it, and say so
+
+The four things above all start from a report, and all of them act on the
+profile as a whole. That left three holes, and
+`20260908000000_pilot_content_moderation.sql` closes them:
+
+* **A way to look.** `admin_pilot_uploads()` lists every avatar and banner on
+  the platform with the uploader's standing beside it — open reports, prior
+  takedowns, whether they are already restricted. Before this, an image nobody
+  had reported three times was an image nobody could find.
+* **A way to remove one picture.** `admin_pilot_takedown()` clears the column,
+  writes a `pilot_content_actions` row saying which file and why, and — in the
+  same transaction — optionally issues the warning. One call, because a
+  takedown where somebody meant to warn and did not is a record with a gap in
+  it. It returns the orphaned object's path; deleting the file is the caller's
+  job, in that order, so the worst failure is litter in a bucket rather than a
+  profile pointing at a 404.
+* **A way to make it stick.** A `pilot_warnings` row can carry
+  `upload_block`, with or without an expiry. `profile-image` asks
+  `pilot_upload_notice()` before it stores anything and refuses with the
+  sentence that function returns — the same sentence the app draws in the
+  profile editor, so a pilot cannot be told two different things about one
+  restriction. Removing a picture is deliberately still allowed: that is them
+  complying.
+
+Rescinding a warning lifts its block; `admin_pilot_lift_restriction()` lifts
+the block and leaves the warning standing. Two verbs because they mean
+different things, and collapsing them would make "you may upload again" require
+erasing the reason you could not.
+
+**Moderating is done from the Inflight staff hub**, not from here — the
+`admin_pilot_*` functions are granted to `service_role` and nothing else, and
+the hub already has staff accounts, roles, and a way to revoke both. See
+`pilotModeration.js` and `/pilot-content` in the backend repo. This project
+deliberately has no staff role of its own.
+
 ## Where each piece lives
 
 ### Database — `supabase/migrations/`
@@ -99,6 +135,7 @@ a failure.
 | `20260818000100_pilot_profiles.sql` | The profile, the moderation vocabulary, reserved handles, blocks, reports, the write guard, and the two storage buckets |
 | `20260818000200_pilot_follows.sql` | Follows, the mutual-friend definition, and every public read function |
 | `20260818000300_pilot_logbook.sql` | The logbook, its visibility, the free window, the summary and the badges |
+| `20260908000000_pilot_content_moderation.sql` | Warnings, upload restrictions, the takedown record, and the five functions the staff console calls |
 
 Run them in order. `supabase/tests/run.sh` applies all of them to a throwaway
 PostgreSQL cluster and exercises the rules — worth running before applying to
