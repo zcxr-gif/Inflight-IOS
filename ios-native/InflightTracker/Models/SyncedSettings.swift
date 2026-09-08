@@ -101,6 +101,8 @@ struct SyncedSettings: Codable, Equatable {
     var animatesRadar: Bool?
     var showsWinds: Bool?
     var windLevel: String?
+    var windParticles: Bool?
+    var windHeat: String?
     var showsFieldConditions: Bool?
 
     // MARK: - Instruments
@@ -183,6 +185,8 @@ struct SyncedSettings: Codable, Equatable {
         settings.animatesRadar = weather.animatesRadar
         settings.showsWinds = weather.showsWinds
         settings.windLevel = weather.windLevel.rawValue
+        settings.windParticles = weather.showsWindParticles
+        settings.windHeat = weather.windHeat.rawValue
         settings.showsFieldConditions = weather.showsFieldConditions
 
         settings.instrumentsEnabled = instruments.isEnabled
@@ -326,6 +330,10 @@ struct SyncedSettings: Codable, Equatable {
         if let showsWinds = showsWinds { weather.showsWinds = showsWinds }
         if let value = windLevel.flatMap(WindLevel.init(rawValue:)) {
             weather.windLevel = value
+        }
+        if let windParticles = windParticles { weather.showsWindParticles = windParticles }
+        if let value = windHeat.flatMap(WeatherHeat.init(rawValue:)) {
+            weather.windHeat = value
         }
         if let showsFieldConditions = showsFieldConditions {
             weather.showsFieldConditions = showsFieldConditions

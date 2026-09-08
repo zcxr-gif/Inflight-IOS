@@ -703,6 +703,8 @@ struct ContentView: View {
             atcStations: filters.showsAtcBoundaries ? feed.atcStations : [],
             showsWinds: weatherPreferences.showsWinds,
             windLevel: weatherPreferences.windLevel,
+            showsWindParticles: weatherPreferences.showsWindParticles,
+            windHeat: weatherPreferences.windHeat,
             showsFieldConditions: weatherPreferences.showsFieldConditions,
             onSelectAirport: { openAirport(fromMap: $0) },
             highlighting: highlighting
@@ -852,6 +854,18 @@ struct ContentView: View {
             if weatherPreferences.mapLayer != .off, !isPlanetMap {
                 MapWeatherBar(model: mapWeather, theme: theme)
                     .transition(.opacity.combined(with: .move(edge: .leading)))
+            }
+
+            // The key to the coloured field, and only while there is one. See
+            // `WeatherFieldLegend` — a wash whose colours mean nothing you can
+            // look up is a wash that only looks like information.
+            if weatherPreferences.windHeat != .off, !isPlanetMap {
+                WeatherFieldLegend(
+                    product: weatherPreferences.windHeat,
+                    level: weatherPreferences.windLevel,
+                    theme: theme
+                )
+                .transition(.opacity.combined(with: .move(edge: .leading)))
             }
 
             if measurement.isOn {

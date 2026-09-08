@@ -113,4 +113,137 @@ enum WindLevel: String, CaseIterable, Identifiable {
             abs(Double($0.approximateFeet) - feet) < abs(Double($1.approximateFeet) - feet)
         } ?? .fl340
     }
+
+    /// The next model level *down*, and roughly how far below it sits.
+    ///
+    /// Only the shear layer wants this, and it wants it for the one reason
+    /// shear exists: the difference in wind between two heights is not a number
+    /// until you say how far apart they were. The gaps here are wildly uneven —
+    /// four thousand feet between 250 and 300 hPa, twelve between 300 and 500 —
+    /// so the difference has to be divided by the real spacing rather than
+    /// treated as one step of a ladder.
+    ///
+    /// Standard-atmosphere heights, not the model's own geopotential. They are
+    /// within a few hundred feet, and asking for two more series per point to
+    /// improve a shear index by three per cent is not a trade worth making.
+    var below: (pressureLevel: String, feet: Int) {
+        switch self {
+        case .fl050: return ("925hPa", 2_500)
+        case .fl100: return ("850hPa", 5_000)
+        case .fl180: return ("700hPa", 10_000)
+        case .fl300: return ("500hPa", 18_300)
+        case .fl340: return ("300hPa", 30_100)
+        case .fl390: return ("250hPa", 34_000)
+        }
+    }
+
+    /// The standard-atmosphere temperature at this level, in Celsius.
+    ///
+    /// What the temperature layer's colour scale is centred on, so the ramp
+    /// says "warmer or colder than it should be here" at every level rather
+    /// than drawing the whole flight levels in one blue and the whole lower
+    /// airspace in one red. Fifteen degrees at sea level, less about two per
+    /// thousand feet, and flat once you are in the stratosphere.
+    var standardTemperature: Double {
+        let feet = Double(approximateFeet)
+        return max(15 - 1.98 * feet / 1_000, -56.5)
+    }
+}
+
+/// A scalar field drawn as colour under the traffic.
+///
+/// ## Why a heat map rather than more numbers
+///
+/// The map already writes the wind at each marked field and draws an arrow
+/// every few degrees. Both of those answer "what is it *here*", and neither
+/// answers the question anybody watching traffic actually has, which is "where
+/// is it". A jet stream is a shape. So is a band of shear, and so is the cold
+/// pool an aircraft is about to fly into. A shape wants a picture.
+///
+/// One at a time, like the tile layers and for the same reason: two translucent
+/// fields over each other are two fields you cannot read.
+///
+/// ## Everything here comes off one request
+///
+/// The winds fetch already asks a grid of points for wind at a pressure level.
+/// Open-Meteo answers for as many variables as you name in the same call, so
+/// temperature and the level below cost nothing but a longer URL — which is why
+/// three fields exist rather than one, and why turning one on does not fetch
+/// anything the barbs were not already fetching.
+enum WeatherHeat: String, CaseIterable, Identifiable {
+
+    case off
+
+    /// Wind speed at the chosen level. The jet stream, drawn as the thing it
+    /// is.
+    case wind
+
+    /// Temperature at the chosen level, against what the standard atmosphere
+    /// says it should be there.
+    case temperature
+
+    /// Vertical wind shear between the chosen level and the one below it.
+    ///
+    /// Not a turbulence forecast, and the app never calls it one — clear-air
+    /// turbulence needs stability as well as shear, and this has one of the
+    /// two. What it is is the field every CAT index is built on top of, and
+    /// where it is strong is where the bumps are.
+    case shear
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .off: return "Off"
+        case .wind: return "Wind"
+        case .temperature: return "Temperature"
+        case .shear: return "Shear"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .off: return "slash.circle"
+        case .wind: return "wind"
+        case .temperature: return "thermometer.medium"
+        case .shear: return "waveform.path.ecg"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .off:
+            return "No field. The barbs, if they are on, are drawn over bare map."
+        case .wind:
+            return "Wind speed at the chosen level, as colour. Pulled back over an ocean this is the jet stream — where it is, how wide, and which side of it a flight is on."
+        case .temperature:
+            return "How far the air at the chosen level is from the standard atmosphere. Warm is thin: the same aircraft climbs worse and burns more in it."
+        case .shear:
+            return "How much the wind changes between this level and the one below, per thousand feet. Not a turbulence forecast — it is the field turbulence forecasts are built from, and the bumps are where it is strong."
+        }
+    }
+
+    /// Whether this field needs the level below fetched as well.
+    var needsLowerLevel: Bool { self == .shear }
+
+    /// How the value reads under a finger, and on the legend.
+    func reading(_ value: Double, wind unit: WindUnit, temperature: TemperatureUnit) -> String {
+        switch self {
+        case .off:
+            return ""
+        case .wind:
+            return "\(Int(unit.convert(fromKnots: value).rounded())) \(unit.label)"
+        case .temperature:
+            // A *difference* in temperature, not a temperature — so Fahrenheit
+            // is nine fifths of it and not nine fifths plus thirty-two.
+            // Putting a deviation through the ordinary conversion is how a map
+            // ends up reporting that the air everywhere is thirty-two degrees
+            // warmer than standard.
+            let degrees = temperature == .fahrenheit ? value * 9 / 5 : value
+            let sign = degrees > 0 ? "+" : ""
+            return "ISA \(sign)\(Int(degrees.rounded()))"
+        case .shear:
+            return String(format: "%.1f kt/1000ft", value)
+        }
+    }
 }

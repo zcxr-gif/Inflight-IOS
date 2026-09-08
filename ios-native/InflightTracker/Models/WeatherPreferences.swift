@@ -73,6 +73,8 @@ final class WeatherPreferences: ObservableObject {
     private static let animateKey = "weather.animatesRadar"
     private static let windsKey = "weather.showsWinds"
     private static let windLevelKey = "weather.windLevel"
+    private static let particlesKey = "weather.windParticles"
+    private static let heatKey = "weather.windHeat"
     private static let fieldsKey = "weather.showsFieldConditions"
     private static let outlookKey = "weather.showsOutlook"
 
@@ -115,10 +117,28 @@ final class WeatherPreferences: ObservableObject {
         didSet { UserDefaults.standard.set(showsWinds, forKey: Self.windsKey) }
     }
 
-    /// The height those barbs are for.
+    /// The height the whole winds layer is for — the barbs, the moving air and
+    /// the coloured field alike. One level rather than three, because three
+    /// layers of the same sky at three different heights is not a picture of
+    /// anything.
     @Published var windLevel: WindLevel {
         didSet { UserDefaults.standard.set(windLevel.rawValue, forKey: Self.windLevelKey) }
     }
+
+    /// Whether the air is drawn moving. See `WindParticleOverlay`.
+    @Published var showsWindParticles: Bool {
+        didSet { UserDefaults.standard.set(showsWindParticles, forKey: Self.particlesKey) }
+    }
+
+    /// Which scalar field is washed under the traffic. See `WeatherHeat`.
+    @Published var windHeat: WeatherHeat {
+        didSet { UserDefaults.standard.set(windHeat.rawValue, forKey: Self.heatKey) }
+    }
+
+    /// Whether anything on the winds layer is on at all — which is what decides
+    /// whether the level picker has anything to act on, and whether the store
+    /// is asked for a grid.
+    var showsAnyWind: Bool { showsWinds || showsWindParticles || windHeat != .off }
 
     /// Whether a marked field carries its wind and temperature on the map
     /// once the map is close enough to read them.
@@ -150,6 +170,11 @@ final class WeatherPreferences: ObservableObject {
         mapLayer = MapWeatherLayer(rawValue: defaults.string(forKey: Self.layerKey) ?? "") ?? .off
         showsWinds = defaults.bool(forKey: Self.windsKey)
         windLevel = WindLevel(rawValue: defaults.string(forKey: Self.windLevelKey) ?? "") ?? .fl340
+        // Both off for the same reason the barbs are: each one is a model grid
+        // fetched over somebody's connection, and the moving one is also a
+        // thousand strokes a frame. They are things you turn on.
+        showsWindParticles = defaults.bool(forKey: Self.particlesKey)
+        windHeat = WeatherHeat(rawValue: defaults.string(forKey: Self.heatKey) ?? "") ?? .off
         // On, but only meaningful while a layer is: it animates what is
         // already there.
         animatesRadar = defaults.object(forKey: Self.animateKey) as? Bool ?? true

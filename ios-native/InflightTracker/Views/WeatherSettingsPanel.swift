@@ -127,6 +127,11 @@ struct WeatherSettingsPanel: View {
                 }
             }
 
+            // Three ways of drawing one grid, and they compose: barbs are the
+            // numbers, the streaks are the motion, the wash is the magnitude.
+            // All of them come off the same request — see `WindsAloftStore` —
+            // so turning a second one on costs nothing the first was not
+            // already spending.
             PanelSection(title: "WINDS ALOFT") {
                 PanelToggleRow(
                     title: "Wind barbs",
@@ -135,7 +140,27 @@ struct WeatherSettingsPanel: View {
                     isOn: $preferences.showsWinds
                 )
 
-                if preferences.showsWinds {
+                PanelDivider()
+
+                PanelToggleRow(
+                    title: "Moving air",
+                    symbol: "aqi.medium",
+                    detail: "Draws the air as streaks running the way it is going, with the fast ones longer. The clock is scaled so the movement reads at whatever the map is showing — the speeds are true against each other, not against a watch.",
+                    isOn: $preferences.showsWindParticles
+                )
+
+                PanelDivider()
+
+                PanelPickerRow(
+                    title: "Field",
+                    symbol: "square.stack.3d.down.right",
+                    options: WeatherHeat.allCases,
+                    label: { $0.label },
+                    detail: preferences.windHeat.detail,
+                    selection: $preferences.windHeat
+                )
+
+                if preferences.showsAnyWind {
                     PanelDivider()
 
                     PanelPickerRow(
