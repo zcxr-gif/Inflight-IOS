@@ -47,6 +47,21 @@ The entitlement is `com.apple.developer.weatherkit` in
 the app treats as "no forecast" — sections that do not appear — rather than as
 an error laid over a working panel.
 
+### Which is why there is one place that says so
+
+Every screen below draws its WeatherKit data, and its  Weather mark, only
+where there is data. That is right on screen and unreadable from outside it: a
+build whose App ID never had the capability looks exactly like a build that
+simply has no weather to show, and "there is no Apple mark anywhere in the app"
+is what both of them look like.
+
+So the reason is kept. `AppleWeatherService.lastFailure` holds whatever the last
+request threw, cleared by the first one that succeeds, and **Weather settings →
+SAMPLE** prints it under the sample. If no  Weather mark can be found anywhere
+in the app, that line is the first thing to read: it will either name a real
+service failure or say that the capability is missing from the App ID, and those
+are very different problems.
+
 **A METAR always wins.** Where a field files its own observation, that is what
 the app reports, and the runway wind is worked from the filed wind rather than
 Apple's. WeatherKit answers for the large majority of the world's airfields that

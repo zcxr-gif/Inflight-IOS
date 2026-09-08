@@ -79,6 +79,26 @@ struct WeatherSettingsPanel: View {
                         PanelDivider()
                         WeatherAttributionRow(attribution: apple.attribution)
                     }
+
+                    // And when Apple answered with nothing at all, why.
+                    //
+                    // Everything WeatherKit feeds — the forecast, the outlook,
+                    // the alerts, the sun and the moon, and every  Weather
+                    // mark that goes with them — is drawn only where there is
+                    // data to draw, so a build whose App ID never had the
+                    // capability shows no weather and no attribution and says
+                    // nothing about either. This is the one place that says it.
+                    if let failure = apple.lastFailure {
+                        PanelDivider()
+
+                        Text(failure)
+                            .font(.system(size: 9.5, weight: .medium))
+                            .foregroundStyle(theme.textDim)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                    }
                 }
             }
 

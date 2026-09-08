@@ -112,6 +112,10 @@ final class WindsAloftStore: ObservableObject {
     /// jet is running, and twenty arrows across the North Atlantic answer it
     /// exactly the way a chart does. The second half is true but harmless — the
     /// wind at the field is still the wind at the field.
+    ///
+    /// Both are clamps rather than cut-offs — see `grid(for:size:holding:)`.
+    /// Zooming past either end stops the lattice getting any finer or any
+    /// coarser; it does not take the layer off the map.
     private static let minimumSpanDegrees: Double = 0.15
     private static let maximumSpanDegrees: Double = 120
 
@@ -129,6 +133,11 @@ final class WindsAloftStore: ObservableObject {
     private var cache: [String: Entry] = [:]
     private var inFlight = Set<String>()
 
+    /// The lattice step currently in use, which is what makes the ladder
+    /// sticky. Read and written only from `load`, which the map calls from its
+    /// own layout pass on the main thread.
+    private var heldStep: Double?
+
     /// Bounded: a session that pans across a continent at six zoom levels
     /// would otherwise keep every grid it ever asked for.
     private static let capacity = 40
@@ -140,11 +149,13 @@ final class WindsAloftStore: ObservableObject {
     /// drawn and fresh.
     func load(region: MKCoordinateRegion, demand: Demand) {
         let size = demand.needsField ? Self.dense : Self.sparse
-        guard let grid = Self.grid(for: region, size: size) else {
-            // Zoomed somewhere the grid cannot say anything useful about.
-            publish(key: nil, barbs: [], field: nil)
+        guard let grid = Self.grid(for: region, size: size, holding: heldStep) else {
+            // A region with no finite span at all — a map that has not laid
+            // out yet. Nothing is published: what is drawn stays drawn until
+            // there is a real region to answer for.
             return
         }
+        heldStep = grid.latitudeStep
 
         let wanted = "\(demand.key)|\(grid.key)"
 
@@ -164,6 +175,7 @@ final class WindsAloftStore: ObservableObject {
     /// Drop what is drawn. For the switch going off — a grid for a layer nobody
     /// is looking at is a grid the map should not be holding.
     func clear() {
+        heldStep = nil
         publish(key: nil, barbs: [], field: nil)
     }
 
@@ -218,17 +230,31 @@ final class WindsAloftStore: ObservableObject {
     /// small enough to be worth drawing, and an actual lattice.
     private static func grid(
         for region: MKCoordinateRegion,
-        size: (columns: Int, rows: Int)
+        size: (columns: Int, rows: Int),
+        holding held: Double?
     ) -> Grid? {
         let span = region.span
         guard span.latitudeDelta.isFinite, span.longitudeDelta.isFinite else { return nil }
-        guard span.latitudeDelta >= minimumSpanDegrees,
-              span.latitudeDelta <= maximumSpanDegrees else { return nil }
+
+        // Clamped rather than refused.
+        //
+        // Both ends used to hand back nil, and nil cleared the key — which took
+        // the arrows, the coloured wash and every particle off the map at once.
+        // So a pinch that went one notch past the bottom of the range made the
+        // whole wind layer vanish, and backing off brought it back with a fresh
+        // fetch and a full reseed. That is the loading and unloading, and there
+        // was never a reason for it: the wind over a field is still the wind
+        // over that field when you zoom into it. Past either end the lattice
+        // simply stops getting any finer or any coarser.
+        let latitudeSpan = min(
+            max(span.latitudeDelta, minimumSpanDegrees),
+            maximumSpanDegrees
+        )
 
         // A step of a whole number of degrees where the span allows one, and a
         // clean fraction below that — so the lattice lands on the same numbers
         // whichever direction the map arrived from.
-        let step = niceStep(span.latitudeDelta / Double(size.rows))
+        let step = niceStep(latitudeSpan / Double(size.rows), holding: held)
         guard step > 0 else { return nil }
 
         let centreLat = (region.center.latitude / step).rounded() * step
@@ -280,15 +306,39 @@ final class WindsAloftStore: ObservableObject {
         )
     }
 
+    /// How far past a rung's own boundary the zoom has to go before the next
+    /// rung is taken.
+    ///
+    /// A ladder alone still changes rung the instant the arithmetic crosses a
+    /// boundary, and a new rung is a new lattice: a new key, a new request, a
+    /// raster thrown away and rebuilt, and every particle reseeded. A pinch
+    /// that settles near a boundary crosses it repeatedly, so the layer spent
+    /// the zoom restarting itself. A quarter is enough that the rung only
+    /// changes on a zoom somebody meant.
+    private static let stepHysteresis: Double = 1.25
+
+    /// The rungs themselves. The top reaches as far as `maximumSpanDegrees`
+    /// does: without a rung above ten, every view wider than a country rounded
+    /// to the same ten-degree lattice and asked for a grid far denser than the
+    /// map could show.
+    private static let ladder: [Double] = [0.25, 0.5, 1, 2, 5, 10, 15, 20, 30]
+
     /// The nearest rung of a tidy ladder, so zooming settles on one of a
-    /// handful of lattices rather than minting a new one at every scale. The
-    /// top of it reaches as far as `maximumSpanDegrees` now does: without a
-    /// rung above ten, every view wider than a country rounded to the same
-    /// ten-degree lattice and asked for a grid far denser than the map could
-    /// show.
-    private static func niceStep(_ raw: Double) -> Double {
-        let ladder: [Double] = [0.25, 0.5, 1, 2, 5, 10, 15, 20, 30]
-        return ladder.first { raw <= $0 } ?? ladder[ladder.count - 1]
+    /// handful of lattices rather than minting a new one at every scale.
+    ///
+    /// `held` is the rung already in use, and it is kept while the view is
+    /// anywhere near still being its own — see `stepHysteresis`.
+    private static func niceStep(_ raw: Double, holding held: Double? = nil) -> Double {
+        let wanted = ladder.first { raw <= $0 } ?? ladder[ladder.count - 1]
+
+        guard let held = held,
+              held != wanted,
+              let rung = ladder.firstIndex(of: held) else { return wanted }
+
+        // The band the held rung covers on its own, widened at both ends.
+        let ceiling = held * stepHysteresis
+        let floor = rung == 0 ? 0 : ladder[rung - 1] / stepHysteresis
+        return raw > floor && raw <= ceiling ? held : wanted
     }
 
     // MARK: - Fetching

@@ -221,6 +221,19 @@ final class AppleWeatherService: ObservableObject {
 
     @Published private(set) var states: [String: State] = [:]
 
+    /// Why the last WeatherKit request failed, if it did.
+    ///
+    /// Every failure used to be swallowed whole: the catch returned nil, the
+    /// state went to `.unavailable`, and a section with no data simply does not
+    /// draw — attribution included. That is the right behaviour on screen, and
+    /// it is why "there is no  Weather mark anywhere in the app" and "the
+    /// WeatherKit capability is not on this App ID" look exactly alike from the
+    /// outside. So the reason is kept, and Weather settings shows it.
+    ///
+    /// Cleared by the first request that succeeds, so it never outlives the
+    /// problem it describes.
+    @Published private(set) var lastFailure: String?
+
     /// Apple's mark and legal link.
     ///
     /// Nil only until it arrives. Nothing on screen waits on it —
@@ -348,7 +361,7 @@ final class AppleWeatherService: ObservableObject {
         states[key] = .loading
 
         Task { [weak self] in
-            let snapshot = await Self.fetch(coordinate)
+            let (snapshot, failure) = await Self.fetch(coordinate)
 
             // Weak again on the way in rather than reaching for the outer
             // closure's `self`, which is a mutable capture crossing into
@@ -357,11 +370,15 @@ final class AppleWeatherService: ObservableObject {
                 guard let self = self else { return }
                 self.inFlight.remove(key)
                 self.states[key] = snapshot.map(State.ready) ?? .unavailable
+                self.lastFailure = snapshot == nil ? failure : nil
             }
         }
     }
 
-    private static func fetch(_ coordinate: CLLocationCoordinate2D) async -> Snapshot? {
+    /// The weather, and — when there is none — why not.
+    private static func fetch(
+        _ coordinate: CLLocationCoordinate2D
+    ) async -> (Snapshot?, String?) {
         let location = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
 
         do {
@@ -380,7 +397,7 @@ final class AppleWeatherService: ObservableObject {
                 .prefix(dayCount)
                 .map { day in Self.day(day, at: coordinate) }
 
-            return Snapshot(
+            let snapshot = Snapshot(
                 conditionLabel: current.condition.description,
                 symbolName: current.symbolName,
                 temperatureC: current.temperature.converted(to: .celsius).value,
@@ -410,9 +427,25 @@ final class AppleWeatherService: ObservableObject {
                 },
                 fetched: Date()
             )
+
+            return (snapshot, nil)
         } catch {
-            return nil
+            return (nil, Self.describe(error))
         }
+    }
+
+    /// A failure in words somebody can act on.
+    ///
+    /// WeatherKit's own descriptions are terse and do not say the thing that is
+    /// nearly always true, which is that the request never left the device:
+    /// without the capability on the App ID the framework refuses locally, and
+    /// it reads no differently from a service that is down.
+    private static func describe(_ error: Error) -> String {
+        let detail = (error as NSError).localizedDescription
+        return "WeatherKit returned no data: \(detail). "
+            + "If this is every request, check that the WeatherKit capability "
+            + "is on the com.tracker.Inflight App ID and that the provisioning "
+            + "profile has been rebuilt since it was added."
     }
 
     private static func hour(_ hour: HourWeather) -> Hour {

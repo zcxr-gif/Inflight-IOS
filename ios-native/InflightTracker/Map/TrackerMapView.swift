@@ -186,6 +186,11 @@ struct TrackerMapView: UIViewRepresentable {
     /// the strip over it is where the reason belongs.
     var onWeatherLegibility: (Bool) -> Void = { _ in }
 
+    /// Told when the camera starts and stops moving, so the radar animation
+    /// can sit still through a gesture rather than asking for a screenful of
+    /// tiles twice a second at a zoom the finger has already left.
+    var onCameraMoving: (Bool) -> Void = { _ in }
+
     /// The ruler: whether it is down, and where its two ends are. A binding
     /// because the map is where the taps land, so the map is what moves it.
     @Binding var measurement: MapMeasurement
@@ -414,6 +419,22 @@ struct TrackerMapView: UIViewRepresentable {
 
         /// Debounced viewport re-cull, cancelled if the map keeps moving.
         private var pendingCull: DispatchWorkItem?
+
+        /// Whether the camera is being moved right now — a finger on the map,
+        /// or an animated move that has not landed.
+        ///
+        /// The layers that are a function of the *region* — the weather tiles,
+        /// the wind grid, the pavement — are resolved on the settle, and that
+        /// was already true of the map's own callbacks. It was not true of
+        /// SwiftUI's: `updateUIView` runs whenever anything the map is bound to
+        /// republishes, and while the radar animation is on that is twice a
+        /// second, every second, gesture or no gesture. So a pinch was still
+        /// having those layers recomputed underneath it — the exact thing the
+        /// settle exists to prevent.
+        ///
+        /// This is what the sync passes read to leave well alone until the map
+        /// stops. Nothing is lost by waiting: the settle runs all of them.
+        private var isRegionChanging = false
 
         /// What the drawn route currently represents, so overlays are only
         /// rebuilt when the trail actually grows.
@@ -2011,13 +2032,33 @@ struct TrackerMapView: UIViewRepresentable {
         /// would mean holding two full tile sets for a layer that is already
         /// the most expensive thing on the map.
         func syncWeatherTiles(on mapView: MKMapView) {
+            // Not while the camera is moving. Swapping a tile overlay throws
+            // away every tile MapKit has rasterised for it and asks for a
+            // screenful again at whatever zoom the pinch has reached — so doing
+            // it mid-gesture is a layer that blinks all the way through the
+            // zoom. The settle calls this again, which is where the swap goes.
+            //
+            // A frame of the radar animation is worth the same wait: half a
+            // second of a stale frame is not noticeable, and a frame swapped
+            // under a moving finger is.
+            guard !isRegionChanging else { return }
+
             // Zoomed in past where the tiles hold any detail, the overlay comes
             // off rather than being magnified into a smear. The map is the only
             // thing that knows how wide the view is, so it decides — and tells
             // the model, which is what puts the reason in the strip.
+            //
+            // Asked against what is currently drawn, so the limit is two
+            // limits: see `MapWeatherSource.isLegible`. A single threshold made
+            // a zoom that sat near it flick the layer on and off.
             let span = mapView.region.span.longitudeDelta
-            let legible = parent.weatherTiles
-                .map { MapWeatherSource.isLegible($0.layer, acrossDegrees: span) } ?? true
+            let legible = parent.weatherTiles.map {
+                MapWeatherSource.isLegible(
+                    $0.layer,
+                    acrossDegrees: span,
+                    whileDrawn: reportedWeatherLegibility
+                )
+            } ?? true
 
             if legible != reportedWeatherLegibility {
                 reportedWeatherLegibility = legible
@@ -2098,9 +2139,15 @@ struct TrackerMapView: UIViewRepresentable {
                 demand: demand.key
             )
             let now = Date()
-            if windRequest == nil
-                || windRequest! != here
-                || now.timeIntervalSince(windRequestedAt) >= Self.windRefreshInterval {
+            let moved = windRequest == nil || windRequest! != here
+            let stale = now.timeIntervalSince(windRequestedAt) >= Self.windRefreshInterval
+
+            // Nothing is asked for while the camera is moving. The lattice the
+            // region rounds to is stable across a pinch anyway (see
+            // `WindsAloftStore.niceStep`), so this is mostly saving the work of
+            // discovering that — but on the zoom that does cross a rung it is
+            // what keeps the answer from landing halfway through the gesture.
+            if !isRegionChanging, moved || stale {
                 windRequest = here
                 windRequestedAt = now
                 store.load(region: region, demand: demand)
@@ -2114,6 +2161,13 @@ struct TrackerMapView: UIViewRepresentable {
                 at: mapView.visibleMapRect,
                 latitude: region.center.latitude
             )
+
+            // And that is all that happens under a moving finger. What follows
+            // tears down a raster and reseeds a thousand particles, which is a
+            // visible restart of the whole layer — worth doing when the grid
+            // has genuinely changed, and never worth doing on a frame of a
+            // pinch that is still moving. The settle runs this again.
+            guard !isRegionChanging else { return }
 
             // Every switch as well as the grid: flipping the barbs off does
             // not change which lattice is loaded, so a key built from the
@@ -2533,6 +2587,15 @@ struct TrackerMapView: UIViewRepresentable {
         /// are the map.
         private static let groundSpanNM: Double = 9
 
+        /// And how wide before pavement that is *already drawn* is taken away.
+        ///
+        /// The same two-limit trick the weather tiles use, and here for the
+        /// same reason: crossing one threshold rebuilds several hundred
+        /// polygons off OpenStreetMap, and a zoom that hovers near it was
+        /// doing that on every settle. Wide enough that the airport has to be
+        /// left behind rather than merely wobbled away from.
+        private static let groundKeepSpanNM: Double = 13
+
         /// Where the map was the last time the ground layer was worked out.
         private var groundRegion: (latitude: Double, longitude: Double, span: Double)?
 
@@ -2557,6 +2620,11 @@ struct TrackerMapView: UIViewRepresentable {
                 return
             }
 
+            // Everything past here is a question about the region, so it waits
+            // for the map to stop. The switch above does not: turning the layer
+            // off should take the pavement away at once, gesture or no gesture.
+            guard !isRegionChanging else { return }
+
             let region = mapView.region
             guard region.span.latitudeDelta.isFinite else { return }
 
@@ -2573,15 +2641,32 @@ struct TrackerMapView: UIViewRepresentable {
 
             // Degrees of latitude are nautical miles times sixty, everywhere.
             let spanNM = region.span.latitudeDelta * 60
-            guard spanNM <= Self.groundSpanNM else {
+            let isDrawn = renderedGroundIcao != nil
+            let limit = isDrawn ? Self.groundKeepSpanNM : Self.groundSpanNM
+            guard spanNM <= limit else {
                 clearGround(on: mapView)
                 return
             }
 
-            guard let field = AirportStore.shared.nearestAirport(
+            // The near search is the one that picks a field. The wide search
+            // only ever confirms the one already drawn: holding drawn pavement
+            // out to the wider limit is the point of the hysteresis, letting a
+            // *different* airport be adopted out there is not — that would swap
+            // one field's concrete for its neighbour's on a zoom out.
+            let near = AirportStore.shared.nearestAirport(
                 to: region.center,
                 withinNM: Self.groundSpanNM
-            ) else {
+            )
+            var held: Airport? = nil
+            if near == nil, isDrawn,
+               let wider = AirportStore.shared.nearestAirport(
+                   to: region.center,
+                   withinNM: Self.groundKeepSpanNM
+               ), wider.icao == renderedGroundIcao {
+                held = wider
+            }
+
+            guard let field = near ?? held else {
                 clearGround(on: mapView)
                 return
             }
@@ -3912,6 +3997,23 @@ struct TrackerMapView: UIViewRepresentable {
 
         private static let liveCullInterval: TimeInterval = 0.25
 
+        /// The camera has started moving. Everything that is a function of the
+        /// region stands off until it stops — see `isRegionChanging`.
+        ///
+        /// This schedules a settle of its own as well as raising the flag. The
+        /// flag is only ever lowered by a settle, so a start that somehow never
+        /// got its matching stop would otherwise leave the weather layers
+        /// frozen for the rest of the session. The ordinary case still settles
+        /// once: `regionDidChangeAnimated` fires throughout a gesture and each
+        /// one cancels this and pushes the deadline out.
+        func mapView(_ mapView: MKMapView, regionWillChangeAnimated animated: Bool) {
+            if !isRegionChanging {
+                isRegionChanging = true
+                parent.onCameraMoving(true)
+            }
+            scheduleSettle(on: mapView)
+        }
+
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
             // And square the sprites up once more, now the map has stopped.
             //
@@ -3928,13 +4030,28 @@ struct TrackerMapView: UIViewRepresentable {
                 realign(on: mapView, heading: mapView.camera.heading)
             }
 
-            // Re-cull for the new viewport using the traffic we already have.
-            // Coalesced because this fires repeatedly through a pan or a
-            // pinch, and each pass walks every aircraft on the server.
+            scheduleSettle(on: mapView)
+        }
+
+        /// Everything that waits for the map to stop moving.
+        ///
+        /// Coalesced because the region callbacks fire repeatedly through a pan
+        /// or a pinch: each one cancels the pending settle and schedules
+        /// another, so a gesture made of a hundred callbacks runs this once, at
+        /// the end.
+        private func scheduleSettle(on mapView: MKMapView) {
             pendingCull?.cancel()
 
             let work = DispatchWorkItem { [weak self, weak mapView] in
                 guard let self = self, let mapView = mapView else { return }
+                // The camera has stopped for long enough to be believed. This
+                // is the one place the flag is lowered, and it is lowered
+                // *before* the syncs below — every one of them stands off while
+                // it is up.
+                if self.isRegionChanging {
+                    self.isRegionChanging = false
+                    self.parent.onCameraMoving(false)
+                }
                 self.sync(flights: self.parent.flights, on: mapView)
                 self.syncGround(on: mapView)
                 // The wind grid is a function of the region, so it is resolved
