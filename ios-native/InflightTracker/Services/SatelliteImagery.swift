@@ -175,9 +175,33 @@ enum MapWeatherSource {
         }
     }
 
+    /// How much wider than its own limit a view has to become before a layer
+    /// that has already been taken off is put back.
+    ///
+    /// One threshold, asked on the way in and on the way out, is a switch that
+    /// chatters: a pinch does not cross a limit once, it crosses it on most
+    /// frames of the gesture, and the overlay was being torn down and rebuilt
+    /// every time it did. The tiles then have to be re-requested at the new
+    /// zoom on each rebuild, which is what made the layer look like it was
+    /// loading and unloading rather than zooming.
+    ///
+    /// So the limit is two limits. The layer stays on until the view is
+    /// genuinely narrower than the depth its tiles hold, and once off it takes
+    /// a clear zoom back out — not a wobble — to bring it back.
+    private static let restoreFactor: Double = 1.4
+
     /// Whether a layer has anything to say about a view this wide.
-    static func isLegible(_ layer: MapWeatherLayer, acrossDegrees span: Double) -> Bool {
+    ///
+    /// `drawn` is whether it is on the map right now, which is what makes the
+    /// answer hysteretic. Callers that have no state to offer get the plain
+    /// threshold, which is what the default is for.
+    static func isLegible(
+        _ layer: MapWeatherLayer,
+        acrossDegrees span: Double,
+        whileDrawn drawn: Bool = true
+    ) -> Bool {
         guard span.isFinite, span > 0 else { return true }
-        return span >= minimumSpanDegrees(for: layer)
+        let limit = minimumSpanDegrees(for: layer)
+        return span >= (drawn ? limit : limit * restoreFactor)
     }
 }

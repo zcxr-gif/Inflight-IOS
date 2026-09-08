@@ -259,7 +259,11 @@ final class WeatherHeatOverlay: NSObject, MKOverlay {
     }
 
     /// What the field says, in the units the ramp is calibrated in.
-    private static func value(
+    ///
+    /// Not private, because the planet draws the same wash from the same
+    /// numbers and a second copy of this is a second set of units to get wrong
+    /// — see `GlobeWeatherRaster`.
+    static func value(
         of product: WeatherHeat,
         at coordinate: CLLocationCoordinate2D,
         in field: WeatherField,

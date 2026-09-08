@@ -79,6 +79,26 @@ struct WeatherSettingsPanel: View {
                         PanelDivider()
                         WeatherAttributionRow(attribution: apple.attribution)
                     }
+
+                    // And when Apple answered with nothing at all, why.
+                    //
+                    // Everything WeatherKit feeds — the forecast, the outlook,
+                    // the alerts, the sun and the moon, and every  Weather
+                    // mark that goes with them — is drawn only where there is
+                    // data to draw, so a build whose App ID never had the
+                    // capability shows no weather and no attribution and says
+                    // nothing about either. This is the one place that says it.
+                    if let failure = apple.lastFailure {
+                        PanelDivider()
+
+                        Text(failure)
+                            .font(.system(size: 9.5, weight: .medium))
+                            .foregroundStyle(theme.textDim)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                    }
                 }
             }
 
@@ -121,7 +141,7 @@ struct WeatherSettingsPanel: View {
                     PanelToggleRow(
                         title: "Animate",
                         symbol: "play.circle",
-                        detail: "Runs through the two hours of frames behind the newest one. The strip over the map says which frame is drawn, and can be dragged.",
+                        detail: animateDetail,
                         isOn: $preferences.animatesRadar
                     )
                 }
@@ -252,6 +272,18 @@ struct WeatherSettingsPanel: View {
     }
 
     /// The live report, written the way the current settings write it.
+    /// What the animate row says, which depends on which shape the world is.
+    ///
+    /// On the planet the loop is held: a frame of radar there is a whole
+    /// software raster of the visible face of the sphere, and two a second is
+    /// not something to ask a phone for. See `MapWeatherModel.report(drawnPlanet:)`.
+    /// Said outright rather than left as a switch that appears to do nothing.
+    private var animateDetail: String {
+        let base = "Runs through the two hours of frames behind the newest one. The strip over the map says which frame is drawn, and can be dragged."
+        guard appearance.resolvedMapStyle.isDrawn else { return base }
+        return base + " Held on the planet, which draws each frame itself rather than in tiles — the newest is shown, and the strip still scrubs."
+    }
+
     private func sample(for station: WeatherModel.Station) -> some View {
         HStack(spacing: 12) {
             Image(systemName: station.metar?.symbol(isDaylight: station.isDaylight)

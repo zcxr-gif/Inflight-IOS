@@ -62,6 +62,60 @@ final class MapWeatherModel: ObservableObject {
     /// the map itself.
     private var isLegible = true
 
+    /// Whether the camera is being moved right now, as reported by the map.
+    private var isCameraMoving = false
+
+    /// Whether the map is the drawn planet, which cannot afford an animation.
+    ///
+    /// ## Why the loop is held there
+    ///
+    /// On the flat map a frame is a set of tile URLs and MapKit does the rest —
+    /// the tiles are cached, the compositing is the GPU's, and two frames a
+    /// second costs almost nothing. On the planet a frame is a *software
+    /// raster*: every tile decoded to pixels and the whole visible face of the
+    /// sphere unprojected pixel by pixel to read them. See `GlobeWeatherRaster`
+    /// for why there is no other way to put a mercator tile on a globe.
+    ///
+    /// That is affordable once, when the planet settles. It is not affordable
+    /// twice a second, and an animation that costs the device more than it
+    /// costs to draw the planet underneath it is not an animation anybody
+    /// wants. So the playhead is held on the newest frame while the planet is
+    /// the map, and the scrubber still reaches every frame by hand.
+    private var isPlanetDrawn = false
+
+    /// Whether anything is holding the animation still.
+    private var isHeld: Bool { isCameraMoving || isPlanetDrawn }
+
+    /// The map, saying whether it is the drawn planet.
+    func report(drawnPlanet: Bool) {
+        guard isPlanetDrawn != drawnPlanet else { return }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, self.isPlanetDrawn != drawnPlanet else { return }
+            self.isPlanetDrawn = drawnPlanet
+            // Straight to the newest frame on the way in, so what the planet
+            // shows is now rather than wherever the loop happened to be.
+            if drawnPlanet {
+                self.stop()
+                let frames = MapWeatherSource.frames(for: self.preferences.mapLayer)
+                self.step = max(frames.count - 1, 0)
+                self.rebuild()
+            } else {
+                self.startIfNeeded()
+            }
+        }
+    }
+
+    /// The last thing the map *said*, as opposed to the last thing acted on.
+    ///
+    /// Kept separately because the acting is a runloop turn behind the saying.
+    /// Comparing a new report against `isCameraMoving` would read a value the
+    /// hop has not written yet, so a stop arriving hard on the heels of a start
+    /// looks like no change at all and is dropped — which leaves the animation
+    /// paused for good. This is written where it is read, so it cannot be
+    /// behind.
+    private var reportedCameraMoving = false
+
     /// The map, saying whether the current layer is worth drawing at the zoom it
     /// is now at.
     ///
@@ -75,6 +129,28 @@ final class MapWeatherModel: ObservableObject {
             guard let self = self, self.isLegible != legible else { return }
             self.isLegible = legible
             self.rebuild()
+        }
+    }
+
+    /// The map, saying whether the camera is moving.
+    ///
+    /// The animation stops while it is. Every frame is a whole screen of
+    /// tiles, and a zoom changes which tiles those are — so a radar loop
+    /// running through a pinch asks for seven screenfuls the cache has never
+    /// seen, all at once, at a zoom the finger has already left. That is a
+    /// rate limiter tripped and a layer that flickers, which is precisely what
+    /// the animation is meant to look like the opposite of.
+    ///
+    /// The playhead is not touched: it sits on whatever frame it had reached
+    /// and carries on from there when the map settles.
+    func report(cameraMoving moving: Bool) {
+        guard reportedCameraMoving != moving else { return }
+        reportedCameraMoving = moving
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, self.isCameraMoving != moving else { return }
+            self.isCameraMoving = moving
+            if moving { self.stop() } else { self.startIfNeeded() }
         }
     }
 
@@ -181,6 +257,15 @@ final class MapWeatherModel: ObservableObject {
     }
 
     private func startIfNeeded() {
+        // Held while the camera moves, and for as long as the map is the drawn
+        // planet. Deliberately before everything below, so a hold leaves the
+        // playhead exactly where it was rather than snapping it to the newest
+        // frame the way switching the animation off does.
+        guard !isHeld else {
+            stop()
+            return
+        }
+
         let frames = MapWeatherSource.frames(for: preferences.mapLayer)
         // Only the radar runs. The satellite's frames are whole days, and three
         // days flicking past at two a second is a strobe rather than an

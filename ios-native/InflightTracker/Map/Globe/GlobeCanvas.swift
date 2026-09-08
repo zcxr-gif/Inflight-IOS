@@ -722,6 +722,11 @@ final class GlobeCanvasView: UIView {
         // `GlobeScene.groundRevision`.
         let ground = scene.groundRevision
 
+        // The weather is counted apart for the same reason the pavement is: it
+        // arrives on its own schedule — a grid landing, a frame of the radar
+        // ticking over — and has nothing to do with a packet of traffic.
+        let weather = scene.weatherRevision
+
         // The look, and which planet this is. Both layers are drawn in the
         // palette and both are drawn from this scene.
         var bothChanged = palette != self.palette
@@ -730,7 +735,8 @@ final class GlobeCanvasView: UIView {
             || still != self.still
             || scene !== self.scene
 
-        let worldChanged = ground != self.groundRevision
+        let weatherChanged = weather != self.weatherRevision || scene !== self.scene
+        let worldChanged = ground != self.groundRevision || weatherChanged
 
         // A playback moves one aeroplane along its own track several times a
         // second and touches nothing else.
@@ -776,6 +782,7 @@ final class GlobeCanvasView: UIView {
         self.trailingInset = trailingInset
         self.still = still
         self.groundRevision = ground
+        self.weatherRevision = weather
 
         // An opaque view has to have something behind the drawing during the
         // moment between a resize and the redraw, or the gap is undefined.
@@ -792,8 +799,15 @@ final class GlobeCanvasView: UIView {
         }
         if carryOut(command) { bothChanged = true }
 
+        // A new grid, a new frame of the radar, or a screen that has changed
+        // shape under a picture built for the old one.
+        if weatherChanged || insetsMoved || bothChanged {
+            syncWeather()
+        }
+
         // A packet may have brought the first aeroplane worth carrying, or
-        // taken the last one away.
+        // taken the last one away — and a wind layer coming on needs the clock
+        // whether or not there is any traffic to carry.
         updateTrafficClock()
 
         if bothChanged || worldChanged {
@@ -805,6 +819,251 @@ final class GlobeCanvasView: UIView {
 
     /// The pavement this view has already drawn. See `GlobeScene.groundRevision`.
     private var groundRevision = 0
+
+    // MARK: - Weather
+
+    /// The weather this view has already resolved. See
+    /// `GlobeScene.weatherRevision`.
+    private var weatherRevision = 0
+
+    /// The coloured wash and the tiles, each as a finished picture in screen
+    /// coordinates. See `GlobeWeatherRaster` for why they are pictures rather
+    /// than something drawn per frame.
+    private var heatRaster: GlobeWeatherRaster?
+    private var tileRaster: GlobeWeatherRaster?
+
+    /// The build now in flight for each, so an answer that arrives after the
+    /// planet has moved on is dropped rather than drawn — and, because the
+    /// token is readable from the build queue, so that a job overtaken while it
+    /// waited its turn is never started at all.
+    private let heatJob = GlobeRasterToken()
+    private let tileJob = GlobeRasterToken()
+
+    /// Off the main thread, because a raster is a hundred and forty thousand
+    /// unprojections and the main thread is already drawing the planet.
+    private let rasterQueue = DispatchQueue(
+        label: "com.tracker.Inflight.globe.weather",
+        qos: .userInitiated
+    )
+
+    /// Whether a tile has landed since the last raster was built, so a mosaic
+    /// filling in is redrawn without every single tile costing a rebuild.
+    private var tilesArrived = false
+
+    /// Coalesces the rebuild a run of arriving tiles would otherwise ask for
+    /// one at a time.
+    private var tileSettle: DispatchWorkItem?
+
+    /// The moving air, and the grid it was seeded from.
+    private var windParticles: GlobeWindParticles?
+    private var windParticleKey: String?
+
+    /// The clock the particles are stepped on, which is deliberately not the
+    /// display's. See `WindParticleStyle.stepsPerSecond`.
+    private var lastParticleStep: CFTimeInterval = 0
+
+    /// Works out what weather the planet should have on it, and starts
+    /// whatever has to be built to put it there.
+    ///
+    /// Called on the settle and whenever the scene's weather changes — never
+    /// mid-gesture, and never per frame. A raster is the most expensive thing
+    /// the planet draws and the least urgent: the ground under it has not
+    /// changed shape, and a wash that arrives a frame after a pinch ends is a
+    /// wash nobody saw arrive.
+    private func syncWeather() {
+        guard bounds.width > 1, bounds.height > 1, camera.radius > 0 else { return }
+
+        syncWindParticles()
+        syncHeatRaster()
+        syncTileRaster()
+    }
+
+    /// Whether a picture already in hand is still the right picture.
+    ///
+    /// A turn invalidates it outright — there is no transform of a flat image
+    /// that follows a rotating sphere. A zoom does not: the projection is
+    /// orthographic, so the disc scales and the picture scales with it. Past a
+    /// couple of per cent it is still rebuilt, because a raster stretched much
+    /// further than it was built for is a blur rather than a layer.
+    private func isFresh(_ raster: GlobeWeatherRaster?, key: String) -> Bool {
+        guard let raster = raster, raster.key == key else { return false }
+        guard raster.canRedraw(at: camera) else { return false }
+        return abs(raster.camera.radius - camera.radius) < raster.camera.radius * 0.02
+    }
+
+    private func syncWindParticles() {
+        let wind = scene.wind
+
+        guard let wind = wind, wind.showsParticles,
+              let field = wind.field, !field.isEmpty else {
+            if windParticles != nil {
+                windParticles = nil
+                windParticleKey = nil
+                // Otherwise the last frame of streaks sits on a still planet
+                // until something else happens to redraw it.
+                redrawTraffic()
+            }
+            return
+        }
+
+        // Reseeded wholesale on a new grid rather than carried across, exactly
+        // as the flat map does it: a particle drifting on last lattice's
+        // numbers is drifting on numbers that are no longer on screen.
+        if windParticleKey != wind.key {
+            windParticleKey = wind.key
+            windParticles = GlobeWindParticles(field: field)
+        }
+
+        windParticles?.look(at: camera, bounds: bounds)
+    }
+
+    private func syncHeatRaster() {
+        guard let wind = scene.wind, wind.product != .off,
+              let field = wind.field, !field.isEmpty else {
+            if heatRaster != nil {
+                heatRaster = nil
+                _ = heatJob.next()
+                redrawPlanet()
+            }
+            return
+        }
+
+        let key = "heat|\(wind.key)"
+        guard !isFresh(heatRaster, key: key) else { return }
+
+        let job = heatJob.next()
+        let source = GlobeWeatherSource.heat(field, wind.product, wind.level)
+        let viewpoint = camera
+        let box = bounds
+
+        rasterQueue.async { [weak self, heatJob] in
+            // Overtaken while this waited its turn on the queue: the picture it
+            // would build is one nobody will draw.
+            guard heatJob.current == job else { return }
+
+            let raster = GlobeWeatherRaster.make(
+                source,
+                camera: viewpoint,
+                bounds: box,
+                key: key,
+                // The ramps carry their own alpha — calm air is already
+                // invisible — so nothing is taken off the top of them here.
+                opacity: 1
+            )
+
+            DispatchQueue.main.async {
+                guard let self = self, heatJob.current == job else { return }
+                self.heatRaster = raster
+                self.redrawPlanet()
+            }
+        }
+    }
+
+    private func syncTileRaster() {
+        guard let tiles = scene.weatherTiles, Self.drawsTiles(camera: camera, bounds: bounds, layer: tiles.layer) else {
+            if tileRaster != nil {
+                tileRaster = nil
+                _ = tileJob.next()
+                redrawPlanet()
+            }
+            return
+        }
+
+        let z = GlobeMercator.zoom(
+            forRadius: camera.radius,
+            limit: MapWeatherSource.maximumZoom(for: tiles.layer)
+        )
+
+        let needed = GlobeWeatherRaster.tilesNeeded(camera: camera, bounds: bounds, z: z)
+        guard !needed.isEmpty else { return }
+
+        // Asking is also what starts the fetch for anything missing. What comes
+        // back is whatever has already decoded, which on a first look at a
+        // region is nothing at all — and that is fine: each tile that lands
+        // calls back, and the rebuild those trigger is coalesced.
+        GlobeTileStore.shared.onTile = { [weak self] in self?.noteTileArrived() }
+        guard let mosaic = GlobeTileStore.shared.mosaic(for: tiles, z: z, needing: needed),
+              !mosaic.isEmpty else { return }
+
+        let key = "tiles|\(tiles.key)|\(z)"
+        guard tilesArrived || !isFresh(tileRaster, key: key) else { return }
+        tilesArrived = false
+
+        let job = tileJob.next()
+        let source = GlobeWeatherSource.tiles(mosaic)
+        let viewpoint = camera
+        let box = bounds
+        let opacity = Self.tileOpacity(for: tiles.layer)
+
+        rasterQueue.async { [weak self, tileJob] in
+            guard tileJob.current == job else { return }
+
+            let raster = GlobeWeatherRaster.make(
+                source,
+                camera: viewpoint,
+                bounds: box,
+                key: key,
+                opacity: opacity
+            )
+
+            DispatchQueue.main.async {
+                guard let self = self, tileJob.current == job else { return }
+                // Nil only means no tile of this frame covers what is on
+                // screen. Keeping the last picture would be radar drawn over
+                // the wrong ocean, so it goes.
+                self.tileRaster = raster
+                self.redrawPlanet()
+            }
+        }
+    }
+
+    /// A tile has decoded. Redraws once for a burst of them rather than once
+    /// each: a screenful is a couple of dozen tiles landing over a second or
+    /// two, and rebuilding the raster for every one would be two dozen
+    /// raytraces to arrive at the picture the last of them draws anyway.
+    private func noteTileArrived() {
+        tilesArrived = true
+        tileSettle?.cancel()
+
+        let work = DispatchWorkItem { [weak self] in
+            guard let self = self, self.window != nil else { return }
+            self.syncTileRaster()
+        }
+        tileSettle = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
+    }
+
+    /// How see-through the tiles are drawn.
+    ///
+    /// The flat map lays radar straight over Apple's cartography at full
+    /// strength. Here the cartography is the planet's own drawing — a
+    /// coastline, a border, a graticule — and it is the only thing telling you
+    /// where the weather *is*. So the radar is let down enough to read through
+    /// and the imagery, which is a picture of the ground rather than a wash
+    /// over it, is not.
+    private static func tileOpacity(for layer: MapWeatherLayer) -> CGFloat {
+        switch layer {
+        case .off: return 0
+        case .radar: return 0.82
+        case .satellite: return 0.95
+        }
+    }
+
+    /// Whether the tiles hold any detail at the zoom the planet is at.
+    ///
+    /// The same question the flat map asks, asked of the same helper, so a
+    /// layer that gives up at one zoom on one shape of the world gives up at
+    /// the same zoom on the other.
+    private static func drawsTiles(
+        camera: GlobeCamera,
+        bounds: CGRect,
+        layer: MapWeatherLayer
+    ) -> Bool {
+        guard camera.radius > 0, bounds.width > 0 else { return false }
+        let metres = camera.metresPerPoint * Double(bounds.width)
+        let degrees = metres / (GlobeCamera.earthRadiusMetres * .pi / 180)
+        return MapWeatherSource.isLegible(layer, acrossDegrees: degrees)
+    }
 
     /// Points the planet where the chrome asked, once.
     private func carryOut(_ command: GlobeCommand?) -> Bool {
@@ -829,7 +1088,20 @@ final class GlobeCanvasView: UIView {
         worldView.frame = bounds
         planetView.frame = bounds
         layoutCamera()
+
+        // The rasters are pictures in the screen's own coordinates, so a screen
+        // that changed size is a picture built for a different one. This is
+        // also the first pass on which there are any bounds at all: `apply`
+        // runs before the view has been laid out, and `syncWeather` turns away
+        // a view with no size.
+        if weatherBounds != bounds.size {
+            weatherBounds = bounds.size
+            syncWeather()
+        }
     }
+
+    /// The size the weather pictures were built for.
+    private var weatherBounds: CGSize = .zero
 
     /// Sizes the planet to the viewport and puts it in the middle of whatever
     /// the chrome is not standing on.
@@ -1327,6 +1599,8 @@ final class GlobeCanvasView: UIView {
         // as many: an aeroplane crossing the screen in a minute is the same
         // aeroplane at thirty frames a second as at sixty, and the planet under
         // it is a full redraw either way.
+        let airMoved = stepWindParticles(at: link.timestamp)
+
         if wasMoving {
             redrawPlanet()
         } else if isChromeMoving {
@@ -1334,11 +1608,13 @@ final class GlobeCanvasView: UIView {
             // more than the traffic does. Nobody is watching an aeroplane creep
             // across the screen while a sheet is sliding over it.
             lastTrafficFrame = link.timestamp
-        } else if link.timestamp - lastTrafficFrame >= Self.trafficFrameInterval {
-            lastTrafficFrame = link.timestamp
+        } else {
+            let carried = link.timestamp - lastTrafficFrame >= Self.trafficFrameInterval
+            if carried { lastTrafficFrame = link.timestamp }
             // The camera has not moved, so the world under the traffic is the
-            // picture it already is. See `GlobeWorldView`.
-            redrawTraffic()
+            // picture it already is. See `GlobeWorldView` — and the streaks are
+            // on that same layer for the same reason.
+            if carried || airMoved { redrawTraffic() }
         }
 
         guard !isZooming, momentum == nil, !isRecentring else { return }
@@ -1346,7 +1622,30 @@ final class GlobeCanvasView: UIView {
         // Settling happens once, on the frame the movement stops, whether or
         // not the clock keeps running for the traffic.
         if wasMoving { endInteraction() }
-        if !isFlyingTraffic { stopAnimator() }
+        if !isFlyingTraffic, windParticles == nil { stopAnimator() }
+    }
+
+    /// One step of the wind field, from the planet's own frame clock.
+    ///
+    /// Rate-limited here rather than by a display link of its own, exactly as
+    /// the flat map does it: there is already a clock ticking, a second one is
+    /// a second wake-up per frame, and what this needs is not a frame rate but
+    /// a step rate. Answers whether it actually stepped, which is what decides
+    /// whether the layer is worth invalidating.
+    private func stepWindParticles(at now: CFTimeInterval) -> Bool {
+        guard let particles = windParticles else { return false }
+
+        let interval = 1 / WindParticleStyle.stepsPerSecond
+        let elapsed = now - lastParticleStep
+        guard elapsed >= interval else { return false }
+        lastParticleStep = now
+
+        // Coming back from the background hands us however long the app was
+        // away. Integrating that in one step would fling every particle off the
+        // field and respawn the lot; a step of the ordinary size picks up where
+        // it left off.
+        particles.step(min(elapsed, interval * 3))
+        return true
     }
 
     /// Thirty frames a second for traffic alone. The flat map redraws the head
@@ -1387,7 +1686,11 @@ final class GlobeCanvasView: UIView {
     /// that can change the answer. A gesture does not need it: the clock is
     /// already running for the glide, and `step` asks again when that ends.
     private func updateTrafficClock() {
-        if isFlyingTraffic {
+        // The moving air needs the clock as much as the traffic does, and needs
+        // it at every zoom: a streak is a picture of the wind rather than a
+        // prediction about an aeroplane, so there is no distance at which it
+        // stops being worth drawing.
+        if isFlyingTraffic || windParticles != nil {
             lastTrafficFrame = CACurrentMediaTime()
             runAnimator()
         } else if !isInteracting {
@@ -1423,6 +1726,10 @@ final class GlobeCanvasView: UIView {
         guard !isInteracting else { return }
         updateResolution()
         reportCamera()
+        // Every weather layer is a function of where the camera is pointed, so
+        // all of them are resolved here and none of them mid-gesture. See
+        // `syncWeather`.
+        syncWeather()
         // A pinch that has just finished may have brought the traffic close
         // enough to be worth flying, or taken it out of range.
         updateTrafficClock()
@@ -1691,6 +1998,16 @@ final class GlobeCanvasView: UIView {
                   color: palette.border, width: palette.borderWidth,
                   box: box, reach: reach)
 
+        // The weather, over the cartography and under the concrete. Both of
+        // these are pictures already built — see `GlobeWeatherRaster` — so a
+        // frame of them is a blit rather than a layer.
+        //
+        // The wash first and the radar over it: they answer different
+        // questions, and where both are on the one that is a picture of the
+        // sky belongs over the one that is a tint on the ground.
+        drawRaster(heatRaster, in: context)
+        drawRaster(tileRaster, in: context)
+
         // Pavement over the cartography and under everything that flies. It is
         // the ground, and at the zoom where it is drawn at all it is the only
         // thing on screen that is.
@@ -1699,6 +2016,11 @@ final class GlobeCanvasView: UIView {
         if let sun = sun {
             drawNight(in: context, basis: basis, sun: sun)
         }
+
+        // The barbs last of the ground layer, and over the night: a chart
+        // symbol that says fifty knots has to be readable on the dark side as
+        // well, and dusk washing it out would leave the layer half drawn.
+        drawWindBarbs(in: context, basis: basis, box: box)
 
         // The bright edge, over the cartography that runs into it — see
         // `drawLimb`. It is the last thing on this layer rather than the last
@@ -1728,6 +2050,16 @@ final class GlobeCanvasView: UIView {
         // longer only the traffic: the flown path is drawn out to the open
         // aircraft, and the aircraft is somewhere between packets.
         flyTraffic(basis: basis, box: box)
+
+        // The moving air, under every line and every aeroplane. The streaks are
+        // the busiest thing on the planet; over a route or an aircraft they
+        // would be a thousand moving lines across the one thing somebody opened
+        // the app to look at.
+        //
+        // On this layer rather than the ground's because they move on the frame
+        // clock: stepping them would otherwise re-rasterise an ocean, every
+        // coastline and eight bands of dusk twenty-four times a second.
+        drawWindParticles(in: context, box: box)
 
         drawLines(in: context, basis: basis, box: box)
         // Straight after the lines that are its boundaries, and under
@@ -2919,6 +3251,112 @@ final class GlobeCanvasView: UIView {
         var delta = (to - from).truncatingRemainder(dividingBy: .pi * 2)
         if delta < 0 { delta += .pi * 2 }
         return delta
+    }
+
+    // MARK: - Weather, drawn
+
+    /// Blits one finished weather picture onto the planet.
+    ///
+    /// Clipped to the disc, because a raster built for a camera that has since
+    /// zoomed out is scaled up with it and would otherwise paint past the limb
+    /// into the sky.
+    private func drawRaster(_ raster: GlobeWeatherRaster?, in context: CGContext) {
+        guard let raster = raster, raster.canRedraw(at: camera) else { return }
+
+        let target = raster.frame(at: camera)
+        guard target.width > 0, target.height > 0 else { return }
+
+        context.saveGState()
+        defer { context.restoreGState() }
+
+        context.addEllipse(in: discBox)
+        context.clip()
+
+        context.setAlpha(raster.opacity)
+        // Smoothed hard, for the reason the flat map smooths its own: the
+        // source is a coarse smooth field and a raster of it built at half
+        // resolution, so bilinear blowup is the honest picture and nearest
+        // neighbour would draw a chessboard the weather does not have.
+        context.interpolationQuality = .high
+
+        // A bitmap's rows run down from its top and `CGContext.draw` puts it
+        // the other way up. One flip about the target's own middle puts it
+        // back, scoped so nothing after it inherits the transform.
+        context.translateBy(x: 0, y: target.midY)
+        context.scaleBy(x: 1, y: -1)
+        context.translateBy(x: 0, y: -target.midY)
+        context.draw(raster.image, in: target)
+    }
+
+    /// The barbs, as chart symbols on the sphere.
+    ///
+    /// Drawn from `WindBarbView.path` rather than from a second implementation:
+    /// a feather is ten knots and a pennant is fifty, and a planet that drew
+    /// those differently from the map would not be drawing a wind barb.
+    private func drawWindBarbs(in context: CGContext, basis: GlobeCamera.Basis, box: CGRect) {
+        guard let wind = scene.wind, wind.showsBarbs, !wind.barbs.isEmpty else { return }
+
+        let colour = WindBarbView.colour.resolvedColor(with: traitCollection)
+        let side = Self.barbSide
+        let frame = CGRect(x: 0, y: 0, width: side, height: side)
+
+        context.saveGState()
+        defer { context.restoreGState() }
+
+        context.setStrokeColor(colour.cgColor)
+        context.setFillColor(colour.cgColor)
+        context.setLineWidth(1.6)
+        context.setLineCap(.round)
+        context.setLineJoin(.round)
+
+        for barb in wind.barbs {
+            let projected = camera.project(
+                GlobeGeometry.preciseVector(barb.coordinate),
+                using: basis
+            )
+
+            // Well onto the near side rather than merely on it. A barb at the
+            // limb is a symbol seen edge-on, drawn at full size on ground that
+            // is a pixel wide — it reads as clutter rather than as a reading.
+            guard projected.depth > Self.barbDepth, box.contains(projected.point) else { continue }
+
+            let path = WindBarbView.path(
+                speedKnots: barb.speedKnots,
+                directionDegrees: barb.directionDegrees,
+                in: frame
+            ).cgPath
+
+            var move = CGAffineTransform(
+                translationX: projected.point.x - side / 2,
+                y: projected.point.y - side / 2
+            )
+            guard let placed = path.copy(using: &move) else { continue }
+
+            context.addPath(placed)
+            context.strokePath()
+
+            // The pennants are filled triangles and the feathers are not, and
+            // the path carries both — so it is stroked and then filled, which
+            // is what `WindBarbView` does with one shape layer and two colours.
+            context.addPath(placed)
+            context.fillPath()
+        }
+    }
+
+    /// How large a barb is drawn, matching `WindBarbView`'s own frame.
+    private static let barbSide: CGFloat = 78
+
+    /// How far onto the near side a barb has to be to be worth drawing.
+    private static let barbDepth: Float = 0.22
+
+    private func drawWindParticles(in context: CGContext, box: CGRect) {
+        guard let particles = windParticles else { return }
+        particles.draw(
+            in: context,
+            camera: camera,
+            colour: WindParticleStyle.colour(for: palette.isLight ? .light : .dark),
+            box: box
+        )
     }
 
     // MARK: - The ground
