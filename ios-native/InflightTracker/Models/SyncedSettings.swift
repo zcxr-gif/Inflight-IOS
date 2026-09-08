@@ -68,6 +68,9 @@ struct SyncedSettings: Codable, Equatable {
     var mapDetailed: Bool?
     var mapTerrain: Bool?
 
+    /// Where the brightness slider stands, 0...1. See `MapLook.brightness`.
+    var mapBrightness: Double?
+
     /// The drawn planet's own three. Nothing reads across from the flat map's
     /// palette — they are different pictures — so an account that has never
     /// been on the planet syncs three nulls and lands on the defaults.
@@ -152,6 +155,7 @@ struct SyncedSettings: Codable, Equatable {
         settings.mapPalette = appearance.mapPalette.rawValue
         settings.mapDetailed = appearance.isMapDetailed
         settings.mapTerrain = appearance.isMapTerrain
+        settings.mapBrightness = Double(appearance.mapBrightness)
         settings.globeSkin = appearance.globeSkin.rawValue
         settings.globeBackdrop = appearance.globeBackdrop.rawValue
         settings.globePlanes = appearance.globeShowsPlanes
@@ -263,6 +267,9 @@ struct SyncedSettings: Codable, Equatable {
         }
         if let mapDetailed = mapDetailed { appearance.isMapDetailed = mapDetailed }
         if let mapTerrain = mapTerrain { appearance.isMapTerrain = mapTerrain }
+        // Clamped by the store on the way in, so a value from a build with a
+        // different range cannot leave somebody with a map they cannot see.
+        if let mapBrightness = mapBrightness { appearance.mapBrightness = CGFloat(mapBrightness) }
 
         if let value = globeSkin.flatMap(GlobeSkin.init(rawValue:)) {
             appearance.globeSkin = value

@@ -201,7 +201,8 @@ enum MapPalette: String, CaseIterable, Identifiable {
     /// Whether the map is imagery rather than cartography.
     var usesImagery: Bool { self == .satellite }
 
-    /// How much black is washed over the map underneath the traffic.
+    /// How much black this palette washes over the map before anybody touches
+    /// the brightness.
     ///
     /// MapKit has no blacker configuration than its own dark cartography, so
     /// this is the rest of the way: an overlay under everything the app draws,
@@ -212,6 +213,29 @@ enum MapPalette: String, CaseIterable, Identifiable {
     /// that was only ever partly dark, and a figure that looked right beside an
     /// undimmed neighbour is too timid once the whole thing goes down.
     var dimming: CGFloat { self == .black ? 0.5 : 0 }
+}
+
+/// How much light is taken off the map, or put back onto it.
+///
+/// One signed number rather than two switches, because it is one question with
+/// a middle: the map as MapKit draws it. Positive is black laid over the
+/// cartography, negative is white — and white genuinely does lift a dark map,
+/// which is the half of this that a dimmer alone could never do. Satellite
+/// imagery at night is the case that wants the first and a black palette read
+/// in daylight is the case that wants the second, and neither of them is a
+/// different *map*.
+struct MapWash: Equatable {
+
+    /// Positive darkens, negative lightens, zero is the map untouched.
+    var depth: CGFloat
+
+    /// Whether there is anything to draw at all. Below this the wash is a
+    /// full-screen overlay compositing a colour nobody can see.
+    var isVisible: Bool { abs(depth) > 0.004 }
+
+    /// What is laid over the map, and how much of it.
+    var color: UIColor { depth >= 0 ? .black : .white }
+    var alpha: CGFloat { min(abs(depth), 1) }
 }
 
 /// The map's whole look: its shape, its colour, and how much of it is drawn.
@@ -257,6 +281,39 @@ struct MapLook: Equatable {
     /// with imagery, which has no emphasis to set.
     var isDetailed: Bool = false
 
+    /// Where the brightness slider is standing, from black at zero to washed
+    /// out at one, with `neutralBrightness` meaning the map exactly as MapKit
+    /// draws it.
+    ///
+    /// A slider rather than another palette, because it is not a choice
+    /// between looks — it is the same map, turned up or down. The three
+    /// cartography palettes and the imagery are all drawn for a screen in a
+    /// room, and the two places this app is actually read are a dark cabin at
+    /// altitude, where any of them is a lamp, and a flight deck window seat in
+    /// full sun, where the black one is a rumour. Neither of those wants a
+    /// different map.
+    ///
+    /// Deliberately *not* part of what `MapLook.configuration()` answers, and
+    /// `sameCartography(as:)` is what keeps it that way: dragging this must
+    /// repaint one overlay rather than tear MapKit's map down and rebuild it
+    /// sixty times on the way across.
+    var brightness: CGFloat = MapLook.neutralBrightness
+
+    /// The middle of the slider: the map untouched.
+    static let neutralBrightness: CGFloat = 0.5
+
+    /// How black the map can be washed at the dark end.
+    ///
+    /// Not to one. A map you cannot see at all is not a setting anybody wants
+    /// to arrive at by accident, and the traffic is drawn over this — a wash
+    /// heavy enough to hide the coastline still has to leave enough of the
+    /// field under an aeroplane to say where it is.
+    static let deepestWash: CGFloat = 0.72
+
+    /// And how far white can lift it at the other end. Shorter, because white
+    /// over cartography goes flat much faster than black over it goes dark.
+    static let brightestLift: CGFloat = 0.42
+
     /// What the map is actually drawn in, which on the globe is imagery
     /// whatever the palette says.
     ///
@@ -266,7 +323,46 @@ struct MapLook: Equatable {
     var resolvedPalette: MapPalette { projection == .globe ? .satellite : palette }
 
     var isFreeCamera: Bool { projection.isFreeCamera }
-    var dimming: CGFloat { resolvedPalette.dimming }
+
+    /// The wash over the cartography: the palette's own, moved by wherever the
+    /// brightness slider is standing.
+    ///
+    /// The two compose on one axis rather than fighting on two, which is what
+    /// makes a black map brightenable: its half-black baseline is a starting
+    /// point on the same number the slider moves, so pushing the slider up
+    /// takes that wash off before it starts adding white of its own.
+    ///
+    /// The travel either side is measured against the *remaining* room rather
+    /// than added flat, so both ends of the slider land on the same two
+    /// extremes whatever palette is under it. Added flat, the black palette
+    /// would already be most of the way to the dark end at the middle and the
+    /// first third of the slider would do nothing at all — a control with a
+    /// dead zone in it that changes size depending on a setting two sections
+    /// up.
+    var wash: MapWash {
+        let base = resolvedPalette.dimming
+        let travel = (Self.neutralBrightness - brightness) / Self.neutralBrightness
+        let depth = travel >= 0
+            ? base + travel * (Self.deepestWash - base)
+            : base + travel * (base + Self.brightestLift)
+        return MapWash(depth: min(max(depth, -Self.brightestLift), Self.deepestWash))
+    }
+
+    /// Whether two looks draw the same map, ignoring how much light is left on
+    /// it.
+    ///
+    /// The brightness is a wash over the finished cartography and nothing
+    /// MapKit is told about, so a change to it alone is one overlay
+    /// repainting. Everything else here goes into `configuration()`, and
+    /// assigning that tears the map down and builds another — see
+    /// `applyStyle`, which is the one caller and which uses this to tell the
+    /// two apart.
+    func sameCartography(as other: MapLook) -> Bool {
+        projection == other.projection
+            && palette == other.palette
+            && isTerrain == other.isTerrain
+            && isDetailed == other.isDetailed
+    }
 
     /// Whether the app draws this map itself. See `MapProjection.planet`.
     var isDrawn: Bool { projection.isDrawn }
@@ -346,9 +442,9 @@ struct MapLook: Equatable {
     }
 }
 
-/// The black wash: an overlay under everything the app draws, which takes the
-/// cartography the rest of the way down without touching a single aircraft on
-/// it.
+/// The wash: an overlay under everything the app draws, which takes the
+/// cartography down towards black or up towards white without touching a
+/// single aircraft on it.
 ///
 /// ## Why this is not a polygon any more
 ///
@@ -380,23 +476,24 @@ enum MapDimming {
     /// about.
     final class Renderer: MKOverlayRenderer {
 
-        /// Read on every draw rather than baked in, so changing the palette
-        /// repaints the wash instead of tearing it down and building another.
-        var dimming: CGFloat {
+        /// Read on every draw rather than baked in, so changing the palette —
+        /// or dragging the brightness — repaints the wash instead of tearing
+        /// it down and building another.
+        var wash: MapWash {
             didSet {
-                guard dimming != oldValue else { return }
+                guard wash != oldValue else { return }
                 setNeedsDisplay()
             }
         }
 
-        init(overlay: MKOverlay, dimming: CGFloat) {
-            self.dimming = dimming
+        init(overlay: MKOverlay, wash: MapWash) {
+            self.wash = wash
             super.init(overlay: overlay)
         }
 
         override func draw(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in context: CGContext) {
-            guard dimming > 0 else { return }
-            context.setFillColor(UIColor.black.withAlphaComponent(dimming).cgColor)
+            guard wash.isVisible else { return }
+            context.setFillColor(wash.color.withAlphaComponent(wash.alpha).cgColor)
             // Slightly proud of the rect it was given. MapKit tiles these, and
             // adjacent fills that meet exactly on a fractional boundary leave a
             // seam a fraction of a pixel wide — which on a black map over light

@@ -10,25 +10,50 @@ import UIKit
 /// one that gives way.
 enum PlanStyle {
 
-    /// The line through the fixes, drawn dashed.
+    /// The line through the fixes, drawn dashed, and white.
     ///
-    /// Well under the fixes, which are full strength: the diamonds are what you
-    /// read, and the line is what joins them. The dash is long and the gap
-    /// short, so this keeps most of the ink a solid line would have had and
-    /// wants no compensating for.
-    static let line = UIColor { traits in
-        traits.userInterfaceStyle == .light
-            ? UIColor(red: 0.15, green: 0.40, blue: 0.75, alpha: 0.55)
-            : UIColor(red: 0.55, green: 0.75, blue: 1.00, alpha: 0.55)
-    }
+    /// White rather than the blue it used to be, and the same white on a light
+    /// map as on a dark one — which is only possible because of `casing`
+    /// below. A route line has one job that no colour does better: it is not
+    /// the flown track, and the flown track is the coloured thing on this map.
+    /// Anything with a hue in it competes with a height band; white does not,
+    /// and reads as a drawing over the map rather than as data on it.
+    ///
+    /// Not quite full strength, so it still gives way to the track laid over
+    /// it. The dash is long and the gap short, so this keeps most of the ink a
+    /// solid line would have had and wants no compensating for.
+    static let line = UIColor(white: 1, alpha: 0.82)
+
+    /// What is drawn under the line, in the same dash and wider.
+    ///
+    /// This is what buys the white. A white line over Apple's light
+    /// cartography — which is a pale grey-green — is very nearly invisible,
+    /// and the honest fixes for that are either a colour that is not white or
+    /// a shadow under the one that is. This is the shadow: a dark stroke a
+    /// couple of points wider than the line and translucent enough to read as
+    /// an edge rather than as a second route.
+    ///
+    /// Present on the dark map too, where it does nothing much and costs
+    /// nothing much — the alternative is two dash patterns that have to stay in
+    /// step across a trait change, which is a way to be wrong once.
+    static let casing = UIColor(white: 0, alpha: 0.38)
+
+    /// How wide each is, and the dash they share.
+    ///
+    /// The dash *must* be the same on both or the casing stops being an edge
+    /// and becomes a dotted line beside a dashed one.
+    static let lineWidth: CGFloat = 1.9
+    static let casingWidth: CGFloat = 3.9
+    static let dash: [NSNumber] = [7, 4]
 
     /// The fixes themselves, at full strength — a mark you are meant to pick
     /// out and read the name of, rather than a line you are meant to follow.
-    static let fix = UIColor { traits in
-        traits.userInterfaceStyle == .light
-            ? UIColor(red: 0.11, green: 0.33, blue: 0.68, alpha: 1)
-            : UIColor(red: 0.68, green: 0.84, blue: 1.00, alpha: 1)
-    }
+    ///
+    /// White, with the line, so the diamonds and the thread through them read
+    /// as one route. They keep a shadow of their own rather than a casing —
+    /// see `PlanWaypointView` — for the same reason the line has one: white on
+    /// a light map is nothing without something behind it.
+    static let fix = UIColor(white: 1, alpha: 1)
 
     /// The fix being flown to.
     ///
@@ -126,6 +151,13 @@ final class PlanWaypointView: MKAnnotationView {
         diamond.fillColor = UIColor.clear.cgColor
         diamond.lineWidth = 1.6
         diamond.lineJoin = .round
+        // The same halo the name already wears, and now for the same reason:
+        // the mark is white, and white on a light map or on snow is a shape
+        // you have to be told is there. See `PlanStyle.fix`.
+        diamond.shadowColor = UIColor.black.cgColor
+        diamond.shadowOpacity = 0.7
+        diamond.shadowRadius = 2
+        diamond.shadowOffset = .zero
         layer.addSublayer(diamond)
 
         label.frame = CGRect(x: 0, y: 15, width: frame.width, height: 15)

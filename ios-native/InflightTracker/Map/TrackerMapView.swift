@@ -645,6 +645,16 @@ struct TrackerMapView: UIViewRepresentable {
             let previous = appliedStyle
             appliedStyle = style
 
+            // A change of brightness alone is one overlay repainting, and it
+            // has to be: assigning `preferredConfiguration` below tears
+            // MapKit's map down and builds another, and a slider is a hundred
+            // of these on the way across. Nothing else about the map moved, so
+            // nothing else here has anything to do.
+            if let previous = previous, previous.sameCartography(as: style) {
+                syncDimming(style, on: mapView)
+                return false
+            }
+
             // Pavement is coloured against the ground under it, and the ground
             // has just changed. Cartography to imagery is the case that matters:
             // the concrete is in the photograph now, so the layer stops painting
@@ -767,14 +777,15 @@ struct TrackerMapView: UIViewRepresentable {
             return true
         }
 
-        /// The black palette's wash, put on or taken off.
+        /// The wash over the cartography, put on or taken off.
         ///
         /// Inserted at the bottom of its level rather than added to the top of
-        /// it, so it dims the cartography and not the weather tiles, the night
-        /// or the routes — all of which are added to the same level and would
-        /// otherwise end up underneath it.
+        /// it, so it works on the cartography and not on the weather tiles, the
+        /// night or the routes — all of which are added to the same level and
+        /// would otherwise end up underneath it.
         private func syncDimming(_ style: MapLook, on mapView: MKMapView) {
-            guard style.dimming > 0 else {
+            let wash = style.wash
+            guard wash.isVisible else {
                 if let overlay = dimmingOverlay {
                     mapView.removeOverlay(overlay)
                     dimmingOverlay = nil
@@ -790,10 +801,11 @@ struct TrackerMapView: UIViewRepresentable {
             }
 
             // Already up, so this is a change of depth rather than of state —
-            // which today only happens on the way in and out of black, but the
-            // renderer repaints for it either way rather than holding whatever
-            // it was built with.
-            (mapView.renderer(for: overlay) as? MapDimming.Renderer)?.dimming = style.dimming
+            // a palette swap, or a finger on the brightness slider. The
+            // renderer repaints for it rather than holding whatever it was
+            // built with, which is what makes the slider follow the drag
+            // instead of landing when it is let go.
+            (mapView.renderer(for: overlay) as? MapDimming.Renderer)?.wash = wash
         }
 
         /// Whether the camera has moved enough since the last pass to be worth
@@ -1665,6 +1677,40 @@ struct TrackerMapView: UIViewRepresentable {
 
             flownOverlay = nil
 
+            // MARK: The filed plan
+            //
+            // First into the array, and that is the whole of what fixes it:
+            // overlays draw in the order they sit in their level, so whatever
+            // goes in first is what everything else is drawn over. The plan is
+            // what the pilot *intends*, and the coloured track is what they
+            // have actually done — so when the two run together, which on a
+            // well-flown leg is most of the way, the one you should be reading
+            // is the one on top.
+            //
+            // It used to be appended last, which put a dashed blue line over
+            // every height the track was carrying underneath it.
+            //
+            // The fixes are labelled because a line through unnamed corners is
+            // a shape rather than a route — the names are the whole reason for
+            // plotting the plan instead of just its ends.
+            if plan.count >= 2 {
+                let coordinates = plan.map(\.coordinate)
+
+                // Two overlays for one line: a dark casing, then the white line
+                // in the same dash on top of it. See `PlanStyle.casing` — a
+                // white route over pale cartography is not a route anybody can
+                // see, and the casing is what lets the line be white on every
+                // map rather than one colour on the dark ones and another on
+                // the light.
+                let casing = MKGeodesicPolyline(coordinates: coordinates, count: coordinates.count)
+                casing.title = Self.planCasingTitle
+                routeOverlays.append(casing)
+
+                let line = MKGeodesicPolyline(coordinates: coordinates, count: coordinates.count)
+                line.title = Self.planTitle
+                routeOverlays.append(line)
+            }
+
             if parent.showsFlownPath {
                 // On the ground, the track goes the way the concrete goes.
                 //
@@ -1680,43 +1726,33 @@ struct TrackerMapView: UIViewRepresentable {
                 // drawing its own halo underneath itself. See `FlownPath` for
                 // what this replaced and why none of it survived.
                 let path = FlownPath(
-                    points: drawn,
-                    bands: FlownPath.heightBands(of: drawn),
+                    points: drawn.points,
+                    bands: FlownPath.heightBands(of: drawn.points),
+                    onPavement: drawn.onPavement,
                     title: Self.flownTitle
                 )
-                flownOverlay = path?.overlay
-                if let overlay = path?.overlay {
-                    routeOverlays.append(overlay)
-                }
 
-                // Before we were watching: departure to the first point we have.
+                // Before we were watching: departure to the first point we
+                // have. Into the array ahead of the track for the same reason
+                // the plan is — it is a guess, and a guess does not go over a
+                // measurement.
                 if let departure = AirportStore.shared.airport(flight.departureIcao),
                    let first = flown.first,
                    FlightProgress.distanceNM(from: departure.coordinate, to: first.coordinate) > 1 {
                     routeOverlays.append(dashed(from: departure.coordinate, to: first.coordinate))
+                }
+
+                // And the track itself, last, so nothing on this map is drawn
+                // over it.
+                flownOverlay = path?.overlay
+                if let overlay = path?.overlay {
+                    routeOverlays.append(overlay)
                 }
             }
 
             // What is still to come is not drawn here. It starts at the
             // aeroplane, and the aeroplane moves between rebuilds of this
             // array — see `directOverlay`, which follows it on the frame clock.
-
-            // MARK: The filed plan
-            //
-            // Drawn under everything else it shares the screen with: it is what
-            // the pilot *intends*, where the coloured track behind them is what
-            // they have actually done, and the two should not compete. The
-            // fixes are labelled because a line through unnamed corners is a
-            // shape rather than a route — the names are the whole reason for
-            // plotting the plan instead of just its ends.
-            if plan.count >= 2 {
-                let line = MKGeodesicPolyline(
-                    coordinates: plan.map(\.coordinate),
-                    count: plan.count
-                )
-                line.title = Self.planTitle
-                routeOverlays.append(line)
-            }
 
             if !routeOverlays.isEmpty {
                 mapView.addOverlays(routeOverlays, level: .aboveRoads)
@@ -2535,6 +2571,10 @@ struct TrackerMapView: UIViewRepresentable {
         /// rather than as track.
         static let planTitle = "plan"
 
+        /// The same geometry, drawn wider and darker underneath the plan, so a
+        /// white route reads over pale cartography. See `PlanStyle.casing`.
+        static let planCasingTitle = "planCasing"
+
         static let flownTitle = "flown"
         static let plannedTitle = "planned"
 
@@ -3289,7 +3329,7 @@ struct TrackerMapView: UIViewRepresentable {
             }
 
             if overlay is MapDimming.Overlay {
-                return MapDimming.Renderer(overlay: overlay, dimming: parent.style.dimming)
+                return MapDimming.Renderer(overlay: overlay, wash: parent.style.wash)
             }
 
             if let area = overlay as? MKPolygon {
@@ -3356,8 +3396,18 @@ struct TrackerMapView: UIViewRepresentable {
             renderer.lineCap = .round
             renderer.lineJoin = .round
 
+            if line.title == Self.planCasingTitle {
+                // The dark edge under the white line. Same dash, wider stroke —
+                // see `PlanStyle.casing` for why it is there at all, and why
+                // the two patterns have to match exactly.
+                renderer.strokeColor = PlanStyle.casing
+                renderer.lineWidth = PlanStyle.casingWidth
+                renderer.lineDashPattern = PlanStyle.dash
+                return renderer
+            }
+
             if line.title == Self.planTitle {
-                // The route as filed: dashed, and faint. It is a statement of
+                // The route as filed: dashed, and white. It is a statement of
                 // intent sitting underneath a track that actually happened, and
                 // it should read as the quieter of the two. The colour is
                 // shared with the fixes drawn along it, so the line and the
@@ -3376,8 +3426,8 @@ struct TrackerMapView: UIViewRepresentable {
                 // to the flown path, which has its own switch — so telling them
                 // apart at a glance is the whole point of the difference.
                 renderer.strokeColor = PlanStyle.line
-                renderer.lineWidth = 1.8
-                renderer.lineDashPattern = [7, 4]
+                renderer.lineWidth = PlanStyle.lineWidth
+                renderer.lineDashPattern = PlanStyle.dash
                 return renderer
             }
 

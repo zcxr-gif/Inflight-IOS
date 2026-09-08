@@ -309,6 +309,100 @@ struct PanelPickerRow<Value: Hashable & Identifiable>: View {
     }
 }
 
+/// A row with a slider on it, for a setting that is a *quantity* rather than a
+/// choice — and one you can only judge by looking at what it does.
+///
+/// The value is shown where the switch would be on a toggle row, and the whole
+/// row reads the same way as its neighbours: label on the left, state on the
+/// right, explanation underneath. The slider itself is on its own line, because
+/// a track squeezed into what is left of a row after a title is a control
+/// nobody can land accurately.
+///
+/// A tap on the reading resets it to `neutral`, when there is one and the
+/// value has moved off it. That is the whole reason a slider needs a way back
+/// — the default of a continuous control is not a position you can find by
+/// dragging.
+struct PanelSliderRow: View {
+
+    let title: String
+    let symbol: String
+    var detail: String? = nil
+
+    /// What the current value reads as on the right-hand end of the row.
+    let reading: (CGFloat) -> String
+
+    /// The value a tap on the reading returns to, if any.
+    var neutral: CGFloat? = nil
+
+    var range: ClosedRange<CGFloat> = 0...1
+
+    /// Drawn at the ends of the track, so which way is which is legible before
+    /// anything is dragged.
+    var lowSymbol: String = "sun.min"
+    var highSymbol: String = "sun.max"
+
+    @Binding var value: CGFloat
+
+    @ObservedObject private var appearance = FlightInfoAppearance.shared
+
+    private var theme: FlightInfoTheme { appearance.theme }
+
+    private var isAdjusted: Bool {
+        guard let neutral = neutral else { return false }
+        return abs(value - neutral) > 0.01
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 10) {
+                PanelRowLabel(title: title, symbol: symbol)
+                Spacer(minLength: 8)
+
+                Text(reading(value))
+                    .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(isAdjusted ? theme.accent : theme.textSecondary)
+
+                if isAdjusted, let neutral = neutral {
+                    Button {
+                        withAnimation(.easeOut(duration: 0.18)) { value = neutral }
+                    } label: {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(theme.textSecondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Reset \(title)")
+                }
+            }
+
+            HStack(spacing: 10) {
+                Image(systemName: lowSymbol)
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.textDim)
+
+                Slider(value: $value, in: range)
+                    .tint(theme.accent)
+
+                Image(systemName: highSymbol)
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.textDim)
+            }
+            // Enough that the end glyph sits under the row's own icon column
+            // rather than out in the margin beside it.
+            .padding(.leading, 9)
+
+            if let detail = detail {
+                Text(detail)
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(theme.textDim)
+                    .padding(.leading, 30)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+    }
+}
+
 /// A row that is on or off by tapping it anywhere — used where a whole set is
 /// being narrowed and switches would be a column of noise.
 struct PanelCheckRow<Trailing: View>: View {

@@ -91,10 +91,36 @@ enum PathSmoothing {
 
     /// Returns the input unchanged when there is nothing to gain: fewer than
     /// three points is already exactly the line between them.
-    static func smoothedWithOrigins(_ coordinates: [CLLocationCoordinate2D]) -> Curve {
+    ///
+    /// `straight` marks points whose geometry is already exact and must not be
+    /// curved through — the ground part of a track, which has been matched onto
+    /// the pavement and *is* the shape of the concrete. Any segment touching
+    /// one is emitted as the straight line it is.
+    ///
+    /// This is not a refinement, it is a correction. A taxiway meets another at
+    /// a right angle, on a corner a chart draws with a radius of a few tens of
+    /// metres; a spline through that rounds it off across the grass, and where
+    /// the routed run doubles back on itself at all — a stand lead-in, a hold —
+    /// the curve through the reversal comes out as a loop. The corners on an
+    /// aerodrome are real corners, and the whole argument for smoothing does
+    /// not apply to them: there is no missing arc to put back, because nothing
+    /// was thinned away. Every point of that run was invented by the router
+    /// from the map itself.
+    ///
+    /// Empty, which is the default, means nothing is pinned — the airborne
+    /// case, and what the planet passes.
+    static func smoothedWithOrigins(
+        _ coordinates: [CLLocationCoordinate2D],
+        straight: [Bool] = []
+    ) -> Curve {
         guard coordinates.count >= 3, coordinates.count <= maximumInput else {
             return Curve(coordinates: coordinates, origins: Array(coordinates.indices))
         }
+
+        // Only trusted when it lines up with the points it describes; a
+        // mismatch is a caller bug and the safe reading of one is that nothing
+        // is pinned.
+        let pinned = straight.count == coordinates.count ? straight : []
 
         let subdivisions = min(
             max(pointBudget / coordinates.count, minimumSubdivisions),
@@ -122,7 +148,15 @@ enum PathSmoothing {
             let straddles = abs(p0.longitude - p1.longitude) > dateLineJump
                 || abs(p1.longitude - p2.longitude) > dateLineJump
                 || abs(p2.longitude - p3.longitude) > dateLineJump
-            guard !straddles else {
+
+            // Either end of the segment being on the pavement is enough. The
+            // segment that leaves the concrete for the air is drawn straight
+            // too — its shape is decided as much by the corner it starts on as
+            // by the leg it ends in, and curving it would pull the last few
+            // metres of a taxi off the centreline.
+            let pavement = !pinned.isEmpty && (pinned[index] || pinned[index + 1])
+
+            guard !straddles, !pavement else {
                 output.append(p2)
                 origins.append(index)
                 continue

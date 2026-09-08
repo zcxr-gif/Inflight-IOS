@@ -134,7 +134,18 @@ struct FlownPath {
     /// never sent — those stretches take the unknown grey, so a path that
     /// starts without heights and picks them up mid-flight fades into its
     /// colours rather than switching into them.
-    init?(points: [TrackPoint], bands: [Int?], title: String) {
+    ///
+    /// `onPavement` is parallel too, and marks the ground part: geometry that
+    /// has been matched onto the taxiways and is already exactly the shape of
+    /// the concrete. It is handed straight to the smoothing, which leaves those
+    /// corners alone — see `PathSmoothing`. Empty means nothing is on pavement,
+    /// which is every track drawn without the ground layout.
+    init?(
+        points: [TrackPoint],
+        bands: [Int?],
+        onPavement: [Bool] = [],
+        title: String
+    ) {
         guard points.count >= 2, bands.count == points.count else { return nil }
 
         // The colour at each *sample*, before the curve is drawn through them.
@@ -157,7 +168,10 @@ struct FlownPath {
         // inserts points *between* samples, so the colour of an inserted point
         // is the colour of the sample it was inserted after — which is exactly
         // the piece of track it belongs to.
-        let smoothed = PathSmoothing.smoothedWithOrigins(points.map(\.coordinate))
+        let smoothed = PathSmoothing.smoothedWithOrigins(
+            points.map(\.coordinate),
+            straight: onPavement
+        )
         guard smoothed.coordinates.count >= 2 else { return nil }
 
         var nodes: [Node] = []

@@ -280,7 +280,13 @@ struct SettingsPanel: View {
         let detail = appearance.isMapDetailed && !appearance.mapPalette.usesImagery
             ? ", full detail"
             : ""
-        return "\(shape), \(style)\(detail)"
+        // Only when it has been moved. A map at its own brightness is what
+        // every one of these rows already said, and saying so again is a word
+        // that never changes.
+        let light = appearance.isMapBrightnessAdjusted
+            ? (appearance.mapBrightness < MapLook.neutralBrightness ? ", dimmed" : ", brightened")
+            : ""
+        return "\(shape), \(style)\(detail)\(light)"
     }
 
     /// The layers row: the ones that are on, named, and nothing about the ones

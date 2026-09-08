@@ -160,6 +160,7 @@ final class FlightInfoAppearance: ObservableObject {
     private static let mapPaletteKey = "map.palette"
     private static let mapDetailKey = "map.detailed"
     private static let mapTerrainKey = "map.terrain"
+    private static let mapBrightnessKey = "map.brightness"
     private static let globeSkinKey = "map.globe.skin"
     private static let globeBackdropKey = "map.globe.backdrop"
     private static let globePlanesKey = "map.globe.planes"
@@ -273,6 +274,30 @@ final class FlightInfoAppearance: ObservableObject {
         didSet { UserDefaults.standard.set(isMapTerrain, forKey: Self.mapTerrainKey) }
     }
 
+    /// How much light is left on the map. See `MapLook.brightness`.
+    ///
+    /// Clamped on the way in rather than trusted, because this is also written
+    /// by the settings sync — a value from a build with a different range, or
+    /// from a key somebody edited, would otherwise be a map nobody can see and
+    /// no obvious way back to one.
+    @Published var mapBrightness: CGFloat {
+        didSet {
+            let clamped = min(max(mapBrightness, 0), 1)
+            guard clamped == mapBrightness else {
+                mapBrightness = clamped
+                return
+            }
+            UserDefaults.standard.set(Double(mapBrightness), forKey: Self.mapBrightnessKey)
+        }
+    }
+
+    /// Whether the map is being drawn at anything other than its own light.
+    /// What the settings hub reads to say so, and what puts the reset button
+    /// on the slider.
+    var isMapBrightnessAdjusted: Bool {
+        abs(mapBrightness - MapLook.neutralBrightness) > 0.01
+    }
+
     /// What colour the drawn planet is. See `GlobeSkin`.
     ///
     /// Its own axis rather than a fifth `MapPalette`, for the same reason the
@@ -344,7 +369,8 @@ final class FlightInfoAppearance: ObservableObject {
             projection: mapProjection.isPro && !isPro ? .flat : mapProjection,
             palette: mapPalette.isPro && !isPro ? .auto : mapPalette,
             isTerrain: isMapTerrain,
-            isDetailed: isMapDetailed
+            isDetailed: isMapDetailed,
+            brightness: mapBrightness
         )
     }
 
@@ -479,6 +505,11 @@ final class FlightInfoAppearance: ObservableObject {
         // always had elevation — gets it from its projection rather than from
         // here.
         isMapTerrain = defaults.object(forKey: Self.mapTerrainKey) as? Bool ?? false
+        // The middle of the slider for anybody who has never touched it, which
+        // is the map exactly as it was before there was one.
+        mapBrightness = (defaults.object(forKey: Self.mapBrightnessKey) as? Double)
+            .map { CGFloat(min(max($0, 0), 1)) }
+            ?? MapLook.neutralBrightness
 
         // The planet's own three. No legacy read-across: none of them existed
         // before the planet became a map, and the defaults are what it looked

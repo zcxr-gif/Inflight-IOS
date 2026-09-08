@@ -135,6 +135,14 @@ final class TaxiNetwork {
     /// than a taxiway is long.
     private static let cellMetres: Double = 120
 
+    /// How far apart two matches have to be to count as different answers.
+    ///
+    /// A taxiway is a polyline of many short edges, and the nearest point on
+    /// each of them to a sample beside it is very nearly the same place. Wider
+    /// than that and narrower than the gap between two crossing centrelines at
+    /// a junction, which is the case the list exists for.
+    private static let candidateSpacingMetres: Double = 18
+
     /// Nodes a single search may settle before it gives up.
     ///
     /// A search between two samples of one taxi is local — a few dozen nodes —
@@ -294,18 +302,46 @@ final class TaxiNetwork {
 
     /// The pavement nearest a position, if any of it is near enough.
     func nearest(to point: Point, within radius: Double) -> Match? {
+        candidates(to: point, within: radius, limit: 1).first
+    }
+
+    /// The pieces of pavement a position could be on, nearest first.
+    ///
+    /// ## Why "nearest" is the wrong question on its own
+    ///
+    /// At a junction two taxiways cross, and a sample taken anywhere near the
+    /// crossing is a few metres from both of them. Which one is *nearest* is
+    /// then decided by GPS noise — a metre either way — while which one the
+    /// aircraft was actually on is obvious from where it came from and where it
+    /// went next.
+    ///
+    /// Answering with one match threw that away, and the result was the one
+    /// artefact of the ground matching anybody ever noticed: a sample at a
+    /// crossing snapped to the taxiway being crossed, the leg in routed up it,
+    /// the leg out routed straight back down, and a clean taxi grew a little
+    /// hook at the junction. See `GroundTrack.chosen`, which is what does the
+    /// deciding now.
+    ///
+    /// Deduplicated by position rather than by edge. A centreline is a
+    /// polyline, so a fifty-metre run of one taxiway is a dozen edges, and a
+    /// list of the twelve nearest is twelve versions of the same answer.
+    func candidates(to point: Point, within radius: Double, limit: Int) -> [Match] {
         // The cells are worked out by dividing and truncating, and truncating a
         // number that is not one is a trap rather than a wrong answer.
-        guard point.x.isFinite, point.y.isFinite else { return nil }
+        guard point.x.isFinite, point.y.isFinite, limit > 0 else { return [] }
 
         let low = Self.cell(for: Point(x: point.x - radius, y: point.y - radius))
         let high = Self.cell(for: Point(x: point.x + radius, y: point.y + radius))
 
-        var best: Match?
+        var found: [Match] = []
+        // An edge is filed in every cell its extent touches, so a long one is
+        // reached from several of the cells being read here.
+        var seen: Set<Int> = []
 
         for x in low.x...high.x {
             for y in low.y...high.y {
                 for index in buckets[Cell(x: x, y: y)] ?? [] {
+                    guard seen.insert(index).inserted else { continue }
                     let edge = edges[index]
                     let closest = Self.closest(
                         to: point,
@@ -313,13 +349,25 @@ final class TaxiNetwork {
                         to: nodes[edge.to]
                     )
                     guard closest.distance <= radius else { continue }
-                    guard closest.distance < (best?.metresFromTrack ?? .greatestFiniteMagnitude) else { continue }
-                    best = Match(edge: index, point: closest.point, metresFromTrack: closest.distance)
+                    found.append(
+                        Match(edge: index, point: closest.point, metresFromTrack: closest.distance)
+                    )
                 }
             }
         }
 
-        return best
+        found.sort { $0.metresFromTrack < $1.metresFromTrack }
+
+        var kept: [Match] = []
+        for match in found {
+            guard kept.count < limit else { break }
+            let isNew = !kept.contains {
+                Self.length(from: $0.point, to: match.point) < Self.candidateSpacingMetres
+            }
+            guard isNew else { continue }
+            kept.append(match)
+        }
+        return kept
     }
 
     /// Converts a matched position back to something the map can draw.
@@ -516,6 +564,28 @@ final class TaxiNetworkStore {
 /// Puts the ground part of a flown path back on the pavement.
 enum GroundTrack {
 
+    /// The track as it should be drawn, and which of its points the pavement
+    /// is responsible for.
+    ///
+    /// The flags travel with the points because the two things downstream that
+    /// draw this need to know them apart. A routed ground run is already the
+    /// shape of the concrete — right angles, exactly where the chart puts them
+    /// — and running a spline through it rounds those corners off onto the
+    /// grass. See `PathSmoothing`, which leaves them alone.
+    struct Track {
+
+        let points: [TrackPoint]
+
+        /// Parallel to `points`. True where the point is on mapped pavement,
+        /// which is every routed ground point and every sample the matching
+        /// moved; false for the whole airborne length of every flight.
+        let onPavement: [Bool]
+
+        static func untouched(_ points: [TrackPoint]) -> Track {
+            Track(points: points, onPavement: Array(repeating: false, count: points.count))
+        }
+    }
+
     /// How far a sample may be moved to reach a centreline.
     ///
     /// About the distance from a stand to the taxilane serving it. Wider than
@@ -552,6 +622,63 @@ enum GroundTrack {
     /// geometry than the smoothing budget downstream can carry.
     private static let maximumInsertedPoints = 1_200
 
+    // MARK: - Choosing between pieces of pavement
+
+    /// How many pieces of pavement a single sample is allowed to be weighed
+    /// against. Four is a crossroads with a stand lead-in on it, which is as
+    /// ambiguous as an aerodrome gets.
+    private static let maximumCandidates = 4
+
+    /// How much further than the nearest a candidate may be and still be
+    /// considered.
+    ///
+    /// This is what keeps the whole arrangement cheap: past a junction there is
+    /// only ever one piece of pavement inside this, so the ordinary sample
+    /// costs one lookup and no routing at all. Wide enough to hold both arms of
+    /// a crossing, which is the case worth spending anything on.
+    private static let candidateSlackMetres: Double = 30
+
+    /// A candidate is charged this per metre it sits from the raw sample, set
+    /// against the metres of detour choosing it would cost.
+    ///
+    /// Below one on purpose. A sample's own position is noisy — that is the
+    /// entire reason the track is being matched to the map — while a detour is
+    /// arithmetic on the chart, so when the two disagree the chart is the
+    /// better witness.
+    private static let snapWeight: Double = 0.6
+
+    /// How many routing searches the choosing may spend on one track.
+    ///
+    /// A taxi has a handful of genuinely ambiguous samples and the rest cost
+    /// nothing, so this is the guard against a pathological track rather than a
+    /// working limit — past it, samples fall back to plain nearest, which is
+    /// what they used to get everywhere.
+    private static let maximumChoiceSearches = 600
+
+    // MARK: - Spikes
+
+    /// A turn sharper than this is a reversal rather than a corner.
+    ///
+    /// Taxiways meet at right angles and the odd oblique; nothing on an
+    /// aerodrome asks an aircraft to turn back on itself inside a few tens of
+    /// metres. Held as the cosine so the test is a dot product rather than an
+    /// arccosine — this runs over every point of every ground run.
+    private static let reversalCosine: Double = -0.87
+
+    /// And how short the legs either side of it have to be to be a spike rather
+    /// than a genuine turn-back.
+    ///
+    /// An aircraft really can reverse direction on the ground — a back-track
+    /// down a runway, a push and pull at a de-icing pad — and those run
+    /// hundreds of metres. A hook at a junction is a few tens.
+    private static let spikeMetres: Double = 90
+
+    /// Passes of spike removal. A spike removed can leave its neighbours
+    /// forming a shallower one; three passes settles anything a junction
+    /// produces, and stopping is what keeps this from eating a real turn one
+    /// point at a time.
+    private static let spikePasses = 3
+
     /// The same track, with everything on the ground running along the pavement
     /// rather than across it.
     ///
@@ -559,14 +686,16 @@ enum GroundTrack {
     /// and any ground segment at a field whose taxiways are not mapped — are
     /// returned exactly as they came in, so the fallback is per segment rather
     /// than per flight.
-    static func following(_ points: [TrackPoint], on networks: [TaxiNetwork]) -> [TrackPoint] {
-        guard !networks.isEmpty, points.count >= 2 else { return points }
+    static func following(_ points: [TrackPoint], on networks: [TaxiNetwork]) -> Track {
+        guard !networks.isEmpty, points.count >= 2 else { return .untouched(points) }
 
-        let matches = points.map { match(for: $0, on: networks) }
-        guard matches.contains(where: { $0 != nil }) else { return points }
+        let matches = chosen(for: points, on: networks)
+        guard matches.contains(where: { $0 != nil }) else { return .untouched(points) }
 
         var output: [TrackPoint] = []
+        var onPavement: [Bool] = []
         output.reserveCapacity(points.count + 128)
+        onPavement.reserveCapacity(points.count + 128)
         var inserted = 0
 
         for index in points.indices {
@@ -578,6 +707,10 @@ enum GroundTrack {
             // one artefact of this anybody would notice.
             let isHead = index == points.count - 1
             output.append(isHead ? points[index] : placed(points[index], at: matches[index], on: networks))
+            // The head is not on the pavement even when it matched: it is drawn
+            // at the raw position, so the segment into it is a chord like any
+            // other and is smoothed like one.
+            onPavement.append(!isHead && matches[index] != nil)
 
             guard !isHead, inserted < maximumInsertedPoints else { continue }
             guard let here = matches[index], let next = matches[index + 1], here.network == next.network else {
@@ -607,39 +740,151 @@ enum GroundTrack {
                         at: network.coordinate(run[step])
                     )
                 )
+                onPavement.append(true)
                 inserted += 1
             }
         }
 
-        return output
+        return withoutSpikes(Track(points: output, onPavement: onPavement))
     }
 
     // MARK: - Where each sample is
 
-    private static func match(
-        for point: TrackPoint,
-        on networks: [TaxiNetwork]
-    ) -> (network: Int, match: TaxiNetwork.Match)? {
-        guard point.groundSpeedKnots <= taxiSpeedCeiling,
-              CLLocationCoordinate2DIsValid(point.coordinate) else { return nil }
+    /// One sample's place on the network: which graph, and where on it.
+    private typealias Placement = (network: Int, match: TaxiNetwork.Match)
 
-        var best: (network: Int, match: TaxiNetwork.Match)?
-        for (index, network) in networks.enumerated() {
-            guard let found = network.nearest(
-                to: network.point(point.coordinate),
-                within: snapRadiusMetres
-            ) else { continue }
-            guard found.metresFromTrack < (best?.match.metresFromTrack ?? .greatestFiniteMagnitude) else {
+    /// Which piece of pavement each sample is drawn onto.
+    ///
+    /// Not simply the nearest one. A sample at a junction is a few metres from
+    /// two crossing taxiways and the nearer of them is decided by noise, so
+    /// choosing on distance alone puts a taxi on the wrong arm of the crossing
+    /// for exactly one sample — which the router then draws as a hook out and
+    /// straight back, because that is faithfully what it was told happened.
+    ///
+    /// So an ambiguous sample is charged for the *detour* each of its
+    /// candidates would cost: how much further the pavement route runs, into it
+    /// from the sample before and out of it towards the sample after, than the
+    /// straight line between them. A hook pays for itself twice and loses to a
+    /// candidate a few metres further from the raw position, which is the whole
+    /// judgement being made here.
+    ///
+    /// One pass forwards rather than a search over every combination. The
+    /// lookahead is against the *nearest* candidate of the following sample —
+    /// not its final choice, which has not been made yet — and that is enough:
+    /// what it has to notice is that leaving this candidate costs a detour at
+    /// all, and any point on the next piece of pavement says so.
+    private static func chosen(
+        for points: [TrackPoint],
+        on networks: [TaxiNetwork]
+    ) -> [Placement?] {
+        var placements: [Placement?] = Array(repeating: nil, count: points.count)
+        var previous: Placement?
+        var searches = 0
+
+        for index in points.indices {
+            let options = candidates(for: points[index], on: networks)
+            guard let nearest = options.first else {
+                previous = nil
                 continue
             }
-            best = (index, found)
+
+            // The ordinary sample: one piece of pavement anywhere near it, or
+            // no budget left to weigh the alternatives. Either way the nearest
+            // is the answer, which is what every sample used to get.
+            guard options.count > 1, searches < maximumChoiceSearches else {
+                placements[index] = nearest
+                previous = nearest
+                continue
+            }
+
+            var ahead: Placement?
+            if index + 1 < points.count {
+                ahead = candidates(for: points[index + 1], on: networks).first
+            }
+
+            var best: Placement = nearest
+            var bestCost = Double.greatestFiniteMagnitude
+            for option in options {
+                var cost = option.match.metresFromTrack * snapWeight
+                if let previous = previous {
+                    cost += detour(from: previous, to: option, on: networks)
+                    searches += 1
+                }
+                if let ahead = ahead {
+                    cost += detour(from: option, to: ahead, on: networks)
+                    searches += 1
+                }
+                guard cost < bestCost else { continue }
+                bestCost = cost
+                best = option
+            }
+
+            placements[index] = best
+            previous = best
         }
-        return best
+
+        return placements
+    }
+
+    /// How much further the pavement runs between two placements than the
+    /// straight line between them.
+    ///
+    /// Zero for two placements on different fields — there is nothing to
+    /// compare and nothing to route — which is right: a candidate cannot be
+    /// blamed for a leg that was never going to be drawn along the concrete.
+    private static func detour(
+        from: Placement,
+        to: Placement,
+        on networks: [TaxiNetwork]
+    ) -> Double {
+        guard from.network == to.network else { return 0 }
+
+        let network = networks[from.network]
+        let straight = TaxiNetwork.length(from: from.match.point, to: to.match.point)
+        let allowance = straight * detourFactor + detourSlackMetres
+        let between = network.route(from: from.match, to: to.match, limitMetres: allowance)
+        guard !between.isEmpty else { return 0 }
+
+        let run = [from.match.point] + between + [to.match.point]
+        var length = 0.0
+        for step in 1..<run.count {
+            length += TaxiNetwork.length(from: run[step - 1], to: run[step])
+        }
+        return max(0, length - straight)
+    }
+
+    /// The pieces of pavement a sample could be on, nearest first, with the
+    /// obviously-worse ones already dropped.
+    private static func candidates(
+        for point: TrackPoint,
+        on networks: [TaxiNetwork]
+    ) -> [Placement] {
+        guard point.groundSpeedKnots <= taxiSpeedCeiling,
+              CLLocationCoordinate2DIsValid(point.coordinate) else { return [] }
+
+        var found: [Placement] = []
+        for (index, network) in networks.enumerated() {
+            let matches = network.candidates(
+                to: network.point(point.coordinate),
+                within: snapRadiusMetres,
+                limit: maximumCandidates
+            )
+            for match in matches {
+                found.append((network: index, match: match))
+            }
+        }
+
+        found.sort { $0.match.metresFromTrack < $1.match.metresFromTrack }
+        guard let nearest = found.first else { return [] }
+
+        let ceiling = nearest.match.metresFromTrack + candidateSlackMetres
+        let near = found.prefix { $0.match.metresFromTrack <= ceiling }
+        return Array(near.prefix(maximumCandidates))
     }
 
     private static func placed(
         _ point: TrackPoint,
-        at match: (network: Int, match: TaxiNetwork.Match)?,
+        at match: Placement?,
         on networks: [TaxiNetwork]
     ) -> TrackPoint {
         guard let match = match else { return point }
@@ -648,6 +893,107 @@ enum GroundTrack {
             altitudeFeet: point.altitudeFeet,
             groundSpeedKnots: point.groundSpeedKnots,
             date: point.date
+        )
+    }
+
+    // MARK: - Cleaning up after the router
+
+    /// Takes the hooks out of a routed ground run.
+    ///
+    /// The belt to `chosen`'s braces. Choosing the right piece of pavement
+    /// removes the reason a taxi grows a spur at a junction, and this removes
+    /// the spur itself in the cases it does not: a stand lead-in the aircraft
+    /// was genuinely parked on and then left, a field whose centrelines are
+    /// drawn as a star of stubs, a sample the router could only reach by going
+    /// round something.
+    ///
+    /// A spike is a point whose two neighbours lie back in nearly the same
+    /// direction — a turn of more than about 150° — with at least one short leg
+    /// either side. That is a description of going out and coming back, and it
+    /// is not a description of any turn an aircraft makes on the ground at
+    /// that scale.
+    ///
+    /// Only points the pavement put there are eligible, and never the ends: the
+    /// first point is where the track starts and the last is where the
+    /// aeroplane is being drawn.
+    private static func withoutSpikes(_ track: Track) -> Track {
+        var points = track.points
+        var onPavement = track.onPavement
+        guard points.count == onPavement.count, points.count >= 3 else { return track }
+
+        for _ in 0..<spikePasses {
+            var keep = Array(repeating: true, count: points.count)
+            var dropped = 0
+
+            var index = 1
+            while index < points.count - 1 {
+                guard onPavement[index], onPavement[index - 1], onPavement[index + 1] else {
+                    index += 1
+                    continue
+                }
+
+                let into = vector(from: points[index - 1], to: points[index])
+                let outOf = vector(from: points[index], to: points[index + 1])
+                let lengthIn = (into.x * into.x + into.y * into.y).squareRoot()
+                let lengthOut = (outOf.x * outOf.x + outOf.y * outOf.y).squareRoot()
+                guard lengthIn > 0, lengthOut > 0 else {
+                    index += 1
+                    continue
+                }
+                guard min(lengthIn, lengthOut) < spikeMetres else {
+                    index += 1
+                    continue
+                }
+
+                let cosine = (into.x * outOf.x + into.y * outOf.y) / (lengthIn * lengthOut)
+                guard cosine < reversalCosine else {
+                    index += 1
+                    continue
+                }
+
+                keep[index] = false
+                dropped += 1
+                // Past the point just dropped as well: judging the next one
+                // against a neighbour that is on its way out would measure a
+                // turn nothing will be drawn at.
+                index += 2
+            }
+
+            guard dropped > 0 else { break }
+
+            var nextPoints: [TrackPoint] = []
+            var nextPavement: [Bool] = []
+            nextPoints.reserveCapacity(points.count - dropped)
+            nextPavement.reserveCapacity(points.count - dropped)
+            for position in points.indices where keep[position] {
+                nextPoints.append(points[position])
+                nextPavement.append(onPavement[position])
+            }
+            points = nextPoints
+            onPavement = nextPavement
+        }
+
+        return Track(points: points, onPavement: onPavement)
+    }
+
+    /// Two points as metres east and north of the first.
+    ///
+    /// A local flattening rather than either network's frame: this runs over a
+    /// track that may touch two fields, the answer is only ever used as a
+    /// direction and a length over a few hundred metres, and at that size the
+    /// difference is centimetres.
+    private static func vector(
+        from: TrackPoint,
+        to: TrackPoint
+    ) -> (x: Double, y: Double) {
+        let metresPerDegree = 111_320.0
+        let scale = cos(from.coordinate.latitude * .pi / 180)
+        var deltaLongitude = to.coordinate.longitude - from.coordinate.longitude
+        if deltaLongitude > 180 { deltaLongitude -= 360 }
+        if deltaLongitude < -180 { deltaLongitude += 360 }
+        return (
+            x: deltaLongitude * metresPerDegree * scale,
+            y: (to.coordinate.latitude - from.coordinate.latitude) * metresPerDegree
         )
     }
 
