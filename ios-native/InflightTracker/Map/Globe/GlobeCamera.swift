@@ -142,6 +142,35 @@ struct GlobeCamera: Equatable {
         )
     }
 
+    // MARK: - Unprojecting
+
+    /// Where a point on the screen lands on the planet, or nil where it missed
+    /// the disc entirely.
+    ///
+    /// The inverse of `project`, and the whole of what makes a raster layer on
+    /// the planet possible: the weather wash and the radar are pictures built
+    /// by asking this of every pixel and sampling whatever the answer points
+    /// at. Nothing else can be done about them — a sphere has no affine
+    /// transform that puts a web-mercator tile on it, so the tile has to be
+    /// read backwards, one pixel at a time.
+    ///
+    /// Orthographic inverts in closed form and cheaply. The offset from the
+    /// middle of the disc, measured in radii, *is* the point's component along
+    /// `east` and `north`; what is left over is its component along `out`, and
+    /// the positive root is the right one because the near face is the one you
+    /// can see. One square root, no trigonometry.
+    func unproject(_ point: CGPoint, using basis: Basis) -> SIMD3<Double>? {
+        guard radius > 0 else { return nil }
+
+        let dx = Double(point.x - center.x) / Double(radius)
+        let dy = Double(center.y - point.y) / Double(radius)
+        let squared = dx * dx + dy * dy
+        guard squared <= 1 else { return nil }
+
+        let dz = (1 - squared).squareRoot()
+        return basis.preciseEast * dx + basis.preciseNorth * dy + basis.preciseOut * dz
+    }
+
     // MARK: - Moving it
 
     /// Turns the planet so the ground follows a finger.

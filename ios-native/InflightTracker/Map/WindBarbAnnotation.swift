@@ -85,7 +85,7 @@ final class WindBarbView: MKAnnotationView {
 
     /// Cool grey-blue: legible on land, on water and on imagery, and nothing
     /// like the colours the traffic or the routes are drawn in.
-    private static let colour = UIColor { traits in
+    static let colour = UIColor { traits in
         traits.userInterfaceStyle == .light
             ? UIColor(red: 0.10, green: 0.25, blue: 0.42, alpha: 0.92)
             : UIColor(red: 0.72, green: 0.86, blue: 1.00, alpha: 0.92)
@@ -102,7 +102,12 @@ final class WindBarbView: MKAnnotationView {
     /// Built as a path rather than by rotating the layer so the pennants stay
     /// filled triangles rather than sheared ones, and so the whole thing is one
     /// shape with one shadow.
-    private static func path(
+    ///
+    /// Not private, and the colour beside it is not either: the planet draws
+    /// its own barbs into a `CGContext` rather than into annotation views, and
+    /// a barb that means fifty knots on one shape of the world and something
+    /// else on the other is not a chart symbol at all.
+    static func path(
         speedKnots: Double,
         directionDegrees: Double,
         in bounds: CGRect

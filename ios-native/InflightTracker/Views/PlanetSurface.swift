@@ -1,5 +1,6 @@
 import Combine
 import CoreLocation
+import MapKit
 import SwiftUI
 import UIKit
 import simd
@@ -43,6 +44,22 @@ struct PlanetSurface: View {
     /// The pavement store, observed so that a layout arriving from the network
     /// after the planet has already settled over the field still gets drawn.
     @ObservedObject private var layouts = AirportLayoutStore.shared
+
+    /// Which weather layers are on, and at what level.
+    @ObservedObject private var weatherPreferences = WeatherPreferences.shared
+
+    /// The wind grid, observed for the same reason the pavement store is: it
+    /// arrives from the network after the planet has settled, and the redraw it
+    /// lands on is what puts it on the map.
+    @ObservedObject private var winds = WindsAloftStore.shared
+
+    /// Which frame of the radar or the satellite is current.
+    ///
+    /// Handed in rather than built here: which frame of which layer is one
+    /// question with one answer, and the strip over the map reads the same
+    /// model. What the planet *does* with the answer is entirely its own — see
+    /// `GlobeWeatherRaster`.
+    @ObservedObject var weather: MapWeatherModel
 
     /// The traffic, the fields and the route, rebuilt when a packet lands
     /// rather than when the planet turns. See `GlobeScene`.
@@ -218,6 +235,17 @@ struct PlanetSurface: View {
         // `updateUIView`, to move a value nothing in SwiftUI ever read.
         .onAppear {
             sun = Self.sunVector()
+            // The planet has no gesture the radar animation has to wait for —
+            // and the flat map, whose gestures it does wait for, may have been
+            // taken down mid-pinch with the hold still on. See
+            // `MapWeatherModel.report(cameraMoving:)`.
+            weather.report(cameraMoving: false)
+            // And the loop is held while the planet is the map. See
+            // `MapWeatherModel.report(drawnPlanet:)` — a frame of radar on the
+            // planet is a software raster, and two a second is not something a
+            // phone should be asked for.
+            weather.report(drawnPlanet: true)
+            syncWeather()
             // The marks need the VA directory and nothing else here was ever
             // going to ask for it — the flat map says this from its own setup,
             // which does not run when the planet is what the map is. Said once,
@@ -231,10 +259,19 @@ struct PlanetSurface: View {
         .onChange(of: filters.showsVaMarks) { _, on in
             if on { VaMarkStore.shared.warm() }
         }
+        .onDisappear { weather.report(drawnPlanet: false) }
         .onReceive(Self.clock) { _ in sun = Self.sunVector() }
         .onChange(of: sceneSignature) { _, _ in rebuild() }
-        .onChange(of: spot) { _, _ in syncGround() }
+        .onChange(of: spot) { _, _ in
+            syncGround()
+            syncWeather()
+        }
         .onChange(of: filters.showsGroundLayout) { _, _ in syncGround() }
+        // Every switch that changes what the weather layers should be, and the
+        // grid itself landing. The store answers from its cache until the model
+        // data is stale, so most of these cost one dictionary lookup.
+        .onChange(of: weatherSignature) { _, _ in syncWeather() }
+        .onChange(of: weather.tiles?.key) { _, _ in syncWeather() }
         // The fields are asked for the moment the planet settles over them and
         // the answers arrive from the network some time later. This is that
         // later: the store publishes, this view is observing it, and the stamp
@@ -321,6 +358,134 @@ struct PlanetSurface: View {
     private func clearGround() {
         if !groundIcaos.isEmpty { groundIcaos = [] }
         scene.setGround([])
+    }
+
+    // MARK: - The weather
+
+    /// A stamp of everything about the weather that is a *setting* rather than
+    /// a place, plus the grid the store currently holds. What tells this view
+    /// that the answer may have changed without the planet having moved.
+    private var weatherSignature: String {
+        [
+            weatherPreferences.mapLayer.rawValue,
+            weatherPreferences.showsWinds ? "b" : "-",
+            weatherPreferences.showsWindParticles ? "p" : "-",
+            weatherPreferences.windHeat.rawValue,
+            weatherPreferences.windLevel.rawValue,
+            winds.key ?? "-"
+        ].joined(separator: "|")
+    }
+
+    /// Puts the wind and the tiles the planet should be showing into the scene.
+    ///
+    /// The same shape as `syncGround`, and for the same reasons: the store does
+    /// the deciding about the data — which lattice this region rounds to,
+    /// whether it is already held — and this decides only what is *drawn* from
+    /// whatever it currently holds. It runs when the planet settles, never
+    /// while it is turning.
+    ///
+    /// ## Why the planet asks the same store the flat map does
+    ///
+    /// Because they are the same question. `WindsAloftStore` snaps a region to
+    /// a lattice and caches by it, so switching between the two shapes of the
+    /// world over the same ground is a cache hit rather than a second request —
+    /// and the barbs, the wash and the particles cannot disagree with the flat
+    /// map's about what the air is doing, because there is one set of numbers.
+    private func syncWeather() {
+        syncWind()
+        syncWeatherTiles()
+    }
+
+    private func syncWind() {
+        let wantsBarbs = weatherPreferences.showsWinds
+        let wantsParticles = weatherPreferences.showsWindParticles
+        let product = weatherPreferences.windHeat
+
+        guard wantsBarbs || wantsParticles || product != .off else {
+            scene.setWind(nil)
+            return
+        }
+
+        guard let spot = spot, spot.spanMetres > 0 else { return }
+
+        let demand = WindsAloftStore.Demand(
+            level: weatherPreferences.windLevel,
+            // Only the two layers that interpolate need the dense lattice.
+            needsField: wantsParticles || product != .off,
+            needsTemperature: product == .temperature,
+            needsShear: product == .shear
+        )
+
+        // The region the planet is looking at, as the flat map would express
+        // it. Degrees of latitude are nautical miles times sixty and nautical
+        // miles are 1852 metres, everywhere; longitude is that over the cosine,
+        // which is what makes the lattice square on the ground rather than
+        // square in degrees.
+        let degrees = spot.spanMetres / (GlobeCamera.earthRadiusMetres * .pi / 180)
+        let shrink = max(0.2, cos(spot.latitude * .pi / 180))
+        let region = MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: spot.latitude, longitude: spot.longitude),
+            span: MKCoordinateSpan(
+                latitudeDelta: min(170, degrees),
+                longitudeDelta: min(350, degrees / shrink)
+            )
+        )
+
+        // Off the update rather than inside it: `load` publishes, and
+        // publishing from inside a SwiftUI update is the warning SwiftUI exists
+        // to give. The draw below uses whatever the store already holds, and
+        // the answer this asks for arrives as a change to `winds.key`.
+        DispatchQueue.main.async {
+            WindsAloftStore.shared.load(region: region, demand: demand)
+        }
+
+        guard let key = winds.key else {
+            scene.setWind(nil)
+            return
+        }
+
+        // Barbs alone are drawn from the sparse lattice, which carries no
+        // interpolable field — so a grid with nothing but arrows in it is still
+        // a grid worth drawing, and the two layers that need the field simply
+        // have nothing to draw until it arrives.
+        guard !winds.barbs.isEmpty || winds.field != nil else {
+            scene.setWind(nil)
+            return
+        }
+
+        scene.setWind(GlobeWind(
+            field: winds.field,
+            barbs: winds.barbs,
+            showsBarbs: wantsBarbs,
+            showsParticles: wantsParticles,
+            product: product,
+            level: weatherPreferences.windLevel,
+            key: [
+                key,
+                wantsBarbs ? "b" : "-",
+                wantsParticles ? "p" : "-",
+                product.rawValue
+            ].joined(separator: "|")
+        ))
+    }
+
+    private func syncWeatherTiles() {
+        // The strip over the map says why a layer that is on is drawing
+        // nothing, and it reads this model — so the planet reports the same
+        // zoom limit the flat map does rather than leaving the strip saying
+        // whatever the flat map last said.
+        if let tiles = weather.tiles, let spot = spot, spot.spanMetres > 0 {
+            let degrees = spot.spanMetres / (GlobeCamera.earthRadiusMetres * .pi / 180)
+            weather.report(
+                legible: MapWeatherSource.isLegible(tiles.layer, acrossDegrees: degrees)
+            )
+        }
+
+        scene.setWeatherTiles(weather.tiles)
+
+        // A frame nobody is looking at is a screenful of decoded pixels the app
+        // should not be holding.
+        if weather.tiles == nil { GlobeTileStore.shared.clear() }
     }
 
     /// A stamp of what the store holds for the fields being drawn, so a layout

@@ -567,6 +567,40 @@ final class GlobeScene: ObservableObject {
         revision &+= 1
     }
 
+    // MARK: - Weather
+
+    /// The wind over what the planet is showing, and which of the three layers
+    /// it feeds are switched on. Nil is all three off, or a grid that has not
+    /// landed.
+    private(set) var wind: GlobeWind?
+
+    /// The frame of radar or satellite the planet should have on it, if any.
+    ///
+    /// The same value the flat map is handed. What is done with it is entirely
+    /// different — see `GlobeWeatherRaster` — but which frame of which layer is
+    /// one question with one answer, and both shapes of the world read it from
+    /// `MapWeatherModel`.
+    private(set) var weatherTiles: MapWeatherTiles?
+
+    /// Counted apart from `revision` for the reason `groundRevision` is: the
+    /// weather is part of the ground rather than part of the traffic, and a
+    /// packet of aeroplanes must not rebuild a raster.
+    private(set) var weatherRevision = 0
+
+    func setWind(_ wind: GlobeWind?) {
+        guard wind != self.wind else { return }
+        self.wind = wind
+        weatherRevision &+= 1
+        revision &+= 1
+    }
+
+    func setWeatherTiles(_ tiles: MapWeatherTiles?) {
+        guard tiles != self.weatherTiles else { return }
+        self.weatherTiles = tiles
+        weatherRevision &+= 1
+        revision &+= 1
+    }
+
     // MARK: - The route
 
     /// The open aircraft's route, as the two legs worth drawing on a planet:

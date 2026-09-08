@@ -106,6 +106,18 @@ enum GlobeGeometry {
         return SIMD3<Double>(cosLat * cos(lon), cosLat * sin(lon), sin(lat))
     }
 
+    /// The place a direction points at. The inverse of `preciseVector`.
+    ///
+    /// For the layers that read the sphere backwards — see
+    /// `GlobeCamera.unproject`. Everything else on the planet goes the other
+    /// way and never needs this.
+    static func coordinate(of vector: SIMD3<Double>) -> CLLocationCoordinate2D {
+        CLLocationCoordinate2D(
+            latitude: asin(max(-1, min(1, vector.z))) * 180 / .pi,
+            longitude: atan2(vector.y, vector.x) * 180 / .pi
+        )
+    }
+
     static func preciseVector(_ coordinate: CLLocationCoordinate2D) -> SIMD3<Double> {
         preciseVector(latitude: coordinate.latitude, longitude: coordinate.longitude)
     }

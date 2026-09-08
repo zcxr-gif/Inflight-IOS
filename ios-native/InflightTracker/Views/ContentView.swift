@@ -733,6 +733,7 @@ struct ContentView: View {
     /// The drawn planet, standing where MapKit usually does.
     private var planet: some View {
         PlanetSurface(
+            weather: mapWeather,
             flights: visibleFlights,
             airports: filters.showsAirports ? mapAirports : [],
             signature: planetSignature,
@@ -852,7 +853,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 10) {
             topRow
 
-            if weatherPreferences.mapLayer != .off, !isPlanetMap {
+            if weatherPreferences.mapLayer != .off {
                 MapWeatherBar(model: mapWeather, theme: theme)
                     .transition(.opacity.combined(with: .move(edge: .leading)))
             }
@@ -860,7 +861,7 @@ struct ContentView: View {
             // The key to the coloured field, and only while there is one. See
             // `WeatherFieldLegend` — a wash whose colours mean nothing you can
             // look up is a wash that only looks like information.
-            if weatherPreferences.windHeat != .off, !isPlanetMap {
+            if weatherPreferences.windHeat != .off {
                 WeatherFieldLegend(
                     product: weatherPreferences.windHeat,
                     level: weatherPreferences.windLevel,
@@ -1985,12 +1986,13 @@ struct ContentView: View {
     /// in the menu.
     @ViewBuilder
     private var weatherControl: some View {
-        // Nothing to switch on where there are no tiles to switch on. The
-        // planet is drawn from vectors the app ships, so the radar, the
-        // satellite layer and the wind barbs — all of which are MapKit
-        // overlays — have nothing to draw over. Hidden rather than shown doing
-        // nothing: a control that is there and inert is a bug report.
-        if selection == nil, !replay.isActive, !isPlanetMap {
+        // On both shapes of the world now. This used to be hidden on the
+        // planet, on the reasoning that the radar, the satellite and the barbs
+        // are MapKit overlays and the planet is not MapKit — which was true,
+        // and which is why the planet drew none of them. It draws all of them
+        // now: see `GlobeWeather`, where the tiles are read backwards onto the
+        // sphere a pixel at a time because no transform will put them there.
+        if selection == nil, !replay.isActive {
             Menu {
                 Section("Layer") {
                     // Buttons rather than a `Picker`, for the same reason the

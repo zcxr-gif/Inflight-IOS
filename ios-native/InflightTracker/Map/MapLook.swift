@@ -30,6 +30,12 @@ enum MapProjection: String, CaseIterable, Identifiable {
     /// reach the map's weather tiles, its gate layouts or its ruler, so
     /// offering it as a projection would mean silently turning features off.
     ///
+    /// The weather is no longer one of those. The radar, the satellite, the
+    /// barbs, the coloured field and the moving air are all drawn on the
+    /// planet — see `GlobeWeather`, which paints the tiles by unprojecting
+    /// every pixel of the screen onto the sphere and reading whatever is under
+    /// it, because no transform will put a mercator tile on a globe.
+    ///
     /// What changed is where it sits. The planet is now a layer *inside* the
     /// map rather than a screen instead of it, so the search field, the
     /// filters, the dock, the toolbar, every panel and the flight window are
