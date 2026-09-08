@@ -14,14 +14,20 @@
 //
 //   1. the caller is signed in, and the id used is the one GoTrue resolves
 //      from their token — never one from the request body
-//   2. the payload is small enough
-//   3. the bytes really are a JPEG, PNG or WebP, by magic number rather than
+//   2. uploading is not currently switched off for this pilot by a moderation
+//      warning (`pilot_upload_notice()`), checked first because it is the one
+//      refusal that should not cost a decode
+//   3. the payload is small enough
+//   4. the bytes really are a JPEG, PNG or WebP, by magic number rather than
 //      by the Content-Type the caller claimed
-//   4. the image's own dimensions are sane, read out of its header
-//   5. a banner needs Inflight Pro, asked of `pro_entitlement()` with the
+//   5. the image's own dimensions are sane, read out of its header
+//   6. a banner needs Inflight Pro, asked of `pro_entitlement()` with the
 //      caller's own token
-//   6. if an image-moderation endpoint is configured, it agrees the picture is
+//   7. if an image-moderation endpoint is configured, it agrees the picture is
 //      safe for work
+//
+// Removing a picture passes none of these but the first: a pilot under an
+// upload restriction can still take their own picture down.
 //
 // The `pilot_profiles` row is then updated with the CALLER'S token, not the
 // service role, so row-level security and the write guard apply to it exactly
@@ -283,6 +289,39 @@ Deno.serve(async (request: Request) => {
   }
 
   // MARK: - Putting one on
+
+  /* IS THIS PILOT ALLOWED TO ADD PICTURES AT ALL.
+   *
+   * A warning about a picture is a request until something enforces it. This
+   * is the enforcement: a moderator who took an image down and ticked "stop
+   * them uploading" has switched off this branch for as long as that warning
+   * stands. See `20260908000000_pilot_content_moderation.sql`.
+   *
+   * Deliberately BELOW the remove branch. A restricted pilot must still be
+   * able to take their own picture off — that is them complying, and refusing
+   * it would mean the restriction traps the very content it exists to remove.
+   *
+   * Deliberately ABOVE everything else, so a restricted pilot is refused
+   * before we decode their base64, read its header, or ask about Pro.
+   *
+   * The sentence comes from the database, not from here, so this refusal and
+   * the notice in the app's profile editor cannot drift apart — and so a pilot
+   * running an old build is never shown an old build's wording for a
+   * restriction applied today.
+   *
+   * FAILS OPEN. A moderation lookup that cannot run is not a reason to stop
+   * every pilot on the platform from changing their avatar; the restriction is
+   * a hold on one account, not a global switch. The takedown path is
+   * unaffected either way.
+   */
+  const { data: notice, error: noticeError } = await admin
+    .rpc("pilot_upload_notice", { p_uid: userId });
+
+  if (noticeError) {
+    console.error("profile-image: restriction check failed", noticeError.message);
+  } else if (typeof notice === "string" && notice.length > 0) {
+    return json({ error: notice, uploadsPaused: true }, 403);
+  }
 
   if (typeof body.data !== "string" || body.data.length === 0) {
     return json({ error: "No image sent." }, 400);

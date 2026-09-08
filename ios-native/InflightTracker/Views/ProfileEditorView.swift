@@ -55,6 +55,8 @@ struct ProfileEditorView: View {
                 signedOut
             } else {
                 if draft.isHidden { hiddenNotice }
+                if store.standing?.uploadsRestricted == true { uploadsPausedNotice }
+                warningsSection
 
                 identitySection
                 if !isNew { picturesSection }
@@ -131,6 +133,94 @@ struct ProfileEditorView: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
+        }
+    }
+
+    /// THE AUTOMATIC MESSAGE.
+    ///
+    /// Shown the moment a restriction exists, without anybody at Inflight
+    /// writing to the pilot to explain it — that is what makes it automatic.
+    /// The sentence itself comes from the server (`pilot_upload_notice()`) and
+    /// is drawn verbatim: the same string the upload button gets back when it
+    /// is refused, so a pilot who ignores this and taps the avatar anyway is
+    /// told the identical thing rather than a second, differently-worded no.
+    ///
+    /// It says what is paused, until when, and that nothing else has been
+    /// touched — which is the question somebody actually has when a button
+    /// stops working.
+    private var uploadsPausedNotice: some View {
+        PanelSection(title: "PICTURES ARE PAUSED") {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(store.standing?.uploadsNotice ?? "")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text("You can still edit everything else, and you can still remove a picture you have already put up.")
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(theme.textDim)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+        }
+    }
+
+    /// The warnings themselves, so the pause above has a reason attached to it
+    /// rather than arriving as an unexplained restriction. Withdrawn warnings
+    /// are left out here — `standingWarnings` filters them — because this is
+    /// the list of things that currently apply, and the pilot has already been
+    /// shown a withdrawal by it disappearing.
+    @ViewBuilder
+    private var warningsSection: some View {
+        let warnings = store.standing?.standingWarnings ?? []
+        if !warnings.isEmpty {
+            PanelSection(title: warnings.count == 1 ? "A WARNING" : "WARNINGS") {
+                VStack(alignment: .leading, spacing: 14) {
+                    ForEach(warnings) { warning in
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 6) {
+                                Text(warning.title.uppercased())
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundStyle(theme.textSecondary)
+                                if warning.isAcknowledged {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 9, weight: .bold))
+                                        .foregroundStyle(theme.textDim)
+                                }
+                                Spacer(minLength: 0)
+                                if let at = warning.createdAt {
+                                    Text(at.formatted(date: .abbreviated, time: .omitted))
+                                        .font(.system(size: 10, weight: .medium))
+                                        .foregroundStyle(theme.textDim)
+                                }
+                            }
+
+                            Text(warning.reason)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(theme.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+
+                            // Acknowledging is receipt, not agreement, and the
+                            // button says so. There is nowhere in this app to
+                            // disagree, and a button labelled "I understand"
+                            // would be claiming consent nobody gave.
+                            if !warning.isAcknowledged {
+                                Button {
+                                    Task { await store.acknowledgeWarning(warning.id) }
+                                } label: {
+                                    Text("Mark as read")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(theme.accent)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+            }
         }
     }
 
@@ -221,13 +311,26 @@ struct ProfileEditorView: View {
                         // is an error under the Swift 6 language mode.
                         let uploadingAvatar = store.uploading == .avatar
 
+                        // Same reason, and the same care about the closure:
+                        // read before the label, not inside it.
+                        //
+                        // Disabled rather than hidden. A missing button is a
+                        // bug from the pilot's side; a greyed-out one, under a
+                        // banner that says why, is the app telling them what
+                        // happened. The Edge Function refuses this anyway —
+                        // this is so they are not invited to choose a
+                        // photograph first and be told no afterwards.
+                        let picturesPaused = store.standing?.uploadsRestricted == true
+
                         PhotosPicker(selection: $avatarPick, matching: .images) {
                             pickerLabel(
                                 draft.avatarPath == nil ? "Add a picture" : "Change picture",
                                 busy: uploadingAvatar
                             )
+                            .opacity(picturesPaused ? 0.4 : 1)
                         }
                         .buttonStyle(.plain)
+                        .disabled(picturesPaused)
 
                         if draft.avatarPath != nil {
                             Button { Task { await store.removeImage(.avatar) } } label: {
@@ -264,14 +367,17 @@ struct ProfileEditorView: View {
             if entitlements.has(.profileBanner) {
                 HStack(spacing: 10) {
                     let uploadingBanner = store.uploading == .banner
+                    let picturesPaused = store.standing?.uploadsRestricted == true
 
                     PhotosPicker(selection: $bannerPick, matching: .images) {
                         pickerLabel(
                             draft.bannerPath == nil ? "Use a photo" : "Change photo",
                             busy: uploadingBanner
                         )
+                        .opacity(picturesPaused ? 0.4 : 1)
                     }
                     .buttonStyle(.plain)
+                    .disabled(picturesPaused)
 
                     if draft.bannerPath != nil {
                         Button { Task { await store.removeImage(.banner) } } label: {
