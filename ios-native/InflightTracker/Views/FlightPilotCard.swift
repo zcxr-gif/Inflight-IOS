@@ -296,9 +296,26 @@ struct FlightPilotCard: View {
                 paintedBanner.gradient
 
                 if let image = banner.image {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
+                    // Laid into a shape that has already agreed to the card's
+                    // size, rather than sized directly.
+                    //
+                    // `scaledToFill` does not merely draw outside its frame, it
+                    // *reports* the bigger size — that is what filling means —
+                    // and a background is not clipped to the view it is behind.
+                    // So the ZStack grew to whatever the photograph wanted, the
+                    // rounded rect went round that, and the banner stood a
+                    // couple of hundred points proud of the card on every side,
+                    // out over the tiles underneath. `Color.clear` takes the
+                    // size it is offered and nothing else; the picture fills
+                    // that and `clipped()` throws away the overflow, so what
+                    // the ZStack reports is the card's own size again.
+                    Color.clear
+                        .overlay {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFill()
+                        }
+                        .clipped()
                         .transition(.opacity)
                 }
 
