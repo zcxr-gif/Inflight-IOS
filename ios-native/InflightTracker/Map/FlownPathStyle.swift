@@ -65,6 +65,42 @@ enum FlownPathStyle {
     /// light one, which is the right way round — a glow is a thing you notice
     /// against darkness.
     static let glowOpacity: CGFloat = 0.22
+
+    /// A core colour every one of whose channels is at least this bright
+    /// cannot lift itself off the map, and the halo behind it has to be dark
+    /// instead.
+    ///
+    /// The darkest channel rather than a lightness, because lightness puts
+    /// amber — which is 0.95, 0.71, 0.11 and about as pale as a hue can be
+    /// while still obviously being one — within a rounding error of the
+    /// threshold. Its darkest channel is a tenth, and white's is one; there is
+    /// nothing to argue about in between.
+    private static let paleCore: CGFloat = 0.85
+
+    /// What the halo under a stretch of path is drawn in.
+    ///
+    /// Ordinarily the path's own colour: a wash of the same hue, which reads as
+    /// a glow around the line and is why a crimson track stands off a dark map.
+    ///
+    /// The ground is the exception, and it has to be. That part of the track is
+    /// white — see `AltitudeBand.groundColor` — and a white glow behind a white
+    /// line over pale cartography or a pale apron is nothing behind nothing.
+    /// So a core too light to lift itself gets the opposite: a dark halo, which
+    /// is a shadow rather than a glow and does the same job from the other
+    /// side. It is the same bargain the filed plan makes with its casing.
+    ///
+    /// Decided from the colour rather than from a flag, so there is one rule
+    /// and nothing to keep in step: any pale colour this ramp ever grows gets a
+    /// readable edge without anybody remembering to ask for one.
+    static func halo(for core: UIColor) -> UIColor {
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        guard core.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else { return core }
+        guard min(red, green, blue) >= paleCore else { return core }
+        return UIColor(white: 0, alpha: alpha)
+    }
 }
 
 /// The flown path: one overlay, drawn by hand.
@@ -152,14 +188,25 @@ struct FlownPath {
         let step = max(1, Int((Double(points.count) / Double(Self.maximumColourSamples)).rounded(.up)))
         var sampleColors: [UIColor] = []
         sampleColors.reserveCapacity(points.count)
-        var lastColor = Self.color(for: bands[0], feet: points[0].altitudeFeet)
+        var lastColor = Self.color(for: bands[0], at: points[0])
         for index in points.indices {
-            // Recomputed on the stride and always at the ends. In between it
-            // carries the last one forward, which is what makes the thinning
-            // free: a colour held for three samples of a cruise leg is the
-            // colour those three samples had.
-            if index % step == 0 || index == points.count - 1 {
-                lastColor = Self.color(for: bands[index], feet: points[index].altitudeFeet)
+            // The one place the stride cannot be trusted: the moment the
+            // aircraft leaves the ground or arrives on it.
+            //
+            // Everything else on this ramp is continuous, which is what makes
+            // the thinning free — a colour held for three samples of a cruise
+            // leg is the colour those three samples had, and a step sharp
+            // enough to matter is one the remaining samples still bracket. The
+            // ground is not on the ramp at all; it is a switch. Left to the
+            // stride, a take-off could carry its white a dozen samples past the
+            // runway, and at two nautical miles a sample that is a white line
+            // halfway to the first waypoint.
+            let leaves = index > 0 && points[index].isAirborne != points[index - 1].isAirborne
+
+            // Recomputed on the stride, at that switch, and always at the ends.
+            // In between it carries the last one forward.
+            if index % step == 0 || leaves || index == points.count - 1 {
+                lastColor = Self.color(for: bands[index], at: points[index])
             }
             sampleColors.append(lastColor)
         }
@@ -187,8 +234,26 @@ struct FlownPath {
         self.overlay = overlay
     }
 
-    /// A sample's colour: the height where there was one, the unknown grey
-    /// where there was not.
+    /// A sample's colour: the unknown grey where no height was sent, white
+    /// where the aircraft was on the ground, and the height everywhere else.
+    ///
+    /// White for the ground because the ramp answers "how high" and on the
+    /// ground that has no interesting answer — see `AltitudeBand.groundColor`.
+    /// A taxi coloured by the elevation of the aerodrome under it is a claim
+    /// about the field rather than about the aeroplane.
+    ///
+    /// The test is `TrackPoint.isAirborne`, which is the same rule the phase
+    /// chip prints beside the callsign. One notion of "on the ground" in the
+    /// app: the word next to the registration and the colour of the line under
+    /// the aeroplane cannot disagree, because they are the same question.
+    ///
+    /// Asked *after* the unknown, and that order is the whole of what keeps it
+    /// honest. "On the ground" reads low and slow, and a track the backend sent
+    /// without heights or speeds reads low and slow too — so asking the ground
+    /// first would paint a whole data-less transatlantic white and call it a
+    /// taxi. The grey already means "we were not told", which is the true
+    /// answer there, and a sample with a known height cannot be mistaken for
+    /// one without.
     ///
     /// Interpolated through `color(forFeet:)` rather than snapped to the band's
     /// own colour. The band is still what decides whether a height is *known* —
@@ -200,8 +265,10 @@ struct FlownPath {
     /// in the same colours: a path that changes hue when you change the shape
     /// of the world is telling you about the renderer rather than about the
     /// flight. See `GlobeFlownPath`.
-    static func color(for band: Int?, feet: Double) -> UIColor {
-        band == nil ? AltitudeBand.unknownColor : AltitudeBand.color(forFeet: feet)
+    static func color(for band: Int?, at point: TrackPoint) -> UIColor {
+        guard band != nil else { return AltitudeBand.unknownColor }
+        guard point.isAirborne else { return AltitudeBand.groundColor }
+        return AltitudeBand.color(forFeet: point.altitudeFeet)
     }
 
     /// How far a path can run at exactly zero feet before the zero is read
@@ -473,11 +540,11 @@ final class FlownPathRenderer: MKOverlayRenderer {
         // leg beside it.
         context.setAlpha(FlownPathStyle.glowOpacity)
         context.beginTransparencyLayer(auxiliaryInfo: nil)
-        stroke(nodes, width: halo, in: context)
+        stroke(nodes, width: halo, isHalo: true, in: context)
         context.endTransparencyLayer()
         context.setAlpha(1)
 
-        stroke(nodes, width: core, in: context)
+        stroke(nodes, width: core, isHalo: false, in: context)
     }
 
     /// One pass along the track, stroking each run of same-coloured segments.
@@ -492,7 +559,12 @@ final class FlownPathRenderer: MKOverlayRenderer {
     /// and the next run starts at the node the last one finished on — so
     /// consecutive runs share a point and meet exactly, with a round cap over
     /// the join rather than a gap for the map to show through.
-    private func stroke(_ nodes: [FlownPath.Node], width: CGFloat, in context: CGContext) {
+    private func stroke(
+        _ nodes: [FlownPath.Node],
+        width: CGFloat,
+        isHalo: Bool,
+        in context: CGContext
+    ) {
         context.setLineWidth(width)
 
         let segments = nodes.count - 1
@@ -516,14 +588,20 @@ final class FlownPathRenderer: MKOverlayRenderer {
             for step in (start + 1)...(end + 1) {
                 context.addLine(to: point(for: nodes[step].point))
             }
-            context.setStrokeColor(nodes[start].color.cgColor)
+            // The halo is not always the line's own colour — a white ground
+            // track needs a dark one behind it rather than a white one. See
+            // `FlownPathStyle.halo`.
+            let colour = isHalo
+                ? FlownPathStyle.halo(for: nodes[start].color)
+                : nodes[start].color
+            context.setStrokeColor(colour.cgColor)
             context.strokePath()
 
             // Always forward: `end` is never before `start`.
             start = end + 1
         }
 
-        strokeHead(after: nodes, in: context)
+        strokeHead(after: nodes, isHalo: isHalo, in: context)
     }
 
     /// The piece the feed has not caught up with: the last sample to wherever
@@ -537,7 +615,7 @@ final class FlownPathRenderer: MKOverlayRenderer {
     /// It carries the last sample's colour because that is the height the
     /// aircraft was last known to be at, and inventing a different one for a
     /// few seconds of track would be a claim about a climb nobody reported.
-    private func strokeHead(after nodes: [FlownPath.Node], in context: CGContext) {
+    private func strokeHead(after nodes: [FlownPath.Node], isHalo: Bool, in context: CGContext) {
         guard let head = path.head, let last = nodes.last else { return }
 
         // The seam, again: a head on the far side of the antimeridian from the
@@ -548,7 +626,7 @@ final class FlownPathRenderer: MKOverlayRenderer {
         context.beginPath()
         context.move(to: point(for: last.point))
         context.addLine(to: point(for: head))
-        context.setStrokeColor(last.color.cgColor)
+        context.setStrokeColor((isHalo ? FlownPathStyle.halo(for: last.color) : last.color).cgColor)
         context.strokePath()
     }
 }

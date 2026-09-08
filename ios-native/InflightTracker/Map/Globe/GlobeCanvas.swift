@@ -2457,21 +2457,27 @@ final class GlobeCanvasView: UIView {
 
         context.setAlpha(FlownPathStyle.glowOpacity)
         context.beginTransparencyLayer(auxiliaryInfo: nil)
-        stroke(strokes, width: halo, in: context)
+        stroke(strokes, width: halo, isHalo: true, in: context)
         context.endTransparencyLayer()
         context.setAlpha(1)
 
-        stroke(strokes, width: core, in: context)
+        stroke(strokes, width: core, isHalo: false, in: context)
     }
 
     private func stroke(
         _ strokes: [(path: CGPath, color: UIColor)],
         width: CGFloat,
+        isHalo: Bool,
         in context: CGContext
     ) {
         context.setLineWidth(width)
         for run in strokes {
-            context.setStrokeColor(run.color.cgColor)
+            // The halo is not always the line's own colour: the ground part of
+            // a track is white, and a white glow behind a white line is
+            // nothing behind nothing. See `FlownPathStyle.halo`, which the flat
+            // map's renderer asks the same question of.
+            let colour = isHalo ? FlownPathStyle.halo(for: run.color) : run.color
+            context.setStrokeColor(colour.cgColor)
             context.addPath(run.path)
             context.strokePath()
         }

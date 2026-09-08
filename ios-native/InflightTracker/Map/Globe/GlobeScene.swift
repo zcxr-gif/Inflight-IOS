@@ -188,10 +188,14 @@ struct GlobeFlownPath: Equatable {
         )
         var sampleColors: [UIColor] = []
         sampleColors.reserveCapacity(track.count)
-        var carried = FlownPath.color(for: bands[0], feet: track[0].altitudeFeet)
+        var carried = FlownPath.color(for: bands[0], at: track[0])
         for index in track.indices {
-            if index % step == 0 || index == track.count - 1 {
-                carried = FlownPath.color(for: bands[index], feet: track[index].altitudeFeet)
+            // The ground is a switch on this ramp rather than a point along
+            // it, so it is recomputed where it changes whatever the stride
+            // says. See `FlownPath.color(for:at:)`.
+            let leaves = index > 0 && track[index].isAirborne != track[index - 1].isAirborne
+            if index % step == 0 || leaves || index == track.count - 1 {
+                carried = FlownPath.color(for: bands[index], at: track[index])
             }
             sampleColors.append(carried)
         }
