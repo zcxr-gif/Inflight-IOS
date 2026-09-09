@@ -181,11 +181,6 @@ struct TrackerMapView: UIViewRepresentable {
     /// switched off, or switched on and still waiting for the frame index.
     var weatherTiles: MapWeatherTiles?
 
-    /// Told when the weather tiles stop being worth drawing at this zoom, or
-    /// start again. The map is the only thing that knows how wide the view is;
-    /// the strip over it is where the reason belongs.
-    var onWeatherLegibility: (Bool) -> Void = { _ in }
-
     /// Told when the camera starts and stops moving, so the radar animation
     /// can sit still through a gesture rather than asking for a screenful of
     /// tiles twice a second at a zoom the finger has already left.
@@ -468,6 +463,11 @@ struct TrackerMapView: UIViewRepresentable {
         /// Narrower the further back the camera stands. See `FlownPathStyle`:
         /// a fixed width is a line zoomed in and a filled shape zoomed out.
         private var flownWidth: CGFloat = FlownPathStyle.closeWidth
+
+        /// And how wide the filed plan is, which is a fixed share of the same
+        /// number — the plan gives way to the track at every zoom, not just at
+        /// the one it was tuned at. See `PlanStyle.lineWidth(forCameraDistance:)`.
+        private var planWidth: CGFloat = PlanStyle.closeLineWidth
 
         /// The fix names on the open flight's filed plan. Kept separately from
         /// `groundLabels` so that turning the plan off, or opening another
@@ -2005,9 +2005,10 @@ struct TrackerMapView: UIViewRepresentable {
         /// frame that has not changed is not torn down and re-fetched.
         private var weatherOverlay: RainViewerTileOverlay?
 
-        /// What was last said about the tiles being worth drawing at this zoom,
-        /// so the model hears about a change rather than about every pass.
-        private var reportedWeatherLegibility = true
+        /// How strongly the weather is currently drawn, so the frame clock can
+        /// tell a change worth repainting for from the ninety-nine passes where
+        /// it rounds to nothing. See `updateWeatherPresence`.
+        private var weatherPresence: Double = 1
 
         /// The barbs on the map, and the grid they belong to.
         private var windAnnotations: [WindBarbAnnotation] = []
@@ -2043,29 +2044,13 @@ struct TrackerMapView: UIViewRepresentable {
             // under a moving finger is.
             guard !isRegionChanging else { return }
 
-            // Zoomed in past where the tiles hold any detail, the overlay comes
-            // off rather than being magnified into a smear. The map is the only
-            // thing that knows how wide the view is, so it decides — and tells
-            // the model, which is what puts the reason in the strip.
-            //
-            // Asked against what is currently drawn, so the limit is two
-            // limits: see `MapWeatherSource.isLegible`. A single threshold made
-            // a zoom that sat near it flick the layer on and off.
-            let span = mapView.region.span.longitudeDelta
-            let legible = parent.weatherTiles.map {
-                MapWeatherSource.isLegible(
-                    $0.layer,
-                    acrossDegrees: span,
-                    whileDrawn: reportedWeatherLegibility
-                )
-            } ?? true
-
-            if legible != reportedWeatherLegibility {
-                reportedWeatherLegibility = legible
-                parent.onWeatherLegibility(legible)
-            }
-
-            let wanted = legible ? parent.weatherTiles : nil
+            // Zoom is not this method's business any more. The overlay used to
+            // be taken off the map once the view got narrower than the tiles
+            // held detail for, which meant a layer that vanished mid-pinch and
+            // a screenful of tiles re-fetched every time it came back. What
+            // happens instead is that the overlay stays and fades — one number
+            // on the renderer, on the frame clock, in `updateWeatherPresence`.
+            let wanted = parent.weatherTiles
 
             if weatherOverlay?.key == wanted?.key { return }
 
@@ -2082,6 +2067,44 @@ struct TrackerMapView: UIViewRepresentable {
             // and a place name you cannot read through it is a map that has
             // stopped being a map.
             mapView.addOverlay(overlay, level: .aboveRoads)
+
+            // The new renderer starts at whatever strength this zoom calls for,
+            // rather than at full and then stepping down on the next frame.
+            weatherPresence = -1
+            updateWeatherPresence(on: mapView)
+        }
+
+        /// Fades the weather for how far past its own detail the map has zoomed.
+        ///
+        /// Run from the live region callback, and cheap enough for that: one
+        /// span read and one comparison in the ordinary case. Only the
+        /// renderer's alpha is touched — the overlay, its tiles and everything
+        /// MapKit has rasterised are left alone, which is the whole point.
+        /// Taking the layer off and putting it back was the old behaviour and
+        /// it cost a screenful of tiles each way.
+        private func updateWeatherPresence(on mapView: MKMapView) {
+            guard let tiles = parent.weatherTiles, let overlay = weatherOverlay else { return }
+
+            let presence = MapWeatherSource.presence(
+                tiles.layer,
+                acrossDegrees: mapView.region.span.longitudeDelta
+            )
+
+            guard abs(presence - weatherPresence) > 0.01 else { return }
+            weatherPresence = presence
+
+            guard let renderer = mapView.renderer(for: overlay) as? MKTileOverlayRenderer else { return }
+            renderer.alpha = Self.weatherAlpha(for: tiles.layer) * CGFloat(presence)
+            renderer.setNeedsDisplay()
+        }
+
+        /// How much of the map a layer is allowed to cover at full strength.
+        ///
+        /// Enough to read the weather, not so much that the coastline under it
+        /// disappears. Radar is the denser image of the two, so it is the one
+        /// drawn back further.
+        static func weatherAlpha(for layer: MapWeatherLayer) -> CGFloat {
+            layer == .satellite ? 0.62 : 0.55
         }
 
         /// Where the map was, and what was being asked for, the last time the
@@ -3611,10 +3634,15 @@ struct TrackerMapView: UIViewRepresentable {
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
             if let tiles = overlay as? MKTileOverlay {
                 let renderer = MKTileOverlayRenderer(tileOverlay: tiles)
-                // Enough to read the weather, not so much that the coastline
-                // under it disappears. Radar is the denser image of the two, so
-                // it is the one drawn back further.
-                renderer.alpha = parent.weatherTiles?.layer == .satellite ? 0.62 : 0.55
+                // Full strength for the layer, scaled by how far past its own
+                // detail the map is standing. The live region callback keeps
+                // that second factor up to date — see `updateWeatherPresence`.
+                let layer = parent.weatherTiles?.layer ?? .radar
+                let presence = MapWeatherSource.presence(
+                    layer,
+                    acrossDegrees: mapView.region.span.longitudeDelta
+                )
+                renderer.alpha = Self.weatherAlpha(for: layer) * CGFloat(presence)
                 return renderer
             }
 
@@ -3696,12 +3724,18 @@ struct TrackerMapView: UIViewRepresentable {
             renderer.lineCap = .round
             renderer.lineJoin = .round
 
+            // How far back the camera is standing, for the plan strokes that
+            // are written against it. Only the first frame is this one's job:
+            // every width below is re-set on the frame clock afterwards, in
+            // `updatePlanWidths`.
+            let cameraDistance = mapView.camera.centerCoordinateDistance
+
             if line.title == Self.planCasingTitle {
                 // The dark edge under the white line. Same dash, wider stroke —
                 // see `PlanStyle.casing` for why it is there at all, and why
                 // the two patterns have to match exactly.
                 renderer.strokeColor = PlanStyle.casing
-                renderer.lineWidth = PlanStyle.casingWidth
+                renderer.lineWidth = PlanStyle.casingWidth(forCameraDistance: cameraDistance)
                 renderer.lineDashPattern = PlanStyle.dash
                 return renderer
             }
@@ -3726,7 +3760,7 @@ struct TrackerMapView: UIViewRepresentable {
                 // to the flown path, which has its own switch — so telling them
                 // apart at a glance is the whole point of the difference.
                 renderer.strokeColor = PlanStyle.line
-                renderer.lineWidth = PlanStyle.lineWidth
+                renderer.lineWidth = PlanStyle.lineWidth(forCameraDistance: cameraDistance)
                 renderer.lineDashPattern = PlanStyle.dash
                 return renderer
             }
@@ -3738,12 +3772,13 @@ struct TrackerMapView: UIViewRepresentable {
                         ? UIColor(white: 0.20, alpha: 0.34)
                         : UIColor(white: 1, alpha: 0.34)
                 }
-                renderer.lineWidth = 2
+                renderer.lineWidth = PlanStyle.inferredWidth(forCameraDistance: cameraDistance)
                 renderer.lineDashPattern = [2, 7]
             }
 
             return renderer
         }
+
 
         /// Re-widths the flown path for wherever the camera now stands.
         ///
@@ -3767,6 +3802,51 @@ struct TrackerMapView: UIViewRepresentable {
             // the one number, and the renderer decides whether it is worth a
             // repaint.
             renderer.apply(width: width)
+        }
+
+        /// Re-widths the filed plan for wherever the camera now stands.
+        ///
+        /// The other half of `updateFlownWidth`, and it exists for the same
+        /// reason the track's ramp does: a stroke set in points is that many
+        /// points wide at every zoom, and a plan that keeps its runway weight
+        /// over an ocean ends up louder than the track beside it. Both ramps
+        /// run on the same clock, so the ordering between them holds through a
+        /// gesture rather than only at the two ends of it.
+        ///
+        /// Gated on the plan's own width, which is a fixed share of the track's
+        /// — so this is one camera read and one comparison on the frames where
+        /// nothing has moved far enough to matter.
+        private func updatePlanWidths(on mapView: MKMapView) {
+            guard !routeOverlays.isEmpty else { return }
+
+            let distance = mapView.camera.centerCoordinateDistance
+            let width = PlanStyle.lineWidth(forCameraDistance: distance)
+            guard abs(width - planWidth) > 0.03 else { return }
+            planWidth = width
+
+            let casing = PlanStyle.casingWidth(forCameraDistance: distance)
+            let inferred = PlanStyle.inferredWidth(forCameraDistance: distance)
+
+            for overlay in routeOverlays {
+                guard let line = overlay as? MKPolyline,
+                      let renderer = mapView.renderer(for: line) as? MKPolylineRenderer
+                else { continue }
+
+                // Anything else on this list — the ruler, a track — is not the
+                // plan and does not taper: a measurement is a measurement at
+                // any zoom.
+                if line.title == Self.planTitle {
+                    renderer.lineWidth = width
+                } else if line.title == Self.planCasingTitle {
+                    renderer.lineWidth = casing
+                } else if line.title == Self.plannedTitle {
+                    renderer.lineWidth = inferred
+                } else {
+                    continue
+                }
+
+                renderer.setNeedsDisplay()
+            }
         }
 
         /// What the map underneath the pavement is made of.
@@ -3972,6 +4052,18 @@ struct TrackerMapView: UIViewRepresentable {
             // settle: a pinch that ended two hundred milliseconds ago is a
             // pinch you watched the line fatten through.
             updateFlownWidth(on: mapView)
+
+            // The filed plan is written against that width, so it has to be
+            // re-set on the same frame: a track that fattens through a pinch
+            // while the plan under it holds still is the two of them swapping
+            // places somewhere in the middle of the gesture.
+            updatePlanWidths(on: mapView)
+
+            // Same clock, same reason. The weather fading as the map magnifies
+            // it past its own detail has to happen *through* the pinch — a
+            // layer that changed strength only when the finger came off would
+            // be the pop this replaced, with extra steps.
+            updateWeatherPresence(on: mapView)
 
             // Straightening the sprites. On a north-up flat map there is
             // nothing to straighten — the camera cannot spin or tilt, so a

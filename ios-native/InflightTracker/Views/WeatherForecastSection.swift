@@ -1,27 +1,26 @@
 import CoreLocation
 import SwiftUI
-import WeatherKit
 
-/// Apple's half of a field's weather.
+/// The model's half of a field's weather.
 ///
 /// Sits under the METAR rather than replacing it. A METAR is the observation
 /// the field filed, in the units an aircraft is flown in; this is everything a
-/// METAR has no way to carry — the next hour minute by minute, twenty-four
-/// hours of forecast, ten days of outlook, the sky's own timetable, the
-/// warnings somebody has issued, and the one piece of arithmetic that turns
-/// all of it into a decision: what the wind is doing to each runway.
+/// METAR has no way to carry — the next two hours a quarter of an hour at a
+/// time, twenty-four hours of forecast, ten days of outlook, the sky's own
+/// timetable, the warnings somebody has issued, and the one piece of arithmetic
+/// that turns all of it into a decision: what the wind is doing to each runway.
 ///
-/// One WeatherKit call behind the lot of it. See `AppleWeatherService`.
+/// One Open-Meteo call behind the lot of it. See `ForecastService`.
 struct WeatherForecastSection: View {
 
     let airport: Airport
 
     /// The field's own report, where it filed one. It wins for the wind — it is
-    /// the observation, and it is what the ATIS is reading from — and Apple
+    /// the observation, and it is what the ATIS is reading from — and the model
     /// answers for the four fields in five that file nothing.
     var metar: Metar? = nil
 
-    @ObservedObject private var weather = AppleWeatherService.shared
+    @ObservedObject private var weather = ForecastService.shared
     @ObservedObject private var layouts = AirportLayoutStore.shared
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @ObservedObject private var preferences = WeatherPreferences.shared
@@ -37,13 +36,14 @@ struct WeatherForecastSection: View {
                 EmptyView()
 
             case .unavailable:
-                // Silent. A build without the WeatherKit capability would
-                // otherwise carry an apology on every field it opens.
+                // Silent. A field the service could not answer for would
+                // otherwise carry an apology on every panel anybody opened, and
+                // Weather settings is where the reason is written down.
                 EmptyView()
 
             case .ready(let snapshot):
                 alerts(snapshot)
-                nextHour(snapshot)
+                nearTerm(snapshot)
                 runways
                 forecast(snapshot)
 
@@ -69,62 +69,39 @@ struct WeatherForecastSection: View {
 
     // MARK: - Whose data this is
 
-    /// Apple's mark and their legal link, as the last row of a card.
+    /// The source, as the last row of a card.
     ///
-    /// On **every** card that draws WeatherKit data, not once at the foot of
-    /// the block. A panel this long scrolls past several screens' worth, and a
-    /// single mark under the last section is a mark that is off screen for most
-    /// of the reading — which is not what "wherever the data is shown" means.
-    /// One card, one source, one mark: the row says the card above it is
-    /// Apple's, and there is no card of theirs without one.
+    /// On every card the model feeds rather than once at the foot of the block:
+    /// this panel is six cards deep and scrolls past several screens' worth, so
+    /// a single line under the last section is a line that is off screen for
+    /// most of the reading. One card, one source, one credit.
     ///
-    /// The exception is the runway section, which is Apple's only when the
+    /// The exception is the runway section, which is the model's only when the
     /// wind is. See `runways`.
-    private var appleMark: some View {
+    private var sourceMark: some View {
         Group {
             PanelDivider()
-            WeatherAttributionRow(attribution: weather.attribution)
+            ForecastSourceRow()
         }
-    }
-
-    /// The same claim, made at the top of the card instead of the bottom.
-    ///
-    /// The attribution row is the compliant half — the mark *and* the legal
-    /// link, which is what Apple's terms ask for — but it is the last row of a
-    /// card that can be twenty-four hours of forecast or ten days of outlook
-    /// tall, and a reader half way down one of those has the numbers on screen
-    /// and the source off it. The heading is where a card says what it is, so
-    /// it is also where it says whose it is: the wordmark rides beside the
-    /// title, in the title's own dim weight, and is on screen for as long as
-    /// the heading is.
-    ///
-    /// The trademark only. The link stays at the foot, once per card — a card
-    /// with Apple's legal page at both ends is not better attributed, it is
-    /// just harder to read.
-    private var appleHeaderMark: AnyView {
-        AnyView(AppleWeatherWordmark(size: 9, colour: theme.textDim))
     }
 
     // MARK: - Warnings
 
     @ViewBuilder
-    private func alerts(_ snapshot: AppleWeatherService.Snapshot) -> some View {
+    private func alerts(_ snapshot: ForecastService.Snapshot) -> some View {
         if !snapshot.alerts.isEmpty {
             PanelSection(
-                title: snapshot.alerts.count == 1 ? "WEATHER ALERT" : "WEATHER ALERTS",
-                accessory: appleHeaderMark
+                title: snapshot.alerts.count == 1 ? "WEATHER ALERT" : "WEATHER ALERTS"
             ) {
                 ForEach(snapshot.alerts) { alert in
                     if alert.id != snapshot.alerts.first?.id { PanelDivider() }
                     alertRow(alert)
                 }
-
-                appleMark
             }
         }
     }
 
-    private func alertRow(_ alert: AppleWeatherService.Alert) -> some View {
+    private func alertRow(_ alert: ForecastService.Alert) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 14, weight: .semibold))
@@ -147,29 +124,21 @@ struct WeatherForecastSection: View {
             }
 
             Spacer(minLength: 8)
-
-            if let url = alert.detailsURL {
-                Link(destination: url) {
-                    Image(systemName: "arrow.up.right.square")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(theme.textDim)
-                }
-            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
     }
 
-    // MARK: - The next hour
+    // MARK: - The next two hours
 
-    /// Minute by minute, where Apple models it — which is a handful of
-    /// countries rather than the world, so the section is simply absent
-    /// elsewhere rather than empty.
+    /// A quarter of an hour at a time, which is the resolution the model
+    /// publishes everywhere rather than the minute-by-minute a handful of
+    /// countries used to get and the rest of the world never saw.
     @ViewBuilder
-    private func nextHour(_ snapshot: AppleWeatherService.Snapshot) -> some View {
-        if let next = snapshot.nextHour {
-            PanelSection(title: "NEXT HOUR", accessory: appleHeaderMark) {
+    private func nearTerm(_ snapshot: ForecastService.Snapshot) -> some View {
+        if let next = snapshot.nearTerm {
+            PanelSection(title: "NEXT TWO HOURS") {
                 HStack(spacing: 10) {
                     Image(systemName: next.hasPrecipitation ? "cloud.rain.fill" : "checkmark.circle")
                         .font(.system(size: 14))
@@ -186,27 +155,36 @@ struct WeatherForecastSection: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
 
-                // Only where there is something to draw. Sixty flat bars is a
-                // graph of nothing, and the line above has already said so.
+                // Only where there is something to draw. A row of flat bars is
+                // a graph of nothing, and the line above has already said so.
                 if next.hasPrecipitation {
                     PanelDivider()
-                    minuteGraph(next)
+                    precipitationGraph(next, in: snapshot.timeZone)
                 }
 
-                appleMark
+                sourceMark
             }
         }
     }
 
-    private func minuteGraph(_ next: AppleWeatherService.NextHour) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .bottom, spacing: 1.5) {
-                ForEach(next.minutes) { minute in
-                    RoundedRectangle(cornerRadius: 1, style: .continuous)
-                        .fill(theme.accent.opacity(0.25 + 0.75 * minute.chance))
+    private func precipitationGraph(
+        _ next: ForecastService.NearTerm,
+        in zone: TimeZone
+    ) -> some View {
+        // Against the wettest quarter in the window rather than against a fixed
+        // ceiling: drizzle drawn on a scale built for a squall is a row of flat
+        // bars, and the question this answers is "when", not "how many
+        // millimetres".
+        let peak = max(next.peakMM, ForecastService.NearTerm.threshold)
+
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .bottom, spacing: 2) {
+                ForEach(next.steps) { step in
+                    RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                        .fill(theme.accent.opacity(0.25 + 0.75 * min(1, step.amountMM / peak)))
                         // Never nothing: a bar of zero height reads as a gap in
-                        // the data rather than as a dry minute.
-                        .frame(height: max(2, 28 * minute.chance))
+                        // the data rather than as a dry quarter of an hour.
+                        .frame(height: max(2, 28 * min(1, step.amountMM / peak)))
                         .frame(maxWidth: .infinity)
                 }
             }
@@ -215,9 +193,9 @@ struct WeatherForecastSection: View {
             HStack {
                 Text("NOW")
                 Spacer(minLength: 8)
-                Text("IN 30 MIN")
+                Text(String(format: "%.1f MM PEAK", next.peakMM))
                 Spacer(minLength: 8)
-                Text("IN 1 HR")
+                Text(next.steps.last.map { Self.clock($0.date, in: zone) } ?? "IN 2 HR")
             }
             .font(.system(size: 8, weight: .bold))
             .tracking(0.6)
@@ -241,13 +219,7 @@ struct WeatherForecastSection: View {
             let components = RunwayWind.components(for: layout, wind: wind)
 
             if !components.isEmpty {
-                // Marked at the head on the same condition as at the foot, and
-                // from the same value, so the heading, the footnote and the
-                // attribution row can never end up naming different sources.
-                PanelSection(
-                    title: "WIND ON THE RUNWAYS",
-                    accessory: isWindFromApple ? appleHeaderMark : nil
-                ) {
+                PanelSection(title: "WIND ON THE RUNWAYS") {
                     ForEach(Array(components.prefix(6).enumerated()), id: \.element.id) { index, runway in
                         if index > 0 { PanelDivider() }
                         runwayRow(runway, isFavoured: index == 0)
@@ -263,21 +235,21 @@ struct WeatherForecastSection: View {
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
 
-                    // The one card here that is not always Apple's. Where the
-                    // field filed a report, this arithmetic is the *report's*
-                    // wind against OpenStreetMap's centrelines and Apple had no
-                    // part in it — so marking it would be crediting them with
-                    // somebody else's observation, which is as wrong as leaving
-                    // their own unmarked.
-                    if isWindFromApple {
-                        appleMark
+                    // The one card here that is not always the model's. Where
+                    // the field filed a report, this arithmetic is the
+                    // *report's* wind against OpenStreetMap's centrelines, and
+                    // crediting the model for somebody else's observation is as
+                    // wrong as leaving its own uncredited. The same value writes
+                    // the footnote, so the two cannot end up disagreeing.
+                    if isWindFromModel {
+                        sourceMark
                     }
                 }
             }
         }
     }
 
-    /// The METAR's wind where the field filed one, Apple's otherwise.
+    /// The METAR's wind where the field filed one, the model's otherwise.
     private var runwayWind: RunwayWind.Wind? {
         filedWind ?? weather.wind(for: key)
     }
@@ -287,13 +259,13 @@ struct WeatherForecastSection: View {
         metar.flatMap { RunwayWind.Wind(metar: $0) }
     }
 
-    /// Whether the numbers on the runway card are Apple's. Asked once and used
-    /// by both the footnote and the mark, so the two cannot end up crediting
-    /// different sources for the same arithmetic.
-    private var isWindFromApple: Bool { filedWind == nil }
+    /// Whether the numbers on the runway card are the model's. Asked once and
+    /// used by both the footnote and the credit, so the two cannot end up
+    /// naming different sources for the same arithmetic.
+    private var isWindFromModel: Bool { filedWind == nil }
 
     private var runwayFootnote: String {
-        let source = isWindFromApple ? "Apple Weather" : "the \(airport.icao) report"
+        let source = isWindFromModel ? ForecastService.sourceName : "the \(airport.icao) report"
         return "Worked from \(source) against the runway centrelines as mapped. True bearings, not the painted numbers — and a wind calculation, not a recommendation."
     }
 
@@ -354,21 +326,21 @@ struct WeatherForecastSection: View {
 
     // MARK: - The next day
 
-    private func forecast(_ snapshot: AppleWeatherService.Snapshot) -> some View {
-        PanelSection(title: "FORECAST", accessory: appleHeaderMark) {
+    private func forecast(_ snapshot: ForecastService.Snapshot) -> some View {
+        PanelSection(title: "FORECAST") {
             hourStrip(snapshot)
             PanelDivider()
             readings(snapshot)
-            appleMark
+            sourceMark
         }
     }
 
-    private func hourStrip(_ snapshot: AppleWeatherService.Snapshot) -> some View {
+    private func hourStrip(_ snapshot: ForecastService.Snapshot) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: 15) {
                 ForEach(snapshot.hours) { hour in
                     VStack(spacing: 5) {
-                        Text(Self.hourLabel(hour.date))
+                        Text(Self.hourLabel(hour.date, in: snapshot.timeZone))
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
                             .foregroundStyle(theme.textDim)
 
@@ -410,12 +382,12 @@ struct WeatherForecastSection: View {
         }
     }
 
-    /// Everything else Apple knows about right now, in a grid.
+    /// Everything else the model has for right now, in a grid.
     ///
     /// Four across and two down rather than a longer strip: these are readings
     /// to be scanned rather than compared, and eight of them in a row would be
     /// a horizontal scroll nobody would find.
-    private func readings(_ snapshot: AppleWeatherService.Snapshot) -> some View {
+    private func readings(_ snapshot: ForecastService.Snapshot) -> some View {
         LazyVGrid(
             columns: Array(repeating: GridItem(.flexible(), alignment: .leading), count: 4),
             alignment: .leading,
@@ -468,22 +440,26 @@ struct WeatherForecastSection: View {
 
     // MARK: - The next ten days
 
-    private func outlook(_ snapshot: AppleWeatherService.Snapshot) -> some View {
-        PanelSection(title: "TEN DAYS", accessory: appleHeaderMark) {
+    private func outlook(_ snapshot: ForecastService.Snapshot) -> some View {
+        PanelSection(title: "TEN DAYS") {
             ForEach(snapshot.days) { day in
                 if day.id != snapshot.days.first?.id { PanelDivider() }
-                dayRow(day, across: snapshot.days)
+                dayRow(day, across: snapshot.days, in: snapshot.timeZone)
             }
 
-            appleMark
+            sourceMark
         }
     }
 
-    private func dayRow(_ day: AppleWeatherService.Day, across days: [AppleWeatherService.Day]) -> some View {
+    private func dayRow(
+        _ day: ForecastService.Day,
+        across days: [ForecastService.Day],
+        in zone: TimeZone
+    ) -> some View {
         // Tight on purpose: eight columns have to fit the narrowest panel this
         // app draws without any of them scaling down to unreadable.
         HStack(spacing: 9) {
-            Text(day.id == days.first?.id ? "Today" : Self.dayLabel(day.date))
+            Text(day.id == days.first?.id ? "Today" : Self.dayLabel(day.date, in: zone))
                 .font(.system(size: 11.5, weight: .semibold))
                 .foregroundStyle(theme.textPrimary)
                 .frame(width: 42, alignment: .leading)
@@ -526,7 +502,10 @@ struct WeatherForecastSection: View {
         .padding(.vertical, 9)
     }
 
-    private func temperatureBar(_ day: AppleWeatherService.Day, across days: [AppleWeatherService.Day]) -> some View {
+    private func temperatureBar(
+        _ day: ForecastService.Day,
+        across days: [ForecastService.Day]
+    ) -> some View {
         let coldest = days.map(\.lowC).min() ?? day.lowC
         let warmest = days.map(\.highC).max() ?? day.highC
         let span = max(1, warmest - coldest)
@@ -555,15 +534,17 @@ struct WeatherForecastSection: View {
     /// the pair of times a night rating is written around — the light by which
     /// a horizon is still visible, which is not the same moment the sun
     /// crosses it.
+    ///
+    /// None of it is fetched. See `SkyAlmanac`.
     @ViewBuilder
-    private func sky(_ snapshot: AppleWeatherService.Snapshot) -> some View {
+    private func sky(_ snapshot: ForecastService.Snapshot) -> some View {
         if let today = snapshot.today {
-            PanelSection(title: "SUN AND MOON", accessory: appleHeaderMark) {
+            PanelSection(title: "SUN AND MOON") {
                 HStack(spacing: 0) {
-                    skyReading("Sunrise", today.sunrise, symbol: "sunrise.fill")
-                    skyReading("Sunset", today.sunset, symbol: "sunset.fill")
-                    skyReading("Civil dawn", today.civilDawn, symbol: "sun.horizon.fill")
-                    skyReading("Civil dusk", today.civilDusk, symbol: "sun.horizon.fill")
+                    skyReading("Sunrise", today.sunrise, symbol: "sunrise.fill", in: snapshot.timeZone)
+                    skyReading("Sunset", today.sunset, symbol: "sunset.fill", in: snapshot.timeZone)
+                    skyReading("Civil dawn", today.civilDawn, symbol: "sun.horizon.fill", in: snapshot.timeZone)
+                    skyReading("Civil dusk", today.civilDusk, symbol: "sun.horizon.fill", in: snapshot.timeZone)
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
@@ -581,7 +562,7 @@ struct WeatherForecastSection: View {
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(theme.textPrimary)
 
-                        Text(Self.moonTimes(today))
+                        Text(Self.moonTimes(today, in: snapshot.timeZone))
                             .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(theme.textDim)
                     }
@@ -593,19 +574,23 @@ struct WeatherForecastSection: View {
 
                 PanelDivider()
 
-                Text("Times in your own time zone, not the field's.")
+                Text("Times at the field, not in your own time zone. Worked out on the device rather than fetched, so they are there with no signal.")
                     .font(.system(size: 9.5, weight: .medium))
                     .foregroundStyle(theme.textDim)
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
-
-                appleMark
             }
         }
     }
 
-    private func skyReading(_ title: String, _ date: Date?, symbol: String) -> some View {
+    private func skyReading(
+        _ title: String,
+        _ date: Date?,
+        symbol: String,
+        in zone: TimeZone
+    ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Image(systemName: symbol)
                 .font(.system(size: 12))
@@ -617,7 +602,7 @@ struct WeatherForecastSection: View {
                 .foregroundStyle(theme.textDim)
                 .flightInfoLine(minimumScale: 0.8)
 
-            Text(date.map(Self.clock) ?? "—")
+            Text(date.map { Self.clock($0, in: zone) } ?? "—")
                 .font(.system(size: 12.5, weight: .semibold, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
         }
@@ -626,11 +611,11 @@ struct WeatherForecastSection: View {
 
     // MARK: - Writing it down
 
-    private static func colour(for severity: WeatherSeverity) -> Color {
+    private static func colour(for severity: ForecastService.AlertSeverity) -> Color {
         switch severity {
         case .extreme, .severe: return Color(red: 1.0, green: 0.35, blue: 0.30)
         case .moderate: return Color(red: 1.0, green: 0.62, blue: 0.04)
-        default: return Color(red: 0.36, green: 0.68, blue: 1.00)
+        case .minor: return Color(red: 0.36, green: 0.68, blue: 1.00)
         }
     }
 
@@ -657,7 +642,7 @@ struct WeatherForecastSection: View {
     /// `12G20` in the reader's own unit, or a bare mean where nothing is
     /// gusting. No unit letter: the column is four characters wide and the
     /// setting is the reader's own.
-    private static func wind(_ hour: AppleWeatherService.Hour, in unit: WindUnit) -> String {
+    private static func wind(_ hour: ForecastService.Hour, in unit: WindUnit) -> String {
         let mean = Int(unit.convert(fromKnots: hour.windSpeedKnots).rounded())
         guard let gust = hour.windGustKnots else { return "\(mean)" }
 
@@ -665,7 +650,7 @@ struct WeatherForecastSection: View {
         return gusting > mean + 2 ? "\(mean)G\(gusting)" : "\(mean)"
     }
 
-    private static func dayWind(_ day: AppleWeatherService.Day, in unit: WindUnit) -> String {
+    private static func dayWind(_ day: ForecastService.Day, in unit: WindUnit) -> String {
         let mean = Int(unit.convert(fromKnots: day.windSpeedKnots).rounded())
         let direction = String(format: "%03.0f", day.windDirectionDegrees)
         return "\(direction)°/\(mean)"
@@ -673,24 +658,26 @@ struct WeatherForecastSection: View {
 
     /// The same scale the METAR above writes its own visibility on, so the two
     /// rows on one panel do not contradict each other's units.
-    private static func visibility(_ metres: Double) -> String {
+    ///
+    /// An em dash where the model behind the answer carries no visibility field
+    /// at all, which several of them do not — a made-up ten kilometres would
+    /// read as a clear day rather than as a missing number.
+    private static func visibility(_ metres: Double?) -> String {
+        guard let metres = metres, metres >= 0 else { return "—" }
         if metres >= 9_999 { return "10 km+" }
         if metres >= 1_000 { return String(format: "%.1f km", metres / 1000) }
         return "\(Int(metres.rounded())) m"
     }
 
-    private static func trend(_ trend: PressureTrend) -> String? {
+    private static func trend(_ trend: ForecastService.PressureTrend) -> String? {
         switch trend {
         case .rising: return "rising"
         case .falling: return "falling"
         case .steady: return nil
-        @unknown default: return nil
         }
     }
 
-    /// The World Health Organization's bands, written out rather than taken
-    /// from `UVIndex.ExposureCategory` so the wording matches the rest of this
-    /// panel and cannot change under the app.
+    /// The World Health Organization's bands.
     private static func uvBand(_ index: Int) -> String? {
         switch index {
         case ..<3: return nil
@@ -701,7 +688,7 @@ struct WeatherForecastSection: View {
         }
     }
 
-    private static func moonName(_ phase: MoonPhase) -> String {
+    private static func moonName(_ phase: SkyAlmanac.MoonPhase) -> String {
         switch phase {
         case .new: return "New moon"
         case .waxingCrescent: return "Waxing crescent"
@@ -711,7 +698,6 @@ struct WeatherForecastSection: View {
         case .waningGibbous: return "Waning gibbous"
         case .lastQuarter: return "Last quarter"
         case .waningCrescent: return "Waning crescent"
-        @unknown default: return "Moon"
         }
     }
 
@@ -721,7 +707,10 @@ struct WeatherForecastSection: View {
     /// New Zealand, and SF Symbols ships both — so a field's own latitude picks
     /// which. It is a detail almost nobody will notice and exactly the sort of
     /// thing that is wrong in every other app.
-    private static func moonSymbol(_ phase: MoonPhase, at coordinate: CLLocationCoordinate2D) -> String {
+    private static func moonSymbol(
+        _ phase: SkyAlmanac.MoonPhase,
+        at coordinate: CLLocationCoordinate2D
+    ) -> String {
         let inverted = coordinate.latitude < 0 ? ".inverse" : ""
 
         switch phase {
@@ -733,137 +722,89 @@ struct WeatherForecastSection: View {
         case .waningGibbous: return "moonphase.waning.gibbous\(inverted)"
         case .lastQuarter: return "moonphase.last.quarter\(inverted)"
         case .waningCrescent: return "moonphase.waning.crescent\(inverted)"
-        @unknown default: return "moon"
         }
     }
 
-    private static func moonTimes(_ day: AppleWeatherService.Day) -> String {
+    private static func moonTimes(_ day: ForecastService.Day, in zone: TimeZone) -> String {
         let parts = [
-            day.moonrise.map { "Up \(clock($0))" },
-            day.moonset.map { "down \(clock($0))" }
+            day.moonrise.map { "Up \(clock($0, in: zone))" },
+            day.moonset.map { "down \(clock($0, in: zone))" }
         ].compactMap { $0 }
 
         return parts.isEmpty ? "Neither rising nor setting today." : parts.joined(separator: ", ")
     }
 
-    private static func clock(_ date: Date) -> String {
+    private static func clock(_ date: Date, in zone: TimeZone) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm"
-        formatter.timeZone = .current
+        formatter.timeZone = zone
         return formatter.string(from: date)
     }
 
-    private static func hourLabel(_ date: Date) -> String {
+    private static func hourLabel(_ date: Date, in zone: TimeZone) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH"
-        formatter.timeZone = .current
+        formatter.timeZone = zone
         return formatter.string(from: date)
     }
 
-    private static func dayLabel(_ date: Date) -> String {
+    private static func dayLabel(_ date: Date, in zone: TimeZone) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "EEE"
-        formatter.timeZone = .current
+        formatter.timeZone = zone
         return formatter.string(from: date)
     }
 }
 
-/// The  Weather wordmark, drawn in text.
+/// Where a reading came from, on a row whose numbers are not the field's own.
 ///
-/// What the attribution row falls back to, and what the collapsed weather chip
-/// carries. U+F8FF is the Apple logo on every Apple platform, so this is the
-/// trademark itself rather than a description of it — and unlike the combined
-/// mark it needs no network, which is the whole reason it exists: the
-/// requirement is on the screen showing the data, and a screen that shows the
-/// data while an image is still downloading is a screen with no attribution on
-/// it.
-struct AppleWeatherWordmark: View {
-
-    var size: CGFloat = 10
-    var colour: Color
-
-    var body: some View {
-        Text(" Weather")
-            .font(.system(size: size, weight: .semibold))
-            .foregroundStyle(colour)
-            .fixedSize()
-            .accessibilityLabel("Apple Weather")
-    }
-}
-
-/// The  on a row whose numbers came from Apple.
-///
-/// Not the attribution itself — the card this sits on carries
-/// `WeatherAttributionRow` for that, with the wordmark and the legal link. This
-/// is the smaller job a *shared* card creates: a list mixing a field's own
-/// filed report with Apple's model for the field next to it has to say, row by
-/// row, which is which. Without it, a card that attributes the whole list to
-/// Apple has credited them with somebody else's observation.
-struct AppleWeatherSourceMark: View {
+/// A glyph rather than a sentence: a card that mixes a filed report with the
+/// model's answer for the field next to it has to say, row by row, which is
+/// which — and a full credit line beside every ICAO would be most of the card.
+/// The dotted circle is the same mark forecast charts have always used for a
+/// computed value rather than an observed one.
+struct ForecastSourceMark: View {
 
     var size: CGFloat = 9
     var colour: Color
 
     var body: some View {
-        Text("")
+        Image(systemName: "chart.dots.scatter")
             .font(.system(size: size, weight: .semibold))
             .foregroundStyle(colour)
             .fixedSize()
-            .accessibilityLabel("From Apple Weather")
+            .accessibilityLabel("Forecast model, not a filed report")
     }
 }
 
-/// Apple's mark and the link to their legal page.
+/// The source, and a link to it.
 ///
-/// Required wherever WeatherKit data is shown — not a courtesy, a term of use.
-/// Both halves are required, and both are therefore unconditional here:
-///
-/// - **The mark.** Apple's own combined image where it has arrived, because it
-///   is the artwork they would rather see; the  Weather wordmark until then, and
-///   for good if the fetch never lands. There is no state in which this row
-///   draws neither.
-/// - **The link.** `WeatherAttribution.legalPageURL` where the framework has
-///   answered, and `AppleWeatherService.legalPageURL` — the same page, as a
-///   constant — where it has not. It used to be dropped entirely on that path,
-///   which meant a slow or failed mark fetch produced a compliant-looking row
-///   with no way through to Apple's terms.
-struct WeatherAttributionRow: View {
-
-    let attribution: WeatherAttribution?
+/// Open-Meteo publishes under CC-BY, so a named credit and a way through to
+/// them is what is owed — one line, drawn unconditionally on every card that
+/// carries their numbers. The old provider wanted a trademark *and* a legal
+/// link on every screen, and getting that wrong is what a rejection is written
+/// about; this is the whole of the obligation here.
+struct ForecastSourceRow: View {
 
     @ObservedObject private var appearance = FlightInfoAppearance.shared
 
     private var theme: FlightInfoTheme { appearance.theme }
 
-    /// Apple's own artwork, in the shade that reads against this theme.
-    private var markURL: URL? {
-        guard let attribution = attribution else { return nil }
-        return theme.isLight ? attribution.combinedMarkLightURL : attribution.combinedMarkDarkURL
-    }
-
     var body: some View {
         HStack(spacing: 8) {
-            if let markURL = markURL {
-                AsyncImage(url: markURL) { image in
-                    image.resizable().scaledToFit()
-                } placeholder: {
-                    // The wordmark, not a blank: the mark is owed for as long
-                    // as the data is up, including while the image is on its way.
-                    AppleWeatherWordmark(colour: theme.textDim)
-                }
-                .frame(height: 14)
-            } else {
-                AppleWeatherWordmark(colour: theme.textDim)
-            }
+            ForecastSourceMark(size: 10, colour: theme.textDim)
+
+            Text("Forecast by \(ForecastService.sourceName)")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(theme.textDim)
 
             Spacer(minLength: 8)
 
-            Link("Legal", destination: attribution?.legalPageURL ?? AppleWeatherService.legalPageURL)
+            Link("Source", destination: ForecastService.sourceURL)
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(theme.textDim)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
-        .task { AppleWeatherService.shared.loadAttribution() }
     }
 }

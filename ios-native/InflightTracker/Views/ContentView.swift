@@ -692,7 +692,6 @@ struct ContentView: View {
             markerLabels: filters.markerLabels,
             showsVaMarks: filters.showsVaMarks,
             weatherTiles: mapWeather.tiles,
-            onWeatherLegibility: { mapWeather.report(legible: $0) },
             onCameraMoving: { mapWeather.report(cameraMoving: $0) },
             measurement: $measurement,
             showsTerminator: filters.showsTerminator,

@@ -470,17 +470,12 @@ struct PlanetSurface: View {
     }
 
     private func syncWeatherTiles() {
-        // The strip over the map says why a layer that is on is drawing
-        // nothing, and it reads this model — so the planet reports the same
-        // zoom limit the flat map does rather than leaving the strip saying
-        // whatever the flat map last said.
-        if let tiles = weather.tiles, let spot = spot, spot.spanMetres > 0 {
-            let degrees = spot.spanMetres / (GlobeCamera.earthRadiusMetres * .pi / 180)
-            weather.report(
-                legible: MapWeatherSource.isLegible(tiles.layer, acrossDegrees: degrees)
-            )
-        }
-
+        // Nothing to report about the zoom any more. The planet used to tell
+        // the model whether the tiles still held detail, so the strip over the
+        // map could say "too close in" — and the flat map's answer and the
+        // planet's would overwrite each other. Both shapes of the world now
+        // fade the layer instead of switching it off, which is a thing the
+        // renderer knows and the strip does not need to.
         scene.setWeatherTiles(weather.tiles)
 
         // A frame nobody is looking at is a screenful of decoded pixels the app

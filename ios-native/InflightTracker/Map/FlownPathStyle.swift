@@ -20,6 +20,21 @@ import UIKit
 /// screen, so a linear ramp would spend almost all of its travel in the first
 /// aerodrome-sized fraction of the range and then sit at its minimum across
 /// every view that actually shows a flight.
+///
+/// ## And why it is not as thin as it was
+///
+/// The taper used to run to a little over two points, which put the flown track
+/// *narrower than the filed plan's casing* across every view that shows a whole
+/// flight. That is the wrong way round, and obviously so. The plan is a
+/// statement of intent; the track is what the aeroplane actually did. Pulled
+/// back over an ocean the map was drawing the intention louder than the fact,
+/// and the one line somebody had zoomed out to look at was the fainter of the
+/// two.
+///
+/// So the floor came up, and the filed plan learnt to taper as well — see
+/// `PlanStyle.lineWidth(forCameraDistance:)`, which is written against these
+/// numbers so the track stays the heavier of the two at every zoom rather than
+/// only at the one somebody checked.
 enum FlownPathStyle {
 
     /// Wide enough to read as a drawn line over cartography and imagery both.
@@ -28,12 +43,17 @@ enum FlownPathStyle {
     /// edges and taxiway centrelines — things Apple draws a couple of points
     /// wide. A track thinner than the pavement it crosses reads as part of the
     /// basemap rather than as the flight.
-    static let closeWidth: CGFloat = 4.2
+    static let closeWidth: CGFloat = 4.6
 
     /// Narrow enough that a long-haul's turns are still separate lines rather
-    /// than one shape, and no narrower: a hairline over satellite imagery is a
-    /// line nobody can see.
-    static let farWidth: CGFloat = 2.1
+    /// than one shape, and no narrower.
+    ///
+    /// The old floor of 2.1 was chosen against the switchbacks of a track that
+    /// has been holding, which at this distance are a few pixels across and
+    /// unreadable at any width. What it cost was every ordinary case: a cruise
+    /// track pulled back to the whole flight is one smooth line, and a smooth
+    /// line two points wide over satellite imagery is a scratch.
+    static let farWidth: CGFloat = 3.2
 
     /// The camera distances the two widths belong to, in metres. Below the
     /// first you are looking at a circuit, above the second at the planet.
@@ -60,11 +80,16 @@ enum FlownPathStyle {
     /// And how much of it there is.
     ///
     /// Low, and it has to be: this is a wash of the path's own colour laid over
-    /// the map, so every point of opacity is a point of cartography lost. At a
-    /// fifth it lifts the line off a dark map and is very nearly invisible on a
-    /// light one, which is the right way round — a glow is a thing you notice
-    /// against darkness.
-    static let glowOpacity: CGFloat = 0.22
+    /// the map, so every point of opacity is a point of cartography lost. At
+    /// about a quarter it lifts the line off a dark map and is very nearly
+    /// invisible on a light one, which is the right way round — a glow is a
+    /// thing you notice against darkness.
+    ///
+    /// A little more than it was, for the same reason the floor came up: pulled
+    /// back to a whole flight, the halo is most of what makes the track read as
+    /// a lit line rather than as a scratch, and it is the part that survives
+    /// being scaled down.
+    static let glowOpacity: CGFloat = 0.26
 
     /// A core colour every one of whose channels is at least this bright
     /// cannot lift itself off the map, and the halo behind it has to be dark

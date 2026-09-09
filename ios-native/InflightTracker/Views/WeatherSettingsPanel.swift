@@ -1,6 +1,4 @@
 import SwiftUI
-// For `WeatherAttribution`, which the attribution row is handed.
-import WeatherKit
 
 /// Weather settings, from the last item in the weather chip's menu.
 ///
@@ -26,7 +24,7 @@ struct WeatherSettingsPanel: View {
     /// should not be offered as a switch that draws nothing.
     @ObservedObject private var tiles = RainViewerService.shared
 
-    @ObservedObject private var apple = AppleWeatherService.shared
+    @ObservedObject private var forecast = ForecastService.shared
 
     private var theme: FlightInfoTheme { appearance.theme }
 
@@ -63,32 +61,24 @@ struct WeatherSettingsPanel: View {
     var body: some View {
         MapPanel(title: "Weather", subtitle: subtitle) {
             if let station = model.nearby {
-                // The heading says whose reading this is, on the same condition
-                // as the row at the foot of the card — the wordmark beside the
-                // title, the legal link under the sample.
-                PanelSection(
-                    title: "SAMPLE",
-                    accessory: sampleFallback == nil
-                        ? nil
-                        : AnyView(AppleWeatherWordmark(size: 9, colour: theme.textDim))
-                ) {
+                PanelSection(title: "SAMPLE") {
                     sample(for: station)
 
                     // Whose reading it is, when it is not the field's own.
-                    if station.metar == nil, apple.conditions(for: station.airport.icao) != nil {
+                    if sampleFallback != nil {
                         PanelDivider()
-                        WeatherAttributionRow(attribution: apple.attribution)
+                        ForecastSourceRow()
                     }
 
-                    // And when Apple answered with nothing at all, why.
+                    // And when the forecast service answered with nothing at
+                    // all, why.
                     //
-                    // Everything WeatherKit feeds — the forecast, the outlook,
-                    // the alerts, the sun and the moon, and every  Weather
-                    // mark that goes with them — is drawn only where there is
-                    // data to draw, so a build whose App ID never had the
-                    // capability shows no weather and no attribution and says
-                    // nothing about either. This is the one place that says it.
-                    if let failure = apple.lastFailure {
+                    // Everything the model feeds — the forecast, the outlook,
+                    // the sun and the moon — is drawn only where there is data
+                    // to draw, so a field it could not answer for shows no
+                    // weather and says nothing about why. This is the one place
+                    // that says it.
+                    if let failure = forecast.lastFailure {
                         PanelDivider()
 
                         Text(failure)
@@ -227,14 +217,14 @@ struct WeatherSettingsPanel: View {
                 PanelToggleRow(
                     title: "Ten days and the sky",
                     symbol: "calendar",
-                    detail: "Adds the ten-day outlook and the sun, twilight and moon times to an airport's panel, under the forecast. All of it arrived in the same request the forecast did, so this only decides how far the panel scrolls.",
+                    detail: "Adds the ten-day outlook and the sun, twilight and moon times to an airport's panel, under the forecast. The outlook came down with the forecast and the sky is arithmetic, so this only decides how far the panel scrolls.",
                     isOn: $preferences.showsOutlook
                 )
             }
 
             HintStrip(placement: .weather)
 
-            Text("Reports come from VATSIM's METAR service, the same source the tracker has always used, and each station issues one an hour. Where a field files none — which is most of the world's airfields — the reading is Apple's, and says so. The radar tiles are RainViewer's; the satellite imagery is from NASA's Global Imagery Browse Services, part of their Earth Science Data and Information System; the winds aloft are Open-Meteo's model data. None of it costs anything to use.")
+            Text("Reports come from VATSIM's METAR service, the same source the tracker has always used, and each station issues one an hour. Where a field files none — which is most of the world's airfields — the reading is Open-Meteo's model, and says so; the same request carries the forecast and the outlook, and the sun and moon times are worked out on the device. Severe-weather warnings come from the National Weather Service, which covers the United States and nowhere else. The radar tiles are RainViewer's; the satellite imagery is from NASA's Global Imagery Browse Services, part of their Earth Science Data and Information System; the winds aloft are Open-Meteo's too. None of it costs anything to use.")
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(theme.textDim)
                 .padding(.horizontal, 2)
@@ -245,7 +235,7 @@ struct WeatherSettingsPanel: View {
         .onAppear { tiles.refresh() }
         .task(id: model.nearby?.airport.icao) {
             guard let station = model.nearby, station.metar == nil else { return }
-            apple.load(key: station.airport.icao, coordinate: station.airport.coordinate)
+            forecast.load(key: station.airport.icao, coordinate: station.airport.coordinate)
         }
     }
 
@@ -261,14 +251,14 @@ struct WeatherSettingsPanel: View {
         if let metar = station.metar {
             return metar.temperatureLabel(in: preferences.temperatureUnit)
         }
-        guard let apple = sampleFallback else { return "—" }
-        return "\(Int(preferences.temperatureUnit.convert(fromCelsius: apple.temperatureC).rounded()))°"
+        guard let modelled = sampleFallback else { return "—" }
+        return "\(Int(preferences.temperatureUnit.convert(fromCelsius: modelled.temperatureC).rounded()))°"
     }
 
-    /// Apple's answer for the sampled field, when the field files nothing.
-    private var sampleFallback: AppleWeatherService.Conditions? {
+    /// The model's answer for the sampled field, when the field files nothing.
+    private var sampleFallback: ForecastService.Conditions? {
         guard let station = model.nearby, station.metar == nil else { return nil }
-        return apple.conditions(for: station.airport.icao)
+        return forecast.conditions(for: station.airport.icao)
     }
 
     /// The live report, written the way the current settings write it.
@@ -307,9 +297,9 @@ struct WeatherSettingsPanel: View {
                     // The sample is whichever source answered for the nearest
                     // field, and the panel is a place people come to compare
                     // the two. Saying which one is on screen costs a glyph, and
-                    // the attribution row below carries the legal link.
+                    // the credit row below names it in full.
                     if sampleFallback != nil {
-                        AppleWeatherSourceMark(size: 10, colour: theme.textDim)
+                        ForecastSourceMark(size: 10, colour: theme.textDim)
                     }
                 }
 

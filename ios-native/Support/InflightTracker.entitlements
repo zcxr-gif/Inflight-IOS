@@ -33,11 +33,18 @@
 	<array>
 		<string>Default</string>
 	</array>
-	<!-- Forecast and severe-weather alerts. Like Sign in with Apple above, the
-	     capability has to be enabled on the App ID as well as declared here, or
-	     every request fails at runtime — which the weather panel treats as "no
-	     forecast available" rather than as an error. -->
-	<key>com.apple.developer.weatherkit</key>
-	<true/>
+	<!-- NOT declared here, deliberately: com.apple.developer.weatherkit.
+
+	     The forecast used to be WeatherKit's, and it never once worked in a
+	     shipped build. The capability has to be on the App ID as well as
+	     declared here, and without it the framework refuses every request
+	     *locally* — the call never leaves the device. Apple's own dashboard
+	     showed zero requests for a feature that was supposedly running on
+	     every airport panel anybody opened, and on screen the failure was a
+	     set of sections that quietly did not appear.
+
+	     The forecast now comes from Open-Meteo, which this app was already
+	     talking to for the winds aloft: no key, no entitlement, no capability
+	     to forget to tick on a portal. See ios-native/WEATHER.md. -->
 </dict>
 </plist>
