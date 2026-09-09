@@ -1,8 +1,5 @@
 import CoreLocation
 import SwiftUI
-// For `WeatherAttribution`, which the attribution row is handed. Named here
-// rather than relied on through another file's import.
-import WeatherKit
 
 /// Weather where the map is looking, top left.
 ///
@@ -14,9 +11,9 @@ import WeatherKit
 /// Most of the world's airfields file no METAR at all, and this used to answer
 /// for them with an em dash and the field's name — which is the chip appearing
 /// not to work, over an aircraft that is perfectly well somewhere with weather.
-/// Apple fills those in. The report always wins where there is one: it is the
-/// observation the field itself made, in the units an aircraft is flown in,
-/// and Apple's is a model's answer for the same patch of ground.
+/// The forecast model fills those in. The report always wins where there is
+/// one: it is the observation the field itself made, in the units an aircraft
+/// is flown in, and the model's is a computation for the same patch of ground.
 struct WeatherChip: View {
 
     @ObservedObject var model: WeatherModel
@@ -25,7 +22,7 @@ struct WeatherChip: View {
     @Binding var isExpanded: Bool
 
     @ObservedObject private var preferences = WeatherPreferences.shared
-    @ObservedObject private var apple = AppleWeatherService.shared
+    @ObservedObject private var forecast = ForecastService.shared
 
     /// What the chip is about: the field being passed, plus both ends of the
     /// route when that is switched on.
@@ -34,41 +31,30 @@ struct WeatherChip: View {
         return [model.nearby, model.departure, model.arrival].compactMap { $0 }
     }
 
-    /// Whichever of those have no report of their own, for Apple to answer.
+    /// Whichever of those have no report of their own, for the model to answer.
     private var unreported: [WeatherModel.Station] {
         stations.filter { $0.metar == nil }
     }
 
-    /// Changes when the set of fields waiting on Apple changes, and at no other
-    /// time — so the fetch is asked for once per field rather than once per
-    /// redraw of a chip that is following a moving aeroplane.
+    /// Changes when the set of fields waiting on the model changes, and at no
+    /// other time — so the fetch is asked for once per field rather than once
+    /// per redraw of a chip that is following a moving aeroplane.
     private var pendingKey: String {
         unreported.map(\.airport.icao).joined(separator: "|")
     }
 
-    /// Whether anything on screen is Apple's rather than the field's. Their
-    /// terms require the mark wherever the data is shown, and the mark lives in
-    /// the opened card — so this is also what makes the chip open.
-    private var isShowingApple: Bool {
-        stations.contains { $0.metar == nil && apple.conditions(for: $0.airport.icao) != nil }
+    /// Whether anything on screen is the model's rather than the field's. The
+    /// credit for it lives in the opened card, so this is also what makes the
+    /// chip open.
+    private var isShowingForecast: Bool {
+        stations.contains { $0.metar == nil && forecast.conditions(for: $0.airport.icao) != nil }
     }
 
     /// There is something to open into when the chip would say more than it
-    /// already does — a route with both ends filed, or Apple data that owes an
-    /// attribution. One station and a report is the collapsed chip over again,
-    /// so it stays shut and stops being a button.
-    private var isExpandable: Bool { stations.count >= 2 || isShowingApple }
-
-    /// Whether the *collapsed* capsule — the field being passed over, and the
-    /// only thing on screen until somebody taps — is drawing Apple's numbers.
-    ///
-    /// Separate from `isShowingApple`, which asks about every station the
-    /// opened card would list. What is owed an attribution is the screen the
-    /// data is actually on, and collapsed that is one field.
-    private var collapsedShowsApple: Bool {
-        guard let nearby = model.nearby else { return false }
-        return fallback(for: nearby) != nil
-    }
+    /// already does — a route with both ends filed, or model data that owes a
+    /// credit. One station and a report is the collapsed chip over again, so it
+    /// stays shut and stops being a button.
+    private var isExpandable: Bool { stations.count >= 2 || isShowingForecast }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -87,14 +73,6 @@ struct WeatherChip: View {
                 }
             }
 
-            // Apple's terms: the mark and the legal link on the screen showing
-            // their data, not one tap into it. Opened, the card below carries
-            // the full attribution row; collapsed, this capsule *is* the screen
-            // showing the temperature, so it carries its own.
-            if collapsedShowsApple, !isExpanded {
-                collapsedAttribution
-            }
-
             if isExpanded, isExpandable {
                 expanded
             }
@@ -102,43 +80,43 @@ struct WeatherChip: View {
         .environment(\.colorScheme, theme.colorScheme)
         .task(id: pendingKey) {
             for station in unreported {
-                apple.load(key: station.airport.icao, coordinate: station.airport.coordinate)
+                forecast.load(key: station.airport.icao, coordinate: station.airport.coordinate)
             }
         }
     }
 
     // MARK: - What a station is showing
 
-    /// Apple's answer for a station, or nil when the field filed its own.
-    private func fallback(for station: WeatherModel.Station) -> AppleWeatherService.Conditions? {
+    /// The model's answer for a station, or nil when the field filed its own.
+    private func fallback(for station: WeatherModel.Station) -> ForecastService.Conditions? {
         guard station.metar == nil else { return nil }
-        return apple.conditions(for: station.airport.icao)
+        return forecast.conditions(for: station.airport.icao)
     }
 
     private func symbol(for station: WeatherModel.Station) -> String {
         if let metar = station.metar { return metar.symbol(isDaylight: station.isDaylight) }
-        if let apple = fallback(for: station) { return apple.symbolName }
+        if let modelled = fallback(for: station) { return modelled.symbolName }
         return station.isDaylight ? "sun.max.fill" : "moon.stars.fill"
     }
 
     private func temperature(for station: WeatherModel.Station) -> String {
         if let metar = station.metar { return metar.temperatureLabel(in: preferences.temperatureUnit) }
-        guard let apple = fallback(for: station) else { return "—" }
-        return "\(Int(preferences.temperatureUnit.convert(fromCelsius: apple.temperatureC).rounded()))°"
+        guard let modelled = fallback(for: station) else { return "—" }
+        return "\(Int(preferences.temperatureUnit.convert(fromCelsius: modelled.temperatureC).rounded()))°"
     }
 
     /// The line under the code: conditions and wind from whichever source
     /// answered, and the field's name where neither did.
     ///
-    /// Apple carries a wind too, so this says one where it used to stop at the
-    /// conditions — the same shape as the report's line, because half the
+    /// The model carries a wind too, so this says one where it used to stop at
+    /// the conditions — the same shape as the report's line, because half the
     /// point of the chip is comparing two fields at a glance.
     private func detail(for station: WeatherModel.Station) -> String {
         if let metar = station.metar {
             return "\(metar.conditionLabel) · \(metar.windLabel(in: preferences.windUnit))"
         }
-        guard let apple = fallback(for: station) else { return station.airport.name }
-        return "\(apple.label) · \(apple.windLabel(in: preferences.windUnit))"
+        guard let modelled = fallback(for: station) else { return station.airport.name }
+        return "\(modelled.label) · \(modelled.windLabel(in: preferences.windUnit))"
     }
 
     // MARK: - Collapsed
@@ -165,12 +143,12 @@ struct WeatherChip: View {
                         .motionWords(station.airport.icao)
 
                     // Beside the code, because the code is what the reader is
-                    // matching the temperature to. The capsule stays marked
-                    // whether the chip is shut or open — the badge under it
-                    // carries the legal link only while it is shut, and the
-                    // opened card carries the full row.
+                    // matching the temperature to. A forecast and an observation
+                    // are different claims about the same field, and which one
+                    // this is belongs next to the field rather than in a
+                    // footnote.
                     if fallback(for: station) != nil {
-                        AppleWeatherSourceMark(colour: theme.textDim)
+                        ForecastSourceMark(colour: theme.textDim)
                     }
                 }
 
@@ -190,34 +168,6 @@ struct WeatherChip: View {
         .contentShape(Capsule())
     }
 
-    // MARK: - Attribution, collapsed
-
-    /// The wordmark and the link, sized for a chip.
-    ///
-    /// A `Link` rather than a label, so the legal page is reachable without
-    /// opening the card — the mark on its own is half of what Apple asks for.
-    /// It uses the framework's page where that has arrived and the same page
-    /// as a constant where it has not, so the link is never the thing that is
-    /// missing.
-    private var collapsedAttribution: some View {
-        Link(destination: apple.attribution?.legalPageURL ?? AppleWeatherService.legalPageURL) {
-            HStack(spacing: 5) {
-                AppleWeatherWordmark(size: 9, colour: theme.textDim)
-
-                Image(systemName: "arrow.up.right")
-                    .font(.system(size: 7, weight: .bold))
-                    .foregroundStyle(theme.textDim)
-            }
-            .padding(.horizontal, 9)
-            .padding(.vertical, 4)
-            .flightInfoChrome(theme, in: Capsule(), interactive: true)
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Weather from Apple Weather. Open Apple's legal attribution page.")
-        .transition(.opacity)
-    }
-
     // MARK: - Expanded
 
     private var expanded: some View {
@@ -231,14 +181,14 @@ struct WeatherChip: View {
                 row(for: station)
             }
 
-            // Apple's terms: their mark wherever their data is. It is why the
-            // chip opens at all when a field has no report of its own.
-            if isShowingApple {
+            // The credit for the model's numbers, which is why the chip opens
+            // at all when a field has no report of its own.
+            if isShowingForecast {
                 Rectangle()
                     .fill(theme.stroke)
                     .frame(height: 1)
 
-                WeatherAttributionRow(attribution: apple.attribution)
+                ForecastSourceRow()
             }
         }
         .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: theme.radiusMedium, style: .continuous))
@@ -267,10 +217,10 @@ struct WeatherChip: View {
 
                     // Per row, because this card mixes sources: a field that
                     // filed a report and one that did not sit one above the
-                    // other, and the mark at the foot would otherwise be
+                    // other, and the credit at the foot would otherwise be
                     // claiming both of them.
                     if fallback(for: station) != nil {
-                        AppleWeatherSourceMark(colour: theme.textDim)
+                        ForecastSourceMark(colour: theme.textDim)
                     }
 
                     dayNight(for: station)

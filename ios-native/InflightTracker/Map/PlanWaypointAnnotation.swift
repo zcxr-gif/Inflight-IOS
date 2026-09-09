@@ -38,13 +38,64 @@ enum PlanStyle {
     /// step across a trait change, which is a way to be wrong once.
     static let casing = UIColor(white: 0, alpha: 0.38)
 
-    /// How wide each is, and the dash they share.
+    /// The dash the line and its casing share.
     ///
-    /// The dash *must* be the same on both or the casing stops being an edge
-    /// and becomes a dotted line beside a dashed one.
-    static let lineWidth: CGFloat = 1.9
-    static let casingWidth: CGFloat = 3.9
+    /// It *must* be the same on both or the casing stops being an edge and
+    /// becomes a dotted line beside a dashed one.
     static let dash: [NSNumber] = [7, 4]
+
+    // MARK: - Standing further back
+
+    /// How wide the route line is drawn from a given camera distance.
+    ///
+    /// ## Why a filed plan has to get quieter as you pull back
+    ///
+    /// These used to be two constants, and constants are the bug. A stroke set
+    /// in points is that many points wide at every zoom, so the filed plan
+    /// arrived at the same weight over a whole ocean as it has over a runway —
+    /// while the flown track beside it tapers, because a track is not a road
+    /// (see `FlownPathStyle`). The two ramps crossed. Pulled back to the view
+    /// somebody actually watches a long-haul at, the plan's casing was *wider*
+    /// than the track's core, and the map was drawing the intention louder than
+    /// the fact.
+    ///
+    /// So the plan tapers too, and it tapers harder. It is written against the
+    /// flown path's own width rather than against numbers of its own, which is
+    /// what makes the ordering an invariant instead of a coincidence: whatever
+    /// the track is at this distance, the plan is a fixed fraction of it, and
+    /// nobody can retune one of the two and quietly invert them again.
+    ///
+    /// A little over two fifths. Enough to follow a forty-fix route across a
+    /// map at a glance, not enough to compete with the line that says where the
+    /// aeroplane has been — and at the field it lands on the 1.9 points this
+    /// was a constant at for as long as it was one.
+    static func lineWidth(forCameraDistance distance: CLLocationDistance) -> CGFloat {
+        FlownPathStyle.width(forCameraDistance: distance) * lineShare
+    }
+
+    /// What that comes to at the field: the width to start a renderer at
+    /// before the camera has said anything.
+    static var closeLineWidth: CGFloat { FlownPathStyle.closeWidth * lineShare }
+
+    /// The dark edge under it, in the same dash.
+    ///
+    /// The gap between the two is what the casing *is* — an edge, not a second
+    /// route — so it narrows with everything else rather than staying two
+    /// points wide while the line it is edging halves.
+    static func casingWidth(forCameraDistance distance: CLLocationDistance) -> CGFloat {
+        let line = lineWidth(forCameraDistance: distance)
+        return line + max(1.1, line * 1.05)
+    }
+
+    /// And the inferred leg, which is a guess and is drawn like one: thinner
+    /// than the filed line at every distance.
+    static func inferredWidth(forCameraDistance distance: CLLocationDistance) -> CGFloat {
+        max(1.1, lineWidth(forCameraDistance: distance) * 0.9)
+    }
+
+    /// `lineWidth` at the field is 1.9 against a track of 4.6, and that ratio
+    /// is the one being held everywhere else.
+    private static let lineShare: CGFloat = 0.41
 
     /// The fixes themselves, at full strength — a mark you are meant to pick
     /// out and read the name of, rather than a line you are meant to follow.

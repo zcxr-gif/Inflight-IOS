@@ -139,10 +139,13 @@ enum MapWeatherSource {
     ///
     /// RainViewer's published schedule takes free users to zoom 7 from January
     /// 2026, having been 10 since September 2025. Set to the lower of the two
-    /// deliberately: `MKTileOverlay` scales a coarse tile up to fill a closer
-    /// zoom, so asking too shallow costs sharpness, while asking too deep gets
-    /// a 404 and draws *nothing* — and a weather layer that vanishes when you
-    /// zoom in is a bug report, where a soft one is a known limit.
+    /// deliberately: asking too shallow costs sharpness, while asking too deep
+    /// gets a 404 and draws *nothing*.
+    ///
+    /// This is now the depth past which `RainViewerTileOverlay` builds tiles
+    /// itself from the deepest ancestor rather than the depth at which the map
+    /// gives up — see that class. Nothing above here should treat it as a
+    /// limit on where the layer can be drawn.
     static let radarMaximumZoom = 7
 
     /// How deep each service serves.
@@ -153,55 +156,72 @@ enum MapWeatherSource {
         }
     }
 
-    /// How narrow a view a layer is still worth drawing over, in degrees of
-    /// longitude across the map.
+    /// The narrowest view a layer is still drawn at full strength over, in
+    /// degrees of longitude across the map.
     ///
-    /// Neither service serves tiles anywhere near the depth this map will zoom
-    /// to, and `MKTileOverlay` fills the gap by magnifying the deepest tile it
-    /// has. Past a point that stops being a picture: one 250-metre tile of
-    /// daily satellite imagery stretched across a city is a coloured smear
-    /// where a coastline used to be, and it reads as the layer being broken
-    /// rather than as the layer being out of its depth.
-    ///
-    /// So each stops where it stops meaning anything. A tile at the satellite's
-    /// deepest zoom is about a degree and a half across, so a view narrower
-    /// than one tile is where it goes; radar is smoothed and its blobs survive
-    /// being stretched much further, so it is allowed much closer.
-    static func minimumSpanDegrees(for layer: MapWeatherLayer) -> Double {
+    /// Above this the tiles are at or near their own resolution and the layer
+    /// is simply itself. Below it the map is magnifying imagery past the detail
+    /// it holds — which `RainViewerTileOverlay` does smoothly rather than in
+    /// blocks, but no amount of interpolation invents a coastline.
+    static func fullSpanDegrees(for layer: MapWeatherLayer) -> Double {
         switch layer {
         case .off: return 0
-        case .radar: return 0.3
-        case .satellite: return 1.2
+        // Radar is a smoothed field to begin with. Its blobs survive being
+        // stretched a long way, because a soft edge magnified is still a soft
+        // edge — it is only claiming less precision than it looks like it is.
+        case .radar: return 1.5
+        // Imagery is a picture of the ground, and a picture of the ground
+        // magnified is a picture of the wrong ground. It gives up much sooner.
+        case .satellite: return 6.0
         }
     }
 
-    /// How much wider than its own limit a view has to become before a layer
-    /// that has already been taken off is put back.
-    ///
-    /// One threshold, asked on the way in and on the way out, is a switch that
-    /// chatters: a pinch does not cross a limit once, it crosses it on most
-    /// frames of the gesture, and the overlay was being torn down and rebuilt
-    /// every time it did. The tiles then have to be re-requested at the new
-    /// zoom on each rebuild, which is what made the layer look like it was
-    /// loading and unloading rather than zooming.
-    ///
-    /// So the limit is two limits. The layer stays on until the view is
-    /// genuinely narrower than the depth its tiles hold, and once off it takes
-    /// a clear zoom back out — not a wobble — to bring it back.
-    private static let restoreFactor: Double = 1.4
+    /// And the view at which it has faded out entirely.
+    static func fadedSpanDegrees(for layer: MapWeatherLayer) -> Double {
+        switch layer {
+        case .off: return 0
+        case .radar: return 0.15
+        case .satellite: return 0.8
+        }
+    }
 
-    /// Whether a layer has anything to say about a view this wide.
+    /// How strongly a layer should be drawn over a view this wide, 0...1.
     ///
-    /// `drawn` is whether it is on the map right now, which is what makes the
-    /// answer hysteretic. Callers that have no state to offer get the plain
-    /// threshold, which is what the default is for.
-    static func isLegible(
-        _ layer: MapWeatherLayer,
-        acrossDegrees span: Double,
-        whileDrawn drawn: Bool = true
-    ) -> Bool {
-        guard span.isFinite, span > 0 else { return true }
-        let limit = minimumSpanDegrees(for: layer)
-        return span >= (drawn ? limit : limit * restoreFactor)
+    /// ## Why this is a ramp and not a threshold
+    ///
+    /// It used to be a threshold, with a second threshold beside it to stop the
+    /// first one chattering. Past the limit the overlay came off the map
+    /// entirely and the strip said "too close in — zoom out", and coming back
+    /// out put it on again at a different zoom than it left.
+    ///
+    /// Every part of that was worse than the problem. A layer that disappears
+    /// mid-pinch reads as a bug, whichever sentence is printed over the map.
+    /// Rebuilding the overlay throws away every tile MapKit has rasterised and
+    /// asks for a screenful again, so the two thresholds between them turned an
+    /// ordinary zoom into a loop of tear-down, re-fetch and flicker. And the
+    /// hysteresis that was supposed to stop the chattering is itself the reason
+    /// the layer never came back where you expected it.
+    ///
+    /// A ramp has none of those properties. The overlay stays on the map
+    /// through the whole gesture, its tiles stay rasterised, and what changes
+    /// is one number on the renderer. Zoom in far enough and the weather
+    /// recedes; zoom back out and it returns, at exactly the strength it had on
+    /// the way in.
+    ///
+    /// Interpolated on the log of the span, because that is how zoom works:
+    /// each step in halves what is on screen, so a linear ramp would spend
+    /// almost all of its travel in the first step and then be flat.
+    static func presence(_ layer: MapWeatherLayer, acrossDegrees span: Double) -> Double {
+        guard layer != .off else { return 0 }
+        guard span.isFinite, span > 0 else { return 1 }
+
+        let full = fullSpanDegrees(for: layer)
+        let faded = fadedSpanDegrees(for: layer)
+        guard full > faded, faded > 0 else { return 1 }
+
+        if span >= full { return 1 }
+        if span <= faded { return 0 }
+
+        return log(span / faded) / log(full / faded)
     }
 }

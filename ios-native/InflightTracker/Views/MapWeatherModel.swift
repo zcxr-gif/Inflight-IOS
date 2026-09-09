@@ -58,10 +58,6 @@ final class MapWeatherModel: ObservableObject {
     /// and the tile reports over.
     private var lastLayer: MapWeatherLayer = .off
 
-    /// Whether the map is somewhere the tiles still hold detail, as reported by
-    /// the map itself.
-    private var isLegible = true
-
     /// Whether the camera is being moved right now, as reported by the map.
     private var isCameraMoving = false
 
@@ -115,22 +111,6 @@ final class MapWeatherModel: ObservableObject {
     /// paused for good. This is written where it is read, so it cannot be
     /// behind.
     private var reportedCameraMoving = false
-
-    /// The map, saying whether the current layer is worth drawing at the zoom it
-    /// is now at.
-    ///
-    /// Hopped through the main queue rather than acted on where it is called:
-    /// this arrives from inside the map's own layout pass, and publishing from
-    /// there is changing state in the middle of a SwiftUI update.
-    func report(legible: Bool) {
-        guard isLegible != legible else { return }
-
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self, self.isLegible != legible else { return }
-            self.isLegible = legible
-            self.rebuild()
-        }
-    }
 
     /// The map, saying whether the camera is moving.
     ///
@@ -234,16 +214,15 @@ final class MapWeatherModel: ObservableObject {
             return
         }
 
-        // Zoomed in past the imagery's own detail, the map takes the overlay
-        // off — so the strip says why, rather than leaving a layer that is
-        // switched on and drawing nothing.
+        // The index has frames, so the only remaining reason for an empty map
+        // is the tiles themselves being refused, which the overlay reports.
         //
-        // Otherwise the index has frames, and the only remaining reason for an
-        // empty map is the tiles themselves being refused, which the overlay
-        // reports.
-        unavailable = isLegible
-            ? service.tileFailure
-            : "Too close in for \(layer.label.lowercased()). Zoom out."
+        // Zoom is no longer one of the reasons. The map used to take the
+        // overlay off once the view was narrower than the tiles held detail
+        // for, and this line said so — a switch that was on, drawing nothing,
+        // with a sentence explaining it. The overlay now stays and fades
+        // instead: see `MapWeatherSource.presence(_:acrossDegrees:)`.
+        unavailable = service.tileFailure
 
         // The playhead is clamped rather than wrapped: a shorter list arriving
         // — which is what a nowcast expiring looks like — should land on the
