@@ -96,16 +96,22 @@ enum FlownPathStyle {
     /// instead.
     ///
     /// The darkest channel rather than a lightness, because lightness puts
-    /// amber — which is 0.95, 0.71, 0.11 and about as pale as a hue can be
+    /// amber — which is 0.97, 0.74, 0.25 and about as pale as a hue can be
     /// while still obviously being one — within a rounding error of the
-    /// threshold. Its darkest channel is a tenth, and white's is one; there is
-    /// nothing to argue about in between.
-    private static let paleCore: CGFloat = 0.85
+    /// threshold. Its darkest channel is a quarter, and white's is one; there
+    /// is nothing to argue about in between.
+    ///
+    /// Down from 0.85, because the ramp's low end is pale now rather than
+    /// crimson — see `AltitudeBand`. The ice blue on the deck is 0.75 in its
+    /// darkest channel, which is a colour that cannot lift itself off a light
+    /// map any more than white can, and it wants the same shadow. Everything
+    /// from the sky blue upwards still carries its own glow.
+    private static let paleCore: CGFloat = 0.70
 
     /// What the halo under a stretch of path is drawn in.
     ///
     /// Ordinarily the path's own colour: a wash of the same hue, which reads as
-    /// a glow around the line and is why a crimson track stands off a dark map.
+    /// a glow around the line and is why a red track stands off a dark map.
     ///
     /// The ground is the exception, and it has to be. That part of the track is
     /// white — see `AltitudeBand.groundColor` — and a white glow behind a white

@@ -45,9 +45,9 @@ enum MapWeatherLayer: String, CaseIterable, Identifiable {
         case .off:
             return "No weather tiles. The map draws the traffic and nothing under it."
         case .radar:
-            return "Composite precipitation radar, two hours of it. The free tier serves tiles only down to a low zoom, so it softens as you close in rather than sharpening, and fades away by the time the map is at street scale."
+            return "Composite precipitation radar, two hours of it. The free tier serves tiles only down to a low zoom, so it softens as you close in rather than sharpening — but it stays on the map all the way in, the same way the web tracker's does."
         case .satellite:
-            return "NASA's global satellite imagery, a day at a time. Reads at cruise and out over the ocean, where there is no radar to see with — but it is today's picture rather than this minute's, and the strip can be dragged back through the last few days. Fades out well before the radar does: it is a photograph of the ground, and a magnified photograph is a photograph of the wrong ground."
+            return "NASA's global satellite imagery, a day at a time. Reads at cruise and out over the ocean, where there is no radar to see with — but it is yesterday's picture rather than this minute's, and the strip can be dragged back through the last few days. Softens as you close in: it is a photograph of the ground, and a magnified photograph is a blurred photograph."
         }
     }
 }

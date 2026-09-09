@@ -37,11 +37,16 @@ enum SatelliteImagery {
 
     /// The imagery product.
     ///
-    /// VIIRS on NOAA-20 rather than MODIS on Terra: the same picture, from an
-    /// instrument that is not two decades past its design life. Swapping
-    /// products is this one line — the rest of the URL is the same for every
-    /// corrected-reflectance layer GIBS serves.
-    static let product = "VIIRS_NOAA20_CorrectedReflectance_TrueColor"
+    /// VIIRS rather than MODIS on Terra: the same picture, from an instrument
+    /// that is not two decades past its design life, and with a wide enough
+    /// swath that the daily mosaic has no diagonal gaps near the equator.
+    /// Swapping products is this one line — the rest of the URL is the same for
+    /// every corrected-reflectance layer GIBS serves.
+    ///
+    /// Suomi-NPP specifically, which is the platform the web tracker draws, so
+    /// the same day over the same ocean is the same picture in both. They had
+    /// drifted onto two platforms for no reason anybody chose.
+    static let product = "VIIRS_SNPP_CorrectedReflectance_TrueColor"
 
     /// GIBS names a matrix set for how many zoom levels it holds, so `Level9`
     /// is zooms 0 through 8. Asking past the top gets a 404 and draws nothing;
@@ -137,16 +142,16 @@ enum MapWeatherSource {
 
     /// How deep the radar's free tier serves.
     ///
-    /// RainViewer's published schedule takes free users to zoom 7 from January
-    /// 2026, having been 10 since September 2025. Set to the lower of the two
-    /// deliberately: asking too shallow costs sharpness, while asking too deep
-    /// gets a 404 and draws *nothing*.
+    /// Eight, which is what the web tracker asks RainViewer for and gets. It
+    /// was seven here, read off RainViewer's published schedule rather than off
+    /// the service — and a zoom short of what is actually served is a whole map
+    /// of radar magnified twice as far as it needed to be, for nothing.
     ///
-    /// This is now the depth past which `RainViewerTileOverlay` builds tiles
-    /// itself from the deepest ancestor rather than the depth at which the map
-    /// gives up — see that class. Nothing above here should treat it as a
-    /// limit on where the layer can be drawn.
-    static let radarMaximumZoom = 7
+    /// This is the depth past which `RainViewerTileOverlay` builds tiles itself
+    /// from the deepest ancestor rather than the depth at which the map gives
+    /// up — see that class. Nothing above here should treat it as a limit on
+    /// where the layer can be drawn.
+    static let radarMaximumZoom = 8
 
     /// How deep each service serves.
     static func maximumZoom(for layer: MapWeatherLayer) -> Int {
@@ -156,72 +161,34 @@ enum MapWeatherSource {
         }
     }
 
-    /// The narrowest view a layer is still drawn at full strength over, in
-    /// degrees of longitude across the map.
+    /// How see-through each layer is drawn over the flat map.
     ///
-    /// Above this the tiles are at or near their own resolution and the layer
-    /// is simply itself. Below it the map is magnifying imagery past the detail
-    /// it holds — which `RainViewerTileOverlay` does smoothly rather than in
-    /// blocks, but no amount of interpolation invents a coastline.
-    static func fullSpanDegrees(for layer: MapWeatherLayer) -> Double {
+    /// The web tracker's own numbers, which is the point: 0.65 for radar and
+    /// 0.6 for the imagery, at every zoom. The app was drawing both fainter
+    /// than that AND fading them out on top of it — see the note below.
+    static func opacity(for layer: MapWeatherLayer) -> Double {
         switch layer {
         case .off: return 0
-        // Radar is a smoothed field to begin with. Its blobs survive being
-        // stretched a long way, because a soft edge magnified is still a soft
-        // edge — it is only claiming less precision than it looks like it is.
-        case .radar: return 1.5
-        // Imagery is a picture of the ground, and a picture of the ground
-        // magnified is a picture of the wrong ground. It gives up much sooner.
-        case .satellite: return 6.0
+        case .radar: return 0.65
+        case .satellite: return 0.60
         }
     }
 
-    /// And the view at which it has faded out entirely.
-    static func fadedSpanDegrees(for layer: MapWeatherLayer) -> Double {
-        switch layer {
-        case .off: return 0
-        case .radar: return 0.15
-        case .satellite: return 0.8
-        }
-    }
-
-    /// How strongly a layer should be drawn over a view this wide, 0...1.
-    ///
-    /// ## Why this is a ramp and not a threshold
-    ///
-    /// It used to be a threshold, with a second threshold beside it to stop the
-    /// first one chattering. Past the limit the overlay came off the map
-    /// entirely and the strip said "too close in — zoom out", and coming back
-    /// out put it on again at a different zoom than it left.
-    ///
-    /// Every part of that was worse than the problem. A layer that disappears
-    /// mid-pinch reads as a bug, whichever sentence is printed over the map.
-    /// Rebuilding the overlay throws away every tile MapKit has rasterised and
-    /// asks for a screenful again, so the two thresholds between them turned an
-    /// ordinary zoom into a loop of tear-down, re-fetch and flicker. And the
-    /// hysteresis that was supposed to stop the chattering is itself the reason
-    /// the layer never came back where you expected it.
-    ///
-    /// A ramp has none of those properties. The overlay stays on the map
-    /// through the whole gesture, its tiles stay rasterised, and what changes
-    /// is one number on the renderer. Zoom in far enough and the weather
-    /// recedes; zoom back out and it returns, at exactly the strength it had on
-    /// the way in.
-    ///
-    /// Interpolated on the log of the span, because that is how zoom works:
-    /// each step in halves what is on screen, so a linear ramp would spend
-    /// almost all of its travel in the first step and then be flat.
-    static func presence(_ layer: MapWeatherLayer, acrossDegrees span: Double) -> Double {
-        guard layer != .off else { return 0 }
-        guard span.isFinite, span > 0 else { return 1 }
-
-        let full = fullSpanDegrees(for: layer)
-        let faded = fadedSpanDegrees(for: layer)
-        guard full > faded, faded > 0 else { return 1 }
-
-        if span >= full { return 1 }
-        if span <= faded { return 0 }
-
-        return log(span / faded) / log(full / faded)
-    }
+    // MARK: - Why there is no longer a zoom fade
+    //
+    // There used to be a ramp here — `presence(_:acrossDegrees:)` — that faded
+    // a layer out as the map closed in past the resolution the tiles hold. It
+    // was well-behaved on its own terms and it was the wrong idea. Radar was at
+    // half strength across a view about a hundred miles wide and gone entirely
+    // by ten, which is every zoom anybody uses to look at an aerodrome, an
+    // approach, or the aircraft they actually opened the app for. A weather
+    // layer that is switched on, has tiles, and draws nothing wherever you are
+    // looking is a broken weather layer, however smoothly it got that way.
+    //
+    // The web tracker does not do this. It clamps the tile source's own zoom,
+    // asks for linear resampling and leaves the opacity alone, so the radar is
+    // still there at street scale — softer than the data behind it, and honest
+    // about that, but there. This does the same: `RainViewerTileOverlay` builds
+    // every tile past the served depth from its deepest ancestor with high-
+    // quality interpolation, and the alpha is now a constant per layer.
 }

@@ -220,8 +220,9 @@ final class MapWeatherModel: ObservableObject {
         // Zoom is no longer one of the reasons. The map used to take the
         // overlay off once the view was narrower than the tiles held detail
         // for, and this line said so — a switch that was on, drawing nothing,
-        // with a sentence explaining it. The overlay now stays and fades
-        // instead: see `MapWeatherSource.presence(_:acrossDegrees:)`.
+        // with a sentence explaining it. The overlay now stays, at one
+        // strength, however far in the map goes: see the note in
+        // `MapWeatherSource`.
         unavailable = service.tileFailure
 
         // The playhead is clamped rather than wrapped: a shorter list arriving

@@ -23,15 +23,14 @@ struct MapWeatherTiles: Equatable {
 ///
 /// Two services behind one overlay: RainViewer's radar frames, and NASA's
 /// daily satellite composites. They agree on nothing except that a tile is a
-/// 256-pixel PNG or JPEG at a z/x/y — so this builds each one's URL its own
-/// way and everything above it stays the same.
+/// square PNG or JPEG at a z/x/y — so this builds each one's URL its own way,
+/// at each one's own tile size, and everything above it stays the same.
 ///
 /// ## Why this answers for zooms the services do not serve
 ///
-/// Neither service serves anywhere near the depth this map zooms to.
-/// RainViewer's free tier stops at zoom 7 and NASA's matrix set at 8, and the
-/// map goes to twenty. Something has to fill the gap, and how it is filled was
-/// the whole of what made these layers unpleasant to zoom.
+/// Neither service serves anywhere near the depth this map zooms to. Both stop
+/// at zoom 8 and the map goes to twenty. Something has to fill the gap, and how
+/// it is filled was the whole of what made these layers unpleasant to zoom.
 ///
 /// What used to happen was two things at once. `MKTileOverlay` was told its
 /// `maximumZ`, so MapKit stopped asking past it and *magnified its own raster*
@@ -51,14 +50,27 @@ struct MapWeatherTiles: Equatable {
 /// the caches below, zooming in past the service's depth costs no network at
 /// all.
 ///
-/// The map fades the layer out as the magnification gets absurd — see
-/// `MapWeatherSource.presence(_:acrossDegrees:)`. Fading is the part that used
-/// to be a threshold: it never pops, and it never rebuilds the overlay.
+/// And the layer is not faded out on top of that any more. It used to be — see
+/// the note in `MapWeatherSource` — which meant the resampling above was doing
+/// its work at zooms where nothing was drawn to see it. The alpha is one
+/// constant per layer now, the same way the web tracker's is, so the radar is
+/// still on the map when you are looking at an approach.
 final class RainViewerTileOverlay: MKTileOverlay {
 
     /// RainViewer's colour schemes, by number. Four is the one that reads as
-    /// weather radar to anybody who has seen a forecast.
+    /// weather radar to anybody who has seen a forecast, and it is what the web
+    /// tracker asks for.
     private static let radarColourScheme = 4
+
+    /// How big a tile each service is asked for.
+    ///
+    /// RainViewer serves its mosaic at either size and the web tracker takes
+    /// the larger, which is twice the detail per tile over the same ground for
+    /// one request rather than four. GIBS's `GoogleMapsCompatible` matrix set
+    /// is 256 and only 256 — asking it for 512 is a 404.
+    private static func tileSide(for layer: MapWeatherLayer) -> CGFloat {
+        layer == .satellite ? 256 : 512
+    }
 
     private let tiles: MapWeatherTiles
 
@@ -80,7 +92,8 @@ final class RainViewerTileOverlay: MKTileOverlay {
         // is exactly the blockiness this class exists to avoid — so it is told
         // that tiles exist everywhere, and `loadTile` makes that true.
         maximumZ = 20
-        tileSize = CGSize(width: 256, height: 256)
+        let side = Self.tileSide(for: tiles.layer)
+        tileSize = CGSize(width: side, height: side)
     }
 
     var key: String { tiles.key }
@@ -146,7 +159,12 @@ final class RainViewerTileOverlay: MKTileOverlay {
     /// one after and so on, so a screenful of deep tiles is a handful of
     /// ancestors between them — decoded once here rather than re-decoded from
     /// the URL cache's bytes for every child.
-    private static let sources = ImageCache(limit: 64)
+    ///
+    /// Thirty-two rather than the sixty-four it held while these were 256
+    /// pixels: a decoded 512 tile is four times the pixels, and the visible map
+    /// at the served depth is a handful of tiles either way. This is a pan's
+    /// worth of headroom, not a copy of the world.
+    private static let sources = ImageCache(limit: 32)
 
     /// Finished tiles, by the path they were built for.
     ///

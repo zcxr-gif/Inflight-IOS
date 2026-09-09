@@ -269,7 +269,7 @@ struct WeatherSettingsPanel: View {
     /// not something to ask a phone for. See `MapWeatherModel.report(drawnPlanet:)`.
     /// Said outright rather than left as a switch that appears to do nothing.
     private var animateDetail: String {
-        let base = "Runs through the two hours of frames behind the newest one. The strip over the map says which frame is drawn, and can be dragged."
+        let base = "Runs through the two hours of frames behind the newest one. Off, the map draws the newest frame and nothing else, which is a seventh of the tiles and what the free tier is comfortable serving. The strip over the map says which frame is drawn either way, and can be dragged."
         guard appearance.resolvedMapStyle.isDrawn else { return base }
         return base + " Held on the planet, which draws each frame itself rather than in tiles — the newest is shown, and the strip still scrubs."
     }

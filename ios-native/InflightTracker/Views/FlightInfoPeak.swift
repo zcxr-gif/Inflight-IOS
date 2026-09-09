@@ -189,15 +189,21 @@ struct FlightInfoPeak: View {
                 // row from nothing. Arriving is a movement like any other.
                 .motion(Motion.control, value: flight.pilotState)
 
-                // The aircraft and its livery live at the foot of the route
-                // card now, which is where the empty space was.
-                Text(registration.isEmpty ? " " : registration)
+                // What it is and what it is registered as, on one line.
+                //
+                // The type used to be said only at the foot of the route card,
+                // which the bar draws only for a flight with somewhere filed to
+                // go — so a parked or unfiled aircraft named its type nowhere,
+                // and the photograph beside this line was the only way to tell
+                // what you were looking at. It leads here because it is the
+                // half of the line somebody is actually asking about; the tail
+                // follows it, and lands a second later than the rest of the
+                // window does.
+                Text(tailLine)
                     .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
                     .foregroundStyle(theme.textDim)
-                    .flightInfoLine()
-                    // Blank until the photo lookup finds a tail number, which
-                    // lands a second after the window opens.
-                    .motionWords(registration)
+                    .flightInfoLine(minimumScale: 0.75)
+                    .motionWords(tailLine)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -239,6 +245,17 @@ struct FlightInfoPeak: View {
                 contentMode: .fit
             )
         }
+    }
+
+    /// The type and the tail, whichever of the two the feed has.
+    ///
+    /// A space rather than an empty string when it has neither: this line holds
+    /// the height of the block it is in, and a bar that shrinks by a line the
+    /// moment a lookup fails is a bar that jumps.
+    private var tailLine: String {
+        let type = FlightDetailLook.typeCode(flight.aircraftName)
+        let parts = [type, registration].filter { !$0.isEmpty }
+        return parts.isEmpty ? " " : parts.joined(separator: " · ")
     }
 
     // MARK: - Route / where it is
