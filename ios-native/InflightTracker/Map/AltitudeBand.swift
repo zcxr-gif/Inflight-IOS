@@ -12,9 +12,23 @@ import UIKit
 /// A scale whose whole job is to say "this bit was low and this bit was high"
 /// has to separate by hue, because hue is what the eye reads first.
 ///
-/// So: crimson on the deck through orange, amber, green and teal to blue and
-/// violet in the flight levels. It is the ramp every other altitude chart in
-/// aviation uses, for the same reason.
+/// ## And why the ramp runs the other way now
+///
+/// It used to run crimson on the deck through amber and green to blue and
+/// violet in the flight levels — the direction most altitude charts take. On
+/// this map it was backwards, for one reason: the great majority of every track
+/// is at cruise, and cruise was the dark end. A violet line over a dark basemap,
+/// or over satellite imagery, is a line you have to look for. The colour a
+/// tracker most wants to find was the one it hid.
+///
+/// So the ramp is inverted and lightened. Low is PALE — an ice blue on the deck
+/// through cyan and light green — and high is HOT, orange into red above
+/// FL370. Pale reads on a dark map because it is bright; red reads on a light
+/// one because it is saturated; and the height a flight actually spends its
+/// hours at is now the loudest thing on the line rather than the quietest.
+/// Anything so pale it cannot lift itself off a light map gets a dark halo
+/// instead of a glow — see `FlownPathStyle.halo(for:)`, which decides that from
+/// the colour rather than from a flag.
 ///
 /// ## Seven bands, not four
 ///
@@ -38,7 +52,12 @@ enum AltitudeBand {
     static let all = [0, 1, 2, 3, 4, 5, 6]
 
     /// The upper bound of each band in feet, in order. The last band is open.
-    private static let ceilings: [Double] = [2_500, 10_000, 18_000, 25_000, 32_000, 40_000]
+    ///
+    /// The top two moved down to 31,000 and 37,000, so the open band starts at
+    /// FL370. That is where the red is, and it is a boundary worth having: the
+    /// old one opened at FL400, which almost nothing in the feed ever reaches,
+    /// so the top colour was a colour the map effectively never drew.
+    private static let ceilings: [Double] = [2_500, 10_000, 18_000, 25_000, 31_000, 37_000]
 
     /// How the band reads as a range of feet.
     static func label(for band: Int) -> String {
@@ -47,9 +66,9 @@ enum AltitudeBand {
         case 1: return "2,500 – 10,000"
         case 2: return "10,000 – 18,000"
         case 3: return "18,000 – 25,000"
-        case 4: return "25,000 – 32,000"
-        case 5: return "32,000 – 40,000"
-        default: return "Above 40,000"
+        case 4: return "25,000 – 31,000"
+        case 5: return "31,000 – 37,000"
+        default: return "Above 37,000"
         }
     }
 
@@ -68,15 +87,21 @@ enum AltitudeBand {
     /// none of them has to change identity with the appearance. A path that
     /// changed colour when you switched to light mode would be telling you
     /// about the theme rather than about the aeroplane.
+    ///
+    /// Pale and cool at the bottom, hot at the top, ending in red above FL370 —
+    /// see the note on this type for why that is round this way. The two ends
+    /// are deliberately far apart in lightness as well as in hue, so a climb
+    /// reads as a climb on a map printed in greyscale, on a dark basemap, and to
+    /// anybody who cannot tell the middle of the ramp apart by hue at all.
     static func color(for band: Int) -> UIColor {
         switch band {
-        case 0: return UIColor(red: 0.839, green: 0.153, blue: 0.216, alpha: 0.95)  // crimson
-        case 1: return UIColor(red: 0.945, green: 0.427, blue: 0.114, alpha: 0.95)  // orange
-        case 2: return UIColor(red: 0.949, green: 0.706, blue: 0.106, alpha: 0.95)  // amber
-        case 3: return UIColor(red: 0.400, green: 0.729, blue: 0.204, alpha: 0.95)  // green
-        case 4: return UIColor(red: 0.129, green: 0.702, blue: 0.647, alpha: 0.95)  // teal
-        case 5: return UIColor(red: 0.180, green: 0.494, blue: 0.902, alpha: 0.95)  // blue
-        default: return UIColor(red: 0.514, green: 0.322, blue: 0.855, alpha: 0.95) // violet
+        case 0: return UIColor(red: 0.753, green: 0.902, blue: 0.980, alpha: 0.95) // ice
+        case 1: return UIColor(red: 0.470, green: 0.800, blue: 0.925, alpha: 0.95) // sky
+        case 2: return UIColor(red: 0.549, green: 0.855, blue: 0.549, alpha: 0.95) // light green
+        case 3: return UIColor(red: 0.925, green: 0.871, blue: 0.396, alpha: 0.95) // light yellow
+        case 4: return UIColor(red: 0.969, green: 0.741, blue: 0.247, alpha: 0.95) // amber
+        case 5: return UIColor(red: 0.957, green: 0.502, blue: 0.161, alpha: 0.95) // orange
+        default: return UIColor(red: 0.871, green: 0.161, blue: 0.184, alpha: 0.95) // red
         }
     }
 
@@ -99,7 +124,7 @@ enum AltitudeBand {
     /// the ramp answers "how high", and on the ground that question has no
     /// interesting answer. Every field is somewhere between sea level and eight
     /// thousand feet, so a taxi is coloured by the *elevation of the aerodrome*
-    /// — crimson at Toronto, orange at Denver — which says nothing about the
+    /// — ice at Toronto, sky blue at Denver — which says nothing about the
     /// aeroplane and quietly implies the two were at different heights when
     /// both were parked.
     ///
@@ -114,12 +139,18 @@ enum AltitudeBand {
     static let groundColor = UIColor(white: 1, alpha: 0.95)
 
     /// The height at the middle of a band, used to place its stop on the ramp.
+    ///
+    /// The open top band is the exception: its stop sits at its FLOOR rather
+    /// than at a made-up midpoint above it, so the ramp reaches red exactly
+    /// where the band begins — FL370 — and holds it for everything above.
+    /// Placing that stop at an invented 45,000 instead, which is what it used
+    /// to do, meant the top colour was never actually drawn: nothing in the
+    /// feed cruises there, so the highest traffic on the map got a blend on its
+    /// way to a colour it would never arrive at.
     private static func midpoint(of band: Int) -> Double {
+        guard band < ceilings.count else { return ceilings[ceilings.count - 1] }
         let low = band == 0 ? 0 : ceilings[band - 1]
-        // The open top band has no ceiling; 45,000 puts its stop a sensible
-        // distance above the one below rather than at infinity.
-        let high = band < ceilings.count ? ceilings[band] : 45_000
-        return (low + high) / 2
+        return (low + ceilings[band]) / 2
     }
 
     /// A colour interpolated between the band stops, for anything drawing a

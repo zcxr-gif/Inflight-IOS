@@ -817,6 +817,24 @@ struct FlightIdentityBlock: View {
                         // same window when another aircraft is opened in it.
                         .motionWords(flight.displayName)
 
+                    // What it is, beside who it is — the same chip the board
+                    // and the detail look put there, for the same reason. It
+                    // used to be said only at the foot of the route card, which
+                    // meant a parked or unfiled aircraft — the two cases that
+                    // draw a `PlaceCard` instead — named its type nowhere at
+                    // all, and the only way to tell an A320 from a 777 was to
+                    // recognise the photograph.
+                    if !typeCode.isEmpty {
+                        Text(typeCode)
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundStyle(theme.textSecondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2.5)
+                            .flightInfoSurface(theme, radius: 6, elevated: true)
+                            .fixedSize()
+                            .motionWords(typeCode)
+                    }
+
                     FlightPhaseChip(phase: FlightPhase.from(flight), theme: theme, elevated: true)
                 }
 
@@ -830,8 +848,9 @@ struct FlightIdentityBlock: View {
                     }
                 }
 
-                // Where the flight is in its day. What it is being flown in
-                // lives at the foot of the route card.
+                // Where the flight is in its day. The type is in the chip
+                // above; the full name and the livery are at the foot of the
+                // route card, when there is one.
                 Text(stateLine)
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(theme.textDim)
@@ -857,6 +876,11 @@ struct FlightIdentityBlock: View {
         let altitude = "\(Format.number(flight.altitudeFeet)) ft"
         let speed = "\(Format.number(flight.groundSpeedKnots)) kts"
         return "\(phase.rawValue.capitalized) · \(altitude) · \(speed)"
+    }
+
+    /// The model without its manufacturer, which is all a chip has room for.
+    private var typeCode: String {
+        FlightDetailLook.typeCode(flight.aircraftName)
     }
 }
 

@@ -2005,11 +2005,6 @@ struct TrackerMapView: UIViewRepresentable {
         /// frame that has not changed is not torn down and re-fetched.
         private var weatherOverlay: RainViewerTileOverlay?
 
-        /// How strongly the weather is currently drawn, so the frame clock can
-        /// tell a change worth repainting for from the ninety-nine passes where
-        /// it rounds to nothing. See `updateWeatherPresence`.
-        private var weatherPresence: Double = 1
-
         /// The barbs on the map, and the grid they belong to.
         private var windAnnotations: [WindBarbAnnotation] = []
         private var renderedWindKey: String?
@@ -2044,12 +2039,13 @@ struct TrackerMapView: UIViewRepresentable {
             // under a moving finger is.
             guard !isRegionChanging else { return }
 
-            // Zoom is not this method's business any more. The overlay used to
-            // be taken off the map once the view got narrower than the tiles
-            // held detail for, which meant a layer that vanished mid-pinch and
-            // a screenful of tiles re-fetched every time it came back. What
-            // happens instead is that the overlay stays and fades — one number
-            // on the renderer, on the frame clock, in `updateWeatherPresence`.
+            // Zoom is not this method's business, and no longer anybody else's
+            // either. The overlay used to be taken off the map once the view
+            // got narrower than the tiles held detail for, and then — after
+            // that was fixed — kept on the map but faded away over the same
+            // range, which was the same disappearance done politely. It stays,
+            // at one strength, all the way in. See the note in
+            // `MapWeatherSource`.
             let wanted = parent.weatherTiles
 
             if weatherOverlay?.key == wanted?.key { return }
@@ -2067,44 +2063,6 @@ struct TrackerMapView: UIViewRepresentable {
             // and a place name you cannot read through it is a map that has
             // stopped being a map.
             mapView.addOverlay(overlay, level: .aboveRoads)
-
-            // The new renderer starts at whatever strength this zoom calls for,
-            // rather than at full and then stepping down on the next frame.
-            weatherPresence = -1
-            updateWeatherPresence(on: mapView)
-        }
-
-        /// Fades the weather for how far past its own detail the map has zoomed.
-        ///
-        /// Run from the live region callback, and cheap enough for that: one
-        /// span read and one comparison in the ordinary case. Only the
-        /// renderer's alpha is touched — the overlay, its tiles and everything
-        /// MapKit has rasterised are left alone, which is the whole point.
-        /// Taking the layer off and putting it back was the old behaviour and
-        /// it cost a screenful of tiles each way.
-        private func updateWeatherPresence(on mapView: MKMapView) {
-            guard let tiles = parent.weatherTiles, let overlay = weatherOverlay else { return }
-
-            let presence = MapWeatherSource.presence(
-                tiles.layer,
-                acrossDegrees: mapView.region.span.longitudeDelta
-            )
-
-            guard abs(presence - weatherPresence) > 0.01 else { return }
-            weatherPresence = presence
-
-            guard let renderer = mapView.renderer(for: overlay) as? MKTileOverlayRenderer else { return }
-            renderer.alpha = Self.weatherAlpha(for: tiles.layer) * CGFloat(presence)
-            renderer.setNeedsDisplay()
-        }
-
-        /// How much of the map a layer is allowed to cover at full strength.
-        ///
-        /// Enough to read the weather, not so much that the coastline under it
-        /// disappears. Radar is the denser image of the two, so it is the one
-        /// drawn back further.
-        static func weatherAlpha(for layer: MapWeatherLayer) -> CGFloat {
-            layer == .satellite ? 0.62 : 0.55
         }
 
         /// Where the map was, and what was being asked for, the last time the
@@ -3634,15 +3592,11 @@ struct TrackerMapView: UIViewRepresentable {
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
             if let tiles = overlay as? MKTileOverlay {
                 let renderer = MKTileOverlayRenderer(tileOverlay: tiles)
-                // Full strength for the layer, scaled by how far past its own
-                // detail the map is standing. The live region callback keeps
-                // that second factor up to date — see `updateWeatherPresence`.
+                // One strength for the layer, at every zoom — the web
+                // tracker's own numbers. Set once here and never touched
+                // again, because there is nothing left to vary it by.
                 let layer = parent.weatherTiles?.layer ?? .radar
-                let presence = MapWeatherSource.presence(
-                    layer,
-                    acrossDegrees: mapView.region.span.longitudeDelta
-                )
-                renderer.alpha = Self.weatherAlpha(for: layer) * CGFloat(presence)
+                renderer.alpha = CGFloat(MapWeatherSource.opacity(for: layer))
                 return renderer
             }
 
@@ -4058,12 +4012,6 @@ struct TrackerMapView: UIViewRepresentable {
             // while the plan under it holds still is the two of them swapping
             // places somewhere in the middle of the gesture.
             updatePlanWidths(on: mapView)
-
-            // Same clock, same reason. The weather fading as the map magnifies
-            // it past its own detail has to happen *through* the pinch — a
-            // layer that changed strength only when the finger came off would
-            // be the pop this replaced, with extra steps.
-            updateWeatherPresence(on: mapView)
 
             // Straightening the sprites. On a north-up flat map there is
             // nothing to straighten — the camera cannot spin or tilt, so a

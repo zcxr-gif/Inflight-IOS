@@ -960,9 +960,7 @@ final class GlobeCanvasView: UIView {
     }
 
     private func syncTileRaster() {
-        let presence = Self.tilePresence(camera: camera, bounds: bounds, layer: scene.weatherTiles?.layer ?? .off)
-
-        guard let tiles = scene.weatherTiles, presence > 0.01 else {
+        guard let tiles = scene.weatherTiles else {
             if tileRaster != nil {
                 tileRaster = nil
                 _ = tileJob.next()
@@ -987,13 +985,12 @@ final class GlobeCanvasView: UIView {
         guard let mosaic = GlobeTileStore.shared.mosaic(for: tiles, z: z, needing: needed),
               !mosaic.isEmpty else { return }
 
-        // The fade is baked into the raster, so it has to be part of what
-        // identifies one — but quantised, or a pinch would rebuild a whole
-        // software raster of the visible face of the sphere on every frame.
-        // Ten steps across the fade is a dissolve nobody can see the edges of
-        // and ten rebuilds rather than sixty a second.
-        let step = (presence * 10).rounded() / 10
-        let key = "tiles|\(tiles.key)|\(z)|\(step)"
+        // The strength is baked into the raster, so it is part of what
+        // identifies one. It no longer varies with the zoom — the fade that
+        // used to be here went with the flat map's, see `MapWeatherSource` —
+        // which is one fewer reason for a pinch to rebuild a software raster of
+        // the whole visible face of the sphere.
+        let key = "tiles|\(tiles.key)|\(z)"
         guard tilesArrived || !isFresh(tileRaster, key: key) else { return }
         tilesArrived = false
 
@@ -1001,7 +998,7 @@ final class GlobeCanvasView: UIView {
         let source = GlobeWeatherSource.tiles(mosaic)
         let viewpoint = camera
         let box = bounds
-        let opacity = Self.tileOpacity(for: tiles.layer) * step
+        let opacity = Self.tileOpacity(for: tiles.layer)
 
         rasterQueue.async { [weak self, tileJob] in
             guard tileJob.current == job else { return }
@@ -1055,21 +1052,6 @@ final class GlobeCanvasView: UIView {
         case .radar: return 0.82
         case .satellite: return 0.95
         }
-    }
-
-    /// How strongly the tiles should be drawn at the zoom the planet is at.
-    ///
-    /// The same question the flat map asks, asked of the same helper, so a
-    /// layer fades at the same zoom on one shape of the world as on the other.
-    private static func tilePresence(
-        camera: GlobeCamera,
-        bounds: CGRect,
-        layer: MapWeatherLayer
-    ) -> CGFloat {
-        guard camera.radius > 0, bounds.width > 0 else { return 0 }
-        let metres = camera.metresPerPoint * Double(bounds.width)
-        let degrees = metres / (GlobeCamera.earthRadiusMetres * .pi / 180)
-        return CGFloat(MapWeatherSource.presence(layer, acrossDegrees: degrees))
     }
 
     /// Points the planet where the chrome asked, once.

@@ -107,7 +107,11 @@ final class WeatherPreferences: ObservableObject {
     ///
     /// The frames are already fetched either way — the index lists all of them
     /// — so this costs tiles rather than requests, and only for the frames it
-    /// actually reaches.
+    /// actually reaches. Which is the trouble: a loop asks the free tier for
+    /// seven screenfuls of tiles where a still frame asks for one, and the tier
+    /// answers a burst like that with 429s. See `MapWeatherModel`, which stops
+    /// the loop the moment it is throttled — the layer it stops on is the layer
+    /// the web tracker draws in the first place.
     @Published var animatesRadar: Bool {
         didSet { UserDefaults.standard.set(animatesRadar, forKey: Self.animateKey) }
     }
@@ -175,9 +179,13 @@ final class WeatherPreferences: ObservableObject {
         // thousand strokes a frame. They are things you turn on.
         showsWindParticles = defaults.bool(forKey: Self.particlesKey)
         windHeat = WeatherHeat(rawValue: defaults.string(forKey: Self.heatKey) ?? "") ?? .off
-        // On, but only meaningful while a layer is: it animates what is
-        // already there.
-        animatesRadar = defaults.object(forKey: Self.animateKey) as? Bool ?? true
+        // Off, and only meaningful while a layer is on at all: it animates what
+        // is already there. It shipped on, which meant the ordinary experience
+        // of switching the radar on was a loop asking a free tier for seven
+        // screenfuls of tiles, being refused, and flickering — the web tracker
+        // draws one frame, the newest, and that is what this is now out of the
+        // box. The scrubber still reaches every frame the service published.
+        animatesRadar = defaults.object(forKey: Self.animateKey) as? Bool ?? false
         // On by default, because it costs nothing and it is the one piece of
         // weather that is already on the device.
         showsFieldConditions = defaults.object(forKey: Self.fieldsKey) as? Bool ?? true
