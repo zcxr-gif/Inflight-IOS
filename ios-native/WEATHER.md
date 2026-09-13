@@ -81,6 +81,45 @@ leaving, and both are made up here:
   the standard low-precision series, which puts a rise time within a couple of
   minutes. Being arithmetic, it also answers over an ocean with no signal.
 
+## The tiles under the traffic, and what they cost
+
+The radar is RainViewer's and it is **metered**. Since 1 January 2026 the free
+tier is 100 requests per IP per minute and **the deepest zoom it serves is 7**
+— their own schedule, kept in `old/www/rainviewer.txt`.
+
+Both halves of that matter, and getting the first one wrong is what made the
+layer "bug out and say it's rate limited" when you zoomed in:
+
+- Zoom 7 is not just a zoom. It is the **ancestor** every deeper tile is
+  resampled from, so asking for 8 does not soften the radar past 8 — it deletes
+  it. The layer goes blank the moment the map closes in past a city.
+- Every one of those refusals is a request. A screenful per zoom step, for every
+  step of a pinch, is how an app that is *not* being rate-limited talks itself
+  into being rate-limited — and the refusals are not cached, so every pan asks
+  again and the limiter never lets go.
+
+So there is now a meter in front of the network, `Services/WeatherTileBudget.swift`:
+sixty requests a minute against the hundred allowed, a burst of forty, a pause
+when the bucket runs dry or the service says 429, and a memory of what has
+already been refused. A request it turns down is aimed at the tile cache instead
+of the wire, and is never reported as the service failing — it never reached it.
+
+Two things follow from a pause, both in `RainViewerService`: the animation stops
+(it is what turns one screenful into seven), and when the pause lifts the whole
+screen is asked for again. That second one is not optional. MapKit asks an
+overlay for a tile once and remembers the answer, including the answer
+*nothing* — so a tile skipped during a pause stays a hole until something builds
+a new overlay, which is why the served depth and a "ask again" token are both
+part of `MapWeatherTiles.key`.
+
+And the depth is read off the service rather than trusted: `servedRadarZoom`
+starts at what RainViewer publishes and comes **down** on its own if the tiles
+at that depth are actually being refused. It has been wrong in both directions
+now, once in each, and neither was noticed from inside the app.
+
+NASA's GIBS is none of this — public, no key, no quota — so the cloud layer is
+not metered at all.
+
 ## Warnings, and where they stop
 
 `api.weather.gov/alerts/active` — open, no key, no quota, and **the United

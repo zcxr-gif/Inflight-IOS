@@ -16,7 +16,26 @@ struct MapWeatherTiles: Equatable {
     /// Identity for the map's diff: the frame's path already changes with
     /// every frame and every layer serves different paths, so this is enough
     /// to say "the tiles on screen are the wrong ones".
-    var key: String { "\(layer.rawValue)|\(host)\(frame.path)" }
+    ///
+    /// Two things beyond the frame are part of it, and both are there because a
+    /// tile MapKit has already been given is a tile it will not ask for again:
+    ///
+    /// - the **served depth**, because everything past it is resampled from the
+    ///   deepest tile that exists, so a depth that has moved means every derived
+    ///   tile on the map was built from the wrong ancestor;
+    /// - the service's **token**, which moves when tiles that came back empty
+    ///   are worth asking for again — after a cooldown, most of all.
+    ///
+    /// Without them the overlay carried on serving whatever it had until the
+    /// frame happened to change, which made noticing either one no difference
+    /// at all.
+    var key: String {
+        let service = RainViewerService.shared
+        return """
+        \(layer.rawValue)|\(host)\(frame.path)\
+        |z\(MapWeatherSource.maximumZoom(for: layer))|g\(service.tilesToken)
+        """
+    }
 }
 
 /// The tiles for whichever weather layer is on.
@@ -28,9 +47,10 @@ struct MapWeatherTiles: Equatable {
 ///
 /// ## Why this answers for zooms the services do not serve
 ///
-/// Neither service serves anywhere near the depth this map zooms to. Both stop
-/// at zoom 8 and the map goes to twenty. Something has to fill the gap, and how
-/// it is filled was the whole of what made these layers unpleasant to zoom.
+/// Neither service serves anywhere near the depth this map zooms to. RainViewer
+/// stops at zoom 7 and NASA at 8; the map goes to twenty. Something has to fill
+/// the gap, and how it is filled was the whole of what made these layers
+/// unpleasant to zoom.
 ///
 /// What used to happen was two things at once. `MKTileOverlay` was told its
 /// `maximumZ`, so MapKit stopped asking past it and *magnified its own raster*
@@ -55,6 +75,19 @@ struct MapWeatherTiles: Equatable {
 /// its work at zooms where nothing was drawn to see it. The alpha is one
 /// constant per layer now, the same way the web tracker's is, so the radar is
 /// still on the map when you are looking at an approach.
+///
+/// ## What all of that rests on
+///
+/// The served depth. Everything above is a picture built from the deepest tile
+/// that exists, so if this asks for a depth the service does not serve, there is
+/// no ancestor, and "softens as you close in" becomes "vanishes as you close
+/// in" — with a screenful of refused requests per zoom step behind it, tripping
+/// a meter that then refuses the zooms which *were* working. That is exactly
+/// what happened when RainViewer's ceiling moved to 7 and this was still asking
+/// for 8. So two things changed: the depth is now the service's rather than a
+/// guess (`RainViewerService.servedRadarZoom`, which comes down on its own if
+/// the tiles disagree), and every request this makes is counted first — see
+/// `WeatherTileBudget`.
 final class RainViewerTileOverlay: MKTileOverlay {
 
     /// RainViewer's colour schemes, by number. Four is the one that reads as
@@ -78,9 +111,21 @@ final class RainViewerTileOverlay: MKTileOverlay {
     /// Everything past it is resampled from here.
     private let servedZ: Int
 
+    /// What these tiles are, taken once.
+    ///
+    /// `MapWeatherTiles.key` now asks the service two questions to build itself,
+    /// and this is asked on every tile — for the derived cache — from whatever
+    /// thread MapKit is rasterising on. Taken at init instead, so it is a string
+    /// comparison rather than two locks per tile, and so an overlay's identity
+    /// cannot change underneath the tiles it has already handed out. Anything
+    /// that *should* change it builds a new overlay, which is the whole point of
+    /// the key.
+    private let identity: String
+
     init(tiles: MapWeatherTiles) {
         self.tiles = tiles
         self.servedZ = MapWeatherSource.maximumZoom(for: tiles.layer)
+        self.identity = tiles.key
         super.init(urlTemplate: nil)
 
         // The map underneath still has to be readable through it: this draws
@@ -96,7 +141,7 @@ final class RainViewerTileOverlay: MKTileOverlay {
         tileSize = CGSize(width: side, height: side)
     }
 
-    var key: String { tiles.key }
+    var key: String { identity }
 
     override func url(forTilePath path: MKTileOverlayPath) -> URL {
         if tiles.layer == .satellite {
@@ -289,26 +334,89 @@ final class RainViewerTileOverlay: MKTileOverlay {
         }
     }
 
+    /// How far either side of the wanted region the resampling is given to work
+    /// with, in pixels of the ancestor.
+    ///
+    /// The reason there is a margin at all: at eight zooms past the service the
+    /// region wanted is a single pixel of the ancestor, and one pixel scaled up
+    /// is a flat square. Handing the resampler the pixels *around* it as well is
+    /// what turns a magnified radar blob back into a soft edge instead of a
+    /// step. Four, which is past the reach of any resampling filter Core
+    /// Graphics has, so a tile built from a patch is the same tile it would
+    /// have been built from the whole ancestor — including at its own edges,
+    /// where a margin that was too small would show as a seam against the tile
+    /// next door.
+    private static let resampleMargin: CGFloat = 4
+
     /// The part of `image` that `path` covers, resampled to a whole tile.
     ///
-    /// Drawn rather than cropped: at eight zooms past the service the region
-    /// wanted is a single pixel of the ancestor, and a crop of one pixel scaled
-    /// up is a flat square. Drawing the whole ancestor magnified and clipped to
-    /// the tile lets Core Graphics interpolate across the pixels either side of
-    /// the region as well, which is what turns a magnified radar blob back into
-    /// a soft edge instead of a step.
+    /// ## Why this takes a patch rather than the whole ancestor
+    ///
+    /// The first version drew the entire ancestor magnified and let the context
+    /// clip it, which got the margin above for free and was fine for the first
+    /// few zooms past the service. It stopped being fine further in. The draw
+    /// rect is the ancestor's size times two to the power of the depth, so at
+    /// the zooms this map actually reaches it was asking Core Graphics to
+    /// interpolate a rectangle *millions of points across* to fill one 512-pixel
+    /// tile — per tile, for a screenful of tiles, on every step of a pinch. That
+    /// is the stutter and the memory spike that made these layers unpleasant to
+    /// zoom even when every tile was arriving.
+    ///
+    /// So the patch is cut out of the ancestor first — the wanted region plus
+    /// the margin, a handful of pixels at depth — and only the patch is
+    /// magnified. The pixels that reach the tile are the same ones by the same
+    /// filter; what changes is that the work no longer grows with how far in the
+    /// map has gone.
     private func crop(
         _ image: UIImage,
         of ancestor: MKTileOverlayPath,
         to path: MKTileOverlayPath,
         depth: Int
     ) -> Data? {
-        let factor = CGFloat(1 << depth)
-        let size = tileSize
+        guard let source = image.cgImage, source.width > 0, source.height > 0 else { return nil }
 
-        // Where this tile sits inside its ancestor, in tiles.
+        let size = tileSize
+        let factor = CGFloat(1 << depth)
+
+        // Where this tile sits inside its ancestor, in tiles...
         let column = CGFloat(path.x - (ancestor.x << depth))
         let row = CGFloat(path.y - (ancestor.y << depth))
+
+        // ...and how much of the ancestor's own pixels that is. Below one pixel
+        // at the deeper zooms, which is exactly why the margin matters.
+        let across = CGFloat(source.width)
+        let down = CGFloat(source.height)
+        let window = across / factor
+        let windowDown = down / factor
+
+        let margin = Self.resampleMargin
+        let wanted = CGRect(
+            x: column * window - margin,
+            y: row * windowDown - margin,
+            width: window + margin * 2,
+            height: windowDown + margin * 2
+        )
+
+        // Clipped to the ancestor at its edges, and rounded outwards to whole
+        // pixels. Only the margin is ever lost to this — the tile's own region
+        // is inside the ancestor by construction — so every tile still comes out
+        // fully covered.
+        let bounds = CGRect(x: 0, y: 0, width: across, height: down)
+        let taken = wanted.intersection(bounds).integral
+        guard !taken.isEmpty, let patch = source.cropping(to: taken) else { return nil }
+
+        // Ancestor pixels to tile points.
+        let scale = size.width / window
+        let scaleDown = size.height / windowDown
+
+        // Where the patch lands, given that it starts a margin's worth above and
+        // to the left of the tile's own region.
+        let destination = CGRect(
+            x: (taken.minX - column * window) * scale,
+            y: (taken.minY - row * windowDown) * scaleDown,
+            width: taken.width * scale,
+            height: taken.height * scaleDown
+        )
 
         let format = UIGraphicsImageRendererFormat.default()
         // One pixel per point. The source has no more detail than this and an
@@ -320,31 +428,68 @@ final class RainViewerTileOverlay: MKTileOverlay {
 
         let tile = renderer.image { context in
             context.cgContext.interpolationQuality = .high
-            image.draw(in: CGRect(
-                x: -column * size.width,
-                y: -row * size.height,
-                width: size.width * factor,
-                height: size.height * factor
-            ))
+            UIImage(cgImage: patch).draw(in: destination)
         }
 
         return tile.pngData()
     }
 
+    /// The meter this layer's requests are counted against, or nil for a
+    /// service that does not meter.
+    ///
+    /// NASA's GIBS has no quota, no key and no account. Rationing it would draw
+    /// the cloud layer worse to protect an allowance that does not exist.
+    private var budget: WeatherTileBudget? {
+        tiles.layer == .satellite ? nil : WeatherTileBudget.rainViewer
+    }
+
     /// One request, and a note to the service about how it went.
+    ///
+    /// The budget is asked first, and a request it turns down does not become a
+    /// hole in the map: it is re-aimed at the tile cache instead, which answers
+    /// for everything already seen and costs the service nothing. That is what
+    /// makes a cooldown survivable — panning around during one still draws the
+    /// ground you have already been over, rather than blanking the layer and
+    /// asking the service to confirm the blanking, tile by tile.
     private func fetch(
         at path: MKTileOverlayPath,
         reportingFailures reports: Bool,
         completion: @escaping (Data?, Error?) -> Void
     ) {
-        let request = URLRequest(url: url(forTilePath: path))
+        let address = url(forTilePath: path)
+        let meter = budget
+        let permitted = meter?.permits(address.absoluteString) ?? true
+        // Held rather than read off `self` inside the callback: the overlay is
+        // swapped on every frame of the animation, and a tile request that
+        // outlives its overlay should not be what keeps it alive.
+        let layer = tiles.layer
+
+        var request = URLRequest(url: address)
+        if !permitted {
+            // Whatever is in the cache, and nothing over the wire. A miss here
+            // completes with an error and no request made, which is exactly the
+            // outcome wanted.
+            request.cachePolicy = .returnCacheDataDontLoad
+        }
 
         Self.session.dataTask(with: request) { data, response, error in
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             let isImage = (200..<300).contains(status) && (data?.isEmpty == false)
 
-            if reports {
-                RainViewerService.shared.noteTile(status: status, failed: !isImage)
+            // A request that was never made says nothing about the service. It
+            // is not counted against it, and it never becomes the sentence over
+            // the map explaining why the layer is empty — the budget's own
+            // reason for holding back is already that sentence.
+            if permitted {
+                meter?.note(address: address.absoluteString, status: status, failed: !isImage)
+                if reports {
+                    RainViewerService.shared.noteTile(
+                        status: status,
+                        failed: !isImage,
+                        zoom: path.z,
+                        layer: layer
+                    )
+                }
             }
 
             guard isImage else {

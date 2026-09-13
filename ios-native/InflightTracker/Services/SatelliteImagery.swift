@@ -142,21 +142,41 @@ enum MapWeatherSource {
 
     /// How deep the radar's free tier serves.
     ///
-    /// Eight, which is what the web tracker asks RainViewer for and gets. It
-    /// was seven here, read off RainViewer's published schedule rather than off
-    /// the service — and a zoom short of what is actually served is a whole map
-    /// of radar magnified twice as far as it needed to be, for nothing.
+    /// **Seven.** This has now been wrong in both directions and the reason is
+    /// worth keeping, because getting it wrong is not a cosmetic mistake.
+    ///
+    /// It was seven, read off RainViewer's published schedule. It was then
+    /// raised to eight, because eight is what the web tracker asked for and got
+    /// — and a zoom short of what is served is a map of radar magnified twice as
+    /// far as it needed to be, for nothing. Both readings were right when they
+    /// were made. The schedule in `old/www/rainviewer.txt` then came into
+    /// effect: since **1 January 2026 the ceiling is seven for everybody**, free
+    /// tier and patron alike, and eight is a zoom the service refuses.
+    ///
+    /// Refuses, specifically, at the one depth everything else is built on.
+    /// Zoom eight is not just a zoom — it is the *ancestor* every deeper tile is
+    /// resampled from, so a ceiling one too high does not soften the radar past
+    /// eight, it deletes it: the layer goes blank the moment the map closes in
+    /// past a city, and the refusals it generates trip the request meter, which
+    /// is what put the words "rate-limiting" under a switch that was working
+    /// perfectly a zoom ago. That is the bug this constant was.
     ///
     /// This is the depth past which `RainViewerTileOverlay` builds tiles itself
     /// from the deepest ancestor rather than the depth at which the map gives
     /// up — see that class. Nothing above here should treat it as a limit on
     /// where the layer can be drawn.
-    static let radarMaximumZoom = 8
+    static let radarMaximumZoom = 7
 
     /// How deep each service serves.
+    ///
+    /// The radar's is asked of the service rather than read from the constant
+    /// above, because the service is allowed to disagree: the ceiling has moved
+    /// twice under this app, and `RainViewerService` lowers its own answer when
+    /// the tiles at a depth are actually being turned away. See
+    /// `RainViewerService.servedRadarZoom`.
     static func maximumZoom(for layer: MapWeatherLayer) -> Int {
         switch layer {
-        case .off, .radar: return radarMaximumZoom
+        case .off, .radar: return RainViewerService.shared.servedRadarZoom
         case .satellite: return SatelliteImagery.maximumZoom
         }
     }
