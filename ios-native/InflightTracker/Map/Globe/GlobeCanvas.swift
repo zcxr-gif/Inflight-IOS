@@ -1967,6 +1967,11 @@ final class GlobeCanvasView: UIView {
 
         guard camera.radius > 0 else { return }
 
+        // There is a world on screen. What lifts the opening screen when the
+        // drawn planet is the map rather than MapKit — see `LaunchGate`, which
+        // ignores every call after the first, so this costs a branch per frame.
+        LaunchGate.shared.mapDidDraw()
+
         let basis = camera.basis
         let detail = self.detail
         let box = self.box

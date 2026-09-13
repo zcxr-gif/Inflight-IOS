@@ -4046,6 +4046,18 @@ struct TrackerMapView: UIViewRepresentable {
         /// frozen for the rest of the session. The ordinary case still settles
         /// once: `regionDidChangeAnimated` fires throughout a gesture and each
         /// one cancels this and pushes the deadline out.
+        /// MapKit has put a frame of cartography on screen.
+        ///
+        /// What lifts the opening screen — see `LaunchGate`. Taken on the first
+        /// call whatever `fullyRendered` says: the question this answers is
+        /// "does the app look like a map yet", and a map with its basemap down
+        /// and a few tiles still arriving does. Waiting for a fully rendered
+        /// one would hold the veil over a perfectly good map because a tile at
+        /// the edge of the screen had not landed.
+        func mapViewDidFinishRenderingMap(_ mapView: MKMapView, fullyRendered: Bool) {
+            LaunchGate.shared.mapDidDraw()
+        }
+
         func mapView(_ mapView: MKMapView, regionWillChangeAnimated animated: Bool) {
             if !isRegionChanging {
                 isRegionChanging = true
