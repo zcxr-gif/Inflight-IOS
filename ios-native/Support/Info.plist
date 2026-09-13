@@ -65,10 +65,24 @@
 		<key>UIApplicationSupportsMultipleScenes</key>
 		<false/>
 	</dict>
+	<!-- The static screen iOS shows while the app process starts, before a
+	     single SwiftUI view exists. It was empty, which meant white — a white
+	     flash in front of a dark app, every launch, before `LaunchVeil` had
+	     even been built.
+
+	     The colour, and deliberately not `UIImageName` as well. That key does
+	     not draw its image at the image's own size: it aspect-fits it to the
+	     whole screen, so a mark sized to match the veil's would arrive as a
+	     pin several hundred points across and a different size on every
+	     device. The ground is the half that can be matched exactly, so the
+	     ground is the half that is matched, and the veil fades its own mark in
+	     over the top of it — which reads as the app arriving rather than as a
+	     seam. `LaunchBackground` is the midpoint of the veil's gradient and
+	     carries a dark appearance of its own. -->
 	<key>UILaunchScreen</key>
 	<dict>
 		<key>UIColorName</key>
-		<string></string>
+		<string>LaunchBackground</string>
 	</dict>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>

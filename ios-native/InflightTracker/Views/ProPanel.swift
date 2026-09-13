@@ -186,9 +186,17 @@ struct ProPanel: View {
 
     private var hero: some View {
         VStack(spacing: 10) {
-            Image(systemName: "airplane.circle.fill")
-                .font(.system(size: 46, weight: .regular))
-                .foregroundStyle(theme.accent)
+            // The app's own mark, not a symbol that looks a bit like it. This
+            // was `airplane.circle.fill` in the accent colour, which is a
+            // reasonable glyph and is not the logo — so the one screen in the
+            // app that is asking somebody for money was the one screen wearing
+            // somebody else's artwork. It is the same asset the map chrome and
+            // the sky view draw, which is the same pin as the app icon.
+            Image("InflightLogo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 64, height: 64)
+                .accessibilityHidden(true)
 
             Text("Inflight Pro")
                 .font(.system(size: 30, weight: .heavy, design: .rounded))

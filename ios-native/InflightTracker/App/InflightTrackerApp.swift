@@ -38,18 +38,35 @@ private struct RootView: View {
     @Environment(\.colorScheme) private var systemScheme
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @ObservedObject private var terms = TermsStore.shared
+    @ObservedObject private var launch = LaunchGate.shared
 
     var body: some View {
         ZStack {
             tracker
 
+            // The opening screen, over the app for the same reason the gate
+            // below is: the map is being built and warmed the whole time this
+            // is up, which is the only reason waiting for it is worth
+            // anything. It lifts when the map says it has drawn — see
+            // `LaunchGate`.
+            if launch.isCovered {
+                LaunchVeil()
+                    .transition(.opacity)
+                    .zIndex(1)
+            }
+
             // Over the top rather than instead of, so the app behind is already
             // built and warmed by the time the gate goes: agreeing lands you on
             // a map that is drawing rather than on a loading screen.
+            //
+            // Above the veil, not below it. On a first launch this is the
+            // screen that matters and the map behind both can take as long as
+            // it likes — by the time anybody has read the terms, the veil has
+            // long since lifted underneath them.
             if !terms.isAccepted {
                 TermsGateView { withAnimation(Motion.panel) { terms.accept() } }
                     .transition(.opacity)
-                    .zIndex(1)
+                    .zIndex(2)
             }
         }
     }

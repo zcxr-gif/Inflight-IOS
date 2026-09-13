@@ -80,6 +80,72 @@ final class RainViewerService: ObservableObject {
 
     private var tileFailures = 0
 
+    // MARK: - How deep the tiles actually go
+
+    /// The deepest zoom the radar is being served at.
+    ///
+    /// Starts at what RainViewer publishes and comes *down* when the tiles say
+    /// otherwise. The published ceiling has moved twice under this app — see
+    /// `MapWeatherSource.radarMaximumZoom` — and each time it moved, the app
+    /// spent a release asking for a depth that was being refused, which is a
+    /// blank layer past that depth rather than a soft one. Reading it off the
+    /// tiles means the next move costs nobody anything.
+    ///
+    /// Only downwards, and only on a settled refusal. A 429 is being asked to
+    /// slow down, not told the depth does not exist, and a 404 is a frame that
+    /// expired mid-pan — neither says anything about the ceiling. The floor is
+    /// four, below which the whole idea stops being a radar layer.
+    ///
+    /// Not `@Published`: it is read from whatever thread is building a tile, so
+    /// it is behind its own lock, and the announcement is made by hand on the
+    /// main queue.
+    var servedRadarZoom: Int {
+        zoomLock.lock()
+        defer { zoomLock.unlock() }
+        return servedZoom
+    }
+
+    /// Bumped whenever every tile on the map is worth asking for again.
+    ///
+    /// MapKit asks an overlay for a tile once and remembers the answer,
+    /// including the answer "nothing". So a screen that came up empty while the
+    /// app was holding back stays empty afterwards — there is no request to
+    /// retry, because the retry is what was skipped. Nothing short of a new
+    /// overlay makes it ask again, and a new overlay is what a changed key gets.
+    ///
+    /// So this is part of that key, and it moves on the two occasions where what
+    /// is on the map is known to be worse than what the service would now give:
+    /// a served depth that has come down, and a cooldown that has run out.
+    var tilesToken: Int {
+        zoomLock.lock()
+        defer { zoomLock.unlock() }
+        return token
+    }
+
+    private let zoomLock = NSLock()
+    private var servedZoom = MapWeatherSource.radarMaximumZoom
+    private var token = 0
+
+    /// Say that whatever is drawn should be fetched again, and tell the map.
+    /// On the main queue: the announcement is what rebuilds the overlays.
+    private func askAgainForEveryTile() {
+        zoomLock.lock()
+        token &+= 1
+        zoomLock.unlock()
+
+        objectWillChange.send()
+    }
+
+    /// The lowest this will drop to before deciding the trouble is something
+    /// other than the ceiling.
+    private static let deepestUsableZoom = 4
+
+    /// How many "you may not have this" refusals at the served depth, with no
+    /// tile drawn at that depth between them, count as the ceiling having moved.
+    private static let refusalsBeforeLoweringCeiling = 4
+
+    private var ceilingRefusals = 0
+
     /// The index regenerates every ten minutes. Asking twice as often as that
     /// keeps the newest frame no more than a few minutes stale without asking
     /// for a document that has not changed.
@@ -90,7 +156,15 @@ final class RainViewerService: ObservableObject {
     private var lastFetch: Date?
     private var isFetching = false
 
-    private init() {}
+    private init() {
+        // The meter decides when the app is asking for too much; this is what
+        // the rest of the app does about it. Wired here rather than at each call
+        // site so there is one answer to "we are holding back" no matter which
+        // of the two reasons tripped it.
+        WeatherTileBudget.rainViewer.onPause = { [weak self] until in
+            DispatchQueue.main.async { self?.holdRequests(until: until) }
+        }
+    }
 
     /// Frames for one layer, or empty when that layer is not being served.
     func frames(for layer: MapWeatherLayer) -> [Frame] {
@@ -116,9 +190,13 @@ final class RainViewerService: ObservableObject {
     /// Forget what the tiles were doing.
     ///
     /// For a change of layer: the two are served by different people, and one's
-    /// refusals say nothing about the other's.
+    /// refusals say nothing about the other's. The request meter is cleared with
+    /// them — a cooldown earned by one layer should not be served out by the
+    /// other.
     func resetTileReports() {
         tileFailures = 0
+        ceilingRefusals = 0
+        WeatherTileBudget.rainViewer.reset()
         if tileFailure != nil { tileFailure = nil }
         if isThrottled { isThrottled = false }
     }
@@ -128,7 +206,14 @@ final class RainViewerService: ObservableObject {
     /// Called from a URL session's own thread, once per tile, so it hops to the
     /// main queue and does as little as possible: a counter, and a message only
     /// when enough have failed in a row to mean something.
-    func noteTile(status: Int, failed: Bool) {
+    ///
+    /// `zoom` is what the request was for, which is the difference between "the
+    /// service is down" and "the service does not go that deep" — and `layer`
+    /// says whose depth is being talked about. Both layers report here, because
+    /// the strip over the map has one sentence for whichever is on; only
+    /// RainViewer's own refusals are allowed to say anything about RainViewer's
+    /// ceiling or its meter.
+    func noteTile(status: Int, failed: Bool, zoom: Int, layer: MapWeatherLayer) {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
 
@@ -137,15 +222,24 @@ final class RainViewerService: ObservableObject {
                 // about it before that was wrong, throttling included — the
                 // service is answering again.
                 self.tileFailures = 0
+                if layer == .radar, zoom >= self.servedRadarZoom { self.ceilingRefusals = 0 }
                 if self.tileFailure != nil { self.tileFailure = nil }
-                if self.isThrottled { self.isThrottled = false }
+                // Not while the meter is still holding back. A request that was
+                // already in the air when the hold began can land successfully
+                // after it, and letting that restart the animation would be
+                // seven frames' worth of tiles asked for and every one of them
+                // skipped.
+                if self.isThrottled, WeatherTileBudget.rainViewer.pausedUntil == nil {
+                    self.isThrottled = false
+                }
                 return
             }
 
-            // Being turned away for asking too fast needs no corroboration, and
-            // waiting for three more of them is three more requests made while
-            // already over the line.
-            if status == 429, !self.isThrottled { self.isThrottled = true }
+            // Nothing is done here about a 429 beyond saying so. Stopping is the
+            // budget's job — it has already started the pause that `onPause`
+            // turns into a hold, and it started one before the service had to
+            // ask, which is the point of having it.
+            if layer == .radar { self.noteCeilingRefusal(status: status, zoom: zoom) }
 
             self.tileFailures += 1
             guard self.tileFailures >= Self.tileFailuresBeforeReporting || status == 429 else { return }
@@ -153,6 +247,62 @@ final class RainViewerService: ObservableObject {
             let message = Self.tileReason(status: status)
             if self.tileFailure != message { self.tileFailure = message }
         }
+    }
+
+    /// The budget has started holding requests back, until `until`.
+    ///
+    /// Two things follow, and they used to follow only from a 429 the service
+    /// had actually sent — which was both too late and, worse, unrecoverable:
+    /// the flag cleared only when a tile came back successfully, and no tile can
+    /// come back successfully while the reason for the flag is that no tile is
+    /// being fetched. A single 429 during a pinch could leave the radar frozen
+    /// on one frame until the layer was switched off and on again.
+    ///
+    /// So: the animation stops, because it is what turns one screenful of tiles
+    /// into seven; and when the hold runs out the whole screen is asked for
+    /// again, because every tile skipped in the meantime is a hole MapKit now
+    /// considers settled and will never re-request on its own.
+    private func holdRequests(until: Date) {
+        if !isThrottled { isThrottled = true }
+
+        throttleHold += 1
+        let hold = throttleHold
+
+        // A second past what the budget is waiting for, so the first thing asked
+        // on the other side is something it will actually permit.
+        let wait = max(until.timeIntervalSinceNow + 1, 1)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
+            guard let self = self, self.throttleHold == hold else { return }
+            self.tileFailures = 0
+            if self.isThrottled { self.isThrottled = false }
+            self.askAgainForEveryTile()
+        }
+    }
+
+    private var throttleHold = 0
+
+    /// A refusal at the depth this thinks is served, and what to make of it.
+    private func noteCeilingRefusal(status: Int, zoom: Int) {
+        // 401/402/403 is the service saying this is not yours to have. A 429 is
+        // "not so fast" and a 404 is a frame that has aged out; neither is about
+        // the zoom, and treating them as such would walk the ceiling down over
+        // a bad minute and leave the radar coarse for the rest of the session.
+        guard [401, 402, 403].contains(status) else { return }
+        guard zoom >= servedRadarZoom, servedRadarZoom > Self.deepestUsableZoom else { return }
+
+        ceilingRefusals += 1
+        guard ceilingRefusals >= Self.refusalsBeforeLoweringCeiling else { return }
+
+        ceilingRefusals = 0
+
+        zoomLock.lock()
+        servedZoom -= 1
+        zoomLock.unlock()
+
+        // Everything past the old depth was built from an ancestor that is not
+        // being served. None of it is worth keeping.
+        askAgainForEveryTile()
     }
 
     private static func tileReason(status: Int) -> String {
