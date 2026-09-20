@@ -279,7 +279,17 @@ struct FlightDetailView: View {
         Set(feed.atcStations.filter { !$0.isCenter }.map(\.identifier))
     }
 
-    var body: some View {
+    /// The two phases, stacked and cross-faded, plus the bookkeeping that
+    /// keeps the sheet exactly as tall as whichever of them is showing.
+    ///
+    /// Split out of `body` rather than written inline there, and not for
+    /// tidiness. All of this, the window chrome and the dozen observers under
+    /// it were one expression, and Swift type-checks an expression whole: it
+    /// got large enough that the solver gave up on it and the build failed with
+    /// nothing wrong in the code. Two expressions cost nothing at runtime and
+    /// the compiler has no trouble with either. Anything added below belongs on
+    /// whichever side keeps both halves small.
+    private var phases: some View {
         GeometryReader { geometry in
             let expansion = sheetExpansion(for: geometry)
             // While the sheet is sitting at its peak detent the peak state is
@@ -398,25 +408,41 @@ struct FlightDetailView: View {
                 fitPeak(to: measured)
             }
         }
-        .flightInfoLegible(theme)
-        // Handed the feed explicitly, like every other sheet this app presents:
-        // the partner panel counts that VA's aircraft out of the live packet.
-        .sheet(item: $viewingPartner) { ad in
-            VaDetailSheet(ad: ad, basis: vaPartner?.basis)
-                .environmentObject(feed)
-        }
-        .modifier(
-            FlightInfoWindowChrome(
-                theme: theme,
-                presentation: presentation,
-                accent: airlineAccent,
-                // Read off the window's own measured height rather than off the
-                // detent, so it answers the same question the peak and the full
-                // window answer when they cross-fade — see `isCollapsed`.
-                hidesGround: hidesWindowGround
+    }
+
+    /// The phases, wearing the window: its ink, its ground, its corner, and the
+    /// one sheet it can put up over itself.
+    ///
+    /// The second of the three pieces `body` is cut into — see `phases` for why
+    /// it is cut at all.
+    private var dressed: some View {
+        phases
+            .flightInfoLegible(theme)
+            // Handed the feed explicitly, like every other sheet this app
+            // presents: the partner panel counts that VA's aircraft out of the
+            // live packet.
+            .sheet(item: $viewingPartner) { ad in
+                VaDetailSheet(ad: ad, basis: vaPartner?.basis)
+                    .environmentObject(feed)
+            }
+            .modifier(
+                FlightInfoWindowChrome(
+                    theme: theme,
+                    presentation: presentation,
+                    accent: airlineAccent,
+                    // Read off the window's own measured height rather than off
+                    // the detent, so it answers the same question the peak and
+                    // the full window answer when they cross-fade — see
+                    // `isCollapsed`.
+                    hidesGround: hidesWindowGround
+                )
             )
-        )
-        .environment(\.colorScheme, theme.colorScheme)
+            .environment(\.colorScheme, theme.colorScheme)
+    }
+
+    /// Everything the window has to be told about while it is open.
+    var body: some View {
+        dressed
         .onAppear {
             load(flight)
             loadTrack()
