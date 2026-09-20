@@ -246,11 +246,17 @@ struct Flight: Identifiable, Equatable {
         self.departureIcao = nil
         self.arrivalIcao = nil
 
-        // The catalog matches ICAO designators as well as Infinite Flight's
-        // model names — B73, B77, A20N, DH8D and the rest are all in it — so a
-        // type code resolves to the same artwork the simulator's traffic gets,
-        // and anything it does not know falls back the same way.
-        self.spriteKey = AircraftCatalog.spriteKey(for: type)
+        // The designator table first, then the catalog.
+        //
+        // The two answer the same question in different languages. The catalog
+        // scans Infinite Flight's *names* for substrings, and a few ICAO codes
+        // happen to fall inside those substrings — "B738" contains "B73" and
+        // lands correctly by luck. A great many do not: "B06" is a Bell 206 and
+        // matches nothing at all, so every helicopter in the sky was being
+        // drawn as an airliner, along with most business jets and turboprops.
+        // See `AircraftTypeDesignators`.
+        self.spriteKey = AircraftTypeDesignators.spriteKey(for: type)
+            ?? AircraftCatalog.spriteKey(for: type)
     }
 
     // MARK: - Lenient readers

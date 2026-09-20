@@ -900,6 +900,42 @@ struct AircraftPhotoImage: View {
     /// but the nose and tail are never cropped off.
     var contentMode: ContentMode = .fit
 
+    @Environment(\.displayScale) private var displayScale
+
+    /// How far past its own resolution a photograph may be blown up before it
+    /// is drawn smaller instead.
+    ///
+    /// Photographs from our own lookup are large and never reach this. The ones
+    /// from Planespotters are `thumbnail_large`, which is 280 pixels tall and
+    /// around 420 wide — and their terms allow no other size, so there is no
+    /// bigger file to ask for. Stretched across a 390-point sheet on a 3× phone
+    /// that is a 1170-pixel draw from a 420-pixel source, which is where the
+    /// softness came from: not the picture, the arithmetic.
+    ///
+    /// A little enlargement is invisible; three times is a smear. So the
+    /// picture is drawn at a size it can actually hold and the blurred backdrop
+    /// — which is blurred on purpose and cannot look worse for it — fills the
+    /// rest of the frame. A smaller sharp photograph beats a big soft one.
+    private static let maximumUpscale: CGFloat = 1.5
+
+    /// The largest this photograph may be drawn and still be a photograph.
+    ///
+    /// Nil when it is big enough not to care, which is every picture the app
+    /// drew before real-world traffic and most of them since.
+    private func sharpSize(for image: UIImage) -> CGSize? {
+        let pixels = CGSize(
+            width: image.size.width * image.scale,
+            height: image.size.height * image.scale
+        )
+        guard pixels.width > 1, pixels.height > 1 else { return nil }
+
+        let scale = max(displayScale, 1)
+        return CGSize(
+            width: pixels.width / scale * Self.maximumUpscale,
+            height: pixels.height / scale * Self.maximumUpscale
+        )
+    }
+
     /// Which photograph is on screen, as something comparable.
     ///
     /// The object's identity rather than its pixels: two photographs are two
@@ -968,9 +1004,16 @@ struct AircraftPhotoImage: View {
                     // rather than letting it fade out at the frame.
                     .scaleEffect(1.2)
 
+                // The sharp half, held to a size it can fill. See
+                // `maximumUpscale` — the backdrop behind it is blurred by
+                // design, so what is given up here is nothing at all.
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFit()
+                    .frame(
+                        maxWidth: sharpSize(for: image)?.width,
+                        maxHeight: sharpSize(for: image)?.height
+                    )
             }
         } else {
             Image(uiImage: image)

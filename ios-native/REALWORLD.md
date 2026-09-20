@@ -119,6 +119,21 @@ the two.
 the sweep already carries, falling back to the registration. Their terms of use
 are conditions rather than suggestions, so each one is kept somewhere specific:
 
+### Why the pictures are drawn small
+
+`thumbnail_large` is 280 pixels tall and around 420 wide, and their terms allow
+no other size — the two thumbnails are what the API returns and URLs may not be
+rewritten to ask for more. Stretched across a 390-point sheet on a 3× phone,
+that is a 1170-pixel draw from a 420-pixel source, and the result looked exactly
+as soft as that arithmetic predicts.
+
+`AircraftPhotoImage` now refuses to enlarge any photograph past
+`maximumUpscale` (1.5×) and draws it at a size it can actually hold, on the
+blurred backdrop that was already behind fitted shots. A smaller sharp
+photograph beats a big soft one. The rule is unconditional rather than a
+real-world special case: our own community photographs are large enough never to
+reach it, and any that are not were being blown up too.
+
 | Term | Where it is kept |
 | --- | --- |
 | Never a paid, premium or member-only feature | Nothing in the photo path consults `Entitlements`, and nothing should be added that does |
@@ -133,6 +148,44 @@ are conditions rather than suggestions, so each one is kept somewhere specific:
 A response without a photographer or a link is treated as *no photograph* rather
 than as a photograph with a gap in it: a picture this app cannot credit or lead
 back to is one it has no right to draw.
+
+## Flown paths
+
+There is one, and it starts when you do.
+
+`RealWorldTraffic` records every sweep into `FlightTrailStore` exactly as the
+socket records every packet, so a real aeroplane has a track on the map, a
+profile in its window and something for the replay to scrub through. What it
+does **not** have is the part before you were watching: the simulator's traffic
+gets that from our own backend's history endpoint, and there is no equivalent
+for an ADS-B contact.
+
+The sampling threshold needed its own value. `initialSpacingNM` is two miles,
+which is a few seconds at cruise and therefore keeps nearly every packet — but
+on a fifteen-second sweep a jet covers 1.9 miles and fell *just* under it, so
+the path kept roughly every other sweep. Slower aircraft were far worse: a light
+aircraft at 120 knots recorded a point a minute, and a helicopter hovering
+recorded nothing and drew no path at all. Swept traffic uses `sweptSpacingNM`,
+four tenths of a mile, which is under one sweep for anything moving.
+`maximumPoints` still bounds it — past 260 points a trail halves its own
+resolution — so a long flight costs no more than a short one.
+
+### Getting the part before you were watching
+
+Not from the public API: it answers with one current position per aircraft and
+no history at all. Two routes exist and neither is free:
+
+- **adsb.lol's historical dumps** (`globe_history_20xx` on GitHub) are a daily
+  per-aircraft archive. Openly licensed and excellent for research, useless
+  here — it is yesterday's data, published as whole-day gzip files.
+- **The traces behind their own globe UI**, written by readsb's
+  `--write-globe-history`. That is an internal endpoint for their web front end
+  rather than part of the documented API, and building on it would mean relying
+  on a URL nobody has promised to keep.
+
+Their terms end with *"For advanced use, please contact us with details about
+your project and working implementation of our public API"* — which is the
+sanctioned route if a real history is ever wanted here.
 
 ## The feed
 

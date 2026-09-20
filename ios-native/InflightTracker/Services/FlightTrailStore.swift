@@ -73,7 +73,28 @@ final class FlightTrailStore: ObservableObject {
     /// dictionary that only grows is a leak however small its entries are.
     private let maximumStarts = 800
 
+    /// How far an aircraft must travel before its next position is worth
+    /// keeping, for traffic that arrives on the server's packet.
+    ///
+    /// Two miles is a handful of seconds at cruise, so nearly every packet is
+    /// kept and the path is dense.
     private let initialSpacingNM: Double = 2
+
+    /// The same, for traffic that is *swept* rather than pushed.
+    ///
+    /// The same two miles is the wrong threshold on a fifteen-second clock, and
+    /// wrong in a way that got worse the slower the aircraft: at 450 knots a
+    /// sweep covers 1.9 miles, so it fell *just* under the bar and the path
+    /// kept roughly every other one. A light aircraft at 120 knots covers half
+    /// a mile, so it recorded a point every four sweeps — a minute apart — and
+    /// a helicopter hovering recorded nothing at all and had no path.
+    ///
+    /// Four tenths of a mile is under one sweep for anything moving at all, so
+    /// the path is every position we were given. `maximumPoints` still bounds
+    /// it: past 260 points the trail halves its own resolution and doubles this
+    /// number, so a long flight costs the same as a short one.
+    private let sweptSpacingNM: Double = 0.4
+
     private let maximumPoints = 260
 
     private init() {}
@@ -115,7 +136,7 @@ final class FlightTrailStore: ObservableObject {
             guard var trail = trails[flight.id] else {
                 trails[flight.id] = Trail(
                     points: [sample],
-                    spacingNM: initialSpacingNM,
+                    spacingNM: origin == .realWorld ? sweptSpacingNM : initialSpacingNM,
                     isSeeded: false,
                     firstSeen: began
                 )
