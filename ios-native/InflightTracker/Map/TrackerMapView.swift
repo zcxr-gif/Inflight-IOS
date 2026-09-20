@@ -1253,6 +1253,14 @@ struct TrackerMapView: UIViewRepresentable {
         /// The revision the drawn traffic was last diffed against.
         private var syncedTrafficRevision: Int?
 
+        /// How many aircraft on the map are carried whatever the preference
+        /// says — real-world traffic, which is swept rather than pushed.
+        ///
+        /// Counted here, on the pass that is already walking every visible
+        /// aeroplane, purely so the frame clock can answer "is there anything
+        /// to fly" without walking them again thirty times a second.
+        private var sweptOnMap = 0
+
         /// The diff, but only when the traffic it would be diffing can have
         /// changed. Panning goes to `sync` directly — the viewport is not part
         /// of the revision, and re-culling for it is the one thing that has to
@@ -1273,10 +1281,12 @@ struct TrackerMapView: UIViewRepresentable {
             var seen = Set<String>()
             seen.reserveCapacity(visible.count)
             var additions: [FlightAnnotation] = []
+            var swept = 0
 
             for flight in visible {
                 seen.insert(flight.id)
                 lastSeen[flight.id] = now
+                if flight.requiresSmoothing { swept += 1 }
 
                 if let existing = annotations[flight.id] {
                     if existing.update(with: flight, now: frameNow) {
@@ -1296,6 +1306,8 @@ struct TrackerMapView: UIViewRepresentable {
             // packet or two and has it back, and removing it in the gap is
             // exactly the blink this is here to stop. Those keep their last
             // position until the grace period is up.
+            sweptOnMap = swept
+
             let selectedId = parent.selection?.id
 
             // Built on demand rather than up front. On a settled map every
@@ -3047,6 +3059,18 @@ struct TrackerMapView: UIViewRepresentable {
         /// free.
         private static let visibleMotion: Double = 0.2
 
+        /// The same floor for traffic that is swept rather than pushed.
+        ///
+        /// The number is a rate, but what it is really measuring is the size of
+        /// the *jump* it would be hiding — and that is the rate multiplied by
+        /// the gap between reports. The simulator's gap is a few seconds, so a
+        /// fifth of a point a second is well under a point between packets and
+        /// genuinely invisible. Real-world traffic is swept every fifteen, so
+        /// the same rate is a three-point jump: plainly visible, and exactly
+        /// what somebody switching the layer on is watching. Scaled by roughly
+        /// the ratio of the two clocks.
+        private static let visibleMotionSwept: Double = 0.05
+
         func startFlying(on mapView: MKMapView) {
             flyingMapView = mapView
             guard flightLink == nil else { return }
@@ -3100,7 +3124,12 @@ struct TrackerMapView: UIViewRepresentable {
             stepWindParticles(at: now, on: mapView)
 
             let smoothing = parent.smoothsTraffic
-            guard smoothing || flyingCount > 0 else { return }
+            // The third term is real-world traffic, which is carried whatever
+            // the preference says — see `Flight.requiresSmoothing`. Without it
+            // the frame would be skipped before anything had started flying,
+            // and the layer would never begin. Counted on the traffic pass
+            // rather than walked for here: this runs thirty times a second.
+            guard smoothing || flyingCount > 0 || sweptOnMap > 0 else { return }
             guard !annotations.isEmpty else { return }
 
             // A frame, rather than a resume: coming back from the background
@@ -3117,13 +3146,23 @@ struct TrackerMapView: UIViewRepresentable {
             var flying = 0
 
             for (_, annotation) in annotations {
-                // Three questions, cheapest first: is the feature on, is this
-                // aeroplane flying, and would any of it be visible at this
-                // zoom. Only the last changes as the map moves, which is why it
-                // is asked every frame rather than once when the packet landed.
-                let wanted = smoothing
-                    && annotation.flight.isWorthSmoothing
-                    && annotation.drawnPointsPerSecond(pointsPerMetre: scale) >= Self.visibleMotion
+                // Three questions, cheapest first: is this aeroplane to be
+                // carried at all — the preference, or its own source insisting
+                // — is it flying, and would any of it be visible at this zoom.
+                // Only the last changes as the map moves, which is why it is
+                // asked every frame rather than once when the packet landed.
+                //
+                // The floor moves with the source for the same reason the
+                // first question does: what it is really testing is the size of
+                // the jump, and a swept aeroplane's is several times larger at
+                // the same speed. See `visibleMotionSwept`.
+                let flight = annotation.flight
+                let required = flight.requiresSmoothing
+                let floor = required ? Self.visibleMotionSwept : Self.visibleMotion
+
+                let wanted = (smoothing || required)
+                    && flight.isWorthSmoothing
+                    && annotation.drawnPointsPerSecond(pointsPerMetre: scale) >= floor
 
                 if wanted != annotation.isSmoothing {
                     if wanted {

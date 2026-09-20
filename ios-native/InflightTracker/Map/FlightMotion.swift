@@ -55,9 +55,21 @@ struct FlightMotion {
     /// arithmetic; extrapolating them for two minutes is fiction, and produces
     /// an aeroplane confidently flying a straight line somewhere it is not. Past
     /// this the prediction simply stops and waits to be told.
-    private static let maximumLead: Double = 12
+    private static let simulatorLead: Double = 12
 
-    /// The furthest that lead can carry an aeroplane past its last packet, in
+    /// The same, for real-world traffic — and longer, because the gap it has to
+    /// cover is longer.
+    ///
+    /// ADS-B is *swept* on a fifteen-second clock rather than pushed every few
+    /// seconds, and a lead shorter than the gap between reports is the one
+    /// setting that guarantees the artefact this whole file exists to remove:
+    /// the prediction runs out, the aeroplane coasts to a halt, and three
+    /// seconds later the sweep lands and it jumps. Once per cycle, on every
+    /// real aeroplane on the map, forever. So this clears the sweep with room
+    /// for one that arrives late.
+    private static let realWorldLead: Double = 20
+
+    /// The furthest a lead can carry an aeroplane past its last packet, in
     /// metres, at a speed nothing in the sim exceeds.
     ///
     /// For a caller that has to decide whether an aircraft is worth advancing
@@ -65,7 +77,11 @@ struct FlightMotion {
     /// screen first, and an aeroplane reported just off the edge may well have
     /// flown onto it since. Widening that test by this is what stops one
     /// arriving late, at the edge, having jumped.
-    static let maximumLeadMetres: Double = maximumLead * 340
+    ///
+    /// The longer of the two leads, because the caller is testing a screen
+    /// rather than an aircraft: a box cut to the simulator's lead would clip
+    /// exactly the real-world traffic that had furthest to travel.
+    static let maximumLeadMetres: Double = realWorldLead * 340
 
     /// Beyond this, a correction is a cut rather than a slide.
     ///
@@ -102,6 +118,11 @@ struct FlightMotion {
 
     private var lastStep: CFTimeInterval
 
+    /// How far ahead of its last report *this* aircraft may be flown. Fixed
+    /// when the motion is made, because it is a fact about where the aeroplane
+    /// came from rather than about the moment — see the two leads above.
+    private let maximumLead: Double
+
     // MARK: - Life
 
     /// Starts from where the aircraft is already drawn, not from where it has
@@ -109,6 +130,7 @@ struct FlightMotion {
     /// aeroplane that jumped the instant smoothing was switched on would be
     /// advertising the very thing it is here to hide.
     init(flight: Flight, drawnAt coordinate: CLLocationCoordinate2D, now: CFTimeInterval) {
+        self.maximumLead = flight.origin == .realWorld ? Self.realWorldLead : Self.simulatorLead
         self.reported = flight.coordinate
         self.reportedAt = now
         self.headingDegrees = flight.heading
@@ -239,7 +261,7 @@ struct FlightMotion {
     // MARK: - Geometry
 
     private func predictedNow(at now: CFTimeInterval) -> CLLocationCoordinate2D {
-        let lead = min(max(now - reportedAt, 0), Self.maximumLead)
+        let lead = min(max(now - reportedAt, 0), maximumLead)
         guard lead > 0, metresPerSecond > 0 else { return reported }
         return GreatCircle.coordinate(
             from: reported,
@@ -380,4 +402,21 @@ extension Flight {
         guard groundSpeedKnots >= 40 else { return false }
         return FlightPhase.from(self) != .ground
     }
+
+    /// Whether carrying this aircraft forward is a preference or a requirement.
+    ///
+    /// For the simulator's traffic it is a preference, and a reasonable one to
+    /// switch off: positions arrive every few seconds, so an aeroplane drawn
+    /// straight from the feed jumps by a small amount often — which some people
+    /// would rather have than a prediction, and which Reduce Motion asks for.
+    ///
+    /// Real-world traffic is not the same case. It is *swept* every fifteen
+    /// seconds rather than pushed, so the same aeroplane drawn straight from
+    /// the data does not jump a little often — it stands perfectly still for
+    /// fifteen seconds and then teleports two miles. That is not the raw truth
+    /// with the smoothing taken off; it is an artefact of the polling interval,
+    /// and there is no setting under which it is the better picture. So it is
+    /// carried whatever the preference says, and `isWorthSmoothing` still
+    /// decides whether *this* aeroplane is one that should be carried at all.
+    var requiresSmoothing: Bool { origin == .realWorld }
 }

@@ -41,6 +41,9 @@ actually differ is short:
   position for thirty seconds, because the feed drops an aircraft and has it
   back. Real traffic gets none: switching the layer off has to empty the map on
   the same frame.
+- **The smoothing.** Real traffic is carried between reports whatever
+  Settings › Appearance › Fly the traffic says. See below — it is the one
+  difference that is not a matter of taste.
 
 ## What it never touches
 
@@ -74,6 +77,37 @@ independent answers so that no single one of them has to be noticed:
 The switch itself is persisted like every other preference. A setting that
 silently resets itself is a setting nobody can rely on; what answers "did I
 leave this on" is showing it, not forgetting it.
+
+## Why it always flies
+
+The simulator pushes positions every few seconds. ADS-B is *swept* every
+fifteen. Drawn straight from the data, a real aeroplane therefore does not jump
+a little often — it stands perfectly still for fifteen seconds and then
+teleports about two miles. That is not the raw truth with the smoothing taken
+off; it is an artefact of the polling interval, and there is no setting under
+which it is the better picture. So `Flight.requiresSmoothing` is true for
+real-world traffic and three things follow from it:
+
+- **The preference does not gate it.** The flat map's frame clock and
+  `GlobeScene.rebuild` both carry it regardless of `smoothsTraffic`.
+  `isWorthSmoothing` still applies — an aeroplane on the ground is drawn where
+  it was reported, exactly as the simulator's is.
+- **The prediction's lead clears the sweep.** `FlightMotion` allows 12 s of
+  dead reckoning for the simulator and **20 s** for real traffic. A lead
+  shorter than the gap between reports is the one setting that guarantees the
+  artefact: the prediction runs out, the aeroplane coasts to a halt, and the
+  sweep lands and it jumps — once per cycle, on every real aeroplane at once.
+- **The zoom floors move with it.** Both maps stop carrying traffic once the
+  movement would be too small to see, and what that really measures is the size
+  of the *jump* — speed times the gap between reports. Real traffic's gap is
+  several times longer, so the jump stays visible several times further out:
+  the flat map's floor drops from 0.2 to 0.05 points a second, and the planet's
+  ceiling rises from 1,000 to 4,000 metres a point.
+
+This also means real traffic keeps flying under Reduce Motion, which switches
+the simulator's smoothing off. The alternative there is not stillness — it is a
+two-mile teleport every fifteen seconds, which is the larger motion event of
+the two.
 
 ## The feed
 

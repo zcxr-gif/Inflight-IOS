@@ -58,6 +58,17 @@ struct GlobeTrafficDot: Equatable {
     /// entry, rebuilt on every packet, to draw the handful of logos that are
     /// ever on screen at once.
     let vaId: String?
+
+    /// Whether this aeroplane's positions are *swept* rather than pushed —
+    /// real-world traffic, which arrives every fifteen seconds instead of every
+    /// few. Carried on the dot because the drawing is where the zoom is known,
+    /// and how far out carrying an aeroplane is still worth doing depends
+    /// entirely on how big the jump would be. See
+    /// `GlobeCanvasView.sweptMetresPerPoint`.
+    ///
+    /// Defaulted, so the replay mark — which is a position on a track rather
+    /// than an aircraft in a packet — needs to say nothing about it.
+    var isSwept: Bool = false
 }
 
 /// One field on the planet: where it is, what it is called, and whether
@@ -391,6 +402,14 @@ final class GlobeScene: ObservableObject {
     /// tells the canvas whether a frame clock is worth running at all.
     private(set) var hasMotion = false
 
+    /// Whether any of what is being carried is carried *whatever the
+    /// preference says* — real-world traffic, which is swept every fifteen
+    /// seconds rather than pushed every few. The canvas reads it to decide how
+    /// far out the frame clock is still worth running: the jump being hidden is
+    /// several times larger, so it is visible several times further away. See
+    /// `Flight.requiresSmoothing`.
+    private(set) var hasSweptMotion = false
+
     /// The pavement of every field in view, once the camera is close enough
     /// for pavement to mean anything. Set on its own rather than through
     /// `rebuild`, because it arrives from the network on its own schedule and
@@ -436,8 +455,14 @@ final class GlobeScene: ObservableObject {
         var motions: [FlightMotion?] = []
         var carried: [String: FlightMotion] = [:]
         var hasMotion = false
+        var hasSweptMotion = false
         traffic.reserveCapacity(flights.count)
         motions.reserveCapacity(flights.count)
+        // Only worth reserving for the case that fills it. With the
+        // preference off, what lands here is the real-world layer alone —
+        // a few hundred aircraft at most, which the dictionary grows into
+        // for far less than reserving room for a three-thousand-aeroplane
+        // server it is never going to be handed.
         if smoothsTraffic { carried.reserveCapacity(flights.count) }
 
         for flight in flights {
@@ -447,13 +472,18 @@ final class GlobeScene: ObservableObject {
             // second closing, and closing it is the whole point: an aeroplane
             // that jumped to every packet would be advertising the packets.
             var motion: FlightMotion?
-            if smoothsTraffic, flight.isWorthSmoothing {
+            // Real-world traffic is carried whatever the preference says: it is
+            // swept rather than pushed, so drawn straight from the data it
+            // stands still for fifteen seconds and then teleports. See
+            // `Flight.requiresSmoothing`.
+            if smoothsTraffic || flight.requiresSmoothing, flight.isWorthSmoothing {
                 var carrying = self.carried[flight.id]
                     ?? FlightMotion(flight: flight, drawnAt: flight.coordinate, now: now)
                 carrying.report(flight, now: now)
                 carried[flight.id] = carrying
                 motion = carrying
                 hasMotion = true
+                if flight.requiresSmoothing { hasSweptMotion = true }
             }
             motions.append(motion)
 
@@ -484,7 +514,8 @@ final class GlobeScene: ObservableObject {
                         _ = VaMarkStore.shared.mark(for: ad)
                         return ad.id
                     }
-                    : nil
+                    : nil,
+                isSwept: flight.requiresSmoothing
             ))
         }
 
@@ -492,6 +523,7 @@ final class GlobeScene: ObservableObject {
         self.motions = motions
         self.carried = carried
         self.hasMotion = hasMotion
+        self.hasSweptMotion = hasSweptMotion
         self.fields = fields.map {
             GlobeFieldMark(
                 icao: $0.airport.icao,
