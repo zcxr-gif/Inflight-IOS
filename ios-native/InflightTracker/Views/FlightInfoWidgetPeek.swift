@@ -50,9 +50,15 @@ struct FlightWidgetPeek: View {
     /// taller. See `FlightInfoLayout.openingHeight(for:)`.
     static let minimumHeight: CGFloat = 188
 
-    /// The corner the home screen rounds a widget to, near enough. The window's
-    /// own large radius, which is within a point or two of it and means the
-    /// tile sits inside the sheet concentrically rather than nearly so.
+    /// The corner the home screen rounds a widget to, near enough.
+    ///
+    /// Deliberately NOT the concentric answer. The sheet's own corner is
+    /// twenty-eight and the tile is inset eighteen from it, so a corner that
+    /// nested properly inside it would be ten — and ten is not a widget. It is
+    /// a dialog box. What stops the mismatch reading as a mistake is that the
+    /// tile is not nested at all: it has a margin the sheet's ground shows
+    /// through and a shadow under it, so the eye reads two objects at two
+    /// depths rather than one rectangle badly fitted inside another.
     private var radius: CGFloat { theme.radiusLarge }
 
     private var shape: RoundedRectangle {
@@ -96,6 +102,26 @@ struct FlightWidgetPeek: View {
         // Without it a dark photograph ends on a dark sheet and the tile has no
         // edge at all.
         .overlay { shape.strokeBorder(.white.opacity(0.14), lineWidth: 1) }
+        // Flattened first, so what follows is cast by the tile as one object.
+        // Without this a shadow is worked out from the alpha of everything
+        // inside the group, and the photograph's own edges start throwing their
+        // own.
+        .compositingGroup()
+        // What makes it a tile lying on the window rather than a panel cut out
+        // of it.
+        //
+        // Two shadows, because one cannot do both jobs, and in this order
+        // because each is cast by the result of the last. The tight one goes on
+        // first: it is the contact edge directly under the card, and it is what
+        // stops a floating rectangle from looking pasted on. The wide, faint
+        // one over it is the distance — what the eye actually reads as height
+        // above the surface — and it is soft enough never to become a visible
+        // outline of its own.
+        //
+        // Both fall downward. A shadow with no offset reads as a glow around
+        // the thing rather than as light falling on what is behind it.
+        .shadow(color: .black.opacity(theme.isLight ? 0.14 : 0.22), radius: 3, y: 1)
+        .shadow(color: .black.opacity(theme.isLight ? 0.26 : 0.42), radius: 16, y: 8)
         // The tile is one thing to read, not eight. Said as the widget's own
         // summary rather than as a list of its labels.
         .accessibilityElement(children: .ignore)

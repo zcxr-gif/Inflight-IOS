@@ -122,9 +122,14 @@ struct FlightInfoPeak: View {
 
                 VaPartnerLine(partner: partner, theme: theme)
             }
+            // Its own margins rather than the other peeks'. A tile is an
+            // object lying on the window, not a card cut from it, and it needs
+            // the room to be read as one — see `FlightInfoLayout.widgetPeekInset`
+            // for why sixteen was not enough and why the foot takes more than
+            // the sides.
             .padding(.top, FlightInfoLayout.peakHandleClearance)
-            .padding(.horizontal, 16)
-            .padding(.bottom, FlightInfoLayout.peakBottomGap)
+            .padding(.horizontal, FlightInfoLayout.widgetPeekInset)
+            .padding(.bottom, FlightInfoLayout.widgetPeekBottomGap)
 
         case .rich:
             rich
