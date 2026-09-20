@@ -452,6 +452,19 @@ enum AppConfig {
         return URL(string: "\(adsbBaseURLString)/v2/lat/\(lat)/lon/\(lon)/dist/\(radius)")
     }
 
+    /// Where a real aeroplane is going, which its own transmissions never say.
+    ///
+    /// The same network as the positions, which is the whole reason it is this
+    /// one rather than one of the other free callsign databases: they all trace
+    /// back to the same standing data anyway, and reading routes from adsb.lol
+    /// means one source to credit instead of two. See `RealWorldRoutes` for what
+    /// the answer is worth and why `plausible` decides whether it is used.
+    ///
+    /// A POST rather than a GET, because it is asked in batches.
+    static var realWorldRoutesURL: URL? {
+        URL(string: "\(adsbBaseURLString)/api/0/routeset")
+    }
+
     /// The furthest the endpoint will answer for.
     static let realWorldMaxRadiusNM = 250
 

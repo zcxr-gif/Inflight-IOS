@@ -239,6 +239,77 @@ struct RealWorldBadge: View {
     }
 }
 
+/// Who the real sky came from, at the foot of the window.
+///
+/// ## Why it is there
+///
+/// adsb.lol publish what their volunteers receive as open data under the ODbL,
+/// and the routes come from the same place. Attribution is a condition of that
+/// licence rather than a courtesy, so it is drawn rather than left to a
+/// settings screen somebody may never open — and it names the *network*, since
+/// what is behind every mark on that map is a few thousand people running a
+/// receiver on a windowsill for nothing.
+///
+/// ## Why it is this small, and this far down
+///
+/// Because it is a credit and not a feature. It sits under the last card, in
+/// the smallest type the app uses anywhere, greyed to the dimmest ink in the
+/// theme: present and findable for anybody who goes looking, and never
+/// competing with the aeroplane for attention. A credit that had to be scrolled
+/// past would be worse than no credit at all, because it would teach people to
+/// scroll past the window's foot.
+///
+/// Only on real traffic. The simulator's aircraft come off Infinite Flight's
+/// own feed and owe adsb.lol nothing, and a line crediting a network that had
+/// no part in what is on screen is a false statement about where the data came
+/// from.
+///
+/// It opens their site, which is the other half of what the licence asks: a
+/// credit nobody can follow is not really a credit.
+struct RealWorldAttribution: View {
+
+    let theme: FlightInfoTheme
+
+    @Environment(\.openURL) private var openURL
+
+    private static let home = URL(string: "https://adsb.lol")
+
+    var body: some View {
+        Button {
+            if let home = Self.home { openURL(home) }
+        } label: {
+            Text(Self.credit)
+                .font(.system(size: 8.5, weight: .medium))
+                .foregroundStyle(theme.textDim)
+                .multilineTextAlignment(.center)
+                // The line wraps rather than shrinking. It is already the
+                // smallest type in the app, and scaling it further would be
+                // drawing something nobody can read as a way of saying it is
+                // there.
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.top, 2)
+        .accessibilityLabel(Self.credit)
+        .accessibilityHint("Opens adsb.lol")
+    }
+
+    /// Said once, here, so the wording cannot drift from what the licence
+    /// actually requires.
+    ///
+    /// The route is named separately from the position on purpose. They arrive
+    /// from the same network but they are not the same kind of fact: one is
+    /// what a receiver heard, the other is a callsign matched against a
+    /// database and checked for plausibility — see `RealWorldRoutes`. Calling
+    /// it an estimate in the credit is the cheapest honest place to say so.
+    private static let credit = """
+    Live positions from adsb.lol — open data under ODbL, from volunteers \
+    running receivers. Route estimated from the callsign.
+    """
+}
+
 /// The line that says whose photograph this is, and opens it.
 ///
 /// ## Why this is a control rather than a caption

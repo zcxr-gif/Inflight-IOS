@@ -243,6 +243,65 @@ endpoints differ on which name they use.
   planet from its own camera — and `RealWorldTraffic.report` defers the work a
   runloop turn, because one of its callers is `updateUIView`.
 
+## Routes
+
+ADS-B carries no origin and no destination. There is no field for either in the
+protocol, so no receiver heard one and no feed — free or paid — can hand one
+over. Every tracker that shows a route is joining the **callsign** to a separate
+database afterwards, and so is this.
+
+```
+POST https://api.adsb.lol/api/0/routeset
+     { planes: [ { callsign, lat, lng } ] }
+->   [ { callsign, airport_codes: "KJFK-KSAN", plausible: 1, ... } ]
+```
+
+The same network as the positions, chosen for that reason: the free callsign
+databases (adsbdb, hexdb.io, adsb.lol) all trace back to the same VRS standing
+data anyway, so reading routes here means one source to credit instead of two.
+
+### Why most of the answer is thrown away
+
+The standing data is callsign-to-airport-pair with **no date and no operational
+status**, and flight numbers are reused — they churn seasonally and regional
+operators share them. Measured against filed flight plans it is right about four
+times in five outside the United States and about **one time in four inside
+it**, and that split is by region rather than by record age: Australian routes
+verify at 100% on rows with a median age of 11.5 years.
+
+So `RealWorldRoutes` takes a route only when the answer also says it is
+`plausible` — adsb.lol's own check that the aircraft is where that route would
+put it. It discards a good deal of what comes back. What survives is worth
+drawing, and the window never calls it a filed plan, because it is not one.
+
+The route is written onto `Flight.departureIcao` / `arrivalIcao` rather than
+kept in a store beside it — which is the whole reason those two are `var`. It
+means the route card, the board, the widget peek's route line and
+`FlightProgress` (distance to run, time to get there) all work with no changes:
+they go on reading one field instead of learning about a second kind of
+aircraft.
+
+Bookkeeping: one request in flight at a time, at most 60 callsigns per batch, a
+two-hour cache, and **a miss is cached as firmly as a hit** — a light aircraft
+with no schedule behind it must not be asked about every fifteen seconds for as
+long as it is in range. Aircraft flying under a registration are never asked
+about at all.
+
+## Attribution
+
+The ODbL requires it, so it is drawn rather than left to a settings screen.
+`RealWorldAttribution` sits at the very foot of the open flight window, in the
+smallest type the app uses, crediting the network and opening
+[adsb.lol](https://adsb.lol) — a credit nobody can follow is not really a
+credit.
+
+**Only on real traffic.** The simulator's aircraft come off Infinite Flight's
+own feed and owe adsb.lol nothing; a line crediting a network that had no part
+in what is on screen would be a false statement about where the data came from.
+It also names the route as an *estimate* separately from the position, because
+one is what a receiver heard and the other is a callsign matched against a
+database.
+
 ## What it is not
 
 Not a certified traffic source, and never presented as one. Coverage is

@@ -78,8 +78,18 @@ struct Flight: Identifiable, Equatable {
     /// not something the telemetry could be made to tell us.
     let pilotState: PilotState
 
-    let departureIcao: String?
-    let arrivalIcao: String?
+    /// Both ends of the route, when there is one.
+    ///
+    /// `var` rather than `let` for exactly one reason, and it is worth the
+    /// exception: a real aeroplane's route does not arrive with its position.
+    /// ADS-B has no field for an origin or a destination, so a contact is built
+    /// with both nil and the layer resolves them from the callsign afterwards —
+    /// see `RealWorldRoutes`, which writes them here so that everything drawing
+    /// a route goes on reading one field rather than learning about a second
+    /// kind of aircraft. The socket's own packets carry theirs and are built
+    /// complete; nothing mutates those.
+    var departureIcao: String?
+    var arrivalIcao: String?
 
     /// Resolved once at parse time — the map re-reads this on every frame.
     let spriteKey: String

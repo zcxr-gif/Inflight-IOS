@@ -1073,7 +1073,7 @@ struct FlightDetailView: View {
                         AltitudeProfileCard(points: track, theme: theme)
                     }
 
-                    HintStrip(placement: .flight)
+                    foot
                 }
                 .padding(.horizontal, 14)
                 // Negative, so the identity block rides the seam where the
@@ -1100,6 +1100,24 @@ struct FlightDetailView: View {
         }
         .scrollIndicators(.hidden)
         .scrollBounceBehavior(.basedOnSize)
+    }
+
+    /// The foot of the window: the hint strip, and under everything else,
+    /// whose sky this is.
+    ///
+    /// One property rather than two children of the column above, for the same
+    /// reason `body` is cut into three — that column is a long expression and
+    /// the type-checker has already given up on this file once.
+    private var foot: some View {
+        VStack(spacing: 12) {
+            HintStrip(placement: .flight)
+
+            // Last of all, and only where it is true. See
+            // `RealWorldAttribution`.
+            if isRealWorld {
+                RealWorldAttribution(theme: theme)
+            }
+        }
     }
 
     /// The head of the open window: the app's own identity block, or the
