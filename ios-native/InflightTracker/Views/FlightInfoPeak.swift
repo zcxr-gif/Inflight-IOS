@@ -120,7 +120,20 @@ struct FlightInfoPeak: View {
                 // window's parts — see `FlightWidgetPeek`.
                 FlightWidgetPeek(flight: flight, image: image, theme: theme)
 
-                VaPartnerLine(partner: partner, theme: theme)
+                // On chrome of its own here, where the other peeks let it sit
+                // on the window's ground. Under this peek the window has no
+                // ground — see `FlightInfoWindowChrome.hidesGround` — so a line
+                // of dim grey text would be lying directly on somebody's map,
+                // which is not a place text can be read. A pill that hugs the
+                // name is the same answer the weather chip and the real-world
+                // bar already give to the same question.
+                if partner != nil {
+                    VaPartnerLine(partner: partner, theme: theme)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .flightInfoChrome(theme, in: Capsule())
+                }
             }
             // Its own margins rather than the other peeks'. A tile is an
             // object lying on the window, not a card cut from it, and it needs

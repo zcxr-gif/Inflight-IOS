@@ -397,7 +397,7 @@ struct FlightWindowPanel: View {
             case .detail:
                 return "The peek says the height, the speed, the type and the tail before the window is opened at all."
             case .widget:
-                return "The peek is the home-screen tile, on the aircraft's own photograph — the same route line and the same readouts."
+                return "The peek is the home-screen tile, on the aircraft's own photograph — the same route line and the same readouts. On the map it floats with no window behind it."
             case .compact:
                 return "The peek is a bar: who it is and where it is going, over the map."
             }

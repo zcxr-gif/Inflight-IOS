@@ -1352,7 +1352,7 @@ struct ContentView: View {
     /// nothing discovered — and it is the same action VoiceOver has always had
     /// on this element, which is why the label already reads as it does.
     private var flightWindowHandle: some View {
-        WindowGrabber(theme: theme, isHeld: isWindowHeld)
+        WindowGrabber(theme: theme, isHeld: isWindowHeld, floating: flightWindowIsGroundless)
             .frame(width: 132)
             .frame(maxWidth: .infinity)
             .gesture(flightWindowPull)
@@ -1373,6 +1373,25 @@ struct ContentView: View {
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { sheet = nil }
             .accessibilityAction(named: "Open the full window") { isWindowExpanded = true }
+    }
+
+    /// Whether the flight window is currently drawing no ground behind it,
+    /// which is the widget peek at rest. See
+    /// `FlightInfoWindowChrome.hidesGround` — this is the same question asked
+    /// from out here, where the grabber is drawn.
+    ///
+    /// It matters to the pill and to nothing else: with the sheet gone the
+    /// grabber is a mark on the map, and a mark taken from the window's own
+    /// palette disappears into a coastline. `floating` is the form that carries
+    /// its own darkness — the same one a window opening on a photograph uses,
+    /// for the same reason.
+    ///
+    /// Answered from the detent rather than from the window's measured height,
+    /// which is the one thing out here cannot see. The two agree wherever it
+    /// shows: the ground is hidden only at the peek, and this is false anywhere
+    /// else.
+    private var flightWindowIsGroundless: Bool {
+        !isWindowExpanded && appearance.resolvedPeakStyle == .widget
     }
 
     /// Global, like every other pull in the app: the sheet resizes underneath

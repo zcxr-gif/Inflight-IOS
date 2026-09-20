@@ -409,7 +409,11 @@ struct FlightDetailView: View {
             FlightInfoWindowChrome(
                 theme: theme,
                 presentation: presentation,
-                accent: airlineAccent
+                accent: airlineAccent,
+                // Read off the window's own measured height rather than off the
+                // detent, so it answers the same question the peak and the full
+                // window answer when they cross-fade — see `isCollapsed`.
+                hidesGround: hidesWindowGround
             )
         )
         .environment(\.colorScheme, theme.colorScheme)
@@ -642,6 +646,14 @@ struct FlightDetailView: View {
     /// Answered against the display: on a large phone this is the flat ceiling
     /// it has always been, and on a small one the photograph gives its room to
     /// the route card underneath it rather than pushing it off the sheet.
+    /// Whether this window should be drawing no ground behind it.
+    ///
+    /// The widget peek, and only while the sheet is actually sitting at it. See
+    /// `FlightInfoWindowChrome.hidesGround`.
+    private var hidesWindowGround: Bool {
+        presentation == .sheet && isCollapsed && appearance.resolvedPeakStyle == .widget
+    }
+
     private var heroCeiling: CGFloat {
         presentation == .sheet
             ? FlightInfoLayout.peakHeroCeiling(inScreenHeight: FlightInfoLayout.screenHeight)
@@ -1363,6 +1375,23 @@ private struct FlightInfoWindowChrome: ViewModifier {
     let theme: FlightInfoTheme
     let presentation: FlightWindowPresentation
 
+    /// Whether the sheet draws no ground at all, leaving whatever it is sitting
+    /// over to show through.
+    ///
+    /// True for exactly one thing: the widget peek, at rest. That peek is not a
+    /// card cut from the window the way the other three are — it is a tile, and
+    /// a tile with a panel behind it is a tile on a tray. Margins and a shadow
+    /// got it as far as floating *inside* something; this is what removes the
+    /// something. What is left over the map is the tile, its shadow and the
+    /// grabber, which is what a widget lying on a home screen looks like.
+    ///
+    /// Only at rest, and that is not a compromise. The moment the window is
+    /// pulled the ground fades up under it, because everything above the peek —
+    /// the cards, the scroll view, the text — is written to be read on a
+    /// surface. It reads as the window materialising around the tile as you
+    /// open it, which is the truth of what is happening.
+    var hidesGround: Bool = false
+
     /// Drawn as a hairline round the sheet itself when the open aircraft has an
     /// airline colour. Nil is the ordinary case and draws nothing at all: the
     /// sheet has never had an outline and is not getting one by default.
@@ -1385,7 +1414,10 @@ private struct FlightInfoWindowChrome: ViewModifier {
                 // than above a band of empty sheet the width of that inset.
                 .ignoresSafeArea(edges: .bottom)
                 .overlay {
-                    if let accent = accent {
+                    // Nothing to outline when there is no sheet to see. The
+                    // accent belongs to the window's edge, and with the ground
+                    // gone the edge is the tile's own.
+                    if let accent = accent, !hidesGround {
                         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                             // A stroke *border* rather than a stroke: it is laid
                             // inside the shape, so none of it is cut off by the
@@ -1397,7 +1429,15 @@ private struct FlightInfoWindowChrome: ViewModifier {
                             .allowsHitTesting(false)
                     }
                 }
-                .presentationBackground { theme.sheetBackground }
+                // Faded rather than swapped: `presentationBackground` is
+                // rebuilt when this changes, and a ground that appears between
+                // one frame and the next reads as a glitch under a finger that
+                // is mid-drag. See `hidesGround`.
+                .presentationBackground {
+                    theme.sheetBackground
+                        .opacity(hidesGround ? 0 : 1)
+                        .animation(Motion.chrome, value: hidesGround)
+                }
                 .presentationCornerRadius(cornerRadius)
 
         case .pane:
