@@ -119,20 +119,29 @@ the two.
 the sweep already carries, falling back to the registration. Their terms of use
 are conditions rather than suggestions, so each one is kept somewhere specific:
 
-### Why the pictures are drawn small
+### Why the pictures are drawn big, and soft
 
 `thumbnail_large` is 280 pixels tall and around 420 wide, and their terms allow
 no other size — the two thumbnails are what the API returns and URLs may not be
 rewritten to ask for more. Stretched across a 390-point sheet on a 3× phone,
-that is a 1170-pixel draw from a 420-pixel source, and the result looked exactly
-as soft as that arithmetic predicts.
+that is a 1170-pixel draw from a 420-pixel source, and it is exactly as soft as
+that arithmetic predicts.
 
-`AircraftPhotoImage` now refuses to enlarge any photograph past
-`maximumUpscale` (1.5×) and draws it at a size it can actually hold, on the
-blurred backdrop that was already behind fitted shots. A smaller sharp
-photograph beats a big soft one. The rule is unconditional rather than a
-real-world special case: our own community photographs are large enough never to
-reach it, and any that are not were being blown up too.
+There was an attempt to fix that by refusing to enlarge a photograph past 1.5×
+its own pixels and drawing it at a size it could hold, on the blurred backdrop
+already behind fitted shots. The arithmetic was right and the picture was wrong:
+what it produced was a small aeroplane floating in the middle of a smudge, on
+the one window whose whole job is to show you the aeroplane. A layout fault
+reads worse than a soft photograph, and every other tracker draws the same file
+at full width.
+
+So `AircraftPhotoImage` draws the photograph at whatever size the frame asks
+for. What it still will not do is *crop* one to fit a box it is the wrong shape
+for: past `cropTolerance` (a quarter of one dimension) the whole airframe is
+fitted onto the blurred copy of itself instead, which is what that backdrop was
+always for. Inside the tolerance — which is nearly always, because the header's
+height is worked out from the photograph's own ratio — the picture fills the
+frame edge to edge with nothing behind it.
 
 | Term | Where it is kept |
 | --- | --- |

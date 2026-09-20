@@ -494,9 +494,12 @@ struct FlightHero: View {
                     spriteKey: spriteKey,
                     theme: theme,
                     iconSize: 64,
-                    // Airliner photos are wide; filling this frame would cut
-                    // the nose and tail off, so the whole airframe is fitted
-                    // onto a blurred copy of itself instead.
+                    // Airliner photos are wide, and a frame that cropped one to
+                    // a fixed box would take the nose and tail off. `.fit` is
+                    // the promise not to: the header is already sized to this
+                    // photograph's own ratio, so it fills edge to edge anyway,
+                    // and a shot of a shape the header cannot take gets the
+                    // blurred backdrop rather than the scissors.
                     contentMode: .fit
                 )
             }
@@ -895,46 +898,43 @@ struct AircraftPhotoImage: View {
     let theme: FlightInfoTheme
     var iconSize: CGFloat = 44
 
-    /// `.fit` keeps the whole airframe in frame — a blurred, scaled copy of
-    /// the same photo fills what is left, so the frame is still edge to edge
-    /// but the nose and tail are never cropped off.
+    /// `.fill` always crops to the frame. `.fit` is the promise not to take the
+    /// nose and tail off: it fills the frame where the photograph's shape allows
+    /// it and falls back to the whole airframe on a blurred copy of itself where
+    /// it does not. See `cropTolerance` for where that line is.
     var contentMode: ContentMode = .fit
 
-    @Environment(\.displayScale) private var displayScale
-
-    /// How far past its own resolution a photograph may be blown up before it
-    /// is drawn smaller instead.
+    /// How much of the picture may be trimmed off one pair of edges to fill the
+    /// frame, before it is fitted onto a blurred copy of itself instead.
     ///
-    /// Photographs from our own lookup are large and never reach this. The ones
-    /// from Planespotters are `thumbnail_large`, which is 280 pixels tall and
-    /// around 420 wide — and their terms allow no other size, so there is no
-    /// bigger file to ask for. Stretched across a 390-point sheet on a 3× phone
-    /// that is a 1170-pixel draw from a 420-pixel source, which is where the
-    /// softness came from: not the picture, the arithmetic.
+    /// ## Why there is no longer a ceiling on how large a photo may be drawn
     ///
-    /// A little enlargement is invisible; three times is a smear. So the
-    /// picture is drawn at a size it can actually hold and the blurred backdrop
-    /// — which is blurred on purpose and cannot look worse for it — fills the
-    /// rest of the frame. A smaller sharp photograph beats a big soft one.
-    private static let maximumUpscale: CGFloat = 1.5
-
-    /// The largest this photograph may be drawn and still be a photograph.
+    /// The rule here used to be the opposite one: a photograph was never drawn
+    /// more than half as large again as its own pixels, because a three-times
+    /// enlargement is a smear. Sound as arithmetic, wrong as a picture.
+    /// Planespotters' `thumbnail_large` is around 420 pixels wide — it is every
+    /// photograph real-world traffic has, and their terms allow no larger file —
+    /// so on a phone-width sheet that rule drew the aeroplane at a little over
+    /// half the frame and filled the rest with blur. What somebody saw when they
+    /// tapped an airliner was a small picture of it floating in a smudge, which
+    /// is worse than a soft photograph in the way that matters: it reads as a
+    /// layout fault rather than as a picture of an aeroplane.
     ///
-    /// Nil when it is big enough not to care, which is every picture the app
-    /// drew before real-world traffic and most of them since.
-    private func sharpSize(for image: UIImage) -> CGSize? {
-        let pixels = CGSize(
-            width: image.size.width * image.scale,
-            height: image.size.height * image.scale
-        )
-        guard pixels.width > 1, pixels.height > 1 else { return nil }
-
-        let scale = max(displayScale, 1)
-        return CGSize(
-            width: pixels.width / scale * Self.maximumUpscale,
-            height: pixels.height / scale * Self.maximumUpscale
-        )
-    }
+    /// So a photograph is drawn at the size the frame asks for, and the blurred
+    /// backdrop goes back to being what it was actually for — a shot whose
+    /// *shape* is nothing like the frame's, a portrait crop in a letterbox,
+    /// which no amount of scaling can fix. This number is where that line is.
+    /// Inside it the picture is trimmed to fill; outside it, the whole airframe
+    /// is fitted with the backdrop behind it.
+    ///
+    /// A quarter of the dimension being trimmed, because aircraft photography
+    /// is overwhelmingly side-on with the fuselage through the middle: what a
+    /// centre crop takes off a shot like that is sky and apron. It is not a
+    /// generous allowance so much as a realistic one — the hero's height is
+    /// worked out from the photograph's own ratio and would need almost none of
+    /// it, except that the peak then clamps that height against the screen, and
+    /// on a small phone the clamp is most of what this has to absorb.
+    private static let cropTolerance: CGFloat = 0.25
 
     /// Which photograph is on screen, as something comparable.
     ///
@@ -960,23 +960,28 @@ struct AircraftPhotoImage: View {
     private static let arrival: AnyTransition = .opacity.combined(with: .scale(scale: 1.03))
 
     var body: some View {
-        ZStack {
-            if let image = image {
-                photo(image)
-                    // Keyed on which photograph it is, so paging from one to
-                    // the next dissolves rather than swapping the pixels
-                    // inside a view that never went away.
-                    .id(identity)
-                    .transition(Self.arrival)
-            } else {
-                placeholder
-                    .transition(.opacity)
+        // The frame is measured rather than assumed. Whether a photograph can
+        // fill it or has to be fitted into it is a question about two shapes,
+        // and up here only one of them is known.
+        GeometryReader { proxy in
+            ZStack {
+                if let image = image {
+                    photo(image, in: proxy.size)
+                        // Keyed on which photograph it is, so paging from one to
+                        // the next dissolves rather than swapping the pixels
+                        // inside a view that never went away.
+                        .id(identity)
+                        .transition(Self.arrival)
+                } else {
+                    placeholder
+                        .transition(.opacity)
+                }
             }
+            // Fill the frame, then clip: a resizable image reports its own
+            // intrinsic size, which would otherwise widen everything around it.
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .clipped()
         }
-        // Fill the frame, then clip: a resizable image reports its own
-        // intrinsic size, which would otherwise widen everything around it.
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .clipped()
         .contentShape(Rectangle())
         // `Motion.content` is the app's own curve for anything cross-fading,
         // and it honours Reduce Motion — which matters here more than usual,
@@ -985,7 +990,26 @@ struct AircraftPhotoImage: View {
         .motion(Motion.content, value: identity)
     }
 
-    /// The picture itself, both ways of fitting it.
+    /// Whether this photograph is close enough to the frame's own shape to fill
+    /// it, with the overhang trimmed off one pair of edges. See `cropTolerance`.
+    ///
+    /// A frame nobody has sized yet answers no, which is the fitted path — the
+    /// same picture, with a backdrop behind it that will not be seen once the
+    /// layout settles.
+    private func fillsFrame(_ image: UIImage, _ frame: CGSize) -> Bool {
+        guard image.size.width > 0, image.size.height > 0,
+              frame.width > 0, frame.height > 0 else { return false }
+
+        let picture = image.size.width / image.size.height
+        let box = frame.width / frame.height
+        // What filling would cost, as a fraction of the dimension it comes out
+        // of — the height when the frame is the wider of the two shapes, the
+        // width when the photograph is.
+        let trimmed = 1 - min(picture, box) / max(picture, box)
+        return trimmed <= Self.cropTolerance
+    }
+
+    /// The picture itself, both ways of putting it in the frame.
     ///
     /// One view rather than two siblings in the stack, and that is what lets
     /// the transition above work: a fitted photo is a blurred backdrop *and* the
@@ -993,8 +1017,12 @@ struct AircraftPhotoImage: View {
     /// siblings they fade independently, and for a few frames the aeroplane is
     /// over a backdrop that has not caught up.
     @ViewBuilder
-    private func photo(_ image: UIImage) -> some View {
-        if contentMode == .fit {
+    private func photo(_ image: UIImage, in frame: CGSize) -> some View {
+        if contentMode == .fill || fillsFrame(image, frame) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+        } else {
             ZStack {
                 Image(uiImage: image)
                     .resizable()
@@ -1004,21 +1032,14 @@ struct AircraftPhotoImage: View {
                     // rather than letting it fade out at the frame.
                     .scaleEffect(1.2)
 
-                // The sharp half, held to a size it can fill. See
-                // `maximumUpscale` — the backdrop behind it is blurred by
-                // design, so what is given up here is nothing at all.
+                // The whole airframe, at whatever size the frame gives it.
+                // Nothing holds it back any more: a photograph too small for
+                // the frame is drawn soft, which is what every other tracker
+                // does with the same file, and is the lesser of the two faults.
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFit()
-                    .frame(
-                        maxWidth: sharpSize(for: image)?.width,
-                        maxHeight: sharpSize(for: image)?.height
-                    )
             }
-        } else {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFill()
         }
     }
 

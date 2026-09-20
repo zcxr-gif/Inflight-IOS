@@ -164,7 +164,7 @@ final class WidgetBridge: ObservableObject {
             let isMine = identity.isSet && identity.isMe(flight.username)
             guard isPinned || isFriend || isMine else { continue }
 
-            let converted = widgetFlight(from: flight)
+            let converted = WidgetFlight(flight: flight)
             if isPinned { pinned = converted }
             if isFriend { friends.append(converted) }
             if isMine { mine.append(converted) }
@@ -292,30 +292,6 @@ final class WidgetBridge: ObservableObject {
         return station.facilities.map { $0.kind.code }
     }
 
-    private func widgetFlight(from flight: Flight) -> WidgetFlight {
-        let progress = FlightProgress(flight: flight)
-        let ete = progress?.estimatedTimeEnroute(groundSpeedKnots: flight.groundSpeedKnots)
-
-        return WidgetFlight(
-            id: flight.id,
-            callsign: flight.displayName,
-            username: flight.username ?? "",
-            aircraftType: flight.aircraftName,
-            liveryName: flight.liveryName,
-            registration: flight.registration ?? "",
-            departureIcao: flight.departureIcao ?? "",
-            arrivalIcao: flight.arrivalIcao ?? "",
-            altitudeFt: Int(flight.altitudeFeet),
-            groundSpeedKt: Int(flight.groundSpeedKnots),
-            verticalSpeedFPM: Int(flight.verticalSpeedFPM),
-            flownNM: progress?.flownNM ?? 0,
-            remainingNM: progress?.remainingNM ?? 0,
-            totalNM: progress?.totalNM ?? 0,
-            eta: ete.map { Date().addingTimeInterval($0) },
-            capturedAt: Date()
-        )
-    }
-
     // MARK: - Photos
 
     /// Make sure the aircraft on screen have their photos in the shared cache.
@@ -392,5 +368,60 @@ final class WidgetBridge: ObservableObject {
         lastSignature = signature
         lastReload = Date()
         WidgetCenter.shared.reloadAllTimelines()
+    }
+}
+
+// MARK: - The live aircraft, flattened
+
+extension WidgetFlight {
+
+    /// One aeroplane off the socket, in the shape the tiles are drawn from.
+    ///
+    /// It lives here rather than inside the bridge because it is no longer only
+    /// the bridge's: the flight window can peek as the home-screen tile — see
+    /// `FlightWidgetPeek` — and it draws that peek from this, so the peek and
+    /// the tile cannot end up disagreeing about what the same aircraft is
+    /// doing.
+    ///
+    /// The great-circle arithmetic is done here, while the airport table is
+    /// open, and never inside a widget: an extension has no time to resolve a
+    /// route while the system waits on its render.
+    init(flight: Flight) {
+        let progress = FlightProgress(flight: flight)
+        let ete = progress?.estimatedTimeEnroute(groundSpeedKnots: flight.groundSpeedKnots)
+
+        self.init(
+            id: flight.id,
+            callsign: flight.displayName,
+            username: flight.username ?? "",
+            aircraftType: flight.aircraftName,
+            liveryName: flight.liveryName,
+            registration: flight.registration ?? "",
+            departureIcao: flight.departureIcao ?? "",
+            arrivalIcao: flight.arrivalIcao ?? "",
+            altitudeFt: Self.whole(flight.altitudeFeet),
+            groundSpeedKt: Self.whole(flight.groundSpeedKnots),
+            verticalSpeedFPM: Self.whole(flight.verticalSpeedFPM),
+            flownNM: progress?.flownNM ?? 0,
+            remainingNM: progress?.remainingNM ?? 0,
+            totalNM: progress?.totalNM ?? 0,
+            eta: ete.map { Date().addingTimeInterval($0) },
+            capturedAt: Date()
+        )
+    }
+
+    /// A telemetry reading as a whole number a tile can print.
+    ///
+    /// Guarded rather than converted straight, and that is not belt and braces:
+    /// `Int(_:)` traps on a double that is not finite or will not fit, and the
+    /// feed is not a promise. `Flight` reads its numbers leniently on purpose —
+    /// both initialisers accept whatever the socket or an ADS-B receiver sent —
+    /// and validate the *position* only, because that is all the map needs to
+    /// draw a mark. One aircraft broadcasting nonsense at an altitude should
+    /// print as a zero, not take the process down.
+    private static func whole(_ value: Double) -> Int {
+        guard value.isFinite else { return 0 }
+        // Well past anything that flies, and well inside `Int`.
+        return Int(min(max(value.rounded(), -10_000_000), 10_000_000))
     }
 }

@@ -613,6 +613,16 @@ enum FlightInfoPeakStyle: String, CaseIterable, Identifiable {
     /// size, the two live numbers, and the type and tail along the foot. Pro.
     case detail
 
+    /// The home-screen tile, in the window.
+    ///
+    /// Not a fourth arrangement of the same parts, which is what the other
+    /// three are. It is the Flight widget — the same route strip, the same
+    /// readouts, the same photograph behind the same shaped scrim, drawn from
+    /// the same views the tile itself is drawn from — so somebody who has put
+    /// one on their home screen taps an aeroplane and gets the thing they
+    /// already know how to read.
+    case widget
+
     var id: String { rawValue }
 
     /// Whether this style is behind `ProFeature.flightInfoLook`.
@@ -627,6 +637,7 @@ enum FlightInfoPeakStyle: String, CaseIterable, Identifiable {
         case .compact: return "Compact"
         case .rich: return "Photo"
         case .detail: return "Detail"
+        case .widget: return "Widget"
         }
     }
 
@@ -635,6 +646,7 @@ enum FlightInfoPeakStyle: String, CaseIterable, Identifiable {
         case .compact: return "A bar with a thumbnail"
         case .rich: return "Opens on the aircraft photo"
         case .detail: return "Height, speed, type and tail, before you open it"
+        case .widget: return "The home-screen tile, in the window"
         }
     }
 }
@@ -1335,6 +1347,12 @@ enum FlightInfoLayout {
         // Between the two: it carries the compact bar's rows plus a readout
         // column and a foot, but no hero photograph.
         case .detail: return 322
+        // A tile, and a tile is the one peek whose height is nearly fixed: the
+        // photograph is behind the text rather than above it, so nothing in
+        // here grows with the picture. `FlightWidgetPeek.minimumHeight` plus
+        // the handle's clearance and the gap under the foot, less a few points
+        // so the correction is still upward — see the note above.
+        case .widget: return 220
         }
     }
 

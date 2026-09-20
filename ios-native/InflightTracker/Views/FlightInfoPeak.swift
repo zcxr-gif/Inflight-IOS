@@ -113,6 +113,19 @@ struct FlightInfoPeak: View {
             .padding(.horizontal, 16)
             .padding(.bottom, FlightInfoLayout.peakBottomGap)
 
+        case .widget:
+            VStack(alignment: .leading, spacing: 12) {
+                // The tile, and nothing of this file's around it. It is the
+                // home-screen widget rather than a rearrangement of the
+                // window's parts — see `FlightWidgetPeek`.
+                FlightWidgetPeek(flight: flight, image: image, theme: theme)
+
+                VaPartnerLine(partner: partner, theme: theme)
+            }
+            .padding(.top, FlightInfoLayout.peakHandleClearance)
+            .padding(.horizontal, 16)
+            .padding(.bottom, FlightInfoLayout.peakBottomGap)
+
         case .rich:
             rich
         }

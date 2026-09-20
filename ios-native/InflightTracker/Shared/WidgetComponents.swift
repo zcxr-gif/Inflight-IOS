@@ -1,6 +1,16 @@
 import SwiftUI
 import WidgetKit
 
+/// The pieces the tiles are drawn from.
+///
+/// In `Shared` rather than in the widget extension, which is not where they
+/// started. The flight window can peek as the home-screen tile now — see
+/// `FlightWidgetPeek` — and "looks like the widget" is a promise that only one
+/// copy of this drawing can keep. Two would agree on the day they were written
+/// and drift from the next change onward, and the drift would show up in the
+/// one place somebody could hold the two side by side: the phone's own home
+/// screen, with the app open over it.
+
 /// The route line: two ICAO codes with the aircraft riding between them.
 ///
 /// The one piece of drawing every surface shares — small tile, large tile,
