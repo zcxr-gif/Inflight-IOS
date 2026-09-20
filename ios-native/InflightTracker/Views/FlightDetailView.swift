@@ -1401,6 +1401,14 @@ private struct FlightInfoWindowChrome: ViewModifier {
     let theme: FlightInfoTheme
     let presentation: FlightWindowPresentation
 
+    /// Drawn as a hairline round the sheet itself when the open aircraft has an
+    /// airline colour. Nil is the ordinary case and draws nothing at all: the
+    /// sheet has never had an outline and is not getting one by default.
+    ///
+    /// The pane needs no equivalent — it draws its own border, from the same
+    /// tinted theme, and knows where its edges are.
+    var accent: AirlineAccent.Colours? = nil
+
     /// Whether the sheet draws no ground at all, leaving whatever it is sitting
     /// over to show through.
     ///
@@ -1417,14 +1425,6 @@ private struct FlightInfoWindowChrome: ViewModifier {
     /// surface. It reads as the window materialising around the tile as you
     /// open it, which is the truth of what is happening.
     var hidesGround: Bool = false
-
-    /// Drawn as a hairline round the sheet itself when the open aircraft has an
-    /// airline colour. Nil is the ordinary case and draws nothing at all: the
-    /// sheet has never had an outline and is not getting one by default.
-    ///
-    /// The pane needs no equivalent — it draws its own border, from the same
-    /// tinted theme, and knows where its edges are.
-    var accent: AirlineAccent.Colours? = nil
 
     /// The radius the sheet is actually rounded to, so the outline traces the
     /// sheet's edge rather than sitting a couple of points off it.
