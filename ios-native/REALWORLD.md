@@ -14,7 +14,7 @@ server, on the flat map and on the drawn planet alike.
 | The switch, the sweep clock, the network | `InflightTracker/Services/RealWorldTraffic.swift` |
 | One ADS-B contact as a `Flight` | `InflightTracker/Models/Flight.swift` — `init?(adsb:)` and `Flight.Origin` |
 | The colour, in one place | `InflightTracker/Map/RealWorldMark.swift` |
-| The bar over the map | `InflightTracker/Views/RealWorldTrafficBanner.swift` |
+| The bar over the map, and its folded pill | `InflightTracker/Views/RealWorldTrafficBanner.swift` |
 | The screen behind the switch | `InflightTracker/Views/SettingsSubpanels.swift` — `RealWorldTrafficSettingsPanel` |
 | Endpoint and the numbers | `InflightTracker/App/AppConfig.swift` |
 
@@ -36,6 +36,13 @@ actually differ is short:
   status, the filed plan and the VA lookup for `origin == .realWorld`, because
   every one of those is a round trip against our own backend keyed on a flight
   id it has never heard of.
+- **Which clock the window keeps.** Everything live in it — the telemetry, the
+  peek, the flown profile, the instruments — is read off the sweep rather than
+  off a packet. Views handed a flight *id* rather than a `Flight` pick their
+  source with `Flight.isRealWorld(id:)`: the id's `adsb:` namespace is the only
+  thing they have to go on. The instruments were the panel that missed this and
+  drew NO DATA over every real aeroplane for it, because `InstrumentSource` was
+  fed `feed.flights` and nothing else.
 - **The photograph.** One picture of that exact airframe, by Mode S address,
   from Planespotters. See below — their terms shape the whole of it.
 - **VA logos.** Never drawn on real traffic. The partner directory is keyed on
@@ -47,6 +54,21 @@ actually differ is short:
 - **The smoothing.** Real traffic is carried between reports whatever
   Settings › Appearance › Fly the traffic says. See below — it is the one
   difference that is not a matter of taste.
+
+## The bar, and why it folds
+
+The layer announces itself over the map for as long as it is on, and there is
+no way to send that away short of turning the layer off. What there *is* now is
+a size: the bar says its piece — the title, the count, the way out — and then
+folds to the glyph and the number, which is the smallest thing that still makes
+the statement. A tap opens it again, and another folds it.
+
+It never folds while there is something to read. `waiting`, `tooFarOut` and
+`failed` all hold it open until they resolve; only `live` collapses, and the
+dwell is keyed on what the status is *saying* rather than on the status itself
+— `live` carries a count, the count moves on every sweep, and a bar that
+reopened each time one aeroplane left the area would be worse than one that
+never closed.
 
 ## What it never touches
 

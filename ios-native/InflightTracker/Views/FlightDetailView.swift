@@ -440,7 +440,7 @@ struct FlightDetailView: View {
         }
         // Another aircraft, in the same window. See `resetForNewFlight()`.
         .onChange(of: flightId) { _, _ in resetForNewFlight() }
-        .onChange(of: flight?.liveryName) { _, _ in load(flight) }
+        .onChange(of: photoSubject) { _, _ in load(flight) }
         .onChange(of: photoLoader.photo?.url) { _, url in imageLoader.load(url) }
         // Live samples extend the path between packets, and the filed plan —
         // which is fetched on first ask and cached — lands a moment after the
@@ -688,6 +688,26 @@ struct FlightDetailView: View {
         return t * t * (3 - 2 * t)
     }
 
+    /// What the photograph lookup is keyed on, in the shape of something to
+    /// watch.
+    ///
+    /// The simulator's half is the livery, which is what it always was: one
+    /// aeroplane's picture is a picture of that type in that paint, and the
+    /// livery is the part that can land after the window has opened.
+    ///
+    /// The real half is the reason this stopped being `liveryName` alone. A
+    /// real aeroplane has no livery — the field is empty for every one of them,
+    /// so that watch could never fire — and what it has instead arrives in
+    /// pieces: a receiver hears a Mode S address on the first sweep and the
+    /// aggregator matches it to a registration on a later one. The address is
+    /// usually enough on its own, and when it is not, the tail number landing
+    /// two sweeps in is the difference between a photograph and a silhouette.
+    private var photoSubject: String {
+        guard let flight = flight else { return "" }
+        guard flight.origin == .realWorld else { return flight.liveryName }
+        return [flight.adsbHex ?? "", flight.registration ?? ""].joined(separator: "|")
+    }
+
     private func load(_ flight: Flight?) {
         guard let flight = flight else { return }
 
@@ -702,6 +722,13 @@ struct FlightDetailView: View {
             imageLoader.load(photoLoader.photo?.url)
             return
         }
+
+        // One airframe, one picture of it. A later sweep filling in a
+        // registration is a reason to ask when we have nothing and never a
+        // reason to ask again when we have the photograph — an answer that
+        // came back empty for a moment would otherwise take a good picture
+        // off the window.
+        guard realPhoto == nil else { return }
 
         PlanespottersPhotos.shared.photo(
             hex: flight.adsbHex,

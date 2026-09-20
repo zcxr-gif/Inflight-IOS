@@ -12,10 +12,10 @@ import SwiftUI
 /// switched the layer on last Tuesday and forgot has no way to work that out
 /// from the map, because an aeroplane looks like an aeroplane.
 ///
-/// So the layer is never on quietly. This bar is up the entire time it is,
-/// over both shapes of the world, and it cannot be dismissed — the only way to
-/// put it away is to turn the layer off, which is the whole point and is one
-/// tap away on the bar itself. The map has a second, independent answer to the
+/// So the layer is never on quietly. Something of this is on screen the entire
+/// time the layer is, over both shapes of the world, and there is no way to
+/// send it away short of turning the layer off — which is the whole point, and
+/// is one tap away on the bar. The map has a second, independent answer to the
 /// same question, which is that real aircraft are painted a colour nothing
 /// else on the map uses; this is the one that also says *why*.
 ///
@@ -26,55 +26,89 @@ import SwiftUI
 /// features teaches people to stop reading it. It is simply the most legible
 /// statement of fact the chrome can make: what is on, how much of it there is,
 /// and the way out.
+///
+/// ## Why it folds itself away
+///
+/// The bar used to stay at full size for as long as the layer was on, which is
+/// hours. That is the right size for a thing you have not read yet and much too
+/// big for one you have: a title, a sentence and a button across the top-left
+/// of the map, over the very corner an aeroplane you are watching tends to be
+/// in. "It cannot be dismissed" was a good rule about *dismissal* and a bad one
+/// about size — they are not the same promise.
+///
+/// So it says its piece and then shrinks to the smallest thing that still makes
+/// the statement: the layer's own glyph, in the layer's own colour, with the
+/// count beside it. The count is the half worth keeping — it is the number that
+/// makes every other count in the app read strangely, and it goes on ticking.
+/// Tapping it puts the bar back, with the way out on it; tapping again folds it
+/// up. Nothing collapses on its own while there is something to read: a sweep
+/// that failed, a map zoomed too far out, a first answer not yet in. Those hold
+/// the bar open until they resolve, because those are the states somebody
+/// actually needs the sentence for.
 struct RealWorldTrafficBanner: View {
 
     let theme: FlightInfoTheme
 
     @ObservedObject private var traffic = RealWorldTraffic.shared
 
+    /// Whether the bar is saying the whole thing or holding its place.
+    ///
+    /// Starts open, because the first thing anybody should see when the layer
+    /// comes on is the sentence explaining it.
+    @State private var isExpanded = true
+
+    /// How long the open bar holds once there is nothing left to report.
+    ///
+    /// Long enough to read a title and a line under it without hurrying, short
+    /// enough that somebody who was not reading it is not waiting on it. It is
+    /// only ever spent once per thing-worth-saying — see `statusKind`.
+    private static let dwell: TimeInterval = 6
+
+    /// What the status is *saying*, as opposed to what it currently reads.
+    ///
+    /// The whole of why the folding is keyed on this and not on `status`
+    /// itself: `live` carries a count, the count changes on every sweep, and a
+    /// bar that reopened every fifteen seconds because one aeroplane left the
+    /// area would be worse than one that never closed at all.
+    private var statusKind: String {
+        switch traffic.status {
+        case .off:                return "off"
+        case .tooFarOut:          return "far"
+        case .waiting:            return "waiting"
+        case .live:               return "live"
+        case .failed(let reason): return "failed:\(reason)"
+        }
+    }
+
+    /// How many real aircraft the last sweep found, when that is a number we
+    /// can stand behind. Nil in every state the bar does not fold in, so the
+    /// folded pill can never show a count belonging to a sweep that failed.
+    private var count: Int? {
+        if case .live(let found) = traffic.status { return found }
+        return nil
+    }
+
     var body: some View {
-        HStack(spacing: 9) {
+        HStack(spacing: isExpanded ? 9 : 6) {
+            // The one thing on both faces, in the same place on both, so
+            // folding and unfolding reads as the bar changing size rather than
+            // as two different bars.
             Image(systemName: "dot.radiowaves.up.forward")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(RealWorldMark.tint)
 
-            VStack(alignment: .leading, spacing: 1) {
-                Text("REAL-WORLD TRAFFIC")
-                    .font(.system(size: 9.5, weight: .bold))
-                    .tracking(0.6)
+            if isExpanded {
+                sentence
+                offButton
+            } else {
+                Text("\(count ?? 0)")
+                    .font(.system(size: 11, weight: .bold, design: .rounded).monospacedDigit())
                     .foregroundStyle(theme.textPrimary)
-
-                Text(traffic.status.label)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(theme.textDim)
-                    .flightInfoLine(minimumScale: 0.8)
-                    // Capped, because this line is sometimes a sentence — a
-                    // network refusing the request, say — and a bar that grows
-                    // to fit one is a banner across the top of the map.
-                    .frame(maxWidth: 190, alignment: .leading)
+                    .fixedSize()
             }
-
-            Button {
-                traffic.isOn = false
-            } label: {
-                Text("OFF")
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(0.6)
-                    .foregroundStyle(theme.textPrimary)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 5)
-                    // The layer's own colour, so the way out is visibly part
-                    // of the thing it turns off rather than a grey chip that
-                    // could be anything.
-                    .background(Capsule().fill(RealWorldMark.tint.opacity(0.22)))
-                    .overlay(Capsule().strokeBorder(RealWorldMark.tint.opacity(0.5), lineWidth: 1))
-                    .contentShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Turn real-world traffic off")
         }
-        .padding(.leading, 11)
-        .padding(.trailing, 5)
+        .padding(.leading, isExpanded ? 11 : 9)
+        .padding(.trailing, isExpanded ? 5 : 9)
         .padding(.vertical, 6)
         .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
@@ -84,10 +118,78 @@ struct RealWorldTrafficBanner: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(RealWorldMark.tint.opacity(0.55), lineWidth: 1)
         }
+        // The whole bar is the fold, except where a control has already claimed
+        // the touch — which is only ever the OFF button, and a button inside
+        // this takes its own taps before this sees them.
+        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .onTapGesture {
+            withAnimation(Motion.chrome) { isExpanded.toggle() }
+        }
+        // Re-run only when what the bar has to SAY changes, never when a count
+        // ticks. Anything that is not the settled case holds it open: those are
+        // the states the sentence exists for.
+        .task(id: statusKind) {
+            withAnimation(Motion.chrome) { isExpanded = true }
+            guard count != nil else { return }
+
+            try? await Task.sleep(nanoseconds: UInt64(Self.dwell * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            withAnimation(Motion.chrome) { isExpanded = false }
+        }
         .environment(\.colorScheme, theme.colorScheme)
         .flightInfoLegible(theme)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Real-world traffic is on. \(traffic.status.label).")
+        .accessibilityHint(
+            isExpanded
+                ? "Folds this away, leaving the count."
+                : "Opens the bar, with the way to turn real-world traffic off."
+        )
+        .accessibilityAddTraits(.isButton)
+    }
+
+    private var sentence: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text("REAL-WORLD TRAFFIC")
+                .font(.system(size: 9.5, weight: .bold))
+                .tracking(0.6)
+                .foregroundStyle(theme.textPrimary)
+
+            Text(traffic.status.label)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(theme.textDim)
+                .flightInfoLine(minimumScale: 0.8)
+                // Capped, because this line is sometimes a sentence — a
+                // network refusing the request, say — and a bar that grows
+                // to fit one is a banner across the top of the map.
+                .frame(maxWidth: 190, alignment: .leading)
+        }
+        // Out sideways rather than by fading in place: the bar is closing up
+        // around this, and a block that dissolves where it stands leaves the
+        // pill to snap shut afterwards.
+        .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .leading)))
+    }
+
+    private var offButton: some View {
+        Button {
+            traffic.isOn = false
+        } label: {
+            Text("OFF")
+                .font(.system(size: 10, weight: .bold))
+                .tracking(0.6)
+                .foregroundStyle(theme.textPrimary)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                // The layer's own colour, so the way out is visibly part
+                // of the thing it turns off rather than a grey chip that
+                // could be anything.
+                .background(Capsule().fill(RealWorldMark.tint.opacity(0.22)))
+                .overlay(Capsule().strokeBorder(RealWorldMark.tint.opacity(0.5), lineWidth: 1))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Turn real-world traffic off")
+        .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .trailing)))
     }
 }
 
