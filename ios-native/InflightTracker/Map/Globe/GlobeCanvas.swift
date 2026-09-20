@@ -1664,9 +1664,28 @@ final class GlobeCanvasView: UIView {
     /// aeroplane flying and an aeroplane teleporting.
     private static let flyingMetresPerPoint: Double = 1_000
 
+    /// The same ceiling for traffic that is swept rather than pushed.
+    ///
+    /// Same reasoning, different arithmetic. What decides whether the clock is
+    /// worth running is the size of the jump it would be hiding, and that is
+    /// the ground speed multiplied by the gap between reports. Real-world
+    /// traffic is swept every fifteen seconds rather than pushed every few, so
+    /// the jump is several times larger and stays visible several times
+    /// further out — at four thousand metres a point a jet still crosses about
+    /// a point between sweeps.
+    private static let sweptMetresPerPoint: Double = 4_000
+
     private var isFlyingTraffic: Bool {
-        guard smoothsTraffic, isLive, window != nil, scene.hasMotion else { return false }
-        return camera.metresPerPoint <= Self.flyingMetresPerPoint
+        // No `smoothsTraffic` here, and deliberately: the preference has
+        // already been applied where the motions are made, so `hasMotion` is
+        // the honest answer to "is there anything to carry". Asking twice is
+        // what would stop the real-world layer — which is carried whatever the
+        // preference says — from ever being flown. See `GlobeScene.rebuild`.
+        guard isLive, window != nil, scene.hasMotion else { return false }
+        let ceiling = scene.hasSweptMotion
+            ? Self.sweptMetresPerPoint
+            : Self.flyingMetresPerPoint
+        return camera.metresPerPoint <= ceiling
     }
 
     /// Starts or stops the frame clock that carries the traffic.
@@ -3534,11 +3553,25 @@ final class GlobeCanvasView: UIView {
             : 0
         let reach = lead > 0.5 ? box.insetBy(dx: -lead, dy: -lead) : box
 
+        // The clock above runs at whichever of the two zooms is the looser —
+        // otherwise the swept traffic would never be carried at all — so which
+        // aeroplanes it is actually worth advancing is decided here, per
+        // aeroplane. Without this, turning the real-world layer on at a zoom
+        // between the two would also start dead-reckoning three thousand
+        // simulator aircraft whose movement is a sixteenth of a point a second:
+        // a full frame's work, thirty times a second, for a picture identical
+        // to the last one. Hoisted out of the loop because `metresPerPoint` is
+        // computed and the loop is the whole server.
+        let metresPerPoint = camera.metresPerPoint
+        let fliesPushed = flying && metresPerPoint <= Self.flyingMetresPerPoint
+        let fliesSwept = flying && metresPerPoint <= Self.sweptMetresPerPoint
+
         for index in 0..<scene.traffic.count {
             var projected = camera.project(scene.traffic[index].position, using: basis)
             guard projected.isVisible, reach.contains(projected.point) else { continue }
 
-            if flying, scene.flyForward(index, to: now) {
+            let carries = scene.traffic[index].isSwept ? fliesSwept : fliesPushed
+            if carries, scene.flyForward(index, to: now) {
                 projected = camera.project(scene.traffic[index].position, using: basis)
                 guard projected.isVisible else { continue }
             }

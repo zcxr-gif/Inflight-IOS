@@ -20,8 +20,23 @@ struct FlightDetailView: View {
     @EnvironmentObject private var feed: LiveFeed
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @ObservedObject private var instruments = InstrumentPreferences.shared
+    /// Observed so a window open on a real aeroplane keeps ticking with the
+    /// sweeps, exactly as one open on a simulated aeroplane ticks with the
+    /// packets.
+    @ObservedObject private var realWorld = RealWorldTraffic.shared
     @StateObject private var photoLoader = AircraftPhotoLoader()
     @StateObject private var imageLoader = RemoteImageLoader()
+
+    /// The photograph of this exact airframe, for real traffic only.
+    ///
+    /// Its own loader rather than the shared one, and that is a condition of
+    /// use rather than a preference — see `PlanespottersImageLoader`, which
+    /// keeps the image in memory for as long as it is on screen and no longer.
+    @StateObject private var realPhotoLoader = PlanespottersImageLoader()
+
+    /// What that lookup came back with: the picture, whose it is, and where it
+    /// lives. All three are drawn together or not at all.
+    @State private var realPhoto: PlanespottersPhoto?
 
     /// Set when the window has settled back into the peak state, which is when
     /// the full window's scroll position is rewound.
@@ -172,8 +187,80 @@ struct FlightDetailView: View {
         )
     }
 
+    /// The aeroplane this window is about, from whichever sky it is in.
+    ///
+    /// The server's packet first, because that is almost every window ever
+    /// opened and walking it is the common path. The real-world sweep behind
+    /// it, so tapping an ADS-B contact opens a window that goes on updating
+    /// rather than one that says the flight has ended.
     private var flight: Flight? {
         feed.flights.first { $0.id == flightId }
+            ?? realWorld.flights.first { $0.id == flightId }
+    }
+
+    /// Whether this window is about an aeroplane that exists.
+    ///
+    /// Read in a good many places below, all of them the same question in
+    /// different words: is there a pilot to look up, a plan filed with our
+    /// backend, a virtual airline, a history to replay. For a real aircraft the
+    /// answer to every one of them is no, and asking anyway is a round trip
+    /// that can only 404.
+    private var isRealWorld: Bool { flight?.origin == .realWorld }
+
+    // MARK: - Whichever photograph this window is showing
+
+    /// The picture at the top of the window.
+    private var heroImage: UIImage? {
+        isRealWorld ? realPhotoLoader.image : imageLoader.image
+    }
+
+    /// The credit the *header* draws itself.
+    ///
+    /// Nil for a real aeroplane, and that is not an omission — it is where the
+    /// credit moves to. Planespotters require the photographer's name to be
+    /// visible beside the picture *and* the picture to lead back to its page in
+    /// one obvious action, and the header's own credit is a caption with hit
+    /// testing switched off. So the header draws none and this view overlays
+    /// `PlanespottersCredit`, which is the same pill made into a button.
+    private var heroContributor: String? {
+        isRealWorld ? nil : photoLoader.photo?.contributor
+    }
+
+    /// The carousel. Empty for real traffic: their public API answers with one
+    /// photograph of one airframe, and a gallery of one is a gallery with dots
+    /// that do nothing.
+    private var heroPhotos: [AircraftPhoto] {
+        isRealWorld ? [] : photoLoader.photos
+    }
+
+    /// The photographer's credit, over the photograph, as a control.
+    ///
+    /// Drawn here rather than inside each of the three headers because all
+    /// three would need the same thing and it belongs to the photograph rather
+    /// than to the layout around it. See `PlanespottersCredit` for why it is a
+    /// button.
+    @ViewBuilder
+    private var realPhotoCredit: some View {
+        if let photo = realPhoto, realPhotoLoader.image != nil {
+            PlanespottersCredit(
+                photographer: photo.photographer,
+                link: photo.link,
+                theme: theme
+            )
+            .frame(maxWidth: 190, alignment: .trailing)
+            .padding(.top, 12)
+            .padding(.trailing, 12)
+        }
+    }
+
+    /// The picture itself also opens the original, which is what their terms
+    /// actually ask for; the pill above is what makes it findable.
+    ///
+    /// A tap rather than a button, deliberately: the photograph is also the
+    /// top of a sheet somebody drags, and a `Button` around it would fight the
+    /// pan. A tap gesture loses to a drag, which is the right way round.
+    private var realPhotoLink: URL? {
+        realPhotoLoader.image == nil ? nil : realPhoto?.link
     }
 
     /// What the partner lookup actually depends on. The flight itself changes
@@ -208,15 +295,15 @@ struct FlightDetailView: View {
                 if let flight = flight {
                     FlightInfoPeak(
                         flight: flight,
-                        image: imageLoader.image,
-                        contributor: photoLoader.photo?.contributor,
+                        image: heroImage,
+                        contributor: heroContributor,
                         registration: registration(for: flight),
                         theme: theme,
                         style: appearance.resolvedPeakStyle,
                         width: geometry.size.width,
                         // The peak pages the whole set now, the same as the
                         // window above it. See `FlightInfoPeak.photos`.
-                        photos: photoLoader.photos,
+                        photos: heroPhotos,
                         // Both halves are mounted the whole time; only the one
                         // actually on screen turns its photographs over.
                         isAutoplaying: settled,
@@ -224,6 +311,16 @@ struct FlightDetailView: View {
                         partner: vaPartner,
                         began: departed
                     )
+                        // The peak shows the same photograph, so it carries
+                        // the same credit and the same way back to it. Their
+                        // terms are about every area that includes a photo,
+                        // not about whichever one is the main header.
+                        .modifier(
+                            RealPhotoAttribution(
+                                credit: realPhotoCredit,
+                                link: realPhotoLink
+                            )
+                        )
                         // The peak lays out to the height it *wants*, not to
                         // the height the sheet currently is — and that is the
                         // whole of why the measurement below can be believed.
@@ -336,7 +433,7 @@ struct FlightDetailView: View {
         // what the answer depends on — not on every packet, which is what a
         // plain feed observer would have made of it.
         .task(id: partnerKey) {
-            guard let flight = flight else { return }
+            guard let flight = flight, flight.origin == .infiniteFlight else { return }
             let resolved = await VaAdsService.shared.partner(for: flight)
             guard !Task.isCancelled else { return }
             vaPartner = resolved
@@ -352,6 +449,15 @@ struct FlightDetailView: View {
             let latest = FlightTrailStore.shared.points(for: flightId)
             if latest.count != track.count { track = latest }
             loadPlan()
+        }
+        // The same thing on the other clock. A window open on a real aeroplane
+        // is fed by sweeps rather than packets, and the aeroplane itself
+        // re-reads from the layer on every one of them — but the path behind it
+        // is state, and state is only refreshed by being told to be.
+        .onChange(of: realWorld.revision) { _, _ in
+            guard isRealWorld else { return }
+            let latest = FlightTrailStore.shared.points(for: flightId)
+            if latest.count != track.count { track = latest }
         }
     }
 
@@ -584,8 +690,27 @@ struct FlightDetailView: View {
 
     private func load(_ flight: Flight?) {
         guard let flight = flight else { return }
-        photoLoader.load(type: flight.aircraftName, livery: flight.liveryName)
-        imageLoader.load(photoLoader.photo?.url)
+
+        // Two different questions, two different sources. The simulator's
+        // traffic gets our own community photographs of that type in that
+        // livery — several of them, which the header pages through. A real
+        // aeroplane gets one photograph of *itself*, by its Mode S address,
+        // from Planespotters. See `PlanespottersPhotos` for the terms that
+        // shape everything about the second.
+        guard flight.origin == .realWorld else {
+            photoLoader.load(type: flight.aircraftName, livery: flight.liveryName)
+            imageLoader.load(photoLoader.photo?.url)
+            return
+        }
+
+        PlanespottersPhotos.shared.photo(
+            hex: flight.adsbHex,
+            registration: flight.registration
+        ) { photo in
+            guard flightId == flight.id else { return }
+            realPhoto = photo
+            realPhotoLoader.load(photo?.imageURL)
+        }
     }
 
     /// When the board's DEPARTED tile should say this flight left.
@@ -628,6 +753,11 @@ struct FlightDetailView: View {
         sim = nil
         vaPartner = nil
         viewingPartner = nil
+        // The photograph is of one airframe, so carrying it across would be a
+        // picture of the wrong aeroplane. The loader lets go of the image with
+        // it, which is also what their terms ask of us.
+        realPhoto = nil
+        realPhotoLoader.load(nil)
 
         load(flight)
         loadTrack()
@@ -646,6 +776,10 @@ struct FlightDetailView: View {
     /// than polled — the sim's own row is written every 15 to 45 seconds, so
     /// there is nothing to gain by asking faster than somebody looks.
     private func loadSim() {
+        // Nobody is broadcasting a real airliner from their simulator, and the
+        // id would not match a row if they were.
+        guard !isRealWorld else { return }
+
         let wanted = flightId
         Task {
             let status = await PilotDirectory.shared.liveFlight(id: wanted)
@@ -660,12 +794,23 @@ struct FlightDetailView: View {
     /// — and empty forever for the many pilots who file nothing, which the
     /// store remembers so this stops costing a request.
     private func loadPlan() {
+        // Asking is what starts a fetch against our own backend, keyed on a
+        // flight id it has never heard of. A receiver hears a position and
+        // never a flight plan, so there is nothing on the other end of this.
+        guard !isRealWorld else { return }
+
         let latest = FlightPlanStore.shared.waypoints(for: flightId)
         if latest != plan { plan = latest }
     }
 
     private func loadTrack() {
         track = FlightTrailStore.shared.points(for: flightId)
+
+        // The backend's history is the server's own record of one of *its*
+        // flights. For a real aeroplane there is none, and what is drawn is
+        // what this device has watched since the layer was switched on — which
+        // the sweeps record exactly as the packets do.
+        guard !isRealWorld else { return }
 
         // The map asks for this too, and asks first — it gets a layout pass the
         // moment the aeroplane is tapped, where this runs once the sheet has
@@ -728,9 +873,9 @@ struct FlightDetailView: View {
                         flight: flight,
                         registration: registration(for: flight),
                         theme: theme,
-                        image: imageLoader.image,
-                        contributor: photoLoader.photo?.contributor,
-                        photos: photoLoader.photos,
+                        image: heroImage,
+                        contributor: heroContributor,
+                        photos: heroPhotos,
                         isAutoplaying: !isCollapsed,
                         width: width,
                         began: departed,
@@ -740,18 +885,20 @@ struct FlightDetailView: View {
                         handleClearance: WindowGrabber.bandHeight,
                         onSelectAirport: onSelectAirport
                     )
+                    .modifier(RealPhotoAttribution(credit: realPhotoCredit, link: realPhotoLink))
                     .id(Self.topAnchor)
                 } else {
                     FlightHero(
-                        image: imageLoader.image,
+                        image: heroImage,
                         spriteKey: flight.spriteKey,
-                        contributor: photoLoader.photo?.contributor,
+                        contributor: heroContributor,
                         theme: theme,
                         width: width,
-                        photos: photoLoader.photos,
+                        photos: heroPhotos,
                         // Only while the full window is the half being looked at.
                         isAutoplaying: !isCollapsed
                     )
+                    .modifier(RealPhotoAttribution(credit: realPhotoCredit, link: realPhotoLink))
                     .id(Self.topAnchor)
                 }
 
@@ -763,7 +910,14 @@ struct FlightDetailView: View {
                     // second question anybody asks of a tapped aircraft, and
                     // until now the window answered it with a 22-point avatar
                     // wedged beside the callsign.
-                    FlightPilotCard(flight: flight, theme: theme)
+                    //
+                    // Nothing at all on a real aeroplane. There is no pilot
+                    // behind an ADS-B contact in any sense this card means —
+                    // no name, no grade, no profile to open — and a card whose
+                    // every field is a dash is worse than no card.
+                    if !isRealWorld {
+                        FlightPilotCard(flight: flight, theme: theme)
+                    }
 
                     // Grouped rather than two children of the stack, which is
                     // at the builder's ceiling. They belong together anyway:
@@ -897,6 +1051,16 @@ struct FlightDetailView: View {
         // window's outer stack, which is already at the builder's ceiling.
         VStack(spacing: 12) {
             if let origin = origin { backRow(origin) }
+
+            // Before the aeroplane's own identity, because it changes what
+            // every number under it means: this is a real flight, not one on
+            // the server. See `RealWorldBadge`.
+            if flight.origin == .realWorld {
+                HStack(spacing: 0) {
+                    RealWorldBadge(theme: theme)
+                    Spacer(minLength: 0)
+                }
+            }
 
             // Nothing for the detail look: its head is drawn above this column,
             // full bleed, in the slot the photograph has under the other two.
@@ -1132,6 +1296,41 @@ struct FlightDetailView: View {
 /// layer inside the content — anything that samples what is behind it, drawn
 /// inside a sheet whose background was cleared, has nothing to sample and
 /// renders as a black slab.
+/// What Planespotters require to be true of a photograph on screen.
+///
+/// Two things, and both are conditions of use rather than decoration: the
+/// photographer's name has to be visible beside the picture, and the picture
+/// has to lead back to its page at Planespotters in one action the viewer can
+/// actually find.
+///
+/// Applied to whichever header this window happens to be wearing, so the
+/// arrangement cannot be right in one look and missing in another. It is inert
+/// for the simulator's own photographs — no credit to draw, no link to open —
+/// which keeps the three headers free of a second set of rules that applies to
+/// one of their two sources.
+///
+/// The tap is a gesture rather than a `Button` on purpose. The photograph is
+/// also the top of a sheet people drag, and a button wrapped around it would
+/// compete with the pan; a tap gesture yields to a drag, which is the right way
+/// round. The credit pill above *is* a button, and is the discoverable half.
+private struct RealPhotoAttribution<Credit: View>: ViewModifier {
+
+    let credit: Credit
+
+    /// Nil whenever there is nothing to open — the simulator's photographs, and
+    /// a real one whose image has not landed yet.
+    let link: URL?
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .topTrailing) { credit }
+            .onTapGesture {
+                guard let link = link else { return }
+                UIApplication.shared.open(link)
+            }
+    }
+}
+
 private struct FlightInfoWindowChrome: ViewModifier {
 
     let theme: FlightInfoTheme

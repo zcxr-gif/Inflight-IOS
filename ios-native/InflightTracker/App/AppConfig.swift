@@ -367,6 +367,120 @@ enum AppConfig {
         URL(string: "\(supabaseURLString)/functions/v1/delete-account")
     }
 
+    // MARK: - Real-world traffic
+
+    /// The open ADS-B aggregator the real-world layer reads.
+    ///
+    /// adsb.lol is a community network of volunteer receivers that publishes
+    /// what they pick up under the ODbL, with an open API that takes no key and
+    /// asks for no account — which is the whole reason it is the one here. The
+    /// commercial trackers all require a contract, and a flight-simulator
+    /// companion app has no business shipping somebody's paid feed.
+    ///
+    /// What it is **not** is a certified source: it is whatever receivers
+    /// happened to hear, so coverage is excellent over Europe and North America
+    /// and thin over oceans and deserts, military traffic is often absent
+    /// entirely, and nothing here is fit for any operational purpose. The
+    /// settings screen says so in those words, because a map that mixes real
+    /// aeroplanes into a game has to be honest about which is which.
+    static let adsbBaseURLString = "https://api.adsb.lol"
+
+    /// Who this app says it is, to the open APIs that ask.
+    ///
+    /// Both of the community sources the real-world layer reads require a
+    /// non-browser client to identify itself with something descriptive that
+    /// carries a contact address — adsb.lol so a client misbehaving at scale
+    /// can be told rather than blocked, and Planespotters as a condition of
+    /// their terms of use, which reject bare library defaults outright. One
+    /// definition, so the two cannot drift apart.
+    static let publicAPIUserAgent: String = {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1"
+        return "Inflight/\(version) (+https://inflight.info)"
+    }()
+
+    // MARK: - Aircraft photographs
+
+    /// The latest photograph of one real aircraft, by its Mode S address.
+    ///
+    /// Planespotters' public photo API: no key, one photo, keyed on the hex
+    /// code the ADS-B sweep already carries — which is the right way round,
+    /// because the hex identifies the *airframe* and a registration can be
+    /// re-issued. Falls back to the registration where the hex is unknown to
+    /// their database.
+    ///
+    /// **Their terms are load-bearing here**, not boilerplate, and
+    /// `PlanespottersPhotos` exists to keep them: the photographer is credited
+    /// beside every picture, the picture leads back to its page, the image is
+    /// held in memory only for as long as it is on screen, every URL is used
+    /// exactly as returned, and the feature is never put behind Pro.
+    static func aircraftPhotoURL(hex: String) -> URL? {
+        let code = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !code.isEmpty, code.count <= 12,
+              let encoded = code.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+        else { return nil }
+        return URL(string: "https://api.planespotters.net/pub/photos/hex/\(encoded)")
+    }
+
+    static func aircraftPhotoURL(registration: String) -> URL? {
+        let reg = registration.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !reg.isEmpty, reg.count <= 12,
+              let encoded = reg.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+        else { return nil }
+        return URL(string: "https://api.planespotters.net/pub/photos/reg/\(encoded)")
+    }
+
+    /// How long a photo lookup may be held. Their terms allow twenty-four
+    /// hours for the JSON; this is well inside that.
+    static let aircraftPhotoLifetime: TimeInterval = 6 * 60 * 60
+
+    /// Everything the network can hear within `radiusNM` of a point.
+    ///
+    /// The radius is clamped to what the endpoint accepts. Coordinates are
+    /// rounded to two decimals — about a mile — so a map drifting under a
+    /// finger does not mint a different URL on every frame.
+    static func realWorldTrafficURL(
+        latitude: Double,
+        longitude: Double,
+        radiusNM: Int
+    ) -> URL? {
+        guard latitude.isFinite, longitude.isFinite,
+              abs(latitude) <= 90, abs(longitude) <= 180 else { return nil }
+
+        let radius = min(max(radiusNM, 1), realWorldMaxRadiusNM)
+        let lat = (latitude * 100).rounded() / 100
+        let lon = (longitude * 100).rounded() / 100
+        return URL(string: "\(adsbBaseURLString)/v2/lat/\(lat)/lon/\(lon)/dist/\(radius)")
+    }
+
+    /// The furthest the endpoint will answer for.
+    static let realWorldMaxRadiusNM = 250
+
+    /// How long between sweeps while the layer is on.
+    ///
+    /// A shared community feed with no key on it, so this is deliberately
+    /// unhurried: real traffic at 450 knots moves about two miles in fifteen
+    /// seconds, which at any zoom the layer is drawn at is a few points on
+    /// screen — and the dead reckoning that already smooths simulator traffic
+    /// covers the gap between sweeps exactly as it covers the gap between
+    /// packets.
+    static let realWorldInterval: TimeInterval = 15
+
+    /// How far out the map may be zoomed and still draw real traffic, as a
+    /// span in degrees of latitude — roughly a large country across.
+    ///
+    /// Not a performance limit. It is that one sweep is a circle 250 miles
+    /// wide, and at continent scale that circle is a dense blot in the middle
+    /// of an empty map: it looks like the world's traffic and is a fraction of
+    /// one country's. Better to draw nothing and say why.
+    static let realWorldMaxSpanDegrees: Double = 14
+
+    /// How long a sweep stays on the map after the last one that succeeded.
+    ///
+    /// Longer than the interval so a single failed request does not blink the
+    /// layer out, short enough that a map left with no connection empties
+    /// rather than showing aeroplanes that landed ten minutes ago.
+    static let realWorldLifetime: TimeInterval = 90
+
     /// Rooms the backend broadcasts on, joined via `join_server_room`.
     static let servers = ["Expert Server", "Training Server", "Casual Server"]
 

@@ -186,6 +186,16 @@ struct TrackerMapView: UIViewRepresentable {
     /// tiles twice a second at a zoom the finger has already left.
     var onCameraMoving: (Bool) -> Void = { _ in }
 
+    /// Where the map has come to rest — its centre, and how many degrees of
+    /// latitude are on screen.
+    ///
+    /// Reported on the settle rather than through the gesture, because the one
+    /// thing that reads it goes to the network: real-world traffic is swept
+    /// around wherever the map is pointed, and sweeping around every frame of
+    /// a pan would be a hundred requests to answer one question. The planet
+    /// reports the same pair from its own camera — see `PlanetSurface`.
+    var onRegionSettled: (CLLocationCoordinate2D, Double) -> Void = { _, _ in }
+
     /// The ruler: whether it is down, and where its two ends are. A binding
     /// because the map is where the taps land, so the map is what moves it.
     @Binding var measurement: MapMeasurement
@@ -382,6 +392,19 @@ struct TrackerMapView: UIViewRepresentable {
         // the one that lands rather than being pulled back by the follow.
         context.coordinator.followSelection(on: mapView)
         context.coordinator.handle(command, on: mapView)
+
+        // And say where the world is pointed, for whoever wants to know.
+        //
+        // The settle is the interesting report — it is what follows a pan —
+        // and this is the safety net under it: a map restored to its last
+        // camera on launch may never fire a region change at all, which would
+        // leave anything waiting on a position waiting forever. `report` is a
+        // pair of comparisons until a sweep is actually due, so running it on
+        // every update pass costs nothing.
+        let region = mapView.region
+        if region.span.latitudeDelta.isFinite, region.span.latitudeDelta > 0 {
+            onRegionSettled(region.center, region.span.latitudeDelta)
+        }
     }
 
     // MARK: - Coordinator
@@ -1230,6 +1253,14 @@ struct TrackerMapView: UIViewRepresentable {
         /// The revision the drawn traffic was last diffed against.
         private var syncedTrafficRevision: Int?
 
+        /// How many aircraft on the map are carried whatever the preference
+        /// says — real-world traffic, which is swept rather than pushed.
+        ///
+        /// Counted here, on the pass that is already walking every visible
+        /// aeroplane, purely so the frame clock can answer "is there anything
+        /// to fly" without walking them again thirty times a second.
+        private var sweptOnMap = 0
+
         /// The diff, but only when the traffic it would be diffing can have
         /// changed. Panning goes to `sync` directly — the viewport is not part
         /// of the revision, and re-culling for it is the one thing that has to
@@ -1250,10 +1281,12 @@ struct TrackerMapView: UIViewRepresentable {
             var seen = Set<String>()
             seen.reserveCapacity(visible.count)
             var additions: [FlightAnnotation] = []
+            var swept = 0
 
             for flight in visible {
                 seen.insert(flight.id)
                 lastSeen[flight.id] = now
+                if flight.requiresSmoothing { swept += 1 }
 
                 if let existing = annotations[flight.id] {
                     if existing.update(with: flight, now: frameNow) {
@@ -1273,6 +1306,8 @@ struct TrackerMapView: UIViewRepresentable {
             // packet or two and has it back, and removing it in the gap is
             // exactly the blink this is here to stop. Those keep their last
             // position until the grace period is up.
+            sweptOnMap = swept
+
             let selectedId = parent.selection?.id
 
             // Built on demand rather than up front. On a settled map every
@@ -1289,7 +1324,15 @@ struct TrackerMapView: UIViewRepresentable {
                 let ids = reported ?? Set(flights.lazy.map(\.id))
                 reported = ids
 
-                if !ids.contains(id),
+                // Real traffic gets no grace at all, and that is the point:
+                // the layer's whole promise is that switching it off empties
+                // the map on the same frame, and a mint aeroplane still
+                // sitting there half a minute later is that promise broken. A
+                // sweep is fifteen seconds and the grace is thirty, so what is
+                // given up is one held position on a contact a receiver has
+                // stopped hearing — which has usually genuinely gone.
+                if annotation.flight.origin == .infiniteFlight,
+                   !ids.contains(id),
                    now.timeIntervalSince(lastSeen[id] ?? .distantPast) < AppConfig.flightGracePeriod {
                     continue
                 }
@@ -1414,7 +1457,11 @@ struct TrackerMapView: UIViewRepresentable {
             view.spriteImage = PlaneSprites.shared.icon(
                 forKey: key,
                 selected: selected,
+                // The pilot colouring first, and the aircraft's own source
+                // behind it — see `Flight.originTint`. Real traffic has no
+                // username, so in practice the two never meet.
                 tint: appliedHighlighting.tint(for: annotation.flight.username)
+                    ?? annotation.flight.originTint
             )
             view.spriteTransform = rotation(
                 for: annotation.drawnHeading,
@@ -1470,7 +1517,12 @@ struct TrackerMapView: UIViewRepresentable {
 
             var image: UIImage?
             var adId = ""
-            if parent.showsVaMarks, let ad = VaMarkStore.shared.partner(callsign: flight.callsign) {
+            // Never on real traffic. A logo over an aeroplane is read as whose
+            // aeroplane it is, the partner listings are keyed on callsign, and
+            // real airline callsigns collide with virtual ones by design — a
+            // British Airways 777 out of Heathrow is not somebody's VA flight.
+            if parent.showsVaMarks, flight.origin == .infiniteFlight,
+               let ad = VaMarkStore.shared.partner(callsign: flight.callsign) {
                 adId = ad.id
                 // Asking is what starts the download, and nil until it lands.
                 image = VaMarkStore.shared.mark(for: ad)
@@ -3007,6 +3059,18 @@ struct TrackerMapView: UIViewRepresentable {
         /// free.
         private static let visibleMotion: Double = 0.2
 
+        /// The same floor for traffic that is swept rather than pushed.
+        ///
+        /// The number is a rate, but what it is really measuring is the size of
+        /// the *jump* it would be hiding — and that is the rate multiplied by
+        /// the gap between reports. The simulator's gap is a few seconds, so a
+        /// fifth of a point a second is well under a point between packets and
+        /// genuinely invisible. Real-world traffic is swept every fifteen, so
+        /// the same rate is a three-point jump: plainly visible, and exactly
+        /// what somebody switching the layer on is watching. Scaled by roughly
+        /// the ratio of the two clocks.
+        private static let visibleMotionSwept: Double = 0.05
+
         func startFlying(on mapView: MKMapView) {
             flyingMapView = mapView
             guard flightLink == nil else { return }
@@ -3060,7 +3124,12 @@ struct TrackerMapView: UIViewRepresentable {
             stepWindParticles(at: now, on: mapView)
 
             let smoothing = parent.smoothsTraffic
-            guard smoothing || flyingCount > 0 else { return }
+            // The third term is real-world traffic, which is carried whatever
+            // the preference says — see `Flight.requiresSmoothing`. Without it
+            // the frame would be skipped before anything had started flying,
+            // and the layer would never begin. Counted on the traffic pass
+            // rather than walked for here: this runs thirty times a second.
+            guard smoothing || flyingCount > 0 || sweptOnMap > 0 else { return }
             guard !annotations.isEmpty else { return }
 
             // A frame, rather than a resume: coming back from the background
@@ -3077,13 +3146,23 @@ struct TrackerMapView: UIViewRepresentable {
             var flying = 0
 
             for (_, annotation) in annotations {
-                // Three questions, cheapest first: is the feature on, is this
-                // aeroplane flying, and would any of it be visible at this
-                // zoom. Only the last changes as the map moves, which is why it
-                // is asked every frame rather than once when the packet landed.
-                let wanted = smoothing
-                    && annotation.flight.isWorthSmoothing
-                    && annotation.drawnPointsPerSecond(pointsPerMetre: scale) >= Self.visibleMotion
+                // Three questions, cheapest first: is this aeroplane to be
+                // carried at all — the preference, or its own source insisting
+                // — is it flying, and would any of it be visible at this zoom.
+                // Only the last changes as the map moves, which is why it is
+                // asked every frame rather than once when the packet landed.
+                //
+                // The floor moves with the source for the same reason the
+                // first question does: what it is really testing is the size of
+                // the jump, and a swept aeroplane's is several times larger at
+                // the same speed. See `visibleMotionSwept`.
+                let flight = annotation.flight
+                let required = flight.requiresSmoothing
+                let floor = required ? Self.visibleMotionSwept : Self.visibleMotion
+
+                let wanted = (smoothing || required)
+                    && flight.isWorthSmoothing
+                    && annotation.drawnPointsPerSecond(pointsPerMetre: scale) >= floor
 
                 if wanted != annotation.isSmoothing {
                     if wanted {
@@ -4114,6 +4193,14 @@ struct TrackerMapView: UIViewRepresentable {
                 // settle rather than mid-pinch: a zoom that passes through the
                 // limit and back out should not flick the overlay off and on.
                 self.syncWeatherTiles(on: mapView)
+
+                // Last, and out of the map rather than into it: whoever wants
+                // to know where the world is pointed is welcome to, and the
+                // map goes on being a thing that draws what it is given.
+                let region = mapView.region
+                if region.span.latitudeDelta.isFinite, region.span.latitudeDelta > 0 {
+                    self.parent.onRegionSettled(region.center, region.span.latitudeDelta)
+                }
             }
 
             pendingCull = work

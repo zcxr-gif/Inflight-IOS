@@ -45,6 +45,11 @@ struct SettingsPanel: View {
     // Observed so the flight-plans row says what is actually next rather than
     // only what the screen is for.
     @ObservedObject private var plans = FlightPlanBook.shared
+    /// Observed so the row below says whether real aeroplanes are on the map
+    /// right now. This is the one setting in the app somebody is most likely to
+    /// have left on without meaning to, and the hub is where they come to find
+    /// that out — see `RealWorldTrafficSettingsPanel`.
+    @ObservedObject private var realWorld = RealWorldTraffic.shared
 
     /// Every one of these opens over this panel rather than replacing it: they
     /// are somewhere you go and come back from, and losing the settings sheet
@@ -60,6 +65,7 @@ struct SettingsPanel: View {
     @State private var isShowingInstruments = false
     @State private var isShowingAppearance = false
     @State private var isShowingFeed = false
+    @State private var isShowingRealWorld = false
     @State private var isShowingAbout = false
     @State private var isShowingWidgets = false
 
@@ -230,6 +236,23 @@ struct SettingsPanel: View {
                 ) {
                     isShowingConnect = true
                 }
+
+                PanelDivider()
+
+                // Third in the section because it is the third source of
+                // aeroplanes, and it is the one that is off until asked for.
+                // The row wears the layer's own colour while it is on: this
+                // hub's whole job is answering "what have I got switched on"
+                // without anything having to be opened, and of everything in
+                // it, this is the switch that most wants answering.
+                PanelActionRow(
+                    title: "Real-world traffic",
+                    symbol: "dot.radiowaves.up.forward",
+                    detail: SettingsSummary.realWorld(realWorld),
+                    tint: realWorld.isOn ? RealWorldMark.tint : nil
+                ) {
+                    isShowingRealWorld = true
+                }
             }
             .panelEntrance(5)
 
@@ -264,6 +287,7 @@ struct SettingsPanel: View {
         .sheet(isPresented: $isShowingInstruments) { InstrumentsSettingsPanel() }
         .sheet(isPresented: $isShowingAppearance) { AppearanceSettingsPanel() }
         .sheet(isPresented: $isShowingFeed) { FeedSettingsPanel().environmentObject(feed) }
+        .sheet(isPresented: $isShowingRealWorld) { RealWorldTrafficSettingsPanel() }
         .sheet(isPresented: $isShowingAbout) { AboutSettingsPanel().environmentObject(feed) }
         // Handed the feed because the panel offers what is flying right now,
         // which is a question only the packet can answer.

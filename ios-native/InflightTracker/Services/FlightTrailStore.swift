@@ -73,13 +73,46 @@ final class FlightTrailStore: ObservableObject {
     /// dictionary that only grows is a leak however small its entries are.
     private let maximumStarts = 800
 
+    /// How far an aircraft must travel before its next position is worth
+    /// keeping, for traffic that arrives on the server's packet.
+    ///
+    /// Two miles is a handful of seconds at cruise, so nearly every packet is
+    /// kept and the path is dense.
     private let initialSpacingNM: Double = 2
+
+    /// The same, for traffic that is *swept* rather than pushed.
+    ///
+    /// The same two miles is the wrong threshold on a fifteen-second clock, and
+    /// wrong in a way that got worse the slower the aircraft: at 450 knots a
+    /// sweep covers 1.9 miles, so it fell *just* under the bar and the path
+    /// kept roughly every other one. A light aircraft at 120 knots covers half
+    /// a mile, so it recorded a point every four sweeps — a minute apart — and
+    /// a helicopter hovering recorded nothing at all and had no path.
+    ///
+    /// Four tenths of a mile is under one sweep for anything moving at all, so
+    /// the path is every position we were given. `maximumPoints` still bounds
+    /// it: past 260 points the trail halves its own resolution and doubles this
+    /// number, so a long flight costs the same as a short one.
+    private let sweptSpacingNM: Double = 0.4
+
     private let maximumPoints = 260
 
     private init() {}
 
     /// Called from the feed's decode queue on every packet.
-    func record(_ flights: [Flight]) {
+    /// Takes a sample from every aircraft in one batch.
+    ///
+    /// ## Why the batch says where it came from
+    ///
+    /// There are two sources now and they arrive on different clocks: the
+    /// server's packet every few seconds, and a real-world sweep every fifteen.
+    /// Each batch is the whole truth about *its own* source and says nothing at
+    /// all about the other — so the prune at the bottom, which drops the trail
+    /// of anything that has stopped reporting, has to be told which source it
+    /// is pruning. Without that the two would erase each other on every update:
+    /// a packet would decide every real aeroplane had left, and the next sweep
+    /// would decide the same of the entire server.
+    func record(_ flights: [Flight], from origin: Flight.Origin = .infiniteFlight) {
         lock.lock()
         defer { lock.unlock() }
 
@@ -103,7 +136,7 @@ final class FlightTrailStore: ObservableObject {
             guard var trail = trails[flight.id] else {
                 trails[flight.id] = Trail(
                     points: [sample],
-                    spacingNM: initialSpacingNM,
+                    spacingNM: origin == .realWorld ? sweptSpacingNM : initialSpacingNM,
                     isSeeded: false,
                     firstSeen: began
                 )
@@ -127,9 +160,12 @@ final class FlightTrailStore: ObservableObject {
             trails[flight.id] = trail
         }
 
-        // Aircraft that have left the server keep no trail.
+        // Aircraft that have stopped reporting keep no trail — but only the
+        // ones this batch is actually able to speak for. See the note above.
         if trails.count > live.count {
-            trails = trails.filter { live.contains($0.key) }
+            trails = trails.filter { entry in
+                live.contains(entry.key) || Self.origin(ofId: entry.key) != origin
+            }
         }
 
         // The starts outlive the trails deliberately, so they are bounded here
@@ -138,6 +174,17 @@ final class FlightTrailStore: ObservableObject {
             let keep = starts.sorted { $0.value > $1.value }.prefix(maximumStarts / 2)
             starts = Dictionary(uniqueKeysWithValues: keep.map { ($0.key, $0.value) })
         }
+    }
+
+    /// Which source a stored trail belongs to, from its key alone.
+    ///
+    /// The id carries it: a real-world contact is namespaced by
+    /// `Flight.init(adsb:)` and nothing from the simulator ever is. Read from
+    /// the key rather than held alongside it, because the trail outlives the
+    /// `Flight` it was recorded from and a second copy of the same fact is a
+    /// second copy that can go stale.
+    private static func origin(ofId id: String) -> Flight.Origin {
+        id.hasPrefix("adsb:") ? .realWorld : .infiniteFlight
     }
 
     /// Replaces a locally-observed fragment with the backend's full history.
