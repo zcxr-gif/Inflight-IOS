@@ -241,12 +241,6 @@ struct PlanetSurface: View {
             },
             onSelectFlight: { id in
                 guard let flight = flights.first(where: { $0.id == id }) else { return }
-                // Real traffic opens nothing, on either shape of the world.
-                // There is no flight window behind an ADS-B contact — no
-                // pilot, no filed plan, no history — and the flat map refuses
-                // the same tap for the same reason. The planet has no callout
-                // to offer in its place, so the tap simply does nothing.
-                guard flight.origin == .infiniteFlight else { return }
                 onSelectFlight(flight)
             },
             onSelectField: { icao in

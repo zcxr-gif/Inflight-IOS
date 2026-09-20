@@ -385,6 +385,54 @@ enum AppConfig {
     /// aeroplanes into a game has to be honest about which is which.
     static let adsbBaseURLString = "https://api.adsb.lol"
 
+    /// Who this app says it is, to the open APIs that ask.
+    ///
+    /// Both of the community sources the real-world layer reads require a
+    /// non-browser client to identify itself with something descriptive that
+    /// carries a contact address — adsb.lol so a client misbehaving at scale
+    /// can be told rather than blocked, and Planespotters as a condition of
+    /// their terms of use, which reject bare library defaults outright. One
+    /// definition, so the two cannot drift apart.
+    static let publicAPIUserAgent: String = {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1"
+        return "Inflight/\(version) (+https://inflight.info)"
+    }()
+
+    // MARK: - Aircraft photographs
+
+    /// The latest photograph of one real aircraft, by its Mode S address.
+    ///
+    /// Planespotters' public photo API: no key, one photo, keyed on the hex
+    /// code the ADS-B sweep already carries — which is the right way round,
+    /// because the hex identifies the *airframe* and a registration can be
+    /// re-issued. Falls back to the registration where the hex is unknown to
+    /// their database.
+    ///
+    /// **Their terms are load-bearing here**, not boilerplate, and
+    /// `PlanespottersPhotos` exists to keep them: the photographer is credited
+    /// beside every picture, the picture leads back to its page, the image is
+    /// held in memory only for as long as it is on screen, every URL is used
+    /// exactly as returned, and the feature is never put behind Pro.
+    static func aircraftPhotoURL(hex: String) -> URL? {
+        let code = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !code.isEmpty, code.count <= 12,
+              let encoded = code.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+        else { return nil }
+        return URL(string: "https://api.planespotters.net/pub/photos/hex/\(encoded)")
+    }
+
+    static func aircraftPhotoURL(registration: String) -> URL? {
+        let reg = registration.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !reg.isEmpty, reg.count <= 12,
+              let encoded = reg.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+        else { return nil }
+        return URL(string: "https://api.planespotters.net/pub/photos/reg/\(encoded)")
+    }
+
+    /// How long a photo lookup may be held. Their terms allow twenty-four
+    /// hours for the JSON; this is well inside that.
+    static let aircraftPhotoLifetime: TimeInterval = 6 * 60 * 60
+
     /// Everything the network can hear within `radiusNM` of a point.
     ///
     /// The radius is clamped to what the endpoint accepts. Coordinates are

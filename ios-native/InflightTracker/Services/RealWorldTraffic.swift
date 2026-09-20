@@ -79,12 +79,6 @@ final class RealWorldTraffic: ObservableObject {
 
     private static let enabledKey = "realWorldTrafficEnabled"
 
-    /// Who is asking, for a feed that is run on donated bandwidth.
-    private static let userAgent: String = {
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1"
-        return "Inflight/\(version) (+https://inflight.info)"
-    }()
-
     /// The switch, from Settings.
     ///
     /// Persisted, like every other preference in the app — a setting that
@@ -282,7 +276,7 @@ final class RealWorldTraffic: ObservableObject {
         request.timeoutInterval = 12
         // The open aggregators ask callers to identify themselves, so that a
         // client misbehaving at scale can be told rather than simply blocked.
-        request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue(AppConfig.publicAPIUserAgent, forHTTPHeaderField: "User-Agent")
 
         let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             guard let self = self else { return }
@@ -313,6 +307,15 @@ final class RealWorldTraffic: ObservableObject {
                 }
 
                 self.lastUpdate = Date()
+
+                // The same store the server's traffic writes to, told which
+                // source this batch is — see `FlightTrailStore.record`. It is
+                // what gives a real aeroplane a flown path on the map and a
+                // profile in its window: not the backend's history, which does
+                // not exist for one of these, but what this device has watched
+                // since the layer was switched on.
+                FlightTrailStore.shared.record(parsed, from: .realWorld)
+
                 self.publish(flights: parsed, status: .live(parsed.count))
             }
         }

@@ -4019,10 +4019,7 @@ struct TrackerMapView: UIViewRepresentable {
                 annotation: flightAnnotation,
                 reuseIdentifier: Coordinator.reuseIdentifier
             )
-            // Simulator traffic opens a whole window, so a callout would be a
-            // second, worse answer arriving first. Real traffic opens nothing
-            // — see `didSelect` — so the callout is the only answer it has.
-            view.canShowCallout = flightAnnotation.flight.origin == .realWorld
+            view.canShowCallout = false
             view.displayPriority = .required
             // Unchanged, and it stays honest because the marks are drawn
             // outside the view's bounds — see `FlightAnnotationView`.
@@ -4050,17 +4047,6 @@ struct TrackerMapView: UIViewRepresentable {
 
             guard let annotation = view.annotation as? FlightAnnotation,
                   let view = view as? FlightAnnotationView else { return }
-
-            // Real traffic opens nothing.
-            //
-            // The flight window is built on what the backend knows about one
-            // of *its* aircraft — the pilot, their grade and virtual airline,
-            // the filed plan, the flown history the replay scrubs through —
-            // and an ADS-B contact has none of that. Opening a window that
-            // could only be empty is worse than not opening one, so the tap
-            // shows the callout the annotation already carries and stops
-            // there. See `Flight.Origin`.
-            guard annotation.flight.origin == .infiniteFlight else { return }
 
             apply(annotation: annotation, to: view, selected: true, on: mapView)
 

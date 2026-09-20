@@ -147,7 +147,7 @@ struct ContentView: View {
     /// second answer costs a dictionary lookup.
     private func airlineAccent(forFlightId id: String) -> AirlineAccent.Colours? {
         guard appearance.showsAirlineAccent,
-              let flight = feed.flights.first(where: { $0.id == id }) else { return nil }
+              let flight = flight(id: id) else { return nil }
         return AirlineAccent.colours(forLivery: flight.liveryName, isLight: theme.isLight)
     }
 
@@ -375,6 +375,24 @@ struct ContentView: View {
     /// so a plan started from the toolbar does not quietly inherit whichever
     /// airport was last looked at.
     @State private var planningFrom: String?
+
+    /// One aircraft by id, from whichever sky it is in.
+    ///
+    /// Used by everything that acts on *the aeroplane whose window is open* —
+    /// where the camera points, which route the planet draws, which field the
+    /// weather follows — because since real-world traffic the open aeroplane is
+    /// not necessarily one of the server's.
+    ///
+    /// Deliberately not used by the rest. The logbook, the home-screen widgets,
+    /// the Live Activities, the watchlist and the airport rankings all read
+    /// `feed.flights` directly and must go on doing so: every one of them is a
+    /// statement about the Infinite Flight server, and a real aeroplane has no
+    /// business in any of them.
+    private func flight(id: String?) -> Flight? {
+        guard let id = id else { return nil }
+        return feed.flights.first { $0.id == id }
+            ?? realWorld.flights.first { $0.id == id }
+    }
 
     /// The traffic the map draws: the packet, narrowed by the filters, with the
     /// open aircraft kept whatever they say — and the real sky behind it when
@@ -657,8 +675,7 @@ struct ContentView: View {
     /// opens on an empty Pacific is a world view you have to go and find
     /// something on.
     private var planetStart: CLLocationCoordinate2D {
-        if let selected = selection,
-           let flight = feed.flights.first(where: { $0.id == selected.id }) {
+        if let flight = flight(id: selection?.id) {
             return flight.coordinate
         }
         if let mine = myFlights.first {
@@ -817,8 +834,7 @@ struct ContentView: View {
     /// when nothing was filed — and most pilots file nothing.
     private var planetRoute: GlobeScene.GlobeRoute? {
         guard filters.showsDirectLine || filters.showsFlightPlan,
-              let selected = selection,
-              let flight = feed.flights.first(where: { $0.id == selected.id }) else { return nil }
+              let flight = flight(id: selection?.id) else { return nil }
 
         let store = AirportStore.shared
         return GlobeScene.GlobeRoute(
@@ -1595,7 +1611,7 @@ struct ContentView: View {
     private var airportReturn: AirportPanel.Origin? {
         guard let origin = airportOrigin else { return nil }
 
-        let label = feed.flights.first { $0.id == origin.id }?.displayName ?? "the flight"
+        let label = flight(id: origin.id)?.displayName ?? "the flight"
 
         return AirportPanel.Origin(label: label) {
             // One assignment does it: the selection watcher puts the flight
@@ -1687,7 +1703,7 @@ struct ContentView: View {
     private func openFlight(_ id: String) {
         sheet = nil
         selection = SelectedFlight(id: id)
-        if let flight = feed.flights.first(where: { $0.id == id }) {
+        if let flight = flight(id: id) {
             focus(on: flight.coordinate, spanMeters: 240_000)
         }
     }
@@ -1759,7 +1775,7 @@ struct ContentView: View {
     private func startReplay(of flightId: String, track: [TrackPoint]) {
         guard track.count >= FlightReplay.minimumPoints else { return }
 
-        let title = feed.flights.first { $0.id == flightId }?.displayName ?? "Flight"
+        let title = flight(id: flightId)?.displayName ?? "Flight"
 
         // The store is what refuses a replay this account may not have, so the
         // answer is read rather than the check repeated. Without this the
@@ -1814,8 +1830,7 @@ struct ContentView: View {
     /// Weather follows the open aircraft: the field it is passing, and both
     /// ends of its route.
     private func updateWeather(force: Bool = false) {
-        guard let selected = selection,
-              let flight = feed.flights.first(where: { $0.id == selected.id }) else { return }
+        guard let flight = flight(id: selection?.id) else { return }
 
         weather.updateNearby(to: flight.coordinate, force: force)
         weather.updateRoute(departure: flight.departureIcao, arrival: flight.arrivalIcao)

@@ -775,8 +775,16 @@ struct RealWorldTrafficSettingsPanel: View {
 
                 noteRow(
                     symbol: "hand.tap",
-                    title: "Nothing to open",
-                    detail: "Tapping a real aeroplane shows its callsign, type, height and speed, and that is all there is: there is no pilot behind it, no filed plan on our backend and no history to replay. Tapping the server's traffic opens a flight window exactly as it always did."
+                    title: "A window, with a REAL LIFE badge on it",
+                    detail: "Tapping a real aeroplane opens the same flight window the server's traffic does, badged so the two can never be confused. What is inside it is thinner, and honestly so: there is no pilot behind an ADS-B contact, no plan filed with our backend and no history from before you started watching, so those parts are absent rather than empty."
+                )
+
+                PanelDivider()
+
+                noteRow(
+                    symbol: "camera",
+                    title: "A photograph of that exact aeroplane",
+                    detail: "Looked up by the Mode S address it broadcasts, from Planespotters — so it is that airframe rather than a stock shot of the type. The photographer is credited on the picture and tapping either opens the original on Planespotters.net. Free for everyone, never part of Pro."
                 )
             }
             .panelEntrance(1)

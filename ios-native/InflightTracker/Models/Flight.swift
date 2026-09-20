@@ -88,6 +88,20 @@ struct Flight: Identifiable, Equatable {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
 
+    /// The Mode S address this aircraft broadcasts, for real traffic.
+    ///
+    /// Recovered from the id rather than stored beside it: the id *is* the
+    /// address, namespaced — see `init(adsb:)` — and a second field holding the
+    /// same six characters is a second field that can disagree with the first.
+    /// Nil for everything from the simulator, which has no such thing.
+    var adsbHex: String? {
+        guard origin == .realWorld else { return nil }
+        let prefix = "adsb:"
+        guard id.hasPrefix(prefix) else { return nil }
+        let hex = String(id.dropFirst(prefix.count))
+        return hex.isEmpty ? nil : hex
+    }
+
     var displayName: String {
         guard let callsign = callsign, !callsign.isEmpty else { return username ?? "Unknown" }
         return callsign

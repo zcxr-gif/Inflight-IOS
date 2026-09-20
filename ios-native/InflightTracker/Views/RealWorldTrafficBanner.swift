@@ -90,3 +90,96 @@ struct RealWorldTrafficBanner: View {
         .accessibilityLabel("Real-world traffic is on. \(traffic.status.label).")
     }
 }
+
+/// The badge that says an aeroplane is a real one.
+///
+/// ## Why the window needs this and the map does not
+///
+/// On the map the colour does the job: real traffic is mint and nothing else
+/// is, so the distinction is visible without a word on it. A flight window is
+/// a different problem — it is one aircraft, filling the screen, with no second
+/// aeroplane beside it to be a different colour *from*. Somebody who opens a
+/// window on a real 777 and one on a simulated 777 is looking at two screens
+/// with the same shape, and the only honest way to tell them apart is to say
+/// so.
+///
+/// So it is a word rather than a tint, it sits with the callsign rather than
+/// in a corner, and it says "real life" rather than "ADS-B" — the distinction
+/// being drawn is not which protocol the position arrived over, it is whether
+/// this aeroplane exists.
+struct RealWorldBadge: View {
+
+    let theme: FlightInfoTheme
+
+    /// Small enough to sit inside a row of chips, for the peak state.
+    var isCompact = false
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "dot.radiowaves.up.forward")
+                .font(.system(size: isCompact ? 8 : 9, weight: .bold))
+
+            Text("REAL LIFE")
+                .font(.system(size: isCompact ? 8.5 : 9.5, weight: .bold))
+                .tracking(0.7)
+        }
+        .foregroundStyle(RealWorldMark.tint)
+        .padding(.horizontal, isCompact ? 6 : 8)
+        .padding(.vertical, isCompact ? 3 : 4)
+        .background {
+            Capsule().fill(RealWorldMark.tint.opacity(0.16))
+        }
+        .overlay {
+            Capsule().strokeBorder(RealWorldMark.tint.opacity(0.45), lineWidth: 1)
+        }
+        .accessibilityLabel("Real-world aircraft")
+        .accessibilityHint("This aeroplane is flying in the real world, not on the Infinite Flight server.")
+    }
+}
+
+/// The line that says whose photograph this is, and opens it.
+///
+/// ## Why this is a control rather than a caption
+///
+/// Planespotters' terms of use make both halves of this mandatory, and they are
+/// specific about the second: the picture must lead back to its page at
+/// Planespotters using the link the API returned, reachable by the viewer in a
+/// single action, and — in their words — a tap target the user has no way of
+/// discovering does not count. A grey caption under a photograph is not a way
+/// to reach anything.
+///
+/// So the credit is drawn as what it is: a button, with an arrow on it, that
+/// opens the photographer's own page. The photograph itself carries the same
+/// tap, because that is what their terms actually ask for; this is the part
+/// that makes it *findable*.
+struct PlanespottersCredit: View {
+
+    let photographer: String
+    let link: URL
+    let theme: FlightInfoTheme
+
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        Button {
+            openURL(link)
+        } label: {
+            HStack(spacing: 4) {
+                Text("© \(photographer)")
+                    .font(.system(size: 9, weight: .semibold))
+                    .flightInfoLine(minimumScale: 0.8)
+
+                Image(systemName: "arrow.up.forward")
+                    .font(.system(size: 7.5, weight: .bold))
+            }
+            .foregroundStyle(theme.textPrimary)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .flightInfoSurface(theme, radius: 6, elevated: true)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Photograph by \(photographer)")
+        .accessibilityHint("Opens the original on Planespotters.net")
+    }
+}

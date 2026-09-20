@@ -26,36 +26,7 @@ final class FlightAnnotation: NSObject, MKAnnotation {
 
     var title: String? { flight.displayName }
 
-    /// The line under the title in a callout.
-    ///
-    /// Only real traffic ever shows one — see `TrackerMapView`, where
-    /// `canShowCallout` is set from the origin — and for those it is the whole
-    /// of what the app knows, because there is no flight window behind them to
-    /// open. Simulator traffic keeps the aircraft's name, which is what this
-    /// has always been.
-    var subtitle: String? {
-        guard flight.origin == .realWorld else {
-            return flight.aircraftName.isEmpty ? nil : flight.aircraftName
-        }
-
-        var parts: [String] = []
-        if !flight.aircraftName.isEmpty { parts.append(flight.aircraftName) }
-        if let registration = flight.registration,
-           registration != flight.callsign {
-            parts.append(registration)
-        }
-        // Bounded before they are turned into integers: `Int(_:)` traps on a
-        // value it cannot hold, and these two numbers came off the network.
-        if flight.altitudeFeet.isFinite, (100...100_000).contains(flight.altitudeFeet) {
-            parts.append("\(Int(flight.altitudeFeet.rounded())) ft")
-        }
-        if flight.groundSpeedKnots.isFinite, (1...2_000).contains(flight.groundSpeedKnots) {
-            parts.append("\(Int(flight.groundSpeedKnots.rounded())) kt")
-        }
-
-        guard !parts.isEmpty else { return "Real-world traffic" }
-        return parts.joined(separator: " · ")
-    }
+    var subtitle: String? { flight.aircraftName.isEmpty ? nil : flight.aircraftName }
 
     /// Sprite key currently drawn, so the view only reloads its image when the
     /// aircraft type actually changes.

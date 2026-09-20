@@ -79,7 +79,19 @@ final class FlightTrailStore: ObservableObject {
     private init() {}
 
     /// Called from the feed's decode queue on every packet.
-    func record(_ flights: [Flight]) {
+    /// Takes a sample from every aircraft in one batch.
+    ///
+    /// ## Why the batch says where it came from
+    ///
+    /// There are two sources now and they arrive on different clocks: the
+    /// server's packet every few seconds, and a real-world sweep every fifteen.
+    /// Each batch is the whole truth about *its own* source and says nothing at
+    /// all about the other — so the prune at the bottom, which drops the trail
+    /// of anything that has stopped reporting, has to be told which source it
+    /// is pruning. Without that the two would erase each other on every update:
+    /// a packet would decide every real aeroplane had left, and the next sweep
+    /// would decide the same of the entire server.
+    func record(_ flights: [Flight], from origin: Flight.Origin = .infiniteFlight) {
         lock.lock()
         defer { lock.unlock() }
 
@@ -127,9 +139,12 @@ final class FlightTrailStore: ObservableObject {
             trails[flight.id] = trail
         }
 
-        // Aircraft that have left the server keep no trail.
+        // Aircraft that have stopped reporting keep no trail — but only the
+        // ones this batch is actually able to speak for. See the note above.
         if trails.count > live.count {
-            trails = trails.filter { live.contains($0.key) }
+            trails = trails.filter { entry in
+                live.contains(entry.key) || Self.origin(ofId: entry.key) != origin
+            }
         }
 
         // The starts outlive the trails deliberately, so they are bounded here
@@ -138,6 +153,17 @@ final class FlightTrailStore: ObservableObject {
             let keep = starts.sorted { $0.value > $1.value }.prefix(maximumStarts / 2)
             starts = Dictionary(uniqueKeysWithValues: keep.map { ($0.key, $0.value) })
         }
+    }
+
+    /// Which source a stored trail belongs to, from its key alone.
+    ///
+    /// The id carries it: a real-world contact is namespaced by
+    /// `Flight.init(adsb:)` and nothing from the simulator ever is. Read from
+    /// the key rather than held alongside it, because the trail outlives the
+    /// `Flight` it was recorded from and a second copy of the same fact is a
+    /// second copy that can go stale.
+    private static func origin(ofId id: String) -> Flight.Origin {
+        id.hasPrefix("adsb:") ? .realWorld : .infiniteFlight
     }
 
     /// Replaces a locally-observed fragment with the backend's full history.
