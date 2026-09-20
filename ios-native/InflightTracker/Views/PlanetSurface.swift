@@ -143,6 +143,17 @@ struct PlanetSurface: View {
         var spanMetres: Double
     }
 
+    /// How many degrees of latitude a span of ground covers.
+    ///
+    /// The planet measures what is on screen in metres and the flat map
+    /// measures it in degrees, and `RealWorldTraffic` has to be told the same
+    /// thing by both or the layer would cut in at a different zoom depending on
+    /// which shape of the world you happened to be looking at.
+    private static func degrees(ofLatitude metres: Double) -> Double {
+        guard metres.isFinite, metres > 0 else { return .greatestFiniteMagnitude }
+        return metres / (GlobeCamera.earthRadiusMetres * .pi / 180)
+    }
+
     /// How much ground has to be on screen before a field's pavement is worth
     /// *fetching*, in metres.
     ///
@@ -218,9 +229,24 @@ struct PlanetSurface: View {
                     longitude: centre.longitude,
                     spanMetres: span
                 )
+                // The same pair the flat map reports when it settles, so real
+                // traffic is swept around wherever the world is pointed
+                // whichever shape it is in. This fires on every frame of a
+                // drag; the service stores two numbers and compares a date
+                // until a sweep is actually due — see `RealWorldTraffic`.
+                RealWorldTraffic.shared.report(
+                    centre: centre,
+                    spanDegrees: Self.degrees(ofLatitude: span)
+                )
             },
             onSelectFlight: { id in
                 guard let flight = flights.first(where: { $0.id == id }) else { return }
+                // Real traffic opens nothing, on either shape of the world.
+                // There is no flight window behind an ADS-B contact — no
+                // pilot, no filed plan, no history — and the flat map refuses
+                // the same tap for the same reason. The planet has no callout
+                // to offer in its place, so the tap simply does nothing.
+                guard flight.origin == .infiniteFlight else { return }
                 onSelectFlight(flight)
             },
             onSelectField: { icao in

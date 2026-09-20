@@ -469,7 +469,11 @@ final class GlobeScene: ObservableObject {
                     headingDegrees: heading
                 ),
                 spriteKey: flight.spriteKey,
-                tint: highlighting.tint(for: flight.username),
+                // The pilot colouring first, and where it has no opinion, the
+                // aircraft's own source — which is what paints real-world
+                // traffic mint on the planet exactly as it does on the flat
+                // map. See `Flight.originTint`.
+                tint: highlighting.tint(for: flight.username) ?? flight.originTint,
                 isOpen: flight.id == openFlightId,
                 callsign: flight.callsign,
                 // Asking is also what starts the download, which is why the

@@ -27,6 +27,10 @@ struct ContentView: View {
     /// nothing for several seconds.
     @ObservedObject private var winds = WindsAloftStore.shared
     @ObservedObject private var friends = FriendsStore.shared
+    /// Real aeroplanes, when somebody has asked for them. Observed for two
+    /// things: a sweep landing, which is what puts them on the map, and the
+    /// switch itself, which is what raises and lowers the banner over it.
+    @ObservedObject private var realWorld = RealWorldTraffic.shared
     /// Observed for one thing: a flight's backend history landing. Without it
     /// the map draws the path on whatever pass happens next, which is the next
     /// packet — see `FlightTrailStore.seedRevision`.
@@ -373,9 +377,22 @@ struct ContentView: View {
     @State private var planningFrom: String?
 
     /// The traffic the map draws: the packet, narrowed by the filters, with the
-    /// open aircraft kept whatever they say.
+    /// open aircraft kept whatever they say — and the real sky behind it when
+    /// that layer is on.
+    ///
+    /// The real aircraft are appended rather than filtered, and deliberately.
+    /// The filters are about the *server's* traffic — which phases, which
+    /// altitude bands, which types, and whether a route has been filed — and
+    /// every one of those is a question about Infinite Flight. "Only aircraft
+    /// with a destination filed" would silently empty the real-world layer,
+    /// because an ADS-B receiver hears a position and never a flight plan; an
+    /// aeroplane hidden by a filter it cannot possibly satisfy is a layer that
+    /// looks broken. Real traffic has its own switch, and that switch is the
+    /// whole of what decides whether it is drawn.
     private var visibleFlights: [Flight] {
-        filters.apply(to: feed.flights, keeping: selection?.id)
+        let simulated = filters.apply(to: feed.flights, keeping: selection?.id)
+        guard !realWorld.flights.isEmpty else { return simulated }
+        return simulated + realWorld.flights
     }
 
     /// Search runs over the whole packet rather than `visibleFlights` — a
@@ -397,6 +414,10 @@ struct ContentView: View {
         hasher.combine(feed.lastUpdate)
         hasher.combine(filters.signature)
         hasher.combine(selection?.id)
+        // A sweep of real traffic landing changes what should be drawn without
+        // a packet having arrived, so it has to move this or the map would sit
+        // on the sweep before it until the server next said something.
+        hasher.combine(realWorld.revision)
         return hasher.finalize()
     }
 
@@ -693,6 +714,13 @@ struct ContentView: View {
             showsVaMarks: filters.showsVaMarks,
             weatherTiles: mapWeather.tiles,
             onCameraMoving: { mapWeather.report(cameraMoving: $0) },
+            // Where to sweep for real traffic, on the settle rather than
+            // through the gesture. The planet reports the same pair from its
+            // own camera, so the layer behaves the same on both shapes of the
+            // world — see `RealWorldTraffic.report`.
+            onRegionSettled: { centre, span in
+                RealWorldTraffic.shared.report(centre: centre, spanDegrees: span)
+            },
             measurement: $measurement,
             showsTerminator: filters.showsTerminator,
             showsNatTracks: filters.showsNatTracks,
@@ -873,6 +901,15 @@ struct ContentView: View {
                 MeasureBar(measurement: $measurement, theme: theme)
                     .transition(.opacity.combined(with: .move(edge: .leading)))
             }
+
+            // Last in the column, and up for as long as the layer is — see
+            // `RealWorldTrafficBanner`. It is the only bar here with no
+            // condition on it beyond its own switch: the weather bars come and
+            // go with what they report on, and this one is the report.
+            if realWorld.isOn {
+                RealWorldTrafficBanner(theme: theme)
+                    .transition(.opacity.combined(with: .move(edge: .leading)))
+            }
         }
         // Whichever edge a docked column stands on, the bars up here stop at
         // it rather than running underneath. The search field is gone by the
@@ -950,6 +987,10 @@ struct ContentView: View {
         mapStack
         .motion(Motion.chrome, value: selection?.id)
         .motion(Motion.chrome, value: replay.isActive)
+        // So the banner arrives and leaves with the same beat every other bar
+        // over the map does, rather than appearing on the frame the switch was
+        // flipped on a screen the person is not even looking at.
+        .motion(Motion.chrome, value: realWorld.isOn)
         // The pane and everything that steps aside for it move as one thing:
         // switching the placement in settings slides the window across the map
         // rather than teleporting it, and the hub in the corner goes with it.

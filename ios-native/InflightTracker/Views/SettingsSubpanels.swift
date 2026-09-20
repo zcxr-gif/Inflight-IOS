@@ -621,15 +621,18 @@ struct AppearanceSettingsPanel: View {
 
 // MARK: - Where the aircraft come from
 
-/// The two sources of traffic: everybody's flights from the cloud, and your
-/// own aircraft from the simulator on the next device along.
+/// Where the aeroplanes come from: everybody's flights from the cloud, your own
+/// aircraft from the simulator on the next device along, and — if it has been
+/// asked for — the real sky.
 struct FeedSettingsPanel: View {
 
     @EnvironmentObject private var feed: LiveFeed
     @ObservedObject private var connect = ConnectSession.shared
     @ObservedObject private var appearance = FlightInfoAppearance.shared
+    @ObservedObject private var realWorld = RealWorldTraffic.shared
 
     @State private var isShowingConnect = false
+    @State private var isShowingRealWorld = false
 
     private var theme: FlightInfoTheme { appearance.theme }
 
@@ -656,8 +659,24 @@ struct FeedSettingsPanel: View {
                 }
             }
             .panelEntrance(1)
+
+            // Last, because it is the only source here that is not Infinite
+            // Flight at all — and the only one that is off until somebody
+            // deliberately turns it on.
+            PanelSection(title: "THE REAL SKY") {
+                PanelActionRow(
+                    title: "Real-world traffic",
+                    symbol: "dot.radiowaves.up.forward",
+                    detail: SettingsSummary.realWorld(realWorld),
+                    tint: realWorld.isOn ? RealWorldMark.tint : nil
+                ) {
+                    isShowingRealWorld = true
+                }
+            }
+            .panelEntrance(2)
         }
         .sheet(isPresented: $isShowingConnect) { ConnectPanel() }
+        .sheet(isPresented: $isShowingRealWorld) { RealWorldTrafficSettingsPanel() }
     }
 
     private var summary: String {
@@ -688,6 +707,139 @@ struct FeedSettingsPanel: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Real-world traffic
+
+/// The switch that puts real aeroplanes on the map, and everything somebody
+/// needs to know before flipping it.
+///
+/// ## Why it is a screen rather than a row
+///
+/// It could have been one line under the feed, and that is what makes it the
+/// wrong shape. Every other switch in Settings changes how the app draws
+/// something it already has; this one changes *what the map is a picture of*,
+/// by adding aircraft that are not on the server, cannot be opened, are not in
+/// the counts anywhere else in the app, and come from a source with real
+/// limitations that somebody ought to read once. None of that fits on the line
+/// under a toggle, and a feature that surprises people is a feature that was
+/// explained somewhere they never looked.
+///
+/// The screen is therefore mostly prose, and unapologetically. The switch is
+/// the first thing on it — somebody who came to turn the layer off should not
+/// have to scroll past an essay to do it — and everything under it is what the
+/// layer does to the map, how you will know it is on, and what the source
+/// honestly is and is not.
+struct RealWorldTrafficSettingsPanel: View {
+
+    @ObservedObject private var traffic = RealWorldTraffic.shared
+    @ObservedObject private var appearance = FlightInfoAppearance.shared
+
+    private var theme: FlightInfoTheme { appearance.theme }
+
+    var body: some View {
+        MapPanel(
+            title: "Real-world traffic",
+            subtitle: SettingsSummary.realWorld(traffic)
+        ) {
+            PanelSection(title: "THE REAL SKY") {
+                PanelToggleRow(
+                    title: "Show real-world traffic",
+                    symbol: "dot.radiowaves.up.forward",
+                    detail: "Draws real aircraft alongside the server's, from ADS-B — the position reports real aeroplanes broadcast and a network of volunteer receivers picks up. They are painted mint, so you can always tell them from the simulator's traffic at a glance.",
+                    isOn: $traffic.isOn
+                )
+            }
+            .panelEntrance(0)
+
+            // Second, directly under the switch, because it is the answer to
+            // the question somebody will actually have in a month: "is this
+            // on, and how would I know?"
+            PanelSection(title: "WHILE IT IS ON") {
+                noteRow(
+                    symbol: "rectangle.topthird.inset.filled",
+                    title: "A bar over the map",
+                    detail: "Up the whole time the layer is, on the map and on the planet, saying how many real aircraft are in range. It cannot be dismissed — the OFF button on it is the way out, and it is one tap."
+                )
+
+                PanelDivider()
+
+                noteRow(
+                    symbol: "paintpalette",
+                    title: "Mint aeroplanes",
+                    detail: "Real traffic is drawn in a colour nothing else on the map uses. Ordinary traffic stays white, the aircraft you have open stays amber, your own stays whatever you painted it."
+                )
+
+                PanelDivider()
+
+                noteRow(
+                    symbol: "hand.tap",
+                    title: "Nothing to open",
+                    detail: "Tapping a real aeroplane shows its callsign, type, height and speed, and that is all there is: there is no pilot behind it, no filed plan on our backend and no history to replay. Tapping the server's traffic opens a flight window exactly as it always did."
+                )
+            }
+            .panelEntrance(1)
+
+            // Third, and it has to be said plainly. An app that draws real
+            // aeroplanes has to be clear about what it is drawing them from.
+            PanelSection(title: "WHAT IT IS NOT") {
+                noteRow(
+                    symbol: "exclamationmark.triangle",
+                    title: "Not for real flying",
+                    detail: "This is a hobbyist feed for a flight simulator's companion app. It is not a certified traffic source, it is not complete, and nothing here is fit for any operational purpose whatsoever."
+                )
+
+                PanelDivider()
+
+                noteRow(
+                    symbol: "antenna.radiowaves.left.and.right.slash",
+                    title: "Only what somebody heard",
+                    detail: "Coverage is wherever volunteers have receivers — excellent over Europe and North America, patchy over oceans, deserts and much of the southern hemisphere. Military and other traffic that does not broadcast is simply absent."
+                )
+
+                PanelDivider()
+
+                noteRow(
+                    symbol: "clock.arrow.circlepath",
+                    title: "A sweep, not a stream",
+                    detail: "The layer asks once every fifteen seconds for what is within 250 miles of the middle of your map, and holds still between times the same way the server's traffic does. Zoomed further out than about a country across it draws nothing, because one sweep at that scale is a blot rather than a picture of the world."
+                )
+            }
+            .panelEntrance(2)
+
+            PanelSection(title: "WHERE IT COMES FROM") {
+                PanelActionRow(
+                    title: "adsb.lol",
+                    symbol: "link",
+                    detail: "An open community ADS-B network. The data is published under the Open Database Licence by the people who run the receivers, and Inflight has no affiliation with them."
+                ) {
+                    guard let url = URL(string: "https://adsb.lol") else { return }
+                    UIApplication.shared.open(url)
+                }
+            }
+            .panelEntrance(3)
+        }
+    }
+
+    /// A line of explanation that is not a control.
+    ///
+    /// `PanelActionRow` without the tap and without the chevron: this screen is
+    /// mostly things worth reading once, and dressing them as buttons that do
+    /// nothing would be the wrong promise three rows running.
+    private func noteRow(symbol: String, title: String, detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            PanelRowLabel(title: title, symbol: symbol)
+
+            Text(detail)
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(theme.textDim)
+                .padding(.leading, 30)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -1086,6 +1238,24 @@ enum SettingsSummary {
         case let .live(host):       return "Connected to \(host)."
         case let .waiting(reason):  return "Waiting — \(reason)"
         }
+    }
+
+    /// What the real-world row says without being opened.
+    ///
+    /// Off is the short answer and it is the honest one: the layer is off on
+    /// every install until somebody asks for it. On says so first, in that
+    /// order, because "on" is the word this row exists to make impossible to
+    /// miss — the hub is where somebody goes to find out what they have left
+    /// switched on, and a line starting with a count would bury it.
+    static func realWorld(_ traffic: RealWorldTraffic) -> String {
+        guard traffic.isOn else {
+            return "Off — the map is Infinite Flight's traffic and nothing else."
+        }
+        // On and drawing nothing is still on, and the row says so first —
+        // but claiming real aircraft are on the map while none are would be
+        // the one thing worse than not saying anything.
+        guard !traffic.flights.isEmpty else { return "On — \(traffic.status.label)." }
+        return "On — real aircraft are on your map. \(traffic.status.label)."
     }
 }
 

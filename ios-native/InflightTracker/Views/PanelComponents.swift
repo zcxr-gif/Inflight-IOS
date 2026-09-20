@@ -172,6 +172,15 @@ struct PanelRowLabel: View {
     let title: String
     let symbol: String
 
+    /// A colour for the glyph, for the handful of rows whose *state* is worth
+    /// seeing before the line under them is read.
+    ///
+    /// Nil is the ordinary case and the panel's own grey. Used sparingly and
+    /// on purpose: a settings list where several rows are coloured is a
+    /// settings list where none of them stand out, which is the opposite of
+    /// what colouring one is for.
+    var tint: Color? = nil
+
     @ObservedObject private var appearance = FlightInfoAppearance.shared
 
     private var theme: FlightInfoTheme { appearance.theme }
@@ -179,8 +188,8 @@ struct PanelRowLabel: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: symbol)
-                .font(.system(size: 13))
-                .foregroundStyle(theme.textSecondary)
+                .font(.system(size: 13, weight: tint == nil ? .regular : .semibold))
+                .foregroundStyle(tint ?? theme.textSecondary)
                 .frame(width: 20)
 
             Text(title)
@@ -511,6 +520,10 @@ struct PanelActionRow: View {
     let title: String
     let symbol: String
     var detail: String? = nil
+
+    /// Passed through to the label — see `PanelRowLabel.tint`.
+    var tint: Color? = nil
+
     let action: () -> Void
 
     @ObservedObject private var appearance = FlightInfoAppearance.shared
@@ -521,7 +534,7 @@ struct PanelActionRow: View {
         Button(action: action) {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 4) {
-                    PanelRowLabel(title: title, symbol: symbol)
+                    PanelRowLabel(title: title, symbol: symbol, tint: tint)
 
                     if let detail = detail {
                         Text(detail)

@@ -186,6 +186,16 @@ struct TrackerMapView: UIViewRepresentable {
     /// tiles twice a second at a zoom the finger has already left.
     var onCameraMoving: (Bool) -> Void = { _ in }
 
+    /// Where the map has come to rest — its centre, and how many degrees of
+    /// latitude are on screen.
+    ///
+    /// Reported on the settle rather than through the gesture, because the one
+    /// thing that reads it goes to the network: real-world traffic is swept
+    /// around wherever the map is pointed, and sweeping around every frame of
+    /// a pan would be a hundred requests to answer one question. The planet
+    /// reports the same pair from its own camera — see `PlanetSurface`.
+    var onRegionSettled: (CLLocationCoordinate2D, Double) -> Void = { _, _ in }
+
     /// The ruler: whether it is down, and where its two ends are. A binding
     /// because the map is where the taps land, so the map is what moves it.
     @Binding var measurement: MapMeasurement
@@ -382,6 +392,19 @@ struct TrackerMapView: UIViewRepresentable {
         // the one that lands rather than being pulled back by the follow.
         context.coordinator.followSelection(on: mapView)
         context.coordinator.handle(command, on: mapView)
+
+        // And say where the world is pointed, for whoever wants to know.
+        //
+        // The settle is the interesting report — it is what follows a pan —
+        // and this is the safety net under it: a map restored to its last
+        // camera on launch may never fire a region change at all, which would
+        // leave anything waiting on a position waiting forever. `report` is a
+        // pair of comparisons until a sweep is actually due, so running it on
+        // every update pass costs nothing.
+        let region = mapView.region
+        if region.span.latitudeDelta.isFinite, region.span.latitudeDelta > 0 {
+            onRegionSettled(region.center, region.span.latitudeDelta)
+        }
     }
 
     // MARK: - Coordinator
@@ -1289,7 +1312,15 @@ struct TrackerMapView: UIViewRepresentable {
                 let ids = reported ?? Set(flights.lazy.map(\.id))
                 reported = ids
 
-                if !ids.contains(id),
+                // Real traffic gets no grace at all, and that is the point:
+                // the layer's whole promise is that switching it off empties
+                // the map on the same frame, and a mint aeroplane still
+                // sitting there half a minute later is that promise broken. A
+                // sweep is fifteen seconds and the grace is thirty, so what is
+                // given up is one held position on a contact a receiver has
+                // stopped hearing — which has usually genuinely gone.
+                if annotation.flight.origin == .infiniteFlight,
+                   !ids.contains(id),
                    now.timeIntervalSince(lastSeen[id] ?? .distantPast) < AppConfig.flightGracePeriod {
                     continue
                 }
@@ -1414,7 +1445,11 @@ struct TrackerMapView: UIViewRepresentable {
             view.spriteImage = PlaneSprites.shared.icon(
                 forKey: key,
                 selected: selected,
+                // The pilot colouring first, and the aircraft's own source
+                // behind it — see `Flight.originTint`. Real traffic has no
+                // username, so in practice the two never meet.
                 tint: appliedHighlighting.tint(for: annotation.flight.username)
+                    ?? annotation.flight.originTint
             )
             view.spriteTransform = rotation(
                 for: annotation.drawnHeading,
@@ -1470,7 +1505,12 @@ struct TrackerMapView: UIViewRepresentable {
 
             var image: UIImage?
             var adId = ""
-            if parent.showsVaMarks, let ad = VaMarkStore.shared.partner(callsign: flight.callsign) {
+            // Never on real traffic. A logo over an aeroplane is read as whose
+            // aeroplane it is, the partner listings are keyed on callsign, and
+            // real airline callsigns collide with virtual ones by design — a
+            // British Airways 777 out of Heathrow is not somebody's VA flight.
+            if parent.showsVaMarks, flight.origin == .infiniteFlight,
+               let ad = VaMarkStore.shared.partner(callsign: flight.callsign) {
                 adId = ad.id
                 // Asking is what starts the download, and nil until it lands.
                 image = VaMarkStore.shared.mark(for: ad)
@@ -3940,7 +3980,10 @@ struct TrackerMapView: UIViewRepresentable {
                 annotation: flightAnnotation,
                 reuseIdentifier: Coordinator.reuseIdentifier
             )
-            view.canShowCallout = false
+            // Simulator traffic opens a whole window, so a callout would be a
+            // second, worse answer arriving first. Real traffic opens nothing
+            // — see `didSelect` — so the callout is the only answer it has.
+            view.canShowCallout = flightAnnotation.flight.origin == .realWorld
             view.displayPriority = .required
             // Unchanged, and it stays honest because the marks are drawn
             // outside the view's bounds — see `FlightAnnotationView`.
@@ -3968,6 +4011,17 @@ struct TrackerMapView: UIViewRepresentable {
 
             guard let annotation = view.annotation as? FlightAnnotation,
                   let view = view as? FlightAnnotationView else { return }
+
+            // Real traffic opens nothing.
+            //
+            // The flight window is built on what the backend knows about one
+            // of *its* aircraft — the pilot, their grade and virtual airline,
+            // the filed plan, the flown history the replay scrubs through —
+            // and an ADS-B contact has none of that. Opening a window that
+            // could only be empty is worse than not opening one, so the tap
+            // shows the callout the annotation already carries and stops
+            // there. See `Flight.Origin`.
+            guard annotation.flight.origin == .infiniteFlight else { return }
 
             apply(annotation: annotation, to: view, selected: true, on: mapView)
 
@@ -4114,6 +4168,14 @@ struct TrackerMapView: UIViewRepresentable {
                 // settle rather than mid-pinch: a zoom that passes through the
                 // limit and back out should not flick the overlay off and on.
                 self.syncWeatherTiles(on: mapView)
+
+                // Last, and out of the map rather than into it: whoever wants
+                // to know where the world is pointed is welcome to, and the
+                // map goes on being a thing that draws what it is given.
+                let region = mapView.region
+                if region.span.latitudeDelta.isFinite, region.span.latitudeDelta > 0 {
+                    self.parent.onRegionSettled(region.center, region.span.latitudeDelta)
+                }
             }
 
             pendingCull = work
