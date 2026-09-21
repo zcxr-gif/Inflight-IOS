@@ -448,6 +448,7 @@ struct FlightDetailView: View {
             loadTrack()
             loadSim()
             loadPlan()
+            loadRealWorldRoute()
         }
         // The sim writes its row every 15 to 45 seconds, so re-asking on the
         // sheet's own expansion or on every packet would be waste. A minute is
@@ -488,6 +489,12 @@ struct FlightDetailView: View {
             guard isRealWorld else { return }
             let latest = FlightTrailStore.shared.points(for: flightId)
             if latest.count != track.count { track = latest }
+            // And on the same clock, because the first ask can come back with
+            // nothing: an aeroplane still on the stand is not yet where its
+            // route would put it, so the service declines to name one and says
+            // so again a minute later. See `loadRealWorldRoute`, which is what
+            // makes this cost nothing on the sweeps in between.
+            loadRealWorldRoute()
         }
     }
 
@@ -828,6 +835,7 @@ struct FlightDetailView: View {
         loadTrack()
         loadSim()
         loadPlan()
+        loadRealWorldRoute()
     }
 
     /// Pulls the flown path the backend already has for this flight, which
@@ -866,6 +874,36 @@ struct FlightDetailView: View {
 
         let latest = FlightPlanStore.shared.waypoints(for: flightId)
         if latest != plan { plan = latest }
+    }
+
+    /// Where this real aeroplane is going, asked about out of turn.
+    ///
+    /// The mirror of `loadPlan` for the other sky, and it exists for a reason
+    /// that is entirely about *this* window rather than about the layer. ADS-B
+    /// carries no route, so one is joined on from the callsign — and that
+    /// lookup works through a sweep's worth of aircraft a hundred at a time,
+    /// in whatever order the network listed them. Over a busy part of the
+    /// world that is several hundred contacts, and the aeroplane a window is
+    /// open on is no likelier to be near the front of the queue than any
+    /// other: it simply drew a dash where its route goes until its turn came
+    /// round, which took long enough to look like a window that has no route
+    /// in it at all.
+    ///
+    /// So the window asks for its own. Nothing is asked for an aircraft that
+    /// already has both ends, for one from the server's feed — which arrives
+    /// with its route in the packet — or while a lookup for it is in the air,
+    /// which is what makes this safe to call on every sweep.
+    private func loadRealWorldRoute() {
+        guard let flight = flight, flight.origin == .realWorld else { return }
+
+        // Either end missing is worth asking about: the pair is written
+        // together, so one without the other is an aeroplane that has not been
+        // resolved rather than one half-resolved.
+        let departure = (flight.departureIcao ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let arrival = (flight.arrivalIcao ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard departure.isEmpty || arrival.isEmpty else { return }
+
+        RealWorldTraffic.shared.resolveRoute(for: flight)
     }
 
     private func loadTrack() {

@@ -13,10 +13,15 @@ import Foundation
 /// `origin == .realWorld`, and hands the array to whoever is drawing the world.
 ///
 /// It is a **layer**, not a feed. Nothing here touches `LiveFeed`, and nothing
-/// here reaches the logbook, the widgets, a Live Activity, the watchlist or a
-/// flight window — a real airliner has no pilot profile to open, no plan filed
-/// with our backend and no history for the replay to scrub through. It is
-/// aeroplanes on a map, drawn in their own colour, and that is the whole of it.
+/// here reaches the logbook, the widgets, a Live Activity or the watchlist —
+/// every one of those is a statement about the Infinite Flight server, and a
+/// real airliner has no pilot profile to open, no plan filed with our backend
+/// and no history for the replay to scrub through.
+///
+/// Tapping one does open a flight window, badged so the two can never be
+/// confused, and that window is fed from here rather than from a packet: the
+/// telemetry off the sweeps, and the route off `RealWorldRoutes` — see
+/// `resolveRoute(for:)`.
 ///
 /// ## Why it is off, loudly
 ///
@@ -182,6 +187,39 @@ final class RealWorldTraffic: ObservableObject {
             guard self.timer != nil else { return self.start() }
 
             self.refreshIfNeeded()
+        }
+    }
+
+    // MARK: - The aeroplane somebody is looking at
+
+    /// Look up the route of the one aeroplane a window is open on, now, and
+    /// put the answer back on the map.
+    ///
+    /// A sweep resolves routes in batches, in the order the network happened
+    /// to list its aircraft in, and over a busy part of the world that is
+    /// several hundred contacts — so the aeroplane somebody has just tapped
+    /// could sit behind a queue of aircraft nobody has looked at and draw a
+    /// dash where its route goes for minutes. That is the report this comes
+    /// from: a real aeroplane's flight window with no departure and no
+    /// destination in it.
+    ///
+    /// The window asks about its own aeroplane instead, and this is the half
+    /// of that which redraws: `RealWorldRoutes` writes the answer into the
+    /// cache, and the route only reaches the window by being attached to the
+    /// aircraft and published, exactly as the sweep's own batch is.
+    ///
+    /// Cheap enough for the window to call on every sweep, which is what it
+    /// does. An aeroplane whose route is known, or whose lookup is already in
+    /// the air, costs nothing at all.
+    func resolveRoute(for flight: Flight) {
+        guard isOn, flight.origin == .realWorld else { return }
+
+        RealWorldRoutes.shared.resolveNow(flight) { [weak self] learned in
+            guard let self = self, self.isOn, learned else { return }
+            self.publish(
+                flights: RealWorldRoutes.shared.attaching(to: self.flights),
+                status: self.status
+            )
         }
     }
 

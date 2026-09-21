@@ -13,6 +13,7 @@ server, on the flat map and on the drawn planet alike.
 | --- | --- |
 | The switch, the sweep clock, the network | `InflightTracker/Services/RealWorldTraffic.swift` |
 | One ADS-B contact as a `Flight` | `InflightTracker/Models/Flight.swift` — `init?(adsb:)` and `Flight.Origin` |
+| Where one is going, joined on from the callsign | `InflightTracker/Services/RealWorldRoutes.swift` |
 | The colour, in one place | `InflightTracker/Map/RealWorldMark.swift` |
 | The bar over the map, and its folded pill | `InflightTracker/Views/RealWorldTrafficBanner.swift` |
 | The screen behind the switch | `InflightTracker/Views/SettingsSubpanels.swift` — `RealWorldTrafficSettingsPanel` |
@@ -281,11 +282,47 @@ means the route card, the board, the widget peek's route line and
 they go on reading one field instead of learning about a second kind of
 aircraft.
 
-Bookkeeping: one request in flight at a time, at most 60 callsigns per batch, a
-two-hour cache, and **a miss is cached as firmly as a hit** — a light aircraft
-with no schedule behind it must not be asked about every fifteen seconds for as
-long as it is in range. Aircraft flying under a registration are never asked
-about at all.
+Bookkeeping: one batch in flight at a time, at most 100 callsigns per batch —
+the endpoint's own ceiling, above which it answers 400 — and **a miss is cached
+as well as a hit**, because a light aircraft with no schedule behind it must not
+be asked about every fifteen seconds for as long as it is in range. Aircraft
+flying under a registration are never asked about at all.
+
+The two are not cached for the same length of time, and that is deliberate. A
+hit is a fact about the flight number and keeps for **two hours**; a miss is a
+verdict about where the aircraft is *at the moment* — a route is only handed
+over when the aeroplane is also where it would put one — so it keeps for **ten
+minutes**. adsb.lol re-check their own implausible verdicts after sixty seconds
+for the same reason. Held for two hours beside the hits, the first miss of a
+session was the last word on that aeroplane for the rest of it: an airliner
+asked about while it was still on the stand drew a dash until the app was
+restarted.
+
+### The aeroplane with a window open on it does not queue
+
+This is what the report *"there's no destination or departure ICAO on the flight
+info windows"* actually was. The routes were being fetched; they were being
+fetched for the wrong aircraft first.
+
+The batch works through a sweep in whatever order the network happened to list
+it, and a sweep over a busy part of the world is several hundred contacts. The
+aeroplane somebody has just tapped is no likelier to be near the front of that
+queue than any other, so its window opened, drew `———` where its route goes, and
+kept drawing it for as long as anybody was willing to watch — which looks
+exactly like a window that has no route in it at all.
+
+So `RealWorldRoutes.resolveNow` asks about one callsign, out of turn, in a
+request of its own alongside the batch rather than behind it. `FlightDetailView`
+calls it when the window opens, when the window changes aeroplane, and on every
+sweep while the route is still unknown; `RealWorldTraffic.resolveRoute(for:)` is
+the half that attaches the answer and republishes, because a route in the cache
+that nobody has written onto an aircraft is not on screen.
+
+It is free to call repeatedly, which is what makes calling it per sweep
+reasonable: an aeroplane that already has both ends, one whose lookup is in the
+air, and one whose miss is still fresh all cost nothing. A miss for the focused
+aeroplane is held for **ninety seconds** rather than ten minutes — it is the one
+dash anybody is reading, and there is only ever one of it.
 
 ### A miss is not a failure
 

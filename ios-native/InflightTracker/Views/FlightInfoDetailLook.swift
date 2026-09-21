@@ -212,6 +212,19 @@ private struct FlightDetailRouteEnds: View {
     /// window; none in the peek.
     var showsFlag: Bool = false
 
+    /// What an end with nothing behind it is called.
+    ///
+    /// "Not filed" is the truth about one of the server's aircraft: a pilot
+    /// either files a plan or does not, and this window is where you find out
+    /// which. Nothing is ever filed for a real aeroplane — ADS-B has no field
+    /// for a route at all, and what this band draws when it has one is a
+    /// callsign matched against a database — so the same two words there would
+    /// name a thing that does not exist and quietly blame a pilot for not
+    /// doing it. See `RealWorldRoutes`.
+    private var emptyName: String {
+        flight.origin == .realWorld ? "No route found" : "Not filed"
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 6) {
             end(progress?.departure, icao: flight.departureIcao, alignment: .leading)
@@ -238,7 +251,7 @@ private struct FlightDetailRouteEnds: View {
                 .foregroundStyle(theme.textPrimary)
                 .flightInfoLine(minimumScale: 0.5)
 
-            Text((airport?.name ?? "Not filed").uppercased())
+            Text((airport?.name ?? emptyName).uppercased())
                 .font(.system(size: nameSize, weight: .bold))
                 .tracking(0.3)
                 .foregroundStyle(theme.textSecondary)
