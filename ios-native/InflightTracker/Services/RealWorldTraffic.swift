@@ -308,15 +308,34 @@ final class RealWorldTraffic: ObservableObject {
 
                 self.lastUpdate = Date()
 
+                // Routes first, so everything below this line — the trail
+                // store, the map, an open window — sees one kind of aircraft.
+                // ADS-B carries no destination, so these are joined on from the
+                // callsign afterwards; `RealWorldRoutes` explains what the join
+                // is worth and why most of what comes back is thrown away.
+                let flights = RealWorldRoutes.shared.attaching(to: parsed)
+
                 // The same store the server's traffic writes to, told which
                 // source this batch is — see `FlightTrailStore.record`. It is
                 // what gives a real aeroplane a flown path on the map and a
                 // profile in its window: not the backend's history, which does
                 // not exist for one of these, but what this device has watched
                 // since the layer was switched on.
-                FlightTrailStore.shared.record(parsed, from: .realWorld)
+                FlightTrailStore.shared.record(flights, from: .realWorld)
 
-                self.publish(flights: parsed, status: .live(parsed.count))
+                self.publish(flights: flights, status: .live(flights.count))
+
+                // Then ask about whatever is still unaccounted for. The answer
+                // lands between sweeps, and re-publishing rather than waiting
+                // for the next one is the difference between a route appearing
+                // a second after a window opens and appearing fifteen.
+                RealWorldRoutes.shared.resolve(flights) { [weak self] learned in
+                    guard let self = self, self.isOn, learned else { return }
+                    self.publish(
+                        flights: RealWorldRoutes.shared.attaching(to: self.flights),
+                        status: self.status
+                    )
+                }
             }
         }
 

@@ -736,6 +736,12 @@ struct RealWorldTrafficSettingsPanel: View {
     @ObservedObject private var traffic = RealWorldTraffic.shared
     @ObservedObject private var appearance = FlightInfoAppearance.shared
 
+    /// Observed for one line. A route that never appears looks exactly like an
+    /// aeroplane that has none, and this is the only place that can tell
+    /// somebody which of the two they are looking at — see
+    /// `RealWorldRoutes.Outcome`.
+    @ObservedObject private var routes = RealWorldRoutes.shared
+
     private var theme: FlightInfoTheme { appearance.theme }
 
     var body: some View {
@@ -777,6 +783,14 @@ struct RealWorldTrafficSettingsPanel: View {
                     symbol: "hand.tap",
                     title: "A window, with a REAL LIFE badge on it",
                     detail: "Tapping a real aeroplane opens the same flight window the server's traffic does, badged so the two can never be confused. What is inside it is thinner, and honestly so: there is no pilot behind an ADS-B contact, no plan filed with our backend and no history from before you started watching, so those parts are absent rather than empty."
+                )
+
+                PanelDivider()
+
+                noteRow(
+                    symbol: "point.topleft.down.curvedto.point.bottomright.up",
+                    title: "Where it is going, estimated",
+                    detail: "ADS-B carries no destination — there is no field for one — so the route is looked up from the callsign and only drawn when the aircraft is where that route would put it. It is an estimate, not a filed plan, and a great many aeroplanes have no schedule behind them at all. \(RealWorldRoutes.shared.outcome.label)."
                 )
 
                 PanelDivider()

@@ -93,6 +93,7 @@ struct InstrumentsPanel: View {
     @EnvironmentObject private var feed: LiveFeed
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @ObservedObject private var preferences = InstrumentPreferences.shared
+    @ObservedObject private var realWorld = RealWorldTraffic.shared
     @StateObject private var source = InstrumentSource()
     @Environment(\.dismiss) private var dismiss
 
@@ -100,8 +101,13 @@ struct InstrumentsPanel: View {
 
     private var theme: FlightInfoTheme { appearance.theme }
 
+    /// Only the callsign in the header comes from this — the deck resolves its
+    /// own — but it resolves against the same two skies, so a panel opened on a
+    /// real aeroplane is not headed with a dash.
     private var flight: Flight? {
-        feed.flights.first { $0.id == flightId }
+        Flight.isRealWorld(id: flightId)
+            ? realWorld.flights.first { $0.id == flightId }
+            : feed.flights.first { $0.id == flightId }
     }
 
     var body: some View {
@@ -311,26 +317,47 @@ private struct InstrumentSourceModifier: ViewModifier {
     @ObservedObject var source: InstrumentSource
     @ObservedObject var feed: LiveFeed
     @ObservedObject private var preferences = InstrumentPreferences.shared
+    @ObservedObject private var realWorld = RealWorldTraffic.shared
 
     let flightId: String
+
+    /// The sky this aircraft is in, and only that one.
+    ///
+    /// Not the two arrays added together, which is what the map draws. The
+    /// navigation display's traffic ring is "what is around me", and around a
+    /// real airliner that means other real aeroplanes: mixing the server's
+    /// traffic into it would put a diamond on the display for an aircraft in a
+    /// different sky at the same coordinates. The same the other way round —
+    /// nobody flying the simulator is being asked to look out for an ADS-B
+    /// contact.
+    private var flights: [Flight] {
+        Flight.isRealWorld(id: flightId) ? realWorld.flights : feed.flights
+    }
 
     func body(content: Content) -> some View {
         content
             .onAppear {
                 source.adopt(flightId: flightId)
-                source.ingest(flights: feed.flights, rangeNM: preferences.rangeNM)
+                source.ingest(flights: flights, rangeNM: preferences.rangeNM)
             }
             .onChange(of: flightId) { _, id in
                 source.adopt(flightId: id)
-                source.ingest(flights: feed.flights, rangeNM: preferences.rangeNM)
+                source.ingest(flights: flights, rangeNM: preferences.rangeNM)
             }
             .onChange(of: feed.lastUpdate) { _, _ in
-                source.ingest(flights: feed.flights, rangeNM: preferences.rangeNM)
+                source.ingest(flights: flights, rangeNM: preferences.rangeNM)
+            }
+            // The other clock. A sweep landing is to a real aeroplane's
+            // instruments what a packet is to a simulated one's, and without
+            // this the panel held whatever the first sweep after it opened had
+            // to say for as long as it was on screen.
+            .onChange(of: realWorld.revision) { _, _ in
+                source.ingest(flights: flights, rangeNM: preferences.rangeNM)
             }
             // Reaching further has to widen the net the traffic was drawn from,
             // or the display gains empty miles rather than the aircraft in them.
             .onChange(of: preferences.rangeNM) { _, range in
-                source.ingest(flights: feed.flights, rangeNM: range)
+                source.ingest(flights: flights, rangeNM: range)
             }
             // The sim writes its row every fifteen to forty-five seconds. A
             // minute is slower than the source changes and faster than anybody

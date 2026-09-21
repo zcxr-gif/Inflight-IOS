@@ -20,6 +20,13 @@ struct InstrumentDeck: View {
     @EnvironmentObject private var feed: LiveFeed
     @ObservedObject private var preferences = InstrumentPreferences.shared
 
+    /// The other sky. Observed for the same reason the feed is injected: an
+    /// aeroplane the app is drawing from ADS-B has telemetry that moves, and
+    /// instruments that only ever read the socket showed NO DATA for every one
+    /// of them — the window's one panel that never caught up with the rest of
+    /// it once real traffic could be opened at all.
+    @ObservedObject private var realWorld = RealWorldTraffic.shared
+
     let flightId: String
 
     /// What the pilot's own simulator says, when they are broadcasting it.
@@ -57,8 +64,11 @@ struct InstrumentDeck: View {
     /// fast enough to want more.
     private static let frameInterval: TimeInterval = 1.0 / 30.0
 
+    /// This aircraft, from whichever sky its id belongs to.
     private var flight: Flight? {
-        feed.flights.first { $0.id == flightId }
+        Flight.isRealWorld(id: flightId)
+            ? realWorld.flights.first { $0.id == flightId }
+            : feed.flights.first { $0.id == flightId }
     }
 
     var body: some View {
@@ -199,13 +209,20 @@ final class InstrumentSource: ObservableObject {
         refreshSim()
     }
 
-    /// Called once per packet with everything on the server.
+    /// Called once per packet, or once per sweep, with everything in the sky
+    /// this aircraft is in. See `InstrumentSourceModifier.flights` for why it
+    /// is one sky rather than both of them added together.
     func ingest(flights: [Flight], rangeNM: Double) {
         guard let flightId = flightId,
               let flight = flights.first(where: { $0.id == flightId }) else { return }
 
         estimator.ingest(flight: flight)
         refreshTraffic(around: flight, in: flights, rangeNM: rangeNM)
+
+        // Nothing to read for a real aeroplane, and asking is what starts a
+        // fetch — against our own backend, keyed on an id it has never heard
+        // of. A receiver hears a position and never a flight plan.
+        guard !Flight.isRealWorld(id: flightId) else { return }
 
         // The store answers from cache and fetches in the background, so this
         // is a dictionary read on every packet and a request roughly once per
@@ -222,6 +239,9 @@ final class InstrumentSource: ObservableObject {
     /// looked at.
     func refreshSim() {
         guard let wanted = flightId else { return }
+        // Nobody is broadcasting a real airliner from their simulator, and the
+        // id would not match a row if they were.
+        guard !Flight.isRealWorld(id: wanted) else { return }
         // Hopped explicitly rather than inherited: everything else here is
         // called from a view callback and is already on the main actor, and
         // this is the one path that comes back off one.
@@ -233,7 +253,7 @@ final class InstrumentSource: ObservableObject {
     }
 
     private func refreshPlan() {
-        guard let flightId = flightId else { return }
+        guard let flightId = flightId, !Flight.isRealWorld(id: flightId) else { return }
         waypoints = FlightPlanStore.shared.waypoints(for: flightId)
     }
 

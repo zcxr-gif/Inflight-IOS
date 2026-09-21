@@ -31,7 +31,22 @@ import UIKit
 public struct PlaneBackdrop: View {
 
     /// Which cached photo to draw. Miss → the drawn sky.
+    ///
+    /// Empty when the photograph was handed over directly rather than looked
+    /// up — see `init(image:style:altitudeFt:)`.
     public let photoKey: String
+
+    /// A photograph already in hand, which wins over the key.
+    ///
+    /// The widgets have a key and no picture: they run in an extension with a
+    /// hard memory ceiling, so the tile reads one JPEG off the shared container
+    /// and that is the whole of its budget. The flight window is the other way
+    /// round — it has already fetched and decoded the photograph for the header
+    /// by the time anything asks for a backdrop, and sending it back through the
+    /// shared store would be a second decode of a file the peek may not even
+    /// have (real traffic's photographs come from Planespotters and are never
+    /// written there).
+    private let suppliedImage: UIImage?
 
     /// Where the text is, and therefore where the scrim goes.
     public let style: Style
@@ -90,13 +105,25 @@ public struct PlaneBackdrop: View {
 
     public init(photoKey: String, style: Style = .framed, altitudeFt: Int = 0) {
         self.photoKey = photoKey
+        self.suppliedImage = nil
         self.style = style
         self.altitudeFt = altitudeFt
     }
 
+    /// The same backdrop, drawn on a photograph the caller already holds. Nil
+    /// draws the same sky a cache miss does.
+    public init(image: UIImage?, style: Style = .framed, altitudeFt: Int = 0) {
+        self.photoKey = ""
+        self.suppliedImage = image
+        self.style = style
+        self.altitudeFt = altitudeFt
+    }
+
+    private var image: UIImage? { suppliedImage ?? SharedStore.photo(for: photoKey) }
+
     public var body: some View {
         ZStack {
-            if let image = SharedStore.photo(for: photoKey) {
+            if let image = image {
                 Image(uiImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)

@@ -613,6 +613,16 @@ enum FlightInfoPeakStyle: String, CaseIterable, Identifiable {
     /// size, the two live numbers, and the type and tail along the foot. Pro.
     case detail
 
+    /// The home-screen tile, in the window.
+    ///
+    /// Not a fourth arrangement of the same parts, which is what the other
+    /// three are. It is the Flight widget — the same route strip, the same
+    /// readouts, the same photograph behind the same shaped scrim, drawn from
+    /// the same views the tile itself is drawn from — so somebody who has put
+    /// one on their home screen taps an aeroplane and gets the thing they
+    /// already know how to read.
+    case widget
+
     var id: String { rawValue }
 
     /// Whether this style is behind `ProFeature.flightInfoLook`.
@@ -627,6 +637,7 @@ enum FlightInfoPeakStyle: String, CaseIterable, Identifiable {
         case .compact: return "Compact"
         case .rich: return "Photo"
         case .detail: return "Detail"
+        case .widget: return "Widget"
         }
     }
 
@@ -635,6 +646,7 @@ enum FlightInfoPeakStyle: String, CaseIterable, Identifiable {
         case .compact: return "A bar with a thumbnail"
         case .rich: return "Opens on the aircraft photo"
         case .detail: return "Height, speed, type and tail, before you open it"
+        case .widget: return "The home-screen tile, in the window"
         }
     }
 }
@@ -1335,6 +1347,13 @@ enum FlightInfoLayout {
         // Between the two: it carries the compact bar's rows plus a readout
         // column and a foot, but no hero photograph.
         case .detail: return 322
+        // A tile, and a tile is the one peek whose height is nearly fixed: the
+        // photograph is behind the text rather than above it, so nothing in
+        // here grows with the picture. `FlightWidgetPeek.minimumHeight` plus
+        // the handle's clearance and the gap it floats above the foot of the
+        // screen, less a few points so the correction is still upward — see
+        // the note above.
+        case .widget: return 228
         }
     }
 
@@ -1439,6 +1458,36 @@ enum FlightInfoLayout {
     /// Room at the top of the compact bar for the window's own grabber, which
     /// floats over the sheet rather than taking a band of its own.
     static let peakHandleClearance: CGFloat = 22
+
+    /// The margin the widget peek's tile floats in.
+    ///
+    /// Wider than the sixteen the other peeks lay out to, and it is not a taste
+    /// thing. Those peeks are *cards in* the window — their surfaces are the
+    /// window's own, drawn on its ground, and a card sitting close to the edge
+    /// of the sheet it belongs to looks like part of it, which it is. The tile
+    /// is a different object: a home-screen widget, with its own dark surface
+    /// and its own corner, and at sixteen it landed a few points inside the
+    /// sheet's own rounded corner and read as a rectangle nested in a rectangle
+    /// rather than as something lying on top of one.
+    ///
+    /// Eighteen is what separates the two corners enough to stop them being
+    /// read as a border. The shadow under the tile does the rest — see
+    /// `FlightWidgetPeek`.
+    static let widgetPeekInset: CGFloat = 18
+
+    /// ...and the gap under it, which is larger than the sides on purpose.
+    ///
+    /// Two things live down there that nothing else in the peek has to clear.
+    /// The home indicator reaches about thirteen points up, and the display's
+    /// own corner is a fifty-odd point arc that cuts across exactly where the
+    /// tile's bottom corners want to be — at sixteen and eighteen the corner
+    /// came within a few points of the glass, which is what made it look cut
+    /// off. Twenty-six puts the whole tile comfortably inside both.
+    ///
+    /// It also reads right rather than merely measuring right: a card floating
+    /// at the foot of a screen wants more room under it than beside it, or it
+    /// looks like it is sliding off.
+    static let widgetPeekBottomGap: CGFloat = 26
 
     /// How far above the peak height the phases have finished swapping. The
     /// cross-fade rides the drag rather than the detent, so it wants to be

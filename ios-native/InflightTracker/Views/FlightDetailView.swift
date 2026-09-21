@@ -279,7 +279,17 @@ struct FlightDetailView: View {
         Set(feed.atcStations.filter { !$0.isCenter }.map(\.identifier))
     }
 
-    var body: some View {
+    /// The two phases, stacked and cross-faded, plus the bookkeeping that
+    /// keeps the sheet exactly as tall as whichever of them is showing.
+    ///
+    /// Split out of `body` rather than written inline there, and not for
+    /// tidiness. All of this, the window chrome and the dozen observers under
+    /// it were one expression, and Swift type-checks an expression whole: it
+    /// got large enough that the solver gave up on it and the build failed with
+    /// nothing wrong in the code. Two expressions cost nothing at runtime and
+    /// the compiler has no trouble with either. Anything added below belongs on
+    /// whichever side keeps both halves small.
+    private var phases: some View {
         GeometryReader { geometry in
             let expansion = sheetExpansion(for: geometry)
             // While the sheet is sitting at its peak detent the peak state is
@@ -398,21 +408,41 @@ struct FlightDetailView: View {
                 fitPeak(to: measured)
             }
         }
-        .flightInfoLegible(theme)
-        // Handed the feed explicitly, like every other sheet this app presents:
-        // the partner panel counts that VA's aircraft out of the live packet.
-        .sheet(item: $viewingPartner) { ad in
-            VaDetailSheet(ad: ad, basis: vaPartner?.basis)
-                .environmentObject(feed)
-        }
-        .modifier(
-            FlightInfoWindowChrome(
-                theme: theme,
-                presentation: presentation,
-                accent: airlineAccent
+    }
+
+    /// The phases, wearing the window: its ink, its ground, its corner, and the
+    /// one sheet it can put up over itself.
+    ///
+    /// The second of the three pieces `body` is cut into — see `phases` for why
+    /// it is cut at all.
+    private var dressed: some View {
+        phases
+            .flightInfoLegible(theme)
+            // Handed the feed explicitly, like every other sheet this app
+            // presents: the partner panel counts that VA's aircraft out of the
+            // live packet.
+            .sheet(item: $viewingPartner) { ad in
+                VaDetailSheet(ad: ad, basis: vaPartner?.basis)
+                    .environmentObject(feed)
+            }
+            .modifier(
+                FlightInfoWindowChrome(
+                    theme: theme,
+                    presentation: presentation,
+                    accent: airlineAccent,
+                    // Read off the window's own measured height rather than off
+                    // the detent, so it answers the same question the peak and
+                    // the full window answer when they cross-fade — see
+                    // `isCollapsed`.
+                    hidesGround: hidesWindowGround
+                )
             )
-        )
-        .environment(\.colorScheme, theme.colorScheme)
+            .environment(\.colorScheme, theme.colorScheme)
+    }
+
+    /// Everything the window has to be told about while it is open.
+    var body: some View {
+        dressed
         .onAppear {
             load(flight)
             loadTrack()
@@ -440,7 +470,7 @@ struct FlightDetailView: View {
         }
         // Another aircraft, in the same window. See `resetForNewFlight()`.
         .onChange(of: flightId) { _, _ in resetForNewFlight() }
-        .onChange(of: flight?.liveryName) { _, _ in load(flight) }
+        .onChange(of: photoSubject) { _, _ in load(flight) }
         .onChange(of: photoLoader.photo?.url) { _, url in imageLoader.load(url) }
         // Live samples extend the path between packets, and the filed plan —
         // which is fetched on first ask and cached — lands a moment after the
@@ -642,6 +672,14 @@ struct FlightDetailView: View {
     /// Answered against the display: on a large phone this is the flat ceiling
     /// it has always been, and on a small one the photograph gives its room to
     /// the route card underneath it rather than pushing it off the sheet.
+    /// Whether this window should be drawing no ground behind it.
+    ///
+    /// The widget peek, and only while the sheet is actually sitting at it. See
+    /// `FlightInfoWindowChrome.hidesGround`.
+    private var hidesWindowGround: Bool {
+        presentation == .sheet && isCollapsed && appearance.resolvedPeakStyle == .widget
+    }
+
     private var heroCeiling: CGFloat {
         presentation == .sheet
             ? FlightInfoLayout.peakHeroCeiling(inScreenHeight: FlightInfoLayout.screenHeight)
@@ -688,6 +726,26 @@ struct FlightDetailView: View {
         return t * t * (3 - 2 * t)
     }
 
+    /// What the photograph lookup is keyed on, in the shape of something to
+    /// watch.
+    ///
+    /// The simulator's half is the livery, which is what it always was: one
+    /// aeroplane's picture is a picture of that type in that paint, and the
+    /// livery is the part that can land after the window has opened.
+    ///
+    /// The real half is the reason this stopped being `liveryName` alone. A
+    /// real aeroplane has no livery — the field is empty for every one of them,
+    /// so that watch could never fire — and what it has instead arrives in
+    /// pieces: a receiver hears a Mode S address on the first sweep and the
+    /// aggregator matches it to a registration on a later one. The address is
+    /// usually enough on its own, and when it is not, the tail number landing
+    /// two sweeps in is the difference between a photograph and a silhouette.
+    private var photoSubject: String {
+        guard let flight = flight else { return "" }
+        guard flight.origin == .realWorld else { return flight.liveryName }
+        return [flight.adsbHex ?? "", flight.registration ?? ""].joined(separator: "|")
+    }
+
     private func load(_ flight: Flight?) {
         guard let flight = flight else { return }
 
@@ -702,6 +760,13 @@ struct FlightDetailView: View {
             imageLoader.load(photoLoader.photo?.url)
             return
         }
+
+        // One airframe, one picture of it. A later sweep filling in a
+        // registration is a reason to ask when we have nothing and never a
+        // reason to ask again when we have the photograph — an answer that
+        // came back empty for a moment would otherwise take a good picture
+        // off the window.
+        guard realPhoto == nil else { return }
 
         PlanespottersPhotos.shared.photo(
             hex: flight.adsbHex,
@@ -1008,7 +1073,7 @@ struct FlightDetailView: View {
                         AltitudeProfileCard(points: track, theme: theme)
                     }
 
-                    HintStrip(placement: .flight)
+                    foot
                 }
                 .padding(.horizontal, 14)
                 // Negative, so the identity block rides the seam where the
@@ -1035,6 +1100,24 @@ struct FlightDetailView: View {
         }
         .scrollIndicators(.hidden)
         .scrollBounceBehavior(.basedOnSize)
+    }
+
+    /// The foot of the window: the hint strip, and under everything else,
+    /// whose sky this is.
+    ///
+    /// One property rather than two children of the column above, for the same
+    /// reason `body` is cut into three — that column is a long expression and
+    /// the type-checker has already given up on this file once.
+    private var foot: some View {
+        VStack(spacing: 12) {
+            HintStrip(placement: .flight)
+
+            // Last of all, and only where it is true. See
+            // `RealWorldAttribution`.
+            if isRealWorld {
+                RealWorldAttribution(theme: theme)
+            }
+        }
     }
 
     /// The head of the open window: the app's own identity block, or the
@@ -1344,6 +1427,23 @@ private struct FlightInfoWindowChrome: ViewModifier {
     /// tinted theme, and knows where its edges are.
     var accent: AirlineAccent.Colours? = nil
 
+    /// Whether the sheet draws no ground at all, leaving whatever it is sitting
+    /// over to show through.
+    ///
+    /// True for exactly one thing: the widget peek, at rest. That peek is not a
+    /// card cut from the window the way the other three are — it is a tile, and
+    /// a tile with a panel behind it is a tile on a tray. Margins and a shadow
+    /// got it as far as floating *inside* something; this is what removes the
+    /// something. What is left over the map is the tile, its shadow and the
+    /// grabber, which is what a widget lying on a home screen looks like.
+    ///
+    /// Only at rest, and that is not a compromise. The moment the window is
+    /// pulled the ground fades up under it, because everything above the peek —
+    /// the cards, the scroll view, the text — is written to be read on a
+    /// surface. It reads as the window materialising around the tile as you
+    /// open it, which is the truth of what is happening.
+    var hidesGround: Bool = false
+
     /// The radius the sheet is actually rounded to, so the outline traces the
     /// sheet's edge rather than sitting a couple of points off it.
     private var cornerRadius: CGFloat { theme.radiusLarge + 6 }
@@ -1358,7 +1458,10 @@ private struct FlightInfoWindowChrome: ViewModifier {
                 // than above a band of empty sheet the width of that inset.
                 .ignoresSafeArea(edges: .bottom)
                 .overlay {
-                    if let accent = accent {
+                    // Nothing to outline when there is no sheet to see. The
+                    // accent belongs to the window's edge, and with the ground
+                    // gone the edge is the tile's own.
+                    if let accent = accent, !hidesGround {
                         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                             // A stroke *border* rather than a stroke: it is laid
                             // inside the shape, so none of it is cut off by the
@@ -1370,7 +1473,15 @@ private struct FlightInfoWindowChrome: ViewModifier {
                             .allowsHitTesting(false)
                     }
                 }
-                .presentationBackground { theme.sheetBackground }
+                // Faded rather than swapped: `presentationBackground` is
+                // rebuilt when this changes, and a ground that appears between
+                // one frame and the next reads as a glitch under a finger that
+                // is mid-drag. See `hidesGround`.
+                .presentationBackground {
+                    theme.sheetBackground
+                        .opacity(hidesGround ? 0 : 1)
+                        .animation(Motion.chrome, value: hidesGround)
+                }
                 .presentationCornerRadius(cornerRadius)
 
         case .pane:

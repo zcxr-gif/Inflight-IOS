@@ -78,14 +78,39 @@ struct Flight: Identifiable, Equatable {
     /// not something the telemetry could be made to tell us.
     let pilotState: PilotState
 
-    let departureIcao: String?
-    let arrivalIcao: String?
+    /// Both ends of the route, when there is one.
+    ///
+    /// `var` rather than `let` for exactly one reason, and it is worth the
+    /// exception: a real aeroplane's route does not arrive with its position.
+    /// ADS-B has no field for an origin or a destination, so a contact is built
+    /// with both nil and the layer resolves them from the callsign afterwards —
+    /// see `RealWorldRoutes`, which writes them here so that everything drawing
+    /// a route goes on reading one field rather than learning about a second
+    /// kind of aircraft. The socket's own packets carry theirs and are built
+    /// complete; nothing mutates those.
+    var departureIcao: String?
+    var arrivalIcao: String?
 
     /// Resolved once at parse time — the map re-reads this on every frame.
     let spriteKey: String
 
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+    }
+
+    /// What a real aeroplane's id is namespaced with. See `init(adsb:)`.
+    static let realWorldIdPrefix = "adsb:"
+
+    /// Which sky an id belongs to, without an aeroplane to ask.
+    ///
+    /// The namespace is the answer, and it is the only one available to a view
+    /// that has been handed a flight id and has to decide which of the two
+    /// sources to resolve it against — the instruments, most of all, which are
+    /// pointed at an id and fed an array. Keeping it here rather than spelling
+    /// the prefix out at each of those means the id's shape is decided in the
+    /// one file that makes them.
+    static func isRealWorld(id: String) -> Bool {
+        id.hasPrefix(realWorldIdPrefix)
     }
 
     /// The Mode S address this aircraft broadcasts, for real traffic.
@@ -96,9 +121,8 @@ struct Flight: Identifiable, Equatable {
     /// Nil for everything from the simulator, which has no such thing.
     var adsbHex: String? {
         guard origin == .realWorld else { return nil }
-        let prefix = "adsb:"
-        guard id.hasPrefix(prefix) else { return nil }
-        let hex = String(id.dropFirst(prefix.count))
+        guard id.hasPrefix(Self.realWorldIdPrefix) else { return nil }
+        let hex = String(id.dropFirst(Self.realWorldIdPrefix.count))
         return hex.isEmpty ? nil : hex
     }
 
@@ -184,7 +208,7 @@ struct Flight: Identifiable, Equatable {
         // 24-bit ICAO address shares that space with Infinite Flight's own
         // flight ids. Six hex characters colliding with one is unlikely and
         // "unlikely" is not a thing to leave in a dictionary key.
-        self.id = "adsb:\(hex)"
+        self.id = Self.realWorldIdPrefix + hex
 
         self.latitude = latitude
         self.longitude = longitude

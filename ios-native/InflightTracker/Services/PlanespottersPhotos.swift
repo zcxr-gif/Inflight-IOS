@@ -109,11 +109,21 @@ final class PlanespottersPhotos {
         registration: String?,
         completion: @escaping (PlanespottersPhoto?) -> Void
     ) {
-        let key = (hex ?? registration ?? "").lowercased()
-        guard !key.isEmpty else {
+        // Keyed on BOTH identifiers rather than on whichever one came first.
+        //
+        // A contact is usually heard before the aggregator has matched it to an
+        // airframe, so the same aeroplane gets asked about twice: once on the
+        // Mode S address alone, and again a sweep or two later once a tail
+        // number has landed. Keyed on the address, that second ask was answered
+        // out of the cache with the first one's empty result — and the
+        // registration fallback below, which is the entire reason for asking
+        // again, was never reached. Two identifiers are two questions.
+        let identity = [hex, registration].compactMap { $0 }.filter { !$0.isEmpty }
+        guard !identity.isEmpty else {
             DispatchQueue.main.async { completion(nil) }
             return
         }
+        let key = identity.joined(separator: "|").lowercased()
 
         if let entry = cache[key],
            Date().timeIntervalSince(entry.at) < AppConfig.aircraftPhotoLifetime {

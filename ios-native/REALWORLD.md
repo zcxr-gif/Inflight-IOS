@@ -14,7 +14,7 @@ server, on the flat map and on the drawn planet alike.
 | The switch, the sweep clock, the network | `InflightTracker/Services/RealWorldTraffic.swift` |
 | One ADS-B contact as a `Flight` | `InflightTracker/Models/Flight.swift` — `init?(adsb:)` and `Flight.Origin` |
 | The colour, in one place | `InflightTracker/Map/RealWorldMark.swift` |
-| The bar over the map | `InflightTracker/Views/RealWorldTrafficBanner.swift` |
+| The bar over the map, and its folded pill | `InflightTracker/Views/RealWorldTrafficBanner.swift` |
 | The screen behind the switch | `InflightTracker/Views/SettingsSubpanels.swift` — `RealWorldTrafficSettingsPanel` |
 | Endpoint and the numbers | `InflightTracker/App/AppConfig.swift` |
 
@@ -36,6 +36,13 @@ actually differ is short:
   status, the filed plan and the VA lookup for `origin == .realWorld`, because
   every one of those is a round trip against our own backend keyed on a flight
   id it has never heard of.
+- **Which clock the window keeps.** Everything live in it — the telemetry, the
+  peek, the flown profile, the instruments — is read off the sweep rather than
+  off a packet. Views handed a flight *id* rather than a `Flight` pick their
+  source with `Flight.isRealWorld(id:)`: the id's `adsb:` namespace is the only
+  thing they have to go on. The instruments were the panel that missed this and
+  drew NO DATA over every real aeroplane for it, because `InstrumentSource` was
+  fed `feed.flights` and nothing else.
 - **The photograph.** One picture of that exact airframe, by Mode S address,
   from Planespotters. See below — their terms shape the whole of it.
 - **VA logos.** Never drawn on real traffic. The partner directory is keyed on
@@ -47,6 +54,21 @@ actually differ is short:
 - **The smoothing.** Real traffic is carried between reports whatever
   Settings › Appearance › Fly the traffic says. See below — it is the one
   difference that is not a matter of taste.
+
+## The bar, and why it folds
+
+The layer announces itself over the map for as long as it is on, and there is
+no way to send that away short of turning the layer off. What there *is* now is
+a size: the bar says its piece — the title, the count, the way out — and then
+folds to the glyph and the number, which is the smallest thing that still makes
+the statement. A tap opens it again, and another folds it.
+
+It never folds while there is something to read. `waiting`, `tooFarOut` and
+`failed` all hold it open until they resolve; only `live` collapses, and the
+dwell is keyed on what the status is *saying* rather than on the status itself
+— `live` carries a count, the count moves on every sweep, and a bar that
+reopened each time one aeroplane left the area would be worse than one that
+never closed.
 
 ## What it never touches
 
@@ -119,20 +141,29 @@ the two.
 the sweep already carries, falling back to the registration. Their terms of use
 are conditions rather than suggestions, so each one is kept somewhere specific:
 
-### Why the pictures are drawn small
+### Why the pictures are drawn big, and soft
 
 `thumbnail_large` is 280 pixels tall and around 420 wide, and their terms allow
 no other size — the two thumbnails are what the API returns and URLs may not be
 rewritten to ask for more. Stretched across a 390-point sheet on a 3× phone,
-that is a 1170-pixel draw from a 420-pixel source, and the result looked exactly
-as soft as that arithmetic predicts.
+that is a 1170-pixel draw from a 420-pixel source, and it is exactly as soft as
+that arithmetic predicts.
 
-`AircraftPhotoImage` now refuses to enlarge any photograph past
-`maximumUpscale` (1.5×) and draws it at a size it can actually hold, on the
-blurred backdrop that was already behind fitted shots. A smaller sharp
-photograph beats a big soft one. The rule is unconditional rather than a
-real-world special case: our own community photographs are large enough never to
-reach it, and any that are not were being blown up too.
+There was an attempt to fix that by refusing to enlarge a photograph past 1.5×
+its own pixels and drawing it at a size it could hold, on the blurred backdrop
+already behind fitted shots. The arithmetic was right and the picture was wrong:
+what it produced was a small aeroplane floating in the middle of a smudge, on
+the one window whose whole job is to show you the aeroplane. A layout fault
+reads worse than a soft photograph, and every other tracker draws the same file
+at full width.
+
+So `AircraftPhotoImage` draws the photograph at whatever size the frame asks
+for. What it still will not do is *crop* one to fit a box it is the wrong shape
+for: past `cropTolerance` (a quarter of one dimension) the whole airframe is
+fitted onto the blurred copy of itself instead, which is what that backdrop was
+always for. Inside the tolerance — which is nearly always, because the header's
+height is worked out from the photograph's own ratio — the picture fills the
+frame edge to edge with nothing behind it.
 
 | Term | Where it is kept |
 | --- | --- |
@@ -211,6 +242,91 @@ endpoints differ on which name they use.
 - Both maps report where they are pointed — the flat map when it settles, the
   planet from its own camera — and `RealWorldTraffic.report` defers the work a
   runloop turn, because one of its callers is `updateUIView`.
+
+## Routes
+
+ADS-B carries no origin and no destination. There is no field for either in the
+protocol, so no receiver heard one and no feed — free or paid — can hand one
+over. Every tracker that shows a route is joining the **callsign** to a separate
+database afterwards, and so is this.
+
+```
+POST https://api.adsb.lol/api/0/routeset
+     { planes: [ { callsign, lat, lng } ] }
+->   [ { callsign, airport_codes: "KJFK-KSAN", plausible: 1, ... } ]
+```
+
+The same network as the positions, chosen for that reason: the free callsign
+databases (adsbdb, hexdb.io, adsb.lol) all trace back to the same VRS standing
+data anyway, so reading routes here means one source to credit instead of two.
+
+### Why most of the answer is thrown away
+
+The standing data is callsign-to-airport-pair with **no date and no operational
+status**, and flight numbers are reused — they churn seasonally and regional
+operators share them. Measured against filed flight plans it is right about four
+times in five outside the United States and about **one time in four inside
+it**, and that split is by region rather than by record age: Australian routes
+verify at 100% on rows with a median age of 11.5 years.
+
+So `RealWorldRoutes` takes a route only when the answer also says it is
+`plausible` — adsb.lol's own check that the aircraft is where that route would
+put it. It discards a good deal of what comes back. What survives is worth
+drawing, and the window never calls it a filed plan, because it is not one.
+
+The route is written onto `Flight.departureIcao` / `arrivalIcao` rather than
+kept in a store beside it — which is the whole reason those two are `var`. It
+means the route card, the board, the widget peek's route line and
+`FlightProgress` (distance to run, time to get there) all work with no changes:
+they go on reading one field instead of learning about a second kind of
+aircraft.
+
+Bookkeeping: one request in flight at a time, at most 60 callsigns per batch, a
+two-hour cache, and **a miss is cached as firmly as a hit** — a light aircraft
+with no schedule behind it must not be asked about every fifteen seconds for as
+long as it is in range. Aircraft flying under a registration are never asked
+about at all.
+
+### A miss is not a failure
+
+`parse` returns a double optional and the difference matters more than it
+looks. The inner nil is "this callsign has no route worth drawing", which is a
+fact about an aeroplane and is cached for two hours. The outer nil is "that was
+not an answer" — a non-2xx, a dropped request, a body this app cannot read —
+which is a fact about the network and is cached for nothing at all.
+
+Conflating them is how the layer first shipped, and it fails in a way that
+looks like a data problem rather than a bug: every callsign in the batch gets
+written as routeless for two hours, each sweep asks about the ones it has no
+answer for, and within a couple of minutes the whole sky is cached empty. The
+symptom is every route showing a dash, for ever, with nothing in the logs. A
+failed request now writes nothing and backs off for a minute.
+
+For the same reason, `plausible` being **absent** reads as yes rather than no.
+An explicit 0 or false is still a refusal, but a row that does not carry the
+field — a shape this app has not seen — falls through to drawing the route.
+Rejecting on a field that cannot be found turns one surprise into a layer that
+silently shows nothing and gives nobody a reason why.
+
+`RealWorldRoutes.outcome` is what makes that visible: Settings › Real-world
+traffic says how many callsigns matched, or why the last request did not work.
+A route that never appears otherwise looks exactly like an aeroplane that has
+none.
+
+## Attribution
+
+The ODbL requires it, so it is drawn rather than left to a settings screen.
+`RealWorldAttribution` sits at the very foot of the open flight window, in the
+smallest type the app uses, crediting the network and opening
+[adsb.lol](https://adsb.lol) — a credit nobody can follow is not really a
+credit.
+
+**Only on real traffic.** The simulator's aircraft come off Infinite Flight's
+own feed and owe adsb.lol nothing; a line crediting a network that had no part
+in what is on screen would be a false statement about where the data came from.
+It also names the route as an *estimate* separately from the position, because
+one is what a receiver heard and the other is a callsign matched against a
+database.
 
 ## What it is not
 
