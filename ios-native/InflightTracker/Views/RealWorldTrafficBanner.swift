@@ -299,14 +299,17 @@ struct RealWorldAttribution: View {
     /// Said once, here, so the wording cannot drift from what the licence
     /// actually requires.
     ///
-    /// The route is named separately from the position on purpose. They arrive
-    /// from the same network but they are not the same kind of fact: one is
-    /// what a receiver heard, the other is a callsign matched against a
-    /// database and checked for plausibility — see `RealWorldRoutes`. Calling
-    /// it an estimate in the credit is the cheapest honest place to say so.
+    /// The route is named separately from the position on purpose. They are not
+    /// the same kind of fact — one is what a receiver heard, the other is a
+    /// callsign matched against standing data — and since the window started
+    /// asking adsbdb as well as adsb.lol they are not always from the same
+    /// place either. Both databases are named because either may have supplied
+    /// the pair on screen, and calling it an estimate is the cheapest honest
+    /// place to say what it is. See `RealWorldRoutes`.
     private static let credit = """
     Live positions from adsb.lol — open data under ODbL, from volunteers \
-    running receivers. Route estimated from the callsign.
+    running receivers. Route estimated from the callsign, via adsb.lol \
+    and adsbdb.
     """
 }
 

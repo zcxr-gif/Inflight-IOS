@@ -790,7 +790,7 @@ struct RealWorldTrafficSettingsPanel: View {
                 noteRow(
                     symbol: "point.topleft.down.curvedto.point.bottomright.up",
                     title: "Where it is going, estimated",
-                    detail: "ADS-B carries no destination — there is no field for one — so the route is looked up from the callsign and only drawn when the aircraft is where that route would put it. It is an estimate, not a filed plan, and a great many aeroplanes have no schedule behind them at all. \(RealWorldRoutes.shared.outcome.label)."
+                    detail: "ADS-B carries no destination — there is no field for one — so the route is looked up from the callsign, in two separate databases: adsb.lol for the traffic on the map, and adsbdb for the aeroplane you have open. It is an estimate rather than a filed plan, and a great many aeroplanes have no schedule behind them at all. \(RealWorldRoutes.shared.outcome.label)."
                 )
 
                 PanelDivider()
