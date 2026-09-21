@@ -1476,10 +1476,14 @@ private struct FlightInfoWindowChrome: ViewModifier {
     /// grabber, which is what a widget lying on a home screen looks like.
     ///
     /// Only at rest, and that is not a compromise. The moment the window is
-    /// pulled the ground fades up under it, because everything above the peek —
-    /// the cards, the scroll view, the text — is written to be read on a
-    /// surface. It reads as the window materialising around the tile as you
+    /// pulled the ground comes back under it, because everything above the
+    /// peek — the cards, the scroll view, the text — is written to be read on
+    /// a surface. It reads as the window materialising around the tile as you
     /// open it, which is the truth of what is happening.
+    ///
+    /// Comes back rather than fades back: see the note on
+    /// `presentationBackground` below for why a ground made of glass cannot be
+    /// faded and has to be removed.
     var hidesGround: Bool = false
 
     /// The radius the sheet is actually rounded to, so the outline traces the
@@ -1511,14 +1515,30 @@ private struct FlightInfoWindowChrome: ViewModifier {
                             .allowsHitTesting(false)
                     }
                 }
-                // Faded rather than swapped: `presentationBackground` is
-                // rebuilt when this changes, and a ground that appears between
-                // one frame and the next reads as a glitch under a finger that
-                // is mid-drag. See `hidesGround`.
+                // Taken out of the tree, not faded to nothing.
+                //
+                // Fading was the first answer and it reads better on paper: the
+                // ground comes up under the tile as the window opens rather
+                // than appearing between one frame and the next under a finger
+                // that is mid-drag. What it did in practice was nothing at all,
+                // and the reason is what `sheetBackground` is made of. On the
+                // glass themes it is a `glassEffect`, and glass is not ink on a
+                // layer that an `opacity` above it can thin — it is a material
+                // the system composites from what is behind the sheet, and an
+                // opacity hung over the top of one does not take it away. The
+                // widget peek therefore came up in a tray exactly as it had
+                // before the ground was ever meant to be hidden, with nothing
+                // in the code to say why.
+                //
+                // So the glass is either in the background or it is not there.
+                // `Color.clear` is what makes a sheet genuinely transparent,
+                // and it is what the tile needs behind it: the map.
                 .presentationBackground {
-                    theme.sheetBackground
-                        .opacity(hidesGround ? 0 : 1)
-                        .animation(Motion.chrome, value: hidesGround)
+                    if hidesGround {
+                        Color.clear
+                    } else {
+                        theme.sheetBackground
+                    }
                 }
                 .presentationCornerRadius(cornerRadius)
 
