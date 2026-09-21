@@ -35,9 +35,45 @@ import Foundation
 /// route" is cached exactly as firmly as an answer with one — a light aircraft
 /// with no schedule behind it must not be asked about every fifteen seconds for
 /// as long as it is on screen.
-final class RealWorldRoutes {
+final class RealWorldRoutes: ObservableObject {
 
     static let shared = RealWorldRoutes()
+
+    /// What the last lookup did, in the one sentence Settings reads.
+    ///
+    /// Published because a route that never appears is otherwise a silent
+    /// failure: the window draws a dash, and a dash is also what an aeroplane
+    /// with no schedule looks like. The two are not the same problem and this
+    /// is the only place that can tell them apart.
+    enum Outcome: Equatable {
+
+        case idle
+        case asking
+
+        /// The network answered and could be read. `matched` is how many of the
+        /// callsigns asked about came back with a route worth drawing.
+        case answered(matched: Int, asked: Int)
+
+        /// The network answered with something this app could not read at all,
+        /// which is the shape of the response having changed.
+        case unreadable
+
+        case failed(String)
+
+        var label: String {
+            switch self {
+            case .idle:      return "Not asked yet"
+            case .asking:    return "Looking…"
+            case .answered(let matched, let asked):
+                guard asked > 0 else { return "Nothing to look up" }
+                return "\(matched) of \(asked) callsigns matched a route"
+            case .unreadable: return "The route service answered with something unreadable"
+            case .failed(let reason): return reason
+            }
+        }
+    }
+
+    @Published private(set) var outcome: Outcome = .idle
 
     /// Both ends, as ICAO codes the airport table can resolve.
     struct Route: Equatable {
@@ -74,6 +110,16 @@ final class RealWorldRoutes {
     /// One at a time. A second request while the first is in the air would be
     /// asking about the same callsigns, since nothing has been written yet.
     private var isAsking = false
+
+    /// Nothing is asked before this, after a request that did not work.
+    ///
+    /// The sweep clock is fifteen seconds and a service that is refusing or
+    /// unreachable will still be refusing fifteen seconds later, so without
+    /// this a bad afternoon is four requests a minute for as long as the layer
+    /// is on.
+    private var retryAfter: Date?
+
+    private static let retryDelay: TimeInterval = 60
 
     private init() {}
 
@@ -121,6 +167,7 @@ final class RealWorldRoutes {
         guard !isAsking else { return }
 
         let now = Date()
+        if let retryAfter = retryAfter, now < retryAfter { return }
         var wanted: [(key: String, flight: Flight)] = []
         var asked: Set<String> = []
 
@@ -139,6 +186,7 @@ final class RealWorldRoutes {
         else { return }
 
         isAsking = true
+        outcome = .asking
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -147,25 +195,60 @@ final class RealWorldRoutes {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(AppConfig.publicAPIUserAgent, forHTTPHeaderField: "User-Agent")
 
-        URLSession.shared.dataTask(with: request) { [weak self] data, _, _ in
-            let found = Self.parse(data)
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            // Parsed off the main thread, and nil means the body could not be
+            // read as an answer at all.
+            let found = (200..<300).contains(code) ? Self.parse(data) : nil
 
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 self.isAsking = false
 
-                let at = Date()
-                // Every callsign asked about is written, including the ones the
-                // answer said nothing about. A miss is an answer, and a miss
-                // that is not remembered is a request made again on every
-                // sweep for as long as the aeroplane is in range.
-                for (key, _) in wanted {
-                    self.cache[key] = Entry(route: found[key] ?? nil, at: at)
+                // A request that did not work writes NOTHING.
+                //
+                // This is the whole reason the distinction exists. Caching a
+                // failure as "this callsign has no route" for two hours poisons
+                // every callsign it asked about, and since each sweep asks
+                // about the ones it has no answer for, a single bad response
+                // works its way through the whole sky in a couple of minutes
+                // and the layer never shows a route again. A miss is only a
+                // miss when the service actually answered.
+                guard let found = found else {
+                    self.retryAfter = Date().addingTimeInterval(Self.retryDelay)
+                    self.outcome = Self.trouble(code: code, error: error)
+                    return
                 }
 
-                completion(found.values.contains { $0 != nil })
+                self.retryAfter = nil
+
+                let at = Date()
+                // Now every callsign asked about is written, including the ones
+                // the answer said nothing about — a miss that is not remembered
+                // is a request made again on every sweep for as long as the
+                // aeroplane is in range.
+                var matched = 0
+                for (key, _) in wanted {
+                    let route = found[key] ?? nil
+                    if route != nil { matched += 1 }
+                    self.cache[key] = Entry(route: route, at: at)
+                }
+
+                self.outcome = .answered(matched: matched, asked: wanted.count)
+                completion(matched > 0)
             }
         }.resume()
+    }
+
+    /// Why a request did not produce an answer, in words rather than a number —
+    /// the same shape `RealWorldTraffic.reason` uses for the sweep itself.
+    private static func trouble(code: Int, error: Error?) -> Outcome {
+        if code == 429 { return .failed("The route service is asking for fewer requests") }
+        if code == 404 { return .failed("The route service has moved") }
+        if code >= 500 { return .failed("The route service is having trouble") }
+        if code >= 400 { return .failed("The route service refused the request") }
+        if error != nil { return .failed("No connection to the route service") }
+        return .unreadable
     }
 
     // MARK: - The request
@@ -203,11 +286,17 @@ final class RealWorldRoutes {
 
     // MARK: - Reading the answer
 
-    /// Callsign to route, with nil for "asked, and there is none worth having".
-    private static func parse(_ data: Data?) -> [String: Route?] {
+    /// Callsign to route, with an inner nil for "asked, and there is none worth
+    /// having" — and an **outer** nil for "this was not an answer".
+    ///
+    /// The two are worth the extra optional. See the completion above: one is
+    /// a fact about an aeroplane and the other is a fact about the network, and
+    /// treating the second as the first is what makes a layer go quiet for
+    /// hours over one bad response.
+    private static func parse(_ data: Data?) -> [String: Route?]? {
         guard let data = data,
               let root = try? JSONSerialization.jsonObject(with: data)
-        else { return [:] }
+        else { return nil }
 
         // An array is what the endpoint answers with. The dictionary branch is
         // for the day it is wrapped in one, which costs two lines here and
@@ -219,7 +308,7 @@ final class RealWorldRoutes {
                   let array = object.values.first(where: { $0 is [Any] }) as? [Any] {
             rows = array
         } else {
-            return [:]
+            return nil
         }
 
         var out: [String: Route?] = [:]
@@ -237,7 +326,7 @@ final class RealWorldRoutes {
         return out
     }
 
-    /// One row, taken only if it is both readable and plausible.
+    /// One row, taken if it is readable and not explicitly implausible.
     private static func route(from row: [String: Any]) -> Route? {
         guard isPlausible(row["plausible"]) else { return nil }
 
@@ -245,7 +334,18 @@ final class RealWorldRoutes {
         // carry more than two legs — "EGLL-OMDB-VABB" — and the useful pair is
         // the two ends of the journey rather than whichever leg is being flown,
         // which the row does not say.
-        guard let codes = row["airport_codes"] as? String else { return nil }
+        //
+        // The ICAO pair is what is wanted, because that is what the airport
+        // table can place and therefore what turns into a distance to run. The
+        // IATA pair behind it is a fallback rather than an equal: "STN-BCN"
+        // draws as a route and resolves to no airport, which is what every
+        // other tracker shows anyway and is better than a dash. The third name
+        // is there for the same reason `RealWorldTraffic.parse` reads both `ac`
+        // and `aircraft` — which spelling arrives is the service's business.
+        let codes = (row["airport_codes"] as? String)
+            ?? (row["_airport_codes_iata"] as? String)
+            ?? (row["airportCodes"] as? String)
+        guard let codes = codes else { return nil }
 
         let legs = codes
             .uppercased()
@@ -270,14 +370,28 @@ final class RealWorldRoutes {
         return Route(departure: departure, arrival: arrival)
     }
 
-    /// The endpoint answers with 1 and 0. Read as a number or a bool, because
-    /// which of the two it is is their business rather than ours, and a route
-    /// drawn on a misread flag is a route drawn on nothing.
+    /// Whether this row is allowed to be drawn.
+    ///
+    /// The endpoint answers with 1 and 0, read here as a number, a bool or a
+    /// string because which of the three it is is their business rather than
+    /// ours.
+    ///
+    /// **Absent is not false.** A row that does not carry the field at all —
+    /// a schema that moved, a shape this app has not seen — falls through to
+    /// yes, and that is deliberate. Rejecting on a field that cannot be found
+    /// turns one surprise into a layer that silently draws nothing and gives
+    /// nobody a reason why, which is exactly the failure this whole file was
+    /// just debugged out of. An explicit 0 or false is still a refusal, so
+    /// nothing is lost while the shape is the one expected.
     private static func isPlausible(_ value: Any?) -> Bool {
+        guard let value = value, !(value is NSNull) else { return true }
+
         if let flag = value as? Bool { return flag }
         if let number = value as? NSNumber { return number.intValue != 0 }
-        if let text = value as? String { return text == "1" || text.lowercased() == "true" }
-        return false
+        if let text = value as? String {
+            return !["0", "false", "no"].contains(text.lowercased())
+        }
+        return true
     }
 
     private func isEmpty(_ value: String?) -> Bool {

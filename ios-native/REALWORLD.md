@@ -287,6 +287,32 @@ with no schedule behind it must not be asked about every fifteen seconds for as
 long as it is in range. Aircraft flying under a registration are never asked
 about at all.
 
+### A miss is not a failure
+
+`parse` returns a double optional and the difference matters more than it
+looks. The inner nil is "this callsign has no route worth drawing", which is a
+fact about an aeroplane and is cached for two hours. The outer nil is "that was
+not an answer" — a non-2xx, a dropped request, a body this app cannot read —
+which is a fact about the network and is cached for nothing at all.
+
+Conflating them is how the layer first shipped, and it fails in a way that
+looks like a data problem rather than a bug: every callsign in the batch gets
+written as routeless for two hours, each sweep asks about the ones it has no
+answer for, and within a couple of minutes the whole sky is cached empty. The
+symptom is every route showing a dash, for ever, with nothing in the logs. A
+failed request now writes nothing and backs off for a minute.
+
+For the same reason, `plausible` being **absent** reads as yes rather than no.
+An explicit 0 or false is still a refusal, but a row that does not carry the
+field — a shape this app has not seen — falls through to drawing the route.
+Rejecting on a field that cannot be found turns one surprise into a layer that
+silently shows nothing and gives nobody a reason why.
+
+`RealWorldRoutes.outcome` is what makes that visible: Settings › Real-world
+traffic says how many callsigns matched, or why the last request did not work.
+A route that never appears otherwise looks exactly like an aeroplane that has
+none.
+
 ## Attribution
 
 The ODbL requires it, so it is drawn rather than left to a settings screen.
