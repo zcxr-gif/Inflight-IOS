@@ -802,10 +802,13 @@ struct FlightIdentityBlock: View {
     /// Whether the pilot's face and state ride along under the callsign.
     ///
     /// True in the peek, which is one block and has to carry everything. False
-    /// in the open window, where `FlightPilotCard` sits directly underneath and
-    /// says all of it properly — a face, a grade, a virtual airline — and this
-    /// block saying a quiet version of the same thing an inch above it is the
-    /// window telling you twice.
+    /// in the open window, where `FlightPilotCard` says all of it properly — a
+    /// face, a grade, a virtual airline — and this block saying a quiet version
+    /// of the same thing further up is the window telling you twice.
+    ///
+    /// That card used to sit directly under this block and now sits below the
+    /// route, which changes nothing here: the reason is that the two say the
+    /// same thing, not that they were adjacent.
     var showsPilot: Bool = true
 
     var body: some View {

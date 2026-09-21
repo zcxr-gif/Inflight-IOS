@@ -1008,18 +1008,37 @@ struct FlightDetailView: View {
                 VStack(spacing: 12) {
                     header(for: flight, width: width)
 
-                    // Directly under the aeroplane's own identity, and above
-                    // everything you can do with it: who is flying this is the
-                    // second question anybody asks of a tapped aircraft, and
-                    // until now the window answered it with a 22-point avatar
-                    // wedged beside the callsign.
+                    // Directly under the aeroplane's own identity, which is
+                    // where the other two layouts have always put it: the
+                    // board *is* the route, drawn at the top of the window,
+                    // and the detail look leads with it in its own head. Only
+                    // this one led with the pilot instead, so the same window
+                    // answered "where is it going" first or fourth depending
+                    // on a setting — and the drawing in Settings, which builds
+                    // the head out of the identity block and the route card
+                    // together, had it above the pilot the whole time.
                     //
-                    // Nothing at all on a real aeroplane. There is no pilot
-                    // behind an ADS-B contact in any sense this card means —
-                    // no name, no grade, no profile to open — and a card whose
-                    // every field is a dash is worse than no card.
-                    if !isRealWorld {
-                        FlightPilotCard(flight: flight, theme: theme)
+                    // Grouped, not two children of the stack: the partner line
+                    // sits under the bottom edge of the route card and travels
+                    // with it.
+                    VStack(spacing: 12) {
+                        // The board and the detail head have each already
+                        // said where this flight is going and how far is left,
+                        // in bigger type and in one place. Drawing the route
+                        // card under either would be the same three facts twice.
+                        if !usesBoard(for: flight), !usesDetailHead {
+                            situationCard(for: flight)
+                        }
+
+                        // Tappable here and only here. The peak state above
+                        // is a drag target from edge to edge, and a control in
+                        // it that could take a drag for a tap is how a window
+                        // becomes hard to open.
+                        VaPartnerLine(
+                            partner: vaPartner,
+                            theme: theme,
+                            onOpen: { ad in viewingPartner = ad }
+                        )
                     }
 
                     // Grouped rather than two children of the stack, which is
@@ -1047,28 +1066,19 @@ struct FlightDetailView: View {
                         FileThisFlightRow(flight: flight, theme: theme)
                     }
 
-                    // Grouped, not two children of the stack: the partner
-                    // line sits under the bottom edge of the route card, and
-                    // the window's outer stack is already at the builder's
-                    // ten-view ceiling.
-                    VStack(spacing: 12) {
-                        // The board and the detail head have each already
-                        // said where this flight is going and how far is left,
-                        // in bigger type and in one place. Drawing the route
-                        // card under either would be the same three facts twice.
-                        if !usesBoard(for: flight), !usesDetailHead {
-                            situationCard(for: flight)
-                        }
-
-                        // Tappable here and only here. The peak state above
-                        // is a drag target from edge to edge, and a control in
-                        // it that could take a drag for a tap is how a window
-                        // becomes hard to open.
-                        VaPartnerLine(
-                            partner: vaPartner,
-                            theme: theme,
-                            onOpen: { ad in viewingPartner = ad }
-                        )
+                    // Under the route rather than over it, which is the swap
+                    // this pair exists in. Who is flying an aeroplane is the
+                    // second question anybody asks of a tapped one and it is
+                    // still answered properly — a face, a grade, a virtual
+                    // airline — but it is the second question, and the window
+                    // now reads in that order.
+                    //
+                    // Nothing at all on a real aeroplane. There is no pilot
+                    // behind an ADS-B contact in any sense this card means —
+                    // no name, no grade, no profile to open — and a card whose
+                    // every field is a dash is worse than no card.
+                    if !isRealWorld {
+                        FlightPilotCard(flight: flight, theme: theme)
                     }
 
                     // Not under the detail look, which carries all four of
