@@ -454,6 +454,7 @@ struct FlightDetailView: View {
             loadTrack()
             loadSim()
             loadPlan()
+            loadRealWorldRoute()
         }
         // The sim writes its row every 15 to 45 seconds, so re-asking on the
         // sheet's own expansion or on every packet would be waste. A minute is
@@ -494,6 +495,12 @@ struct FlightDetailView: View {
             guard isRealWorld else { return }
             let latest = FlightTrailStore.shared.points(for: flightId)
             if latest.count != track.count { track = latest }
+            // And on the same clock, because the first ask can come back with
+            // nothing: an aeroplane still on the stand is not yet where its
+            // route would put it, so the service declines to name one and says
+            // so again a minute later. See `loadRealWorldRoute`, which is what
+            // makes this cost nothing on the sweeps in between.
+            loadRealWorldRoute()
         }
     }
 
@@ -834,6 +841,7 @@ struct FlightDetailView: View {
         loadTrack()
         loadSim()
         loadPlan()
+        loadRealWorldRoute()
     }
 
     /// Pulls the flown path the backend already has for this flight, which
@@ -872,6 +880,36 @@ struct FlightDetailView: View {
 
         let latest = FlightPlanStore.shared.waypoints(for: flightId)
         if latest != plan { plan = latest }
+    }
+
+    /// Where this real aeroplane is going, asked about out of turn.
+    ///
+    /// The mirror of `loadPlan` for the other sky, and it exists for a reason
+    /// that is entirely about *this* window rather than about the layer. ADS-B
+    /// carries no route, so one is joined on from the callsign — and that
+    /// lookup works through a sweep's worth of aircraft a hundred at a time,
+    /// in whatever order the network listed them. Over a busy part of the
+    /// world that is several hundred contacts, and the aeroplane a window is
+    /// open on is no likelier to be near the front of the queue than any
+    /// other: it simply drew a dash where its route goes until its turn came
+    /// round, which took long enough to look like a window that has no route
+    /// in it at all.
+    ///
+    /// So the window asks for its own. Nothing is asked for an aircraft that
+    /// already has both ends, for one from the server's feed — which arrives
+    /// with its route in the packet — or while a lookup for it is in the air,
+    /// which is what makes this safe to call on every sweep.
+    private func loadRealWorldRoute() {
+        guard let flight = flight, flight.origin == .realWorld else { return }
+
+        // Either end missing is worth asking about: the pair is written
+        // together, so one without the other is an aeroplane that has not been
+        // resolved rather than one half-resolved.
+        let departure = (flight.departureIcao ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let arrival = (flight.arrivalIcao ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard departure.isEmpty || arrival.isEmpty else { return }
+
+        RealWorldTraffic.shared.resolveRoute(for: flight)
     }
 
     private func loadTrack() {
@@ -976,18 +1014,37 @@ struct FlightDetailView: View {
                 VStack(spacing: 12) {
                     header(for: flight, width: width)
 
-                    // Directly under the aeroplane's own identity, and above
-                    // everything you can do with it: who is flying this is the
-                    // second question anybody asks of a tapped aircraft, and
-                    // until now the window answered it with a 22-point avatar
-                    // wedged beside the callsign.
+                    // Directly under the aeroplane's own identity, which is
+                    // where the other two layouts have always put it: the
+                    // board *is* the route, drawn at the top of the window,
+                    // and the detail look leads with it in its own head. Only
+                    // this one led with the pilot instead, so the same window
+                    // answered "where is it going" first or fourth depending
+                    // on a setting — and the drawing in Settings, which builds
+                    // the head out of the identity block and the route card
+                    // together, had it above the pilot the whole time.
                     //
-                    // Nothing at all on a real aeroplane. There is no pilot
-                    // behind an ADS-B contact in any sense this card means —
-                    // no name, no grade, no profile to open — and a card whose
-                    // every field is a dash is worse than no card.
-                    if !isRealWorld {
-                        FlightPilotCard(flight: flight, theme: theme)
+                    // Grouped, not two children of the stack: the partner line
+                    // sits under the bottom edge of the route card and travels
+                    // with it.
+                    VStack(spacing: 12) {
+                        // The board and the detail head have each already
+                        // said where this flight is going and how far is left,
+                        // in bigger type and in one place. Drawing the route
+                        // card under either would be the same three facts twice.
+                        if !usesBoard(for: flight), !usesDetailHead {
+                            situationCard(for: flight)
+                        }
+
+                        // Tappable here and only here. The peak state above
+                        // is a drag target from edge to edge, and a control in
+                        // it that could take a drag for a tap is how a window
+                        // becomes hard to open.
+                        VaPartnerLine(
+                            partner: vaPartner,
+                            theme: theme,
+                            onOpen: { ad in viewingPartner = ad }
+                        )
                     }
 
                     // Grouped rather than two children of the stack, which is
@@ -1015,28 +1072,19 @@ struct FlightDetailView: View {
                         FileThisFlightRow(flight: flight, theme: theme)
                     }
 
-                    // Grouped, not two children of the stack: the partner
-                    // line sits under the bottom edge of the route card, and
-                    // the window's outer stack is already at the builder's
-                    // ten-view ceiling.
-                    VStack(spacing: 12) {
-                        // The board and the detail head have each already
-                        // said where this flight is going and how far is left,
-                        // in bigger type and in one place. Drawing the route
-                        // card under either would be the same three facts twice.
-                        if !usesBoard(for: flight), !usesDetailHead {
-                            situationCard(for: flight)
-                        }
-
-                        // Tappable here and only here. The peak state above
-                        // is a drag target from edge to edge, and a control in
-                        // it that could take a drag for a tap is how a window
-                        // becomes hard to open.
-                        VaPartnerLine(
-                            partner: vaPartner,
-                            theme: theme,
-                            onOpen: { ad in viewingPartner = ad }
-                        )
+                    // Under the route rather than over it, which is the swap
+                    // this pair exists in. Who is flying an aeroplane is the
+                    // second question anybody asks of a tapped one and it is
+                    // still answered properly — a face, a grade, a virtual
+                    // airline — but it is the second question, and the window
+                    // now reads in that order.
+                    //
+                    // Nothing at all on a real aeroplane. There is no pilot
+                    // behind an ADS-B contact in any sense this card means —
+                    // no name, no grade, no profile to open — and a card whose
+                    // every field is a dash is worse than no card.
+                    if !isRealWorld {
+                        FlightPilotCard(flight: flight, theme: theme)
                     }
 
                     // Not under the detail look, which carries all four of
@@ -1444,10 +1492,14 @@ private struct FlightInfoWindowChrome: ViewModifier {
     /// grabber, which is what a widget lying on a home screen looks like.
     ///
     /// Only at rest, and that is not a compromise. The moment the window is
-    /// pulled the ground fades up under it, because everything above the peek —
-    /// the cards, the scroll view, the text — is written to be read on a
-    /// surface. It reads as the window materialising around the tile as you
+    /// pulled the ground comes back under it, because everything above the
+    /// peek — the cards, the scroll view, the text — is written to be read on
+    /// a surface. It reads as the window materialising around the tile as you
     /// open it, which is the truth of what is happening.
+    ///
+    /// Comes back rather than fades back: see the note on
+    /// `presentationBackground` below for why a ground made of glass cannot be
+    /// faded and has to be removed.
     var hidesGround: Bool = false
 
     /// The radius the sheet is actually rounded to, so the outline traces the
@@ -1479,14 +1531,30 @@ private struct FlightInfoWindowChrome: ViewModifier {
                             .allowsHitTesting(false)
                     }
                 }
-                // Faded rather than swapped: `presentationBackground` is
-                // rebuilt when this changes, and a ground that appears between
-                // one frame and the next reads as a glitch under a finger that
-                // is mid-drag. See `hidesGround`.
+                // Taken out of the tree, not faded to nothing.
+                //
+                // Fading was the first answer and it reads better on paper: the
+                // ground comes up under the tile as the window opens rather
+                // than appearing between one frame and the next under a finger
+                // that is mid-drag. What it did in practice was nothing at all,
+                // and the reason is what `sheetBackground` is made of. On the
+                // glass themes it is a `glassEffect`, and glass is not ink on a
+                // layer that an `opacity` above it can thin — it is a material
+                // the system composites from what is behind the sheet, and an
+                // opacity hung over the top of one does not take it away. The
+                // widget peek therefore came up in a tray exactly as it had
+                // before the ground was ever meant to be hidden, with nothing
+                // in the code to say why.
+                //
+                // So the glass is either in the background or it is not there.
+                // `Color.clear` is what makes a sheet genuinely transparent,
+                // and it is what the tile needs behind it: the map.
                 .presentationBackground {
-                    theme.sheetBackground
-                        .opacity(hidesGround ? 0 : 1)
-                        .animation(Motion.chrome, value: hidesGround)
+                    if hidesGround {
+                        Color.clear
+                    } else {
+                        theme.sheetBackground
+                    }
                 }
                 .presentationCornerRadius(cornerRadius)
 

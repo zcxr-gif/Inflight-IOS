@@ -13,6 +13,7 @@ server, on the flat map and on the drawn planet alike.
 | --- | --- |
 | The switch, the sweep clock, the network | `InflightTracker/Services/RealWorldTraffic.swift` |
 | One ADS-B contact as a `Flight` | `InflightTracker/Models/Flight.swift` — `init?(adsb:)` and `Flight.Origin` |
+| Where one is going, joined on from the callsign | `InflightTracker/Services/RealWorldRoutes.swift` |
 | The colour, in one place | `InflightTracker/Map/RealWorldMark.swift` |
 | The bar over the map, and its folded pill | `InflightTracker/Views/RealWorldTrafficBanner.swift` |
 | The screen behind the switch | `InflightTracker/Views/SettingsSubpanels.swift` — `RealWorldTrafficSettingsPanel` |
@@ -251,28 +252,54 @@ over. Every tracker that shows a route is joining the **callsign** to a separate
 database afterwards, and so is this.
 
 ```
-POST https://api.adsb.lol/api/0/routeset
+POST https://api.adsb.lol/api/0/routeset          (the map — up to 100 at once)
      { planes: [ { callsign, lat, lng } ] }
-->   [ { callsign, airport_codes: "KJFK-KSAN", plausible: 1, ... } ]
+->   [ { callsign, airport_codes: "KJFK-KSAN", ... } ]
+
+GET  https://api.adsbdb.com/v0/callsign/BAW117    (the open window — one at a time)
+->   { response: { flightroute: { origin: { icao_code }, destination: { icao_code } } } }
 ```
 
-The same network as the positions, chosen for that reason: the free callsign
-databases (adsbdb, hexdb.io, adsb.lol) all trace back to the same VRS standing
-data anyway, so reading routes here means one source to credit instead of two.
+Two databases, asked in the two shapes the two jobs want. The batch is right
+for the map, where several hundred aircraft each need a route and none is being
+read closely. The single GET is right for the flight window, which is one
+aeroplane somebody is actually looking at — and adsbdb is a different project
+with a different pipeline behind it, so a callsign missing from one is often in
+the other, and a day when one is down is no longer a day with no routes at all.
+The window asks adsbdb first and falls back to the batch endpoint for its one
+callsign. Both write the same cache. Neither takes a key.
 
-### Why most of the answer is thrown away
+### What the answer is worth
 
-The standing data is callsign-to-airport-pair with **no date and no operational
-status**, and flight numbers are reused — they churn seasonally and regional
-operators share them. Measured against filed flight plans it is right about four
-times in five outside the United States and about **one time in four inside
-it**, and that split is by region rather than by record age: Australian routes
-verify at 100% on rows with a median age of 11.5 years.
+The standing data behind both is callsign-to-airport-pair with **no date and no
+operational status**, and flight numbers are reused — they churn seasonally and
+regional operators share them. Measured against filed flight plans it is right
+about four times in five outside the United States and about **one time in four
+inside it**, and that split is by region rather than by record age: Australian
+routes verify at 100% on rows with a median age of 11.5 years.
 
-So `RealWorldRoutes` takes a route only when the answer also says it is
-`plausible` — adsb.lol's own check that the aircraft is where that route would
-put it. It discards a good deal of what comes back. What survives is worth
-drawing, and the window never calls it a filed plan, because it is not one.
+The window never calls it a filed plan, and the credit at its foot names it an
+estimate.
+
+### The `plausible` flag, and why it is no longer consulted
+
+It used to be, and it is why a great many aeroplanes drew a dash.
+
+`routeset` returns a `plausible` field beside each route, and it reads as a
+judgement about the aircraft — adsb.lol's own check that it is where that route
+would put it. Rejecting a route that came back `false` is a defensible thing to
+do with a judgement like that, so that is what the app did.
+
+It is not that judgement. In their `calc_plausible` the geometry is worked out
+and then discarded: the helper it calls returns a **tuple** of the verdict and
+the distance, and a non-empty tuple is true whichever way the verdict went. The
+loop therefore returns true on its first pass, and the field only ever comes
+back false when the loop did not run at all — which happens when fewer than two
+of the route's airports could be found in their own airport table.
+
+That is a fact about a lookup table, not about an aeroplane. The pair of ICAO
+codes was sitting in the row being thrown away. So the pair is now taken
+whenever it can be read, from either source.
 
 The route is written onto `Flight.departureIcao` / `arrivalIcao` rather than
 kept in a store beside it — which is the whole reason those two are `var`. It
@@ -281,11 +308,47 @@ means the route card, the board, the widget peek's route line and
 they go on reading one field instead of learning about a second kind of
 aircraft.
 
-Bookkeeping: one request in flight at a time, at most 60 callsigns per batch, a
-two-hour cache, and **a miss is cached as firmly as a hit** — a light aircraft
-with no schedule behind it must not be asked about every fifteen seconds for as
-long as it is in range. Aircraft flying under a registration are never asked
-about at all.
+Bookkeeping: one batch in flight at a time, at most 100 callsigns per batch —
+the endpoint's own ceiling, above which it answers 400 — and **a miss is cached
+as well as a hit**, because a light aircraft with no schedule behind it must not
+be asked about every fifteen seconds for as long as it is in range. Aircraft
+flying under a registration are never asked about at all.
+
+The two are not cached for the same length of time, and that is deliberate. A
+hit is a fact about the flight number and keeps for **two hours**; a miss is
+not settled in the same way — standing data is reloaded, upstream caches
+expire, and the two databases are asked in a different order depending on where
+the question came from, so a callsign nobody could place a minute ago is often
+placed now — and a miss therefore keeps for **ten minutes** in the map's queue
+and **ninety seconds** for the aeroplane a window is open on. Held for two
+hours beside the hits, the first miss of a session was the last word on that
+aeroplane for the rest of it.
+
+### The aeroplane with a window open on it does not queue
+
+This is what the report *"there's no destination or departure ICAO on the flight
+info windows"* actually was. The routes were being fetched; they were being
+fetched for the wrong aircraft first.
+
+The batch works through a sweep in whatever order the network happened to list
+it, and a sweep over a busy part of the world is several hundred contacts. The
+aeroplane somebody has just tapped is no likelier to be near the front of that
+queue than any other, so its window opened, drew `———` where its route goes, and
+kept drawing it for as long as anybody was willing to watch — which looks
+exactly like a window that has no route in it at all.
+
+So `RealWorldRoutes.resolveNow` asks about one callsign, out of turn, in a
+request of its own alongside the batch rather than behind it. `FlightDetailView`
+calls it when the window opens, when the window changes aeroplane, and on every
+sweep while the route is still unknown; `RealWorldTraffic.resolveRoute(for:)` is
+the half that attaches the answer and republishes, because a route in the cache
+that nobody has written onto an aircraft is not on screen.
+
+It is free to call repeatedly, which is what makes calling it per sweep
+reasonable: an aeroplane that already has both ends, one whose lookup is in the
+air, and one whose miss is still fresh all cost nothing. A miss for the focused
+aeroplane is held for **ninety seconds** rather than ten minutes — it is the one
+dash anybody is reading, and there is only ever one of it.
 
 ### A miss is not a failure
 
@@ -302,11 +365,10 @@ answer for, and within a couple of minutes the whole sky is cached empty. The
 symptom is every route showing a dash, for ever, with nothing in the logs. A
 failed request now writes nothing and backs off for a minute.
 
-For the same reason, `plausible` being **absent** reads as yes rather than no.
-An explicit 0 or false is still a refusal, but a row that does not carry the
-field — a shape this app has not seen — falls through to drawing the route.
-Rejecting on a field that cannot be found turns one surprise into a layer that
-silently shows nothing and gives nobody a reason why.
+The `plausible` gate was the same failure in a second place, and is gone — see
+above. Both are the same lesson: a route that never appears is indistinguishable
+from an aeroplane that has none, so anything here that can reject silently has
+to be worth the silence.
 
 `RealWorldRoutes.outcome` is what makes that visible: Settings › Real-world
 traffic says how many callsigns matched, or why the last request did not work.
@@ -325,8 +387,9 @@ credit.
 own feed and owe adsb.lol nothing; a line crediting a network that had no part
 in what is on screen would be a false statement about where the data came from.
 It also names the route as an *estimate* separately from the position, because
-one is what a receiver heard and the other is a callsign matched against a
-database.
+one is what a receiver heard and the other is a callsign matched against
+standing data — and it names **both** databases, adsb.lol and adsbdb, because
+either may have supplied the pair on screen.
 
 ## What it is not
 

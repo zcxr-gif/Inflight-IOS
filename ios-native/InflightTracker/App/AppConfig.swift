@@ -454,15 +454,47 @@ enum AppConfig {
 
     /// Where a real aeroplane is going, which its own transmissions never say.
     ///
-    /// The same network as the positions, which is the whole reason it is this
-    /// one rather than one of the other free callsign databases: they all trace
-    /// back to the same standing data anyway, and reading routes from adsb.lol
-    /// means one source to credit instead of two. See `RealWorldRoutes` for what
-    /// the answer is worth and why `plausible` decides whether it is used.
+    /// The batch, from the same network as the positions: one POST carrying up
+    /// to a hundred callsigns, which is how the aircraft drawn across the map
+    /// get their routes without a request each. See `RealWorldRoutes`.
     ///
     /// A POST rather than a GET, because it is asked in batches.
     static var realWorldRoutesURL: URL? {
         URL(string: "\(adsbBaseURLString)/api/0/routeset")
+    }
+
+    /// And the second database, asked about one callsign at a time.
+    ///
+    /// ## Why there are two
+    ///
+    /// Because one was not working and there was no way to tell from inside
+    /// the app which part of it was not working. The batch above answers for a
+    /// hundred aeroplanes at once, which is exactly what the map wants and
+    /// exactly the wrong shape for finding out why a particular aeroplane has
+    /// no route: one response carries a hundred answers, any of which may be a
+    /// miss for its own reasons.
+    ///
+    /// adsbdb is a different project by different people with a different
+    /// pipeline behind it, and its callsign endpoint is the simplest thing
+    /// that could work — a GET with the callsign in the path, an airport pair
+    /// in the body, and a 404 when it has never heard of it. It is what the
+    /// *open window* asks, because that is one aeroplane and one request.
+    ///
+    /// Two sources rather than a replacement, deliberately. They are built on
+    /// overlapping but not identical standing data, so a callsign missing from
+    /// one is quite often in the other — and more to the point, a day when one
+    /// of them is down is no longer a day with no routes in the app.
+    ///
+    /// No key and no account, like the positions. It rate-limits at 512
+    /// requests a minute from one address, which is hundreds of times more
+    /// than a window open on one aeroplane can spend.
+    static func realWorldRouteURL(callsign: String) -> URL? {
+        let trimmed = callsign.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard !trimmed.isEmpty,
+              let escaped = trimmed.addingPercentEncoding(withAllowedCharacters: .alphanumerics)
+        else { return nil }
+
+        return URL(string: "https://api.adsbdb.com/v0/callsign/\(escaped)")
     }
 
     /// The furthest the endpoint will answer for.
