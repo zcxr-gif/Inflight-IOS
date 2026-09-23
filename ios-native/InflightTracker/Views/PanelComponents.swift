@@ -31,6 +31,10 @@ struct MapPanel<Content: View>: View {
     /// than reading. Passed straight through — see `SheetWindow.peakHeight`.
     var peakHeight: CGFloat? = nil
 
+    /// In a pane the top-right corner is the close button's. See
+    /// `SheetWindow.presentation`.
+    var presentation: FlightWindowPresentation = .sheet
+
     @ObservedObject private var appearance = FlightInfoAppearance.shared
 
     // Last, so a panel's contents are the trailing closure.
@@ -39,7 +43,7 @@ struct MapPanel<Content: View>: View {
     private var theme: FlightInfoTheme { appearance.theme }
 
     var body: some View {
-        SheetWindow(theme: theme, peakHeight: peakHeight) {
+        SheetWindow(theme: theme, peakHeight: peakHeight, presentation: presentation) {
             header
         } content: {
             ScrollView(.vertical) {
@@ -105,6 +109,9 @@ struct MapPanel<Content: View>: View {
             }
         }
         .padding(.horizontal, 16)
+        // Clear of the pane's close button: thirty points of button and ten
+        // of inset, less the sixteen already here.
+        .padding(.trailing, presentation == .pane ? 34 : 0)
         .padding(.top, 2)
         .padding(.bottom, 14)
         .flightInfoLegible(theme)

@@ -107,6 +107,11 @@ struct SheetWindow<Header: View, Content: View>: View {
     /// the common question without covering the map the field is on.
     var peakHeight: CGFloat? = nil
 
+    /// A pane has a close button where the handle would be, and nothing to
+    /// pull it down against. Handed down rather than read from the
+    /// environment, so a sheet opened from inside a pane is still a sheet.
+    var presentation: FlightWindowPresentation = .sheet
+
     /// Pinned above the content, and the reason the window can be pulled shut
     /// from anywhere in a list: this band is not part of what scrolls.
     @ViewBuilder let header: Header
@@ -173,12 +178,18 @@ struct SheetWindow<Header: View, Content: View>: View {
     /// dismissal ever needed.
     private var grip: some View {
         VStack(spacing: 0) {
-            WindowGrabber(theme: theme, floating: handleFloats)
-                .accessibilityElement()
-                .accessibilityLabel("Close")
-                .accessibilityHint("Pull the window down to close it")
-                .accessibilityAddTraits(.isButton)
-                .accessibilityAction { dismiss() }
+            if presentation == .sheet {
+                WindowGrabber(theme: theme, floating: handleFloats)
+                    .accessibilityElement()
+                    .accessibilityLabel("Close")
+                    .accessibilityHint("Pull the window down to close it")
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityAction { dismiss() }
+            } else {
+                // The handle's band, so the header sits where it does on a
+                // sheet rather than hard against the top edge.
+                Color.clear.frame(height: WindowGrabber.bandHeight)
+            }
 
             header
         }

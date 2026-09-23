@@ -38,20 +38,49 @@ enum FlightWindowPaneMetrics {
     static let centredWidth: CGFloat = 460
     static let centredHeight: CGFloat = 620
 
+    /// The size a pane in this placement is drawn at, inside a container of
+    /// this size.
+    ///
+    /// The one answer both the pane and the map read. They used to work it out
+    /// separately — the pane from the room it was given, the map from the
+    /// constants above — and the two only agreed where the cap won. On an
+    /// iPad in portrait, or in a split, the column is its share of the width
+    /// and well under four hundred points, but the map went on keeping four
+    /// hundred clear: everything it centred landed off to one side of the
+    /// space that was actually open.
+    ///
+    /// A container that has not been measured yet is answered with the caps,
+    /// which is the most the pane can ever cover.
+    static func paneSize(for placement: FlightWindowPlacement, in container: CGSize) -> CGSize {
+        let available: CGSize
+        if container.width > 0, container.height > 0 {
+            available = CGSize(
+                width: max(container.width - margin * 2, 0),
+                height: max(container.height - margin * 2, 0)
+            )
+        } else {
+            available = CGSize(width: CGFloat.infinity, height: centredHeight)
+        }
+
+        guard placement.dockedEdge != nil else {
+            return CGSize(
+                width: min(centredWidth, available.width),
+                height: min(centredHeight, available.height)
+            )
+        }
+        let share = available.width.isFinite ? available.width * dockedShare : dockedWidth
+        return CGSize(width: min(dockedWidth, max(share, 0)), height: available.height)
+    }
+
     /// How much of the bottom of the screen a pane in this placement is
     /// standing on, margins included — for the camera, and for the chrome that
     /// has to sit above it.
     ///
     /// The column covers no part of the bottom of the map at all. It covers the
     /// side, which is a different inset and the next question down.
-    ///
-    /// Read as the figure the pane asks for rather than the one it got: on a
-    /// screen too short for the whole centred window this over-reports by the
-    /// difference. Generous is the side of this to be wrong on — the cost is a
-    /// route framed a little higher than it needed to be, where under-reporting
-    /// puts it behind the window.
-    static func bottomInset(for placement: FlightWindowPlacement) -> CGFloat {
-        placement.dockedEdge == nil ? centredHeight + margin * 2 : 0
+    static func bottomInset(for placement: FlightWindowPlacement, in container: CGSize) -> CGFloat {
+        guard placement.dockedEdge == nil else { return 0 }
+        return paneSize(for: placement, in: container).height + margin * 2
     }
 
     /// And the same for each side, which is the question a docked column
@@ -61,12 +90,14 @@ enum FlightWindowPaneMetrics {
     /// underneath knows *which* side of itself is covered: a route framed to
     /// avoid a column on the left has to be pushed right, and the same
     /// arithmetic with the sign the other way is a route framed underneath it.
-    static func leadingInset(for placement: FlightWindowPlacement) -> CGFloat {
-        placement.dockedEdge == .leading ? dockedWidth + margin * 2 : 0
+    static func leadingInset(for placement: FlightWindowPlacement, in container: CGSize) -> CGFloat {
+        guard placement.dockedEdge == .leading else { return 0 }
+        return paneSize(for: placement, in: container).width + margin * 2
     }
 
-    static func trailingInset(for placement: FlightWindowPlacement) -> CGFloat {
-        placement.dockedEdge == .trailing ? dockedWidth + margin * 2 : 0
+    static func trailingInset(for placement: FlightWindowPlacement, in container: CGSize) -> CGFloat {
+        guard placement.dockedEdge == .trailing else { return 0 }
+        return paneSize(for: placement, in: container).width + margin * 2
     }
 }
 
@@ -90,6 +121,9 @@ struct FlightWindowPane<Content: View>: View {
 
     let theme: FlightInfoTheme
     let placement: FlightWindowPlacement
+    /// What VoiceOver calls the close button. The same pane holds a field's
+    /// panel as well as the flight window.
+    var closeLabel: String = "Close the flight window"
     let onClose: () -> Void
 
     @ViewBuilder let content: Content
@@ -100,10 +134,7 @@ struct FlightWindowPane<Content: View>: View {
             // the whole screen, so the clamps below are clamps on the space the
             // pane can actually have. On a narrow split of an iPad both figures
             // fall back to the available room and the pane simply fills it.
-            let available = CGSize(
-                width: max(geometry.size.width - FlightWindowPaneMetrics.margin * 2, 0),
-                height: max(geometry.size.height - FlightWindowPaneMetrics.margin * 2, 0)
-            )
+            let size = FlightWindowPaneMetrics.paneSize(for: placement, in: geometry.size)
 
             // Flexible, so the padding below shrinks what the overlay is
             // aligned within instead of pushing the pane off the screen.
@@ -121,7 +152,7 @@ struct FlightWindowPane<Content: View>: View {
                 .allowsHitTesting(false)
                 .overlay(alignment: alignment) {
                     window
-                        .frame(width: width(in: available), height: height(in: available))
+                        .frame(width: size.width, height: size.height)
                 }
                 .padding(FlightWindowPaneMetrics.margin)
         }
@@ -167,7 +198,7 @@ struct FlightWindowPane<Content: View>: View {
         }
         .buttonStyle(.plain)
         .padding(10)
-        .accessibilityLabel("Close the flight window")
+        .accessibilityLabel(closeLabel)
     }
 
     /// Low, not middle. A window in the dead centre of a tablet covers the
@@ -180,29 +211,8 @@ struct FlightWindowPane<Content: View>: View {
         case nil: return .bottom
         }
     }
-
-    private func width(in available: CGSize) -> CGFloat {
-        guard placement.dockedEdge != nil else {
-            return min(FlightWindowPaneMetrics.centredWidth, available.width)
-        }
-        let share = max(available.width * FlightWindowPaneMetrics.dockedShare, 0)
-        return min(FlightWindowPaneMetrics.dockedWidth, share)
-    }
-
-    /// A docked column is the height of the screen. That is the whole of what
-    /// makes it a column rather than a tall card: the map beside it runs top to
-    /// bottom, and the window is the other half of the display rather than
-    /// something lying on it.
-    private func height(in available: CGSize) -> CGFloat {
-        guard placement.dockedEdge != nil else {
-            return min(FlightWindowPaneMetrics.centredHeight, available.height)
-        }
-        return available.height
-    }
 }
 
-/// How the flight window is on screen.
-///
 /// Not a setting and not a placement — that is `FlightWindowPlacement`, which is
 /// a choice somebody makes. This is the mechanism underneath it: a sheet the
 /// system presents, or a pane the app lays out. A phone has no choice to make
