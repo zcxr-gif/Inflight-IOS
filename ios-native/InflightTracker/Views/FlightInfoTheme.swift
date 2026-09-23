@@ -149,7 +149,10 @@ final class FlightInfoAppearance: ObservableObject {
     private static let windowStyleKey = "flightInfoWindowStyle"
     private static let airlineAccentKey = "flightInfoAirlineAccent"
     private static let smoothTrafficKey = "map.smoothTraffic"
-    private static let windowPlacementKey = "flightWindowPlacement"
+    private static let windowPlacementKey = "flightWindow.placement"
+    /// The key placement lived under while it was synced. Read once: see the
+    /// note where it is migrated.
+    private static let legacyWindowPlacementKey = "flightWindowPlacement"
     private static let pilotCardBackdropKey = "flightInfoPilotBackdrop"
     private static let modeKey = "appAppearanceMode"
     private static let paletteKey = "appPalette"
@@ -465,6 +468,19 @@ final class FlightInfoAppearance: ObservableObject {
         // and the centred card was the default only because it was the shape
         // the phone already had. Anybody who has chosen has a stored value and
         // keeps it.
+        //
+        // The old key cannot be trusted with `centred`. While placement was
+        // synced, a row written back when the centred card was the default got
+        // pulled onto tablets and stored as though it had been picked, so a
+        // stored `centred` there is far more likely an echo than a choice. The
+        // columns were only ever reachable by picking them, so those carry
+        // over. Moving keys makes this run once and never again.
+        if defaults.string(forKey: Self.windowPlacementKey) == nil,
+           let legacy = defaults.string(forKey: Self.legacyWindowPlacementKey),
+           legacy != FlightWindowPlacement.centred.rawValue {
+            defaults.set(legacy, forKey: Self.windowPlacementKey)
+        }
+        defaults.removeObject(forKey: Self.legacyWindowPlacementKey)
         flightWindowPlacement = FlightWindowPlacement(
             rawValue: defaults.string(forKey: Self.windowPlacementKey) ?? ""
         ) ?? .leading

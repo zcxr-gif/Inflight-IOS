@@ -56,6 +56,12 @@ struct SyncedSettings: Codable, Equatable {
     var glass: Bool?
     var peakStyle: String?
     var windowStyle: String?
+    /// Still decoded so a row written by an older build reads cleanly, but
+    /// never captured or applied. Where the window goes is a choice about one
+    /// screen: a phone is never offered it, yet every phone was uploading its
+    /// untouched default, and older builds uploaded `centred` back when that was
+    /// the default. Pulled onto an iPad, that landed as though it had been
+    /// picked, and parked the window in the middle of the map.
     var windowPlacement: String?
     var pilotCardBackdrop: String?
     var airlineAccent: Bool?
@@ -148,7 +154,8 @@ struct SyncedSettings: Codable, Equatable {
         settings.glass = appearance.isGlassEnabled
         settings.peakStyle = appearance.peakStyle.rawValue
         settings.windowStyle = appearance.windowStyle.rawValue
-        settings.windowPlacement = appearance.flightWindowPlacement.rawValue
+        // Not `windowPlacement`: that one stays on the device. See the note on
+        // the field.
         settings.pilotCardBackdrop = appearance.pilotCardBackdrop.rawValue
         settings.airlineAccent = appearance.showsAirlineAccent
         settings.smoothTraffic = appearance.smoothsTraffic
@@ -250,9 +257,6 @@ struct SyncedSettings: Codable, Equatable {
         }
         if let value = windowStyle.flatMap(FlightInfoWindowStyle.init(rawValue:)) {
             appearance.windowStyle = value
-        }
-        if let value = windowPlacement.flatMap(FlightWindowPlacement.init(rawValue:)) {
-            appearance.flightWindowPlacement = value
         }
         if let value = pilotCardBackdrop.flatMap(PilotCardBackdrop.init(rawValue:)) {
             appearance.pilotCardBackdrop = value
