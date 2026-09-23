@@ -97,6 +97,11 @@ struct ContentView: View {
     /// it.
     @State private var isWindowExpanded = false
 
+    /// The size of the area the map and its chrome are laid out in — what a
+    /// pane sizes itself against, and so what the map has to ask about to know
+    /// how much of it a pane is covering. See `FlightWindowPaneMetrics.paneSize`.
+    @State private var mapAreaSize: CGSize = .zero
+
     /// Latest camera request from the chrome around the map.
     @State private var mapCommand: MapCommand?
 
@@ -345,11 +350,17 @@ struct ContentView: View {
     private var presentedSheet: Binding<WindowSheet?> {
         Binding(
             get: {
-                guard sheet == .flight else { return sheet }
                 // Two reasons the flight window is not a sheet: it is being
                 // drawn as a pane beside the map instead, or a replay is
                 // running and it has stepped aside. `sheet` stays `.flight`
                 // through both — see `isFlightWindowHidden`.
+                //
+                // A field's panel goes in the same pane, for the same reason:
+                // as a sheet on a tablet it is a form sheet parked over the
+                // middle of the map, which is exactly where opening it has just
+                // put the field. See `airportPane`.
+                if case .airport = sheet, usesFlightPane { return nil }
+                guard sheet == .flight else { return sheet }
                 return usesFlightPane || isFlightWindowHidden ? nil : sheet
             },
             set: { value in
@@ -492,9 +503,29 @@ struct ContentView: View {
     private var isFlightWindowHidden: Bool { replay.isActive }
 
     /// Whether the flight window is on screen as a pane right now.
+    ///
+    /// `sheet == nil` counts, and that is the fix for every camera move made
+    /// as a flight is opened landing behind the window. Opening one sets the
+    /// selection — often with `sheet = nil` beside it, to close a panel — and
+    /// `sheet` only becomes `.flight` in the selection watcher, an update
+    /// later. The camera move is issued in the first update, so it was being
+    /// framed against a map with no pane on it; the pane then slid in over
+    /// whatever had just been centred. A selection with no other window in
+    /// the way *is* the flight window opening, so it is answered as one now.
     private var isFlightPaneUp: Bool {
-        usesFlightPane && sheet == .flight && selection != nil && !isFlightWindowHidden
+        usesFlightPane && selection != nil && !isFlightWindowHidden
+            && (sheet == .flight || sheet == nil)
     }
+
+    /// The field whose panel is on screen as a pane, if there is one.
+    private var airportPaneIcao: String? {
+        guard usesFlightPane, case .airport(let icao) = sheet else { return nil }
+        return icao
+    }
+
+    /// Whether either window is standing on the map as a pane — which is the
+    /// question every inset asks, since both stand in the same place.
+    private var isPaneUp: Bool { isFlightPaneUp || airportPaneIcao != nil }
 
     /// With no aircraft open the dock is what stands at the bottom of the map;
     /// with one, the window does, whatever shape it is in.
@@ -525,6 +556,11 @@ struct ContentView: View {
     /// rather than declared.
     private var openPanelBottomInset: CGFloat? {
         guard case .airport = sheet else { return nil }
+        // In a pane it stands where the flight window would, and covers
+        // exactly what that would.
+        if airportPaneIcao != nil {
+            return FlightWindowPaneMetrics.bottomInset(for: flightPlacement, in: mapAreaSize)
+        }
         return AirportPanel.peakHeight
     }
 
@@ -545,7 +581,7 @@ struct ContentView: View {
         if isFlightWindowHidden { return 0 }
 
         if isFlightPaneUp {
-            return FlightWindowPaneMetrics.bottomInset(for: flightPlacement)
+            return FlightWindowPaneMetrics.bottomInset(for: flightPlacement, in: mapAreaSize)
         }
         return selection == nil ? 0 : peakHeight
     }
@@ -557,8 +593,8 @@ struct ContentView: View {
     /// map and nothing else, which is why this question has never been asked
     /// before.
     private var mapTrailingInset: CGFloat {
-        guard isFlightPaneUp else { return 0 }
-        return FlightWindowPaneMetrics.trailingInset(for: flightPlacement)
+        guard isPaneUp else { return 0 }
+        return FlightWindowPaneMetrics.trailingInset(for: flightPlacement, in: mapAreaSize)
     }
 
     /// And the left-hand edge, for the column docked on that side.
@@ -568,8 +604,8 @@ struct ContentView: View {
     /// is. A route framed to clear four hundred points on the wrong side is a
     /// route laid out underneath the window.
     private var mapLeadingInset: CGFloat {
-        guard isFlightPaneUp else { return 0 }
-        return FlightWindowPaneMetrics.leadingInset(for: flightPlacement)
+        guard isPaneUp else { return 0 }
+        return FlightWindowPaneMetrics.leadingInset(for: flightPlacement, in: mapAreaSize)
     }
 
     /// How far up the map has to hold Apple's "Legal" link so the app's own
@@ -952,7 +988,11 @@ struct ContentView: View {
             mapToolbar
             replayBar
             flightPane
+            airportPane
         }
+        // What the panes are laid out in, so the map can be told exactly how
+        // much of it they cover. See `mapAreaSize`.
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { mapAreaSize = $0 }
     }
 
     /// The flight window, on a screen wide enough to lay it out beside the map
@@ -998,6 +1038,30 @@ struct ContentView: View {
         }
     }
 
+    /// A field's panel, in the flight window's place on a screen wide enough
+    /// for one.
+    ///
+    /// The sheet it is on a phone becomes a form sheet on a tablet — centred,
+    /// fixed, and covering the middle of the map, which is where opening the
+    /// field has just put the field. So it goes where the flight window goes,
+    /// by the same setting, and the map is told it is there the same way: the
+    /// field is framed in what is left, and nothing else stands in its spot.
+    @ViewBuilder
+    private var airportPane: some View {
+        if let icao = airportPaneIcao {
+            FlightWindowPane(
+                theme: theme,
+                placement: flightPlacement,
+                closeLabel: "Close the airport panel",
+                onClose: { sheet = nil }
+            ) {
+                airportSheet(icao, presentation: .pane)
+                    .id(icao)
+            }
+            .transition(.opacity)
+        }
+    }
+
     /// The stack, with everything that watches for a change attached.
     private var watchedStack: some View {
         mapStack
@@ -1011,6 +1075,9 @@ struct ContentView: View {
         // switching the placement in settings slides the window across the map
         // rather than teleporting it, and the hub in the corner goes with it.
         .motion(Motion.chrome, value: appearance.flightWindowPlacement)
+        // A field's pane arrives and leaves on the same beat the flight
+        // window's does, and so does the chrome that steps aside for it.
+        .motion(Motion.chrome, value: airportPaneIcao)
         // The same spring the dock settles its own handle with, so the card
         // and everything that lifts out of its way move as one thing.
         .motion(Motion.chrome, value: isStatsUp)
@@ -1107,6 +1174,10 @@ struct ContentView: View {
         // lets the map go of the aircraft.
         .onChange(of: sheet) { _, value in
             if value != .flight, selection != nil { selection = nil }
+            // The stats ride on the dock, and a field's pane takes the dock
+            // away — see `mapToolbar`. Left up, they would go on lifting the
+            // corner controls for a card nobody can see.
+            if case .airport = value, usesFlightPane { isStatsUp = false }
         }
     }
 
@@ -1469,7 +1540,10 @@ struct ContentView: View {
     /// sheet can outlive the search result it was opened from, and an ICAO the
     /// dataset doesn't have is nothing to present.
     @ViewBuilder
-    private func airportSheet(_ icao: String) -> some View {
+    private func airportSheet(
+        _ icao: String,
+        presentation: FlightWindowPresentation = .sheet
+    ) -> some View {
         if let airport = AirportStore.shared.airport(icao) {
             AirportPanel(
                 airport: airport,
@@ -1493,7 +1567,8 @@ struct ContentView: View {
                 onPlanFlight: { field in
                     openPlans(from: field)
                 },
-                origin: airportReturn
+                origin: airportReturn,
+                presentation: presentation
             )
             .environmentObject(feed)
         }
@@ -1862,7 +1937,11 @@ struct ContentView: View {
     /// the window's own controls rather than hiding behind it.
     @ViewBuilder
     private var mapToolbar: some View {
-        if selection == nil {
+        // Not under a field's pane either. On a phone the field's sheet covers
+        // the dock; a pane covers the bottom edge only when it is the centred
+        // one, and a dock running under a column's foot is a dock half hidden.
+        // Gone while either window is up, the same on both devices.
+        if selection == nil, airportPaneIcao == nil {
             VStack(spacing: 8) {
                 // Above the bar rather than over the map proper: it is an
                 // aside about the chrome it is sitting on, and anywhere else
@@ -2450,7 +2529,7 @@ struct ContentView: View {
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .environment(\.colorScheme, theme.colorScheme)
-            .padding(.trailing, 16)
+            .padding(.trailing, 16 + mapTrailingInset)
             // Clears the toolbar, and the stats card while it is up.
             .padding(.bottom, cornerInset + 8 + statsLift)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
@@ -2506,7 +2585,7 @@ struct ContentView: View {
                 interactive: true
             )
             .environment(\.colorScheme, theme.colorScheme)
-            .padding(.trailing, 16)
+            .padding(.trailing, 16 + mapTrailingInset)
             // Above the map's own control stack, which sits in the same corner.
             .padding(.bottom, cornerInset + 8 + Self.mapControlsHeight + 8 + statsLift)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)

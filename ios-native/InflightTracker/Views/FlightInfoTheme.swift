@@ -149,7 +149,10 @@ final class FlightInfoAppearance: ObservableObject {
     private static let windowStyleKey = "flightInfoWindowStyle"
     private static let airlineAccentKey = "flightInfoAirlineAccent"
     private static let smoothTrafficKey = "map.smoothTraffic"
-    private static let windowPlacementKey = "flightWindowPlacement"
+    private static let windowPlacementKey = "flightWindow.placement"
+    /// The key placement lived under while it was synced. Read once: see the
+    /// note where it is migrated.
+    private static let legacyWindowPlacementKey = "flightWindowPlacement"
     private static let pilotCardBackdropKey = "flightInfoPilotBackdrop"
     private static let modeKey = "appAppearanceMode"
     private static let paletteKey = "appPalette"
@@ -459,15 +462,22 @@ final class FlightInfoAppearance: ObservableObject {
             ?? .cards
         showsAirlineAccent = defaults.object(forKey: Self.airlineAccentKey) as? Bool ?? true
         smoothsTraffic = defaults.object(forKey: Self.smoothTrafficKey) as? Bool ?? true
-        // Everybody who has not chosen gets the docked column, including
-        // installs that predate it having a left. A tablet's flight window has
+        // Everybody who has not chosen gets the right-hand column, including
+        // installs that predate it having a side. A tablet's flight window has
         // always wanted to be a column — that is what the extra screen is for —
         // and the centred card was the default only because it was the shape
-        // the phone already had. Anybody who has chosen has a stored value and
-        // keeps it.
+        // the phone already had.
+        //
+        // Nothing under the old key is carried over. While placement was
+        // synced, every device uploaded whatever default it was built with —
+        // `centred`, and later `leading` — and tablets stored those as though
+        // they had been picked, so a value there is more likely an echo than a
+        // choice. Everybody starts on the new default once; anybody who wants
+        // another side picks it again, and that pick is kept.
+        defaults.removeObject(forKey: Self.legacyWindowPlacementKey)
         flightWindowPlacement = FlightWindowPlacement(
             rawValue: defaults.string(forKey: Self.windowPlacementKey) ?? ""
-        ) ?? .leading
+        ) ?? .trailing
         pilotCardBackdrop = PilotCardBackdrop(
             rawValue: defaults.string(forKey: Self.pilotCardBackdropKey) ?? ""
         ) ?? .picture
@@ -538,16 +548,8 @@ enum FlightWindowPlacement: String, CaseIterable, Identifiable {
     /// The whole window as a column down the left-hand edge, full height, with
     /// the map running beside it.
     ///
-    /// The default on a tablet, and the arrangement every other traffic map on
-    /// a tablet has settled on. There is a reason it is the left rather than
-    /// the right, and it is not taste: the map is the thing being read and a
-    /// column is the thing being referred to, and a left-to-right reader looks
-    /// at the reference first and the subject second. It is also the side the
-    /// hand holding the tablet is least often over.
-    ///
-    /// Which is an argument and not a fact, so it is a setting — see `trailing`,
-    /// which is the same column on the other side for anybody who disagrees, or
-    /// who holds the thing the other way round.
+    /// The same column as `trailing`, on the other side, for anybody who holds
+    /// the tablet the other way round.
     case leading
 
     /// Low and centred: the window sits near the bottom edge, the way it does
@@ -561,7 +563,7 @@ enum FlightWindowPlacement: String, CaseIterable, Identifiable {
     case centred
 
     /// The whole window as a column down the right-hand edge, with the map
-    /// running full height beside it.
+    /// running full height beside it. The default on a tablet.
     case trailing
 
     var id: String { rawValue }

@@ -388,7 +388,13 @@ struct FlightDetailView: View {
             .clipped()
             // Derived in the layout pass rather than read back off the proxy
             // afterwards, which is not something a GeometryProxy promises.
-            .onChange(of: settled) { _, newValue in isCollapsed = newValue }
+            //
+            // `initial`, because a pane never moves: it is open from its first
+            // frame, so `settled` is false from the start and never changes,
+            // and without reading it once up front `isCollapsed` kept its
+            // default of true for the pane's whole life — instruments frozen,
+            // photos not paging, as if the full window were a hidden peak.
+            .onChange(of: settled, initial: true) { _, newValue in isCollapsed = newValue }
             // Every height this window is handed, including the ones in the
             // middle of a drag — which is the point of watching it here.
             .onChange(of: geometry.size.height) { _, height in trackFall(to: height) }

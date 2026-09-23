@@ -42,6 +42,9 @@ struct AirportPanel: View {
     /// rather than assumed.
     var origin: Origin? = nil
 
+    /// A sheet on a phone, a pane beside the map on a tablet.
+    var presentation: FlightWindowPresentation = .sheet
+
     /// Where the panel was opened from, and how to get back to it.
     struct Origin {
         /// What to call it on the row — a callsign, normally.
@@ -122,7 +125,8 @@ struct AirportPanel: View {
             title: airport.icao,
             subtitle: subtitle(for: activity),
             accessory: airport.flag.isEmpty ? nil : AnyView(flag),
-            peakHeight: Self.peakHeight
+            peakHeight: Self.peakHeight,
+            presentation: presentation
         ) {
             hero
 
