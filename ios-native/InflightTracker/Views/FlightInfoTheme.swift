@@ -900,7 +900,7 @@ struct FlightInfoTheme {
     @ViewBuilder
     var sheetBackground: some View {
         Group {
-            if isGlass {
+            if #available(iOS 26.0, *), isGlass {
                 Rectangle()
                     .fill(windowFill.opacity(groundOpacity))
                     .glassEffect(.regular.tint(scrim), in: Rectangle())
@@ -915,8 +915,14 @@ struct FlightInfoTheme {
     ///
     /// Adding a look means adding a `static let` and a case here — nothing
     /// downstream branches on which theme is in use.
+    ///
+    /// Glass is only honoured where the system has it. Below iOS 26 the flat
+    /// look of the same palette is returned instead, so every surface already
+    /// takes its non-glass branch and nothing downstream has to ask. The
+    /// switch itself is left as it was: someone who updates gets the glass
+    /// they asked for without having to find the setting again.
     static func resolved(palette: AppPalette, scheme: ColorScheme, glass: Bool) -> FlightInfoTheme {
-        switch (palette, scheme, glass) {
+        switch (palette, scheme, glass && isGlassSupported) {
         case (.mono, .light, true): return .monoLightGlass
         case (.mono, .light, false): return .monoLightSolid
         case (.mono, _, true): return .monoGlass
@@ -926,6 +932,12 @@ struct FlightInfoTheme {
         case (.carbon, _, true): return .glass
         case (.carbon, _, false): return .solid
         }
+    }
+
+    /// Whether this system draws Liquid Glass — iOS 26 and later.
+    static var isGlassSupported: Bool {
+        if #available(iOS 26.0, *) { return true }
+        return false
     }
 
     // MARK: - Mono
@@ -1259,7 +1271,7 @@ extension View {
         elevated: Bool = false,
         interactive: Bool = false
     ) -> some View {
-        if theme.isGlass {
+        if #available(iOS 26.0, *), theme.isGlass {
             glassEffect(
                 .regular
                     .tint(elevated ? theme.elevatedTint : theme.surfaceTint)
@@ -1306,7 +1318,7 @@ struct FlightInfoSurfaceModifier: ViewModifier {
     /// its own size — the toolbar inside the dock — and that is fixed where it
     /// happens, by the toolbar no longer drawing a surface at all.
     func body(content: Content) -> some View {
-        if theme.isGlass {
+        if #available(iOS 26.0, *), theme.isGlass {
             content.glassEffect(
                 .regular
                     .tint(elevated ? theme.elevatedTint : theme.surfaceTint)
@@ -1595,7 +1607,7 @@ extension View {
         in shape: some Shape,
         interactive: Bool = false
     ) -> some View {
-        if theme.isGlass {
+        if #available(iOS 26.0, *), theme.isGlass {
             glassEffect(.regular.tint(theme.chromeTint).interactive(interactive), in: shape)
         } else {
             background { shape.fill(theme.windowFill) }

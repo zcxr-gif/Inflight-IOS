@@ -24,15 +24,20 @@ concurrency:
 
 jobs:
   build:
-    runs-on: macos-15
+    # macos-26 is the image that carries the current Xcode (27, with the
+    # iOS 27 SDK); macos-15 stops at 26, so an app built there would lag the
+    # one Codemagic ships with `xcode: latest`.
+    runs-on: macos-26
     timeout-minutes: 40
 
     steps:
       - uses: actions/checkout@v4
 
-      # The app targets iOS 26 and uses APIs from that SDK, so which Xcode the
-      # runner has is the difference between a real answer and a page of noise
-      # about unavailable symbols. Printed first, and the newest is selected,
+      # The app runs back to iOS 17 but builds against the newest SDK, and
+      # uses its APIs behind availability checks, so which Xcode the runner
+      # has is the difference between a real answer and a page of noise about
+      # unknown symbols. Printed first, and the newest release is selected —
+      # betas are skipped, since Codemagic's `xcode: latest` never picks one —
       # so a runner that is simply too old is obvious from the log rather than
       # looking like a hundred compile errors.
       - name: Pick the newest Xcode
@@ -41,7 +46,10 @@ jobs:
           echo "Xcodes on this runner:"
           ls -1 /Applications | grep -i '^Xcode' || true
 
-          newest=$(ls -1d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          newest=$(ls -1d /Applications/Xcode*.app 2>/dev/null | { grep -viE 'beta|_rc' || true; } | sort -V | tail -1)
+          if [ -z "$newest" ]; then
+            newest=$(ls -1d /Applications/Xcode*.app | sort -V | tail -1)
+          fi
           echo "Selecting: $newest"
           sudo xcode-select -s "$newest/Contents/Developer"
 

@@ -556,15 +556,20 @@ struct AppearanceSettingsPanel: View {
             }
             .panelEntrance(0)
 
-            PanelSection(title: "MATERIAL") {
-                PanelToggleRow(
-                    title: "Glass flight info",
-                    symbol: "square.on.square.dashed",
-                    detail: "Frosts the window and its chrome. Off, everything draws flat.",
-                    isOn: $appearance.isGlassEnabled
-                )
+            // Only where there is glass to switch on. Below iOS 26 everything
+            // already draws flat, and a switch that changes nothing is worse
+            // than no switch.
+            if FlightInfoTheme.isGlassSupported {
+                PanelSection(title: "MATERIAL") {
+                    PanelToggleRow(
+                        title: "Glass flight info",
+                        symbol: "square.on.square.dashed",
+                        detail: "Frosts the window and its chrome. Off, everything draws flat.",
+                        isOn: $appearance.isGlassEnabled
+                    )
+                }
+                .panelEntrance(1)
             }
-            .panelEntrance(1)
 
             PanelSection(title: "MOVEMENT") {
                 PanelToggleRow(
