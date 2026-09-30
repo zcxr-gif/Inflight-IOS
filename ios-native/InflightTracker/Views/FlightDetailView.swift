@@ -72,6 +72,10 @@ struct FlightDetailView: View {
     /// most passes are passes where it has not.
     @State private var peakContentHeight: CGFloat = 0
 
+    /// Waits for the sheet to stop moving before its height is believed. See
+    /// `learnSheetFoot(sheetHeight:)`.
+    @State private var settleProbe = SheetSettleProbe()
+
     /// The tallest this window has been since it was last at rest, and the
     /// shortest it has been since — the two marks a pull down is read from.
     ///
@@ -443,7 +447,25 @@ struct FlightDetailView: View {
                     hidesGround: hidesWindowGround
                 )
             )
+            .background { sheetProbe }
             .environment(\.colorScheme, theme.colorScheme)
+    }
+
+    /// The whole sheet, measured edge to edge — including whatever the system
+    /// adds under the detent, which is the one number the window cannot
+    /// predict and has to see. Nothing in a pane, which has no detent.
+    @ViewBuilder
+    private var sheetProbe: some View {
+        if presentation == .sheet {
+            Color.clear
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                    settleProbe.observe(height) { settled in
+                        learnSheetFoot(sheetHeight: settled)
+                    }
+                }
+        }
     }
 
     /// Everything the window has to be told about while it is open.
@@ -724,6 +746,42 @@ struct FlightDetailView: View {
         // content out through that inset. See `sheetFootAllowance`.
         let wanted = FlightInfoLayout.detent(forSheetHeight: clampedPeakHeight(for: measured))
         if abs(wanted - peakHeight) > 0.5 { peakHeight = wanted }
+    }
+
+    /// Check the sheet came out the height the peak asked for, and correct the
+    /// next request if it did not.
+    ///
+    /// The peak measures itself and asks for a detent that much less whatever
+    /// the system is predicted to add underneath — see
+    /// `FlightInfoLayout.sheetFootAllowance`. This is where the prediction is
+    /// held to account. Once the sheet has been still for half a second at its
+    /// peak, the height it was actually given less the detent it was asked for
+    /// *is* what the system adds, whatever that turns out to be on this phone,
+    /// in this orientation, on this version of iOS. If that is not what was
+    /// allowed for, the difference is recorded and the peak asks again.
+    ///
+    /// Converges in one step: the foot is a property of the sheet, not of how
+    /// tall it is, so the second request lands the sheet exactly on the peak's
+    /// own height and the next check finds nothing to correct. What the peak
+    /// never has to do is guess — a band of empty glass under the last line and
+    /// a last line cut off by the screen are both the same wrong number, and
+    /// both are read straight off the screen and taken back out.
+    ///
+    /// Only at the peak, and only with a peak measured to compare against. A
+    /// window that is open, or being held part way by a finger, is not a
+    /// window at rest, and the bounds on the foot are there so a pull caught
+    /// mid-air cannot be mistaken for one.
+    private func learnSheetFoot(sheetHeight: CGFloat) {
+        guard presentation == .sheet, isCollapsed, peakContentHeight > 80 else { return }
+
+        let foot = sheetHeight - peakHeight
+        guard foot > -12, foot < 96 else { return }
+
+        let correction = foot - FlightInfoLayout.sheetFootEstimate
+        guard abs(correction - FlightInfoLayout.sheetFootCorrection) > 1 else { return }
+
+        FlightInfoLayout.sheetFootCorrection = correction
+        fitPeak(to: peakContentHeight)
     }
 
     /// Smoothstep across a slice of the drag. The two slices overlap, so the
@@ -1501,6 +1559,31 @@ private struct FlightInfoWindowChrome: ViewModifier {
             // clips its own corners, because it knows where its edges are and
             // a modifier hung on a sheet does not.
             content
+        }
+    }
+}
+
+/// Hands a height back only once it has stopped changing.
+///
+/// A sheet reports a new height on every frame it moves — arriving, resizing
+/// to a new detent, under a finger. None of those is the height it rests at,
+/// and a correction worked out from one of them would be a correction to a
+/// sheet that was on its way somewhere. Each report cancels the one before, so
+/// only the last height of a movement, held for half a second, gets through.
+///
+/// A reference, held in `@State` for its identity: reports arrive many times a
+/// second and none of them should redraw the window.
+final class SheetSettleProbe {
+
+    private var generation = 0
+
+    func observe(_ height: CGFloat, settled: @escaping (CGFloat) -> Void) {
+        generation += 1
+        let mine = generation
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self = self, self.generation == mine else { return }
+            settled(height)
         }
     }
 }

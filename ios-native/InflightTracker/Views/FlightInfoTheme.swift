@@ -1477,13 +1477,40 @@ enum FlightInfoLayout {
     /// Taken off the detent rather than added to the layout, so the peak still
     /// measures exactly what it draws and the sheet comes out exactly that
     /// tall. Zero on a phone with a home button, which is also right.
+    ///
+    /// ## Predicted, then measured
+    ///
+    /// The inset is the prediction, and it is only a prediction: what a sheet
+    /// adds under its detent is the system's business, and it has changed
+    /// shape before (iOS 26 floats a partial sheet clear of the bottom edge).
+    /// So the window checks. Once the sheet has come to rest at its peak it
+    /// compares the height it was actually given with the detent it asked for
+    /// — see `FlightDetailView.learnSheetFoot(sheetHeight:)` — and whatever
+    /// the difference is, not the inset, is what comes off from then on. A
+    /// prediction that is right costs nothing; one that is wrong in either
+    /// direction, a band of empty glass or a clipped last line, is corrected
+    /// on the first settle and stays corrected for every window after it.
     static var sheetFootAllowance: CGFloat {
+        max(0, sheetFootEstimate + sheetFootCorrection)
+    }
+
+    /// The prediction: the bottom safe area of the window in front.
+    static var sheetFootEstimate: CGFloat {
         let windowScenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         let scene = windowScenes.first { $0.activationState == .foregroundActive }
             ?? windowScenes.first
         let window = scene?.windows.first { $0.isKeyWindow } ?? scene?.windows.first
         return max(0, window?.safeAreaInsets.bottom ?? 0)
     }
+
+    /// How far the prediction was out, as last measured by a sheet at rest.
+    ///
+    /// Kept as a correction to the estimate rather than as the measured foot
+    /// itself, so turning the phone — which changes the inset — moves the
+    /// allowance with it instead of holding a portrait answer in landscape.
+    /// Shared between windows: the second aeroplane opened should not have to
+    /// learn what the first one already did.
+    static var sheetFootCorrection: CGFloat = 0
 
     /// The detent that makes a sheet exactly `height` tall, bottom inset
     /// included. See `sheetFootAllowance`.
