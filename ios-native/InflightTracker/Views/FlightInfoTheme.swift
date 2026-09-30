@@ -1322,6 +1322,26 @@ struct FlightInfoSurfaceModifier: ViewModifier {
     }
 }
 
+/// The window's type, for the two roles that were drifting.
+///
+/// Kickers — the small tracked capitals over a value — had been written out
+/// by hand at 7.5, 8.5, 9 and 10 points in neighbouring views, and readouts
+/// alternated between SF Mono and the rounded face depending on which file
+/// they were in. Side by side in one card that reads as three designers. These
+/// two are the answer everywhere a peek or a card draws either.
+enum FlightInfoType {
+
+    /// ALTITUDE, TO GO, PARKED AT, CRUISE. Rounded and heavy enough to hold
+    /// at this size, which is the smallest anything in the window is set.
+    static let kicker = Font.system(size: 9.5, weight: .bold, design: .rounded)
+
+    /// A live number. Tabular digits, so a figure that changes every packet
+    /// changes in place rather than shuffling its neighbours along.
+    static func figure(_ size: CGFloat) -> Font {
+        .system(size: size, weight: .semibold, design: .rounded).monospacedDigit()
+    }
+}
+
 /// Measurements the window and its sheet have to agree on.
 enum FlightInfoLayout {
 
@@ -1349,13 +1369,12 @@ enum FlightInfoLayout {
         // Between the two: it carries the compact bar's rows plus a readout
         // column and a foot, but no hero photograph.
         case .detail: return 322
-        // A tile, and a tile is the one peek whose height is nearly fixed: the
-        // photograph is behind the text rather than above it, so nothing in
-        // here grows with the picture. `FlightWidgetPeek.minimumHeight` plus
-        // the handle's clearance and the gap it floats above the foot of the
-        // screen, less a few points so the correction is still upward — see
-        // the note above.
-        case .widget: return 228
+        // The one peek whose height is nearly fixed: the photograph is behind
+        // the text rather than above it, so nothing in here grows with the
+        // picture. The name, the photograph's window, the route with its
+        // places and the glance strip, less a few points so the correction is
+        // still upward — see the note above.
+        case .widget: return 236
         }
     }
 
@@ -1444,6 +1463,34 @@ enum FlightInfoLayout {
         return scene?.screen.bounds.height ?? 852
     }
 
+    /// What the system adds to the foot of a sheet on top of its detent.
+    ///
+    /// A `.height(x)` detent is measured *above* the bottom safe area: the
+    /// sheet UIKit draws is `x` plus the home-indicator inset. The peak lays
+    /// itself out edge to edge — its content ignores that inset — so a detent
+    /// set to the peak's own measurement left the inset standing as a band of
+    /// empty glass under the last line, on every style, on every phone with a
+    /// home indicator. That band was the "empty window" this layout kept
+    /// chasing: thirty-four points of nothing, plus the gap that was meant to
+    /// be the only thing down there.
+    ///
+    /// Taken off the detent rather than added to the layout, so the peak still
+    /// measures exactly what it draws and the sheet comes out exactly that
+    /// tall. Zero on a phone with a home button, which is also right.
+    static var sheetFootAllowance: CGFloat {
+        let windowScenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let scene = windowScenes.first { $0.activationState == .foregroundActive }
+            ?? windowScenes.first
+        let window = scene?.windows.first { $0.isKeyWindow } ?? scene?.windows.first
+        return max(0, window?.safeAreaInsets.bottom ?? 0)
+    }
+
+    /// The detent that makes a sheet exactly `height` tall, bottom inset
+    /// included. See `sheetFootAllowance`.
+    static func detent(forSheetHeight height: CGFloat) -> CGFloat {
+        max(minimumPeakHeight - sheetFootAllowance, height - sheetFootAllowance)
+    }
+
     /// Breathing room under the peak state's last line.
     ///
     /// Part of what the peak *measures*, not something the sheet is trusted to
@@ -1452,44 +1499,16 @@ enum FlightInfoLayout {
     /// number by construction rather than by correction — there is no second
     /// quantity for a safe-area inset or a stale detent to hide in.
     ///
-    /// Eighteen rather than the eight a line of text wants on its own: the
-    /// window draws over the home indicator, whose bar reaches about thirteen
-    /// points up from the bottom edge, and text ending any closer sits on it.
+    /// Measured from the sheet's real bottom edge, now that the detent no
+    /// longer leaves the home-indicator inset standing under it (see
+    /// `sheetFootAllowance`). Eighteen clears the indicator on a sheet that
+    /// sits on the bottom of the screen, and is simply a comfortable margin on
+    /// the floating one iOS 26 draws at partial heights.
     static let peakBottomGap: CGFloat = 18
 
     /// Room at the top of the compact bar for the window's own grabber, which
     /// floats over the sheet rather than taking a band of its own.
     static let peakHandleClearance: CGFloat = 22
-
-    /// The margin the widget peek's tile floats in.
-    ///
-    /// Wider than the sixteen the other peeks lay out to, and it is not a taste
-    /// thing. Those peeks are *cards in* the window — their surfaces are the
-    /// window's own, drawn on its ground, and a card sitting close to the edge
-    /// of the sheet it belongs to looks like part of it, which it is. The tile
-    /// is a different object: a home-screen widget, with its own dark surface
-    /// and its own corner, and at sixteen it landed a few points inside the
-    /// sheet's own rounded corner and read as a rectangle nested in a rectangle
-    /// rather than as something lying on top of one.
-    ///
-    /// Eighteen is what separates the two corners enough to stop them being
-    /// read as a border. The shadow under the tile does the rest — see
-    /// `FlightWidgetPeek`.
-    static let widgetPeekInset: CGFloat = 18
-
-    /// ...and the gap under it, which is larger than the sides on purpose.
-    ///
-    /// Two things live down there that nothing else in the peek has to clear.
-    /// The home indicator reaches about thirteen points up, and the display's
-    /// own corner is a fifty-odd point arc that cuts across exactly where the
-    /// tile's bottom corners want to be — at sixteen and eighteen the corner
-    /// came within a few points of the glass, which is what made it look cut
-    /// off. Twenty-six puts the whole tile comfortably inside both.
-    ///
-    /// It also reads right rather than merely measuring right: a card floating
-    /// at the foot of a screen wants more room under it than beside it, or it
-    /// looks like it is sliding off.
-    static let widgetPeekBottomGap: CGFloat = 26
 
     /// How far above the peak height the phases have finished swapping. The
     /// cross-fade rides the drag rather than the detent, so it wants to be

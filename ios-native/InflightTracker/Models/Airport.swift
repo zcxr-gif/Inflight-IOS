@@ -26,6 +26,20 @@ struct Airport: Equatable {
         lhs.icao == rhs.icao
     }
 
+    /// The city the field serves, as far as the name says.
+    ///
+    /// The dataset writes most names as "City-Field" — `Bogota-Eldorado`,
+    /// `Barcelona- El Prat`, `New York-John F. Kennedy Intl NY` — so the part
+    /// before the first hyphen is the city, which is what every tracker prints
+    /// under a code. A name with no hyphen is usually already a place people
+    /// say ("London Heathrow") and is used whole.
+    var cityName: String {
+        let whole = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let dash = whole.firstIndex(of: "-") else { return whole }
+        let city = whole[..<dash].trimmingCharacters(in: .whitespacesAndNewlines)
+        return city.count >= 3 ? city : whole
+    }
+
     /// Regional-indicator flag for the airport's country, or an empty string
     /// when the country couldn't be resolved.
     var flag: String {

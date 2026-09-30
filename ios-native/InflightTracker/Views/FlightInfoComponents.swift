@@ -20,15 +20,15 @@ struct FlightPhaseChip: View {
                 .frame(width: 5, height: 5)
 
             Text(phase.rawValue)
-                .font(.system(size: 9, weight: .bold))
+                .font(FlightInfoType.kicker)
                 .tracking(0.7)
                 .foregroundStyle(theme.textPrimary)
                 .lineLimit(1)
                 .fixedSize()
                 .motionWords(phase)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 5)
         .flightInfoSurface(theme, radius: 99, elevated: elevated)
         // Never allowed to shrink: it sits next to a callsign that may be long,
         // and the callsign is the piece that gives way.
@@ -53,15 +53,15 @@ struct PilotStateChip: View {
     var body: some View {
         HStack(spacing: 4) {
             Image(systemName: state.symbol)
-                .font(.system(size: 7.5, weight: .semibold))
+                .font(.system(size: 8.5, weight: .semibold))
 
             Text(state.label)
-                .font(.system(size: 8.5, weight: .bold))
+                .font(FlightInfoType.kicker)
                 .tracking(0.6)
         }
         .foregroundStyle(theme.pilotStateAccent(for: state))
-        .padding(.horizontal, 6)
-        .padding(.vertical, 3)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 4)
         .flightInfoSurface(theme, radius: 99, elevated: elevated)
         // Never allowed to shrink: it sits beside a username of arbitrary
         // length, and the username is the piece that gives way.
@@ -122,6 +122,15 @@ struct RouteCard: View {
     /// purpose — it is the glance, and this is a detail you open the window for.
     var controlledFields: Set<String> = []
 
+    /// Whether the foot of the card is the glance strip — height, speed, how
+    /// far and when — rather than the distances alone.
+    ///
+    /// The peeks want the strip: they are the whole of what most people ever
+    /// read about a flight, and a tracker's card says how high and how fast
+    /// before it is opened. The open window has its own telemetry card a
+    /// little further down, so there the foot stays the journey's own three.
+    var usesGlance: Bool = false
+
     var body: some View {
         VStack(spacing: 11) {
             HStack(alignment: .top, spacing: 12) {
@@ -133,7 +142,20 @@ struct RouteCard: View {
             // has actually been flown below.
             RouteTrack(fraction: progress?.fraction ?? 0, theme: theme)
 
-            if let progress = progress {
+            if usesGlance {
+                FlightGlanceStrip(
+                    glance: FlightGlance(flight: flight, progress: progress),
+                    ink: theme.textPrimary,
+                    secondary: theme.textSecondary,
+                    dim: theme.textDim,
+                    divider: theme.stroke,
+                    accent: theme.accent,
+                    valueSize: 15
+                )
+                // The cells carry their own inset; the card's would double it.
+                .padding(.horizontal, -6)
+                .padding(.bottom, -6)
+            } else if let progress = progress {
                 HStack(spacing: 8) {
                     MiniStat(
                         label: "FLOWN",
@@ -142,45 +164,41 @@ struct RouteCard: View {
                         figure: progress.flownNM
                     )
                     MiniStat(
-                        label: "REMAINING",
+                        label: "TO GO",
                         value: "\(Format.number(progress.remainingNM)) NM",
                         theme: theme,
                         alignment: .center,
                         figure: progress.remainingNM
                     )
-                    // A clock rather than a quantity: "04:12" has two figures
-                    // in it and a colon, and it is an em dash when the aircraft
-                    // is too slow to estimate from. Crossed rather than rolled.
+                    // How long, with the clock it lands on in the label — the
+                    // same pairing the glance strip uses, so the peek and the
+                    // open window say an arrival the same way. Crossed rather
+                    // than rolled: "7h 52m" is words as much as figures.
                     MiniStat(
-                        label: "ETE",
+                        label: etaLabel,
                         value: eteLabel,
                         theme: theme,
                         alignment: .trailing
                     )
                 }
             }
-
-            Text(aircraftLine)
-                .font(.system(size: 10.5, weight: .medium))
-                .foregroundStyle(theme.textDim)
-                .flightInfoLine(minimumScale: 0.7)
-                .frame(maxWidth: .infinity)
-                .motionWords(aircraftLine)
         }
         .padding(inset)
         .flightInfoSurface(theme, radius: theme.radiusMedium)
     }
 
-    private var aircraftLine: String {
-        let parts = [flight.aircraftName, flight.liveryName].filter { !$0.isEmpty }
-        return parts.isEmpty ? "Unknown aircraft" : parts.joined(separator: " · ")
+    private var remaining: TimeInterval? {
+        progress?.estimatedTimeEnroute(groundSpeedKnots: flight.groundSpeedKnots)
     }
 
     private var eteLabel: String {
-        guard let ete = progress?.estimatedTimeEnroute(groundSpeedKnots: flight.groundSpeedKnots) else {
-            return "—"
-        }
-        return Format.duration(ete)
+        guard let remaining = remaining else { return "—" }
+        return FlightGlance.countdown(remaining)
+    }
+
+    private var etaLabel: String {
+        guard let remaining = remaining else { return "ETA" }
+        return "ETA \(FlightGlance.clock(Date().addingTimeInterval(remaining)))"
     }
 
     @ViewBuilder
@@ -226,14 +244,16 @@ struct RouteCard: View {
                 if isControlled { AtcOnlineBadge(theme: theme) }
             }
 
+            // The city, the way every tracker prints it under a code, rather
+            // than the dataset's full name in nine-point capitals — which at
+            // that size was a grey bar more often than something read.
             HStack(spacing: 4) {
                 if let flag = airport?.flag, !flag.isEmpty {
-                    Text(flag).font(.system(size: 9))
+                    Text(flag).font(.system(size: 11))
                 }
-                Text((airport?.name ?? "Unknown").uppercased())
-                    .font(.system(size: 9, weight: .semibold))
-                    .tracking(0.4)
-                    .foregroundStyle(theme.textDim)
+                Text(airport?.cityName ?? "Unknown")
+                    .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                    .foregroundStyle(theme.textSecondary)
                     .flightInfoLine(minimumScale: 0.7)
 
                 // The only mark that either end goes anywhere. Sits after the
@@ -242,7 +262,7 @@ struct RouteCard: View {
                 // pair pointing at each other.
                 if isLink {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 8, weight: .bold))
+                        .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(theme.textDim)
                 }
             }
@@ -349,7 +369,7 @@ struct PlaceCard: View {
                 // from one to the next. Both are words about the same thing, so
                 // both cross rather than cut.
                 Text(kicker)
-                    .font(.system(size: 8.5, weight: .bold))
+                    .font(FlightInfoType.kicker)
                     .tracking(0.7)
                     .foregroundStyle(theme.textDim)
                     .flightInfoLine(minimumScale: 0.8)
@@ -371,12 +391,11 @@ struct PlaceCard: View {
 
                 HStack(spacing: 4) {
                     if let flag = airport?.flag, !flag.isEmpty {
-                        Text(flag).font(.system(size: 9))
+                        Text(flag).font(.system(size: 11))
                     }
-                    Text((airport?.name ?? "Position unknown").uppercased())
-                        .font(.system(size: 9, weight: .semibold))
-                        .tracking(0.4)
-                        .foregroundStyle(theme.textDim)
+                    Text(airport?.name ?? "Position unknown")
+                        .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                        .foregroundStyle(theme.textSecondary)
                         .flightInfoLine(minimumScale: 0.7)
                 }
             }
@@ -820,24 +839,10 @@ struct FlightIdentityBlock: View {
                         // same window when another aircraft is opened in it.
                         .motionWords(flight.displayName)
 
-                    // What it is, beside who it is — the same chip the board
-                    // and the detail look put there, for the same reason. It
-                    // used to be said only at the foot of the route card, which
-                    // meant a parked or unfiled aircraft — the two cases that
-                    // draw a `PlaceCard` instead — named its type nowhere at
-                    // all, and the only way to tell an A320 from a 777 was to
-                    // recognise the photograph.
-                    if !typeCode.isEmpty {
-                        Text(typeCode)
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .foregroundStyle(theme.textSecondary)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2.5)
-                            .flightInfoSurface(theme, radius: 6, elevated: true)
-                            .fixedSize()
-                            .motionWords(typeCode)
-                    }
-
+                    // No type chip here any more: the line under the callsign
+                    // names the aircraft in full, whatever card follows, and a
+                    // chip saying "787-8" beside "Boeing 787-8" was the one
+                    // header saying the same thing twice.
                     FlightPhaseChip(phase: FlightPhase.from(flight), theme: theme, elevated: true)
                 }
 
@@ -851,13 +856,18 @@ struct FlightIdentityBlock: View {
                     }
                 }
 
-                // Where the flight is in its day. The type is in the chip
-                // above; the full name and the livery are at the foot of the
-                // route card, when there is one.
-                Text(stateLine)
-                    .font(.system(size: 10.5, weight: .medium))
-                    .foregroundStyle(theme.textDim)
+                // What it is and whose paint it wears. This used to be the
+                // phase, height and speed — the phase is the chip above it,
+                // and the height and speed are the glance strip in the peek
+                // and the telemetry card in the window, so the line was the
+                // only place the aircraft's full name and operator could go.
+                // They used to be at the foot of the route card, which is not
+                // drawn for a parked or unfiled aircraft.
+                Text(aircraftLine)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(theme.textSecondary)
                     .flightInfoLine()
+                    .motionWords(aircraftLine)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -874,16 +884,8 @@ struct FlightIdentityBlock: View {
         .padding(.horizontal, 2)
     }
 
-    private var stateLine: String {
-        let phase = FlightPhase.from(flight)
-        let altitude = "\(Format.number(flight.altitudeFeet)) ft"
-        let speed = "\(Format.number(flight.groundSpeedKnots)) kts"
-        return "\(phase.rawValue.capitalized) · \(altitude) · \(speed)"
-    }
-
-    /// The model without its manufacturer, which is all a chip has room for.
-    private var typeCode: String {
-        FlightDetailLook.typeCode(flight.aircraftName)
+    private var aircraftLine: String {
+        FlightDetailLook.aircraftLine(flight)
     }
 }
 
@@ -1322,7 +1324,7 @@ struct MiniStat: View {
     var body: some View {
         VStack(alignment: alignment, spacing: 3) {
             Text(label)
-                .font(.system(size: 8.5, weight: .bold))
+                .font(FlightInfoType.kicker)
                 .tracking(0.6)
                 .foregroundStyle(theme.textDim)
                 .flightInfoLine(minimumScale: 0.8)
@@ -1335,7 +1337,7 @@ struct MiniStat: View {
     @ViewBuilder
     private var reading: some View {
         let text = Text(value)
-            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+            .font(FlightInfoType.figure(13.5))
             .foregroundStyle(theme.textPrimary)
 
         if let figure = figure {

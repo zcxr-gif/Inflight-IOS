@@ -114,35 +114,11 @@ struct FlightInfoPeak: View {
             .padding(.bottom, FlightInfoLayout.peakBottomGap)
 
         case .widget:
-            VStack(alignment: .leading, spacing: 12) {
-                // The tile, and nothing of this file's around it. It is the
-                // home-screen widget rather than a rearrangement of the
-                // window's parts — see `FlightWidgetPeek`.
-                FlightWidgetPeek(flight: flight, image: image, theme: theme)
-
-                // On chrome of its own here, where the other peeks let it sit
-                // on the window's ground. Under this peek the window has no
-                // ground — see `FlightInfoWindowChrome.hidesGround` — so a line
-                // of dim grey text would be lying directly on somebody's map,
-                // which is not a place text can be read. A pill that hugs the
-                // name is the same answer the weather chip and the real-world
-                // bar already give to the same question.
-                if partner != nil {
-                    VaPartnerLine(partner: partner, theme: theme)
-                        .fixedSize(horizontal: true, vertical: false)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 7)
-                        .flightInfoChrome(theme, in: Capsule())
-                }
-            }
-            // Its own margins rather than the other peeks'. A tile is an
-            // object lying on the window, not a card cut from it, and it needs
-            // the room to be read as one — see `FlightInfoLayout.widgetPeekInset`
-            // for why sixteen was not enough and why the foot takes more than
-            // the sides.
-            .padding(.top, FlightInfoLayout.peakHandleClearance)
-            .padding(.horizontal, FlightInfoLayout.widgetPeekInset)
-            .padding(.bottom, FlightInfoLayout.widgetPeekBottomGap)
+            // The whole window, edge to edge — see `FlightWidgetPeek`. It pads
+            // itself and runs its photograph under its own margins, so nothing
+            // here puts a frame round it: a frame is exactly the tray this peek
+            // used to sit on.
+            FlightWidgetPeek(flight: flight, image: image, theme: theme, partner: partner)
 
         case .rich:
             rich
@@ -231,8 +207,8 @@ struct FlightInfoPeak: View {
                 // follows it, and lands a second later than the rest of the
                 // window does.
                 Text(tailLine)
-                    .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(theme.textDim)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(theme.textSecondary)
                     .flightInfoLine(minimumScale: 0.75)
                     .motionWords(tailLine)
             }
@@ -278,15 +254,16 @@ struct FlightInfoPeak: View {
         }
     }
 
-    /// The type and the tail, whichever of the two the feed has.
+    /// The aircraft, its operator and its tail.
     ///
-    /// A space rather than an empty string when it has neither: this line holds
-    /// the height of the block it is in, and a bar that shrinks by a line the
-    /// moment a lookup fails is a bar that jumps.
+    /// The full name rather than the type code it used to carry: the route
+    /// card's own aircraft line is gone — it said the same thing a second time
+    /// under the glance strip — so this is the one place the peek names what
+    /// is flying and whose paint it is in.
     private var tailLine: String {
-        let type = FlightDetailLook.typeCode(flight.aircraftName)
-        let parts = [type, registration].filter { !$0.isEmpty }
-        return parts.isEmpty ? " " : parts.joined(separator: " · ")
+        [FlightDetailLook.aircraftLine(flight), registration]
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
     }
 
     // MARK: - Route / where it is
@@ -304,7 +281,14 @@ struct FlightInfoPeak: View {
     private var situationCard: some View {
         switch FlightSituation.from(flight) {
         case .enroute(let progress):
-            RouteCard(flight: flight, progress: progress, theme: theme, icaoSize: icaoSize, inset: cardInset)
+            RouteCard(
+                flight: flight,
+                progress: progress,
+                theme: theme,
+                icaoSize: icaoSize,
+                inset: cardInset,
+                usesGlance: true
+            )
 
         case .grounded(let airport, let isTaxiing):
             PlaceCard(
@@ -340,6 +324,24 @@ struct FlightInfoPeak: View {
                         )
                     }
                 }
+
+                // In the air with nowhere filed is still in the air: how high,
+                // how fast, which way and how quickly it is climbing are the
+                // four things there *are* to say, and the strip says them the
+                // same way it does for a flight with a route.
+                hairline
+
+                FlightGlanceStrip(
+                    glance: FlightGlance(flight: flight, progress: nil),
+                    ink: theme.textPrimary,
+                    secondary: theme.textSecondary,
+                    dim: theme.textDim,
+                    divider: theme.stroke,
+                    accent: theme.accent,
+                    valueSize: 15
+                )
+                .padding(.horizontal, -6)
+                .padding(.vertical, -6)
             }
             .padding(cardInset)
             .flightInfoSurface(theme, radius: theme.radiusMedium)

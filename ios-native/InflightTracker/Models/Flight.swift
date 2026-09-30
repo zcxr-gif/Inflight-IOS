@@ -131,6 +131,25 @@ struct Flight: Identifiable, Equatable {
         return callsign
     }
 
+    /// The callsign as it is written on the map, beside the aeroplane.
+    ///
+    /// Infinite Flight callsigns are the spoken ones — "Avianca 021SQ Heavy" —
+    /// and the wake category on the end is radiotelephony, not identity. On a
+    /// plate capped at a sprite's width it was also the part that pushed the
+    /// callsign into an ellipsis, so the map read "Avianca 021SQ H…" for every
+    /// widebody in the sky. The window still says it in full.
+    var mapCallsign: String? {
+        guard let callsign = callsign else { return nil }
+        var words = callsign.split(separator: " ", omittingEmptySubsequences: true)
+        while words.count > 1, let last = words.last,
+              Self.wakeCategories.contains(last.uppercased()) {
+            words.removeLast()
+        }
+        return words.joined(separator: " ")
+    }
+
+    private static let wakeCategories: Set<String> = ["HEAVY", "SUPER"]
+
     /// Fails when the payload has no usable identity or position, which drops
     /// a single bad aircraft instead of the whole packet.
     init?(payload: [String: Any]) {

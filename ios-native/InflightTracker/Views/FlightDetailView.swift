@@ -719,7 +719,10 @@ struct FlightDetailView: View {
     private func fitPeak(to measured: CGFloat) {
         guard measured > 80 else { return }
 
-        let wanted = clampedPeakHeight(for: measured)
+        // The detent, not the sheet: the system adds the home-indicator inset
+        // under whatever is asked for, and the peak has already laid its
+        // content out through that inset. See `sheetFootAllowance`.
+        let wanted = FlightInfoLayout.detent(forSheetHeight: clampedPeakHeight(for: measured))
         if abs(wanted - peakHeight) > 0.5 { peakHeight = wanted }
     }
 
@@ -1306,7 +1309,7 @@ struct FlightDetailView: View {
     private func telemetry(for flight: Flight) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("TELEMETRY")
-                .font(.system(size: 9, weight: .bold))
+                .font(FlightInfoType.kicker)
                 .tracking(1)
                 .foregroundStyle(theme.textDim)
                 .padding(.leading, 2)
@@ -1350,7 +1353,7 @@ struct FlightDetailView: View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 6) {
                 Text(title)
-                    .font(.system(size: 9, weight: .bold))
+                    .font(FlightInfoType.kicker)
                     .tracking(0.5)
                     .foregroundStyle(theme.textSecondary)
                     .flightInfoLine(minimumScale: 0.8)
@@ -1358,19 +1361,19 @@ struct FlightDetailView: View {
                 Spacer(minLength: 2)
 
                 Image(systemName: symbol)
-                    .font(.system(size: 10))
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(theme.textDim)
             }
 
             HStack(alignment: .firstTextBaseline, spacing: 3) {
                 Text(value)
-                    .font(.system(size: 17, weight: .semibold, design: .monospaced))
+                    .font(FlightInfoType.figure(19))
                     .foregroundStyle(theme.textPrimary)
                     .flightInfoLine(minimumScale: 0.6)
                     .motionFigure(figure)
 
                 Text(unit)
-                    .font(.system(size: 9, weight: .medium))
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
                     .foregroundStyle(theme.textDim)
                     .fixedSize()
             }

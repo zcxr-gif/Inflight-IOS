@@ -1513,7 +1513,7 @@ struct TrackerMapView: UIViewRepresentable {
             case .all:      wantsCallsign = true
             }
 
-            let text = wantsCallsign ? flight.callsign : nil
+            let text = wantsCallsign ? flight.mapCallsign : nil
 
             var image: UIImage?
             var adId = ""
@@ -3648,11 +3648,18 @@ struct TrackerMapView: UIViewRepresentable {
         /// somewhere else entirely — and leaves the middle of the "clear" box
         /// above the top of the screen. Held to two thirds of the view from
         /// each side, so the box being centred in is always a real one.
+        ///
+        /// The bottom counts the home-indicator inset as well. Everything that
+        /// reports a bottom inset here — the dock, the flight window's detent —
+        /// measures from above that inset, while this padding is measured from
+        /// the map's own edge, which runs under it. Without it the margin meant
+        /// to keep a framed route clear of the window was spent on the inset,
+        /// and the end of the route sat a few points behind the window's top.
         private func edgeInsets(in bounds: CGRect) -> UIEdgeInsets {
             let wanted = UIEdgeInsets(
                 top: 96,
                 left: 44 + parent.leadingInset,
-                bottom: parent.bottomInset + 28,
+                bottom: parent.bottomInset + FlightInfoLayout.sheetFootAllowance + 28,
                 right: 44 + parent.trailingInset
             )
 
