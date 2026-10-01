@@ -116,6 +116,14 @@ struct ContentView: View {
     /// Whether the sky view is up: the camera, with the traffic drawn over it.
     @State private var isShowingSky = false
 
+    /// Which collection of 3D aircraft the map draws, if any. Kept on the
+    /// device: it is a way of looking at the map, not a setting to sync.
+    @AppStorage(AircraftModelStore.settingKey) private var aircraftModelsRaw = AircraftModelSource.off.rawValue
+
+    private var aircraftModels: AircraftModelSource {
+        AircraftModelSource(rawValue: aircraftModelsRaw) ?? .off
+    }
+
     /// Whether the map is staying with the open aircraft. Lives here rather
     /// than in the map so it can be turned off by the things that contradict
     /// it — framing a whole route, or closing the window entirely.
@@ -684,12 +692,12 @@ struct ContentView: View {
     /// away. Derived from the count rather than written out as a number, so the
     /// next change to the stack cannot leave this behind.
     ///
-    /// Two: the sky, and the map's own styles. It was three while there was a
-    /// button for the full-screen planet, which the map being able to *be* the
-    /// planet made redundant.
-    private static let mapControlRows = 2
-    private static let mapControlsHeight: CGFloat =
+    /// The sky and the map's own styles, always; and on the flat map and the
+    /// globe the ruler and the 3D aircraft as well — the planet draws neither.
+    private var mapControlRows: Int { isPlanetMap ? 2 : 4 }
+    private var mapControlsHeight: CGFloat {
         42 * CGFloat(mapControlRows) + CGFloat(mapControlRows - 1)
+    }
 
     /// A replay is driving the camera down the old track; following the live
     /// aircraft at the same time would be two things fighting over one map.
@@ -744,6 +752,7 @@ struct ContentView: View {
             legalInset: mapLegalInset,
             replayFrame: replay.frame,
             isFollowing: isFollowingLive,
+            onFollowEnded: { isFollowing = false },
             // The setting, and the system's own request for less movement —
             // which is the one audience a map full of gliding aeroplanes is
             // actively worse for. Resolved here rather than in the map: the map
@@ -788,7 +797,8 @@ struct ContentView: View {
             windHeat: weatherPreferences.windHeat,
             showsFieldConditions: weatherPreferences.showsFieldConditions,
             onSelectAirport: { openAirport(fromMap: $0) },
-            highlighting: highlighting
+            highlighting: highlighting,
+            aircraftModels: aircraftModels
         )
         .ignoresSafeArea()
     }
@@ -1088,9 +1098,10 @@ struct ContentView: View {
             // flying a path nothing on screen refers to.
             if replay.isActive, id != replay.flightId { replay.stop() }
 
-            // Following is about one aircraft. Another one — or none — is not
-            // something to carry the mode over to.
-            isFollowing = false
+            // Opening an aircraft follows it: the map glides onto it and goes
+            // with it, until a drag on the map or one of the framing buttons
+            // takes the camera somewhere else. Closing the window lets go.
+            isFollowing = id != nil
 
             isWindowExpanded = false
 
@@ -2523,6 +2534,12 @@ struct ContentView: View {
                     ) {
                         measurement.isOn.toggle()
                     }
+
+                    Rectangle()
+                        .fill(theme.stroke)
+                        .frame(height: 1)
+
+                    aircraftModelsControl
                 }
             }
             .frame(width: 44)
@@ -2587,7 +2604,7 @@ struct ContentView: View {
             .environment(\.colorScheme, theme.colorScheme)
             .padding(.trailing, 16 + mapTrailingInset)
             // Above the map's own control stack, which sits in the same corner.
-            .padding(.bottom, cornerInset + 8 + Self.mapControlsHeight + 8 + statsLift)
+            .padding(.bottom, cornerInset + 8 + mapControlsHeight + 8 + statsLift)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))
@@ -2701,6 +2718,16 @@ struct ContentView: View {
                     isFollowing = false
                     mapCommand = MapCommand(kind: .fitFlownPath)
                 }
+
+                // The 3D aircraft, here as well as beside the map's style: the
+                // aeroplane you have open is the one you most want to see in 3D.
+                if !isPlanetMap {
+                    Rectangle()
+                        .fill(theme.stroke)
+                        .frame(height: 1)
+
+                    aircraftModelsControl
+                }
             }
             .frame(width: 44)
             // Two of the three fill themselves when they are on, and one of
@@ -2720,6 +2747,37 @@ struct ContentView: View {
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))
         }
+    }
+
+    /// Which 3D aircraft the map draws: off, or one of the three collections.
+    ///
+    /// A menu rather than a cycle button so the three can be compared by name,
+    /// and so the credits are one tap away from the choice that uses them.
+    private var aircraftModelsControl: some View {
+        Menu {
+            Section("3D aircraft") {
+                ForEach(AircraftModelSource.allCases) { source in
+                    Button {
+                        aircraftModelsRaw = source.rawValue
+                    } label: {
+                        Label {
+                            Text(source.label)
+                            Text(source.detail)
+                        } icon: {
+                            Image(systemName: aircraftModels == source ? "checkmark" : source.symbol)
+                        }
+                    }
+                }
+            }
+            Section {
+                Text("Free models under the GNU GPL, downloaded from their authors' repositories. Credits are in Settings › Acknowledgements.")
+            }
+        } label: {
+            mapControlFace(aircraftModels == .off ? "cube" : "cube.fill", isOn: aircraftModels != .off)
+        }
+        .accessibilityLabel(
+            aircraftModels == .off ? "3D aircraft: off" : "3D aircraft: \(aircraftModels.label)"
+        )
     }
 
     /// `isOn` is for the one control in the hub that is a mode rather than a

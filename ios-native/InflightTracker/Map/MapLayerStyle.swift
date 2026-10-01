@@ -84,6 +84,10 @@ enum MapLayerStyle {
         static let flown = "inflight-flown"
         static let flownHeadHalo = "inflight-flown-head-halo"
         static let flownHead = "inflight-flown-head"
+        static let flownAirBlade = "inflight-flown-air-blade"
+        static let flownAir = "inflight-flown-air"
+        static let flownHeadAirBlade = "inflight-flown-head-air-blade"
+        static let flownHeadAir = "inflight-flown-head-air"
         static let direct = "inflight-direct"
         static let measureLine = "inflight-measure-line"
         static let barbs = "inflight-barbs"
@@ -92,6 +96,7 @@ enum MapLayerStyle {
         static let natLabels = "inflight-nat-labels"
         static let fields = "inflight-fields"
         static let fixes = "inflight-fixes"
+        static let trafficModels = "inflight-traffic-models"
         static let traffic = "inflight-traffic"
         static let trafficMarks = "inflight-traffic-marks"
         static let trafficLabels = "inflight-traffic-labels"
@@ -104,7 +109,7 @@ enum MapLayerStyle {
     }
 
     /// The layers a tap can open something from, in the order they are asked.
-    static let tappableTraffic = [Layer.selected, Layer.replay, Layer.traffic]
+    static let tappableTraffic = [Layer.trafficModels, Layer.selected, Layer.replay, Layer.traffic]
     static let tappableFields = [Layer.fields]
 
     // MARK: - Installing
@@ -130,6 +135,9 @@ enum MapLayerStyle {
             // not need the default's slack: a symbol is drawn whole across a
             // tile edge, and only lines and fills are clipped to their tiles.
             var tuning = frequent.contains(id) ? #", "buffer": 16"# : ""
+            // The flown path's heights are read off how far along it each
+            // vertex is, which Mapbox only works out when asked to.
+            if id == Source.flown || id == Source.flownHead { tuning += #", "lineMetrics": true"# }
             // And no deeper tiles than the data has detail for. Past a
             // source's maxzoom Mapbox overzooms the deepest tiles it made
             // instead of cutting new ones — which for a world-sized night band
@@ -144,7 +152,7 @@ enum MapLayerStyle {
         for layer in layers(labelMinZoom: labelMinZoom) {
             guard let id = layer["id"] as? String, !map.layerExists(withId: id) else { continue }
             do {
-                try map.addLayer(with: layer, layerPosition: nil)
+                try map.addLayer(with: selfLit(layer), layerPosition: nil)
             } catch {
                 NSLog("[Map] layer %@ could not be added: %@", id, String(describing: error))
             }
@@ -207,6 +215,34 @@ enum MapLayerStyle {
         let plate = FlightMarkStyle.plateImage(isLight: false)
         let bold = json(boldFont)
         let medium = json(mediumFont)
+        let modelId = json(AircraftModelStyle.modelIdExpression())
+        let modelScale = json(AircraftModelStyle.scaleExpression())
+        let iconOpacity = json(AircraftModelStyle.iconOpacityExpression())
+        let modelLift = json(AircraftModelStyle.liftExpression())
+        let airWidth = json(zoomRamp { FlownPathStyle.airWidth(forCameraDistance: $0) })
+        let airElevation = json(["case", ["has", "elevation"], FlownPathProfile.elevationExpression(), 0] as [Any])
+
+        // The flown path in the air, twice over: a ribbon lying level, which
+        // is what is seen from above, and a blade standing on edge, which is
+        // what is seen from the side. Together they read as one line from
+        // every angle, rather than one that thins to nothing as the map tilts.
+        func air(_ id: String, _ source: String, standing: Bool) -> String {
+            let shape = standing
+                ? #""line-cross-slope": 1"#
+                : #""line-cap": "round", "line-join": "round""#
+            return """
+            {
+                "id": "\(id)", "type": "line", "source": "\(source)", "slot": "top",
+                "layout": {
+                    "visibility": "none",
+                    "line-elevation-reference": "ground",
+                    "line-z-offset": \(airElevation),
+                    \(shape)
+                },
+                "paint": {"line-color": ["get", "color"], "line-width": \(airWidth)}
+            }
+            """
+        }
 
         func traffic(_ icon: String) -> String {
             """
@@ -474,9 +510,30 @@ enum MapLayerStyle {
                     "text-halo-blur": 0.6
                 }
             },
+            \(air(Layer.flownAirBlade, Source.flown, standing: true)),
+            \(air(Layer.flownAir, Source.flown, standing: false)),
+            \(air(Layer.flownHeadAirBlade, Source.flownHead, standing: true)),
+            \(air(Layer.flownHeadAir, Source.flownHead, standing: false)),
+            {
+                "id": "\(Layer.trafficModels)", "type": "model", "source": "\(Source.traffic)",
+                "filter": ["has", "model"],
+                "layout": {"model-id": \(modelId)},
+                "paint": {
+                    "model-type": "common-3d",
+                    "model-rotation": ["get", "mrot"],
+                    "model-scale": \(modelScale),
+                    "model-translation": \(modelLift),
+                    "model-cast-shadows": false,
+                    "model-receive-shadows": false,
+                    "model-emissive-strength": 0.8,
+                    "model-color": "#ffffff",
+                    "model-color-mix-intensity": 0
+                }
+            },
             {
                 "id": "\(Layer.traffic)", "type": "symbol", "source": "\(Source.traffic)",
-                "layout": \(traffic("icon"))
+                "layout": \(traffic("icon")),
+                "paint": {"icon-opacity": \(iconOpacity)}
             },
             {
                 "id": "\(Layer.trafficMarks)", "type": "symbol", "source": "\(Source.traffic)",
@@ -498,7 +555,8 @@ enum MapLayerStyle {
             {
                 "id": "\(Layer.selected)", "type": "symbol", "source": "\(Source.traffic)",
                 "filter": ["==", ["get", "fid"], ""],
-                "layout": \(traffic("iconSelected"))
+                "layout": \(traffic("iconSelected")),
+                "paint": {"icon-opacity": \(iconOpacity)}
             },
             {
                 "id": "\(Layer.selectedMark)", "type": "symbol", "source": "\(Source.traffic)",
@@ -542,6 +600,25 @@ enum MapLayerStyle {
             return []
         }
         return parsed
+    }
+
+    /// A layer that ignores the basemap's lighting and shows its own colours.
+    ///
+    /// Mapbox Standard lights everything placed in its slots, and lines,
+    /// fills, circles, rasters and backgrounds take none of their own light
+    /// by default. Under the night preset — the Black palette, and Auto in
+    /// dark mode — that shades every track, taxiway and runway down to near
+    /// black. An emissive strength of one draws the colour as written.
+    /// Symbols already default to one.
+    static func selfLit(_ layer: [String: Any]) -> [String: Any] {
+        guard let type = layer["type"] as? String,
+              ["line", "fill", "circle", "raster", "background"].contains(type)
+        else { return layer }
+        var lit = layer
+        var paint = layer["paint"] as? [String: Any] ?? [:]
+        paint["\(type)-emissive-strength"] = 1
+        lit["paint"] = paint
+        return lit
     }
 
     /// JSON text to Foundation objects, the form Mapbox's style calls take.
@@ -651,6 +728,11 @@ enum MapLayerStyle {
         set(Layer.measurePins, "circle-color", rgba(MeasureStyle.pinFill, isLight: isLight))
         set(Layer.measureLetters, "text-color", rgba(MeasureStyle.line, isLight: isLight))
 
+        // Lit by the style's own light, which at night is very little. The
+        // models carry some light of their own so they stay aeroplanes rather
+        // than silhouettes, and more of it on the dark map.
+        set(Layer.trafficModels, "model-emissive-strength", isLight ? 0.3 : 0.8)
+
         // The callsign's plate and its ink follow the map underneath, so the
         // label is dark on a light map and light on a dark one.
         let plate = FlightMarkStyle.plateImage(isLight: isLight)
@@ -658,6 +740,25 @@ enum MapLayerStyle {
         for layer in [Layer.trafficLabels, Layer.selectedLabel] {
             set(layer, "icon-image", plate)
             set(layer, "text-color", ink)
+        }
+    }
+
+    /// The flown path drawn in the air, at the aeroplane's height, or flat on
+    /// the map. In the air, the flat path stays as its shadow on the ground:
+    /// faint, and the thing that shows how high the line above it is.
+    static func applyAirPath(_ isInAir: Bool, on map: MapboxMap) {
+        func set(_ layer: String, _ property: String, _ value: Any) {
+            guard map.layerExists(withId: layer) else { return }
+            try? map.setLayerProperty(for: layer, property: property, value: value)
+        }
+        for layer in [Layer.flownAirBlade, Layer.flownAir, Layer.flownHeadAirBlade, Layer.flownHeadAir] {
+            set(layer, "visibility", isInAir ? "visible" : "none")
+        }
+        for layer in [Layer.flown, Layer.flownHead] {
+            set(layer, "line-opacity", isInAir ? FlownPathStyle.shadowOpacity : 1)
+        }
+        for layer in [Layer.flownHalo, Layer.flownHeadHalo] {
+            set(layer, "line-opacity", isInAir ? 0 : Double(FlownPathStyle.glowOpacity))
         }
     }
 

@@ -128,7 +128,7 @@ final class WeatherTileLayer {
         ]
 
         do {
-            try map.addLayer(with: layer, layerPosition: MapLayerStyle.weatherPosition(on: map))
+            try map.addLayer(with: MapLayerStyle.selfLit(layer), layerPosition: MapLayerStyle.weatherPosition(on: map))
         } catch {
             NSLog("[Map] weather layer could not be added: %@", String(describing: error))
             try? map.removeSource(withId: MapLayerStyle.Source.weather)

@@ -24,6 +24,18 @@ final class FlightMarker {
     var writtenCoordinate: CLLocationCoordinate2D?
     var writtenHeading: Double?
 
+    /// Pitch and bank for the 3D model, and the bank last written — see
+    /// `AircraftAttitude`.
+    private(set) var attitude = AircraftAttitude()
+
+    /// The field the aeroplane was last on the ground at, from its track,
+    /// when it has not been seen there live — so the model and its flown path
+    /// measure height from the same ground.
+    func adoptGroundAltitude(_ feet: Double) {
+        attitude.adoptGroundAltitude(feet)
+    }
+    var writtenBank: Double?
+
     /// Dead reckoning between packets, while this aircraft is being smoothed.
     ///
     /// Nil is the ordinary case: the marker sits where the last packet put it.
@@ -40,11 +52,13 @@ final class FlightMarker {
     init(flight: Flight) {
         self.flight = flight
         self.coordinate = flight.coordinate
+        attitude.report(flight, now: CACurrentMediaTime())
     }
 
     /// Applies a fresh packet.
     func update(with flight: Flight, now: CFTimeInterval) {
         self.flight = flight
+        attitude.report(flight, now: now)
 
         if motion != nil {
             // Handed to the smoothing rather than drawn. The drawn position is
@@ -90,6 +104,7 @@ final class FlightMarker {
     func needsWrite(pointsPerMetre: Double) -> Bool {
         guard let written = writtenCoordinate, let heading = writtenHeading else { return true }
         if abs(heading - drawnHeading) > 0.5 { return true }
+        if let bank = writtenBank, abs(bank - attitude.bank(at: CACurrentMediaTime())) > 0.75 { return true }
         return FlightMotion.pointsApart(written, coordinate, pointsPerMetre: pointsPerMetre) >= 0.1
     }
 
