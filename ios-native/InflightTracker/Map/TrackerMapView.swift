@@ -287,6 +287,7 @@ struct TrackerMapView: UIViewRepresentable {
             map.onMapIdle.observe { [weak self] _ in
                 self?.refreshAirPath(force: true)
                 self?.refreshSky(force: true)
+                self?.refreshModelView(force: true)
             }.store(in: &cancelables)
 
             // What lifts the opening screen — see `LaunchGate`. The map has its
@@ -758,8 +759,21 @@ struct TrackerMapView: UIViewRepresentable {
         private var zoom: Double = 2
         private var pointsPerMetre: Double = 0
 
+        /// The camera's tilt, in degrees from straight down.
+        private var cameraPitch: Double = 0
+
         /// The visible box, widened, that the smoothing works inside.
         private var smoothingBox: (south: Double, north: Double, west: Double, east: Double)?
+
+        /// Whether a point is inside `smoothingBox` — or anywhere, before the
+        /// camera has been seen.
+        private func isInSmoothingBox(_ coordinate: CLLocationCoordinate2D) -> Bool {
+            guard let box = smoothingBox else { return true }
+            var longitude = coordinate.longitude
+            if longitude < box.west { longitude += 360 }
+            return coordinate.latitude >= box.south && coordinate.latitude <= box.north
+                && longitude >= box.west && longitude <= box.east
+        }
 
         /// The label zoom: as far in as a dozen degrees of latitude on this
         /// screen. See `MapFilters.labelZoomSpan`, which is the same rule.
@@ -787,6 +801,7 @@ struct TrackerMapView: UIViewRepresentable {
 
             let state = map.cameraState
             zoom = Double(state.zoom)
+            cameraPitch = Double(state.pitch)
 
             let latitude = state.center.latitude
             let circumference = 40_075_016.686 * max(cos(latitude * .pi / 180), 0.01)
@@ -1247,10 +1262,48 @@ struct TrackerMapView: UIViewRepresentable {
                 heading: marker.drawnHeading,
                 pitch: pitch,
                 bank: bank,
-                heightMetres: height
+                heightMetres: height,
+                latitude: marker.coordinate.latitude,
+                in: modelView
             )
             for (key, values) in pose {
                 properties[key] = JSONValue.array(values.map { JSONValue.number($0) })
+            }
+        }
+
+        /// The camera every model on the map is written for, and whether every
+        /// one of them has been: while the map is moving only those on screen
+        /// are kept up, and the rest are caught up once it comes to rest.
+        private var modelView = AircraftModelStyle.View(zoom: 2, pitch: 0, height: 800)
+        private var modelViewEverywhere = true
+
+        /// Holds every model at its one size on screen as the camera moves —
+        /// see `AircraftModelStyle`. Mapbox will not do that from the zoom
+        /// itself on a GeoJSON source, so each model's scale and height are
+        /// written again whenever the zoom or tilt has moved by enough to
+        /// see: those on screen on every frame, the rest when the map rests.
+        private func refreshModelView(force: Bool) {
+            guard isStyleLoaded, let map = map, let mapView = mapView else { return }
+            let height = Double(mapView.bounds.height)
+            guard height > 1 else { return }
+            let current = AircraftModelStyle.View(zoom: zoom, pitch: cameraPitch, height: height)
+            let moved = current.differs(from: modelView)
+            guard moved || (force && !modelViewEverywhere) else { return }
+            modelView = current
+
+            var features: [Feature] = []
+            var skipped = false
+            for id in modelled.keys {
+                guard let marker = markers[id], trafficInSource.contains(id) else { continue }
+                if !force, !isInSmoothingBox(marker.coordinate) {
+                    skipped = true
+                    continue
+                }
+                features.append(trafficFeature(for: marker))
+            }
+            modelViewEverywhere = !skipped
+            if !features.isEmpty {
+                map.updateGeoJSONSourceFeatures(forSourceId: Source.traffic, features: features)
             }
         }
 
@@ -2670,6 +2723,7 @@ struct TrackerMapView: UIViewRepresentable {
             // whichever way this one ends.
             defer { followSelection() }
 
+            refreshModelView(force: false)
             refreshAirPath(force: false)
             updateFlownHead()
             syncDirectLine()
@@ -2696,21 +2750,13 @@ struct TrackerMapView: UIViewRepresentable {
                 return
             }
 
-            let box = smoothingBox
             var flying = 0
             var changed: [Feature] = []
 
             for marker in markers.values {
                 // Cheapest first: is it on screen, is it to be carried at all,
                 // is it flying, and would any of it be visible at this zoom.
-                let coordinate = marker.coordinate
-                var inView = true
-                if let box = box {
-                    var longitude = coordinate.longitude
-                    if longitude < box.west { longitude += 360 }
-                    inView = coordinate.latitude >= box.south && coordinate.latitude <= box.north
-                        && longitude >= box.west && longitude <= box.east
-                }
+                let inView = isInSmoothingBox(marker.coordinate)
 
                 let flight = marker.flight
                 let required = flight.requiresSmoothing
