@@ -1,6 +1,5 @@
 import CoreLocation
 import Foundation
-import MapKit
 
 /// Model weather at a chosen flight level, on a grid across whatever the map is
 /// looking at.
@@ -147,7 +146,7 @@ final class WindsAloftStore: ObservableObject {
     /// Point the store at what the map is showing. Cheap and idempotent — it
     /// resolves to a lattice key and does nothing when that key is already
     /// drawn and fresh.
-    func load(region: MKCoordinateRegion, demand: Demand) {
+    func load(region: GeoRegion, demand: Demand) {
         let size = demand.needsField ? Self.dense : Self.sparse
         guard let grid = Self.grid(for: region, size: size, holding: heldStep) else {
             // A region with no finite span at all — a map that has not laid
@@ -229,7 +228,7 @@ final class WindsAloftStore: ObservableObject {
     /// applied to the whole grid — square enough on screen over any region
     /// small enough to be worth drawing, and an actual lattice.
     private static func grid(
-        for region: MKCoordinateRegion,
+        for region: GeoRegion,
         size: (columns: Int, rows: Int),
         holding held: Double?
     ) -> Grid? {

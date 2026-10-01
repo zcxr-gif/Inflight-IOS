@@ -89,14 +89,13 @@ struct MapDock: View {
     static let reservedHeight: CGFloat =
         cardTop + handleBand + rowGap + MapToolbar.height + cardBottom + liftOffSafeArea
 
-    /// The strip immediately above the dock, kept empty for Apple's "Legal"
-    /// link.
+    /// The strip immediately above the dock, kept empty for the Mapbox logo and
+    /// attribution button.
     ///
-    /// MapKit draws the link in the bottom-left corner of whatever the map's
-    /// layout margins leave it, and Apple's terms require it to stay visible
-    /// and tappable — so the map lifts it to just above the dock, and the
-    /// chrome in the two bottom corners starts above this lane rather than on
-    /// top of it.
+    /// Mapbox draws both in the bottom corners of the map, and its terms
+    /// require them to stay visible and tappable — so the map lifts them to
+    /// just above the dock, and the chrome in the two bottom corners starts
+    /// above this lane rather than on top of it.
     static let legalLane: CGFloat = 20
 
     /// How far everything else has to move while the stats are up: the panel,

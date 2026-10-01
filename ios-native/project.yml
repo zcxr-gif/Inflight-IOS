@@ -14,13 +14,20 @@ packages:
   SocketIO:
     url: https://github.com/socketio/socket.io-client-swift
     from: "16.1.1"
+  # The map. Pinned to an exact release rather than a range: the weather layer
+  # feeds a custom raster source, which Mapbox still marks experimental, and
+  # an API that may move between minor versions is one to move on purpose.
+  # The binaries download from api.mapbox.com without a secret token.
+  MapboxMaps:
+    url: https://github.com/mapbox/mapbox-maps-ios.git
+    exactVersion: "11.26.0"
 
 settings:
   base:
     # Must stay above the Capacitor build's 1.0. TestFlight groups builds by
     # this string and iOS only offers an update when it actually increases —
     # 1.0.0 reads as equal to 1.0, so testers never saw an update prompt.
-    MARKETING_VERSION: "1.1.0"
+    MARKETING_VERSION: "1.2.0"
     CURRENT_PROJECT_VERSION: "1"
     VERSIONING_SYSTEM: apple-generic
     SWIFT_VERSION: "5.0"
@@ -50,6 +57,8 @@ targets:
     dependencies:
       - package: SocketIO
         product: SocketIO
+      - package: MapboxMaps
+        product: MapboxMaps
       - target: InflightWidgets
         embed: true
 
@@ -65,6 +74,13 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         SWIFT_EMIT_LOC_STRINGS: NO
         ENABLE_BITCODE: NO
+        # Mapbox's public access token, read from Info.plist as MBXAccessToken.
+        # A public (pk.) token is made to ship inside an app. This is the one
+        # the web tracker shipped with; CI replaces it with the
+        # MAPBOX_ACCESS_TOKEN environment variable when that is set, which is
+        # how a dedicated, URL-unrestricted iOS token goes in — see
+        # codemagic.yaml.
+        MAPBOX_ACCESS_TOKEN: "pk.eyJ1Ijoic2VydmVybm9vYiIsImEiOiJjbWN6YnVzcTMwNnEwMnJvZ2N5OXlhdnpiIn0.Nn3bZwHhbjTsnudkj0L1ig"
 
   # Home-screen widgets, lock-screen accessories and the Live Activity.
   #

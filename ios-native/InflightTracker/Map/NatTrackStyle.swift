@@ -1,25 +1,7 @@
-import MapKit
 import UIKit
 
-/// How the organised tracks are drawn, and how a drawn line says which track
-/// it is.
-///
-/// `MKPolyline` carries a `title` and nothing else, so the track's identity
-/// travels in that string and is read back out in the renderer. Same trick the
-/// flown path uses for its altitude band.
+/// How the organised tracks are drawn.
 enum NatTrackStyle {
-
-    /// Prefix on a track polyline's title, so the renderer can tell one from
-    /// the flown path, the filed plan and the ground layer.
-    static let titlePrefix = "nat:"
-
-    static func title(for track: NatTrack) -> String { "\(titlePrefix)\(track.name)" }
-
-    /// The letter a title carries, or nil if it is not a track at all.
-    static func name(fromTitle title: String?) -> String? {
-        guard let title = title, title.hasPrefix(titlePrefix) else { return nil }
-        return String(title.dropFirst(titlePrefix.count))
-    }
 
     /// One colour per track letter, the same six the web tracker used — so
     /// somebody who knows the map already knows which line is which.

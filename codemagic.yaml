@@ -90,6 +90,24 @@ workflows:
           set -euo pipefail
 
           cd "$XCODE_PROJECT_DIR"
+
+          # The map's access token. project.yml carries a public default; a
+          # MAPBOX_ACCESS_TOKEN environment variable in Codemagic replaces it,
+          # which is how a dedicated iOS token goes in without a commit. Only a
+          # public (pk.) token is accepted: whatever is here ships inside the
+          # app, and a secret token there is a secret published.
+          if [ -n "${MAPBOX_ACCESS_TOKEN:-}" ]; then
+            case "$MAPBOX_ACCESS_TOKEN" in
+              pk.*) ;;
+              *)
+                echo "FATAL: MAPBOX_ACCESS_TOKEN must be a public (pk.) Mapbox token."
+                exit 1
+                ;;
+            esac
+            sed -i '' -E "s|^( *MAPBOX_ACCESS_TOKEN: ).*|\1\"${MAPBOX_ACCESS_TOKEN}\"|" project.yml
+            echo "==> Using the Mapbox token from the MAPBOX_ACCESS_TOKEN environment variable"
+          fi
+
           xcodegen generate --spec project.yml
 
           # Nothing below can succeed if generation quietly produced the wrong
@@ -111,6 +129,22 @@ workflows:
           # package reference shows up as confusing 'no such module' errors.
           if ! grep -q 'socket.io-client-swift' "$XCODE_PROJECT/project.pbxproj"; then
             echo "FATAL: SocketIO package reference missing from project.pbxproj."
+            exit 1
+          fi
+
+          # And the map is nothing without Mapbox — same failure, same check.
+          if ! grep -q 'mapbox-maps-ios' "$XCODE_PROJECT/project.pbxproj"; then
+            echo "FATAL: MapboxMaps package reference missing from project.pbxproj."
+            exit 1
+          fi
+
+          # A map with no token draws nothing and says nothing about why.
+          if ! grep -q 'MBXAccessToken' Support/Info.plist; then
+            echo "FATAL: Support/Info.plist has no MBXAccessToken entry."
+            exit 1
+          fi
+          if ! grep -Eq '^ *MAPBOX_ACCESS_TOKEN: "pk\.' project.yml; then
+            echo "FATAL: project.yml has no public Mapbox access token."
             exit 1
           fi
 

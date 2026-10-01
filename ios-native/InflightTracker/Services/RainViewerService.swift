@@ -6,7 +6,7 @@ import Foundation
 /// One small JSON document lists every frame available — two hours of past
 /// radar in ten-minute steps, whatever nowcast is still being served, and the
 /// infrared satellite — as a host plus a path per frame. The tiles themselves
-/// are then plain PNGs under those paths, which is what `RainViewerTileOverlay`
+/// are then plain PNGs under those paths, which is what `WeatherTileLoader`
 /// builds URLs against.
 ///
 /// ## What is and is not still served
@@ -107,11 +107,11 @@ final class RainViewerService: ObservableObject {
 
     /// Bumped whenever every tile on the map is worth asking for again.
     ///
-    /// MapKit asks an overlay for a tile once and remembers the answer,
+    /// The map's weather layer asks for a tile once and keeps the answer,
     /// including the answer "nothing". So a screen that came up empty while the
     /// app was holding back stays empty afterwards — there is no request to
-    /// retry, because the retry is what was skipped. Nothing short of a new
-    /// overlay makes it ask again, and a new overlay is what a changed key gets.
+    /// retry, because the retry is what was skipped. Nothing short of a new key
+    /// makes it ask again, and a changed key re-asks for every tile on screen.
     ///
     /// So this is part of that key, and it moves on the two occasions where what
     /// is on the map is known to be worse than what the service would now give:
@@ -260,7 +260,7 @@ final class RainViewerService: ObservableObject {
     ///
     /// So: the animation stops, because it is what turns one screenful of tiles
     /// into seven; and when the hold runs out the whole screen is asked for
-    /// again, because every tile skipped in the meantime is a hole MapKit now
+    /// again, because every tile skipped in the meantime is a hole the map now
     /// considers settled and will never re-request on its own.
     private func holdRequests(until: Date) {
         if !isThrottled { isThrottled = true }

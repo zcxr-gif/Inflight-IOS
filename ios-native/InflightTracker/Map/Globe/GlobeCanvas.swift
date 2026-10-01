@@ -29,7 +29,7 @@ import simd
 /// A one-shot request to point the planet somewhere.
 ///
 /// The map's own `MapCommand` in the terms this renderer understands. Kept
-/// separate because the canvas has no business knowing about MapKit spans, and
+/// separate because the canvas has no business knowing about the map's spans, and
 /// because a token it can compare is what makes the move happen once rather
 /// than on every update that follows it.
 struct GlobeCommand: Equatable {
@@ -177,7 +177,7 @@ enum GlobeMarkMetrics {
     /// Smaller than a field's ring and its code, deliberately. A field is a
     /// place; a fix is a corner on one aeroplane's route, and on a plan with
     /// forty of them the marks must not out-shout the aerodromes underneath.
-    /// The flat map's own diamond is five points — see `PlanWaypointView` —
+    /// The flat map's own diamond is five points — see `PlanFixGlyph` —
     /// and this is the same mark at the same size.
     static let planFixRadius: CGFloat = 5
     static let planFontSize: CGFloat = 9.5
@@ -190,7 +190,7 @@ enum GlobeMarkMetrics {
     /// The marks an aeroplane wears: the VA's logo and its callsign, in the
     /// row above it.
     ///
-    /// The flat map's own numbers — see `FlightAnnotationView` — so an
+    /// The flat map's own numbers — see `FlightMarkStyle` — so an
     /// aeroplane looks the same whichever shape of the world it is on. Anything
     /// else here would read as a different app underneath the same chrome.
     static let planeMarkSide: CGFloat = 18
@@ -1987,7 +1987,7 @@ final class GlobeCanvasView: UIView {
         guard camera.radius > 0 else { return }
 
         // There is a world on screen. What lifts the opening screen when the
-        // drawn planet is the map rather than MapKit — see `LaunchGate`, which
+        // drawn planet is the map rather than Mapbox — see `LaunchGate`, which
         // ignores every call after the first, so this costs a branch per frame.
         LaunchGate.shared.mapDidDraw()
 
@@ -2699,7 +2699,7 @@ final class GlobeCanvasView: UIView {
     ///
     /// The flat map's own ramp — see `FlownPathStyle`, which is where the
     /// argument for it lives — keyed on how much ground is across the screen
-    /// rather than on a MapKit camera distance, because that is the same
+    /// rather than on the flat map's camera distance, because that is the same
     /// question asked of a globe. Wide at an aerodrome, where the track is read
     /// against runway edges; narrow with a continent in view, where a long-haul
     /// is a tangle of switchbacks and a wide stroke stops being a line and
@@ -3303,13 +3303,13 @@ final class GlobeCanvasView: UIView {
 
     /// The barbs, as chart symbols on the sphere.
     ///
-    /// Drawn from `WindBarbView.path` rather than from a second implementation:
+    /// Drawn from `WindBarbGlyph.path` rather than from a second implementation:
     /// a feather is ten knots and a pennant is fifty, and a planet that drew
     /// those differently from the map would not be drawing a wind barb.
     private func drawWindBarbs(in context: CGContext, basis: GlobeCamera.Basis, box: CGRect) {
         guard let wind = scene.wind, wind.showsBarbs, !wind.barbs.isEmpty else { return }
 
-        let colour = WindBarbView.colour.resolvedColor(with: traitCollection)
+        let colour = WindBarbGlyph.colour.resolvedColor(with: traitCollection)
         let side = Self.barbSide
         let frame = CGRect(x: 0, y: 0, width: side, height: side)
 
@@ -3333,7 +3333,7 @@ final class GlobeCanvasView: UIView {
             // is a pixel wide — it reads as clutter rather than as a reading.
             guard projected.depth > Self.barbDepth, box.contains(projected.point) else { continue }
 
-            let path = WindBarbView.path(
+            let path = WindBarbGlyph.path(
                 speedKnots: barb.speedKnots,
                 directionDegrees: barb.directionDegrees,
                 in: frame
@@ -3350,13 +3350,13 @@ final class GlobeCanvasView: UIView {
 
             // The pennants are filled triangles and the feathers are not, and
             // the path carries both — so it is stroked and then filled, which
-            // is what `WindBarbView` does with one shape layer and two colours.
+            // is what `WindBarbGlyph.image` does with one path and two colours.
             context.addPath(placed)
             context.fillPath()
         }
     }
 
-    /// How large a barb is drawn, matching `WindBarbView`'s own frame.
+    /// How large a barb is drawn, matching `WindBarbGlyph.side`.
     private static let barbSide: CGFloat = 78
 
     /// How far onto the near side a barb has to be to be worth drawing.
@@ -3781,7 +3781,7 @@ final class GlobeCanvasView: UIView {
 
     /// The VA's logo and the callsign, in a row above one aeroplane.
     ///
-    /// Laid out exactly as `FlightAnnotationView.layoutMarks` does it — logo,
+    /// Laid out the way the flat map lays its marks out — logo,
     /// gap, text, the row centred on the aircraft and sitting a little above
     /// its top edge — because it is the same mark on the same aeroplane and
     /// the only difference should be what is drawn underneath.
@@ -3888,7 +3888,7 @@ final class GlobeCanvasView: UIView {
     /// callsign, not once per frame.
     ///
     /// Dark type on a pale planet, light type on a dark one, from
-    /// `palette.isLight` — the same flip `FlightAnnotationView.isOverLightMap`
+    /// `palette.isLight` — the same flip `MapLayerStyle.applyScheme`
     /// makes, and the reason the cache is emptied when the palette changes.
     private func callsignLabel(_ text: String) -> UIImage {
         if let cached = callsignLabels[text] { return cached }
@@ -4290,7 +4290,7 @@ final class GlobeCanvasView: UIView {
     /// Every fix on the open aircraft's plan: a diamond, and its name beside
     /// it.
     ///
-    /// The same mark the flat map draws — see `PlanWaypointView` — for the
+    /// The same mark the flat map draws — see `PlanFixGlyph` — for the
     /// reason the whole of this layer exists: a plan you can read on one shape
     /// of the world and not the other is a setting that appears to do nothing
     /// depending on which shape you happen to be on.

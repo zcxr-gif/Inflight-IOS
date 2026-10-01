@@ -1,7 +1,6 @@
 import CoreGraphics
 import CoreLocation
 import Foundation
-import MapKit
 import UIKit
 import simd
 
@@ -9,20 +8,21 @@ import simd
 ///
 /// ## Why this file exists at all
 ///
-/// `MapProjection.planet` is not MapKit. It is a `CGContext` and an
+/// `MapProjection.planet` is not Mapbox. It is a `CGContext` and an
 /// orthographic projection, and for as long as it has existed the argument
 /// against offering it as a projection at all was written down in `MapLook`:
-/// "a renderer which is not MapKit cannot reach the map's weather tiles". So it
+/// "a renderer which is not the map's cannot reach its weather tiles". So it
 /// didn't, and switching to the planet quietly took the radar, the satellite,
 /// the barbs, the coloured field and the moving air off the map — with every
 /// one of those switches still on, and nothing on screen to say why. The globe
-/// kept all of it, because the globe *is* MapKit; the planet, which is the one
+/// kept all of it, because the globe *is* the map; the planet, which is the one
 /// people choose on purpose, lost the lot.
 ///
 /// ## How a mercator tile gets onto a sphere
 ///
-/// It doesn't, not by any transform. `MKTileOverlay` works because a flat map
-/// and a tile are the same projection, so a tile is a rectangle you place. On
+/// It doesn't, not by any transform. A raster layer works on the flat map
+/// because a flat map and a tile are the same projection, so a tile is a
+/// rectangle you place. On
 /// an orthographic sphere a tile is a curved quadrilateral whose curvature
 /// changes across itself, and Core Graphics has no mesh primitive to draw that
 /// with.
@@ -286,12 +286,12 @@ final class GlobeTileStore {
 
         guard let held = held else { return nil }
 
-        // The overlay is used purely as a URL builder and a cached loader here.
+        // The map's own loader, used purely as a URL builder and a cache here.
         // Its session, its tile cache and its reporting of a service that has
         // stopped serving are all things this would otherwise have to write
         // again — and write differently, which is how two layers of the same
         // app end up disagreeing about whether the radar is up.
-        let loader = RainViewerTileOverlay(tiles: tiles)
+        let loader = WeatherTileLoader(tiles: tiles)
         let across = held.span
 
         for tile in wanted {
@@ -308,7 +308,7 @@ final class GlobeTileStore {
             if already { continue }
 
             loader.loadTile(
-                at: MKTileOverlayPath(x: x, y: tile.y, z: z, contentScaleFactor: 1)
+                at: WeatherTilePath(x: x, y: tile.y, z: z)
             ) { [weak self] data, _ in
                 guard let self = self else { return }
                 guard let data = data, let pixels = GlobeTileMosaic.decode(data) else {
@@ -522,7 +522,7 @@ extension GlobeWeatherRaster {
             guard !stops.isEmpty, !field.isEmpty else { return nil }
 
             walk { place, at in
-                guard let value = WeatherHeatOverlay.value(
+                guard let value = WeatherHeatRaster.value(
                     of: product,
                     at: place,
                     in: field,
@@ -651,7 +651,7 @@ extension GlobeWeatherRaster {
 
 /// The wind particles, on a sphere.
 ///
-/// The flat map's `WindParticleOverlay` advects in map points, which is the
+/// The flat map's `WindParticles` advect in map points, which is the
 /// right frame for a map that *is* a plane. Here the frame is the planet:
 /// particles carry a latitude and a longitude, are stepped through the field in
 /// degrees, and are projected only when they are drawn. Which means they follow

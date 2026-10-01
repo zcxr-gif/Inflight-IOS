@@ -50,8 +50,8 @@ enum SatelliteImagery {
 
     /// GIBS names a matrix set for how many zoom levels it holds, so `Level9`
     /// is zooms 0 through 8. Asking past the top gets a 404 and draws nothing;
-    /// stopping short of it lets `MKTileOverlay` scale the last one up, which
-    /// costs sharpness and nothing else.
+    /// stopping short of it lets the map scale the last one up, which costs
+    /// sharpness and nothing else.
     static let tileMatrixSet = "GoogleMapsCompatible_Level9"
     static let maximumZoom = 8
 
@@ -161,7 +161,7 @@ enum MapWeatherSource {
     /// is what put the words "rate-limiting" under a switch that was working
     /// perfectly a zoom ago. That is the bug this constant was.
     ///
-    /// This is the depth past which `RainViewerTileOverlay` builds tiles itself
+    /// This is the depth past which `WeatherTileLoader` builds tiles itself
     /// from the deepest ancestor rather than the depth at which the map gives
     /// up — see that class. Nothing above here should treat it as a limit on
     /// where the layer can be drawn.
@@ -208,7 +208,8 @@ enum MapWeatherSource {
     // The web tracker does not do this. It clamps the tile source's own zoom,
     // asks for linear resampling and leaves the opacity alone, so the radar is
     // still there at street scale — softer than the data behind it, and honest
-    // about that, but there. This does the same: `RainViewerTileOverlay` builds
-    // every tile past the served depth from its deepest ancestor with high-
-    // quality interpolation, and the alpha is now a constant per layer.
+    // about that, but there. This does the same: the map's raster source stops
+    // at the served depth and Mapbox overscales the deepest tile with linear
+    // resampling, the planet's `WeatherTileLoader` builds every tile past it
+    // from its deepest ancestor, and the alpha is a constant per layer.
 }

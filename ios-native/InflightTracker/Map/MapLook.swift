@@ -1,4 +1,5 @@
-import MapKit
+import CoreLocation
+import MapboxMaps
 import SwiftUI
 import UIKit
 
@@ -14,8 +15,9 @@ enum MapProjection: String, CaseIterable, Identifiable {
     /// The flat, north-up map. What the app has always opened on.
     case flat
 
-    /// The planet: imagery over realistic elevation, free to rotate and tilt,
-    /// and a sphere once the camera is far enough back.
+    /// The planet: Mapbox's globe projection in imagery over real elevation,
+    /// free to rotate and tilt, and a sphere once the camera is far enough
+    /// back — easing into the flat map as you zoom in, with no seam.
     ///
     /// One look, and only one. The cartography palettes are the flat map's —
     /// see `MapLook.palette`.
@@ -24,9 +26,9 @@ enum MapProjection: String, CaseIterable, Identifiable {
     /// The drawn planet: a vector globe of the app's own, in whichever colours
     /// you pick, with the traffic and the fields on it.
     ///
-    /// Not MapKit at all — see `PlanetSurface`. It began as a screen you opened
+    /// Not Mapbox at all — see `PlanetSurface`. It began as a screen you opened
     /// from the corner of the map and closed again, and the argument for
-    /// keeping it that way was that a renderer which is not MapKit cannot
+    /// keeping it that way was that a renderer which is not the map's cannot
     /// reach the map's weather tiles, its gate layouts or its ruler, so
     /// offering it as a projection would mean silently turning features off.
     ///
@@ -40,9 +42,9 @@ enum MapProjection: String, CaseIterable, Identifiable {
     /// map rather than a screen instead of it, so the search field, the
     /// filters, the dock, the toolbar, every panel and the flight window are
     /// all still there and all still work — and the handful of things that
-    /// genuinely need MapKit tiles say so by being switched off rather than by
-    /// quietly doing nothing. The screen it began as is gone with that: a
-    /// second, chrome-less copy of the map you are already looking at is a
+    /// genuinely need the map's own tiles say so by being switched off rather
+    /// than by quietly doing nothing. The screen it began as is gone with that:
+    /// a second, chrome-less copy of the map you are already looking at is a
     /// place to go that has nothing you did not have.
     case planet
 
@@ -72,16 +74,16 @@ enum MapProjection: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Whether this shape is drawn by the app rather than by MapKit, which is
+    /// Whether this shape is drawn by the app rather than by Mapbox, which is
     /// what decides which of the map's controls have anything to act on.
     var isDrawn: Bool { self == .planet }
 
-    /// MapKit's imagery globe is Pro; the flat map is what everybody has
-    /// always had, and so is the drawn planet.
+    /// The imagery globe is Pro; the flat map is what everybody has always
+    /// had, and so is the drawn planet.
     ///
     /// The planet is deliberately free, and that is a decision about what it is
     /// rather than about what it costs to run: it is the app's own renderer, it
-    /// fetches nothing MapKit would have fetched, and a shape of the world
+    /// fetches nothing the map would have fetched, and a shape of the world
     /// nobody without Pro can look at is one nobody without Pro can want. What
     /// is sold on it is the *editing* — its colours, its sky and how the
     /// traffic on it is drawn. See `ProFeature.planetLook`.
@@ -89,21 +91,27 @@ enum MapProjection: String, CaseIterable, Identifiable {
 
     /// Whether the camera is free to rotate and tilt.
     ///
-    /// Only the globe. The flat map is north-up on purpose: a sprite's rotation
-    /// is its true heading, and a map that can be spun means that rotation has
-    /// to be corrected against the camera on every frame. The globe earns that
-    /// cost because spinning it *is* the feature; a flat map gains nothing from
-    /// being crooked.
+    /// Only the globe. The flat map is north-up on purpose: a map that can be
+    /// spun is a map somebody can lose north on, and a flat map gains nothing
+    /// from being crooked. The sprites would cope either way — they are turned
+    /// against the map on the GPU — so this is a decision about the map rather
+    /// than a cost.
     var isFreeCamera: Bool { self == .globe }
 
-    /// How far back the camera goes when this projection is switched on, in
-    /// metres, or nil to leave the camera where it is.
+    /// How far out the camera goes when this projection is switched on, as a
+    /// zoom level, or nil to leave the camera where it is.
     ///
     /// The globe only looks like a globe from far enough away. Switching to it
     /// from a map framed on one airport would otherwise show a tilted view of a
     /// runway and look like nothing had happened.
-    var openingDistance: CLLocationDistance? {
-        self == .globe ? 26_000_000 : nil
+    var openingZoom: CGFloat? {
+        self == .globe ? 1.6 : nil
+    }
+
+    /// The projection Mapbox draws this shape in. The drawn planet is not
+    /// Mapbox's, and stands over a flat map nobody can see.
+    var styleProjection: StyleProjectionName {
+        self == .globe ? .globe : .mercator
     }
 }
 
@@ -135,7 +143,7 @@ enum MapPalette: String, CaseIterable, Identifiable {
     /// Imagery. It carries no labels at all, which makes the sprites the only
     /// legible thing on screen.
     ///
-    /// Also what the globe is, always — though there it keeps coastline names,
+    /// Also what the globe is, always — though there it keeps place names,
     /// because a hemisphere with nothing written on it is a hemisphere you
     /// cannot identify.
     case satellite
@@ -191,11 +199,11 @@ enum MapPalette: String, CaseIterable, Identifiable {
     /// everybody already has.
     var isPro: Bool { self == .satellite }
 
-    /// Which appearance MapKit draws in, or nil to follow the app.
+    /// Which appearance the map draws in, or nil to follow the app.
     ///
-    /// This drives the overlays and the annotations too, since they resolve
-    /// their dynamic colours against the map view's own trait — which is right:
-    /// a route line drawn over a light map should be the light map's line.
+    /// This drives the layers drawn over it too, since their colours are
+    /// resolved against the map's own scheme — which is right: a route line
+    /// drawn over a light map should be the light map's line.
     var scheme: ColorScheme? {
         switch self {
         case .auto, .satellite: return nil
@@ -210,21 +218,16 @@ enum MapPalette: String, CaseIterable, Identifiable {
     /// How much black this palette washes over the map before anybody touches
     /// the brightness.
     ///
-    /// MapKit has no blacker configuration than its own dark cartography, so
-    /// this is the rest of the way: an overlay under everything the app draws,
+    /// Mapbox's monochrome night is already dark, but it is drawn to be read;
+    /// this is the rest of the way: a wash under everything the app draws,
     /// which dims the map without touching a single aircraft on it.
-    ///
-    /// Half rather than the old 0.42. The wash used to stop at the edges of one
-    /// copy of the world — see `MapDimming` — so it was tuned against a map
-    /// that was only ever partly dark, and a figure that looked right beside an
-    /// undimmed neighbour is too timid once the whole thing goes down.
     var dimming: CGFloat { self == .black ? 0.5 : 0 }
 }
 
 /// How much light is taken off the map, or put back onto it.
 ///
 /// One signed number rather than two switches, because it is one question with
-/// a middle: the map as MapKit draws it. Positive is black laid over the
+/// a middle: the map as Mapbox draws it. Positive is black laid over the
 /// cartography, negative is white — and white genuinely does lift a dark map,
 /// which is the half of this that a dimmer alone could never do. Satellite
 /// imagery at night is the case that wants the first and a black palette read
@@ -236,7 +239,7 @@ struct MapWash: Equatable {
     var depth: CGFloat
 
     /// Whether there is anything to draw at all. Below this the wash is a
-    /// full-screen overlay compositing a colour nobody can see.
+    /// full-screen layer compositing a colour nobody can see.
     var isVisible: Bool { abs(depth) > 0.004 }
 
     /// What is laid over the map, and how much of it.
@@ -254,11 +257,11 @@ struct MapLook: Equatable {
     /// The globe ignores this, and that is the one place the two settings are
     /// not independent. It was worth trying: a black planet is a nice idea, and
     /// the split that made the palettes their own axis is what let anybody ask
-    /// for one. What comes back is not a black planet. MapKit's cartography is
-    /// drawn for a sheet you are looking down at — coastlines, graticule, a
-    /// flat ground colour — and wrapped round a sphere lit by real elevation it
-    /// reads as a paper globe rather than as the planet, so the one thing the
-    /// globe is for is the thing it stops doing.
+    /// for one. What comes back is not a black planet. Cartography is drawn for
+    /// a sheet you are looking down at — coastlines, a flat ground colour — and
+    /// wrapped round a sphere lit by real elevation it reads as a paper globe
+    /// rather than as the planet, so the one thing the globe is for is the
+    /// thing it stops doing.
     ///
     /// So the globe is imagery, always, and the palettes stay what they have
     /// always effectively been: the flat map's finish. The stored choice is
@@ -270,12 +273,10 @@ struct MapLook: Equatable {
     /// camera that can be tilted down to look along it.
     ///
     /// Its own setting rather than a property of the shape, because it is a
-    /// question you can ask of either. The globe has always had it — realistic
-    /// elevation is what rounds the planet off at the edges, so a globe without
-    /// it is not a globe — and the flat map never could, which is why a
-    /// mountain range on it has always been a picture of one rather than a
-    /// shape. Turning it on there gives the ordinary map its terrain back and
-    /// lets the camera pitch over it.
+    /// question you can ask of either. The globe has always had it — elevation
+    /// is what gives the planet its relief at the edges, so a globe without it
+    /// is not a globe — and turning it on for the flat map gives the ordinary
+    /// map its terrain and lets the camera pitch over it.
     ///
     /// What it does not do is take the flat map's north away. Pitch is a camera
     /// looking down at something; rotation is the map being turned underneath
@@ -283,12 +284,12 @@ struct MapLook: Equatable {
     var isTerrain: Bool = false
 
     /// Roads, terrain shading and place names at full strength, rather than the
-    /// muted cartography the map recedes into behind the traffic. Nothing to do
+    /// faded cartography the map recedes into behind the traffic. Nothing to do
     /// with imagery, which has no emphasis to set.
     var isDetailed: Bool = false
 
     /// Where the brightness slider is standing, from black at zero to washed
-    /// out at one, with `neutralBrightness` meaning the map exactly as MapKit
+    /// out at one, with `neutralBrightness` meaning the map exactly as Mapbox
     /// draws it.
     ///
     /// A slider rather than another palette, because it is not a choice
@@ -299,10 +300,10 @@ struct MapLook: Equatable {
     /// full sun, where the black one is a rumour. Neither of those wants a
     /// different map.
     ///
-    /// Deliberately *not* part of what `MapLook.configuration()` answers, and
+    /// Deliberately *not* part of what `mapStyle(isLight:)` answers, and
     /// `sameCartography(as:)` is what keeps it that way: dragging this must
-    /// repaint one overlay rather than tear MapKit's map down and rebuild it
-    /// sixty times on the way across.
+    /// set one layer's opacity rather than reconfigure the basemap sixty
+    /// times on the way across.
     var brightness: CGFloat = MapLook.neutralBrightness
 
     /// The middle of the slider: the map untouched.
@@ -323,9 +324,9 @@ struct MapLook: Equatable {
     /// What the map is actually drawn in, which on the globe is imagery
     /// whatever the palette says.
     ///
-    /// Everything downstream reads this rather than `palette`: the
-    /// configuration, the scheme, the black wash, and the menu's own
-    /// checkmarks. One property, so the setting and the map cannot disagree.
+    /// Everything downstream reads this rather than `palette`: the style, the
+    /// scheme, the black wash, and the menu's own checkmarks. One property, so
+    /// the setting and the map cannot disagree.
     var resolvedPalette: MapPalette { projection == .globe ? .satellite : palette }
 
     var isFreeCamera: Bool { projection.isFreeCamera }
@@ -357,11 +358,10 @@ struct MapLook: Equatable {
     /// Whether two looks draw the same map, ignoring how much light is left on
     /// it.
     ///
-    /// The brightness is a wash over the finished cartography and nothing
-    /// MapKit is told about, so a change to it alone is one overlay
-    /// repainting. Everything else here goes into `configuration()`, and
-    /// assigning that tears the map down and builds another — see
-    /// `applyStyle`, which is the one caller and which uses this to tell the
+    /// The brightness is a wash over the finished cartography and nothing the
+    /// basemap is told about, so a change to it alone is one layer's opacity.
+    /// Everything else here goes into `mapStyle(isLight:)` or the projection —
+    /// see `TrackerMapView.Coordinator.applyLook`, which uses this to tell the
     /// two apart.
     func sameCartography(as other: MapLook) -> Bool {
         projection == other.projection
@@ -374,7 +374,7 @@ struct MapLook: Equatable {
     var isDrawn: Bool { projection.isDrawn }
 
     /// Whether there is real elevation under this map. Always true on the
-    /// globe, which is what rounds it off.
+    /// globe, which is what gives it its relief.
     var hasTerrain: Bool { projection == .globe || isTerrain }
 
     /// Whether the camera can be tilted away from straight down.
@@ -384,53 +384,57 @@ struct MapLook: Equatable {
     /// an angle.
     var isPitchEnabled: Bool { isFreeCamera || isTerrain }
 
-    /// Whether a sprite's angle on screen has to be measured rather than
-    /// derived from its heading and the camera's bearing.
+    /// The Mapbox style for this look.
     ///
-    /// The subtraction only holds where north points straight up the screen
-    /// everywhere, which is a flat map viewed from directly above. Spin it,
-    /// tilt it, or round it off into a planet and it stops holding — worst at
-    /// the edges, where a globe's meridians have converged and a pitched map
-    /// has run into perspective. See `TrackerMapView.Coordinator.screenAngle`.
+    /// Mapbox Standard for the cartography and Standard Satellite for imagery.
+    /// Both take their look from *configuration* rather than from a different
+    /// style — the light preset, the theme, which labels — and Mapbox applies a
+    /// change of configuration to the style already loaded, animated, without
+    /// reloading anything. So turning the app from light to dark, or the map
+    /// from faded to detailed, is a cross-fade rather than a reload; only the
+    /// step between cartography and imagery swaps the style itself.
     ///
-    /// Which is to say: is the camera free to be anywhere but straight above,
-    /// pointing north. Exactly the two switches above.
-    var usesScreenAngles: Bool { isFreeCamera || isPitchEnabled }
-
-    /// Realistic elevation is what makes MapKit round the world off at the
-    /// edges, and what puts height into its terrain; flat is what keeps it a
-    /// Mercator sheet.
-    var elevationStyle: MKMapConfiguration.ElevationStyle {
-        hasTerrain ? .realistic : .flat
-    }
-
-    /// MapKit's own configuration for this look.
-    ///
-    /// Points of interest stay excluded everywhere they can be: the map is a
-    /// backdrop for traffic, and a scattering of restaurant pins competes with
-    /// the aircraft for exactly the same attention. `MKImageryMapConfiguration`
-    /// has no POIs to exclude, which is why it is the one case that doesn't set
-    /// the filter.
-    func configuration() -> MKMapConfiguration {
-        let elevation = elevationStyle
-
-        guard resolvedPalette.usesImagery else {
-            let configuration = MKStandardMapConfiguration(elevationStyle: elevation)
-            configuration.emphasisStyle = isDetailed ? .default : .muted
-            configuration.pointOfInterestFilter = .excludingAll
-            return configuration
+    /// Points of interest stay off everywhere: the map is a backdrop for
+    /// traffic, and a scattering of restaurant pins competes with the aircraft
+    /// for exactly the same attention. So do the 3D buildings and trees — the
+    /// traffic is the only thing on this map that should be standing up, and
+    /// not drawing a city's worth of extrusions is a good share of what keeps a
+    /// pinch at the display's full frame rate.
+    func mapStyle(isLight: Bool) -> MapStyle {
+        guard !resolvedPalette.usesImagery else {
+            // Imagery is a photograph and has no night of its own; the wash is
+            // what dims it. Flat it carries no labels at all, so the traffic is
+            // the only legible thing on screen. The globe keeps place names
+            // and borders, because a hemisphere with nothing written on it is
+            // a hemisphere you cannot identify.
+            let named = projection == .globe
+            return .standardSatellite(
+                lightPreset: .day,
+                showPointOfInterestLabels: false,
+                showTransitLabels: false,
+                showPlaceLabels: named,
+                showRoadLabels: false,
+                showRoadsAndTransit: false,
+                showPedestrianRoads: false,
+                showAdminBoundaries: named
+            )
         }
 
-        guard projection == .globe else {
-            return MKImageryMapConfiguration(elevationStyle: elevation)
+        let theme: StandardTheme
+        if resolvedPalette == .black {
+            theme = .monochrome
+        } else {
+            theme = isDetailed ? .default : .faded
         }
 
-        // Hybrid rather than pure imagery: on a globe you are looking at a
-        // hemisphere at a time, and without coastline labels there is nothing to
-        // tell you which one.
-        let configuration = MKHybridMapConfiguration(elevationStyle: elevation)
-        configuration.pointOfInterestFilter = .excludingAll
-        return configuration
+        return .standard(
+            theme: theme,
+            lightPreset: isLight ? .day : .night,
+            showPointOfInterestLabels: false,
+            showTransitLabels: false,
+            showPedestrianRoads: isDetailed,
+            show3dObjects: false
+        )
     }
 
     /// The look an old install's single stored style becomes.
@@ -446,67 +450,4 @@ struct MapLook: Equatable {
         default: return nil
         }
     }
-}
-
-/// The wash: an overlay under everything the app draws, which takes the
-/// cartography down towards black or up towards white without touching a
-/// single aircraft on it.
-///
-/// ## Why this is not a polygon any more
-///
-/// It was four corners at ±85° and ±180°, which is the whole world as a
-/// rectangle and sounds like exactly the right shape. It is not, for two
-/// reasons, and between them they are why the black map never quite worked.
-///
-/// A polygon is a *shape on the map*, so it exists once, in one copy of the
-/// world. MapKit's map does not: pan east past the antimeridian and there is
-/// another Pacific, and the wash does not follow you into it — so the map goes
-/// half dark and half not, along a seam that moves as you scroll. And ±85° is
-/// where Mercator gives up on latitude, not where the *drawable* map ends, so
-/// even inside its own copy the polygon left a band across the top and the
-/// bottom.
-///
-/// A renderer has neither problem, because it is not asked to draw a shape. It
-/// is handed a rectangle and told to fill it, over and over, for every piece of
-/// map on screen — every world copy, right to the edges. Filling what you are
-/// given is the whole implementation.
-enum MapDimming {
-
-    /// The overlay itself. Nothing but a claim on the entire map.
-    final class Overlay: NSObject, MKOverlay {
-        let coordinate = CLLocationCoordinate2D(latitude: 0, longitude: 0)
-        let boundingMapRect = MKMapRect.world
-    }
-
-    /// And the renderer, which fills whatever rectangle of that it is asked
-    /// about.
-    final class Renderer: MKOverlayRenderer {
-
-        /// Read on every draw rather than baked in, so changing the palette —
-        /// or dragging the brightness — repaints the wash instead of tearing
-        /// it down and building another.
-        var wash: MapWash {
-            didSet {
-                guard wash != oldValue else { return }
-                setNeedsDisplay()
-            }
-        }
-
-        init(overlay: MKOverlay, wash: MapWash) {
-            self.wash = wash
-            super.init(overlay: overlay)
-        }
-
-        override func draw(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in context: CGContext) {
-            guard wash.isVisible else { return }
-            context.setFillColor(wash.color.withAlphaComponent(wash.alpha).cgColor)
-            // Slightly proud of the rect it was given. MapKit tiles these, and
-            // adjacent fills that meet exactly on a fractional boundary leave a
-            // seam a fraction of a pixel wide — which on a black map over light
-            // cartography is a visible grid.
-            context.fill(rect(for: mapRect).insetBy(dx: -1 / zoomScale, dy: -1 / zoomScale))
-        }
-    }
-
-    static func overlay() -> Overlay { Overlay() }
 }

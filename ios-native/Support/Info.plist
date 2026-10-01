@@ -24,6 +24,16 @@
 	<true/>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<!-- The map. Mapbox reads its access token from here; the value is the
+	     MAPBOX_ACCESS_TOKEN build setting, which project.yml defines and CI
+	     can override. -->
+	<key>MBXAccessToken</key>
+	<string>$(MAPBOX_ACCESS_TOKEN)</string>
+	<!-- Lets the map run at 120 Hz on a ProMotion iPhone. Without it iOS caps
+	     every display link in the app at 60, however smooth the renderer
+	     underneath could have been. -->
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
 	<!-- Infinite Flight Connect: the sim serves a telemetry socket to whatever
 	     is on the same Wi-Fi, so reading your own aircraft means talking to
 	     another device on the local network. iOS asks the user once, using

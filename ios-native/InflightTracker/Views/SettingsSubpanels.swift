@@ -112,8 +112,8 @@ struct MapStyleSettingsPanel: View {
             // too bright at night.
             //
             // Nothing to act on when the app is drawing the world itself: the
-            // wash is an overlay on MapKit's cartography, and the planet is not
-            // MapKit. Its colours are the four sections below this one.
+            // wash is a layer over Mapbox's cartography, and the planet is not
+            // Mapbox. Its colours are the four sections below this one.
             if !appearance.mapProjection.isDrawn {
                 PanelSection(title: "LIGHT") {
                     PanelSliderRow(
@@ -1010,8 +1010,8 @@ struct AboutSettingsPanel: View {
 /// it.
 ///
 /// Its own row rather than a `SettingsChoiceRow` with another optional on it.
-/// That row's picture is a `MapLook`, which is MapKit's question — a projection
-/// and a palette and an elevation style — and none of the planet's three
+/// That row's picture is a `MapLook`, which is the map's question — a projection
+/// and a palette and an elevation — and none of the planet's three
 /// settings is expressible in one.
 ///
 /// The swatch is drawn at full strength even on a locked row, unlike the rest

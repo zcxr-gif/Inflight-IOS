@@ -16,7 +16,10 @@
 <plist version="1.0">
 <dict>
 	<!-- The tracker has no advertising, no analytics, and no third-party SDK
-	     that does either. The only network it speaks to is its own backend. -->
+	     that does either. The map is the Mapbox SDK, which ships a privacy
+	     manifest of its own that Xcode folds into the app's report; its
+	     telemetry is switched off by default (see InflightTrackerApp), so the
+	     map fetches styles and tiles and reports nothing about the device. -->
 	<key>NSPrivacyTracking</key>
 	<false/>
 

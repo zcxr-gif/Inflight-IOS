@@ -15,8 +15,8 @@ import UIKit
 /// not survive 26 points on a map anyway. What it gives back is engine count,
 /// jets against props, and a size that tracks the real aircraft.
 ///
-/// All access happens on the main thread (MapKit delegate callbacks and
-/// SwiftUI body evaluation).
+/// All access happens on the main thread (the map's update pass and SwiftUI
+/// body evaluation).
 final class PlaneSprites {
 
     static let shared = PlaneSprites()

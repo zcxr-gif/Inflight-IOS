@@ -1,20 +1,4 @@
-import MapKit
 import UIKit
-
-/// One wind barb on the map.
-final class WindBarbAnnotation: NSObject, MKAnnotation {
-
-    let coordinate: CLLocationCoordinate2D
-    let directionDegrees: Double
-    let speedKnots: Double
-
-    init(barb: WindsAloftStore.Barb) {
-        self.coordinate = barb.coordinate
-        self.directionDegrees = barb.directionDegrees
-        self.speedKnots = barb.speedKnots
-        super.init()
-    }
-}
 
 /// A meteorological wind barb, drawn the way a chart draws one.
 ///
@@ -26,62 +10,17 @@ final class WindBarbAnnotation: NSObject, MKAnnotation {
 /// Drawn as a path rather than as a rotated arrow glyph because the feathers
 /// *are* the reading: an arrow would need a number beside it to say anything,
 /// and this says it in the shape.
-final class WindBarbView: MKAnnotationView {
-
-    static let reuseIdentifier = "windBarb"
+///
+/// On the map each barb is a symbol: the glyph is rendered once per five knots
+/// pointing north, and Mapbox turns it to the wind's direction on the GPU —
+/// against the map rather than the screen, so it stays true on a spun globe.
+enum WindBarbGlyph {
 
     /// Length of the staff, before any feathers.
     private static let staff: CGFloat = 26
-    private static let side: CGFloat = 78
 
-    private let shape = CAShapeLayer()
-
-    override init(annotation: MKAnnotation?, reuseIdentifier: String?) {
-        super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
-
-        canShowCallout = false
-        // Weather is the backdrop the traffic is flying through. It never wins
-        // a collision with an aeroplane, and it is never what a tap meant.
-        isEnabled = false
-        displayPriority = .defaultLow
-        zPriority = .min
-        collisionMode = .circle
-
-        frame = CGRect(x: 0, y: 0, width: Self.side, height: Self.side)
-
-        shape.frame = bounds
-        shape.fillColor = UIColor.clear.cgColor
-        shape.lineWidth = 1.6
-        shape.lineCap = .round
-        shape.lineJoin = .round
-        // The map underneath is anything from ocean to imagery, so the barb
-        // carries its own separation from it.
-        shape.shadowColor = UIColor.black.cgColor
-        shape.shadowOpacity = 0.6
-        shape.shadowRadius = 2
-        shape.shadowOffset = .zero
-        layer.addSublayer(shape)
-
-        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: WindBarbView, _) in
-            view.applyColour()
-        }
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func apply(_ annotation: WindBarbAnnotation) {
-        shape.path = Self.path(
-            speedKnots: annotation.speedKnots,
-            directionDegrees: annotation.directionDegrees,
-            in: bounds
-        ).cgPath
-        // Filled pennants need a fill; everything else is stroke only, and the
-        // fill is set to the same colour so a pennant reads as solid.
-        applyColour()
-    }
+    /// The side of the square a barb is drawn in, in points.
+    static let side: CGFloat = 78
 
     /// Cool grey-blue: legible on land, on water and on imagery, and nothing
     /// like the colours the traffic or the routes are drawn in.
@@ -91,10 +30,38 @@ final class WindBarbView: MKAnnotationView {
             : UIColor(red: 0.72, green: 0.86, blue: 1.00, alpha: 0.92)
     }
 
-    private func applyColour() {
-        let resolved = Self.colour.resolvedColor(with: traitCollection)
-        shape.strokeColor = resolved.cgColor
-        shape.fillColor = resolved.cgColor
+    /// The speed a barb is drawn at, rounded to the five knots a barb can say.
+    static func bucket(forKnots knots: Double) -> Int {
+        guard knots.isFinite else { return 0 }
+        return min(Int((max(knots, 0) / 5).rounded()) * 5, 400)
+    }
+
+    /// A barb for one five-knot bucket, pointing north, with its shadow baked
+    /// in — rendered once and handed to the map as a symbol image.
+    static func image(knots bucket: Int, isLight: Bool) -> UIImage {
+        let bounds = CGRect(x: 0, y: 0, width: side, height: side)
+        let shape = path(speedKnots: Double(bucket), directionDegrees: 0, in: bounds)
+        let ink = colour.resolvedColor(
+            with: UITraitCollection(userInterfaceStyle: isLight ? .light : .dark)
+        )
+
+        let format = UIGraphicsImageRendererFormat.preferred()
+        format.opaque = false
+        return UIGraphicsImageRenderer(size: bounds.size, format: format).image { context in
+            let cg = context.cgContext
+            // The map underneath is anything from ocean to imagery, so the
+            // barb carries its own separation from it.
+            cg.setShadow(offset: .zero, blur: 4, color: UIColor.black.withAlphaComponent(0.6).cgColor)
+            cg.setLineCap(.round)
+            cg.setLineJoin(.round)
+            cg.setLineWidth(1.6)
+            cg.setStrokeColor(ink.cgColor)
+            cg.setFillColor(ink.cgColor)
+            cg.addPath(shape.cgPath)
+            // Filled pennants need a fill; everything else is stroke only, and
+            // a closed pennant filled in the same colour reads as solid.
+            cg.drawPath(using: .fillStroke)
+        }
     }
 
     /// The barb, in the view's own coordinates, already rotated.
@@ -103,8 +70,7 @@ final class WindBarbView: MKAnnotationView {
     /// filled triangles rather than sheared ones, and so the whole thing is one
     /// shape with one shadow.
     ///
-    /// Not private, and the colour beside it is not either: the planet draws
-    /// its own barbs into a `CGContext` rather than into annotation views, and
+    /// Shared with the planet, which draws its own barbs into a `CGContext`:
     /// a barb that means fifty knots on one shape of the world and something
     /// else on the other is not a chart symbol at all.
     static func path(

@@ -129,7 +129,7 @@ final class WeatherPreferences: ObservableObject {
         didSet { UserDefaults.standard.set(windLevel.rawValue, forKey: Self.windLevelKey) }
     }
 
-    /// Whether the air is drawn moving. See `WindParticleOverlay`.
+    /// Whether the air is drawn moving. See `WindParticles`.
     @Published var showsWindParticles: Bool {
         didSet { UserDefaults.standard.set(showsWindParticles, forKey: Self.particlesKey) }
     }

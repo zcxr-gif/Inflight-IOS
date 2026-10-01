@@ -1,4 +1,4 @@
-import MapKit
+import CoreLocation
 import UIKit
 
 /// How a field's pavement is drawn.
@@ -17,6 +17,10 @@ import UIKit
 /// this layer is on at all, that is most of what makes it look like an
 /// aerodrome rather than a diagram of one. So it is drawn to scale, and the
 /// scale is clamped so it never falls below something you can see.
+///
+/// On the map that is a zoom expression evaluated on the GPU for every frame
+/// of a pinch — see `MapLayerStyle.groundWidth` — so the runway grows with the
+/// fingers rather than on the settle.
 ///
 /// ## And why it asks what the map is made of
 ///
@@ -165,138 +169,4 @@ enum AirportGroundStyle {
     /// layer that is not describing where the concrete is but what you are
     /// told to do on it, and it is yellow in life for exactly that reason.
     static let holdBar = UIColor(red: 0.98, green: 0.78, blue: 0.16, alpha: 0.95)
-}
-
-/// A run of pavement, projected once and carrying what it is.
-///
-/// Its own overlay rather than a titled `MKPolyline` because the renderer needs
-/// to know two things a polyline cannot carry — which kind of pavement this is
-/// and how wide it really is — and the previous arrangement smuggled the first
-/// through the title string and had nowhere at all to put the second.
-final class GroundOverlay: NSObject, MKOverlay {
-
-    let kind: AirportLayout.Piece.Kind
-
-    /// The real width of this pavement in metres, from OSM where it says and
-    /// from the type where it does not.
-    let widthMetres: CLLocationDistance
-
-    let points: [MKMapPoint]
-    let boundingMapRect: MKMapRect
-    let coordinate: CLLocationCoordinate2D
-
-    init?(piece: AirportLayout.Piece) {
-        guard piece.coordinates.count >= 2, !piece.kind.isArea else { return nil }
-
-        let points = piece.coordinates.map(MKMapPoint.init)
-        var minX = points[0].x, maxX = points[0].x
-        var minY = points[0].y, maxY = points[0].y
-        for point in points.dropFirst() {
-            minX = min(minX, point.x); maxX = max(maxX, point.x)
-            minY = min(minY, point.y); maxY = max(maxY, point.y)
-        }
-
-        self.kind = piece.kind
-        self.widthMetres = piece.widthMetres ?? AirportGroundStyle.defaultWidth(for: piece.kind)
-        self.points = points
-
-        // Padded by the widest this could be drawn. A stroke is centred on its
-        // line, so half of a forty-five metre runway hangs outside the box its
-        // centreline describes, and MapKit will not ask a renderer to draw
-        // tiles its overlay does not claim.
-        let padding = max(self.widthMetres * 4, 400) * MKMapPointsPerMeterAtLatitude(
-            piece.coordinates[0].latitude
-        )
-        self.boundingMapRect = MKMapRect(
-            x: minX - padding,
-            y: minY - padding,
-            width: (maxX - minX) + padding * 2,
-            height: (maxY - minY) + padding * 2
-        )
-        self.coordinate = MKMapPoint(x: (minX + maxX) / 2, y: (minY + maxY) / 2).coordinate
-        super.init()
-    }
-}
-
-/// Draws one run of pavement to its real width.
-final class GroundRenderer: MKOverlayRenderer {
-
-    private let ground: AirportGroundStyle.Ground
-
-    private var pavement: GroundOverlay { overlay as! GroundOverlay }
-
-    init(overlay: GroundOverlay, ground: AirportGroundStyle.Ground) {
-        self.ground = ground
-        super.init(overlay: overlay)
-    }
-
-    override func draw(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in context: CGContext) {
-        let points = pavement.points
-        guard points.count >= 2 else { return }
-
-        let kind = pavement.kind
-        let path = CGMutablePath()
-        path.move(to: point(for: points[0]))
-        for next in points.dropFirst() { path.addLine(to: point(for: next)) }
-
-        // True width, then the floor under it.
-        //
-        // `MKMapPointsPerMeterAtLatitude` is what turns metres into the units
-        // this context is drawn in; dividing points by the zoom scale is what
-        // turns a screen measurement into the same. Taking the larger is the
-        // whole of the scale-with-a-minimum: real concrete while the concrete
-        // is big enough to see, a mark once it is not.
-        let perMetre = MKMapPointsPerMeterAtLatitude(pavement.coordinate.latitude)
-        let scaled = pavement.widthMetres * perMetre
-        let floor = AirportGroundStyle.minimumPoints(for: kind) / zoomScale
-        let width = max(scaled, floor)
-
-        context.setLineJoin(.round)
-        // Butt rather than round: pavement ends where it ends, and a rounded
-        // cap puts a semicircle of concrete past the end of every runway.
-        context.setLineCap(kind == .holdShort ? .butt : .round)
-
-        if kind == .holdShort {
-            context.addPath(path)
-            context.setStrokeColor(AirportGroundStyle.holdBar.cgColor)
-            context.setLineWidth(max(AirportGroundStyle.minimumPoints(for: kind) / zoomScale, 2 / zoomScale))
-            context.strokePath()
-            return
-        }
-
-        let body = AirportGroundStyle.fill(for: kind, on: ground)
-        if body != UIColor.clear {
-            context.addPath(path)
-            context.setStrokeColor(body.cgColor)
-            context.setLineWidth(width)
-            context.strokePath()
-        }
-
-        // The edge, drawn as the outline of the same stroke rather than a
-        // second line beside it: stroking the path at the full width and then
-        // again a hair narrower in the ground colour would be two fills to get
-        // one line. `replacePathWithStrokedPath` turns the wide stroke into its
-        // own outline, which is exactly the edge of the pavement.
-        let edgeWidth = AirportGroundStyle.edgePoints(for: kind, on: ground)
-        if edgeWidth > 0 {
-            context.saveGState()
-            context.addPath(path)
-            context.setLineWidth(width)
-            context.replacePathWithStrokedPath()
-            context.setStrokeColor(AirportGroundStyle.edge(for: kind, on: ground).cgColor)
-            context.setLineWidth(edgeWidth / zoomScale)
-            context.strokePath()
-            context.restoreGState()
-        }
-
-        // And the dashes down the middle of a runway, once there is enough
-        // runway on screen to have dashes on.
-        guard kind == .runway, width > 4 / zoomScale else { return }
-        context.addPath(path)
-        context.setStrokeColor(AirportGroundStyle.centreline(on: ground).cgColor)
-        context.setLineWidth(max(width * 0.035, 0.7 / zoomScale))
-        context.setLineDash(phase: 0, lengths: [30 * perMetre, 20 * perMetre])
-        context.strokePath()
-        context.setLineDash(phase: 0, lengths: [])
-    }
 }

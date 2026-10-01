@@ -6,7 +6,7 @@ import SwiftUI
 /// ## Why a gate rather than a timer
 ///
 /// The thing a tracker opens onto is a map, and a map is the slowest thing in
-/// the app to become worth looking at: MapKit has tiles to fetch and the drawn
+/// the app to become worth looking at: Mapbox has tiles to fetch and the drawn
 /// planet has a sphere to rasterise. Launching straight onto either means a few
 /// hundred milliseconds of grey rectangle, or of a half-drawn world, before the
 /// app looks like itself — and the first frame somebody sees is the one they
@@ -15,7 +15,7 @@ import SwiftUI
 /// A fixed splash delay does not fix that; it only guesses. On a fast network
 /// it wastes the user's time and on a slow one it lifts anyway, straight onto
 /// the grey. So this waits for the map to say it has drawn, and the map is what
-/// says it — `TrackerMapView` when MapKit finishes rendering, `GlobeCanvas`
+/// says it — `TrackerMapView` when Mapbox has loaded the map, `GlobeCanvas`
 /// when the planet has a world on it. Whichever is underneath reports; the
 /// other never runs.
 ///
@@ -41,8 +41,8 @@ final class LaunchGate: ObservableObject {
 
     /// The most, whatever the map is doing. See the note above.
     ///
-    /// Six rather than something generous: MapKit reports when it has finished
-    /// rendering what it *has*, not when it has everything, so even with no
+    /// Six rather than something generous: the map reports when it has loaded
+    /// what it needed for the first frame, not when it has everything, so even with no
     /// network this normally fires in well under a second. Reaching this at all
     /// means something is wrong, and the right answer to that is the app, not a
     /// longer look at the logo.
