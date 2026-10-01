@@ -219,10 +219,10 @@ enum GlobeMarkMetrics {
     /// How wide a callsign is allowed to get, plate and all. A callsign is
     /// typed by a pilot and some of them are paragraphs.
     ///
-    /// 108 rather than 96: the padding is real width now, and taking it out of
-    /// the old cap would have cost a character on the longest callsigns rather
-    /// than the crowding it exists to prevent.
-    static let callsignMaxWidth: CGFloat = 108
+    /// The same cap as the flat map's plate — see
+    /// `FlightAnnotationView.callsignMaxWidth` for why it is a hundred and
+    /// thirty — so one aeroplane's label is the same length on either map.
+    static let callsignMaxWidth: CGFloat = 130
 
     /// How near a tap has to land, in points.
     static let touchRadius: CGFloat = 22

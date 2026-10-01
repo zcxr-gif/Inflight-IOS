@@ -138,7 +138,7 @@ struct WeatherChip: View {
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 4) {
                     Text(station.airport.icao)
-                        .font(.system(size: 11, weight: .bold))
+                        .font(.system(size: 11.5, weight: .bold, design: .rounded))
                         .foregroundStyle(theme.textSecondary)
                         .motionWords(station.airport.icao)
 
@@ -153,15 +153,28 @@ struct WeatherChip: View {
                 }
 
                 Text(detail(for: station))
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
                     .foregroundStyle(theme.textDim)
                     .flightInfoLine(minimumScale: 0.8)
                     .motionWords(detail(for: station))
             }
-            .frame(maxWidth: 118, alignment: .leading)
+            .frame(maxWidth: 140, alignment: .leading)
+
+            // The only sign the chip opens. Without it the route's two ends
+            // were a feature you found by accident.
+            if isExpandable {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(theme.textDim)
+                    .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                    .motion(Motion.control, value: isExpanded)
+                    .accessibilityHidden(true)
+            }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        // The same height as the avatar it shares the top row with, so the two
+        // read as one row of controls rather than two things at two heights.
+        .frame(height: 44)
         // One control, so it gets the system's press response: the glass bends
         // towards the finger and the light on it moves.
         .flightInfoChrome(theme, in: Capsule(), interactive: true)
@@ -207,12 +220,12 @@ struct WeatherChip: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(station.role.label)
-                        .font(.system(size: 8.5, weight: .bold))
+                        .font(FlightInfoType.kicker)
                         .tracking(0.7)
                         .foregroundStyle(theme.textDim)
 
                     Text(station.airport.icao)
-                        .font(.system(size: 11, weight: .bold))
+                        .font(.system(size: 11.5, weight: .bold, design: .rounded))
                         .foregroundStyle(theme.textPrimary)
 
                     // Per row, because this card mixes sources: a field that
@@ -227,7 +240,7 @@ struct WeatherChip: View {
                 }
 
                 Text(detail(for: station))
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
                     .foregroundStyle(theme.textDim)
                     .flightInfoLine(minimumScale: 0.75)
             }
@@ -246,9 +259,9 @@ struct WeatherChip: View {
     private func dayNight(for station: WeatherModel.Station) -> some View {
         HStack(spacing: 3) {
             Image(systemName: station.isDaylight ? "sun.max.fill" : "moon.fill")
-                .font(.system(size: 7))
+                .font(.system(size: 8))
             Text(station.isDaylight ? "DAY" : "NIGHT")
-                .font(.system(size: 8, weight: .bold))
+                .font(.system(size: 8.5, weight: .bold, design: .rounded))
                 .tracking(0.5)
         }
         .foregroundStyle(theme.textSecondary)

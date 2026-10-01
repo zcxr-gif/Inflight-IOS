@@ -1,34 +1,38 @@
 import SwiftUI
 import UIKit
 
-/// The peek that is the home-screen tile.
+/// The peek that is a flight card: the aircraft's photograph across the top of
+/// the window, fading into a dark deck that carries the route and the numbers.
 ///
-/// The other three peeks are three arrangements of the window's own parts —
-/// its cards, its ground, its type. This one is not an arrangement at all: it
-/// is the Flight widget, drawn from the widget's own views on the widget's own
-/// model, sitting in the window.
+/// ## What it was, and why it changed
 ///
-/// That is the whole idea, and it is why nothing here is a copy of anything in
-/// `InflightWidgets`. `RouteStrip`, `WidgetStat`, `PhaseChip`, `Wordmark` and
-/// the palette and type tokens all moved into `Shared` so that both the tile
-/// and this draw from one set — a second set would agree on the day it was
-/// written and drift afterwards, and the drift would show in the one place
-/// anybody can hold the two side by side: a home screen with the app open over
-/// it. `WidgetFlight(flight:)` does the same for the numbers, so the tile and
-/// the peek cannot disagree about what one aeroplane is doing.
+/// This used to be the home-screen tile dropped into the window — a rounded
+/// card with its own margins and shadow, floating on a sheet whose ground was
+/// switched off. On iOS 26 the system draws the sheet's glass rim whatever the
+/// background says, so what people saw was a tile on a tray: a card, a band of
+/// empty sheet round it, and a second band under it. It also carried the tile's
+/// habits into a place they made no sense — the distance to run printed twice,
+/// eight lines apart, and the app's own wordmark in the corner of the app.
 ///
-/// Two things are deliberately *not* the tile's:
+/// Now the window *is* the card, edge to edge, in two parts:
 ///
-///   - the photograph is the one the window already fetched, rather than the
-///     one the shared cache holds. The window has it decoded by the time this
-///     is drawn, and real traffic's photographs — which come from Planespotters
-///     and belong to the airframe rather than to the type — are never written
-///     to that cache at all, so a tile drawn from the key would fall back to
-///     the painted sky for exactly the aircraft this peek is best at.
-///   - it is white on a shaded photograph whichever theme the app is in. A
-///     widget is its own surface on somebody's wallpaper and has always been
-///     dark; a light-mode version of it would be a light-mode version of
-///     something that does not have one.
+///   - the photograph, at the top, in its own shape. It is drawn the full
+///     width of the sheet and as tall as that width makes it, so the whole
+///     aeroplane is in frame, nose to tail — see `photographHeight(for:width:)`.
+///     The name rides its top edge over a short scrim, the way every photo
+///     header in the app does.
+///   - the deck, starting just above the photograph's foot, carrying the
+///     route with both airports named, how far along it is, and the glance
+///     strip. The photograph fades into the deck's own colour as it goes
+///     under it, so there is no line anywhere where the picture ends.
+///
+/// ## What it still shares with the widget
+///
+/// The route line is `RouteStrip`, the same one the tile draws, and the
+/// numbers come from the same `WidgetFlight` model for the progress — so the
+/// tile on somebody's home screen and this peek still agree about where one
+/// aeroplane is. The type and ink are the widget's too: white on a darkened
+/// photograph whichever theme the app is in.
 struct FlightWidgetPeek: View {
 
     let flight: Flight
@@ -39,222 +43,346 @@ struct FlightWidgetPeek: View {
 
     let theme: FlightInfoTheme
 
-    /// The shortest the tile is ever drawn.
-    ///
-    /// Everything in it is text over a photograph rather than beside one, so
-    /// unlike the photo peek nothing here grows with the picture — which makes
-    /// this close to the tile's real height rather than a floor it clears by
-    /// accident. It is a floor rather than a fixed height because the type
-    /// scales: a long livery on a large accessibility size takes a second line,
-    /// and a tile that clipped it would be worse than a tile a few points
-    /// taller. See `FlightInfoLayout.openingHeight(for:)`.
-    static let minimumHeight: CGFloat = 188
+    /// The VA to name at the foot of the deck, when the flight has one.
+    var partner: VaPartner? = nil
 
-    /// The corner the home screen rounds a widget to, near enough.
-    ///
-    /// Deliberately NOT the concentric answer. The sheet's own corner is
-    /// twenty-eight and the tile is inset eighteen from it, so a corner that
-    /// nested properly inside it would be ten — and ten is not a widget. It is
-    /// a dialog box. What stops the mismatch reading as a mistake is that the
-    /// tile is not nested at all: it has a margin the sheet's ground shows
-    /// through and a shadow under it, so the eye reads two objects at two
-    /// depths rather than one rectangle badly fitted inside another.
-    private var radius: CGFloat { theme.radiusLarge }
+    /// How wide the sheet is, which is how wide the photograph is drawn and
+    /// therefore — with the photograph's own shape — how tall.
+    var width: CGFloat = 0
 
-    private var shape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: radius, style: .continuous)
-    }
+    /// How far the backdrop runs past the bottom of what the peek measures.
+    ///
+    /// The peek sizes the sheet, so in a settled window these are the same
+    /// height. They are not while the sheet is arriving or being dragged, and
+    /// a ground that stopped at the peek's own edge would show a strip of map
+    /// under it for those frames. The sheet clips the excess.
+    private static let backdropOverrun: CGFloat = 120
 
     var body: some View {
         // Resolved once. It walks the airport table and does the route's
         // great-circle arithmetic, which is not work to do five times because
         // five subviews each wanted a number out of it.
-        card(WidgetFlight(flight: flight))
+        let tile = WidgetFlight(flight: flight)
+        let progress = FlightProgress(flight: flight)
+        let glance = FlightGlance(flight: flight, progress: progress)
+        let photoHeight = Self.photographHeight(for: image, width: width)
+
+        VStack(alignment: .leading, spacing: 0) {
+            // The photograph's room: from the top of the sheet to where the
+            // deck takes over. The name rides the top of it; the picture
+            // itself is drawn behind, in the background, at its full height.
+            Color.clear
+                .frame(height: max(0, photoHeight - Self.deckOverlap))
+                .overlay(alignment: .topLeading) {
+                    header(tile)
+                        .padding(.top, FlightInfoLayout.peakHandleClearance + 4)
+                        .padding(.horizontal, Self.sideInset)
+                }
+
+            deck(tile, progress: progress, glance: glance)
+                .padding(.horizontal, Self.sideInset)
+        }
+        .padding(.bottom, FlightInfoLayout.peakBottomGap)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(alignment: .top) {
+            ZStack(alignment: .top) {
+                // The deck's colour, everywhere the photograph is not — which
+                // the photograph fades into exactly, so the two never meet at
+                // an edge.
+                BackdropTokens.carbon
+
+                photograph(height: photoHeight, altitudeFt: tile.altitudeFt)
+            }
+            .padding(.bottom, -Self.backdropOverrun)
+            .allowsHitTesting(false)
+        }
+        // One aeroplane's photograph is a different shape from the next one's,
+        // and the card grows or shrinks with it. It moves to its new height
+        // rather than jumping there; the window moves the sheet on the same
+        // curve — see `FlightDetailView.fitPeak(to:)`.
+        .motion(Motion.panel, value: photoHeight)
+        .environment(\.colorScheme, .dark)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(summary(tile, glance: glance))
     }
 
-    private func card(_ tile: WidgetFlight) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header(tile)
+    /// The margin the content keeps from the sheet's sides. The photograph
+    /// and the ground run out past it to the edges.
+    private static let sideInset: CGFloat = 18
 
-            Spacer(minLength: 10)
+    // MARK: - The photograph
 
-            RouteStrip(
-                departure: tile.departureIcao,
-                arrival: tile.arrivalIcao,
-                progress: tile.progress,
-                isLanded: !tile.isAirborne && (tile.progress ?? 0) > 0.9,
-                icaoSize: 26
-            )
+    /// How far the deck rises into the foot of the photograph. The route's
+    /// codes sit over the last of the tarmac, already faded most of the way
+    /// to the deck's colour, so the card reads as one surface rather than as
+    /// a picture with a panel stacked under it.
+    private static let deckOverlap: CGFloat = 30
 
-            Spacer(minLength: 12)
+    /// The range the photograph's height is kept to.
+    ///
+    /// Inside it, a photograph is drawn in its own shape — the full width of
+    /// the sheet, and exactly as tall as that makes it — so nothing is cropped
+    /// and the whole aeroplane is in frame. A three-by-two shot on a phone is
+    /// a little over the ceiling and loses a few points of sky and apron; a
+    /// sixteen-by-nine one fits inside it whole.
+    ///
+    /// Past the ceiling — a portrait shot, or a square one — the photograph
+    /// is cropped to it top and bottom, keeping the middle, which is where an
+    /// aeroplane is in a photograph of one. Below the floor, a panorama is
+    /// scaled up to it and trimmed at the sides. Both limits are there so the
+    /// card stays a card: a portrait photograph drawn whole would take most of
+    /// the screen, and a letterbox one would leave no room for the name.
+    private static let minimumPhotoHeight: CGFloat = 180
+    private static let maximumPhotoHeight: CGFloat = 260
 
-            readouts(tile)
+    /// The shape assumed before a photograph has arrived, which is what an
+    /// airliner photograph usually is. Close to the real thing, so the card is
+    /// already nearly the right height when the picture lands and has only a
+    /// little way to move.
+    private static let placeholderAspect: CGFloat = 0.6
 
-            Spacer(minLength: 12)
+    /// How tall the photograph is drawn. See `minimumPhotoHeight`.
+    static func photographHeight(for image: UIImage?, width: CGFloat) -> CGFloat {
+        guard width > 0 else { return minimumPhotoHeight }
 
-            foot(tile)
+        let aspect: CGFloat
+        if let image = image, image.size.width > 0, image.size.height > 0 {
+            aspect = image.size.height / image.size.width
+        } else {
+            aspect = placeholderAspect
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, minHeight: Self.minimumHeight, alignment: .leading)
-        .background { PlaneBackdrop(image: image, style: .framed, altitudeFt: tile.altitudeFt) }
-        .clipShape(shape)
-        // The hairline a widget gets from the home screen's own compositing.
-        // Without it a dark photograph ends on a dark sheet and the tile has no
-        // edge at all.
-        .overlay { shape.strokeBorder(.white.opacity(0.14), lineWidth: 1) }
-        // Flattened first, so what follows is cast by the tile as one object.
-        // Without this a shadow is worked out from the alpha of everything
-        // inside the group, and the photograph's own edges start throwing their
-        // own.
-        .compositingGroup()
-        // What makes it a tile lying on the window rather than a panel cut out
-        // of it.
-        //
-        // Two shadows, because one cannot do both jobs, and in this order
-        // because each is cast by the result of the last. The tight one goes on
-        // first: it is the contact edge directly under the card, and it is what
-        // stops a floating rectangle from looking pasted on. The wide, faint
-        // one over it is the distance — what the eye actually reads as height
-        // above the surface — and it is soft enough never to become a visible
-        // outline of its own.
-        //
-        // Both fall downward. A shadow with no offset reads as a glow around
-        // the thing rather than as light falling on what is behind it.
-        .shadow(color: .black.opacity(theme.isLight ? 0.14 : 0.22), radius: 3, y: 1)
-        .shadow(color: .black.opacity(theme.isLight ? 0.26 : 0.42), radius: 16, y: 8)
-        // The tile is one thing to read, not eight. Said as the widget's own
-        // summary rather than as a list of its labels.
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(summary(tile))
+
+        return min(max(width * aspect, minimumPhotoHeight), maximumPhotoHeight)
+    }
+
+    /// The photograph, the full width of the sheet, with a scrim at its top
+    /// for the name and its foot faded into the deck.
+    ///
+    /// A new photograph cross-fades over the last one rather than replacing
+    /// it on the frame it arrives — keyed on which photograph it is, so
+    /// tapping from one aeroplane to the next dissolves picture into picture.
+    /// The window holds the outgoing photograph for a moment while the next is
+    /// found (`RemoteImageLoader.handoverGrace`), which is what gives it
+    /// something to dissolve from.
+    private func photograph(height: CGFloat, altitudeFt: Int) -> some View {
+        ZStack {
+            if let image = image {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .saturation(0.92)
+                    .id(ObjectIdentifier(image))
+                    .transition(.opacity)
+            } else {
+                DrawnSky(altitudeFt: altitudeFt)
+                    .transition(.opacity)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: height)
+        .clipped()
+        .overlay(alignment: .top) { nameScrim }
+        .overlay(alignment: .bottom) { footFade }
+        .motion(Motion.panel, value: image.map(ObjectIdentifier.init))
+    }
+
+    /// Darkens the top of the photograph for the name, and is gone well
+    /// before the aeroplane.
+    private var nameScrim: some View {
+        LinearGradient(
+            stops: [
+                .init(color: .black.opacity(0.55), location: 0),
+                .init(color: .black.opacity(0.24), location: 0.5),
+                .init(color: .clear, location: 1)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .frame(height: 116)
+    }
+
+    /// Takes the foot of the photograph into the deck's colour.
+    ///
+    /// All the way into it — fully opaque at the photograph's last row, which
+    /// is the colour the ground beneath it already is — so there is no step
+    /// where the picture stops, however short a wide photograph leaves it.
+    /// Most of the ramp is spent above the deck's top edge, so the gear and
+    /// the apron blend away rather than being cut, and the route's codes sit
+    /// on ground that is already nearly the deck.
+    private var footFade: some View {
+        let height = Self.deckOverlap + 64
+        let deckTop = 64 / height
+
+        return LinearGradient(
+            stops: [
+                .init(color: BackdropTokens.carbon.opacity(0), location: 0),
+                .init(color: BackdropTokens.carbon.opacity(0.5), location: deckTop * 0.6),
+                .init(color: BackdropTokens.carbon.opacity(0.86), location: deckTop),
+                .init(color: BackdropTokens.carbon, location: 1)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .frame(height: height)
     }
 
     // MARK: - Who
 
     private func header(_ tile: WidgetFlight) -> some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 1) {
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(tile.callsign)
-                    .font(WidgetType.title(15))
+                    .font(.system(size: 21, weight: .heavy, design: .rounded))
                     .foregroundStyle(WidgetPalette.text)
-                    .flightInfoWidgetLine()
+                    .flightInfoWidgetLine(minimumScale: 0.6)
                     // Tapping a second aeroplane changes this window rather
                     // than replacing it, the same as every other peek.
                     .motionWords(tile.callsign)
 
-                Text(descriptor(tile))
-                    .font(WidgetType.caption(10))
-                    .foregroundStyle(WidgetPalette.secondary)
-                    .flightInfoWidgetLine()
-                    .motionWords(descriptor(tile))
+                HStack(spacing: 6) {
+                    Text(descriptor(tile))
+                        .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                        .foregroundStyle(WidgetPalette.secondary)
+                        .flightInfoWidgetLine(minimumScale: 0.75)
+                        .motionWords(descriptor(tile))
+
+                    // A real aeroplane's photographer is credited in the top
+                    // corner, over the photograph, which is where the chip
+                    // otherwise goes. It drops to this line instead of sitting
+                    // under the credit.
+                    if flight.origin == .realWorld { phase(tile) }
+                }
+            }
+            .shadow(color: .black.opacity(0.45), radius: 6, y: 1)
+
+            Spacer(minLength: 6)
+
+            if flight.origin != .realWorld { phase(tile) }
+        }
+    }
+
+    private func phase(_ tile: WidgetFlight) -> some View {
+        PhaseChip(symbol: tile.phaseSymbol, text: tile.phaseLabel, size: 11)
+            .fixedSize()
+            .motionWords(tile.phaseLabel)
+    }
+
+    // MARK: - Where, and how far
+
+    private func deck(_ tile: WidgetFlight, progress: FlightProgress?, glance: FlightGlance) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(spacing: 6) {
+                RouteStrip(
+                    departure: tile.departureIcao,
+                    arrival: tile.arrivalIcao,
+                    progress: tile.progress,
+                    isLanded: !tile.isAirborne && (tile.progress ?? 0) > 0.9,
+                    icaoSize: 28,
+                    tint: routeTint
+                )
+
+                places(progress)
             }
 
-            Spacer(minLength: 6)
-
-            PhaseChip(symbol: tile.phaseSymbol, text: tile.phaseLabel)
-                // Clear of the photographer's credit, which the window floats
-                // over this same corner for a real aeroplane.
-                .padding(.top, 2)
-        }
-    }
-
-    // MARK: - How
-
-    /// The large tile's three numbers, which is what the window has the width
-    /// for. A medium tile leaves these out; a peek is a good deal wider than
-    /// one and would have a band of empty photograph where they go.
-    private func readouts(_ tile: WidgetFlight) -> some View {
-        HStack(alignment: .bottom, spacing: 0) {
-            WidgetStat(
-                value: tile.totalNM > 1 ? "\(WidgetFormat.number(tile.remainingNM)) NM" : "—",
-                label: "TO RUN",
-                valueSize: 15
+            FlightGlanceStrip(
+                glance: glance,
+                ink: WidgetPalette.text,
+                secondary: WidgetPalette.secondary,
+                dim: WidgetPalette.dim,
+                divider: Color.white.opacity(0.12),
+                accent: routeTint
             )
-
-            Spacer(minLength: 6)
-
-            WidgetStat(
-                value: "\(WidgetFormat.number(Double(tile.altitudeFt))) FT",
-                label: "ALTITUDE",
-                alignment: .center,
-                valueSize: 15
-            )
-
-            Spacer(minLength: 6)
-
-            WidgetStat(
-                value: "\(tile.groundSpeedKt) KTS",
-                label: "GROUND SPEED",
-                alignment: .trailing,
-                valueSize: 15
-            )
-        }
-    }
-
-    private func foot(_ tile: WidgetFlight) -> some View {
-        HStack(alignment: .bottom) {
-            VStack(alignment: .leading, spacing: 1) {
-                countdown(tile)
-
-                Text(footnote(tile))
-                    .font(WidgetType.caption(10))
-                    .foregroundStyle(WidgetPalette.dim)
-                    .flightInfoWidgetLine()
-                    .motionWords(footnote(tile))
+            .background {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color.white.opacity(0.07))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.11), lineWidth: 1)
+                    }
             }
 
-            Spacer(minLength: 8)
-
-            Wordmark(size: 10)
+            if partner != nil {
+                VaPartnerLine(partner: partner, theme: deckTheme)
+            }
         }
     }
 
-    /// How long is left, or what it is doing when that is not a question with
-    /// an answer.
-    ///
-    /// A rendered figure rather than the tile's `Text(timerInterval:)`. The
-    /// widget counts down because it is re-rendered on the system's schedule
-    /// and would otherwise sit on a number that is an hour old; this is over a
-    /// live socket, so the figure is replaced every few seconds by a new one
-    /// worked out from where the aeroplane actually is. A ticking clock beside
-    /// that would be the same estimate arriving twice, out of step with itself.
+    /// Both airports by name under their codes, with how far along the line
+    /// the aeroplane is between them. Nothing at all for an aircraft with no
+    /// route: the strip already says `———`, and two blank names under two
+    /// blank codes would be the same absence said twice.
     @ViewBuilder
-    private func countdown(_ tile: WidgetFlight) -> some View {
-        if tile.isAirborne, let remaining = enroute(tile) {
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(WidgetFormat.duration(remaining))
-                    .font(WidgetType.readout(17))
-                    .foregroundStyle(WidgetPalette.text)
-                    .flightInfoWidgetLine()
-                    .motionWords(WidgetFormat.duration(remaining))
+    private func places(_ progress: FlightProgress?) -> some View {
+        let departure = AirportStore.shared.airport(flight.departureIcao)
+        let arrival = AirportStore.shared.airport(flight.arrivalIcao)
 
-                Text("left")
-                    .font(WidgetType.caption(11))
-                    .foregroundStyle(WidgetPalette.secondary)
+        if departure != nil || arrival != nil {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                place(departure, alignment: .leading)
+
+                if let progress = progress {
+                    Text("\(Int((progress.fraction * 100).rounded()))%")
+                        .font(.system(size: 11, weight: .bold, design: .rounded).monospacedDigit())
+                        .foregroundStyle(WidgetPalette.dim)
+                        .fixedSize()
+                        .motionFigure(progress.fraction)
+                }
+
+                place(arrival, alignment: .trailing)
             }
-        } else {
-            Text(tile.isAirborne ? "Arriving" : tile.phaseLabel)
-                .font(WidgetType.readout(17))
-                .foregroundStyle(WidgetPalette.text)
-                .flightInfoWidgetLine()
-                .motionWords(tile.isAirborne ? "Arriving" : tile.phaseLabel)
         }
+    }
+
+    private func place(_ airport: Airport?, alignment: HorizontalAlignment) -> some View {
+        let frameAlignment: Alignment = alignment == .leading ? .leading : .trailing
+        let flag = airport?.flag ?? ""
+        let name = airport?.cityName ?? "Not filed"
+        let line = alignment == .leading
+            ? [flag, name].filter { !$0.isEmpty }.joined(separator: " ")
+            : [name, flag].filter { !$0.isEmpty }.joined(separator: " ")
+
+        return Text(line)
+            .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+            .foregroundStyle(WidgetPalette.secondary)
+            .flightInfoWidgetLine(minimumScale: 0.7)
+            .frame(maxWidth: .infinity, alignment: frameAlignment)
+            .motionWords(line)
+    }
+
+    // MARK: - Ink
+
+    /// The window's own palette, turned dark for the deck. A light theme's
+    /// ink is near-black, which on a carbon deck is nothing at all; the airline
+    /// colour is kept, taken at the lightness a dark surface wants.
+    private var deckTheme: FlightInfoTheme {
+        let appearance = FlightInfoAppearance.shared
+        let dark = FlightInfoTheme.resolved(
+            palette: appearance.palette,
+            scheme: .dark,
+            glass: appearance.isGlassEnabled
+        )
+        guard appearance.showsAirlineAccent else { return dark }
+        return dark.accented(by: AirlineAccent.colours(forLivery: flight.liveryName, isLight: false))
+    }
+
+    /// The progress line and the climb arrows. The airline's colour when the
+    /// window is wearing one, and white otherwise — mono's blue on a photograph
+    /// reads as a link.
+    private var routeTint: Color {
+        let appearance = FlightInfoAppearance.shared
+        guard appearance.showsAirlineAccent,
+              let colours = AirlineAccent.colours(forLivery: flight.liveryName, isLight: false)
+        else { return .white }
+        return colours.tint
     }
 
     // MARK: - Lines
 
-    /// Seconds to run, when there are any. `eta` was worked out against the
-    /// moment the model was built, which is this frame.
-    private func enroute(_ tile: WidgetFlight) -> TimeInterval? {
-        guard let eta = tile.eta else { return nil }
-        let remaining = eta.timeIntervalSinceNow
-        return remaining > 0 ? remaining : nil
-    }
-
-    /// What it is, under the callsign — the same line the tile puts there.
+    /// What it is, under the callsign: type, operator, and tail.
     ///
     /// A space rather than an empty string when there is nothing to say: this
-    /// line holds the header's height, and a tile that loses a line the moment
-    /// a lookup comes back empty is a tile that jumps.
+    /// line holds the header's height, and a peek that loses a line the moment
+    /// a lookup comes back empty is a peek that jumps.
     private func descriptor(_ tile: WidgetFlight) -> String {
         var parts: [String] = []
 
@@ -263,41 +391,33 @@ struct FlightWidgetPeek: View {
            tile.liveryName.caseInsensitiveCompare(tile.aircraftType) != .orderedSame {
             parts.append(tile.liveryName)
         }
+        if !tile.registration.isEmpty { parts.append(tile.registration) }
         // A real aeroplane has a type designator and no livery; one the feed
         // has told us nothing about has neither, and is still somebody.
         if parts.isEmpty, !tile.username.isEmpty { parts.append(tile.username) }
-        if parts.isEmpty, !tile.registration.isEmpty { parts.append(tile.registration) }
 
         return parts.isEmpty ? " " : parts.joined(separator: " · ")
     }
 
-    /// Distance to run, or who is flying it — and for a real aeroplane, which
-    /// airframe it is. The tile's own line says how old the reading is instead,
-    /// which is a thing only a widget has to admit to.
-    private func footnote(_ tile: WidgetFlight) -> String {
-        guard tile.totalNM > 1 else {
-            if !tile.username.isEmpty { return tile.username }
-            if !tile.registration.isEmpty { return tile.registration }
-            return "No route filed"
-        }
-        return "\(WidgetFormat.number(tile.remainingNM)) NM to run"
-    }
-
-    private func summary(_ tile: WidgetFlight) -> String {
+    private func summary(_ tile: WidgetFlight, glance: FlightGlance) -> String {
         var parts = [tile.callsign, descriptor(tile), tile.phaseLabel]
 
         if !tile.departureIcao.isEmpty || !tile.arrivalIcao.isEmpty {
             parts.append("\(tile.departureIcao) to \(tile.arrivalIcao)")
         }
 
-        parts.append("\(WidgetFormat.number(Double(tile.altitudeFt))) feet")
+        parts.append("\(Format.number(Double(tile.altitudeFt))) feet")
         parts.append("\(tile.groundSpeedKt) knots")
 
-        if tile.isAirborne, let remaining = enroute(tile) {
-            parts.append("\(WidgetFormat.duration(remaining)) left")
+        if let remaining = glance.remaining, let arrival = glance.arrival {
+            parts.append("arriving in \(FlightGlance.countdown(remaining)), at \(FlightGlance.clock(arrival))")
         }
 
-        return parts.filter { $0.trimmingCharacters(in: .whitespaces).isEmpty == false }
+        if let partner = partner {
+            parts.append(partner.ad.name)
+        }
+
+        return parts.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
             .joined(separator: ", ")
     }
 }
