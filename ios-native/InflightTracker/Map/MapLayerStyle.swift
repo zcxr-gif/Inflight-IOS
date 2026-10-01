@@ -105,7 +105,7 @@ enum MapLayerStyle {
     }
 
     /// The layers a tap can open something from, in the order they are asked.
-    static let tappableTraffic = [Layer.selected, Layer.replay, Layer.traffic]
+    static let tappableTraffic = [Layer.trafficModels, Layer.selected, Layer.replay, Layer.traffic]
     static let tappableFields = [Layer.fields]
 
     // MARK: - Installing

@@ -15,27 +15,26 @@ import Foundation
 /// map like the runway under it. The factor has a stop every quarter zoom, so
 /// a pinch never makes an aeroplane swell or shrink on screen before that.
 ///
-/// ## Every zoom, without the cost
+/// ## Every zoom
 ///
-/// Every aeroplane is a model at every zoom. What keeps that cheap is that a
-/// zoomed-out map draws each one from its *far* model (`GLBNormaliser.Detail`):
-/// the same aeroplane reduced to a few hundred triangles with small textures,
-/// against tens of thousands up close. At twenty points long nobody can tell
-/// the two apart. The detailed model takes over from zoom 15, where it starts
-/// being drawn at real size.
-///
-/// Light aircraft keep the far model, which draws them longer than life, until
-/// zoom 18: in true proportion to an airliner a Cessna is four points long,
-/// and an aeroplane nobody can see is not on the map.
+/// Every aeroplane is its full model at every zoom. Light aircraft are drawn
+/// from a copy made larger than life (`GLBNormaliser.Detail.far`) until zoom
+/// 18: in true proportion to an airliner a Cessna is four points long, and an
+/// aeroplane nobody can see is not on the map.
 ///
 /// The flat icon is only drawn for an aeroplane whose model has not arrived.
 ///
 /// ## Height
 ///
-/// Drawn at its true height, an aeroplane at cruise would float kilometres off
-/// its own track the moment the map tilts — above the camera, at the zooms
-/// models are drawn at. So it is lifted by a small, shrinking share of its
-/// height instead (see `lift`). An aircraft on the ground sits on it.
+/// Real height above the ground, as near as the feed allows (see
+/// `AircraftAttitude.heightMetres`) — carried between packets at the
+/// aeroplane's own vertical speed, so a climb is a climb rather than a stair.
+///
+/// The one limit is the camera. Close in over a cruising airliner, the camera
+/// is itself only a few kilometres up, and an aeroplane drawn at 11 km would
+/// be above it, or filling the screen. So the height is capped at a share of
+/// the camera's own height at each zoom (`liftZooms`): from a country's width
+/// out nothing is capped, and over an airport only an aeroplane at cruise is.
 ///
 /// ## Attitude
 ///
@@ -45,13 +44,9 @@ import Foundation
 /// right wing down is a positive y.
 enum AircraftModelStyle {
 
-    /// From this zoom the detailed model is drawn instead of the far one.
-    static let detailZoom = 15.0
-
-    /// And from this one, light aircraft too — anything shorter than
-    /// `lightAircraftLength`.
+    /// Light aircraft are drawn from their larger-than-life copy until this
+    /// zoom (`GLBNormaliser.farMinimumLength` decides which those are).
     static let lightDetailZoom = 18.0
-    static let lightAircraftLength = 14.0
 
     /// How long an A320 is on screen, in points, until real size is larger.
     /// About the length of its flat icon.
@@ -83,19 +78,14 @@ enum AircraftModelStyle {
         return expression
     }
 
-    /// Which model each aeroplane is drawn from: far, then detailed from
-    /// `detailZoom`, light aircraft from `lightDetailZoom`. `model` is only
-    /// ever the detailed model once it has been put on the map, and is the
-    /// far one until then — see `TrackerMapView`.
+    /// Which model each aeroplane is drawn from: `modelFar` until
+    /// `lightDetailZoom`, then `model`. Only light aircraft have a separate
+    /// far copy; for everything else the two name the same model.
     static func modelIdExpression() -> [Any] {
-        let near: [Any] = ["to-string", ["get", "model"]]
-        let far: [Any] = ["to-string", ["get", "modelFar"]]
-        let length: [Any] = ["to-number", ["get", "mlen"], 0]
-        return [
+        [
             "step", ["zoom"],
-            far,
-            detailZoom, ["case", [">=", length, lightAircraftLength], near, far],
-            lightDetailZoom, near,
+            ["to-string", ["get", "modelFar"]],
+            lightDetailZoom, ["to-string", ["get", "model"]],
         ]
     }
 
@@ -104,25 +94,24 @@ enum AircraftModelStyle {
         ["case", ["has", "model"], 0, 1]
     }
 
-    /// The share of its height an aeroplane is lifted by, per zoom.
-    ///
-    /// Kept to a few of the aeroplane's own lengths where it is drawn at real
-    /// size: enough to show it is in the air, never so much that it parts
-    /// from its own track. A cruising airliner sits about 65 m up at zoom 15
-    /// and 9 m at zoom 18; further out, where the model is drawn larger than
-    /// life, the same 65 m is too little to see and the model sits on its
-    /// position.
-    private static let lift: [(zoom: Double, share: Double, key: String)] = [
-        (15, 0.006, "mt15"),
-        (16.5, 0.0025, "mt16"),
-        (18, 0.0008, "mt18"),
-    ]
+    /// The zooms the height is written for, each with the most it may be
+    /// there: `cameraShare` of the camera's height above the map, which is
+    /// about 1,275 points' worth of map at any zoom. Mapbox blends between.
+    private static let liftZooms: [Double] = [6, 9, 11, 13, 15, 17]
+    private static let cameraShare = 0.3
+    private static let cameraHeightPoints = 1_275.0
+
+    private static func liftKey(_ zoom: Double) -> String { "mt\(Int(zoom))" }
+
+    private static func liftCeiling(atZoom zoom: Double) -> Double {
+        cameraShare * cameraHeightPoints * metresPerPointAtZoomZero / pow(2, zoom)
+    }
 
     static func liftExpression() -> [Any] {
         var expression: [Any] = ["interpolate", ["linear"], ["zoom"]]
-        for stop in lift {
-            expression.append(stop.zoom)
-            expression.append(["get", stop.key])
+        for zoom in liftZooms {
+            expression.append(zoom)
+            expression.append(["get", liftKey(zoom)])
         }
         return expression
     }
@@ -135,8 +124,9 @@ enum AircraftModelStyle {
         heightMetres: Double
     ) -> [String: [Double]] {
         var out: [String: [Double]] = ["mrot": [-pitch, bank, heading]]
-        for stop in lift {
-            out[stop.key] = [0, 0, max(heightMetres, 0) * stop.share]
+        let height = max(heightMetres, 0)
+        for zoom in liftZooms {
+            out[liftKey(zoom)] = [0, 0, min(height, liftCeiling(atZoom: zoom))]
         }
         return out
     }
@@ -159,6 +149,10 @@ struct AircraftAttitude {
 
     private var easedBank = Eased()
     private var easedPitch = Eased()
+
+    /// Height above the field, carried at the reported vertical speed between
+    /// packets and eased onto each new report rather than jumped to it.
+    private var height = Carried()
 
     /// The altitude this aircraft was last seen sitting on the ground at — the
     /// nearest thing the feed offers to the height of the field.
@@ -197,15 +191,45 @@ struct AircraftAttitude {
         }
         easedBank.aim(at: targetBank, now: now)
         easedPitch.aim(at: onGround ? 0 : InstrumentReading.derivedPitchDegrees(for: flight), now: now)
+
+        let reportedHeight = onGround ? 0 : max(flight.altitudeFeet - (groundAltitudeFeet ?? 0), 0) * 0.3048
+        let climb = onGround ? 0 : flight.verticalSpeedFPM * 0.3048 / 60
+        height.report(reportedHeight, rate: climb, now: now)
     }
 
     func bank(at now: CFTimeInterval) -> Double { easedBank.value(at: now) }
     func pitch(at now: CFTimeInterval) -> Double { easedPitch.value(at: now) }
 
-    /// Height above the field, in metres, as well as the feed allows.
-    func heightMetres(of flight: Flight) -> Double {
-        guard FlightPhase.from(flight) != .ground else { return 0 }
-        return max(flight.altitudeFeet - (groundAltitudeFeet ?? 0), 0) * 0.3048
+    /// Height above the field, in metres, as well as the feed allows, now.
+    func heightMetres(at now: CFTimeInterval) -> Double {
+        max(height.value(at: now), 0)
+    }
+
+    /// A value reported with a rate: run forward at that rate for up to
+    /// `maximumLead` seconds, with the gap to each new report closed over
+    /// about a second rather than in a step.
+    private struct Carried {
+        private var base = 0.0
+        private var rate = 0.0
+        private var since: CFTimeInterval = 0
+        private var correction = 0.0
+        private var started = false
+        private static let timeConstant = 1.0
+        private static let maximumLead = 12.0
+
+        func value(at now: CFTimeInterval) -> Double {
+            let elapsed = max(now - since, 0)
+            return base + rate * min(elapsed, Self.maximumLead) + correction * exp(-elapsed / Self.timeConstant)
+        }
+
+        mutating func report(_ value: Double, rate: Double, now: CFTimeInterval) {
+            let drawn = started ? self.value(at: now) : value
+            started = true
+            base = value
+            self.rate = rate
+            since = now
+            correction = drawn - value
+        }
     }
 
     /// A value that settles on its target over about a second.

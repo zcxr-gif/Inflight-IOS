@@ -752,6 +752,7 @@ struct ContentView: View {
             legalInset: mapLegalInset,
             replayFrame: replay.frame,
             isFollowing: isFollowingLive,
+            onFollowEnded: { isFollowing = false },
             // The setting, and the system's own request for less movement —
             // which is the one audience a map full of gliding aeroplanes is
             // actively worse for. Resolved here rather than in the map: the map
@@ -1097,9 +1098,10 @@ struct ContentView: View {
             // flying a path nothing on screen refers to.
             if replay.isActive, id != replay.flightId { replay.stop() }
 
-            // Following is about one aircraft. Another one — or none — is not
-            // something to carry the mode over to.
-            isFollowing = false
+            // Opening an aircraft follows it: the map glides onto it and goes
+            // with it, until a drag on the map or one of the framing buttons
+            // takes the camera somewhere else. Closing the window lets go.
+            isFollowing = id != nil
 
             isWindowExpanded = false
 

@@ -70,6 +70,10 @@ struct TrackerMapView: UIViewRepresentable {
     /// Whether the map should stay with the open aircraft as it flies.
     var isFollowing = false
 
+    /// Told when a drag on the map takes the camera away from the aircraft it
+    /// was following, so the follow control can show it has let go.
+    var onFollowEnded: () -> Void = {}
+
     /// Whether airborne traffic is carried between packets rather than jumping
     /// on each one. See `FlightMotion`.
     var smoothsTraffic = true
@@ -295,6 +299,7 @@ struct TrackerMapView: UIViewRepresentable {
             cancelables.insert(AnyCancelable(tap.cancel))
 
             applyGestures(for: parent.style)
+            mapView.gestures.delegate = self
             startFlying()
 
             // The frame rates follow the phone's condition, not just the
@@ -769,7 +774,6 @@ struct TrackerMapView: UIViewRepresentable {
 
             let state = map.cameraState
             zoom = Double(state.zoom)
-            wantDetailedModelsIfClose()
 
             let latitude = state.center.latitude
             let circumference = 40_075_016.686 * max(cos(latitude * .pi / 180), 0.01)
@@ -916,7 +920,6 @@ struct TrackerMapView: UIViewRepresentable {
                 if appliedModelSource != parent.aircraftModels {
                     appliedModelSource = parent.aircraftModels
                     dropModels(except: parent.aircraftModels)
-                    detailedModelsWanted = parent.aircraftModels != .off && zoom >= Self.detailedModelsFromZoom
                     applyGestures(for: parent.style)
                     // Back to level on a look that does not tilt, now there is
                     // nothing standing up to tilt for.
@@ -1125,18 +1128,18 @@ struct TrackerMapView: UIViewRepresentable {
             // The 3D model, when one is chosen and has arrived. Until it has,
             // the aeroplane stays a flat icon — and asking is what fetches it.
             //
-            // Always the far model; the detailed one as well once the map has
-            // been zoomed in far enough to want it. Until it is on the map,
-            // `model` names the far one too, so nothing is ever asked for that
-            // the style does not hold.
+            // `modelFar` is the light aircraft's larger-than-life copy, and the
+            // model itself for everything else — see `AircraftModelStyle`.
             modelled.removeValue(forKey: flight.id)
             if parent.aircraftModels != .off,
                let entry = AircraftModelCatalog.entry(for: flight, in: parent.aircraftModels),
                let ready = AircraftModelStore.shared.ready(entry),
-               registerModel(id: ready.entry.styleId + "-far", file: ready.farFile) {
-                let farId = ready.entry.styleId + "-far"
-                let detailed = detailedModelsWanted && registerModel(id: ready.entry.styleId, file: ready.file)
-                properties["model"] = JSONValue.string(detailed ? ready.entry.styleId : farId)
+               registerModel(id: ready.entry.styleId, file: ready.file) {
+                var farId = ready.entry.styleId
+                if ready.farFile != ready.file, registerModel(id: ready.entry.styleId + "-far", file: ready.farFile) {
+                    farId = ready.entry.styleId + "-far"
+                }
+                properties["model"] = JSONValue.string(ready.entry.styleId)
                 properties["modelFar"] = JSONValue.string(farId)
                 modelled[flight.id] = ready.lengthMetres
                 properties["mlen"] = JSONValue.number(ready.lengthMetres)
@@ -1166,22 +1169,6 @@ struct TrackerMapView: UIViewRepresentable {
 
         /// The aeroplanes drawn as models, and each one's real length.
         private var modelled: [String: Double] = [:]
-
-        /// Whether the detailed models are put on the map. Not until the map
-        /// has been zoomed in near the zoom they are drawn from: a session
-        /// spent looking at a continent never loads a single one, and keeps
-        /// only the far models in memory.
-        private var detailedModelsWanted = false
-
-        private static let detailedModelsFromZoom = AircraftModelStyle.detailZoom - 2
-
-        private func wantDetailedModelsIfClose() {
-            guard !detailedModelsWanted, parent.aircraftModels != .off,
-                  zoom >= Self.detailedModelsFromZoom else { return }
-            detailedModelsWanted = true
-            trafficPropertiesStale = true
-            pushTraffic()
-        }
 
         /// The aircraft flown on this phone, as its own simulator reports it.
         private struct OwnAttitude: Equatable {
@@ -1237,11 +1224,11 @@ struct TrackerMapView: UIViewRepresentable {
             if let own = ownAttitude, own.flightId == marker.flightId {
                 pitch = own.pitch
                 bank = own.bank
-                height = own.heightMetres ?? marker.attitude.heightMetres(of: marker.flight)
+                height = own.heightMetres ?? marker.attitude.heightMetres(at: now)
             } else {
                 pitch = marker.attitude.pitch(at: now)
                 bank = marker.attitude.bank(at: now)
-                height = marker.attitude.heightMetres(of: marker.flight)
+                height = marker.attitude.heightMetres(at: now)
             }
             marker.writtenBank = bank
 
@@ -2383,22 +2370,69 @@ struct TrackerMapView: UIViewRepresentable {
 
         // MARK: Following
 
-        private var lastFollowMove: CFTimeInterval = 0
+        /// The aircraft the camera is locked to, and when the glide onto it
+        /// lands.
+        private var followLockedId: String?
+        private var followGlideEnds: CFTimeInterval = 0
+        private var followNeedsGlide = false
 
-        /// Long enough for an animated camera move to land, and short enough
-        /// that an aeroplane leaving the middle of the map is brought back
-        /// before it reaches the edge of it.
-        private static let followCooldown: CFTimeInterval = 0.9
+        /// Whether a pinch, a rotation or a tilt is under way, which the
+        /// follow stands back for rather than fighting.
+        private var isGestureActive = false
 
-        /// Keeps the open aircraft on screen as it flies, while follow is on —
-        /// a nudge every so often rather than a camera glued to the aeroplane.
+        private static let followGlide: CFTimeInterval = 0.8
+
+        /// Keeps the camera on the open aircraft as it flies, while follow is
+        /// on.
+        ///
+        /// It glides onto the aeroplane — aimed where the aeroplane will be
+        /// when the glide lands, not where it was when it started — and from
+        /// then on moves with it every frame. The position it moves to is the
+        /// one the aeroplane is drawn at, which is already smoothed between
+        /// packets, so the map slides along with the aeroplane rather than
+        /// waiting for it to drift off centre and hopping after it.
         private func followSelection() {
-            guard parent.isFollowing, let flight = selectedFlight() else { return }
-            let now = CACurrentMediaTime()
-            guard now - lastFollowMove > Self.followCooldown else { return }
-            if keepInView(drawnCoordinate(for: flight)) {
-                lastFollowMove = now
+            guard parent.isFollowing, let flight = selectedFlight(), let mapView = mapView, let map = map else {
+                followLockedId = nil
+                return
             }
+            guard !isGestureActive else { return }
+            let bounds = mapView.bounds
+            guard bounds.width > 1, bounds.height > 1 else { return }
+            let target = drawnCoordinate(for: flight)
+            guard CLLocationCoordinate2DIsValid(target) else { return }
+            let padding = edgeInsets(in: bounds)
+            let now = CACurrentMediaTime()
+
+            if followLockedId != flight.id || followNeedsGlide {
+                followLockedId = flight.id
+                followNeedsGlide = false
+                followGlideEnds = now + Self.followGlide
+                let moving = markers[flight.id]?.isSmoothing ?? false
+                let landing = moving ? Self.ahead(of: target, flight: flight, seconds: Self.followGlide) : target
+                mapView.camera.ease(
+                    to: CameraOptions(center: landing, padding: padding),
+                    duration: Self.followGlide,
+                    curve: .easeInOut
+                )
+                return
+            }
+            guard now >= followGlideEnds else { return }
+            map.setCamera(to: CameraOptions(center: target, padding: padding))
+        }
+
+        /// Where an aircraft will be in `seconds`, at its heading and speed.
+        private static func ahead(
+            of coordinate: CLLocationCoordinate2D,
+            flight: Flight,
+            seconds: Double
+        ) -> CLLocationCoordinate2D {
+            let metres = flight.groundSpeedKnots * 0.514444 * seconds
+            let heading = flight.heading * .pi / 180
+            let latitude = coordinate.latitude + metres * cos(heading) / 111_320
+            let longitude = coordinate.longitude
+                + metres * sin(heading) / (111_320 * max(cos(coordinate.latitude * .pi / 180), 0.01))
+            return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
         }
 
         /// Pans to bring a moving aircraft back, but only once it has left the
@@ -2463,6 +2497,10 @@ struct TrackerMapView: UIViewRepresentable {
             guard isStyleLoaded, let mapView = mapView, mapView.window != nil else { return }
             guard pointsPerMetre > 0 else { return }
 
+            // The camera goes with the followed aircraft on every frame,
+            // whichever way this one ends.
+            defer { followSelection() }
+
             updateFlownHead()
             syncDirectLine()
             stepWindParticles(at: now)
@@ -2505,7 +2543,10 @@ struct TrackerMapView: UIViewRepresentable {
 
                 let flight = marker.flight
                 let required = flight.requiresSmoothing
-                var wanted = inView && (smoothing || required)
+                // The aircraft the camera is following is always carried, so
+                // the camera has a smooth path to move along.
+                let followed = parent.isFollowing && flight.id == parent.selection?.id
+                var wanted = inView && (smoothing || required || followed)
                 if wanted {
                     let floor = required ? Self.visibleMotionSwept : Self.visibleMotion
                     wanted = flight.isWorthSmoothing
@@ -2533,9 +2574,6 @@ struct TrackerMapView: UIViewRepresentable {
             if !changed.isEmpty {
                 map?.updateGeoJSONSourceFeatures(forSourceId: Source.traffic, features: changed)
             }
-
-            // The camera goes with them.
-            followSelection()
         }
 
         // MARK: Camera commands
@@ -2788,4 +2826,40 @@ struct MapCommand: Equatable {
 
     let kind: Kind
     let id = UUID()
+}
+
+// MARK: - Gestures and the follow
+
+extension TrackerMapView.Coordinator: GestureManagerDelegate {
+
+    /// A drag takes the camera off the followed aircraft, and ends the follow.
+    /// A pinch, a rotation or a tilt only pauses it: the camera glides back
+    /// onto the aeroplane when the gesture is done.
+    func gestureManager(_ gestureManager: GestureManager, didBegin gestureType: GestureType) {
+        guard parent.isFollowing else { return }
+        switch gestureType {
+        case .pan:
+            followLockedId = nil
+            let ended = parent.onFollowEnded
+            DispatchQueue.main.async { ended() }
+        case .singleTap:
+            break
+        default:
+            isGestureActive = true
+        }
+    }
+
+    func gestureManager(_ gestureManager: GestureManager, didEnd gestureType: GestureType, willAnimate: Bool) {
+        if !willAnimate { resumeFollowAfterGesture() }
+    }
+
+    func gestureManager(_ gestureManager: GestureManager, didEndAnimatingFor gestureType: GestureType) {
+        resumeFollowAfterGesture()
+    }
+
+    private func resumeFollowAfterGesture() {
+        guard isGestureActive else { return }
+        isGestureActive = false
+        followNeedsGlide = true
+    }
 }

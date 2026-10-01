@@ -20,8 +20,9 @@ final class AircraftModelStore {
         let entry: AircraftModelCatalog.Entry
         /// The model, for a map zoomed in.
         let file: URL
-        /// The same model reduced, for a map zoomed out — see
-        /// `GLBNormaliser.Detail`.
+        /// The model drawn larger than life, for a light aircraft on a map
+        /// zoomed out — see `GLBNormaliser.Detail`. The same file as `file`
+        /// for everything else.
         let farFile: URL
         /// The aeroplane's real length.
         let lengthMetres: Double
@@ -129,22 +130,27 @@ final class AircraftModelStore {
                 + "floats with 16-bit indices, materials reduced to base colour, transparency and emission, "
                 + "textures shrunk."
             let (near, far) = try await Task.detached(priority: .utility) {
+                () throws -> (GLBNormaliser.Output, GLBNormaliser.Output?) in
                 let near = try GLBNormaliser.normalise(data, forward: entry.forward, up: entry.up, notice: notice)
+                guard Float(near.lengthMetres) < GLBNormaliser.farMinimumLength else { return (near, nil) }
                 let far = try GLBNormaliser.normalise(
                     data, forward: entry.forward, up: entry.up,
-                    notice: notice + " Simplified for a distant view.", detail: .far
+                    notice: notice + " Drawn larger than life for a distant view.", detail: .far
                 )
                 return (near, far)
             }.value
 
             let file = Self.file(for: entry)
-            let farFile = Self.farFile(for: entry)
             try FileManager.default.createDirectory(
                 at: file.deletingLastPathComponent(), withIntermediateDirectories: true
             )
             try near.data.write(to: file, options: .atomic)
-            try far.data.write(to: farFile, options: .atomic)
-            let info = ["length": near.lengthMetres]
+            var farFile = file
+            if let far {
+                farFile = Self.farFile(for: entry)
+                try far.data.write(to: farFile, options: .atomic)
+            }
+            let info: [String: Any] = ["length": near.lengthMetres, "far": far != nil]
             try JSONSerialization.data(withJSONObject: info).write(to: Self.infoFile(for: entry), options: .atomic)
             return .success(Ready(entry: entry, file: file, farFile: farFile, lengthMetres: near.lengthMetres))
         } catch {
@@ -223,12 +229,15 @@ final class AircraftModelStore {
 
     private func cached(_ entry: AircraftModelCatalog.Entry) -> Ready? {
         let file = Self.file(for: entry)
-        let farFile = Self.farFile(for: entry)
         guard FileManager.default.fileExists(atPath: file.path),
-              FileManager.default.fileExists(atPath: farFile.path),
               let data = try? Data(contentsOf: Self.infoFile(for: entry)),
               let info = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let length = info["length"] as? Double, length > 0 else { return nil }
+        var farFile = file
+        if info["far"] as? Bool == true {
+            farFile = Self.farFile(for: entry)
+            guard FileManager.default.fileExists(atPath: farFile.path) else { return nil }
+        }
         return Ready(entry: entry, file: file, farFile: farFile, lengthMetres: length)
     }
 
