@@ -4,24 +4,23 @@ import Foundation
 ///
 /// ## Size
 ///
-/// Every model is stored at its real size, in metres (see `GLBNormaliser`), and
-/// every aeroplane on the map is scaled by the *same* factor at a given zoom —
-/// so an A380 is always twice an A320 and a Cessna a fifth of one, however far
-/// out the map is. Pulled back, that factor holds a typical airliner at about
-/// the size of the flat icon; closing in, it falls away to one and stays there,
-/// so from about zoom 16 every aeroplane is exactly its real size on the map.
+/// Real size, always. Every model is stored in metres (see `GLBNormaliser`)
+/// and drawn at scale one, so an aeroplane is fixed to the map the way the
+/// runway under it is: zooming in makes it bigger on screen exactly as much as
+/// it makes the runway bigger, and an A380 is always twice an A320.
 ///
-/// The factor is written as a stop every quarter zoom so it shrinks exactly as
-/// fast as the map grows, which is what keeps an aeroplane's size on screen
-/// steady through a pinch rather than swelling between stops.
+/// Pulled back, real size is too small to see, so there the aeroplane is its
+/// flat icon, and the model takes over once it is big enough to read — about
+/// sixteen points long. That happens at a different zoom for different
+/// aeroplanes: an A380 is ready long before a Cessna, so each one changes
+/// over on its own, with a short fade, by its real length.
 ///
 /// ## Height
 ///
 /// Drawn at its true height, an aeroplane at cruise would float kilometres off
-/// its own track the moment the map tilts, and loom at the camera in close.
-/// So the lift shrinks as the map closes in: the whole height when the map
-/// shows a country, a few hundredths of it over an airport. An aircraft on the
-/// ground sits on it.
+/// its own track the moment the map tilts — above the camera, at the zooms
+/// models are drawn at. So it is lifted by a small, shrinking share of its
+/// height instead (see `lift`). An aircraft on the ground sits on it.
 ///
 /// ## Attitude
 ///
@@ -31,43 +30,69 @@ import Foundation
 /// right wing down is a positive y.
 enum AircraftModelStyle {
 
-    /// How long a typical airliner is on screen, in points, when the map is
-    /// too far out for its real size to be seen. Everything else is drawn in
-    /// proportion to it.
-    static let screenLength = 30.0
+    /// Below this zoom no model is drawn at all; every aeroplane is an icon.
+    static let firstModelZoom = 15.0
 
-    /// The airliner that `screenLength` is measured on: an A320 or a 737.
-    private static let referenceLength = 40.0
+    /// When each size of aeroplane changes from icon to model: from `zoom`
+    /// on, everything at least `length` metres long is a model. Each change
+    /// fades in over the half zoom before it.
+    private static let handover: [(zoom: Double, length: Double)] = [
+        (15.5, 30),
+        (16.5, 15),
+        (17.5, 7),
+        (18, 0),
+    ]
 
-    /// Metres to a point at zoom zero, on Mapbox's 512-point world.
-    private static let metresPerPointAtZoomZero = 40_075_016.686 / 512
+    private static var length: [Any] { ["to-number", ["get", "mlen"], 0] }
 
-    /// The factor every model is scaled by at a zoom: real size, or larger
-    /// when real size would be too small to see.
-    static func magnification(atZoom zoom: Double) -> Double {
-        max(1, screenLength * metresPerPointAtZoomZero / pow(2, zoom) / referenceLength)
+    /// The flat icon's opacity: gone for an aeroplane whose model has taken
+    /// over at this zoom.
+    static func iconOpacityExpression() -> [Any] {
+        handoverExpression(before: 1) { length in
+            ["case", ["all", ["has", "model"], [">=", Self.length, length]], 0, 1]
+        }
     }
 
-    static func scaleExpression() -> [Any] {
-        var expression: [Any] = ["interpolate", ["linear"], ["zoom"]]
-        var zoom = 0.0
-        while true {
-            let factor = magnification(atZoom: zoom)
-            expression.append(zoom)
-            expression.append(["literal", [factor, factor, factor]] as [Any])
-            // One stop past the point where real size takes over, and done.
-            if factor == 1 { break }
-            zoom += 0.25
+    /// The model's opacity: the other half of the same handover.
+    static func modelOpacityExpression() -> [Any] {
+        handoverExpression(before: 0) { length in
+            ["case", [">=", Self.length, length], 1, 0]
+        }
+    }
+
+    /// A zoom ramp through `handover`: `before` until the first model zoom,
+    /// then at each stop the value for that length, faded in over the half
+    /// zoom before it. Stops are kept strictly increasing, as Mapbox requires.
+    private static func handoverExpression(before: Any, at value: (Double) -> [Any]) -> [Any] {
+        var expression: [Any] = ["interpolate", ["linear"], ["zoom"], firstModelZoom, before]
+        var lastZoom = firstModelZoom
+        var previous = before
+        for stop in handover {
+            let fadeStart = stop.zoom - 0.5
+            if fadeStart > lastZoom {
+                expression.append(fadeStart)
+                expression.append(previous)
+            }
+            let now = value(stop.length)
+            expression.append(stop.zoom)
+            expression.append(now)
+            previous = now
+            lastZoom = stop.zoom
         }
         return expression
     }
 
     /// The share of its height an aeroplane is lifted by, per zoom.
+    ///
+    /// Models only appear from zoom 15, where an aeroplane is real size, so
+    /// the lift is kept to a few of its own lengths: enough to show it is in
+    /// the air and climbing or descending, never so much that it parts from
+    /// its own track. A cruising airliner sits about 65 m up at zoom 15 and
+    /// 9 m at zoom 18.
     private static let lift: [(zoom: Double, share: Double, key: String)] = [
-        (6, 1, "mt6"),
-        (10, 0.35, "mt10"),
-        (13, 0.06, "mt13"),
-        (16, 0.008, "mt16"),
+        (15, 0.006, "mt15"),
+        (16.5, 0.0025, "mt16"),
+        (18, 0.0008, "mt18"),
     ]
 
     static func liftExpression() -> [Any] {

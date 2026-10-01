@@ -985,7 +985,7 @@ struct TrackerMapView: UIViewRepresentable {
                 lastSeen.removeValue(forKey: id)
                 trafficProperties.removeValue(forKey: id)
                 trafficSignatures.removeValue(forKey: id)
-                modelled.remove(id)
+                modelled.removeValue(forKey: id)
             }
         }
 
@@ -1086,7 +1086,7 @@ struct TrackerMapView: UIViewRepresentable {
             properties["heading"] = JSONValue.number(marker.drawnHeading)
             marker.writtenCoordinate = marker.coordinate
             marker.writtenHeading = marker.drawnHeading
-            if modelled.contains(marker.flightId) {
+            if modelled[marker.flightId] != nil {
                 addModelPose(to: &properties, for: marker)
             }
             return Self.pointFeature(marker.coordinate, id: marker.flightId, properties)
@@ -1122,13 +1122,14 @@ struct TrackerMapView: UIViewRepresentable {
 
             // The 3D model, when one is chosen and has arrived. Until it has,
             // the aeroplane stays a flat icon — and asking is what fetches it.
-            modelled.remove(flight.id)
+            modelled.removeValue(forKey: flight.id)
             if parent.aircraftModels != .off,
                let entry = AircraftModelCatalog.entry(for: flight, in: parent.aircraftModels),
                let ready = AircraftModelStore.shared.ready(entry),
                registerModel(ready) {
                 properties["model"] = JSONValue.string(ready.entry.styleId)
-                modelled.insert(flight.id)
+                modelled[flight.id] = ready.lengthMetres
+                properties["mlen"] = JSONValue.number(ready.lengthMetres)
                 if let tint {
                     properties["tint"] = JSONValue.string(MapLayerStyle.rgba(tint))
                 }
@@ -1153,8 +1154,9 @@ struct TrackerMapView: UIViewRepresentable {
         /// which drops them with everything else.
         private var styleModels: Set<String> = []
 
-        /// The aeroplanes currently drawn as models.
-        private var modelled: Set<String> = []
+        /// The aeroplanes drawn as models, and each one's real length — which
+        /// decides the zoom it changes from icon to model at.
+        private var modelled: [String: Double] = [:]
 
         /// The aircraft flown on this phone, as its own simulator reports it.
         private struct OwnAttitude: Equatable {
@@ -1244,7 +1246,7 @@ struct TrackerMapView: UIViewRepresentable {
                 return OwnAttitude(flightId: id, pitch: pitch, bank: bank, heightMetres: height)
             }
             guard let own = ownAttitude, own != writtenOwnAttitude,
-                  let marker = markers[own.flightId], modelled.contains(own.flightId),
+                  let marker = markers[own.flightId], modelled[own.flightId] != nil,
                   trafficInSource.contains(own.flightId) else { return }
             writtenOwnAttitude = own
             map?.updateGeoJSONSourceFeatures(forSourceId: Source.traffic, features: [trafficFeature(for: marker)])

@@ -208,7 +208,8 @@ enum MapLayerStyle {
         let plate = FlightMarkStyle.plateImage(isLight: false)
         let bold = json(boldFont)
         let medium = json(mediumFont)
-        let modelScale = json(AircraftModelStyle.scaleExpression())
+        let modelOpacity = json(AircraftModelStyle.modelOpacityExpression())
+        let iconOpacity = json(AircraftModelStyle.iconOpacityExpression())
         let modelLift = json(AircraftModelStyle.liftExpression())
 
         func traffic(_ icon: String) -> String {
@@ -479,12 +480,14 @@ enum MapLayerStyle {
             },
             {
                 "id": "\(Layer.trafficModels)", "type": "model", "source": "\(Source.traffic)",
+                "minzoom": \(AircraftModelStyle.firstModelZoom),
                 "filter": ["has", "model"],
                 "layout": {"model-id": ["get", "model"]},
                 "paint": {
                     "model-type": "common-3d",
                     "model-rotation": ["get", "mrot"],
-                    "model-scale": \(modelScale),
+                    "model-scale": [1, 1, 1],
+                    "model-opacity": \(modelOpacity),
                     "model-translation": \(modelLift),
                     "model-cast-shadows": false,
                     "model-receive-shadows": false,
@@ -496,7 +499,7 @@ enum MapLayerStyle {
             {
                 "id": "\(Layer.traffic)", "type": "symbol", "source": "\(Source.traffic)",
                 "layout": \(traffic("icon")),
-                "paint": {"icon-opacity": ["case", ["has", "model"], 0, 1]}
+                "paint": {"icon-opacity": \(iconOpacity)}
             },
             {
                 "id": "\(Layer.trafficMarks)", "type": "symbol", "source": "\(Source.traffic)",
@@ -519,7 +522,7 @@ enum MapLayerStyle {
                 "id": "\(Layer.selected)", "type": "symbol", "source": "\(Source.traffic)",
                 "filter": ["==", ["get", "fid"], ""],
                 "layout": \(traffic("iconSelected")),
-                "paint": {"icon-opacity": ["case", ["has", "model"], 0, 1]}
+                "paint": {"icon-opacity": \(iconOpacity)}
             },
             {
                 "id": "\(Layer.selectedMark)", "type": "symbol", "source": "\(Source.traffic)",
