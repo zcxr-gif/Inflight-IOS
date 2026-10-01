@@ -78,7 +78,8 @@ final class AircraftModelStore {
             running += 1
             Task {
                 let result = await Self.fetch(entry)
-                DispatchQueue.main.async { [weak self] in self?.finish(entry, result) }
+                // Back on the main thread, through the one instance there is.
+                DispatchQueue.main.async { AircraftModelStore.shared.finish(entry, result) }
             }
         }
     }
