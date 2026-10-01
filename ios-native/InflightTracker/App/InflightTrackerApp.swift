@@ -11,6 +11,10 @@ struct InflightTrackerApp: App {
     @StateObject private var feed = LiveFeed()
 
     init() {
+        // Before anything builds a map: a map view takes whatever token was
+        // set at the moment it was created.
+        MapboxAccess.prepare()
+
         // Parses the 17k-airport table off the main thread so the first flight
         // the user taps has its route ready.
         AirportStore.shared.preload()

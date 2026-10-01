@@ -113,5 +113,12 @@
 			</array>
 		</dict>
 	</array>
+	<!-- The Mapbox public token the map draws with. Never written here: the
+	     build fills it from the MAPBOX_ACCESS_TOKEN environment variable, which
+	     lives in Codemagic and nowhere in the repository. An empty value is a
+	     build that draws no map — see MapboxAccess, which says so in the log,
+	     and the Codemagic step that refuses to ship one. -->
+	<key>MBXAccessToken</key>
+	<string>$(MAPBOX_ACCESS_TOKEN)</string>
 </dict>
 </plist>
