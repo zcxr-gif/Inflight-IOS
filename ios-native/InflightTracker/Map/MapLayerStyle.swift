@@ -209,6 +209,7 @@ enum MapLayerStyle {
         let bold = json(boldFont)
         let medium = json(mediumFont)
         let modelOpacity = json(AircraftModelStyle.modelOpacityExpression())
+        let modelScale = json(AircraftModelStyle.scaleExpression())
         let iconOpacity = json(AircraftModelStyle.iconOpacityExpression())
         let modelLift = json(AircraftModelStyle.liftExpression())
 
@@ -486,7 +487,7 @@ enum MapLayerStyle {
                 "paint": {
                     "model-type": "common-3d",
                     "model-rotation": ["get", "mrot"],
-                    "model-scale": [1, 1, 1],
+                    "model-scale": \(modelScale),
                     "model-opacity": \(modelOpacity),
                     "model-translation": \(modelLift),
                     "model-cast-shadows": false,

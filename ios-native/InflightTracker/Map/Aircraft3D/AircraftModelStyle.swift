@@ -4,16 +4,21 @@ import Foundation
 ///
 /// ## Size
 ///
-/// Real size, always. Every model is stored in metres (see `GLBNormaliser`)
-/// and drawn at scale one, so an aeroplane is fixed to the map the way the
-/// runway under it is: zooming in makes it bigger on screen exactly as much as
-/// it makes the runway bigger, and an A380 is always twice an A320.
+/// Every model is stored in metres (see `GLBNormaliser`), and every aeroplane
+/// on the map is scaled by the *same* factor at a given zoom — so an A380 is
+/// always twice an A320 and a Cessna a fifth of one.
 ///
-/// Pulled back, real size is too small to see, so there the aeroplane is its
-/// flat icon, and the model takes over once it is big enough to read — about
-/// sixteen points long. That happens at a different zoom for different
-/// aeroplanes: an A380 is ready long before a Cessna, so each one changes
-/// over on its own, with a short fade, by its real length.
+/// Pulled back, that factor holds an aeroplane at one size on screen however
+/// the map is zoomed: an A320 about the size of its flat icon, everything else
+/// in proportion. Closing in, real size eventually overtakes it — around zoom
+/// 15.3 — and from there every aeroplane is exactly its real size, fixed to the
+/// map like the runway under it. The factor has a stop every quarter zoom, so
+/// a pinch never makes an aeroplane swell or shrink on screen before that.
+///
+/// Further out than `firstModelZoom` the whole world is on screen and every
+/// aeroplane is its flat icon, which is both easier to read there and far
+/// cheaper than a few thousand models. Light aircraft keep their icon until
+/// they are big enough to see — see `handover`.
 ///
 /// ## Height
 ///
@@ -31,17 +36,49 @@ import Foundation
 enum AircraftModelStyle {
 
     /// Below this zoom no model is drawn at all; every aeroplane is an icon.
-    static let firstModelZoom = 15.0
+    static let firstModelZoom = 5.0
 
     /// When each size of aeroplane changes from icon to model: from `zoom`
-    /// on, everything at least `length` metres long is a model. Each change
-    /// fades in over the half zoom before it.
+    /// on, everything at least `length` metres long is a model, faded in over
+    /// the half zoom before.
+    ///
+    /// Light aircraft wait. In proportion to an airliner a Cessna is four
+    /// points long, which is not an aeroplane anyone can see, so it keeps its
+    /// icon until its real size is big enough to read.
     private static let handover: [(zoom: Double, length: Double)] = [
-        (15.5, 30),
-        (16.5, 15),
-        (17.5, 7),
-        (18, 0),
+        (5.5, 14),
+        (17.5, 0),
     ]
+
+    /// How long an A320 is on screen, in points, until real size is larger.
+    /// About the length of its flat icon.
+    static let screenLength = 19.0
+
+    /// The airliner `screenLength` is measured on.
+    private static let referenceLength = 38.0
+
+    /// Metres to a point at zoom zero, on Mapbox's 512-point world.
+    private static let metresPerPointAtZoomZero = 40_075_016.686 / 512
+
+    /// The factor every model is scaled by at a zoom: real size, or larger
+    /// when real size would be smaller than `screenLength`.
+    static func magnification(atZoom zoom: Double) -> Double {
+        max(1, screenLength * metresPerPointAtZoomZero / pow(2, zoom) / referenceLength)
+    }
+
+    static func scaleExpression() -> [Any] {
+        var expression: [Any] = ["interpolate", ["linear"], ["zoom"]]
+        var zoom = firstModelZoom - 0.5
+        while true {
+            let factor = magnification(atZoom: zoom)
+            expression.append(zoom)
+            expression.append(["literal", [factor, factor, factor]] as [Any])
+            // One stop past the point where real size takes over, and done.
+            if factor == 1 { break }
+            zoom += 0.25
+        }
+        return expression
+    }
 
     private static var length: [Any] { ["to-number", ["get", "mlen"], 0] }
 
@@ -84,11 +121,12 @@ enum AircraftModelStyle {
 
     /// The share of its height an aeroplane is lifted by, per zoom.
     ///
-    /// Models only appear from zoom 15, where an aeroplane is real size, so
-    /// the lift is kept to a few of its own lengths: enough to show it is in
-    /// the air and climbing or descending, never so much that it parts from
-    /// its own track. A cruising airliner sits about 65 m up at zoom 15 and
-    /// 9 m at zoom 18.
+    /// Kept to a few of the aeroplane's own lengths where it is drawn at real
+    /// size: enough to show it is in the air, never so much that it parts
+    /// from its own track. A cruising airliner sits about 65 m up at zoom 15
+    /// and 9 m at zoom 18; further out, where the model is drawn larger than
+    /// life, the same 65 m is too little to see and the model sits on its
+    /// position.
     private static let lift: [(zoom: Double, share: Double, key: String)] = [
         (15, 0.006, "mt15"),
         (16.5, 0.0025, "mt16"),
