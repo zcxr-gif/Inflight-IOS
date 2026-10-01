@@ -638,9 +638,11 @@ private struct GateChart: UIViewRepresentable {
             mapView.mapboxMap.onStyleLoaded.observe { [weak self] _ in
                 self?.styleDidLoad()
             }.store(in: &cancelables)
-            mapView.gestures.onMapTap.observe { [weak self] context in
+            let tap = mapView.mapboxMap.addInteraction(TapInteraction { [weak self] context in
                 self?.tapped(at: context.point)
-            }.store(in: &cancelables)
+                return true
+            })
+            cancelables.insert(AnyCancelable(tap.cancel))
         }
 
         func detach() {

@@ -272,9 +272,14 @@ struct TrackerMapView: UIViewRepresentable {
                 LaunchGate.shared.mapDidDraw()
             }.store(in: &cancelables)
 
-            mapView.gestures.onMapTap.observe { [weak self] context in
+            // The map-wide tap interaction, which is what Mapbox's gesture
+            // tap became. Every tap lands here and is sorted out by
+            // `handleTap`, which queries the layers itself.
+            let tap = map.addInteraction(TapInteraction { [weak self] context in
                 self?.handleTap(at: context.point, coordinate: context.coordinate)
-            }.store(in: &cancelables)
+                return true
+            })
+            cancelables.insert(AnyCancelable(tap.cancel))
 
             applyGestures(for: parent.style)
             startFlying()
