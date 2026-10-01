@@ -18,8 +18,12 @@ final class AircraftModelStore {
 
     struct Ready: Equatable {
         let entry: AircraftModelCatalog.Entry
+        /// The model, for a map zoomed in.
         let file: URL
-        /// The aeroplane's real length. The file itself is one unit long.
+        /// The same model reduced, for a map zoomed out — see
+        /// `GLBNormaliser.Detail`.
+        let farFile: URL
+        /// The aeroplane's real length.
         let lengthMetres: Double
     }
 
@@ -121,20 +125,28 @@ final class AircraftModelStore {
 
             let notice = "Adapted on this device by Inflight from \(url.absoluteString) "
                 + "(\(entry.licence)): node transforms baked in, turned to face −Z with +Y up, centred, "
-                + "scaled to one unit long, glTF 1.0 read as 2.0 where needed, repacked as tightly packed "
-                + "floats with 16-bit indices, materials reduced to base colour, transparency and emission."
-            let output = try await Task.detached(priority: .utility) {
-                try GLBNormaliser.normalise(data, forward: entry.forward, up: entry.up, notice: notice)
+                + "kept in metres, glTF 1.0 read as 2.0 where needed, repacked as tightly packed "
+                + "floats with 16-bit indices, materials reduced to base colour, transparency and emission, "
+                + "textures shrunk."
+            let (near, far) = try await Task.detached(priority: .utility) {
+                let near = try GLBNormaliser.normalise(data, forward: entry.forward, up: entry.up, notice: notice)
+                let far = try GLBNormaliser.normalise(
+                    data, forward: entry.forward, up: entry.up,
+                    notice: notice + " Simplified for a distant view.", detail: .far
+                )
+                return (near, far)
             }.value
 
             let file = Self.file(for: entry)
+            let farFile = Self.farFile(for: entry)
             try FileManager.default.createDirectory(
                 at: file.deletingLastPathComponent(), withIntermediateDirectories: true
             )
-            try output.data.write(to: file, options: .atomic)
-            let info = ["length": output.lengthMetres]
+            try near.data.write(to: file, options: .atomic)
+            try far.data.write(to: farFile, options: .atomic)
+            let info = ["length": near.lengthMetres]
             try JSONSerialization.data(withJSONObject: info).write(to: Self.infoFile(for: entry), options: .atomic)
-            return .success(Ready(entry: entry, file: file, lengthMetres: output.lengthMetres))
+            return .success(Ready(entry: entry, file: file, farFile: farFile, lengthMetres: near.lengthMetres))
         } catch {
             return .failure(error)
         }
@@ -152,9 +164,10 @@ final class AircraftModelStore {
     /// off, so a model that brings the app down cannot do it on every launch.
     private static let armedKey = "map.aircraftModels.armed"
 
-    /// Once per version of the adapted models: the first builds wrote models
-    /// that could exhaust the phone's memory, so the setting starts at Off.
-    private static let resetKey = "map.aircraftModels.reset.v\(GLBNormaliser.version)"
+    /// Once: the first builds wrote models that could exhaust the phone's
+    /// memory, so the setting started at Off after them. Not tied to the
+    /// pass's version, so a later improvement does not switch it off again.
+    private static let resetKey = "map.aircraftModels.reset.v2"
 
     private static var isArmed = false
     private static var lifecycleObservers: [NSObjectProtocol] = []
@@ -165,11 +178,14 @@ final class AircraftModelStore {
         if !defaults.bool(forKey: resetKey) {
             defaults.set(true, forKey: resetKey)
             defaults.set(AircraftModelSource.off.rawValue, forKey: settingKey)
-            // Models written by older versions of the pass are never read again.
-            let root = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("AircraftModels", isDirectory: true)
-            for old in 1..<GLBNormaliser.version {
-                try? FileManager.default.removeItem(at: root.appendingPathComponent("v\(old)", isDirectory: true))
+        }
+        // Models written by older versions of the pass are never read again.
+        let root = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("AircraftModels", isDirectory: true)
+        for old in 1..<GLBNormaliser.version {
+            let stale = root.appendingPathComponent("v\(old)", isDirectory: true)
+            if FileManager.default.fileExists(atPath: stale.path) {
+                try? FileManager.default.removeItem(at: stale)
             }
         }
         if defaults.bool(forKey: armedKey) {
@@ -207,11 +223,13 @@ final class AircraftModelStore {
 
     private func cached(_ entry: AircraftModelCatalog.Entry) -> Ready? {
         let file = Self.file(for: entry)
+        let farFile = Self.farFile(for: entry)
         guard FileManager.default.fileExists(atPath: file.path),
+              FileManager.default.fileExists(atPath: farFile.path),
               let data = try? Data(contentsOf: Self.infoFile(for: entry)),
               let info = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let length = info["length"] as? Double, length > 0 else { return nil }
-        return Ready(entry: entry, file: file, lengthMetres: length)
+        return Ready(entry: entry, file: file, farFile: farFile, lengthMetres: length)
     }
 
     private static var directory: URL {
@@ -221,6 +239,10 @@ final class AircraftModelStore {
 
     private static func file(for entry: AircraftModelCatalog.Entry) -> URL {
         directory.appendingPathComponent(entry.source.key).appendingPathComponent("\(entry.id).glb")
+    }
+
+    private static func farFile(for entry: AircraftModelCatalog.Entry) -> URL {
+        directory.appendingPathComponent(entry.source.key).appendingPathComponent("\(entry.id)-far.glb")
     }
 
     private static func infoFile(for entry: AircraftModelCatalog.Entry) -> URL {

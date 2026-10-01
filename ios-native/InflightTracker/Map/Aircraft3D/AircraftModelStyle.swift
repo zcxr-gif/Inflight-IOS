@@ -15,10 +15,20 @@ import Foundation
 /// map like the runway under it. The factor has a stop every quarter zoom, so
 /// a pinch never makes an aeroplane swell or shrink on screen before that.
 ///
-/// Further out than `firstModelZoom` the whole world is on screen and every
-/// aeroplane is its flat icon, which is both easier to read there and far
-/// cheaper than a few thousand models. Light aircraft keep their icon until
-/// they are big enough to see — see `handover`.
+/// ## Every zoom, without the cost
+///
+/// Every aeroplane is a model at every zoom. What keeps that cheap is that a
+/// zoomed-out map draws each one from its *far* model (`GLBNormaliser.Detail`):
+/// the same aeroplane reduced to a few hundred triangles with small textures,
+/// against tens of thousands up close. At twenty points long nobody can tell
+/// the two apart. The detailed model takes over from zoom 15, where it starts
+/// being drawn at real size.
+///
+/// Light aircraft keep the far model, which draws them longer than life, until
+/// zoom 18: in true proportion to an airliner a Cessna is four points long,
+/// and an aeroplane nobody can see is not on the map.
+///
+/// The flat icon is only drawn for an aeroplane whose model has not arrived.
 ///
 /// ## Height
 ///
@@ -35,20 +45,13 @@ import Foundation
 /// right wing down is a positive y.
 enum AircraftModelStyle {
 
-    /// Below this zoom no model is drawn at all; every aeroplane is an icon.
-    static let firstModelZoom = 5.0
+    /// From this zoom the detailed model is drawn instead of the far one.
+    static let detailZoom = 15.0
 
-    /// When each size of aeroplane changes from icon to model: from `zoom`
-    /// on, everything at least `length` metres long is a model, faded in over
-    /// the half zoom before.
-    ///
-    /// Light aircraft wait. In proportion to an airliner a Cessna is four
-    /// points long, which is not an aeroplane anyone can see, so it keeps its
-    /// icon until its real size is big enough to read.
-    private static let handover: [(zoom: Double, length: Double)] = [
-        (5.5, 14),
-        (17.5, 0),
-    ]
+    /// And from this one, light aircraft too — anything shorter than
+    /// `lightAircraftLength`.
+    static let lightDetailZoom = 18.0
+    static let lightAircraftLength = 14.0
 
     /// How long an A320 is on screen, in points, until real size is larger.
     /// About the length of its flat icon.
@@ -68,7 +71,7 @@ enum AircraftModelStyle {
 
     static func scaleExpression() -> [Any] {
         var expression: [Any] = ["interpolate", ["linear"], ["zoom"]]
-        var zoom = firstModelZoom - 0.5
+        var zoom = 0.0
         while true {
             let factor = magnification(atZoom: zoom)
             expression.append(zoom)
@@ -80,43 +83,25 @@ enum AircraftModelStyle {
         return expression
     }
 
-    private static var length: [Any] { ["to-number", ["get", "mlen"], 0] }
+    /// Which model each aeroplane is drawn from: far, then detailed from
+    /// `detailZoom`, light aircraft from `lightDetailZoom`. `model` is only
+    /// ever the detailed model once it has been put on the map, and is the
+    /// far one until then — see `TrackerMapView`.
+    static func modelIdExpression() -> [Any] {
+        let near: [Any] = ["to-string", ["get", "model"]]
+        let far: [Any] = ["to-string", ["get", "modelFar"]]
+        let length: [Any] = ["to-number", ["get", "mlen"], 0]
+        return [
+            "step", ["zoom"],
+            far,
+            detailZoom, ["case", [">=", length, lightAircraftLength], near, far],
+            lightDetailZoom, near,
+        ]
+    }
 
-    /// The flat icon's opacity: gone for an aeroplane whose model has taken
-    /// over at this zoom.
+    /// The flat icon: drawn only for an aeroplane with no model yet.
     static func iconOpacityExpression() -> [Any] {
-        handoverExpression(before: 1) { length in
-            ["case", ["all", ["has", "model"], [">=", Self.length, length]], 0, 1]
-        }
-    }
-
-    /// The model's opacity: the other half of the same handover.
-    static func modelOpacityExpression() -> [Any] {
-        handoverExpression(before: 0) { length in
-            ["case", [">=", Self.length, length], 1, 0]
-        }
-    }
-
-    /// A zoom ramp through `handover`: `before` until the first model zoom,
-    /// then at each stop the value for that length, faded in over the half
-    /// zoom before it. Stops are kept strictly increasing, as Mapbox requires.
-    private static func handoverExpression(before: Any, at value: (Double) -> [Any]) -> [Any] {
-        var expression: [Any] = ["interpolate", ["linear"], ["zoom"], firstModelZoom, before]
-        var lastZoom = firstModelZoom
-        var previous = before
-        for stop in handover {
-            let fadeStart = stop.zoom - 0.5
-            if fadeStart > lastZoom {
-                expression.append(fadeStart)
-                expression.append(previous)
-            }
-            let now = value(stop.length)
-            expression.append(stop.zoom)
-            expression.append(now)
-            previous = now
-            lastZoom = stop.zoom
-        }
-        return expression
+        ["case", ["has", "model"], 0, 1]
     }
 
     /// The share of its height an aeroplane is lifted by, per zoom.

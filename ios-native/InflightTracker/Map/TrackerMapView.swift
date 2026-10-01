@@ -769,6 +769,7 @@ struct TrackerMapView: UIViewRepresentable {
 
             let state = map.cameraState
             zoom = Double(state.zoom)
+            wantDetailedModelsIfClose()
 
             let latitude = state.center.latitude
             let circumference = 40_075_016.686 * max(cos(latitude * .pi / 180), 0.01)
@@ -915,6 +916,7 @@ struct TrackerMapView: UIViewRepresentable {
                 if appliedModelSource != parent.aircraftModels {
                     appliedModelSource = parent.aircraftModels
                     dropModels(except: parent.aircraftModels)
+                    detailedModelsWanted = parent.aircraftModels != .off && zoom >= Self.detailedModelsFromZoom
                     applyGestures(for: parent.style)
                     // Back to level on a look that does not tilt, now there is
                     // nothing standing up to tilt for.
@@ -1122,12 +1124,20 @@ struct TrackerMapView: UIViewRepresentable {
 
             // The 3D model, when one is chosen and has arrived. Until it has,
             // the aeroplane stays a flat icon — and asking is what fetches it.
+            //
+            // Always the far model; the detailed one as well once the map has
+            // been zoomed in far enough to want it. Until it is on the map,
+            // `model` names the far one too, so nothing is ever asked for that
+            // the style does not hold.
             modelled.removeValue(forKey: flight.id)
             if parent.aircraftModels != .off,
                let entry = AircraftModelCatalog.entry(for: flight, in: parent.aircraftModels),
                let ready = AircraftModelStore.shared.ready(entry),
-               registerModel(ready) {
-                properties["model"] = JSONValue.string(ready.entry.styleId)
+               registerModel(id: ready.entry.styleId + "-far", file: ready.farFile) {
+                let farId = ready.entry.styleId + "-far"
+                let detailed = detailedModelsWanted && registerModel(id: ready.entry.styleId, file: ready.file)
+                properties["model"] = JSONValue.string(detailed ? ready.entry.styleId : farId)
+                properties["modelFar"] = JSONValue.string(farId)
                 modelled[flight.id] = ready.lengthMetres
                 properties["mlen"] = JSONValue.number(ready.lengthMetres)
                 if let tint {
@@ -1154,9 +1164,24 @@ struct TrackerMapView: UIViewRepresentable {
         /// which drops them with everything else.
         private var styleModels: Set<String> = []
 
-        /// The aeroplanes drawn as models, and each one's real length — which
-        /// decides the zoom it changes from icon to model at.
+        /// The aeroplanes drawn as models, and each one's real length.
         private var modelled: [String: Double] = [:]
+
+        /// Whether the detailed models are put on the map. Not until the map
+        /// has been zoomed in near the zoom they are drawn from: a session
+        /// spent looking at a continent never loads a single one, and keeps
+        /// only the far models in memory.
+        private var detailedModelsWanted = false
+
+        private static let detailedModelsFromZoom = AircraftModelStyle.detailZoom - 2
+
+        private func wantDetailedModelsIfClose() {
+            guard !detailedModelsWanted, parent.aircraftModels != .off,
+                  zoom >= Self.detailedModelsFromZoom else { return }
+            detailedModelsWanted = true
+            trafficPropertiesStale = true
+            pushTraffic()
+        }
 
         /// The aircraft flown on this phone, as its own simulator reports it.
         private struct OwnAttitude: Equatable {
@@ -1170,13 +1195,12 @@ struct TrackerMapView: UIViewRepresentable {
         private var writtenOwnAttitude: OwnAttitude?
 
         /// Puts a model on the style, once. False if Mapbox would not take it.
-        private func registerModel(_ ready: AircraftModelStore.Ready) -> Bool {
-            let id = ready.entry.styleId
+        private func registerModel(id: String, file: URL) -> Bool {
             if styleModels.contains(id) { return true }
             guard let map = map, isStyleLoaded else { return false }
             do {
                 AircraftModelStore.armCrashGuard()
-                try map.addStyleModel(modelId: id, modelUri: ready.file.absoluteString)
+                try map.addStyleModel(modelId: id, modelUri: file.absoluteString)
                 styleModels.insert(id)
                 return true
             } catch {

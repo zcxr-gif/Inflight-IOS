@@ -208,7 +208,7 @@ enum MapLayerStyle {
         let plate = FlightMarkStyle.plateImage(isLight: false)
         let bold = json(boldFont)
         let medium = json(mediumFont)
-        let modelOpacity = json(AircraftModelStyle.modelOpacityExpression())
+        let modelId = json(AircraftModelStyle.modelIdExpression())
         let modelScale = json(AircraftModelStyle.scaleExpression())
         let iconOpacity = json(AircraftModelStyle.iconOpacityExpression())
         let modelLift = json(AircraftModelStyle.liftExpression())
@@ -481,14 +481,12 @@ enum MapLayerStyle {
             },
             {
                 "id": "\(Layer.trafficModels)", "type": "model", "source": "\(Source.traffic)",
-                "minzoom": \(AircraftModelStyle.firstModelZoom),
                 "filter": ["has", "model"],
-                "layout": {"model-id": ["get", "model"]},
+                "layout": {"model-id": \(modelId)},
                 "paint": {
                     "model-type": "common-3d",
                     "model-rotation": ["get", "mrot"],
                     "model-scale": \(modelScale),
-                    "model-opacity": \(modelOpacity),
                     "model-translation": \(modelLift),
                     "model-cast-shadows": false,
                     "model-receive-shadows": false,

@@ -82,7 +82,26 @@ enum GLBNormaliser {
 
     /// Bumped whenever the output changes, so the cache throws away models
     /// rewritten by an older version of this pass.
-    static let version = 2
+    static let version = 3
+
+    /// How much of the model is kept.
+    ///
+    /// `near` is the model as published, cleaned up. `far` is the same model
+    /// reduced for a map that is zoomed out, where an aeroplane is twenty
+    /// points long: its vertices are snapped to a grid a twenty-eighth of the
+    /// aeroplane's length and merged, which keeps the shape and drops the
+    /// detail — about 850 triangles on average against 22,000 — with 128-pixel
+    /// textures. And an aeroplane shorter than `farMinimumLength` is drawn
+    /// that long, because a light aircraft in true proportion to an airliner
+    /// is a few points on screen and nobody can see it.
+    enum Detail {
+        case near
+        case far
+    }
+
+    static let farGridCells: Float = 28
+    static let farMinimumLength: Float = 16
+    static let farTextureSide = 128
 
     /// The longest side any texture is written at. A model on a map is never
     /// more than a few hundred points long, and 512 pixels across a fuselage
@@ -93,11 +112,12 @@ enum GLBNormaliser {
         _ data: Data,
         forward: Axis,
         up: Axis,
-        notice: String
+        notice: String,
+        detail: Detail = .near
     ) throws -> Output {
         var document = try Document(glb: data)
         if document.version == 1 { document.upgradeFromVersion1() }
-        return try document.repack(forward: forward, up: up, notice: notice)
+        return try document.repack(forward: forward, up: up, notice: notice, detail: detail)
     }
 }
 
@@ -464,7 +484,12 @@ private struct Document {
         var everyPrimitiveHasUVs = true
     }
 
-    func repack(forward: GLBNormaliser.Axis, up: GLBNormaliser.Axis, notice: String) throws -> GLBNormaliser.Output {
+    func repack(
+        forward: GLBNormaliser.Axis,
+        up: GLBNormaliser.Axis,
+        notice: String,
+        detail: GLBNormaliser.Detail
+    ) throws -> GLBNormaliser.Output {
         // Model axes to the map's: X right, Y up, the nose along −Z.
         let f = forward.vector
         let u = up.vector
@@ -575,13 +600,21 @@ private struct Document {
         guard length > 0.01 else { throw GLBNormaliser.Failure.noGeometry }
         let offset = SIMD3<Float>(-(low.x + high.x) / 2, -low.y, -(low.z + high.z) / 2)
 
+        // The far model: reduced, and light aircraft drawn larger than life.
+        let isFar = detail == .far
+        let cell = Float(length) / GLBNormaliser.farGridCells
+        let boost = isFar ? max(1, GLBNormaliser.farMinimumLength / Float(length)) : 1
+        let textureSide = isFar ? GLBNormaliser.farTextureSide : GLBNormaliser.maximumTextureSide
+
         var writer = Writer()
         let sourceMaterials = array("materials")
         var textureCache: [Int: Int?] = [:]
         var imageCache: [Int: Int?] = [:]
 
         for material in groups.keys.sorted() {
-            guard let group = groups[material] else { continue }
+            guard let whole = groups[material] else { continue }
+            let group = isFar ? Self.reduced(whole, cell: cell) : whole
+            guard !group.indices.isEmpty else { continue }
             let source = material >= 0 && material < sourceMaterials.count ? sourceMaterials[material] : [:]
             var texture: Int?
             if group.everyPrimitiveHasUVs,
@@ -591,11 +624,11 @@ private struct Document {
                 if let cached = textureCache[index] {
                     texture = cached
                 } else {
-                    texture = copyTexture(index, into: &writer, images: &imageCache)
+                    texture = copyTexture(index, into: &writer, images: &imageCache, side: textureSide)
                     textureCache[index] = texture
                 }
             }
-            let materialIndex = writer.addMaterial(from: source, texture: texture)
+            let materialIndex = writer.addMaterial(from: source, texture: texture, doubleSided: isFar)
 
             // Chunks of at most 65,535 vertices, so every index fits in 16 bits.
             var cursor = 0
@@ -619,7 +652,7 @@ private struct Document {
                 for vertex in used { remap[vertex] = -1 }
                 guard !chunk.isEmpty else { break }
 
-                let positions = used.map { group.positions[$0] + offset }
+                let positions = used.map { (group.positions[$0] + offset) * boost }
                 writer.addPrimitive(
                     positions: positions,
                     normals: used.map { group.normals[$0] },
@@ -644,6 +677,63 @@ private struct Document {
             spanMetres: Double(size.x),
             heightMetres: Double(size.y)
         )
+    }
+
+    /// A group with its vertices snapped to a grid of `cell` metres and
+    /// merged: each surviving vertex at the average of those it replaced,
+    /// with their averaged normal, and triangles that collapsed or now repeat
+    /// another dropped.
+    private static func reduced(_ group: Group, cell: Float) -> Group {
+        var slot: [SIMD3<Int32>: Int] = [:]
+        var sums: [SIMD3<Float>] = []
+        var normalSums: [SIMD3<Float>] = []
+        var uvs: [SIMD2<Float>] = []
+        var counts: [Float] = []
+        var remap: [Int] = []
+        remap.reserveCapacity(group.positions.count)
+
+        for (index, position) in group.positions.enumerated() {
+            let scaled = position / cell
+            let key = SIMD3<Int32>(
+                Int32(scaled.x.rounded(.down)),
+                Int32(scaled.y.rounded(.down)),
+                Int32(scaled.z.rounded(.down))
+            )
+            if let existing = slot[key] {
+                sums[existing] += position
+                normalSums[existing] += group.normals[index]
+                counts[existing] += 1
+                remap.append(existing)
+            } else {
+                slot[key] = sums.count
+                remap.append(sums.count)
+                sums.append(position)
+                normalSums.append(group.normals[index])
+                uvs.append(group.uvs[index])
+                counts.append(1)
+            }
+        }
+
+        var out = Group()
+        out.everyPrimitiveHasUVs = group.everyPrimitiveHasUVs
+        out.positions = zip(sums, counts).map { $0 / $1 }
+        out.normals = normalSums.map { sum in
+            let length = simd_length(sum)
+            return length > 0 ? sum / length : SIMD3<Float>(0, 1, 0)
+        }
+        out.uvs = uvs
+
+        var seen = Set<SIMD3<Int32>>()
+        for t in stride(from: 0, to: group.indices.count - 2, by: 3) {
+            let a = remap[group.indices[t]]
+            let b = remap[group.indices[t + 1]]
+            let c = remap[group.indices[t + 2]]
+            guard a != b, b != c, a != c else { continue }
+            let sorted = [a, b, c].sorted()
+            guard seen.insert(SIMD3<Int32>(Int32(sorted[0]), Int32(sorted[1]), Int32(sorted[2]))).inserted else { continue }
+            out.indices.append(contentsOf: [a, b, c])
+        }
+        return out
     }
 
     /// What a material looks like, as far as the rewritten model draws it.
@@ -674,7 +764,12 @@ private struct Document {
     /// Copies one base colour texture across, and its picture the first time
     /// any texture uses it. Nothing if the picture is not a PNG or a JPEG held
     /// in the file, or cannot be read.
-    private func copyTexture(_ index: Int, into writer: inout Writer, images imageCache: inout [Int: Int?]) -> Int? {
+    private func copyTexture(
+        _ index: Int,
+        into writer: inout Writer,
+        images imageCache: inout [Int: Int?],
+        side: Int
+    ) -> Int? {
         let textures = array("textures")
         let images = array("images")
         guard index >= 0, index < textures.count,
@@ -687,13 +782,13 @@ private struct Document {
         if let cached = imageCache[source] {
             return cached.map { writer.addTexture(image: $0, sampler: sampler) }
         }
-        let written = readImage(images[source]).map { writer.addImage($0.bytes, mimeType: $0.mimeType) }
+        let written = readImage(images[source], side: side).map { writer.addImage($0.bytes, mimeType: $0.mimeType) }
         imageCache[source] = written
         return written.map { writer.addTexture(image: $0, sampler: sampler) }
     }
 
     /// A picture from the file, shrunk and re-encoded.
-    private func readImage(_ image: [String: Any]) -> (bytes: Data, mimeType: String)? {
+    private func readImage(_ image: [String: Any], side: Int) -> (bytes: Data, mimeType: String)? {
         var bytes: [UInt8]?
         var mime = image["mimeType"] as? String ?? "image/png"
         if let viewIndex = Self.int(image["bufferView"]) {
@@ -708,7 +803,7 @@ private struct Document {
             bytes = Data(base64Encoded: String(uri[uri.index(after: comma)...])).map { [UInt8]($0) }
         }
         guard let bytes, mime == "image/png" || mime == "image/jpeg" else { return nil }
-        return Self.shrink(Data(bytes), maximumSide: GLBNormaliser.maximumTextureSide)
+        return Self.shrink(Data(bytes), maximumSide: side)
     }
 
     /// Re-encodes a picture as 8-bit RGB(A), no larger than `maximumSide`:
@@ -881,7 +976,7 @@ private struct Writer {
     /// texture, how see-through it is, and whether it glows. Factors are
     /// clamped to the range glTF allows — one of the sources writes an
     /// emission of 2.
-    mutating func addMaterial(from source: [String: Any], texture: Int?) -> Int {
+    mutating func addMaterial(from source: [String: Any], texture: Int?, doubleSided: Bool = false) -> Int {
         let pbr = source["pbrMetallicRoughness"] as? [String: Any] ?? [:]
         func clamp(_ values: [Double]?, count: Int, fallback: Double) -> [Double] {
             let list = (values ?? []).prefix(count).map { Swift.min(Swift.max($0, 0), 1) }
@@ -895,7 +990,8 @@ private struct Writer {
         if let texture { outPbr["baseColorTexture"] = ["index": texture] }
         var out: [String: Any] = [
             "pbrMetallicRoughness": outPbr,
-            "doubleSided": source["doubleSided"] as? Bool ?? false,
+            // The far model's thin surfaces can come out facing either way.
+            "doubleSided": doubleSided || (source["doubleSided"] as? Bool ?? false),
         ]
         if let mode = source["alphaMode"] as? String, ["OPAQUE", "MASK", "BLEND"].contains(mode) { out["alphaMode"] = mode }
         if let cutoff = Document.double(source["alphaCutoff"]) { out["alphaCutoff"] = Swift.max(cutoff, 0) }
