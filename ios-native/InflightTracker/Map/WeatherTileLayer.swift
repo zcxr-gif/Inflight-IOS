@@ -168,7 +168,9 @@ final class WeatherTileLayer {
             guard neededTiles.removeValue(forKey: key) != nil else { return }
             try? map?.setCustomRasterSourceTileData(
                 forSourceId: MapLayerStyle.Source.weather,
-                tiles: [CustomRasterSourceTileData(tileId: id, image: nil)]
+                // Typed, because a bare nil also fits the core library's own
+                // initialiser and the compiler will not choose between them.
+                tiles: [CustomRasterSourceTileData(tileId: id, image: nil as UIImage?)]
             )
 
         default:

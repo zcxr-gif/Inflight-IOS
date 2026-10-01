@@ -194,10 +194,6 @@ struct TrackerMapView: UIViewRepresentable {
 
         let mapView = MapView(frame: .zero, mapInitOptions: initial)
 
-        // The full refresh rate on a ProMotion screen while a finger is on the
-        // map; Mapbox drops back on its own when nothing is moving.
-        mapView.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 120, preferred: 120)
-
         mapView.ornaments.options.scaleBar.visibility = .hidden
         mapView.ornaments.options.compass.visibility = .hidden
 
@@ -282,10 +278,53 @@ struct TrackerMapView: UIViewRepresentable {
 
             applyGestures(for: parent.style)
             startFlying()
+
+            // The frame rates follow the phone's condition, not just the
+            // screen's capability. See `applyFrameRates`.
+            let centre = NotificationCenter.default
+            powerObservers = [
+                centre.addObserver(
+                    forName: ProcessInfo.thermalStateDidChangeNotification,
+                    object: nil,
+                    queue: .main
+                ) { [weak self] _ in self?.applyFrameRates() },
+                centre.addObserver(
+                    forName: Notification.Name.NSProcessInfoPowerStateDidChange,
+                    object: nil,
+                    queue: .main
+                ) { [weak self] _ in self?.applyFrameRates() },
+            ]
+        }
+
+        private var powerObservers: [NSObjectProtocol] = []
+
+        /// How fast the map and the traffic clock run.
+        ///
+        /// The full refresh rate of a ProMotion screen for the map while a
+        /// finger is on it — Mapbox drops back on its own when nothing moves —
+        /// and sixty for the aeroplanes, which are never under a finger. In Low
+        /// Power Mode, or once the phone is running hot, both are halved up
+        /// front: an even sixty is smooth, and iOS throttling a hot phone at
+        /// whatever moment it chooses is not. This is the same bargain the
+        /// system apps make.
+        private func applyFrameRates() {
+            let info = ProcessInfo.processInfo
+            let constrained = info.isLowPowerModeEnabled
+                || info.thermalState == .serious
+                || info.thermalState == .critical
+
+            mapView?.preferredFrameRateRange = constrained
+                ? CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60)
+                : CAFrameRateRange(minimum: 30, maximum: 120, preferred: 120)
+            flightLink?.preferredFrameRateRange = constrained
+                ? CAFrameRateRange(minimum: 15, maximum: 30, preferred: 30)
+                : CAFrameRateRange(minimum: 20, maximum: 60, preferred: 60)
         }
 
         func detach() {
             stopFlying()
+            for observer in powerObservers { NotificationCenter.default.removeObserver(observer) }
+            powerObservers.removeAll()
             cancelables.removeAll()
             VaMarkStore.shared.stopObservingMarks(self)
             pendingSettle?.cancel()
@@ -325,6 +364,8 @@ struct TrackerMapView: UIViewRepresentable {
         /// writes all of them.
         private func invalidateEverything() {
             trafficPropertiesStale = true
+            trafficNeedsFullWrite = true
+            trafficInSource.removeAll()
             syncedTrafficRevision = nil
             renderedAirportKey = nil
             renderedRouteKey = nil
@@ -915,26 +956,92 @@ struct TrackerMapView: UIViewRepresentable {
             "\(flight.spriteKey)|\(flight.callsign ?? "")|\(flight.username ?? "")|\(flight.origin == .infiniteFlight)"
         }
 
-        /// Writes the whole traffic source: every aeroplane, where it is drawn.
+        /// The aeroplanes the traffic source currently holds, so a packet can
+        /// be written as the difference it makes rather than the whole server.
+        private var trafficInSource: Set<String> = []
+
+        /// Whether the next write has to be the whole source — the first one on
+        /// a fresh style, or after every aeroplane's properties were rebuilt.
+        private var trafficNeedsFullWrite = true
+
+        /// Writes the traffic source.
+        ///
+        /// As a difference wherever it can be. A packet moves the aeroplanes
+        /// that are flying and leaves the third of the server sitting at gates
+        /// exactly where it was, and the aeroplanes being smoothed have already
+        /// been written by the frame clock — so the ordinary packet is a few
+        /// hundred updates, a handful of arrivals and departures, and nothing
+        /// at all for everything else. Mapbox re-tiles only what it is handed,
+        /// on its worker thread, which is what keeps a packet landing in the
+        /// middle of a pinch from being felt.
+        ///
+        /// When most of the source has changed anyway, one full write is
+        /// cheaper than a long list of partial ones, so it does that instead.
         private func pushTraffic() {
-            guard isStyleLoaded else { return }
+            guard isStyleLoaded, let map = map else { return }
 
             if trafficPropertiesStale {
                 trafficPropertiesStale = false
                 packetsSinceSweep = 0
                 trafficProperties.removeAll(keepingCapacity: true)
+                trafficNeedsFullWrite = true
             }
 
-            var features: [Feature] = []
-            features.reserveCapacity(markers.count)
+            var added: [Feature] = []
+            var updated: [Feature] = []
+
             for (id, marker) in markers {
-                if trafficProperties[id] == nil {
+                let fresh = trafficProperties[id] == nil
+                if fresh {
                     trafficProperties[id] = properties(for: marker)
                     trafficSignatures[id] = Self.signature(of: marker.flight)
                 }
-                features.append(trafficFeature(for: marker))
+
+                guard !trafficNeedsFullWrite else { continue }
+
+                if !trafficInSource.contains(id) {
+                    added.append(trafficFeature(for: marker))
+                } else if fresh || Self.hasMoved(marker) {
+                    updated.append(trafficFeature(for: marker))
+                }
             }
-            push(features, to: Source.traffic)
+
+            let removed = trafficInSource.filter { markers[$0] == nil }
+
+            let partial = added.count + updated.count + removed.count
+            if trafficNeedsFullWrite || partial > max(markers.count * 6 / 10, 64) {
+                trafficNeedsFullWrite = false
+                push(markers.values.map { trafficFeature(for: $0) }, to: Source.traffic)
+                trafficInSource = Set(markers.keys)
+                return
+            }
+
+            guard partial > 0 else { return }
+
+            if !removed.isEmpty {
+                map.removeGeoJSONSourceFeatures(forSourceId: Source.traffic, featureIds: Array(removed))
+                trafficInSource.subtract(removed)
+            }
+            if !added.isEmpty {
+                map.addGeoJSONSourceFeatures(forSourceId: Source.traffic, features: added)
+                for feature in added {
+                    if case .string(let id)? = feature.identifier { trafficInSource.insert(id) }
+                }
+            }
+            if !updated.isEmpty {
+                map.updateGeoJSONSourceFeatures(forSourceId: Source.traffic, features: updated)
+            }
+        }
+
+        /// Whether what is drawn differs from what was last written at all —
+        /// exactly, not by the on-screen threshold the frame clock uses: an
+        /// aeroplane off screen still has to be in the right place when the
+        /// map is panned to it.
+        private static func hasMoved(_ marker: FlightMarker) -> Bool {
+            guard let written = marker.writtenCoordinate, let heading = marker.writtenHeading else { return true }
+            return written.latitude != marker.coordinate.latitude
+                || written.longitude != marker.coordinate.longitude
+                || heading != marker.drawnHeading
         }
 
         private func trafficFeature(for marker: FlightMarker) -> Feature {
@@ -1131,6 +1238,14 @@ struct TrackerMapView: UIViewRepresentable {
             }
 
             guard let region = region, region.isUsable else { return }
+
+            // Nothing about the camera is worth rebuilding the fields for while
+            // it is still moving: SwiftUI redraws through a pinch for reasons
+            // of its own — a radar frame, a replay tick — and each would
+            // otherwise rewrite every marker for a zoom the finger has already
+            // left. The settle runs this again. A new list of fields does not
+            // wait: that is data, not camera.
+            if isRegionChanging, renderedAirportKey?.revision == parent.airportsRevision { return }
 
             // Wind and temperature under the code, but only once the map is
             // near enough that a marker has room for a second line.
@@ -2128,15 +2243,15 @@ struct TrackerMapView: UIViewRepresentable {
         private func startFlying() {
             guard flightLink == nil else { return }
             let link = CADisplayLink(target: self, selector: #selector(flyOneFrame))
-            // Sixty rather than the display's hundred and twenty. An aeroplane
-            // is never under a finger, and what this writes per frame is
-            // features — worth doing often enough to read as continuous and no
-            // more often than that.
-            link.preferredFrameRateRange = CAFrameRateRange(minimum: 20, maximum: 60, preferred: 60)
             // Common, so the traffic keeps flying while a sheet is being
             // dragged over the top of it.
             link.add(to: .main, forMode: .common)
             flightLink = link
+            // Sixty rather than the display's hundred and twenty, or less on a
+            // phone that is saving power. An aeroplane is never under a finger,
+            // and what this writes per frame is features — worth doing often
+            // enough to read as continuous and no more often than that.
+            applyFrameRates()
         }
 
         private func stopFlying() {

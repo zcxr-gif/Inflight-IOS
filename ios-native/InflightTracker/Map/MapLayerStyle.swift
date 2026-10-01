@@ -129,7 +129,13 @@ enum MapLayerStyle {
             // a packet or a frame costs as little tiling as it can. Points do
             // not need the default's slack: a symbol is drawn whole across a
             // tile edge, and only lines and fills are clipped to their tiles.
-            let tuning = frequent.contains(id) ? #", "buffer": 16"# : ""
+            var tuning = frequent.contains(id) ? #", "buffer": 16"# : ""
+            // And no deeper tiles than the data has detail for. Past a
+            // source's maxzoom Mapbox overzooms the deepest tiles it made
+            // instead of cutting new ones — which for a world-sized night band
+            // or a continent of airspace is the difference between clipping a
+            // giant polygon for every tile of a street-level view and not.
+            if let depth = tileDepth[id] { tuning += ", \"maxzoom\": \(depth)" }
             let text = #"{"type": "geojson", "data": {"type": "FeatureCollection", "features": []}"# + tuning + "}"
             guard let properties = parse(text) as? [String: Any] else { continue }
             try? map.addSource(withId: id, properties: properties)
@@ -144,6 +150,23 @@ enum MapLayerStyle {
             }
         }
     }
+
+    /// How deep each source is tiled, where that is shallower than Mapbox's
+    /// default of 18. Each figure is the zoom past which the shape has no more
+    /// detail to give: the terminator is a fade hundreds of kilometres wide,
+    /// a sector boundary or a track is good to ten metres at zoom 9, and a
+    /// route is good to a third of a metre at 14. The traffic, the pavement and
+    /// the fixes keep the default — an aircraft taxiing at street zoom is
+    /// moved a fraction of a metre a frame and has to land where it was put.
+    private static let tileDepth: [String: Int] = [
+        Source.night: 6,
+        Source.atc: 9,
+        Source.nat: 9,
+        Source.barbs: 10,
+        Source.plan: 14,
+        Source.inferred: 14,
+        Source.direct: 14,
+    ]
 
     /// Where the weather tiles go, which are added and taken away after the
     /// style has loaded: directly over the wash, under everything the app draws
