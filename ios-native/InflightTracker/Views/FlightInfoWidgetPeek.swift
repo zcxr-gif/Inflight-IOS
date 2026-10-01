@@ -1,8 +1,8 @@
 import SwiftUI
 import UIKit
 
-/// The peek that is a flight card: the aircraft's photograph across the whole
-/// window, fading into a dark deck that carries the route and the numbers.
+/// The peek that is a flight card: the aircraft's photograph across the top of
+/// the window, fading into a dark deck that carries the route and the numbers.
 ///
 /// ## What it was, and why it changed
 ///
@@ -14,17 +14,17 @@ import UIKit
 /// habits into a place they made no sense — the distance to run printed twice,
 /// eight lines apart, and the app's own wordmark in the corner of the app.
 ///
-/// Now the window *is* the card. The photograph runs to every edge the sheet
-/// has, so there is no margin for anything to be empty in, and the text sits
-/// where the picture has been darkened for it rather than wherever the tile
-/// happened to put it:
+/// Now the window *is* the card, edge to edge, in two parts:
 ///
-///   - the top carries who it is, over a short scrim;
-///   - the middle is a band the aeroplane is framed in — the photograph is
-///     scaled to the sheet's width, so the whole aircraft fits end to end, and
-///     centred on that band, so nothing is written over it;
-///   - the bottom is a deck, nearly opaque, carrying the route with both
-///     airports named, how far along it is, and the glance strip.
+///   - the photograph, at the top, in its own shape. It is drawn the full
+///     width of the sheet and as tall as that width makes it, so the whole
+///     aeroplane is in frame, nose to tail — see `photographHeight(for:width:)`.
+///     The name rides its top edge over a short scrim, the way every photo
+///     header in the app does.
+///   - the deck, starting just above the photograph's foot, carrying the
+///     route with both airports named, how far along it is, and the glance
+///     strip. The photograph fades into the deck's own colour as it goes
+///     under it, so there is no line anywhere where the picture ends.
 ///
 /// ## What it still shares with the widget
 ///
@@ -46,12 +46,16 @@ struct FlightWidgetPeek: View {
     /// The VA to name at the foot of the deck, when the flight has one.
     var partner: VaPartner? = nil
 
+    /// How wide the sheet is, which is how wide the photograph is drawn and
+    /// therefore — with the photograph's own shape — how tall.
+    var width: CGFloat = 0
+
     /// How far the backdrop runs past the bottom of what the peek measures.
     ///
     /// The peek sizes the sheet, so in a settled window these are the same
     /// height. They are not while the sheet is arriving or being dragged, and
-    /// a photograph that stopped at the peek's own edge would show a strip of
-    /// map under it for those frames. The sheet clips the excess.
+    /// a ground that stopped at the peek's own edge would show a strip of map
+    /// under it for those frames. The sheet clips the excess.
     private static let backdropOverrun: CGFloat = 120
 
     var body: some View {
@@ -61,153 +65,166 @@ struct FlightWidgetPeek: View {
         let tile = WidgetFlight(flight: flight)
         let progress = FlightProgress(flight: flight)
         let glance = FlightGlance(flight: flight, progress: progress)
+        let photoHeight = Self.photographHeight(for: image, width: width)
 
         VStack(alignment: .leading, spacing: 0) {
-            header(tile)
-                // Its own darkening, over the top of the photograph, so the
-                // name reads on a bright sky without the scrim reaching down
-                // over the aeroplane.
-                .background(alignment: .top) { headerScrim }
-
-            // The aeroplane's room. It draws the photograph itself — see
-            // `photoWindow(altitudeFt:)` — and is drawn first, under the name
-            // and the deck, so both lie over the picture's edges and neither
-            // covers the aeroplane in the middle of it.
-            photoWindow(altitudeFt: tile.altitudeFt)
-                .zIndex(-1)
+            // The photograph's room: from the top of the sheet to where the
+            // deck takes over. The name rides the top of it; the picture
+            // itself is drawn behind, in the background, at its full height.
+            Color.clear
+                .frame(height: max(0, photoHeight - Self.deckOverlap))
+                .overlay(alignment: .topLeading) {
+                    header(tile)
+                        .padding(.top, FlightInfoLayout.peakHandleClearance + 4)
+                        .padding(.horizontal, Self.sideInset)
+                }
 
             deck(tile, progress: progress, glance: glance)
-                .background(alignment: .top) { deckGround }
+                .padding(.horizontal, Self.sideInset)
         }
-        .padding(.top, FlightInfoLayout.peakHandleClearance + 4)
-        .padding(.horizontal, Self.sideInset)
         .padding(.bottom, FlightInfoLayout.peakBottomGap)
         .frame(maxWidth: .infinity, alignment: .leading)
-        // Anything the photograph does not reach. It reaches nearly
-        // everywhere; this is the colour of the edges it does not.
         .background(alignment: .top) {
-            BackdropTokens.carbon
-                .padding(.bottom, -Self.backdropOverrun)
-                .allowsHitTesting(false)
+            ZStack(alignment: .top) {
+                // The deck's colour, everywhere the photograph is not — which
+                // the photograph fades into exactly, so the two never meet at
+                // an edge.
+                BackdropTokens.carbon
+
+                photograph(height: photoHeight, altitudeFt: tile.altitudeFt)
+            }
+            .padding(.bottom, -Self.backdropOverrun)
+            .allowsHitTesting(false)
         }
+        // One aeroplane's photograph is a different shape from the next one's,
+        // and the card grows or shrinks with it. It moves to its new height
+        // rather than jumping there; the window moves the sheet on the same
+        // curve — see `FlightDetailView.fitPeak(to:)`.
+        .motion(Motion.panel, value: photoHeight)
         .environment(\.colorScheme, .dark)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(summary(tile, glance: glance))
     }
 
     /// The margin the content keeps from the sheet's sides. The photograph
-    /// and the two grounds run out past it to the edges.
+    /// and the ground run out past it to the edges.
     private static let sideInset: CGFloat = 18
 
     // MARK: - The photograph
 
-    /// How tall the clear band between the name and the deck is.
+    /// How far the deck rises into the foot of the photograph. The route's
+    /// codes sit over the last of the tarmac, already faded most of the way
+    /// to the deck's colour, so the card reads as one surface rather than as
+    /// a picture with a panel stacked under it.
+    private static let deckOverlap: CGFloat = 30
+
+    /// The range the photograph's height is kept to.
     ///
-    /// Sized to an aeroplane rather than to the card. A spotter's photograph
-    /// of an airliner puts the aircraft across most of the frame's width and
-    /// about a third of its height, so a picture scaled to the sheet's width —
-    /// four hundred points or so, at three by two — carries an aeroplane
-    /// close to a hundred points tall. This band is that, and the photograph
-    /// is centred on it: the fuselage and the gear sit in the clear, the top
-    /// of the fin runs up behind the name and the sky above it behind the
-    /// grabber, and the tarmac fades into the deck.
-    private static let photoBandHeight: CGFloat = 96
-
-    /// The least height the photograph is drawn at, so a very wide panorama
-    /// still reaches from the top of the sheet to the deck instead of leaving
-    /// a strip of bare carbon above the name. Scaling up to it crops a little
-    /// off either end; it does not crop anything top or bottom that the band
-    /// shows.
-    private static let minimumPhotoHeight: CGFloat = 250
-
-    /// The band, drawing the photograph centred on itself.
+    /// Inside it, a photograph is drawn in its own shape — the full width of
+    /// the sheet, and exactly as tall as that makes it — so nothing is cropped
+    /// and the whole aeroplane is in frame. A three-by-two shot on a phone is
+    /// a little over the ceiling and loses a few points of sky and apron; a
+    /// sixteen-by-nine one fits inside it whole.
     ///
-    /// This is the change from filling the whole card. A photograph scaled to
-    /// cover a card three hundred points tall is a landscape picture enlarged
-    /// until it is that tall — which zooms into it, crops the nose and the
-    /// tail off the sides, and puts the middle of it, where the aeroplane is,
-    /// behind the route and the numbers. Scaled to the card's *width*
-    /// instead, the whole aircraft is in frame end to end, and centring the
-    /// picture on this band puts it where nothing is written over it.
-    private func photoWindow(altitudeFt: Int) -> some View {
-        Color.clear
-            .frame(height: Self.photoBandHeight)
-            .frame(maxWidth: .infinity)
-            .background {
-                GeometryReader { band in
-                    let width = band.size.width + Self.sideInset * 2
-                    let centre = CGPoint(x: band.size.width / 2, y: band.size.height / 2)
+    /// Past the ceiling — a portrait shot, or a square one — the photograph
+    /// is cropped to it top and bottom, keeping the middle, which is where an
+    /// aeroplane is in a photograph of one. Below the floor, a panorama is
+    /// scaled up to it and trimmed at the sides. Both limits are there so the
+    /// card stays a card: a portrait photograph drawn whole would take most of
+    /// the screen, and a letterbox one would leave no room for the name.
+    private static let minimumPhotoHeight: CGFloat = 180
+    private static let maximumPhotoHeight: CGFloat = 260
 
-                    if let image = image, image.size.width > 0, image.size.height > 0 {
-                        let aspect = image.size.height / image.size.width
-                        let height = max(width * aspect, Self.minimumPhotoHeight)
+    /// The shape assumed before a photograph has arrived, which is what an
+    /// airliner photograph usually is. Close to the real thing, so the card is
+    /// already nearly the right height when the picture lands and has only a
+    /// little way to move.
+    private static let placeholderAspect: CGFloat = 0.6
 
-                        Image(uiImage: image)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .saturation(0.92)
-                            // Wider than the sheet only when the floor above
-                            // scaled it up; the sheet clips what overhangs.
-                            .frame(width: height / aspect, height: height)
-                            .position(centre)
-                    } else {
-                        DrawnSky(altitudeFt: altitudeFt)
-                            .frame(width: width, height: Self.minimumPhotoHeight)
-                            .position(centre)
-                    }
-                }
-                .allowsHitTesting(false)
-            }
-            .accessibilityHidden(true)
+    /// How tall the photograph is drawn. See `minimumPhotoHeight`.
+    static func photographHeight(for image: UIImage?, width: CGFloat) -> CGFloat {
+        guard width > 0 else { return minimumPhotoHeight }
+
+        let aspect: CGFloat
+        if let image = image, image.size.width > 0, image.size.height > 0 {
+            aspect = image.size.height / image.size.width
+        } else {
+            aspect = placeholderAspect
+        }
+
+        return min(max(width * aspect, minimumPhotoHeight), maximumPhotoHeight)
     }
 
-    /// Darkens the top of the sheet for the name, and stops above the
-    /// aeroplane.
-    private var headerScrim: some View {
+    /// The photograph, the full width of the sheet, with a scrim at its top
+    /// for the name and its foot faded into the deck.
+    ///
+    /// A new photograph cross-fades over the last one rather than replacing
+    /// it on the frame it arrives — keyed on which photograph it is, so
+    /// tapping from one aeroplane to the next dissolves picture into picture.
+    /// The window holds the outgoing photograph for a moment while the next is
+    /// found (`RemoteImageLoader.handoverGrace`), which is what gives it
+    /// something to dissolve from.
+    private func photograph(height: CGFloat, altitudeFt: Int) -> some View {
+        ZStack {
+            if let image = image {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .saturation(0.92)
+                    .id(ObjectIdentifier(image))
+                    .transition(.opacity)
+            } else {
+                DrawnSky(altitudeFt: altitudeFt)
+                    .transition(.opacity)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: height)
+        .clipped()
+        .overlay(alignment: .top) { nameScrim }
+        .overlay(alignment: .bottom) { footFade }
+        .motion(Motion.panel, value: image.map(ObjectIdentifier.init))
+    }
+
+    /// Darkens the top of the photograph for the name, and is gone well
+    /// before the aeroplane.
+    private var nameScrim: some View {
         LinearGradient(
             stops: [
                 .init(color: .black.opacity(0.55), location: 0),
-                .init(color: .black.opacity(0.28), location: 0.55),
+                .init(color: .black.opacity(0.24), location: 0.5),
                 .init(color: .clear, location: 1)
             ],
             startPoint: .top,
             endPoint: .bottom
         )
-        // Up under the grabber, out to both edges, and a little way below the
-        // descriptor so the ramp ends rather than stopping.
-        .padding(.top, -(FlightInfoLayout.peakHandleClearance + 4))
-        .padding(.horizontal, -Self.sideInset)
-        .padding(.bottom, -18)
-        .allowsHitTesting(false)
+        .frame(height: 116)
     }
 
-    /// The deck's own ground: the photograph's lower edge fading into carbon
-    /// just above the route, and solid carbon from there to the foot of the
-    /// sheet and past it.
-    private var deckGround: some View {
-        VStack(spacing: 0) {
-            LinearGradient(
-                stops: [
-                    .init(color: BackdropTokens.carbon.opacity(0), location: 0),
-                    .init(color: BackdropTokens.carbon.opacity(0.72), location: 0.6),
-                    .init(color: BackdropTokens.carbon.opacity(0.94), location: 1)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(height: Self.deckFade)
+    /// Takes the foot of the photograph into the deck's colour.
+    ///
+    /// All the way into it — fully opaque at the photograph's last row, which
+    /// is the colour the ground beneath it already is — so there is no step
+    /// where the picture stops, however short a wide photograph leaves it.
+    /// Most of the ramp is spent above the deck's top edge, so the gear and
+    /// the apron blend away rather than being cut, and the route's codes sit
+    /// on ground that is already nearly the deck.
+    private var footFade: some View {
+        let height = Self.deckOverlap + 64
+        let deckTop = 64 / height
 
-            BackdropTokens.carbon.opacity(0.94)
-        }
-        .padding(.top, -Self.deckFade * 0.5)
-        .padding(.horizontal, -Self.sideInset)
-        .padding(.bottom, -(FlightInfoLayout.peakBottomGap + Self.backdropOverrun))
-        .allowsHitTesting(false)
+        return LinearGradient(
+            stops: [
+                .init(color: BackdropTokens.carbon.opacity(0), location: 0),
+                .init(color: BackdropTokens.carbon.opacity(0.5), location: deckTop * 0.6),
+                .init(color: BackdropTokens.carbon.opacity(0.86), location: deckTop),
+                .init(color: BackdropTokens.carbon, location: 1)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .frame(height: height)
     }
-
-    /// How tall the fade from photograph to deck is. Half of it rises into
-    /// the band, so the gear and the tarmac blend away rather than being cut.
-    private static let deckFade: CGFloat = 44
 
     // MARK: - Who
 

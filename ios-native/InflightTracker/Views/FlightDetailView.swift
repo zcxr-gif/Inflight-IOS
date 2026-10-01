@@ -25,7 +25,21 @@ struct FlightDetailView: View {
     /// packets.
     @ObservedObject private var realWorld = RealWorldTraffic.shared
     @StateObject private var photoLoader = AircraftPhotoLoader()
-    @StateObject private var imageLoader = RemoteImageLoader()
+    /// Holds the photograph on screen for a moment while the next aircraft's
+    /// is found, so tapping from one aeroplane to another cross-fades picture
+    /// into picture instead of blanking to the placeholder in between. See
+    /// `RemoteImageLoader.handoverGrace`.
+    @StateObject private var imageLoader = RemoteImageLoader(handoverGrace: 0.5)
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// The resting height the window had before its peak last got shorter,
+    /// held while the sheet animates down to the new one. See `expansion`.
+    @State private var restingFloor: CGFloat = 0
+
+    /// Which hold on `restingFloor` is current, so an older one expiring does
+    /// not cut a newer one short.
+    @State private var restingFloorToken = 0
 
     /// The photograph of this exact airframe, for real traffic only.
     ///
@@ -385,6 +399,13 @@ struct FlightDetailView: View {
                     ended
                 }
             }
+            // A different photograph is a different shape, and the shape is
+            // what the header, the thumbnail and the widget peek's photograph
+            // are sized from. Without this every one of them snapped to its
+            // new height on the frame the picture landed, and the window under
+            // them jumped with it. Keyed on which photograph it is, so the
+            // feed's own updates go on arriving at their own pace.
+            .motion(Motion.panel, value: heroIdentity)
             // Pins the window to the sheet's width. Feed strings are arbitrary
             // length, and without a hard width one long airport name or livery
             // widens the whole column and pushes it off both edges.
@@ -407,6 +428,16 @@ struct FlightDetailView: View {
                 // aircraft stopped reporting — which is not a reason to
                 // collapse the sheet around the message that replaced it.
                 guard measured > 80 else { return }
+
+                // Getting shorter — a squarer photograph replaced a taller one.
+                // The sheet takes a moment to come down to the new height, and
+                // for that moment it is taller than the peak now rests at, which
+                // reads as the window being dragged open. See `restingFloor`.
+                let previousResting = restingHeight
+                if clampedPeakHeight(for: measured) < previousResting - 0.5 {
+                    holdRestingFloor(at: previousResting)
+                }
+
                 peakContentHeight = measured
                 // Whatever the window is doing. This used to be taken only
                 // while the sheet was at rest, because it was measured against
@@ -548,7 +579,14 @@ struct FlightDetailView: View {
     /// Split out so the watcher below can ask the question about a height it
     /// has been handed rather than about a proxy it does not have.
     private func expansion(atHeight height: CGFloat) -> Double {
-        let travelled = (height - restingHeight - FlightInfoLayout.phaseDeadZone)
+        // The taller of where the peak rests and where it was resting a moment
+        // ago, while the sheet is still coming down from one to the other.
+        // Without the floor, a peak that shrank by more than the dead zone —
+        // a wide photograph replacing a tall one — read as a sheet pulled open
+        // for the length of the resize: the peak washed out and the full
+        // window ghosted in behind it, with nobody touching anything.
+        let resting = max(restingHeight, restingFloor)
+        let travelled = (height - resting - FlightInfoLayout.phaseDeadZone)
             / FlightInfoLayout.phaseTravel
         return Double(min(max(travelled, 0), 1))
     }
@@ -745,7 +783,42 @@ struct FlightDetailView: View {
         // under whatever is asked for, and the peak has already laid its
         // content out through that inset. See `sheetFootAllowance`.
         let wanted = FlightInfoLayout.detent(forSheetHeight: clampedPeakHeight(for: measured))
-        if abs(wanted - peakHeight) > 0.5 { peakHeight = wanted }
+        guard abs(wanted - peakHeight) > 0.5 else { return }
+
+        // On the same curve the peak's own layout moves on when a photograph
+        // changes its shape (see `heroIdentity`), so the sheet and what is
+        // inside it reach the new height together rather than the window
+        // snapping round content that is still on its way.
+        if reduceMotion {
+            peakHeight = wanted
+        } else {
+            withAnimation(Motion.panel) { peakHeight = wanted }
+        }
+    }
+
+    /// Which photograph the window is showing, as something comparable.
+    ///
+    /// The object rather than its pixels: two photographs are two objects,
+    /// and nil — the placeholder — is a state like any other.
+    private var heroIdentity: ObjectIdentifier? {
+        heroImage.map(ObjectIdentifier.init)
+    }
+
+    /// Keeps the window reading as settled while the sheet comes down to a
+    /// shorter peak. See `expansion(atHeight:)`.
+    ///
+    /// Held a little longer than the resize itself takes — `Motion.panel`
+    /// settles in under half a second — and then let go, so the dead zone is
+    /// back to its own width before anybody could be dragging.
+    private func holdRestingFloor(at height: CGFloat) {
+        restingFloor = height
+        restingFloorToken += 1
+        let token = restingFloorToken
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+            guard restingFloorToken == token else { return }
+            restingFloor = 0
+        }
     }
 
     /// Check the sheet came out the height the peak asked for, and correct the

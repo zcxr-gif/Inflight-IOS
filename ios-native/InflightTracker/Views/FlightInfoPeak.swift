@@ -118,7 +118,7 @@ struct FlightInfoPeak: View {
             // itself and runs its photograph under its own margins, so nothing
             // here puts a frame round it: a frame is exactly the tray this peek
             // used to sit on.
-            FlightWidgetPeek(flight: flight, image: image, theme: theme, partner: partner)
+            FlightWidgetPeek(flight: flight, image: image, theme: theme, partner: partner, width: width)
 
         case .rich:
             rich

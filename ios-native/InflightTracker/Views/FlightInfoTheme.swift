@@ -1369,12 +1369,11 @@ enum FlightInfoLayout {
         // Between the two: it carries the compact bar's rows plus a readout
         // column and a foot, but no hero photograph.
         case .detail: return 322
-        // The one peek whose height is nearly fixed: the photograph is behind
-        // the text rather than above it, so nothing in here grows with the
-        // picture. The name, the band the aeroplane is framed in, the route
-        // with its places and the glance strip, less a few points so the
-        // correction is still upward — see the note above.
-        case .widget: return 280
+        // The photograph at the shape assumed before one arrives (see
+        // `FlightWidgetPeek.placeholderAspect`), the deck rising into its foot,
+        // and the route, places and glance strip under that — less a few
+        // points so the correction is still upward. See the note above.
+        case .widget: return 320
         }
     }
 
