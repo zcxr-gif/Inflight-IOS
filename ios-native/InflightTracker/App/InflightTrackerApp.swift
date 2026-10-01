@@ -11,6 +11,10 @@ struct InflightTrackerApp: App {
     @StateObject private var feed = LiveFeed()
 
     init() {
+        // First, before the map reads the setting: if the last session died
+        // with 3D aircraft on the map, they start off rather than crash again.
+        AircraftModelStore.recoverFromCrashIfNeeded()
+
         // Parses the 17k-airport table off the main thread so the first flight
         // the user taps has its route ready.
         AirportStore.shared.preload()

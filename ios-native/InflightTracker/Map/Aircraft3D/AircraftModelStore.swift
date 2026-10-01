@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import UIKit
 
 /// Fetches the 3D aircraft, adapts them, and keeps them on disk.
 ///
@@ -31,7 +32,7 @@ final class AircraftModelStore {
     private var states: [AircraftModelCatalog.Entry: State] = [:]
     private var queue: [AircraftModelCatalog.Entry] = []
     private var running = 0
-    private static let concurrent = 3
+    private static let concurrent = 2
 
     /// How long a model that failed is left alone before it is tried again.
     private static let retryAfter: TimeInterval = 600
@@ -137,6 +138,69 @@ final class AircraftModelStore {
         } catch {
             return .failure(error)
         }
+    }
+
+    // MARK: - Not crashing twice
+
+    /// The setting the map control writes.
+    static let settingKey = "map.aircraftModels"
+
+    /// Set while 3D models are on the map and the app is in front; cleared
+    /// when it goes to the background. Still set at launch means the last
+    /// session ended with models on screen and without going to the
+    /// background — which is to say it crashed — and the models are turned
+    /// off, so a model that brings the app down cannot do it on every launch.
+    private static let armedKey = "map.aircraftModels.armed"
+
+    /// Once per version of the adapted models: the first builds wrote models
+    /// that could exhaust the phone's memory, so the setting starts at Off.
+    private static let resetKey = "map.aircraftModels.reset.v\(GLBNormaliser.version)"
+
+    private static var isArmed = false
+    private static var lifecycleObservers: [NSObjectProtocol] = []
+
+    /// Call at launch, before anything reads the setting.
+    static func recoverFromCrashIfNeeded() {
+        let defaults = UserDefaults.standard
+        if !defaults.bool(forKey: resetKey) {
+            defaults.set(true, forKey: resetKey)
+            defaults.set(AircraftModelSource.off.rawValue, forKey: settingKey)
+            // Models written by older versions of the pass are never read again.
+            let root = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("AircraftModels", isDirectory: true)
+            for old in 1..<GLBNormaliser.version {
+                try? FileManager.default.removeItem(at: root.appendingPathComponent("v\(old)", isDirectory: true))
+            }
+        }
+        if defaults.bool(forKey: armedKey) {
+            NSLog("[Models] the last session ended while 3D aircraft were on the map; turning them off")
+            defaults.set(false, forKey: armedKey)
+            defaults.set(AircraftModelSource.off.rawValue, forKey: settingKey)
+        }
+    }
+
+    /// Called when a model goes onto the map.
+    static func armCrashGuard() {
+        guard !isArmed else { return }
+        isArmed = true
+        UserDefaults.standard.set(true, forKey: armedKey)
+
+        guard lifecycleObservers.isEmpty else { return }
+        let centre = NotificationCenter.default
+        lifecycleObservers = [
+            centre.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { _ in
+                UserDefaults.standard.set(false, forKey: armedKey)
+            },
+            centre.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { _ in
+                if isArmed { UserDefaults.standard.set(true, forKey: armedKey) }
+            },
+        ]
+    }
+
+    /// Called when the models are switched off.
+    static func disarmCrashGuard() {
+        isArmed = false
+        UserDefaults.standard.set(false, forKey: armedKey)
     }
 
     // MARK: - The cache

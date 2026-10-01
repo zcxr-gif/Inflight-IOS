@@ -918,6 +918,7 @@ struct TrackerMapView: UIViewRepresentable {
                     applyGestures(for: parent.style)
                     // Back to level on a look that does not tilt, now there is
                     // nothing standing up to tilt for.
+                    if parent.aircraftModels == .off { AircraftModelStore.disarmCrashGuard() }
                     if parent.aircraftModels == .off, !parent.style.isPitchEnabled,
                        let mapView = mapView, mapView.mapboxMap.cameraState.pitch != 0 {
                         mapView.camera.ease(to: CameraOptions(pitch: 0), duration: 0.4)
@@ -984,7 +985,7 @@ struct TrackerMapView: UIViewRepresentable {
                 lastSeen.removeValue(forKey: id)
                 trafficProperties.removeValue(forKey: id)
                 trafficSignatures.removeValue(forKey: id)
-                modelLengths.removeValue(forKey: id)
+                modelled.remove(id)
             }
         }
 
@@ -1085,8 +1086,8 @@ struct TrackerMapView: UIViewRepresentable {
             properties["heading"] = JSONValue.number(marker.drawnHeading)
             marker.writtenCoordinate = marker.coordinate
             marker.writtenHeading = marker.drawnHeading
-            if let length = modelLengths[marker.flightId] {
-                addModelPose(to: &properties, for: marker, lengthMetres: length)
+            if modelled.contains(marker.flightId) {
+                addModelPose(to: &properties, for: marker)
             }
             return Self.pointFeature(marker.coordinate, id: marker.flightId, properties)
         }
@@ -1121,13 +1122,13 @@ struct TrackerMapView: UIViewRepresentable {
 
             // The 3D model, when one is chosen and has arrived. Until it has,
             // the aeroplane stays a flat icon — and asking is what fetches it.
-            modelLengths.removeValue(forKey: flight.id)
+            modelled.remove(flight.id)
             if parent.aircraftModels != .off,
                let entry = AircraftModelCatalog.entry(for: flight, in: parent.aircraftModels),
                let ready = AircraftModelStore.shared.ready(entry),
                registerModel(ready) {
                 properties["model"] = JSONValue.string(ready.entry.styleId)
-                modelLengths[flight.id] = ready.lengthMetres
+                modelled.insert(flight.id)
                 if let tint {
                     properties["tint"] = JSONValue.string(MapLayerStyle.rgba(tint))
                 }
@@ -1152,9 +1153,8 @@ struct TrackerMapView: UIViewRepresentable {
         /// which drops them with everything else.
         private var styleModels: Set<String> = []
 
-        /// The real length of each aeroplane drawn as a model — and so which
-        /// ones are.
-        private var modelLengths: [String: Double] = [:]
+        /// The aeroplanes currently drawn as models.
+        private var modelled: Set<String> = []
 
         /// The aircraft flown on this phone, as its own simulator reports it.
         private struct OwnAttitude: Equatable {
@@ -1173,6 +1173,7 @@ struct TrackerMapView: UIViewRepresentable {
             if styleModels.contains(id) { return true }
             guard let map = map, isStyleLoaded else { return false }
             do {
+                AircraftModelStore.armCrashGuard()
                 try map.addStyleModel(modelId: id, modelUri: ready.file.absoluteString)
                 styleModels.insert(id)
                 return true
@@ -1184,18 +1185,25 @@ struct TrackerMapView: UIViewRepresentable {
 
         /// Takes another source's models off the style, so switching between
         /// them does not keep three fleets in memory at once.
+        ///
+        /// A few seconds later rather than now. The features that name the old
+        /// models are rewritten on this same pass, but Mapbox applies that on
+        /// its own thread, and a model taken away while a feature still asks
+        /// for it is not something to find out about on a live map.
         private func dropModels(except source: AircraftModelSource) {
-            guard let map = map else { return }
-            let keep = "ac3d-\(source.key)-"
-            for id in styleModels where !id.hasPrefix(keep) {
-                try? map.removeStyleModel(modelId: id)
-                styleModels.remove(id)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+                guard let self, let map = self.map, self.parent.aircraftModels == source else { return }
+                let keep = "ac3d-\(source.key)-"
+                for id in self.styleModels where !id.hasPrefix(keep) {
+                    try? map.removeStyleModel(modelId: id)
+                    self.styleModels.remove(id)
+                }
             }
         }
 
         /// Where the model points and how high it flies, written beside the
         /// heading on every write of the feature.
-        private func addModelPose(to properties: inout JSONObject, for marker: FlightMarker, lengthMetres: Double) {
+        private func addModelPose(to properties: inout JSONObject, for marker: FlightMarker) {
             let now = CACurrentMediaTime()
             let pitch: Double
             let bank: Double
@@ -1212,7 +1220,6 @@ struct TrackerMapView: UIViewRepresentable {
             marker.writtenBank = bank
 
             let pose = AircraftModelStyle.properties(
-                lengthMetres: lengthMetres,
                 heading: marker.drawnHeading,
                 pitch: pitch,
                 bank: bank,
@@ -1237,7 +1244,7 @@ struct TrackerMapView: UIViewRepresentable {
                 return OwnAttitude(flightId: id, pitch: pitch, bank: bank, heightMetres: height)
             }
             guard let own = ownAttitude, own != writtenOwnAttitude,
-                  let marker = markers[own.flightId], modelLengths[own.flightId] != nil,
+                  let marker = markers[own.flightId], modelled.contains(own.flightId),
                   trafficInSource.contains(own.flightId) else { return }
             writtenOwnAttitude = own
             map?.updateGeoJSONSourceFeatures(forSourceId: Source.traffic, features: [trafficFeature(for: marker)])

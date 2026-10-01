@@ -1,5 +1,7 @@
 import Foundation
+import ImageIO
 import simd
+import UniformTypeIdentifiers
 
 /// Turns somebody else's aircraft model into one Mapbox can draw on the map.
 ///
@@ -18,11 +20,20 @@ import simd
 /// So every model goes through the same pass, on the phone, the first time it
 /// is wanted: glTF 1.0 is read as well as 2.0, every node's transform is baked
 /// into its vertices, the aeroplane is turned to face the way the map expects
-/// (nose along −Z, up along +Y), centred, stood on Y = 0 and scaled to one
-/// unit long, and written back out as the simplest glTF there is — one
+/// (nose along −Z, up along +Y), centred, stood on Y = 0, kept in metres,
+/// and written back out as the simplest glTF there is — one
 /// buffer, tightly packed floats, 16-bit indices, one primitive per material.
 /// That last part is also what keeps a few hundred of them cheap: a model that
 /// arrived as five hundred primitives is drawn in a few dozen calls.
+///
+/// ## Textures
+///
+/// Each picture is written once however many materials share it, shrunk to
+/// at most `maximumTextureSide` and re-encoded as plain 8-bit JPEG or PNG.
+/// The first version copied a shared picture once per material: a Flightradar24
+/// 737 shares one 2048-pixel livery between 94 materials, which is 94 copies
+/// and over a gigabyte of graphics memory for one aeroplane — and iOS ends an
+/// app that asks for that.
 ///
 /// ## Licences
 ///
@@ -61,9 +72,9 @@ enum GLBNormaliser {
     }
 
     struct Output {
-        /// The rewritten model, one unit long.
+        /// The rewritten model, in metres.
         let data: Data
-        /// What one unit is, in metres: the aeroplane's real length.
+        /// The aeroplane's real length.
         let lengthMetres: Double
         let spanMetres: Double
         let heightMetres: Double
@@ -71,7 +82,12 @@ enum GLBNormaliser {
 
     /// Bumped whenever the output changes, so the cache throws away models
     /// rewritten by an older version of this pass.
-    static let version = 1
+    static let version = 2
+
+    /// The longest side any texture is written at. A model on a map is never
+    /// more than a few hundred points long, and 512 pixels across a fuselage
+    /// is still more detail than that shows.
+    static let maximumTextureSide = 512
 
     static func normalise(
         _ data: Data,
@@ -457,6 +473,20 @@ private struct Document {
 
         var groups: [Int: Group] = [:]
 
+        // Materials that would draw identically are drawn as one: the same
+        // picture, colour, glow and transparency. Flightradar24's 737s carry
+        // over ninety materials that come down to nine.
+        var representative: [String: Int] = [:]
+        var mergedMaterial: [Int: Int] = [:]
+        func merged(_ material: Int) -> Int {
+            if let known = mergedMaterial[material] { return known }
+            let key = materialKey(material)
+            let chosen = representative[key] ?? material
+            representative[key] = chosen
+            mergedMaterial[material] = chosen
+            return chosen
+        }
+
         for (mesh, world) in meshInstances() {
             let linear = canonical * simd_double3x3(
                 SIMD3(world.columns.0.x, world.columns.0.y, world.columns.0.z),
@@ -484,7 +514,7 @@ private struct Document {
                 triangles.removeLast(triangles.count % 3)
                 guard !triangles.isEmpty, triangles.allSatisfy({ $0 >= 0 && $0 < vertexCount }) else { continue }
 
-                let material = Self.int(primitive["material"]) ?? -1
+                let material = merged(Self.int(primitive["material"]) ?? -1)
                 var group = groups[material] ?? Group()
                 let base = group.positions.count
 
@@ -544,10 +574,11 @@ private struct Document {
         let length = Double(size.z)
         guard length > 0.01 else { throw GLBNormaliser.Failure.noGeometry }
         let offset = SIMD3<Float>(-(low.x + high.x) / 2, -low.y, -(low.z + high.z) / 2)
-        let unit = Float(1 / length)
 
         var writer = Writer()
         let sourceMaterials = array("materials")
+        var textureCache: [Int: Int?] = [:]
+        var imageCache: [Int: Int?] = [:]
 
         for material in groups.keys.sorted() {
             guard let group = groups[material] else { continue }
@@ -557,7 +588,12 @@ private struct Document {
                let pbr = source["pbrMetallicRoughness"] as? [String: Any],
                let reference = pbr["baseColorTexture"] as? [String: Any],
                let index = Self.int(reference["index"]) {
-                texture = copyTexture(index, into: &writer)
+                if let cached = textureCache[index] {
+                    texture = cached
+                } else {
+                    texture = copyTexture(index, into: &writer, images: &imageCache)
+                    textureCache[index] = texture
+                }
             }
             let materialIndex = writer.addMaterial(from: source, texture: texture)
 
@@ -583,7 +619,7 @@ private struct Document {
                 for vertex in used { remap[vertex] = -1 }
                 guard !chunk.isEmpty else { break }
 
-                let positions = used.map { (group.positions[$0] + offset) * unit }
+                let positions = used.map { group.positions[$0] + offset }
                 writer.addPrimitive(
                     positions: positions,
                     normals: used.map { group.normals[$0] },
@@ -610,15 +646,54 @@ private struct Document {
         )
     }
 
-    /// Copies one base colour texture and its picture across, or nothing if
-    /// the picture is not a PNG or a JPEG held in the file.
-    private func copyTexture(_ index: Int, into writer: inout Writer) -> Int? {
+    /// What a material looks like, as far as the rewritten model draws it.
+    private func materialKey(_ index: Int) -> String {
+        let materials = array("materials")
+        guard index >= 0, index < materials.count else { return "none" }
+        let material = materials[index]
+        let pbr = material["pbrMetallicRoughness"] as? [String: Any] ?? [:]
+        var picture = "-"
+        if let reference = pbr["baseColorTexture"] as? [String: Any], let texture = Self.int(reference["index"]) {
+            let textures = array("textures")
+            picture = texture >= 0 && texture < textures.count
+                ? "\(Self.int(textures[texture]["source"]) ?? -1)"
+                : "-"
+        }
+        func rounded(_ values: [Double]?) -> String {
+            (values ?? []).map { String(format: "%.2f", $0) }.joined(separator: ",")
+        }
+        return [
+            picture,
+            rounded(Self.doubles(pbr["baseColorFactor"])),
+            rounded(Self.doubles(material["emissiveFactor"])),
+            material["alphaMode"] as? String ?? "OPAQUE",
+            (material["doubleSided"] as? Bool ?? false) ? "2" : "1",
+        ].joined(separator: "|")
+    }
+
+    /// Copies one base colour texture across, and its picture the first time
+    /// any texture uses it. Nothing if the picture is not a PNG or a JPEG held
+    /// in the file, or cannot be read.
+    private func copyTexture(_ index: Int, into writer: inout Writer, images imageCache: inout [Int: Int?]) -> Int? {
         let textures = array("textures")
         let images = array("images")
         guard index >= 0, index < textures.count,
               let source = Self.int(textures[index]["source"]), source >= 0, source < images.count else { return nil }
-        let image = images[source]
 
+        let samplers = array("samplers")
+        let samplerIndex = Self.int(textures[index]["sampler"])
+        let sampler = samplerIndex.flatMap { $0 >= 0 && $0 < samplers.count ? samplers[$0] : nil } ?? [:]
+
+        if let cached = imageCache[source] {
+            return cached.map { writer.addTexture(image: $0, sampler: sampler) }
+        }
+        let written = readImage(images[source]).map { writer.addImage($0.bytes, mimeType: $0.mimeType) }
+        imageCache[source] = written
+        return written.map { writer.addTexture(image: $0, sampler: sampler) }
+    }
+
+    /// A picture from the file, shrunk and re-encoded.
+    private func readImage(_ image: [String: Any]) -> (bytes: Data, mimeType: String)? {
         var bytes: [UInt8]?
         var mime = image["mimeType"] as? String ?? "image/png"
         if let viewIndex = Self.int(image["bufferView"]) {
@@ -633,11 +708,48 @@ private struct Document {
             bytes = Data(base64Encoded: String(uri[uri.index(after: comma)...])).map { [UInt8]($0) }
         }
         guard let bytes, mime == "image/png" || mime == "image/jpeg" else { return nil }
+        return Self.shrink(Data(bytes), maximumSide: GLBNormaliser.maximumTextureSide)
+    }
 
-        let samplers = array("samplers")
-        let samplerIndex = Self.int(textures[index]["sampler"])
-        let sampler = samplerIndex.flatMap { $0 >= 0 && $0 < samplers.count ? samplers[$0] : nil } ?? [:]
-        return writer.addTexture(image: bytes, mimeType: mime, sampler: sampler)
+    /// Re-encodes a picture as 8-bit RGB(A), no larger than `maximumSide`:
+    /// a JPEG when it is opaque, a PNG when it is not. Whatever bit depth,
+    /// palette or colour model the source used, what comes out is the most
+    /// ordinary image there is.
+    static func shrink(_ data: Data, maximumSide: Int) -> (bytes: Data, mimeType: String)? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: maximumSide,
+            kCGImageSourceCreateThumbnailWithTransform: false,
+            kCGImageSourceShouldCacheImmediately: true,
+        ]
+        guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+
+        let width = thumbnail.width
+        let height = thumbnail.height
+        guard width > 0, height > 0 else { return nil }
+        let opaque: Bool
+        switch thumbnail.alphaInfo {
+        case .none, .noneSkipFirst, .noneSkipLast: opaque = true
+        default: opaque = false
+        }
+        guard let context = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: opaque ? CGImageAlphaInfo.noneSkipLast.rawValue : CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+        context.draw(thumbnail, in: CGRect(x: 0, y: 0, width: width, height: height))
+        guard let flattened = context.makeImage() else { return nil }
+
+        let out = NSMutableData()
+        let type = opaque ? UTType.jpeg : UTType.png
+        guard let destination = CGImageDestinationCreateWithData(out as CFMutableData, type.identifier as CFString, 1, nil) else {
+            return nil
+        }
+        let properties: [CFString: Any] = [kCGImageDestinationLossyCompressionQuality: 0.85]
+        CGImageDestinationAddImage(destination, flattened, properties as CFDictionary)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return (out as Data, opaque ? "image/jpeg" : "image/png")
     }
 
     // MARK: Loose JSON
@@ -753,10 +865,15 @@ private struct Writer {
         return accessors.count - 1
     }
 
-    mutating func addTexture(image: [UInt8], mimeType: String, sampler: [String: Any]) -> Int {
-        images.append(["bufferView": view(Data(image)), "mimeType": mimeType])
+    mutating func addImage(_ bytes: Data, mimeType: String) -> Int {
+        let bufferView = view(bytes)
+        images.append(["bufferView": bufferView, "mimeType": mimeType])
+        return images.count - 1
+    }
+
+    mutating func addTexture(image: Int, sampler: [String: Any]) -> Int {
         samplers.append(sampler.filter { ["magFilter", "minFilter", "wrapS", "wrapT"].contains($0.key) })
-        textures.append(["source": images.count - 1, "sampler": samplers.count - 1])
+        textures.append(["source": image, "sampler": samplers.count - 1])
         return textures.count - 1
     }
 

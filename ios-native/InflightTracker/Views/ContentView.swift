@@ -118,7 +118,7 @@ struct ContentView: View {
 
     /// Which collection of 3D aircraft the map draws, if any. Kept on the
     /// device: it is a way of looking at the map, not a setting to sync.
-    @AppStorage("map.aircraftModels") private var aircraftModelsRaw = AircraftModelSource.off.rawValue
+    @AppStorage(AircraftModelStore.settingKey) private var aircraftModelsRaw = AircraftModelSource.off.rawValue
 
     private var aircraftModels: AircraftModelSource {
         AircraftModelSource(rawValue: aircraftModelsRaw) ?? .off

@@ -4,11 +4,16 @@ import Foundation
 ///
 /// ## Size
 ///
-/// Every model is stored one unit long (see `GLBNormaliser`), so its scale *is*
-/// its length in metres. Pulled back, that is a few pixels, so the scale is
-/// lifted to keep the aeroplane about the size of the flat icon it replaces;
-/// in close it settles on the aeroplane's real length, so an A380 at the gate
-/// is the size of an A380 at the gate.
+/// Every model is stored at its real size, in metres (see `GLBNormaliser`), and
+/// every aeroplane on the map is scaled by the *same* factor at a given zoom —
+/// so an A380 is always twice an A320 and a Cessna a fifth of one, however far
+/// out the map is. Pulled back, that factor holds a typical airliner at about
+/// the size of the flat icon; closing in, it falls away to one and stays there,
+/// so from about zoom 16 every aeroplane is exactly its real size on the map.
+///
+/// The factor is written as a stop every quarter zoom so it shrinks exactly as
+/// fast as the map grows, which is what keeps an aeroplane's size on screen
+/// steady through a pinch rather than swelling between stops.
 ///
 /// ## Height
 ///
@@ -26,30 +31,34 @@ import Foundation
 /// right wing down is a positive y.
 enum AircraftModelStyle {
 
-    /// The aeroplane's length on screen, in points, when the map is too far
-    /// out to show its real size. A little longer than the flat icon, which
-    /// only has to be read from above.
+    /// How long a typical airliner is on screen, in points, when the map is
+    /// too far out for its real size to be seen. Everything else is drawn in
+    /// proportion to it.
     static let screenLength = 30.0
+
+    /// The airliner that `screenLength` is measured on: an A320 or a 737.
+    private static let referenceLength = 40.0
 
     /// Metres to a point at zoom zero, on Mapbox's 512-point world.
     private static let metresPerPointAtZoomZero = 40_075_016.686 / 512
 
-    /// Below this zoom the scale is the screen size; from `trueSizeZoom` on it
-    /// is the real one; Mapbox blends between.
-    private static let lastScreenSizeZoom = 15
-    private static let trueSizeZoom = 18.0
+    /// The factor every model is scaled by at a zoom: real size, or larger
+    /// when real size would be too small to see.
+    static func magnification(atZoom zoom: Double) -> Double {
+        max(1, screenLength * metresPerPointAtZoomZero / pow(2, zoom) / referenceLength)
+    }
 
     static func scaleExpression() -> [Any] {
-        var expression: [Any] = ["interpolate", ["exponential", 2], ["zoom"]]
-        // Every whole zoom, because the size has to halve with each one and
-        // Mapbox blends linearly between stops.
-        for zoom in 0...lastScreenSizeZoom {
-            let metres = screenLength * metresPerPointAtZoomZero / pow(2, Double(zoom))
-            expression.append(Double(zoom))
-            expression.append(["literal", [metres, metres, metres]] as [Any])
+        var expression: [Any] = ["interpolate", ["linear"], ["zoom"]]
+        var zoom = 0.0
+        while true {
+            let factor = magnification(atZoom: zoom)
+            expression.append(zoom)
+            expression.append(["literal", [factor, factor, factor]] as [Any])
+            // One stop past the point where real size takes over, and done.
+            if factor == 1 { break }
+            zoom += 0.25
         }
-        expression.append(trueSizeZoom)
-        expression.append(["get", "mlen"])
         return expression
     }
 
@@ -72,16 +81,12 @@ enum AircraftModelStyle {
 
     /// The per-aircraft half of the above, written into its feature.
     static func properties(
-        lengthMetres: Double,
         heading: Double,
         pitch: Double,
         bank: Double,
         heightMetres: Double
     ) -> [String: [Double]] {
-        var out: [String: [Double]] = [
-            "mlen": [lengthMetres, lengthMetres, lengthMetres],
-            "mrot": [-pitch, bank, heading],
-        ]
+        var out: [String: [Double]] = ["mrot": [-pitch, bank, heading]]
         for stop in lift {
             out[stop.key] = [0, 0, max(heightMetres, 0) * stop.share]
         }
