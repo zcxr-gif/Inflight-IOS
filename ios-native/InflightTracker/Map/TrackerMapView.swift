@@ -1,4 +1,5 @@
-import MapboxMaps
+// Experimental: `addStyleModel`, for the 3D aircraft.
+@_spi(Experimental) import MapboxMaps
 import QuartzCore
 import SwiftUI
 import UIKit
@@ -179,6 +180,10 @@ struct TrackerMapView: UIViewRepresentable {
     /// Which aircraft get picked out of the traffic, and in what colour.
     var highlighting = PilotHighlighting()
 
+    /// Whether the traffic is drawn as 3D models, and whose. See
+    /// `AircraftModelSource`.
+    var aircraftModels: AircraftModelSource = .off
+
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeUIView(context: Context) -> MapView {
@@ -248,6 +253,14 @@ struct TrackerMapView: UIViewRepresentable {
             VaMarkStore.shared.observeMarks(self) { [weak self] in
                 self?.trafficPropertiesStale = true
                 self?.pushTraffic()
+            }
+
+            // Likewise a 3D model finishing its download: the aeroplanes of
+            // that type were drawn flat while they waited for it.
+            AircraftModelStore.shared.observe(self) { [weak self] ready in
+                guard let self, ready.entry.source == self.parent.aircraftModels else { return }
+                self.trafficPropertiesStale = true
+                self.pushTraffic()
             }
         }
 
@@ -332,6 +345,7 @@ struct TrackerMapView: UIViewRepresentable {
             powerObservers.removeAll()
             cancelables.removeAll()
             VaMarkStore.shared.stopObservingMarks(self)
+            AircraftModelStore.shared.stopObserving(self)
             pendingSettle?.cancel()
         }
 
@@ -342,6 +356,7 @@ struct TrackerMapView: UIViewRepresentable {
             guard let map = map else { return }
             isStyleLoaded = true
             images.removeAll()
+            styleModels.removeAll()
 
             MapLayerStyle.install(on: map, labelMinZoom: labelMinZoom)
             registerStaticImages()
@@ -528,7 +543,9 @@ struct TrackerMapView: UIViewRepresentable {
         private func applyGestures(for look: MapLook) {
             guard let mapView = mapView else { return }
             mapView.gestures.options.rotateEnabled = look.isFreeCamera
-            mapView.gestures.options.pitchEnabled = look.isPitchEnabled
+            // A 3D aircraft seen only from straight above is a plan view, so
+            // with models on the map can always be tilted to look at them.
+            mapView.gestures.options.pitchEnabled = look.isPitchEnabled || parent.aircraftModels != .off
         }
 
         private func applyProjection(for look: MapLook) {
@@ -881,6 +898,7 @@ struct TrackerMapView: UIViewRepresentable {
         private var appliedHighlighting = PilotHighlighting()
         private var appliedLabelMode: MarkerLabelMode?
         private var appliedVaMarks: Bool?
+        private var appliedModelSource: AircraftModelSource?
 
         func applyHighlighting(_ highlighting: PilotHighlighting) {
             guard appliedHighlighting != highlighting else { return }
@@ -890,9 +908,21 @@ struct TrackerMapView: UIViewRepresentable {
         }
 
         private func syncTrafficIfNeeded() {
-            if appliedLabelMode != parent.markerLabels || appliedVaMarks != parent.showsVaMarks {
+            if appliedLabelMode != parent.markerLabels || appliedVaMarks != parent.showsVaMarks
+                || appliedModelSource != parent.aircraftModels {
                 appliedLabelMode = parent.markerLabels
                 appliedVaMarks = parent.showsVaMarks
+                if appliedModelSource != parent.aircraftModels {
+                    appliedModelSource = parent.aircraftModels
+                    dropModels(except: parent.aircraftModels)
+                    applyGestures(for: parent.style)
+                    // Back to level on a look that does not tilt, now there is
+                    // nothing standing up to tilt for.
+                    if parent.aircraftModels == .off, !parent.style.isPitchEnabled,
+                       let mapView = mapView, mapView.mapboxMap.cameraState.pitch != 0 {
+                        mapView.camera.ease(to: CameraOptions(pitch: 0), duration: 0.4)
+                    }
+                }
                 trafficPropertiesStale = true
             }
 
@@ -954,6 +984,7 @@ struct TrackerMapView: UIViewRepresentable {
                 lastSeen.removeValue(forKey: id)
                 trafficProperties.removeValue(forKey: id)
                 trafficSignatures.removeValue(forKey: id)
+                modelLengths.removeValue(forKey: id)
             }
         }
 
@@ -1054,6 +1085,9 @@ struct TrackerMapView: UIViewRepresentable {
             properties["heading"] = JSONValue.number(marker.drawnHeading)
             marker.writtenCoordinate = marker.coordinate
             marker.writtenHeading = marker.drawnHeading
+            if let length = modelLengths[marker.flightId] {
+                addModelPose(to: &properties, for: marker, lengthMetres: length)
+            }
             return Self.pointFeature(marker.coordinate, id: marker.flightId, properties)
         }
 
@@ -1085,6 +1119,20 @@ struct TrackerMapView: UIViewRepresentable {
                 }
             }
 
+            // The 3D model, when one is chosen and has arrived. Until it has,
+            // the aeroplane stays a flat icon — and asking is what fetches it.
+            modelLengths.removeValue(forKey: flight.id)
+            if parent.aircraftModels != .off,
+               let entry = AircraftModelCatalog.entry(for: flight, in: parent.aircraftModels),
+               let ready = AircraftModelStore.shared.ready(entry),
+               registerModel(ready) {
+                properties["model"] = JSONValue.string(ready.entry.styleId)
+                modelLengths[flight.id] = ready.lengthMetres
+                if let tint {
+                    properties["tint"] = JSONValue.string(MapLayerStyle.rgba(tint))
+                }
+            }
+
             // Never on real traffic. A logo over an aeroplane is read as whose
             // aeroplane it is, the partner listings are keyed on callsign, and
             // real airline callsigns collide with virtual ones by design.
@@ -1096,6 +1144,115 @@ struct TrackerMapView: UIViewRepresentable {
             }
 
             return properties
+        }
+
+        // MARK: 3D aircraft
+
+        /// The models the style holds, by style id. Emptied on a style load,
+        /// which drops them with everything else.
+        private var styleModels: Set<String> = []
+
+        /// The real length of each aeroplane drawn as a model — and so which
+        /// ones are.
+        private var modelLengths: [String: Double] = [:]
+
+        /// The aircraft flown on this phone, as its own simulator reports it.
+        private struct OwnAttitude: Equatable {
+            let flightId: String
+            let pitch: Double
+            let bank: Double
+            let heightMetres: Double?
+        }
+
+        private var ownAttitude: OwnAttitude?
+        private var writtenOwnAttitude: OwnAttitude?
+
+        /// Puts a model on the style, once. False if Mapbox would not take it.
+        private func registerModel(_ ready: AircraftModelStore.Ready) -> Bool {
+            let id = ready.entry.styleId
+            if styleModels.contains(id) { return true }
+            guard let map = map, isStyleLoaded else { return false }
+            do {
+                try map.addStyleModel(modelId: id, modelUri: ready.file.absoluteString)
+                styleModels.insert(id)
+                return true
+            } catch {
+                NSLog("[Map] model %@ could not be added: %@", id, String(describing: error))
+                return false
+            }
+        }
+
+        /// Takes another source's models off the style, so switching between
+        /// them does not keep three fleets in memory at once.
+        private func dropModels(except source: AircraftModelSource) {
+            guard let map = map else { return }
+            let keep = "ac3d-\(source.key)-"
+            for id in styleModels where !id.hasPrefix(keep) {
+                try? map.removeStyleModel(modelId: id)
+                styleModels.remove(id)
+            }
+        }
+
+        /// Where the model points and how high it flies, written beside the
+        /// heading on every write of the feature.
+        private func addModelPose(to properties: inout JSONObject, for marker: FlightMarker, lengthMetres: Double) {
+            let now = CACurrentMediaTime()
+            let pitch: Double
+            let bank: Double
+            let height: Double
+            if let own = ownAttitude, own.flightId == marker.flightId {
+                pitch = own.pitch
+                bank = own.bank
+                height = own.heightMetres ?? marker.attitude.heightMetres(of: marker.flight)
+            } else {
+                pitch = marker.attitude.pitch(at: now)
+                bank = marker.attitude.bank(at: now)
+                height = marker.attitude.heightMetres(of: marker.flight)
+            }
+            marker.writtenBank = bank
+
+            let pose = AircraftModelStyle.properties(
+                lengthMetres: lengthMetres,
+                heading: marker.drawnHeading,
+                pitch: pitch,
+                bank: bank,
+                heightMetres: height
+            )
+            for (key, values) in pose {
+                properties[key] = JSONValue.array(values.map { JSONValue.number($0) })
+            }
+        }
+
+        /// The aeroplane being flown here, from Connect: its real pitch and
+        /// bank rather than the ones worked out from the feed, written every
+        /// frame they change. This is the one aircraft on the map that moves
+        /// exactly as its pilot is flying it.
+        private func stepOwnModel() {
+            ownAttitude = MainActor.assumeIsolated {
+                let telemetry = ConnectSession.shared.telemetry
+                guard let id = telemetry.flightID, Date().timeIntervalSince(telemetry.sampledAt) < 5,
+                      let pitch = telemetry.pitch, let bank = telemetry.bank,
+                      pitch.isFinite, bank.isFinite else { return nil }
+                let height = telemetry.altitudeAGL.flatMap { $0.isFinite ? max($0, 0) * 0.3048 : nil }
+                return OwnAttitude(flightId: id, pitch: pitch, bank: bank, heightMetres: height)
+            }
+            guard let own = ownAttitude, own != writtenOwnAttitude,
+                  let marker = markers[own.flightId], modelLengths[own.flightId] != nil,
+                  trafficInSource.contains(own.flightId) else { return }
+            writtenOwnAttitude = own
+            map?.updateGeoJSONSourceFeatures(forSourceId: Source.traffic, features: [trafficFeature(for: marker)])
+        }
+
+        /// The open aircraft in the selection amber, and a highlighted pilot
+        /// in their colour, mixed into the model's own paint.
+        private func applyModelSelection(selectedId id: String, on map: MapboxMap) {
+            guard map.layerExists(withId: Layer.trafficModels) else { return }
+            let amber = MapLayerStyle.rgba(UIColor(red: 1.00, green: 0.62, blue: 0.04, alpha: 1))
+            let isOpen: [Any] = ["==", ["get", "fid"], id]
+            let colour: [Any] = ["case", isOpen, amber, ["has", "tint"], ["to-color", ["get", "tint"]], "#ffffff"]
+            let mix: [Any] = ["case", isOpen, 0.55, ["has", "tint"], 0.45, 0.0]
+            try? map.setLayerProperty(for: Layer.trafficModels, property: "model-color", value: colour)
+            try? map.setLayerProperty(for: Layer.trafficModels, property: "model-color-mix-intensity", value: mix)
         }
 
         // MARK: Selection
@@ -1130,6 +1287,7 @@ struct TrackerMapView: UIViewRepresentable {
             for (layer, filter) in filters where map.layerExists(withId: layer) {
                 try? map.setLayerProperty(for: layer, property: "filter", value: filter)
             }
+            applyModelSelection(selectedId: id, on: map)
         }
 
         /// The open aircraft, without walking the server for it.
@@ -2275,6 +2433,7 @@ struct TrackerMapView: UIViewRepresentable {
             updateFlownHead()
             syncDirectLine()
             stepWindParticles(at: now)
+            stepOwnModel()
 
             let smoothing = parent.smoothsTraffic
             guard smoothing || flyingCount > 0 || sweptOnMap > 0 else { return }

@@ -92,6 +92,7 @@ enum MapLayerStyle {
         static let natLabels = "inflight-nat-labels"
         static let fields = "inflight-fields"
         static let fixes = "inflight-fixes"
+        static let trafficModels = "inflight-traffic-models"
         static let traffic = "inflight-traffic"
         static let trafficMarks = "inflight-traffic-marks"
         static let trafficLabels = "inflight-traffic-labels"
@@ -207,6 +208,8 @@ enum MapLayerStyle {
         let plate = FlightMarkStyle.plateImage(isLight: false)
         let bold = json(boldFont)
         let medium = json(mediumFont)
+        let modelScale = json(AircraftModelStyle.scaleExpression())
+        let modelLift = json(AircraftModelStyle.liftExpression())
 
         func traffic(_ icon: String) -> String {
             """
@@ -475,8 +478,25 @@ enum MapLayerStyle {
                 }
             },
             {
+                "id": "\(Layer.trafficModels)", "type": "model", "source": "\(Source.traffic)",
+                "filter": ["has", "model"],
+                "layout": {"model-id": ["get", "model"]},
+                "paint": {
+                    "model-type": "common-3d",
+                    "model-rotation": ["get", "mrot"],
+                    "model-scale": \(modelScale),
+                    "model-translation": \(modelLift),
+                    "model-cast-shadows": false,
+                    "model-receive-shadows": false,
+                    "model-emissive-strength": 0.8,
+                    "model-color": "#ffffff",
+                    "model-color-mix-intensity": 0
+                }
+            },
+            {
                 "id": "\(Layer.traffic)", "type": "symbol", "source": "\(Source.traffic)",
-                "layout": \(traffic("icon"))
+                "layout": \(traffic("icon")),
+                "paint": {"icon-opacity": ["case", ["has", "model"], 0, 1]}
             },
             {
                 "id": "\(Layer.trafficMarks)", "type": "symbol", "source": "\(Source.traffic)",
@@ -498,7 +518,8 @@ enum MapLayerStyle {
             {
                 "id": "\(Layer.selected)", "type": "symbol", "source": "\(Source.traffic)",
                 "filter": ["==", ["get", "fid"], ""],
-                "layout": \(traffic("iconSelected"))
+                "layout": \(traffic("iconSelected")),
+                "paint": {"icon-opacity": ["case", ["has", "model"], 0, 1]}
             },
             {
                 "id": "\(Layer.selectedMark)", "type": "symbol", "source": "\(Source.traffic)",
@@ -669,6 +690,11 @@ enum MapLayerStyle {
         set(Layer.measurePins, "circle-stroke-color", rgba(MeasureStyle.line, isLight: isLight))
         set(Layer.measurePins, "circle-color", rgba(MeasureStyle.pinFill, isLight: isLight))
         set(Layer.measureLetters, "text-color", rgba(MeasureStyle.line, isLight: isLight))
+
+        // Lit by the style's own light, which at night is very little. The
+        // models carry some light of their own so they stay aeroplanes rather
+        // than silhouettes, and more of it on the dark map.
+        set(Layer.trafficModels, "model-emissive-strength", isLight ? 0.3 : 0.8)
 
         // The callsign's plate and its ink follow the map underneath, so the
         // label is dark on a light map and light on a dark one.

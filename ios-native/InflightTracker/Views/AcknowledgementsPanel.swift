@@ -6,7 +6,8 @@ import SwiftUI
 /// their notices to travel with the app. This panel is where they travel: the
 /// BSD text is reproduced in full because that licence asks for exactly that,
 /// and the CC0 set is credited because it deserves to be even though it asks
-/// for nothing.
+/// for nothing. The 3D aircraft are GPL, and are credited here with where
+/// they are published and under which version — see `AircraftModelSource`.
 struct AcknowledgementsPanel: View {
 
     @ObservedObject private var appearance = FlightInfoAppearance.shared
@@ -59,6 +60,31 @@ struct AcknowledgementsPanel: View {
                 )
             }
 
+            PanelSection(title: "3D AIRCRAFT") {
+                credit(
+                    title: "Where they come from",
+                    detail: """
+                    The 3D aircraft are free models published under the GNU \
+                    General Public License. None of them is part of this app: \
+                    each is downloaded from the repository its authors publish \
+                    it in, the first time it is needed, and adapted on this \
+                    device so the map can draw it — turned to face the right \
+                    way, centred, sized, and repacked. Every model keeps its \
+                    authors' copyright notice, and records what was changed.
+                    """
+                )
+
+                ForEach(AircraftModelSource.allCases.filter { $0 != .off }) { source in
+                    PanelDivider()
+                    modelCredit(source)
+                }
+
+                PanelDivider()
+
+                link("The GNU General Public License, version 2", "https://www.gnu.org/licenses/old-licenses/gpl-2.0.html")
+                link("The GNU General Public License, version 3", "https://www.gnu.org/licenses/gpl-3.0.html")
+            }
+
             PanelSection(title: "BSD 3-CLAUSE") {
                 Text(Self.bsdNotice)
                     .font(.system(size: 10.5, design: .monospaced))
@@ -67,6 +93,35 @@ struct AcknowledgementsPanel: View {
                     .padding(14)
             }
         }
+    }
+
+    private func modelCredit(_ source: AircraftModelSource) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(source.label)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(theme.textPrimary)
+
+            Text("\(source.credit) Licence: \(source.licence).")
+                .font(.system(size: 11.5))
+                .foregroundStyle(theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let repository = source.repository {
+                Link(repository.absoluteString.replacingOccurrences(of: "https://", with: ""), destination: repository)
+                    .font(.system(size: 11.5, weight: .medium))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+    }
+
+    private func link(_ title: String, _ address: String) -> some View {
+        Link(title, destination: URL(string: address)!)
+            .font(.system(size: 11.5, weight: .medium))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
     }
 
     private func credit(title: String, detail: String) -> some View {
