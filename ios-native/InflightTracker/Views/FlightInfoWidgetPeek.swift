@@ -20,7 +20,9 @@ import UIKit
 /// happened to put it:
 ///
 ///   - the top carries who it is, over a short scrim;
-///   - the middle is left for the aeroplane;
+///   - the middle is a band the aeroplane is framed in — the photograph is
+///     scaled to the sheet's width, so the whole aircraft fits end to end, and
+///     centred on that band, so nothing is written over it;
 ///   - the bottom is a deck, nearly opaque, carrying the route with both
 ///     airports named, how far along it is, and the glance strip.
 ///
@@ -62,29 +64,150 @@ struct FlightWidgetPeek: View {
 
         VStack(alignment: .leading, spacing: 0) {
             header(tile)
+                // Its own darkening, over the top of the photograph, so the
+                // name reads on a bright sky without the scrim reaching down
+                // over the aeroplane.
+                .background(alignment: .top) { headerScrim }
 
-            // The aeroplane's room. A floor rather than a fixed band so a long
-            // livery on a large accessibility size can take a second line
-            // without pushing the deck off the sheet.
-            Spacer(minLength: Self.photoWindow)
+            // The aeroplane's room. It draws the photograph itself — see
+            // `photoWindow(altitudeFt:)` — and is drawn first, under the name
+            // and the deck, so both lie over the picture's edges and neither
+            // covers the aeroplane in the middle of it.
+            photoWindow(altitudeFt: tile.altitudeFt)
+                .zIndex(-1)
 
             deck(tile, progress: progress, glance: glance)
+                .background(alignment: .top) { deckGround }
         }
         .padding(.top, FlightInfoLayout.peakHandleClearance + 4)
-        .padding(.horizontal, 18)
+        .padding(.horizontal, Self.sideInset)
         .padding(.bottom, FlightInfoLayout.peakBottomGap)
         .frame(maxWidth: .infinity, alignment: .leading)
+        // Anything the photograph does not reach. It reaches nearly
+        // everywhere; this is the colour of the edges it does not.
         .background(alignment: .top) {
-            backdrop(altitudeFt: tile.altitudeFt)
+            BackdropTokens.carbon
                 .padding(.bottom, -Self.backdropOverrun)
+                .allowsHitTesting(false)
         }
         .environment(\.colorScheme, .dark)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(summary(tile, glance: glance))
     }
 
-    /// How much photograph is left clear between the name and the deck.
-    private static let photoWindow: CGFloat = 54
+    /// The margin the content keeps from the sheet's sides. The photograph
+    /// and the two grounds run out past it to the edges.
+    private static let sideInset: CGFloat = 18
+
+    // MARK: - The photograph
+
+    /// How tall the clear band between the name and the deck is.
+    ///
+    /// Sized to an aeroplane rather than to the card. A spotter's photograph
+    /// of an airliner puts the aircraft across most of the frame's width and
+    /// about a third of its height, so a picture scaled to the sheet's width —
+    /// four hundred points or so, at three by two — carries an aeroplane
+    /// close to a hundred points tall. This band is that, and the photograph
+    /// is centred on it: the fuselage and the gear sit in the clear, the top
+    /// of the fin runs up behind the name and the sky above it behind the
+    /// grabber, and the tarmac fades into the deck.
+    private static let photoBandHeight: CGFloat = 96
+
+    /// The least height the photograph is drawn at, so a very wide panorama
+    /// still reaches from the top of the sheet to the deck instead of leaving
+    /// a strip of bare carbon above the name. Scaling up to it crops a little
+    /// off either end; it does not crop anything top or bottom that the band
+    /// shows.
+    private static let minimumPhotoHeight: CGFloat = 250
+
+    /// The band, drawing the photograph centred on itself.
+    ///
+    /// This is the change from filling the whole card. A photograph scaled to
+    /// cover a card three hundred points tall is a landscape picture enlarged
+    /// until it is that tall — which zooms into it, crops the nose and the
+    /// tail off the sides, and puts the middle of it, where the aeroplane is,
+    /// behind the route and the numbers. Scaled to the card's *width*
+    /// instead, the whole aircraft is in frame end to end, and centring the
+    /// picture on this band puts it where nothing is written over it.
+    private func photoWindow(altitudeFt: Int) -> some View {
+        Color.clear
+            .frame(height: Self.photoBandHeight)
+            .frame(maxWidth: .infinity)
+            .background {
+                GeometryReader { band in
+                    let width = band.size.width + Self.sideInset * 2
+                    let centre = CGPoint(x: band.size.width / 2, y: band.size.height / 2)
+
+                    if let image = image, image.size.width > 0, image.size.height > 0 {
+                        let aspect = image.size.height / image.size.width
+                        let height = max(width * aspect, Self.minimumPhotoHeight)
+
+                        Image(uiImage: image)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .saturation(0.92)
+                            // Wider than the sheet only when the floor above
+                            // scaled it up; the sheet clips what overhangs.
+                            .frame(width: height / aspect, height: height)
+                            .position(centre)
+                    } else {
+                        DrawnSky(altitudeFt: altitudeFt)
+                            .frame(width: width, height: Self.minimumPhotoHeight)
+                            .position(centre)
+                    }
+                }
+                .allowsHitTesting(false)
+            }
+            .accessibilityHidden(true)
+    }
+
+    /// Darkens the top of the sheet for the name, and stops above the
+    /// aeroplane.
+    private var headerScrim: some View {
+        LinearGradient(
+            stops: [
+                .init(color: .black.opacity(0.55), location: 0),
+                .init(color: .black.opacity(0.28), location: 0.55),
+                .init(color: .clear, location: 1)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        // Up under the grabber, out to both edges, and a little way below the
+        // descriptor so the ramp ends rather than stopping.
+        .padding(.top, -(FlightInfoLayout.peakHandleClearance + 4))
+        .padding(.horizontal, -Self.sideInset)
+        .padding(.bottom, -18)
+        .allowsHitTesting(false)
+    }
+
+    /// The deck's own ground: the photograph's lower edge fading into carbon
+    /// just above the route, and solid carbon from there to the foot of the
+    /// sheet and past it.
+    private var deckGround: some View {
+        VStack(spacing: 0) {
+            LinearGradient(
+                stops: [
+                    .init(color: BackdropTokens.carbon.opacity(0), location: 0),
+                    .init(color: BackdropTokens.carbon.opacity(0.72), location: 0.6),
+                    .init(color: BackdropTokens.carbon.opacity(0.94), location: 1)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: Self.deckFade)
+
+            BackdropTokens.carbon.opacity(0.94)
+        }
+        .padding(.top, -Self.deckFade * 0.5)
+        .padding(.horizontal, -Self.sideInset)
+        .padding(.bottom, -(FlightInfoLayout.peakBottomGap + Self.backdropOverrun))
+        .allowsHitTesting(false)
+    }
+
+    /// How tall the fade from photograph to deck is. Half of it rises into
+    /// the band, so the gear and the tarmac blend away rather than being cut.
+    private static let deckFade: CGFloat = 44
 
     // MARK: - Who
 
@@ -209,39 +332,7 @@ struct FlightWidgetPeek: View {
             .motionWords(line)
     }
 
-    // MARK: - Ground
-
-    /// The photograph, graded, with the top darkened for the name and the
-    /// bottom taken most of the way to carbon for the deck.
-    private func backdrop(altitudeFt: Int) -> some View {
-        ZStack {
-            if let image = image {
-                Image(uiImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .saturation(0.9)
-            } else {
-                DrawnSky(altitudeFt: altitudeFt)
-            }
-
-            LinearGradient(
-                stops: [
-                    .init(color: .black.opacity(0.58), location: 0),
-                    .init(color: .black.opacity(0.18), location: 0.22),
-                    .init(color: .clear, location: 0.34),
-                    .init(color: BackdropTokens.carbon.opacity(0.55), location: 0.46),
-                    .init(color: BackdropTokens.carbon.opacity(0.9), location: 0.6),
-                    .init(color: BackdropTokens.carbon.opacity(0.96), location: 1)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        }
-        .clipped()
-        // Nothing here is a control, and the photograph's own tap — which opens
-        // a real aeroplane's picture at its source — is attached further out.
-        .allowsHitTesting(false)
-    }
+    // MARK: - Ink
 
     /// The window's own palette, turned dark for the deck. A light theme's
     /// ink is near-black, which on a carbon deck is nothing at all; the airline

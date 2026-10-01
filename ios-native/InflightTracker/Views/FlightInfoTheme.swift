@@ -1371,10 +1371,10 @@ enum FlightInfoLayout {
         case .detail: return 322
         // The one peek whose height is nearly fixed: the photograph is behind
         // the text rather than above it, so nothing in here grows with the
-        // picture. The name, the photograph's window, the route with its
-        // places and the glance strip, less a few points so the correction is
-        // still upward — see the note above.
-        case .widget: return 236
+        // picture. The name, the band the aeroplane is framed in, the route
+        // with its places and the glance strip, less a few points so the
+        // correction is still upward — see the note above.
+        case .widget: return 280
         }
     }
 
