@@ -106,11 +106,14 @@ of the wire, and is never reported as the service failing — it never reached i
 
 Two things follow from a pause, both in `RainViewerService`: the animation stops
 (it is what turns one screenful into seven), and when the pause lifts the whole
-screen is asked for again. That second one is not optional. MapKit asks an
-overlay for a tile once and remembers the answer, including the answer
-*nothing* — so a tile skipped during a pause stays a hole until something builds
-a new overlay, which is why the served depth and a "ask again" token are both
-part of `MapWeatherTiles.key`.
+screen is asked for again. That second one is not optional. The map's weather
+layer (`Map/WeatherTileLayer.swift`, a Mapbox custom raster source fed by the
+same loader the planet uses) asks for a tile once and keeps the answer, including
+the answer *nothing* — so a tile skipped during a pause stays a hole until the
+key changes and every tile on screen is asked for again, which is why the served
+depth and an "ask again" token are both part of `MapWeatherTiles.key`. Past the
+served depth the map asks for nothing at all: Mapbox overscales the deepest tile
+on the GPU.
 
 And the depth is read off the service rather than trusted: `servedRadarZoom`
 starts at what RainViewer publishes and comes **down** on its own if the tiles

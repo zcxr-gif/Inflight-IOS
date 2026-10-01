@@ -1,4 +1,4 @@
-import MapKit
+import MapboxMaps
 import SwiftUI
 
 /// The field, its stands, and a tap. Inflight Pro.
@@ -549,13 +549,17 @@ struct GateMapPicker: View {
 
 // MARK: - The map itself
 
-/// `MKMapView` over imagery, with the field's pavement drawn on it and one
+/// A Mapbox map over imagery, with the field's pavement drawn on it and one
 /// marker per stand.
 ///
 /// Its own map rather than a mode of `TrackerMapView`: that one is the app's
 /// main map, it carries the traffic, the filters, the replay and the weather,
 /// and adding a "but sometimes it is a gate picker" branch to it would put all
 /// of that on the path of a screen that wants none of it.
+///
+/// The stands are a clustered GeoJSON source, so a field with three hundred of
+/// them is a readable map at every zoom rather than a wall of overlapping
+/// balloons, and Mapbox does the clustering on its worker thread.
 private struct GateChart: UIViewRepresentable {
 
     let airport: Airport
@@ -572,234 +576,251 @@ private struct GateChart: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
-    func makeUIView(context: Context) -> MKMapView {
-        let map = MKMapView()
-        map.delegate = context.coordinator
-        map.preferredConfiguration = MKHybridMapConfiguration(elevationStyle: .flat)
-        map.isRotateEnabled = true
-        map.isPitchEnabled = false
-        map.showsCompass = false
-        map.showsScale = false
-        map.pointOfInterestFilter = .excludingAll
-
-        map.register(
-            StandMarker.self,
-            forAnnotationViewWithReuseIdentifier: MKMapViewDefaultAnnotationViewReuseIdentifier
-        )
-        map.register(
-            MKMarkerAnnotationView.self,
-            forAnnotationViewWithReuseIdentifier: MKMapViewDefaultClusterAnnotationViewReuseIdentifier
-        )
-
-        // Tight enough that a terminal fills the screen, which is the scale at
-        // which stand numbers mean anything.
-        map.setRegion(
-            MKCoordinateRegion(
-                center: airport.coordinate,
-                latitudinalMeters: 2_600,
-                longitudinalMeters: 2_600
+    func makeUIView(context: Context) -> MapView {
+        let options = MapInitOptions(
+            // Imagery with the place names on it: what somebody matching a
+            // stand number to a place recognises is the terminal roof.
+            mapStyle: .standardSatellite(
+                showPointOfInterestLabels: false,
+                showTransitLabels: false
             ),
-            animated: false
+            // Tight enough that a terminal fills the screen, which is the
+            // scale at which stand numbers mean anything.
+            cameraOptions: CameraOptions(
+                center: airport.coordinate,
+                zoom: Coordinator.zoom(spanning: 2_600, at: airport.coordinate.latitude, across: 390)
+            )
         )
+        let map = MapView(frame: .zero, mapInitOptions: options)
+        map.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 120, preferred: 120)
+        map.gestures.options.rotateEnabled = true
+        map.gestures.options.pitchEnabled = false
+        map.ornaments.options.scaleBar.visibility = .hidden
+        map.ornaments.options.compass.visibility = .hidden
+
+        context.coordinator.attach(to: map)
         return map
     }
 
-    func updateUIView(_ map: MKMapView, context: Context) {
-        context.coordinator.parent = self
-        context.coordinator.sync(gates: gates, on: map)
-        context.coordinator.sync(layout: layout, on: map)
-        context.coordinator.sync(selection: selection, focusToken: focusToken, on: map)
+    static func dismantleUIView(_ map: MapView, coordinator: Coordinator) {
+        coordinator.detach()
     }
 
-    final class Coordinator: NSObject, MKMapViewDelegate {
+    func updateUIView(_ map: MapView, context: Context) {
+        context.coordinator.parent = self
+        context.coordinator.update()
+    }
+
+    final class Coordinator {
 
         var parent: GateChart
 
-        private var drawnGateRefs: Set<String> = []
+        private weak var mapView: MapView?
+        private var cancelables: Set<AnyCancelable> = []
+        private var isStyleLoaded = false
+
+        private var drawnGates: String?
         private var drawnLayoutIcao: String?
         private var lastFocusToken = 0
+
+        private static let standsSource = "gate-stands"
+        private static let clusterLayer = "gate-clusters"
+        private static let clusterCountLayer = "gate-cluster-counts"
+        private static let standLayer = "gate-stands"
+        private static let standLabelLayer = "gate-stand-labels"
 
         init(_ parent: GateChart) {
             self.parent = parent
         }
 
-        // MARK: Contents
-
-        func sync(gates: [Gate], on map: MKMapView) {
-            let refs = Set(gates.map(\.ref))
-            guard refs != drawnGateRefs else { return }
-
-            map.removeAnnotations(map.annotations.compactMap { $0 as? StandAnnotation })
-            map.addAnnotations(gates.map(StandAnnotation.init))
-            drawnGateRefs = refs
+        func attach(to mapView: MapView) {
+            self.mapView = mapView
+            mapView.mapboxMap.onStyleLoaded.observe { [weak self] _ in
+                self?.styleDidLoad()
+            }.store(in: &cancelables)
+            mapView.gestures.onMapTap.observe { [weak self] context in
+                self?.tapped(at: context.point)
+            }.store(in: &cancelables)
         }
 
-        func sync(layout: AirportLayout?, on map: MKMapView) {
-            guard let layout = layout, layout.icao != drawnLayoutIcao else { return }
+        func detach() {
+            cancelables.removeAll()
+        }
 
-            map.removeOverlays(map.overlays)
+        private func styleDidLoad() {
+            guard let map = mapView?.mapboxMap else { return }
+            isStyleLoaded = true
 
-            // Same order the main map draws a field in: the areas first, then
-            // what is painted on top of them, so a taxiway sits on its apron
-            // rather than under it.
-            for kind in AirportLayout.drawingOrder {
-                for piece in layout.pieces where piece.kind == kind {
-                    map.addOverlay(Self.overlay(for: piece), level: .aboveRoads)
+            // The main map's own ground layers, so the field is drawn exactly
+            // as it is there — over imagery, outlined rather than painted.
+            MapLayerStyle.install(on: map, labelMinZoom: 22)
+
+            let source = """
+            {"type": "geojson", "data": {"type": "FeatureCollection", "features": []},
+             "cluster": true, "clusterRadius": 38, "clusterMaxZoom": 17}
+            """
+            if !map.sourceExists(withId: Self.standsSource),
+               let properties = MapLayerStyle.parse(source) as? [String: Any] {
+                try? map.addSource(withId: Self.standsSource, properties: properties)
+            }
+
+            let bold = MapLayerStyle.json(MapLayerStyle.boldFont)
+            let layers = """
+            [
+                {
+                    "id": "\(Self.clusterLayer)", "type": "circle", "source": "\(Self.standsSource)",
+                    "filter": ["has", "point_count"],
+                    "paint": {
+                        "circle-color": "rgba(36,36,36,0.92)",
+                        "circle-radius": ["interpolate", ["linear"], ["get", "point_count"], 2, 14, 40, 22],
+                        "circle-stroke-color": "rgba(255,255,255,0.85)",
+                        "circle-stroke-width": 1.5
+                    }
+                },
+                {
+                    "id": "\(Self.clusterCountLayer)", "type": "symbol", "source": "\(Self.standsSource)",
+                    "filter": ["has", "point_count"],
+                    "layout": {
+                        "text-field": ["to-string", ["get", "point_count"]],
+                        "text-font": \(bold),
+                        "text-size": 11,
+                        "text-allow-overlap": true
+                    },
+                    "paint": {"text-color": "#ffffff"}
+                },
+                {
+                    "id": "\(Self.standLayer)", "type": "circle", "source": "\(Self.standsSource)",
+                    "filter": ["!", ["has", "point_count"]],
+                    "layout": {"circle-sort-key": ["get", "rank"]},
+                    "paint": {
+                        "circle-color": ["case", ["to-boolean", ["get", "picked"]], "rgb(41,158,255)", "rgba(36,36,36,0.92)"],
+                        "circle-radius": ["case", ["to-boolean", ["get", "picked"]], 15, 13],
+                        "circle-stroke-color": "rgba(255,255,255,0.9)",
+                        "circle-stroke-width": 1.5
+                    }
+                },
+                {
+                    "id": "\(Self.standLabelLayer)", "type": "symbol", "source": "\(Self.standsSource)",
+                    "filter": ["!", ["has", "point_count"]],
+                    "layout": {
+                        "text-field": ["get", "short"],
+                        "text-font": \(bold),
+                        "text-size": 10,
+                        "text-allow-overlap": true,
+                        "text-ignore-placement": true,
+                        "symbol-sort-key": ["get", "rank"]
+                    },
+                    "paint": {"text-color": "#ffffff"}
+                }
+            ]
+            """
+            for layer in (MapLayerStyle.parse(layers) as? [[String: Any]]) ?? [] {
+                guard let id = layer["id"] as? String, !map.layerExists(withId: id) else { continue }
+                try? map.addLayer(with: layer, layerPosition: nil)
+            }
+
+            drawnGates = nil
+            drawnLayoutIcao = nil
+            update()
+        }
+
+        func update() {
+            guard isStyleLoaded, let mapView = mapView, let map = mapView.mapboxMap else { return }
+
+            syncLayout(on: map)
+            syncStands(on: map)
+
+            guard parent.focusToken != lastFocusToken else { return }
+            lastFocusToken = parent.focusToken
+            guard let selection = parent.selection else { return }
+
+            let width = Double(max(mapView.bounds.width, 200))
+            mapView.camera.ease(
+                to: CameraOptions(
+                    center: selection.coordinate,
+                    zoom: Self.zoom(spanning: 420, at: selection.coordinate.latitude, across: width)
+                ),
+                duration: 0.6
+            )
+        }
+
+        /// The field's pavement, drawn once per field.
+        private func syncLayout(on map: MapboxMap) {
+            guard let layout = parent.layout, layout.icao != drawnLayoutIcao else { return }
+            drawnLayoutIcao = layout.icao
+            let features = GroundLayoutFeatures.features(
+                for: layout,
+                on: .imagery,
+                latitude: parent.airport.coordinate.latitude
+            )
+            map.updateGeoJSONSource(
+                withId: MapLayerStyle.Source.ground,
+                geoJSON: .featureCollection(FeatureCollection(features: features))
+            )
+        }
+
+        /// One marker per stand, the picked one in blue and on top.
+        private func syncStands(on map: MapboxMap) {
+            let picked = parent.selection?.ref
+            let key = parent.gates.map(\.ref).joined(separator: ",") + "|" + (picked ?? "-")
+            guard key != drawnGates else { return }
+            drawnGates = key
+
+            let features = parent.gates.map { gate -> Feature in
+                var feature = Feature(geometry: .point(Point(gate.coordinate)))
+                let isPicked = gate.ref == picked
+                feature.properties = [
+                    "ref": .string(gate.ref),
+                    // Four characters is what fits in a marker. Longer names
+                    // are real — "Cargo 3", "Remote 12A" — and the strip under
+                    // the map is where those are read in full.
+                    "short": .string(String(gate.ref.prefix(4))),
+                    "picked": .boolean(isPicked),
+                    "rank": .number(isPicked ? 1 : 0),
+                ]
+                return feature
+            }
+            map.updateGeoJSONSource(
+                withId: Self.standsSource,
+                geoJSON: .featureCollection(FeatureCollection(features: features))
+            )
+        }
+
+        private func tapped(at point: CGPoint) {
+            guard let mapView = mapView, let map = mapView.mapboxMap else { return }
+            let box = CGRect(x: point.x - 20, y: point.y - 20, width: 40, height: 40)
+            let options = RenderedQueryOptions(layerIds: [Self.standLayer, Self.clusterLayer], filter: nil)
+
+            _ = map.queryRenderedFeatures(with: box, options: options) { [weak self] result in
+                DispatchQueue.main.async {
+                    guard let self = self, let hit = ((try? result.get()) ?? []).first else { return }
+                    let feature = hit.queriedFeature.feature
+
+                    // A cluster is not a stand. Tapping one zooms into what it
+                    // is hiding, which is the only thing it could usefully mean.
+                    if case .number? = feature.properties?["point_count"] ?? nil {
+                        guard case .point(let position)? = feature.geometry else { return }
+                        let zoom = map.cameraState.zoom
+                        mapView.camera.ease(
+                            to: CameraOptions(center: position.coordinates, zoom: min(zoom + 2, 19)),
+                            duration: 0.45
+                        )
+                        return
+                    }
+
+                    guard case .string(let ref)? = feature.properties?["ref"] ?? nil,
+                          let gate = self.parent.gates.first(where: { $0.ref == ref })
+                    else { return }
+                    self.parent.selection = gate
                 }
             }
-            drawnLayoutIcao = layout.icao
         }
 
-        func sync(selection: Gate?, focusToken: Int, on map: MKMapView) {
-            let marks = map.annotations.compactMap { $0 as? StandAnnotation }
-
-            for mark in marks where mark.isPicked != (mark.gate.ref == selection?.ref) {
-                mark.isPicked = (mark.gate.ref == selection?.ref)
-                (map.view(for: mark) as? StandMarker)?.apply(mark)
-            }
-
-            guard focusToken != lastFocusToken else { return }
-            lastFocusToken = focusToken
-
-            guard let selection = selection else { return }
-            map.setRegion(
-                MKCoordinateRegion(
-                    center: selection.coordinate,
-                    latitudinalMeters: 420,
-                    longitudinalMeters: 420
-                ),
-                animated: true
-            )
+        /// The zoom at which `metres` of ground fill `points` of screen.
+        static func zoom(spanning metres: Double, at latitude: Double, across points: Double) -> CGFloat {
+            let circumference = 40_075_016.686 * max(cos(latitude * .pi / 180), 0.01)
+            let zoom = log2(circumference * points / (512 * max(metres, 1)))
+            return CGFloat(min(max(zoom, 1), 20))
         }
-
-        private static func overlay(for piece: AirportLayout.Piece) -> MKOverlay {
-            if piece.kind.isArea {
-                let polygon = MKPolygon(coordinates: piece.coordinates, count: piece.coordinates.count)
-                polygon.title = piece.kind.rawValue
-                return polygon
-            }
-            if let pavement = GroundOverlay(piece: piece) { return pavement }
-            let line = MKPolyline(coordinates: piece.coordinates, count: piece.coordinates.count)
-            line.title = piece.kind.rawValue
-            return line
-        }
-
-        // MARK: Delegate
-
-        func mapView(_ map: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
-            // `.imagery` throughout: this map is always a photograph, so the
-            // pavement is outlined rather than painted — see the note at the
-            // top of the file.
-            if let pavement = overlay as? GroundOverlay {
-                return GroundRenderer(overlay: pavement, ground: .imagery)
-            }
-
-            let kind = (overlay.title ?? nil)
-                .flatMap(AirportLayout.Piece.Kind.init(rawValue:))
-
-            if let area = overlay as? MKPolygon, let kind = kind {
-                let renderer = MKPolygonRenderer(polygon: area)
-                renderer.fillColor = AirportGroundStyle.area(for: kind, on: .imagery)
-                renderer.strokeColor = .clear
-                renderer.lineWidth = 0
-                return renderer
-            }
-
-            return MKOverlayRenderer(overlay: overlay)
-        }
-
-        func mapView(
-            _ map: MKMapView,
-            didSelect annotation: MKAnnotation
-        ) {
-            // A cluster is not a stand. Tapping one zooms into what it is
-            // hiding, which is the only thing it could usefully mean.
-            if let cluster = annotation as? MKClusterAnnotation {
-                map.deselectAnnotation(annotation, animated: false)
-                let region = Self.region(covering: cluster.memberAnnotations, around: cluster.coordinate)
-                map.setRegion(region, animated: true)
-                return
-            }
-
-            guard let mark = annotation as? StandAnnotation else { return }
-            map.deselectAnnotation(annotation, animated: false)
-            parent.selection = mark.gate
-        }
-
-        /// A box around everything in a cluster, with enough margin that the
-        /// markers are not against the edge of the screen.
-        private static func region(
-            covering members: [MKAnnotation],
-            around centre: CLLocationCoordinate2D
-        ) -> MKCoordinateRegion {
-            var minLat = centre.latitude, maxLat = centre.latitude
-            var minLon = centre.longitude, maxLon = centre.longitude
-            for member in members {
-                minLat = min(minLat, member.coordinate.latitude)
-                maxLat = max(maxLat, member.coordinate.latitude)
-                minLon = min(minLon, member.coordinate.longitude)
-                maxLon = max(maxLon, member.coordinate.longitude)
-            }
-            return MKCoordinateRegion(
-                center: centre,
-                span: MKCoordinateSpan(
-                    latitudeDelta: max((maxLat - minLat) * 1.8, 0.0016),
-                    longitudeDelta: max((maxLon - minLon) * 1.8, 0.0016)
-                )
-            )
-        }
-    }
-}
-
-/// One stand on the picker's map.
-private final class StandAnnotation: NSObject, MKAnnotation {
-
-    let gate: Gate
-    var isPicked = false
-
-    var coordinate: CLLocationCoordinate2D { gate.coordinate }
-    var title: String? { gate.ref }
-
-    init(_ gate: Gate) {
-        self.gate = gate
-    }
-}
-
-/// The marker itself: the stand's own name, in the type a jetway carries it in.
-///
-/// A balloon with the number *in* it rather than a pin with a callout, because
-/// the number is the whole content — a picker where you tap a pin to find out
-/// what it is called is a picker you have to tap three hundred times.
-private final class StandMarker: MKMarkerAnnotationView {
-
-    override init(annotation: MKAnnotation?, reuseIdentifier: String?) {
-        super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
-        // Clustered, so an airport with three hundred stands is a readable map
-        // rather than a wall of overlapping balloons.
-        clusteringIdentifier = "stand"
-        displayPriority = .defaultHigh
-        titleVisibility = .hidden
-        subtitleVisibility = .hidden
-        animatesWhenAdded = false
-        glyphTintColor = .white
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    override var annotation: MKAnnotation? {
-        didSet { (annotation as? StandAnnotation).map(apply) }
-    }
-
-    func apply(_ mark: StandAnnotation) {
-        // Four characters is what fits in a marker balloon. Longer names are
-        // real — "Cargo 3", "Remote 12A" — and the strip under the map is where
-        // those are read in full.
-        glyphText = String(mark.gate.ref.prefix(4))
-        markerTintColor = mark.isPicked
-            ? UIColor(red: 0.16, green: 0.62, blue: 1.0, alpha: 1)
-            : UIColor(white: 0.14, alpha: 0.92)
-        displayPriority = mark.isPicked ? .required : .defaultHigh
-        zPriority = mark.isPicked ? .max : .defaultUnselected
     }
 }

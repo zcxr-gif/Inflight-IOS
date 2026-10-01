@@ -1,4 +1,3 @@
-import MapKit
 import UIKit
 
 /// One frame of weather, as map tiles.
@@ -18,7 +17,7 @@ struct MapWeatherTiles: Equatable {
     /// to say "the tiles on screen are the wrong ones".
     ///
     /// Two things beyond the frame are part of it, and both are there because a
-    /// tile MapKit has already been given is a tile it will not ask for again:
+    /// tile the map has already been given is a tile it will not ask for again:
     ///
     /// - the **served depth**, because everything past it is resampled from the
     ///   deepest tile that exists, so a depth that has moved means every derived
@@ -26,7 +25,7 @@ struct MapWeatherTiles: Equatable {
     /// - the service's **token**, which moves when tiles that came back empty
     ///   are worth asking for again — after a cooldown, most of all.
     ///
-    /// Without them the overlay carried on serving whatever it had until the
+    /// Without them the layer carried on serving whatever it had until the
     /// frame happened to change, which made noticing either one no difference
     /// at all.
     var key: String {
@@ -38,57 +37,48 @@ struct MapWeatherTiles: Equatable {
     }
 }
 
+/// Where one tile sits: the usual z/x/y.
+struct WeatherTilePath: Equatable {
+    let x: Int
+    let y: Int
+    let z: Int
+}
+
 /// The tiles for whichever weather layer is on.
 ///
-/// Two services behind one overlay: RainViewer's radar frames, and NASA's
+/// Two services behind one loader: RainViewer's radar frames, and NASA's
 /// daily satellite composites. They agree on nothing except that a tile is a
 /// square PNG or JPEG at a z/x/y — so this builds each one's URL its own way,
 /// at each one's own tile size, and everything above it stays the same.
 ///
+/// ## Who asks
+///
+/// The map, through `WeatherTileLayer`, which feeds Mapbox a custom raster
+/// source tile by tile — and the drawn planet, which paints the same tiles onto
+/// its sphere by hand. Both go through here, so both share one cache, one
+/// meter and one opinion about whether the service is up.
+///
 /// ## Why this answers for zooms the services do not serve
 ///
-/// Neither service serves anywhere near the depth this map zooms to. RainViewer
-/// stops at zoom 7 and NASA at 8; the map goes to twenty. Something has to fill
-/// the gap, and how it is filled was the whole of what made these layers
-/// unpleasant to zoom.
-///
-/// What used to happen was two things at once. `MKTileOverlay` was told its
-/// `maximumZ`, so MapKit stopped asking past it and *magnified its own raster*
-/// of the deepest tiles — a whole screen of nearest-neighbour blocks, growing
-/// coarser with every step in. And the map watched the span and took the
-/// overlay off entirely once it decided the magnification had gone too far,
-/// which meant a layer that vanished mid-pinch, came back at a different zoom
-/// than it left, and re-fetched a screenful of tiles every time it did.
-///
-/// So neither happens now. This overlay answers for **every** zoom: past the
-/// depth the service serves it fetches the deepest ancestor that does exist,
-/// crops the part of it the requested tile covers, and resamples that to a full
-/// tile with smooth interpolation. The renderer is handed a real tile for the
-/// path it asked for at every zoom, so there is no magnified raster and no
-/// blocks — a radar field, which is a smooth field to begin with, stays a
-/// smooth field. And because one ancestor serves every child under it out of
-/// the caches below, zooming in past the service's depth costs no network at
-/// all.
-///
-/// And the layer is not faded out on top of that any more. It used to be — see
-/// the note in `MapWeatherSource` — which meant the resampling above was doing
-/// its work at zooms where nothing was drawn to see it. The alpha is one
-/// constant per layer now, the same way the web tracker's is, so the radar is
-/// still on the map when you are looking at an approach.
+/// Neither service serves anywhere near the depth the map zooms to. RainViewer
+/// stops at zoom 7 and NASA at 8. The map itself never asks past that any more:
+/// Mapbox is told where the source stops and overscales the deepest tiles on
+/// the GPU with linear filtering, which is smooth all the way in and costs no
+/// request at all. The planet still can, so a request past the served depth
+/// fetches the deepest ancestor that exists, crops the part of it the tile
+/// covers, and resamples that to a whole tile.
 ///
 /// ## What all of that rests on
 ///
-/// The served depth. Everything above is a picture built from the deepest tile
-/// that exists, so if this asks for a depth the service does not serve, there is
-/// no ancestor, and "softens as you close in" becomes "vanishes as you close
-/// in" — with a screenful of refused requests per zoom step behind it, tripping
-/// a meter that then refuses the zooms which *were* working. That is exactly
-/// what happened when RainViewer's ceiling moved to 7 and this was still asking
-/// for 8. So two things changed: the depth is now the service's rather than a
-/// guess (`RainViewerService.servedRadarZoom`, which comes down on its own if
-/// the tiles disagree), and every request this makes is counted first — see
+/// The served depth. Everything past it is built from the deepest tile that
+/// exists, so if this asks for a depth the service does not serve there is no
+/// ancestor — and a screenful of refused requests per zoom step behind it,
+/// tripping a meter that then refuses the zooms which *were* working. So the
+/// depth is the service's rather than a guess
+/// (`RainViewerService.servedRadarZoom`, which comes down on its own if the
+/// tiles disagree), and every request this makes is counted first — see
 /// `WeatherTileBudget`.
-final class RainViewerTileOverlay: MKTileOverlay {
+final class WeatherTileLoader {
 
     /// RainViewer's colour schemes, by number. Four is the one that reads as
     /// weather radar to anybody who has seen a forecast, and it is what the web
@@ -101,7 +91,7 @@ final class RainViewerTileOverlay: MKTileOverlay {
     /// the larger, which is twice the detail per tile over the same ground for
     /// one request rather than four. GIBS's `GoogleMapsCompatible` matrix set
     /// is 256 and only 256 — asking it for 512 is a 404.
-    private static func tileSide(for layer: MapWeatherLayer) -> CGFloat {
+    static func tileSide(for layer: MapWeatherLayer) -> CGFloat {
         layer == .satellite ? 256 : 512
     }
 
@@ -115,35 +105,32 @@ final class RainViewerTileOverlay: MKTileOverlay {
     ///
     /// `MapWeatherTiles.key` now asks the service two questions to build itself,
     /// and this is asked on every tile — for the derived cache — from whatever
-    /// thread MapKit is rasterising on. Taken at init instead, so it is a string
-    /// comparison rather than two locks per tile, and so an overlay's identity
+    /// thread the tile was asked for on. Taken at init instead, so it is a string
+    /// comparison rather than two locks per tile, and so a loader's identity
     /// cannot change underneath the tiles it has already handed out. Anything
-    /// that *should* change it builds a new overlay, which is the whole point of
+    /// that *should* change it builds a new loader, which is the whole point of
     /// the key.
     private let identity: String
+
+    /// How big a tile this loader serves, in pixels.
+    let tileSize: CGSize
+
+    /// The deepest zoom the service behind this layer serves.
+    var servedZoom: Int { servedZ }
+
+    var layer: MapWeatherLayer { tiles.layer }
 
     init(tiles: MapWeatherTiles) {
         self.tiles = tiles
         self.servedZ = MapWeatherSource.maximumZoom(for: tiles.layer)
         self.identity = tiles.key
-        super.init(urlTemplate: nil)
-
-        // The map underneath still has to be readable through it: this draws
-        // over the basemap, not instead of it.
-        canReplaceMapContent = false
-        minimumZ = 0
-        // Deliberately not the service's depth. Telling MapKit where the tiles
-        // stop is telling it to magnify its own raster past that point, which
-        // is exactly the blockiness this class exists to avoid — so it is told
-        // that tiles exist everywhere, and `loadTile` makes that true.
-        maximumZ = 20
         let side = Self.tileSide(for: tiles.layer)
-        tileSize = CGSize(width: side, height: side)
+        self.tileSize = CGSize(width: side, height: side)
     }
 
     var key: String { identity }
 
-    override func url(forTilePath path: MKTileOverlayPath) -> URL {
+    func url(forTilePath path: WeatherTilePath) -> URL {
         if tiles.layer == .satellite {
             return SatelliteImagery.url(frame: tiles.frame, z: path.z, x: path.x, y: path.y)
                 ?? Self.nowhere
@@ -156,10 +143,9 @@ final class RainViewerTileOverlay: MKTileOverlay {
         /\(path.z)/\(path.x)/\(path.y)/\(Self.radarColourScheme)/1_1.png
         """
 
-        // `MKTileOverlay` demands a URL rather than an optional, and the only
-        // way these strings fail to be one is a host the service invented. A
-        // URL that resolves to nothing draws nothing, which is the same
-        // outcome and reached without a crash.
+        // The only way these strings fail to be a URL is a host the service
+        // invented. A URL that resolves to nothing draws nothing, which is the
+        // same outcome as no tile and reached without a crash.
         return URL(string: string) ?? Self.nowhere
     }
 
@@ -169,10 +155,8 @@ final class RainViewerTileOverlay: MKTileOverlay {
 
     /// The network cache.
     ///
-    /// Its own store, and a large one. Overriding `loadTile` takes the fetch
-    /// away from `MKTileOverlay`, which has a tile cache built for exactly this
-    /// — and the first version of that override handed the job to
-    /// `URLSession.shared`, whose cache is a few megabytes shared with every
+    /// Its own store, and a large one. The first version of this fetch handed
+    /// the job to `URLSession.shared`, whose cache is a few megabytes shared with every
     /// other request the app makes. Aircraft photographs evict tiles the moment
     /// they land, so every pan and every frame of an animation went back to the
     /// network: the service throttles, tiles come back empty, and the layer
@@ -238,14 +222,13 @@ final class RainViewerTileOverlay: MKTileOverlay {
 
     /// Fetches a tile, or builds one from the deepest ancestor that exists.
     ///
-    /// `MKTileOverlay` will do the fetching itself, and did — but it swallows
-    /// the answer. A tier that has been withdrawn serves the index listing the
-    /// frames and then refuses every image, and the map's own version of that
-    /// is a layer switched on, drawing nothing, explaining nothing. So the
-    /// fetch is here, and it tells the service whether the request produced a
-    /// tile.
-    override func loadTile(
-        at path: MKTileOverlayPath,
+    /// A map left to fetch weather tiles itself swallows the answer. A tier
+    /// that has been withdrawn serves the index listing the frames and then
+    /// refuses every image, and the map's version of that is a layer switched
+    /// on, drawing nothing, explaining nothing. So the fetch is here, and it
+    /// tells the service whether the request produced a tile.
+    func loadTile(
+        at path: WeatherTilePath,
         result: @escaping (Data?, Error?) -> Void
     ) {
         // Inside the depth the service serves, this is an ordinary fetch and
@@ -267,11 +250,10 @@ final class RainViewerTileOverlay: MKTileOverlay {
         // The ancestor: the same ground, at the deepest zoom that has a tile
         // for it.
         let depth = path.z - servedZ
-        let ancestor = MKTileOverlayPath(
+        let ancestor = WeatherTilePath(
             x: path.x >> depth,
             y: path.y >> depth,
-            z: servedZ,
-            contentScaleFactor: path.contentScaleFactor
+            z: servedZ
         )
 
         source(at: ancestor) { [weak self] image in
@@ -303,7 +285,7 @@ final class RainViewerTileOverlay: MKTileOverlay {
 
     /// The decoded ancestor, from the cache or from the network.
     private func source(
-        at path: MKTileOverlayPath,
+        at path: WeatherTilePath,
         completion: @escaping (UIImage?) -> Void
     ) {
         let address = url(forTilePath: path).absoluteString
@@ -369,8 +351,8 @@ final class RainViewerTileOverlay: MKTileOverlay {
     /// map has gone.
     private func crop(
         _ image: UIImage,
-        of ancestor: MKTileOverlayPath,
-        to path: MKTileOverlayPath,
+        of ancestor: WeatherTilePath,
+        to path: WeatherTilePath,
         depth: Int
     ) -> Data? {
         guard let source = image.cgImage, source.width > 0, source.height > 0 else { return nil }
@@ -452,16 +434,16 @@ final class RainViewerTileOverlay: MKTileOverlay {
     /// ground you have already been over, rather than blanking the layer and
     /// asking the service to confirm the blanking, tile by tile.
     private func fetch(
-        at path: MKTileOverlayPath,
+        at path: WeatherTilePath,
         reportingFailures reports: Bool,
         completion: @escaping (Data?, Error?) -> Void
     ) {
         let address = url(forTilePath: path)
         let meter = budget
         let permitted = meter?.permits(address.absoluteString) ?? true
-        // Held rather than read off `self` inside the callback: the overlay is
-        // swapped on every frame of the animation, and a tile request that
-        // outlives its overlay should not be what keeps it alive.
+        // Held rather than read off `self` inside the callback: the loader is
+        // replaced on every frame of the animation, and a tile request that
+        // outlives its loader should not be what keeps it alive.
         let layer = tiles.layer
 
         var request = URLRequest(url: address)
@@ -493,8 +475,8 @@ final class RainViewerTileOverlay: MKTileOverlay {
             }
 
             guard isImage else {
-                // MapKit wants one or the other, and an empty 200 is as much a
-                // failure as a refusal — it just has no error to hand on.
+                // One or the other, and an empty 200 is as much a failure as a
+                // refusal — it just has no error to hand on.
                 completion(nil, error ?? Self.refusal(status: status))
                 return
             }

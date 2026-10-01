@@ -305,7 +305,7 @@ final class FlightInfoAppearance: ObservableObject {
     ///
     /// Its own axis rather than a fifth `MapPalette`, for the same reason the
     /// shape and the finish were split in the first place: these are the
-    /// colours of a *drawing*, and MapKit has no equivalent of them. A skin
+    /// colours of a *drawing*, and the map has no equivalent of them. A skin
     /// picked here does nothing at all to the flat map, and the flat map's
     /// palette does nothing to the planet — which is honest, and is what stops
     /// either list from being half full of choices that do not apply.
@@ -732,8 +732,8 @@ struct FlightInfoTheme {
     /// Nothing in the app is expected to branch on this to pick a colour — that
     /// is what every token below is for. It exists so the two things that live
     /// outside SwiftUI's colour system can be told which way round we are: the
-    /// `colorScheme` stamped on system controls, and MapKit's own light/dark
-    /// map style.
+    /// `colorScheme` stamped on system controls, and the map's own light/dark
+    /// style.
     let isLight: Bool
 
     /// Which way round system-drawn controls inside this theme should be. Every

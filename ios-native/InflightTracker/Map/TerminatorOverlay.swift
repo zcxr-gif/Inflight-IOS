@@ -1,4 +1,4 @@
-import MapKit
+import CoreLocation
 import UIKit
 
 /// Night, as a shape on the map.
@@ -70,14 +70,6 @@ enum Terminator {
     /// how heavy it is.
     private static let depthStep: Double = 0.05
 
-    /// Titles the renderer reads the band's own darkness back off, since
-    /// `MKPolygon` carries a string and nothing else.
-    private static let titlePrefix = "terminator.band."
-
-    static func isBand(_ title: String?) -> Bool {
-        title?.hasPrefix(titlePrefix) == true
-    }
-
     /// How finely each edge is walked, in degrees of longitude.
     ///
     /// Two degrees is a hundred and eighty points along each edge, which is
@@ -85,25 +77,35 @@ enum Terminator {
     /// couple of minutes without noticing.
     private static let step: Double = 2
 
+    /// One band of the fade: the dark cap at its own elevation, with the next
+    /// band's cap punched out of it.
+    struct Band {
+        /// Which band, from the sunset line inwards — what decides how dark it
+        /// is drawn. See `fill(atIndex:isLight:)`.
+        let index: Int
+        let outer: [CLLocationCoordinate2D]
+        /// Empty for the innermost band, which is a solid cap.
+        let hole: [CLLocationCoordinate2D]
+    }
+
     /// The bands, lightest first.
     ///
     /// Each one is a *ring*: the dark cap at its own elevation with the next
-    /// band's cap punched out of it as an interior polygon. Nested filled caps
-    /// would have been simpler and are what this drew first, but they paint the
-    /// deep night eight times over — eight translucent world-sized fills
-    /// composited on every frame of every pan, which is exactly the sort of
-    /// overdraw that costs a map its frame rate. Cut into rings, every pixel of
-    /// the wash is painted once and the picture is identical, because each
-    /// ring simply carries the alpha that many overlapping fills would have
-    /// accumulated to.
-    static func polygons(at date: Date = Date()) -> [MKPolygon] {
+    /// band's cap punched out of it as a hole. Nested filled caps would have
+    /// been simpler and are what this drew first, but they paint the deep night
+    /// eight times over — eight translucent world-sized fills composited on
+    /// every frame of every pan, which is exactly the sort of overdraw that
+    /// costs a map its frame rate. Cut into rings, every pixel of the wash is
+    /// painted once and the picture is identical, because each ring simply
+    /// carries the alpha that many overlapping fills would have accumulated to.
+    static func bands(at date: Date = Date()) -> [Band] {
         let sun = SolarPosition.sun(at: date)
 
         let rings: [[CLLocationCoordinate2D]] = (0..<bandCount).map { index in
             ring(below: elevation(atIndex: index), sun: sun)
         }
 
-        var out: [MKPolygon] = []
+        var out: [Band] = []
         out.reserveCapacity(bandCount)
 
         for (index, outer) in rings.enumerated() {
@@ -116,17 +118,8 @@ enum Terminator {
             // from, which is the convention that makes it a hole under either
             // fill rule rather than only under even-odd.
             let inner = index + 1 < rings.count ? Array(rings[index + 1].reversed()) : []
-            let holes = inner.count > 3
-                ? [MKPolygon(coordinates: inner, count: inner.count)]
-                : []
 
-            let polygon = MKPolygon(
-                coordinates: outer,
-                count: outer.count,
-                interiorPolygons: holes
-            )
-            polygon.title = "\(titlePrefix)\(index)"
-            out.append(polygon)
+            out.append(Band(index: index, outer: outer, hole: inner.count > 3 ? inner : []))
         }
 
         return out
@@ -154,7 +147,7 @@ enum Terminator {
         }
 
         // Stopping at ±180 rather than wrapping keeps this one shape in one
-        // world, which is the only way MapKit will fill it.
+        // world, which is what a fill layer tiles cleanly into every copy.
         return northern + southern.reversed()
     }
 
@@ -266,29 +259,15 @@ enum Terminator {
     /// curtain, because an overlay heavy enough to be unmistakable is also
     /// heavy enough to lose the coastline, the traffic and the routes
     /// underneath it, and those are what the map is for.
-    ///
-    /// Built once, because a dynamic colour is resolved against the map's
-    /// traits every time a renderer asks for it.
-    private static let fills: [UIColor] = (0..<Terminator.bandCount).map { index in
-        UIColor { traits in
-            traits.userInterfaceStyle == .light
-                ? UIColor(
-                    red: 0.05, green: 0.07, blue: 0.16,
-                    alpha: Terminator.alpha(atIndex: index, step: 0.045)
-                )
-                : UIColor(
-                    red: 0.00, green: 0.01, blue: 0.05,
-                    alpha: Terminator.alpha(atIndex: index, step: 0.055)
-                )
-        }
-    }
-
-    /// The wash for a band, read back off the polygon's own title.
-    static func fill(for title: String?) -> UIColor {
-        guard let title = title,
-              let index = Int(title.dropFirst(titlePrefix.count)),
-              fills.indices.contains(index)
-        else { return fills[0] }
-        return fills[index]
+    static func fill(atIndex index: Int, isLight: Bool) -> UIColor {
+        isLight
+            ? UIColor(
+                red: 0.05, green: 0.07, blue: 0.16,
+                alpha: alpha(atIndex: index, step: 0.045)
+            )
+            : UIColor(
+                red: 0.00, green: 0.01, blue: 0.05,
+                alpha: alpha(atIndex: index, step: 0.055)
+            )
     }
 }

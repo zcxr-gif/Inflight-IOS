@@ -1,6 +1,5 @@
 import Combine
 import CoreLocation
-import MapKit
 import SwiftUI
 import UIKit
 import simd
@@ -115,7 +114,7 @@ struct PlanetSurface: View {
     /// chrome standing over it — the toolbar, or the flight window.
     ///
     /// The planet is put in the middle of what is *left*, which is the same
-    /// thing MapKit's layout margins do for the flat map. Without it the one
+    /// thing the camera padding does for the flat map. Without it the one
     /// aeroplane you have opened a window on is centred behind that window.
     var bottomInset: CGFloat = 0
     var leadingInset: CGFloat = 0
@@ -443,9 +442,9 @@ struct PlanetSurface: View {
         // square in degrees.
         let degrees = spot.spanMetres / (GlobeCamera.earthRadiusMetres * .pi / 180)
         let shrink = max(0.2, cos(spot.latitude * .pi / 180))
-        let region = MKCoordinateRegion(
+        let region = GeoRegion(
             center: CLLocationCoordinate2D(latitude: spot.latitude, longitude: spot.longitude),
-            span: MKCoordinateSpan(
+            span: GeoSpan(
                 latitudeDelta: min(170, degrees),
                 longitudeDelta: min(350, degrees / shrink)
             )
@@ -521,7 +520,7 @@ struct PlanetSurface: View {
     ///
     /// Worked out here rather than in the canvas because the span-to-zoom
     /// arithmetic needs to know what a screen is, and because `MapCommand` is
-    /// MapKit's vocabulary — the renderer should not have to learn it.
+    /// the flat map's vocabulary — the renderer should not have to learn it.
     private var globeCommand: GlobeCommand? {
         guard let command = command else { return nil }
 

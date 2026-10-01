@@ -1,5 +1,5 @@
 import CoreLocation
-import MapKit
+import MapboxMaps
 import SwiftUI
 import UIKit
 
@@ -9,12 +9,12 @@ import UIKit
 /// ## Why it is a real snapshot rather than a drawn swatch
 ///
 /// The same reason the flight window's settings draw the actual window instead
-/// of a picture of one. A swatch hand-tuned to look like "muted" is a claim
-/// about Apple's cartography, and it drifts the first time Apple changes it —
-/// silently, because nobody re-checks a decoration. `MKMapSnapshotter` renders
-/// through the very `MKMapConfiguration` the map itself is handed:
-/// `MapLook.configuration()`, one method, both callers. A preview that is wrong
-/// is now a map that is wrong.
+/// of a picture of one. A swatch hand-tuned to look like "faded" is a claim
+/// about Mapbox's cartography, and it drifts the first time Mapbox changes it —
+/// silently, because nobody re-checks a decoration. Mapbox's `Snapshotter`
+/// renders through the very style the map itself is handed:
+/// `MapLook.mapStyle(isLight:)`, one method, both callers. A preview that is
+/// wrong is now a map that is wrong.
 ///
 /// ## Round for the globe
 ///
@@ -42,7 +42,7 @@ struct MapStyleThumbnail: View {
     private var theme: FlightInfoTheme { appearance.theme }
 
     /// Whether this look is the app's own drawn planet, which is previewed by
-    /// drawing it rather than by photographing MapKit — the snapshotter has no
+    /// drawing it rather than by photographing Mapbox — the snapshotter has no
     /// idea this map exists.
     private var isDrawn: Bool { look.projection.isDrawn }
 
@@ -150,11 +150,12 @@ final class MapThumbnailLoader: ObservableObject {
     private static let span: CLLocationDistance = 44_000
 
     /// Held so it is not deallocated mid-render, and so a row that changes
-    /// under a slow snapshot can cancel the one it no longer wants.
-    private var snapshotter: MKMapSnapshotter?
+    /// under a slow snapshot can drop the one it no longer wants.
+    private var snapshotter: Snapshotter?
+    private var snapshotCancelables: Set<AnyCancelable> = []
     private var requested: String?
 
-    /// The snapshot as MapKit drew it, before the map's wash goes over it, and
+    /// The snapshot as Mapbox drew it, before the map's wash goes over it, and
     /// the wash currently on the published picture.
     ///
     /// Held apart because they change at completely different rates. The
@@ -208,42 +209,44 @@ final class MapThumbnailLoader: ObservableObject {
         // Whatever was on its way is a picture of a look this row is no longer
         // showing.
         snapshotter?.cancel()
+        snapshotCancelables.removeAll()
         base = nil
         image = nil
 
-        let options = MKMapSnapshotter.Options()
-        options.region = MKCoordinateRegion(
-            center: Self.centre,
-            latitudinalMeters: Self.span,
-            longitudinalMeters: Self.span
-        )
         // Square, and rendered at twice the drawn side so the disc the globe is
         // clipped to still has a sharp edge on a retina screen.
-        options.size = CGSize(width: side * 2, height: side * 2)
-        options.preferredConfiguration = look.configuration()
-        options.traitCollection = UITraitCollection(
-            userInterfaceStyle: scheme == .dark ? .dark : .light
+        let snapshotter = Snapshotter(
+            options: MapSnapshotOptions(size: CGSize(width: side, height: side), pixelRatio: 2)
         )
-
-        let snapshotter = MKMapSnapshotter(options: options)
         self.snapshotter = snapshotter
 
-        snapshotter.start(with: .global(qos: .userInitiated)) { [weak self] snapshot, _ in
-            guard let taken = snapshot?.image else { return }
-            // Cached bare. The wash goes on below, against whatever the slider
-            // says by the time this lands rather than what it said when the
-            // picture was asked for.
-            Self.cache.setObject(taken, forKey: key as NSString)
+        let circumference = 40_075_016.686 * cos(Self.centre.latitude * .pi / 180)
+        let zoom = log2(circumference * Double(side) / (512 * Self.span))
+        let camera = CameraOptions(center: Self.centre, zoom: CGFloat(zoom))
+        snapshotter.setCamera(to: camera)
 
-            // The outer capture is the weak one; this closure only needs the
-            // optional it already holds.
-            DispatchQueue.main.async {
-                guard let self = self, self.requested == key else { return }
-                self.base = taken
-                let picture = Self.washed(taken, with: self.appliedWash ?? wash)
-                withAnimation(Motion.content) { self.image = picture }
+        snapshotter.onStyleLoaded.observeNext { [weak self, weak snapshotter] _ in
+            guard let snapshotter = snapshotter else { return }
+            // Again, once the style is in: a style can carry a camera of its
+            // own, and the picture has to be of the bay whatever it says.
+            snapshotter.setCamera(to: camera)
+            snapshotter.start(overlayHandler: nil) { result in
+                guard case .success(let taken) = result else { return }
+                // Cached bare. The wash goes on below, against whatever the
+                // slider says by the time this lands rather than what it said
+                // when the picture was asked for.
+                Self.cache.setObject(taken, forKey: key as NSString)
+
+                DispatchQueue.main.async {
+                    guard let self = self, self.requested == key else { return }
+                    self.base = taken
+                    let picture = Self.washed(taken, with: self.appliedWash ?? wash)
+                    withAnimation(Motion.content) { self.image = picture }
+                }
             }
-        }
+        }.store(in: &snapshotCancelables)
+
+        snapshotter.load(mapStyle: look.mapStyle(isLight: scheme == .light))
     }
 
     /// The snapshot with the map's own wash laid over it, so a row is a

@@ -3,7 +3,7 @@ import Foundation
 
 /// A field's pavement: what it is made of and what each piece is called.
 ///
-/// Apple's basemap draws some of this and names none of it, and imagery shows
+/// The basemap draws some of this and names none of it, and imagery shows
 /// the concrete without telling you which runway you are looking at. This is
 /// the part that carries the names — which is the whole reason to draw a field
 /// rather than photograph it.

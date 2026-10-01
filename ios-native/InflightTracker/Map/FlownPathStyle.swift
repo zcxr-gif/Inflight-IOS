@@ -1,5 +1,4 @@
 import CoreLocation
-import MapKit
 import UIKit
 
 /// How the flown path is drawn: how wide, and in what.
@@ -134,56 +133,48 @@ enum FlownPathStyle {
     }
 }
 
-/// The flown path: one overlay, drawn by hand.
+/// The flown path, as runs of one colour each.
 ///
 /// ## What was here before, and why none of it survived
 ///
-/// The track used to be two `MKGeodesicPolyline`s — a wide translucent one for
-/// the halo and a narrow solid one on top — each drawn by an
-/// `MKGradientPolylineRenderer` handed a list of colour stops. Every part of
-/// that arrangement was a bug.
+/// The track has been drawn three ways. First as a pair of geodesic polylines
+/// — a wide translucent halo and a narrow line — with a gradient renderer
+/// handed colour stops as fractions along the line. The halo bulged off every
+/// tight corner, blotched wherever the track crossed itself, and the stops were
+/// laid against a different parameterisation of the track than the one drawn.
+/// Then as a hand-written MapKit renderer stroking every segment in the colour
+/// of its height, which was exact and was also the most expensive thing on the
+/// map: every tile of every frame of a pan re-stroked a few thousand points on
+/// the CPU.
 ///
-/// **The halo left the path.** A stroke is only a tidy outline of its centre
-/// line while the line's turn radius stays comfortably wider than the stroke is
-/// thick. A halo three times the core's width, on a taxi turn or a hold, is
-/// far wider than the radius it is going round — so it stopped tracking the
-/// path and bulged off the outside of every tight corner.
+/// ## What it does now
 ///
-/// **And it blotched.** Two translucent strokes of the same geometry stack
-/// their alpha wherever the track crosses itself, and a flown path crosses
-/// itself constantly — holds, circuits, a taxi back down the same taxiway. Each
-/// crossing came out darker than the line either side of it.
+/// The colour is still per segment, so there is no ramp to place and nothing
+/// to get out of step: the piece of track between two samples carries the
+/// colour of the height at those samples, because that is the piece of track
+/// flown at that height. Consecutive segments of one colour are gathered into a
+/// *run*, and each run is one line feature for Mapbox, which tessellates it
+/// once and then draws it on the GPU at whatever zoom the fingers ask for.
+/// Runs share their end points, and the round joins and caps cover the seam.
 ///
-/// **The colours were in the wrong places.** `MKGradientPolylineRenderer` takes
-/// its stops as fractions along the line, and the fractions were worked out on
-/// the raw samples while the line drawn was the smoothed curve through them,
-/// expanded again by `MKGeodesicPolyline` into however many points MapKit felt
-/// like. Three different parameterisations of the same track, and the ramp was
-/// laid against the wrong one.
-///
-/// ## What it does instead
-///
-/// One overlay, one renderer, and the drawing done here rather than asked for.
-///
-/// The colour is per segment, so there is no ramp to place and nothing to get
-/// out of step: the piece of track between two samples is stroked in the colour
-/// of the height at those samples, because that is the piece of track flown at
-/// that height. Exact by construction.
-///
-/// The halo is the same path drawn wide *inside a transparency layer* — the
-/// whole wide stroke is composited once, as a group, and only then faded. Self
-/// overlap inside the layer is opaque-on-opaque and vanishes, which is the
-/// whole fix for the blotching. And it is drawn at a much gentler spread, so it
-/// stays a halo on the line rather than a shape beside it.
+/// The longitudes are kept continuous along the whole track, so a flight that
+/// crosses the antimeridian is one line running off the edge of the map and
+/// back on at the other, rather than a line drawn back across the planet.
 struct FlownPath {
 
-    /// One point on the drawn curve, with the colour the track carries there.
-    struct Node {
-        let point: MKMapPoint
+    /// One stretch of track flown in one colour.
+    struct Run {
+        let coordinates: [CLLocationCoordinate2D]
         let color: UIColor
     }
 
-    let overlay: FlownPathOverlay
+    let runs: [Run]
+
+    /// Where the drawn track ends, and the colour it ends in — which is where
+    /// the live head grows from, and what it is drawn in. See
+    /// `TrackerMapView.Coordinator.updateFlownHead`.
+    let tail: CLLocationCoordinate2D
+    let tailColor: UIColor
 
     /// At most this many samples are coloured individually.
     ///
@@ -210,8 +201,7 @@ struct FlownPath {
     init?(
         points: [TrackPoint],
         bands: [Int?],
-        onPavement: [Bool] = [],
-        title: String
+        onPavement: [Bool] = []
     ) {
         guard points.count >= 2, bands.count == points.count else { return nil }
 
@@ -252,17 +242,39 @@ struct FlownPath {
         )
         guard smoothed.coordinates.count >= 2 else { return nil }
 
-        var nodes: [Node] = []
-        nodes.reserveCapacity(smoothed.coordinates.count)
+        // The curve, with every point's colour and its longitude brought onto
+        // one continuous line.
+        var coordinates: [CLLocationCoordinate2D] = []
+        var colors: [UIColor] = []
+        coordinates.reserveCapacity(smoothed.coordinates.count)
+        colors.reserveCapacity(smoothed.coordinates.count)
         for (index, coordinate) in smoothed.coordinates.enumerated() {
             guard CLLocationCoordinate2DIsValid(coordinate) else { continue }
             let origin = min(smoothed.origins[index], sampleColors.count - 1)
-            nodes.append(Node(point: MKMapPoint(coordinate), color: sampleColors[origin]))
+            let continuous = coordinates.last.map { GreatCircle.unwrapped(coordinate, after: $0) } ?? coordinate
+            coordinates.append(continuous)
+            colors.append(sampleColors[origin])
         }
-        guard nodes.count >= 2 else { return nil }
+        guard coordinates.count >= 2 else { return nil }
 
-        guard let overlay = FlownPathOverlay(nodes: nodes, title: title) else { return nil }
-        self.overlay = overlay
+        // Segment `i` runs from point `i` to point `i + 1` and carries point
+        // `i`'s colour. A run ends where the colour changes, and the next one
+        // starts on the point the last one finished on.
+        var runs: [Run] = []
+        var start = 0
+        let segments = coordinates.count - 1
+        while start < segments {
+            var end = start
+            while end + 1 < segments, colors[end + 1] == colors[start] {
+                end += 1
+            }
+            runs.append(Run(coordinates: Array(coordinates[start...(end + 1)]), color: colors[start]))
+            start = end + 1
+        }
+
+        self.runs = runs
+        self.tail = coordinates[coordinates.count - 1]
+        self.tailColor = colors[colors.count - 1]
     }
 
     /// A sample's colour: the unknown grey where no height was sent, white
@@ -347,317 +359,5 @@ struct FlownPath {
         }
 
         return bands
-    }
-}
-
-/// The overlay itself: a run of projected points, each with a colour.
-///
-/// Points rather than coordinates, and projected once here rather than per
-/// frame in the renderer. `MKMapPoint(_:)` is a projection with trigonometry in
-/// it, the renderer runs on every tile of every frame of a pan, and the answer
-/// never changes — so it is worked out when the track does.
-final class FlownPathOverlay: NSObject, MKOverlay {
-
-    let nodes: [FlownPath.Node]
-    let boundingMapRect: MKMapRect
-    let coordinate: CLLocationCoordinate2D
-    let title: String?
-
-    /// Where the aeroplane is being drawn *this frame*, past the end of the
-    /// track the feed has told us about.
-    ///
-    /// The track ends at the newest breadcrumb, and breadcrumbs are thinned by
-    /// distance — two nautical miles apart at best, and more on a long flight.
-    /// So between one and the next the aeroplane flies off the end of its own
-    /// path, a gap opens behind it, and when the next sample lands the line
-    /// catches up in one jump. Meanwhile the aircraft itself is being carried
-    /// smoothly forward thirty times a second by `FlightMotion`.
-    ///
-    /// This is the piece that closes that gap: one segment from the last
-    /// sample to wherever the aeroplane is right now, written by the same frame
-    /// clock that moves the aeroplane, so the track grows with it rather than
-    /// in steps behind it.
-    ///
-    /// Nil when there is nothing to draw — no open aircraft, or the aeroplane
-    /// has run outside the room this overlay reserved for it, which is the
-    /// signal that the path wants rebuilding rather than extending.
-    ///
-    /// Behind a lock, and it is the one piece of this overlay that needs one.
-    /// Everything else was worked out once and never changes, which is why the
-    /// renderer has always been free to run wherever MapKit felt like running
-    /// it — and it does run a draw off the main thread. This is written by the
-    /// frame clock on the main thread and read inside that draw, so the two
-    /// have to agree about when.
-    var head: MKMapPoint? {
-        get {
-            headLock.lock()
-            defer { headLock.unlock() }
-            return storedHead
-        }
-        set {
-            headLock.lock()
-            storedHead = newValue
-            headLock.unlock()
-        }
-    }
-
-    private var storedHead: MKMapPoint?
-    private let headLock = NSLock()
-
-    /// The end of the drawn track: where `head` grows from.
-    let tail: MKMapPoint
-
-    /// How far the head may run from `tail` before it would be drawn outside
-    /// the rect this overlay is allowed to paint in.
-    ///
-    /// MapKit reads `boundingMapRect` when the overlay is added and asks for
-    /// tiles inside it and nowhere else, so a head beyond this one would simply
-    /// not be drawn. Reserved up front, and checked before every write.
-    private let headRoom: MKMapRect
-
-    /// Whether a position is inside the room reserved for the head.
-    func canReach(_ point: MKMapPoint) -> Bool { headRoom.contains(point) }
-
-    /// Where the track jumps the antimeridian, as indices into `nodes`.
-    ///
-    /// A projected x of nearly the world's width between two points is not a
-    /// leg, it is the seam: the aircraft crossed 180° and the two points landed
-    /// on opposite edges of the map. Stroked through, that is a line straight
-    /// back across the planet. The renderer lifts the pen at these instead.
-    let breaks: Set<Int>
-
-    init?(nodes: [FlownPath.Node], title: String) {
-        guard nodes.count >= 2 else { return nil }
-
-        var breaks: Set<Int> = []
-        var minX = nodes[0].point.x
-        var maxX = nodes[0].point.x
-        var minY = nodes[0].point.y
-        var maxY = nodes[0].point.y
-
-        let world = MKMapRect.world.size.width
-        for index in 1..<nodes.count {
-            let point = nodes[index].point
-            if abs(point.x - nodes[index - 1].point.x) > world / 2 { breaks.insert(index) }
-            minX = min(minX, point.x)
-            maxX = max(maxX, point.x)
-            minY = min(minY, point.y)
-            maxY = max(maxY, point.y)
-        }
-
-        self.nodes = nodes
-        self.breaks = breaks
-        // Padded by a slice of its own size, so a stroke drawn wider than the
-        // geometry — which is the whole of the halo — is not clipped off at the
-        // edges of the rect it is allowed to draw in.
-        //
-        // A share of the span rather than a fixed distance, because the stroke
-        // is a share of the span too. A width in points becomes a width in map
-        // units by dividing by the zoom scale, and you only ever pull back far
-        // enough for the track to fill the screen — at which point the zoom
-        // scale is roughly the screen's width over the track's, and the stroke
-        // lands at about one per cent of the span however long the flight was.
-        // Five leaves room over the widest the halo gets.
-        let padding = max((maxX - minX), (maxY - minY)) * 0.05 + 1_000
-
-        // And room off the end for the live head to grow into. See `head`: it
-        // is written between rebuilds, and a rect that stopped at the last
-        // sample would leave it undrawn.
-        let end = nodes[nodes.count - 1].point
-        let reach = Self.headRoomMetres * MKMapPointsPerMeterAtLatitude(end.coordinate.latitude)
-        let room = MKMapRect(
-            x: end.x - reach,
-            y: end.y - reach,
-            width: reach * 2,
-            height: reach * 2
-        )
-
-        self.tail = end
-        self.headRoom = room
-        self.boundingMapRect = MKMapRect(
-            x: minX - padding,
-            y: minY - padding,
-            width: (maxX - minX) + padding * 2,
-            height: (maxY - minY) + padding * 2
-        ).union(room)
-        self.coordinate = MKMapPoint(x: (minX + maxX) / 2, y: (minY + maxY) / 2).coordinate
-        self.title = title
-        super.init()
-    }
-
-    /// How far past the last sample the head is allowed to run.
-    ///
-    /// The path is rebuilt every time the trail gains a breadcrumb, which is
-    /// every two nautical miles at the tightest spacing the store uses — about
-    /// sixteen seconds at cruise. Forty kilometres is ten times that, which
-    /// covers the coarser spacing a long flight thins itself to and leaves the
-    /// case where it does not to the span-proportional padding above, which by
-    /// then is hundreds of kilometres wide.
-    private static let headRoomMetres: CLLocationDistance = 40_000
-}
-
-/// Draws the track: a halo, then the line, both in one pass over the points.
-final class FlownPathRenderer: MKOverlayRenderer {
-
-    /// The core's width in points on screen, set by whoever knows where the
-    /// camera is standing.
-    ///
-    /// In *points*, not in map units: the conversion needs the zoom scale, and
-    /// that only exists inside a draw. Setting this does not repaint on its own
-    /// — see `apply(width:)`.
-    private(set) var width: CGFloat = FlownPathStyle.closeWidth
-
-    private var path: FlownPathOverlay { overlay as! FlownPathOverlay }
-
-    /// The scale the last draw ran at, so a repaint asked for outside a draw
-    /// can work out how many map units the stroke is currently covering.
-    ///
-    /// A stroke's width is set in points on screen and drawn in map units, and
-    /// the conversion is the zoom scale — which only exists inside `draw`. A
-    /// dirty rect that did not allow for it would leave the halo's outer edge
-    /// unrepainted, as a bright ghost trailing the aeroplane.
-    private var lastZoomScale: MKZoomScale = 1
-
-    func apply(width newWidth: CGFloat) {
-        guard abs(newWidth - width) > 0.05 else { return }
-        width = newWidth
-        setNeedsDisplay()
-    }
-
-    /// Repaints just the strip the live head moved through.
-    ///
-    /// The head is written on every frame, and the track it belongs to is a
-    /// few thousand points long — so this is deliberately not
-    /// `setNeedsDisplay()`. What changed is one short segment's far end; the
-    /// rest of the line is already correct on the tiles it was drawn into, and
-    /// asking MapKit to rasterise them again thirty times a second is the
-    /// whole cost of doing this badly.
-    func refreshHead(from origin: MKMapPoint, to destination: MKMapPoint) {
-        let scale = max(Double(lastZoomScale), .leastNormalMagnitude)
-        let pad = Double(width * FlownPathStyle.glowSpread) / scale + 8
-
-        let rect = MKMapRect(
-            x: min(origin.x, destination.x),
-            y: min(origin.y, destination.y),
-            width: abs(destination.x - origin.x),
-            height: abs(destination.y - origin.y)
-        )
-        setNeedsDisplay(rect.insetBy(dx: -pad, dy: -pad))
-    }
-
-    override func draw(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in context: CGContext) {
-        lastZoomScale = zoomScale
-
-        let nodes = path.nodes
-        guard nodes.count >= 2 else { return }
-
-        // A stroke width set in map units draws that many *map units* wide, so
-        // it doubles on screen every time you zoom in. Dividing by the zoom
-        // scale is what pins it to the screen instead, and is the same trick
-        // `MKPolylineRenderer` does internally with its own `lineWidth`.
-        let core = width / zoomScale
-        let halo = core * FlownPathStyle.glowSpread
-
-        context.setLineCap(.round)
-        context.setLineJoin(.round)
-
-        // The halo first, and inside a transparency layer.
-        //
-        // This is the whole reason the glow no longer blotches. Stroking a wide
-        // translucent line straight onto the context makes every self-crossing
-        // composite twice and come out darker; drawing it opaque into a layer
-        // and fading the finished layer composites the whole halo once, so a
-        // hold or a taxi back down the same line is the same wash as a straight
-        // leg beside it.
-        context.setAlpha(FlownPathStyle.glowOpacity)
-        context.beginTransparencyLayer(auxiliaryInfo: nil)
-        stroke(nodes, width: halo, isHalo: true, in: context)
-        context.endTransparencyLayer()
-        context.setAlpha(1)
-
-        stroke(nodes, width: core, isHalo: false, in: context)
-    }
-
-    /// One pass along the track, stroking each run of same-coloured segments.
-    ///
-    /// Batched rather than one stroke per segment: a colour thinned to a couple
-    /// of hundred samples across a few thousand curve points means long runs
-    /// share a colour, and each run is one path and one stroke.
-    ///
-    /// Segment `i` runs from node `i` to node `i + 1` and carries node `i`'s
-    /// colour, because that is the piece of track flown at that height. A run
-    /// ends where the colour changes or where the next node jumped the seam,
-    /// and the next run starts at the node the last one finished on — so
-    /// consecutive runs share a point and meet exactly, with a round cap over
-    /// the join rather than a gap for the map to show through.
-    private func stroke(
-        _ nodes: [FlownPath.Node],
-        width: CGFloat,
-        isHalo: Bool,
-        in context: CGContext
-    ) {
-        context.setLineWidth(width)
-
-        let segments = nodes.count - 1
-        var start = 0
-        while start < segments {
-            // A segment whose far node is across the antimeridian is not a leg.
-            guard !path.breaks.contains(start + 1) else {
-                start += 1
-                continue
-            }
-
-            var end = start
-            while end + 1 < segments,
-                  !path.breaks.contains(end + 2),
-                  nodes[end + 1].color == nodes[start].color {
-                end += 1
-            }
-
-            context.beginPath()
-            context.move(to: point(for: nodes[start].point))
-            for step in (start + 1)...(end + 1) {
-                context.addLine(to: point(for: nodes[step].point))
-            }
-            // The halo is not always the line's own colour — a white ground
-            // track needs a dark one behind it rather than a white one. See
-            // `FlownPathStyle.halo`.
-            let colour = isHalo
-                ? FlownPathStyle.halo(for: nodes[start].color)
-                : nodes[start].color
-            context.setStrokeColor(colour.cgColor)
-            context.strokePath()
-
-            // Always forward: `end` is never before `start`.
-            start = end + 1
-        }
-
-        strokeHead(after: nodes, isHalo: isHalo, in: context)
-    }
-
-    /// The piece the feed has not caught up with: the last sample to wherever
-    /// the aeroplane is being drawn this frame.
-    ///
-    /// Inside the same pass as everything else, which is what keeps the halo
-    /// honest. Drawn separately it would be a second transparency layer over
-    /// the first, and the two would composite at the join into a bright spot on
-    /// an otherwise even wash.
-    ///
-    /// It carries the last sample's colour because that is the height the
-    /// aircraft was last known to be at, and inventing a different one for a
-    /// few seconds of track would be a claim about a climb nobody reported.
-    private func strokeHead(after nodes: [FlownPath.Node], isHalo: Bool, in context: CGContext) {
-        guard let head = path.head, let last = nodes.last else { return }
-
-        // The seam, again: a head on the far side of the antimeridian from the
-        // last sample is not a leg, and stroking it would draw a line back
-        // across the planet.
-        guard abs(head.x - last.point.x) < MKMapRect.world.size.width / 2 else { return }
-
-        context.beginPath()
-        context.move(to: point(for: last.point))
-        context.addLine(to: point(for: head))
-        context.setStrokeColor((isHalo ? FlownPathStyle.halo(for: last.color) : last.color).cgColor)
-        context.strokePath()
     }
 }

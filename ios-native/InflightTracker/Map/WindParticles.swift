@@ -1,5 +1,4 @@
 import CoreLocation
-import MapKit
 import SwiftUI
 import UIKit
 
@@ -18,7 +17,7 @@ enum WindParticleStyle {
     /// How often the field is stepped.
     ///
     /// Well under the display's rate on purpose. Air is not a sixty-hertz
-    /// phenomenon, every step dirties the whole overlay, and the difference
+    /// phenomenon, every step repaints the whole layer, and the difference
     /// between twenty-four and sixty here is entirely a difference in how much
     /// of the phone the layer is using.
     static let stepsPerSecond: Double = 24
@@ -77,12 +76,11 @@ enum WindParticleStyle {
 ///
 /// ## Where the state lives, and why it is not in the renderer
 ///
-/// A `MKOverlayRenderer` is asked to draw a rectangle, at a scale, possibly off
-/// the main thread, possibly several times for one frame as the map splits the
-/// screen into tiles. None of that is a clock. So the simulation is stepped
-/// exactly once per tick by whoever owns the frame clock, the renderer only
-/// ever reads, and the two meet across a lock — the same arrangement the flown
-/// path's live head already uses, and for the same reason.
+/// The picture is drawn off the main thread, into a bitmap the map then lays
+/// over the ground as an image source. None of that is a clock. So the
+/// simulation is stepped exactly once per tick by whoever owns the frame
+/// clock, the renderer only ever reads a snapshot, and the two meet across a
+/// lock.
 ///
 /// ## Positions are held twice, on purpose
 ///
@@ -107,11 +105,11 @@ final class WindParticles {
     private var count = 0
 
     private var field: WindVelocityGrid?
-    private var rect = MKMapRect.null
+    private var rect = MercatorRect.null
 
     /// Where new particles are put, and where old ones are considered to have
     /// left. The visible map, as of the last step.
-    private var visible = MKMapRect.null
+    private var visible = MercatorRect.null
 
     /// How much the clock is scaled by. See
     /// `WindParticleStyle.screensPerSecondAt100kt`.
@@ -126,9 +124,8 @@ final class WindParticles {
         return field != nil && count > 0
     }
 
-    /// The rectangle the particles live in — the field's, which is also what
-    /// the overlay claims.
-    var bounds: MKMapRect {
+    /// The rectangle the particles live in — the field's.
+    var bounds: MercatorRect {
         lock.lock(); defer { lock.unlock() }
         return rect
     }
@@ -138,7 +135,7 @@ final class WindParticles {
     /// Point the simulation at a new field. Everything is reseeded: a particle
     /// carried over from the last grid would be drifting on numbers that are no
     /// longer on screen.
-    func adopt(field: WindVelocityGrid?, visible: MKMapRect, screenArea: Double) {
+    func adopt(field: WindVelocityGrid?, visible: MercatorRect, screenArea: Double) {
         lock.lock()
         defer { lock.unlock() }
 
@@ -179,7 +176,7 @@ final class WindParticles {
 
     /// Tell the simulation where the map is now looking, and how fast its clock
     /// should run there.
-    func look(at visible: MKMapRect, latitude: CLLocationDegrees) {
+    func look(at visible: MercatorRect, latitude: CLLocationDegrees) {
         lock.lock()
         defer { lock.unlock() }
 
@@ -189,7 +186,7 @@ final class WindParticles {
         // second, whatever the screen is showing. Work back from that to the
         // factor the real velocities are multiplied by.
         let metresPerSecond = 100 / WeatherField.knotsPerMetrePerSecond
-        let mapPointsPerSecond = metresPerSecond * MKMapPointsPerMeterAtLatitude(latitude)
+        let mapPointsPerSecond = metresPerSecond * MercatorPoint.perMetre(atLatitude: latitude)
         guard mapPointsPerSecond > 0, visible.size.width > 0 else { return }
 
         timeScale = visible.size.width
@@ -200,7 +197,7 @@ final class WindParticles {
     // MARK: - Running
 
     /// One step. Returns whether anything moved, so a caller with nothing to
-    /// show can skip invalidating the overlay.
+    /// show can skip repainting the layer.
     @discardableResult
     func step(_ seconds: Double) -> Bool {
         lock.lock()
@@ -219,7 +216,7 @@ final class WindParticles {
                 continue
             }
 
-            guard let velocity = field.velocity(at: MKMapPoint(x: x[index], y: y[index])) else {
+            guard let velocity = field.velocity(at: MercatorPoint(x: x[index], y: y[index])) else {
                 spawn(index)
                 continue
             }
@@ -229,7 +226,7 @@ final class WindParticles {
 
             // Out of the model's rectangle, or far enough off screen that
             // keeping it is spending a particle on somewhere nobody is looking.
-            let point = MKMapPoint(x: x[index], y: y[index])
+            let point = MercatorPoint(x: x[index], y: y[index])
             if !rect.contains(point) || !visible.insetBy(dx: -visible.size.width * 0.25,
                                                          dy: -visible.size.height * 0.25).contains(point) {
                 spawn(index)
@@ -284,7 +281,7 @@ final class WindParticles {
         let alpha: [Float]
         let head: Int
         let count: Int
-        let rect: MKMapRect
+        let rect: MercatorRect
     }
 
     /// A copy of everything a draw needs, taken under the lock and read outside
@@ -314,36 +311,13 @@ final class WindParticles {
 
 // ---------------------------------------------------------------------------
 
-/// The overlay the particles are drawn into.
+/// Paints the streaks into a picture of one rectangle of the world.
 ///
-/// It owns the simulation, so that a rebuild of the field replaces both at once
-/// and there is never a renderer reading one grid's particles against another
-/// grid's rectangle.
-final class WindParticleOverlay: NSObject, MKOverlay {
-
-    let particles = WindParticles()
-    let boundingMapRect: MKMapRect
-    let coordinate: CLLocationCoordinate2D
-
-    init?(field: WindVelocityGrid, visible: MKMapRect, screenArea: Double) {
-        let rect = field.rect
-        guard rect.size.width > 0, rect.size.height > 0, screenArea > 0 else { return nil }
-
-        boundingMapRect = rect
-        coordinate = MKMapPoint(x: rect.midX, y: rect.midY).coordinate
-        super.init()
-
-        particles.adopt(field: field, visible: visible, screenArea: screenArea)
-    }
-}
-
-/// Strokes the streaks.
-final class WindParticleRenderer: MKOverlayRenderer {
-
-    /// The colour, set by whoever knows which way round the map is drawn.
-    var colour: UIColor = WindParticleStyle.colour(for: .dark) {
-        didSet { if colour != oldValue { setNeedsDisplay() } }
-    }
+/// The map pins the result over that rectangle as an image source, under the
+/// traffic and the routes — which is where moving air belongs: the busiest
+/// thing on the map, kept underneath the one thing somebody opened the app to
+/// look at.
+enum WindParticleRaster {
 
     /// How many alpha levels the streaks are sorted into before being stroked.
     ///
@@ -353,31 +327,38 @@ final class WindParticleRenderer: MKOverlayRenderer {
     /// another — so they are rounded into a handful of buckets, each bucket
     /// accumulated as one path, and the frame costs six strokes instead of a
     /// thousand.
-    private static let buckets = 6
+    static let buckets = 6
 
-    private var particles: WindParticles { (overlay as! WindParticleOverlay).particles }
+    /// Draws the streaks that fall inside `area` into an image `size` pixels
+    /// across, at one pixel per point.
+    ///
+    /// Safe to call off the main thread: it reads nothing but the snapshot it
+    /// is handed.
+    static func image(
+        of snapshot: WindParticles.Snapshot,
+        in area: MercatorRect,
+        size: CGSize,
+        colour: UIColor
+    ) -> UIImage? {
+        guard snapshot.rect.size.width > 0, snapshot.rect.size.height > 0 else { return nil }
+        guard area.width > 0, area.height > 0, size.width >= 1, size.height >= 1 else { return nil }
 
-    override func draw(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in context: CGContext) {
-        guard let snapshot = particles.snapshot() else { return }
-        guard snapshot.rect.size.width > 0, snapshot.rect.size.height > 0 else { return }
-
-        // Only the tile being asked for, with room for a streak that starts
-        // outside it and finishes inside.
-        let clip = mapRect.insetBy(dx: -mapRect.size.width, dy: -mapRect.size.height)
-
-        context.setLineCap(.round)
-        context.setLineJoin(.round)
-        context.setLineWidth(WindParticleStyle.width / zoomScale)
+        let scaleX = Double(size.width) / area.width
+        let scaleY = Double(size.height) / area.height
 
         let length = WindParticleStyle.trail
-        let paths = (0..<Self.buckets).map { _ in CGMutablePath() }
-        var used = [Bool](repeating: false, count: Self.buckets)
+        let paths = (0..<buckets).map { _ in CGMutablePath() }
+        var used = [Bool](repeating: false, count: buckets)
+
+        // A step that jumped further than this, on screen, is a particle that
+        // was respawned mid-trail rather than air that moved.
+        let jump = 400.0
 
         for index in 0..<snapshot.count {
             let fade = snapshot.alpha[index]
             guard fade > 0.02 else { continue }
 
-            let bucket = min(Self.buckets - 1, Int(fade * Float(Self.buckets)))
+            let bucket = min(buckets - 1, Int(fade * Float(buckets)))
             let base = index * length * 2
 
             // Oldest first: the ring's head is the newest sample, so the run
@@ -389,40 +370,44 @@ final class WindParticleRenderer: MKOverlayRenderer {
             for step in 0..<length {
                 let slot = (snapshot.head + 1 + step) % length
                 let at = base + slot * 2
-                let position = MKMapPoint(
-                    x: snapshot.rect.minX + Double(snapshot.trail[at]) * snapshot.rect.size.width,
-                    y: snapshot.rect.minY + Double(snapshot.trail[at + 1]) * snapshot.rect.size.height
-                )
-                guard clip.contains(position) else {
-                    started = false
-                    continue
-                }
+                let x = snapshot.rect.minX + Double(snapshot.trail[at]) * snapshot.rect.size.width
+                let y = snapshot.rect.minY + Double(snapshot.trail[at + 1]) * snapshot.rect.size.height
+                let point = CGPoint(x: (x - area.minX) * scaleX, y: (y - area.minY) * scaleY)
 
-                let point = self.point(for: position)
                 if !started {
                     path.move(to: point)
                     started = true
+                } else if abs(Double(point.x - previous.x)) + abs(Double(point.y - previous.y)) > jump {
+                    path.move(to: point)
                 } else {
-                    // A step that jumped a long way is a particle that was
-                    // respawned mid-trail. Nothing was drawn from where it was
-                    // to where it now is, and a line between the two would be
-                    // a streak across the map.
-                    if abs(point.x - previous.x) + abs(point.y - previous.y) > 400 / zoomScale {
-                        path.move(to: point)
-                    } else {
-                        path.addLine(to: point)
-                    }
+                    path.addLine(to: point)
                 }
                 previous = point
                 used[bucket] = true
             }
         }
 
-        for bucket in 0..<Self.buckets where used[bucket] {
-            let fade = CGFloat(bucket) / CGFloat(Self.buckets - 1)
-            context.setStrokeColor(colour.withAlphaComponent(colour.cgColor.alpha * fade).cgColor)
-            context.addPath(paths[bucket])
-            context.strokePath()
+        guard used.contains(true) else { return nil }
+
+        let format = UIGraphicsImageRendererFormat()
+        // One pixel per point. The streaks are a picture of air, a pixel and
+        // a third wide; doubling the pixels would quadruple what is uploaded
+        // twenty-four times a second for a sharpness nobody can see moving.
+        format.scale = 1
+        format.opaque = false
+
+        return UIGraphicsImageRenderer(size: size, format: format).image { context in
+            let cg = context.cgContext
+            cg.setLineCap(.round)
+            cg.setLineJoin(.round)
+            cg.setLineWidth(WindParticleStyle.width)
+
+            for bucket in 0..<buckets where used[bucket] {
+                let fade = CGFloat(bucket) / CGFloat(buckets - 1)
+                cg.setStrokeColor(colour.withAlphaComponent(colour.cgColor.alpha * fade).cgColor)
+                cg.addPath(paths[bucket])
+                cg.strokePath()
+            }
         }
     }
 }

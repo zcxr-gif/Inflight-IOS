@@ -54,7 +54,7 @@ enum PathSmoothing {
     ///
     /// A budget rather than a limit: the subdivision count is this divided by
     /// the sample count, clamped. Three thousand is a few frames' work for
-    /// MapKit and finer than any screen can resolve a curve at.
+    /// the map and finer than any screen can resolve a curve at.
     private static let pointBudget = 3_000
 
     /// Above this many input points the path is left alone.

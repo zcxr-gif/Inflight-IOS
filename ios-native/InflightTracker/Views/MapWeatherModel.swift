@@ -65,7 +65,7 @@ final class MapWeatherModel: ObservableObject {
     ///
     /// ## Why the loop is held there
     ///
-    /// On the flat map a frame is a set of tile URLs and MapKit does the rest —
+    /// On the flat map a frame is a set of tiles and Mapbox does the rest —
     /// the tiles are cached, the compositing is the GPU's, and two frames a
     /// second costs almost nothing. On the planet a frame is a *software
     /// raster*: every tile decoded to pixels and the whole visible face of the

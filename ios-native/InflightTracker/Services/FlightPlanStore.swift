@@ -64,7 +64,7 @@ final class FlightPlanStore {
 
     /// What we have for this flight right now, and a fetch if that is nothing.
     ///
-    /// Deliberately not `async`. The caller is `MKMapView` layout, which cannot
+    /// Deliberately not `async`. The caller is the map's update pass, which cannot
     /// wait, and a plan is worth having a second late rather than not at all.
     func waypoints(for flightId: String) -> [PlanWaypoint] {
         lock.lock()
@@ -121,7 +121,7 @@ final class FlightPlanStore {
             let answered = error == nil && (200...299).contains(status ?? 0)
 
             // Parsed before the lock is taken, not under it. The other side of
-            // this lock is `MKMapView` laying out on the main thread, and a
+            // this lock is the map updating on the main thread, and a
             // hundred-fix plan is not a thing to make it wait on.
             let parsed = answered ? Self.parse(data) : nil
 

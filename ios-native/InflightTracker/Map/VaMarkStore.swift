@@ -28,7 +28,7 @@ final class VaMarkStore {
     /// callbacks.
     ///
     /// A list rather than one slot, and that is not tidiness. Both shapes of
-    /// the world draw these marks now — MapKit's annotations and the planet's
+    /// the world draw these marks now — the map's symbol layers and the planet's
     /// canvas — and while only one of them is on screen at a time, a single
     /// `var` makes their setup order decide which one ever hears about a logo.
     /// Keyed by owner so re-registering replaces rather than stacks.

@@ -3,9 +3,9 @@ import UIKit
 
 /// A small picture of the planet, drawn by the thing that draws the planet.
 ///
-/// The flat map's thumbnails are real `MKMapSnapshotter` renders for a stated
-/// reason: a hand-tuned swatch is a *claim* about Apple's cartography, and it
-/// drifts silently the first time Apple changes it. The same argument applies
+/// The flat map's thumbnails are real Mapbox snapshots for a stated reason: a
+/// hand-tuned swatch is a *claim* about Mapbox's cartography, and it drifts
+/// silently the first time Mapbox changes it. The same argument applies
 /// here and has an easier answer — the planet's cartography is ours, so the
 /// preview is not a picture of the renderer, it is the renderer, at forty-eight
 /// points with nothing flying over it.

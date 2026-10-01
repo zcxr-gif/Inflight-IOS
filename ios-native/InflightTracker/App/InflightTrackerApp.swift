@@ -14,6 +14,17 @@ struct InflightTrackerApp: App {
         // Parses the 17k-airport table off the main thread so the first flight
         // the user taps has its route ready.
         AirportStore.shared.preload()
+
+        // Mapbox's telemetry, off unless somebody turns it on. It is on by
+        // default in the SDK, and it reports the device's location whenever
+        // the app holds location permission — which this app asks for only for
+        // the sky view, with a promise in Info.plist that the position stays on
+        // the phone. Set only when nothing has been chosen yet, so the switch
+        // in the map's own ⓘ menu still decides from then on.
+        let telemetry = "MGLMapboxMetricsEnabled"
+        if UserDefaults.standard.object(forKey: telemetry) == nil {
+            UserDefaults.standard.set(false, forKey: telemetry)
+        }
     }
 
     var body: some Scene {

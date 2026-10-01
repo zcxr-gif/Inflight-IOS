@@ -1,5 +1,4 @@
 import CoreLocation
-import MapKit
 
 /// A rectangle of model weather, on a regular grid.
 ///
@@ -24,7 +23,7 @@ import MapKit
 /// that draws wants it in some other frame — the particles want map points per
 /// second, the heat map wants a bitmap — and each of those is a conversion done
 /// once, on arrival, by the thing that needs it. See `WindVelocityGrid` and
-/// `WeatherHeatOverlay`.
+/// `WeatherHeatRaster`.
 struct WeatherField {
 
     /// The south-west sample. Not the corner of a cell — the grid is a lattice
@@ -180,23 +179,23 @@ struct WeatherField {
     /// Mercator is monotonic in both axes, so the north-west sample is the
     /// minimum of both and the south-east sample is the maximum, and there is
     /// nothing in between that can be outside them.
-    var mapRect: MKMapRect {
-        let topLeft = MKMapPoint(
+    var mapRect: MercatorRect {
+        let topLeft = MercatorPoint(
             CLLocationCoordinate2D(latitude: north, longitude: Self.wrapped(west))
         )
-        var bottomRight = MKMapPoint(
+        var bottomRight = MercatorPoint(
             CLLocationCoordinate2D(latitude: south, longitude: Self.wrapped(east))
         )
 
         // A field that crosses the antimeridian comes back with its east edge
         // projected to the far side of the map. One world width puts it back
-        // where the geometry says it is — off the edge, which is exactly where
-        // MapKit expects an overlay that spans the seam to be.
+        // where the geometry says it is — off the edge, which is how a
+        // rectangle that spans the seam stays one rectangle.
         if bottomRight.x < topLeft.x {
-            bottomRight = MKMapPoint(x: bottomRight.x + MKMapRect.world.size.width, y: bottomRight.y)
+            bottomRight = MercatorPoint(x: bottomRight.x + MercatorRect.worldSide, y: bottomRight.y)
         }
 
-        return MKMapRect(
+        return MercatorRect(
             x: topLeft.x,
             y: topLeft.y,
             width: bottomRight.x - topLeft.x,
@@ -211,7 +210,7 @@ struct WeatherField {
 ///
 /// ## Why this exists rather than sampling the field directly
 ///
-/// The particles live in `MKMapPoint`s — that is the only space in which the
+/// The particles live in `MercatorPoint`s — that is the only space in which the
 /// map's transform is a scale and a translate, and the whole reason a thousand
 /// of them can be drawn on a frame clock. Advecting them from a lat/lon field
 /// would mean inverting Mercator once per particle per frame, which is a
@@ -223,7 +222,7 @@ struct WeatherField {
 /// ## Metres per second becomes map points per second
 ///
 /// Mercator is conformal: at any one place it scales east and north by the same
-/// factor, which is exactly what `MKMapPointsPerMeterAtLatitude` returns. So a
+/// factor, which is exactly what `MercatorPoint.perMetre(atLatitude:)` returns. So a
 /// wind vector converts by one multiply — and the factor is baked in per cell,
 /// which is also what makes the field correct at both ends of a grid spanning
 /// thirty degrees of latitude.
@@ -232,7 +231,7 @@ struct WeatherField {
 /// downwards from the north pole and the wind does not.
 struct WindVelocityGrid {
 
-    let rect: MKMapRect
+    let rect: MercatorRect
     let columns: Int
     let rows: Int
 
@@ -269,10 +268,10 @@ struct WindVelocityGrid {
             let y = rect.minY + (Double(row) + 0.5) / Double(rows) * rect.size.height
             for column in 0..<columns {
                 let x = rect.minX + (Double(column) + 0.5) / Double(columns) * rect.size.width
-                let coordinate = MKMapPoint(x: x, y: y).coordinate
+                let coordinate = MercatorPoint(x: x, y: y).coordinate
                 guard let wind = field.wind(at: coordinate) else { continue }
 
-                let scale = MKMapPointsPerMeterAtLatitude(coordinate.latitude)
+                let scale = MercatorPoint.perMetre(atLatitude: coordinate.latitude)
                 dx[row * columns + column] = wind.u * scale
                 dy[row * columns + column] = -wind.v * scale
                 any = true
@@ -288,10 +287,10 @@ struct WindVelocityGrid {
         self.dy = dy
     }
 
-    func contains(_ point: MKMapPoint) -> Bool { rect.contains(point) }
+    func contains(_ point: MercatorPoint) -> Bool { rect.contains(point) }
 
     /// Map points per second at a position, or nil outside the field.
-    func velocity(at point: MKMapPoint) -> (dx: Double, dy: Double)? {
+    func velocity(at point: MercatorPoint) -> (dx: Double, dy: Double)? {
         let fx = (point.x - rect.minX) / rect.size.width * Double(columns) - 0.5
         let fy = (point.y - rect.minY) / rect.size.height * Double(rows) - 0.5
         guard fx.isFinite, fy.isFinite else { return nil }

@@ -1,5 +1,4 @@
 import CoreLocation
-import MapKit
 import UIKit
 
 /// The colour a scalar field is drawn in.
@@ -162,14 +161,22 @@ enum WeatherRamp {
 /// edge in it that the model did not put there.
 ///
 /// It is also the cheap answer. The image is built once when the grid lands and
-/// then costs one blit per frame, where sampling the field per pixel per draw
-/// would be a hundred thousand interpolations every time the map moved.
-final class WeatherHeatOverlay: NSObject, MKOverlay {
+/// handed to Mapbox as an image source pinned at its four corners, so after
+/// that it is a texture the GPU draws with linear filtering at every frame of
+/// every pinch — no CPU work at all while the map moves.
+///
+/// The rows are laid out in Mercator, which is the space an image source is
+/// stretched across between its corners, so the picture lands exactly where the
+/// field is rather than sliding off it towards the poles.
+struct WeatherHeatRaster {
 
-    let boundingMapRect: MKMapRect
-    let coordinate: CLLocationCoordinate2D
     let product: WeatherHeat
-    let image: CGImage
+    let image: UIImage
+
+    /// The corners the image is pinned to, as `[longitude, latitude]` pairs in
+    /// the order an image source wants them: top left, top right, bottom
+    /// right, bottom left.
+    let corners: [[Double]]
 
     /// The longest side of the raster.
     ///
@@ -202,12 +209,15 @@ final class WeatherHeatOverlay: NSObject, MKOverlay {
         var latitudes = [CLLocationDegrees](repeating: 0, count: height)
         for row in 0..<height {
             let y = rect.minY + (Double(row) + 0.5) / Double(height) * rect.size.height
-            latitudes[row] = MKMapPoint(x: rect.minX, y: y).coordinate.latitude
+            latitudes[row] = MercatorPoint(x: rect.minX, y: y).coordinate.latitude
         }
+        // Projected longitudes are linear, so these are worked out directly
+        // and left continuous past 180° for a field that crosses the seam —
+        // the field's own lookup brings them back.
         var longitudes = [CLLocationDegrees](repeating: 0, count: width)
         for column in 0..<width {
             let x = rect.minX + (Double(column) + 0.5) / Double(width) * rect.size.width
-            longitudes[column] = MKMapPoint(x: x, y: rect.minY).coordinate.longitude
+            longitudes[column] = x / MercatorRect.worldSide * 360 - 180
         }
 
         var pixels = [UInt8](repeating: 0, count: width * height * 4)
@@ -251,11 +261,14 @@ final class WeatherHeatOverlay: NSObject, MKOverlay {
               )
         else { return nil }
 
-        self.boundingMapRect = rect
-        self.coordinate = MKMapPoint(x: rect.midX, y: rect.midY).coordinate
+        let north = MercatorPoint(x: rect.minX, y: rect.minY).coordinate.latitude
+        let south = MercatorPoint(x: rect.minX, y: rect.maxY).coordinate.latitude
+        let west = rect.minX / MercatorRect.worldSide * 360 - 180
+        let east = rect.maxX / MercatorRect.worldSide * 360 - 180
+
         self.product = product
-        self.image = image
-        super.init()
+        self.image = UIImage(cgImage: image)
+        self.corners = [[west, north], [east, north], [east, south], [west, south]]
     }
 
     /// What the field says, in the units the ramp is calibrated in.
@@ -285,33 +298,5 @@ final class WeatherHeatOverlay: NSObject, MKOverlay {
         case .shear:
             return field.scalar(.shear, at: coordinate)
         }
-    }
-}
-
-/// Draws the raster over the piece of world it belongs to.
-final class WeatherHeatRenderer: MKOverlayRenderer {
-
-    private var field: WeatherHeatOverlay { overlay as! WeatherHeatOverlay }
-
-    override func draw(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in context: CGContext) {
-        let target = rect(for: field.boundingMapRect)
-        guard target.width > 0, target.height > 0 else { return }
-
-        // Smoothed hard, and that is the whole visual argument for this layer:
-        // the source lattice is coarse enough that nearest-neighbour would draw
-        // it as a chessboard, and bilinear blowup of a coarse smooth field is
-        // exactly the picture the field is.
-        context.interpolationQuality = .high
-
-        // A bitmap's rows run down from its top and this context's y runs down
-        // the map, but `CGContext.draw` puts the image the other way up. One
-        // flip about the target's own middle puts it back, and is scoped so
-        // nothing else in the pass inherits it.
-        context.saveGState()
-        context.translateBy(x: 0, y: target.midY)
-        context.scaleBy(x: 1, y: -1)
-        context.translateBy(x: 0, y: -target.midY)
-        context.draw(field.image, in: target)
-        context.restoreGState()
     }
 }

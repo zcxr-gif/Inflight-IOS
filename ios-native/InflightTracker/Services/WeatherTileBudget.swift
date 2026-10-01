@@ -31,13 +31,13 @@ import Foundation
 ///
 /// A request this turns down is not a failure and is not reported as one: the
 /// fetch falls back to the tile cache and draws whatever is already there. See
-/// `RainViewerTileOverlay.fetch(at:reportingFailures:completion:)`.
+/// `WeatherTileLoader.fetch(at:reportingFailures:completion:)`.
 ///
 /// ## The pause has to be announced
 ///
-/// A tile skipped during a pause is a tile MapKit was handed nothing for, and
-/// MapKit does not ask twice — so the hole stays until something makes a new
-/// overlay. That is what `onPause` is for: whoever is watching gets told when
+/// A tile skipped during a pause is a tile the map was handed nothing for, and
+/// the map does not ask twice — so the hole stays until something asks for the
+/// tiles again. That is what `onPause` is for: whoever is watching gets told when
 /// the holding-back started and when it ends, and can ask for the screen again
 /// on the other side of it. A meter that quietly drops requests and never says
 /// so trades one blank layer for a subtler one.

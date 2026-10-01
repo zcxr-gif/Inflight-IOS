@@ -15,6 +15,28 @@ struct AcknowledgementsPanel: View {
 
     var body: some View {
         MapPanel(title: "Acknowledgements", subtitle: "The people whose work is on the map") {
+            PanelSection(title: "THE MAP") {
+                credit(
+                    title: "Mapbox",
+                    detail: """
+                    The map is drawn by the Mapbox Maps SDK, with cartography \
+                    and imagery © Mapbox. The ⓘ in the map's corner lists every \
+                    source behind what is on screen.
+                    """
+                )
+
+                PanelDivider()
+
+                credit(
+                    title: "OpenStreetMap",
+                    detail: """
+                    Map data, and every runway, taxiway and stand drawn at a \
+                    field, © OpenStreetMap contributors, available under the \
+                    Open Database Licence.
+                    """
+                )
+            }
+
             PanelSection(title: "AIRCRAFT MARKS") {
                 credit(
                     title: "Virtual Radar Server",

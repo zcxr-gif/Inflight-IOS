@@ -608,8 +608,8 @@ struct ContentView: View {
         return FlightWindowPaneMetrics.leadingInset(for: flightPlacement, in: mapAreaSize)
     }
 
-    /// How far up the map has to hold Apple's "Legal" link so the app's own
-    /// chrome is not sitting on it.
+    /// How far up the map has to hold the Mapbox logo and attribution so the
+    /// app's own chrome is not sitting on them.
     ///
     /// The same bottom edge the camera keeps clear of, plus the stats card
     /// while it is up. The card *is* counted here and deliberately is not
@@ -793,14 +793,14 @@ struct ContentView: View {
         .ignoresSafeArea()
     }
 
-    /// The map underneath everything: MapKit, or the planet the app draws
+    /// The map underneath everything: Mapbox, or the planet the app draws
     /// itself.
     ///
     /// One layer swapped for another inside the same stack, and that is the
     /// whole design. Everything over the top of this — the search field, the
     /// weather chip, the hub, the toolbar, the dock, every panel and the flight
     /// window — is chrome that talks to `selection`, `sheet` and the feed
-    /// rather than to MapKit, so it does not know or care which of the two is
+    /// rather than to the map, so it does not know or care which of the two is
     /// underneath it and goes on working either way.
     @ViewBuilder
     private var mapLayer: some View {
@@ -810,7 +810,7 @@ struct ContentView: View {
     /// Whether the map is the drawn planet. See `MapProjection.planet`.
     private var isPlanetMap: Bool { appearance.resolvedMapStyle.isDrawn }
 
-    /// The drawn planet, standing where MapKit usually does.
+    /// The drawn planet, standing where Mapbox usually does.
     private var planet: some View {
         PlanetSurface(
             weather: mapWeather,
@@ -2141,7 +2141,7 @@ struct ContentView: View {
     private var weatherControl: some View {
         // On both shapes of the world now. This used to be hidden on the
         // planet, on the reasoning that the radar, the satellite and the barbs
-        // are MapKit overlays and the planet is not MapKit — which was true,
+        // are the map's own layers and the planet is not the map — which was true,
         // and which is why the planet drew none of them. It draws all of them
         // now: see `GlobeWeather`, where the tiles are read backwards onto the
         // sphere a pixel at a time because no transform will put them there.
@@ -2258,7 +2258,7 @@ struct ContentView: View {
     /// again.
     private func select(_ projection: MapProjection) {
         appearance.mapProjection = projection
-        // The ruler is a pair of MapKit annotations, so a measurement in
+        // The ruler is a pair of points on the map's own layers, so a measurement in
         // progress has nowhere to be on the drawn planet. Put away rather than
         // left up over a map that cannot answer it.
         if projection.isDrawn { measurement = MapMeasurement() }
@@ -2510,7 +2510,7 @@ struct ContentView: View {
                 // shape of somewhere.
                 //
                 // Gone on the planet, where the two ends of a measurement would
-                // be MapKit annotations on a map that is not there.
+                // be points on a map that is not there.
                 if !isPlanetMap {
                     Rectangle()
                         .fill(theme.stroke)

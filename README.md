@@ -1,6 +1,6 @@
 # Inflight — native iOS tracker
 
-A bare-bones, fully native iOS rebuild of the Inflight tracker: SwiftUI + MapKit,
+A bare-bones, fully native iOS rebuild of the Inflight tracker: SwiftUI + the Mapbox Maps SDK,
 no web view, no Capacitor. It reads the same live traffic feed and draws the same
 plane icons as the original tracker.
 
@@ -8,7 +8,7 @@ The previous Capacitor/web build is preserved untouched in [`old/`](old/).
 
 ## What the app does
 
-- Live map of every aircraft on the selected server (MapKit — no API key, no tiles to pay for).
+- Live map of every aircraft on the selected server, drawn by Mapbox on the GPU: every aeroplane is one feature in one GeoJSON source and one symbol layer, turned to its heading by the GPU against the map itself, so pinching, panning and spinning the globe move the camera and nothing else — at up to 120 Hz on a ProMotion screen. Between packets only the aeroplanes that visibly moved are rewritten, through Mapbox's partial GeoJSON updates. See [Mapbox](#mapbox) below for the token.
 - The original sprite-sheet plane icons, picked per aircraft type and rotated to true heading.
 - **The traffic flies.** The server reports positions every few seconds; between those, an airborne aircraft carries on at the heading and ground speed it last reported, so an aeroplane crosses the map instead of jumping across it. A packet landing is never a jump either — the correction is spent as a slight change of pace along the aircraft's own track, so nothing ever slides sideways or stops. Aircraft on the ground are drawn exactly where they were reported, and the whole thing costs nothing at a zoom where the movement would be invisible. Settings › Appearance › Fly the traffic turns it off, and Reduce Motion turns it off for you.
 - Tap an aircraft for callsign, pilot, type/livery, route, altitude, ground speed, vertical speed and heading. The sheet keeps updating while it's open, and the map can be set to follow the aircraft as it flies.
@@ -29,11 +29,11 @@ The previous Capacitor/web build is preserved untouched in [`old/`](old/).
 - Filters: phase, altitude band, aircraft kind (airliners, regional, light & private, military, helicopters), and filed-destination-only. All of them views onto traffic already received, so nothing is re-fetched.
 - Server switcher: Expert / Training / Casual.
 - Hints: one dim line at the foot of a screen, about that screen. Each retires after a few sessions or when dismissed; the whole thing can be switched off, or restored, under Settings.
-- Map styles, from the control in the map's bottom corner or Settings › Appearance: Muted (the default), Detailed, Satellite, and **Globe** — MapKit's own 3D planet, free to spin and tilt, with the server's traffic on it. The globe is the only style that unlocks rotation, and sprite headings are corrected against the camera so a spun planet doesn't turn every aircraft on it.
-- **The planet**, the app's own drawn globe, standing where MapKit usually does — with the traffic, the fields, the filed route, the flown track and the organised tracks on it. Free, and deliberately: it fetches nothing, and a shape of the world nobody can look at is one nobody can want. **Editing it is Pro** — ten colours, five skies behind it, and silhouettes instead of dots — under Settings › Map or the map's own corner control. A free account gets the planet in the look it has always opened on, and a lapsed subscription drops back to that look without forgetting the colour you picked.
+- Map styles, from the control in the map's bottom corner or Settings › Appearance: Muted (the default, Mapbox Standard's faded theme), Detailed, Satellite, and **Globe** — Mapbox's globe projection in imagery, free to spin and tilt, easing seamlessly into the flat map as you zoom in, with the server's traffic on it. The globe is the only style that unlocks rotation; sprites are rotated against the map on the GPU, so a spun or tilted planet never turns the aircraft on it. Light/dark and muted/detailed are configuration on the loaded Mapbox style, so switching them cross-fades rather than reloading the map.
+- **The planet**, the app's own drawn globe, standing where Mapbox usually does — with the traffic, the fields, the filed route, the flown track and the organised tracks on it. Free, and deliberately: it fetches nothing, and a shape of the world nobody can look at is one nobody can want. **Editing it is Pro** — ten colours, five skies behind it, and silhouettes instead of dots — under Settings › Map or the map's own corner control. A free account gets the planet in the look it has always opened on, and a lapsed subscription drops back to that look without forgetting the colour you picked.
 - **The airline's own colour on the flight window**, under Settings › Appearance. The window's hairline edges, its dividers and the few pieces already drawn in the accent — the filled tile, the progress fill, the badge on the route — take the colour of the airline whose aeroplane is open, and nothing else does: the ground, the cards and the type are untouched, so it reads as a window with an airline's colour on its edges rather than as a poster for that airline. Brand colours are the same ones the web tracker holds, pulled into a lightness the window can actually draw a hairline in; a livery there is no colour for gets none, and the switch turns the whole thing off.
 - **Figures that change rather than twitch.** Every readout the feed drives — the telemetry tiles, the distance to run, the counts on the toolbar and in the stats — rolls the digits that moved and leaves the ones that did not, and every label that swaps a word for another crosses into it. One vocabulary of movement (`Motion`), honoured everywhere, and switched off entirely by Reduce Motion.
-- Light and dark, under Settings › Appearance: Auto follows iOS, or pin it either way. Every surface — the panels, the floating chrome, the info window, and MapKit's own cartography — turns together.
+- Light and dark, under Settings › Appearance: Auto follows iOS, or pin it either way. Every surface — the panels, the floating chrome, the info window, and Mapbox's own cartography — turns together.
 - Your profile is one tap from anywhere on the map — the avatar top right stays put while you are watching an aeroplane, and opens your page as other pilots see it. Hold it for your account and for Pro.
 - An optional account, on the same Supabase project the web tracker uses, so an account made on inflight.info signs in here. **Sign in with Apple**, or an email and password. Sign up, reset a password, delete the account.
 - Inflight Pro, sold in the app and only in the app: a year or a month. (The one-off lifetime unlock earlier builds sold is retired, and still honoured for everyone who bought one.) A web subscription (or the grandfathered `legacy_pro` flag) unlocks the same things, for anyone who already has one, and a purchase made here unlocks Pro on inflight.info too. Setup that has to happen outside the repo is in [`ios-native/PRO.md`](ios-native/PRO.md). Only plans the App Store has confirmed it sells are ever shown.
@@ -49,7 +49,7 @@ ios-native/
     App/                          Entry point + configuration constants
     Models/Flight.swift           Feed payload decoding
     Services/LiveFeed.swift       Socket.IO client
-    Map/                          Icon drawing, annotations, MKMapView wrapper
+    Map/                          Icon drawing, Mapbox map view and its layers
     Views/                        SwiftUI screens
     Resources/                    airports.txt, app icon
   Support/Inflight.storekit       StoreKit config, for testing Pro in the simulator
@@ -65,7 +65,7 @@ There is nothing to open in Xcode and no `.xcodeproj` in the repo — Codemagic
 generates it on every build:
 
 1. `xcodegen generate` turns `ios-native/project.yml` into `InflightTracker.xcodeproj`
-2. the generated project is verified (scheme, SocketIO package, icon resources)
+2. the generated project is verified (scheme, SocketIO and MapboxMaps packages, the Mapbox token, icon resources)
 3. Swift packages resolve, build number is set from `$BUILD_NUMBER`
 4. Codemagic's App Store Connect integration signs it, and the IPA is submitted to TestFlight
 
@@ -74,6 +74,29 @@ same one the old build used, so signing and the TestFlight app record work as-is
 
 To change project settings — deployment target, capabilities, dependencies, build
 settings — edit `ios-native/project.yml`. It is plain YAML and needs no Mac.
+
+### Mapbox
+
+The map is the [Mapbox Maps SDK for iOS](https://github.com/mapbox/mapbox-maps-ios),
+pinned to an exact release in `project.yml` (the weather layer uses a custom raster
+source, which Mapbox still marks experimental). The SDK downloads from Swift Package
+Manager with no secret token; the app needs a **public** access token at run time,
+which Mapbox reads from `MBXAccessToken` in `Support/Info.plist`.
+
+That entry is the `MAPBOX_ACCESS_TOKEN` build setting. `project.yml` carries a
+default — the public token the web tracker shipped with — and Codemagic replaces it
+with the `MAPBOX_ACCESS_TOKEN` environment variable whenever that is set. To use a
+dedicated iOS token, create a public token in the Mapbox account **without URL
+restrictions** (URL-restricted tokens only work from browsers) and add it to the
+Codemagic workflow as `MAPBOX_ACCESS_TOKEN`; the build refuses anything that is not
+a `pk.` token, because whatever goes in here ships inside the app.
+
+The map is a Mapbox style plus the app's own layers on top, defined in
+`ios-native/InflightTracker/Map/MapLayerStyle.swift`. Every aeroplane, route, field,
+runway, airspace, night band and wind barb is GeoJSON in a source and a style layer
+over it, drawn on the GPU; the radar and cloud tiles go through the app's own
+rate-limited loader (`WeatherTileLoader`) into a custom raster source, so the
+RainViewer budget still applies.
 
 ## App Store paperwork
 

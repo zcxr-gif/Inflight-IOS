@@ -693,7 +693,7 @@ final class GlobeScene: ObservableObject {
         // should have to give way to it.
         //
         // Outlined, not filled. The flat map washes the inside of a staffed
-        // sector, which it can because MapKit clips a polygon to the viewport;
+        // sector, which it can because Mapbox clips a polygon to its tiles;
         // here a sector crossing the limb is a ring the horizon cuts in half,
         // and the honest closed shape to fill it with does not exist. The
         // outline is what makes an FIR readable anyway — the wash only says
