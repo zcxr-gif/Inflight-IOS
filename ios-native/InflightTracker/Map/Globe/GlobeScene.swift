@@ -505,7 +505,9 @@ final class GlobeScene: ObservableObject {
                 // map. See `Flight.originTint`.
                 tint: highlighting.tint(for: flight.username) ?? flight.originTint,
                 isOpen: flight.id == openFlightId,
-                callsign: flight.callsign,
+                // The written form, without the spoken wake category — see
+                // `Flight.mapCallsign`. The VA lookup below keeps the full one.
+                callsign: flight.mapCallsign,
                 // Asking is also what starts the download, which is why the
                 // picture is asked for here and read back by id when it is
                 // drawn — see `VaMarkStore.mark(id:)`.

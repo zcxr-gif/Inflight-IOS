@@ -1020,6 +1020,21 @@ enum FlightDetailLook {
         return name
     }
 
+    /// The aircraft by its full name and the operator whose paint it wears —
+    /// "Boeing 787-8 · Avianca". The livery is left off when it only repeats
+    /// the type, which is what an unpainted default livery is called.
+    static func aircraftLine(_ flight: Flight) -> String {
+        let name = flight.aircraftName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let livery = flight.liveryName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        var parts: [String] = []
+        if !name.isEmpty { parts.append(name) }
+        if !livery.isEmpty, livery.caseInsensitiveCompare(name) != .orderedSame {
+            parts.append(livery)
+        }
+        return parts.isEmpty ? "Unknown aircraft" : parts.joined(separator: " · ")
+    }
+
     static func elapsed(since date: Date) -> String {
         let interval = Date().timeIntervalSince(date)
         guard interval.isFinite, interval >= 60 else { return "0:00" }

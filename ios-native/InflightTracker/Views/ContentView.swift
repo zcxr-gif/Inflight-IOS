@@ -689,7 +689,13 @@ struct ContentView: View {
     /// planet made redundant.
     private static let mapControlRows = 2
     private static let mapControlsHeight: CGFloat =
-        42 * CGFloat(mapControlRows) + CGFloat(mapControlRows - 1)
+        mapControlSide * CGFloat(mapControlRows) + CGFloat(mapControlRows - 1)
+
+    /// Every control over the map is this square: each row of the stacks, the
+    /// find-me card, the weather button and the avatar. The rows used to be
+    /// two points shorter than the cards beside them, which is the kind of
+    /// difference nobody can name and everybody can see.
+    private static let mapControlSide: CGFloat = 44
 
     /// A replay is driving the camera down the old track; following the live
     /// aircraft at the same time would be two things fighting over one map.
@@ -1109,7 +1115,9 @@ struct ContentView: View {
             // the sheet collapsing to a constant and growing back for no
             // reason anybody could see, which is exactly what it looked like.
             if wasOpen == nil {
-                peakHeight = FlightInfoLayout.openingHeight(for: appearance.resolvedPeakStyle)
+                peakHeight = FlightInfoLayout.detent(
+                    forSheetHeight: FlightInfoLayout.openingHeight(for: appearance.resolvedPeakStyle)
+                )
             }
 
             // The field is on its way out, and it should come back empty rather
@@ -2596,12 +2604,11 @@ struct ContentView: View {
 
     private var findMeLabel: some View {
         Image(systemName: entitlements.has(.findMyAircraft) ? "location.magnifyingglass" : "lock")
-            // The same fourteen every other glyph over the map is set at. Its
-            // cell is a point taller because it is a card on its own rather
-            // than a row in the stack, but the glyph in it is not.
-            .font(.system(size: 14, weight: .semibold))
+            // The same glyph size and the same square as every other control
+            // over the map. See `mapControlSide`.
+            .font(.system(size: 15, weight: .semibold))
             .foregroundStyle(theme.textPrimary)
-            .frame(width: 44, height: 44)
+            .frame(width: Self.mapControlSide, height: Self.mapControlSide)
             .contentShape(Rectangle())
     }
 
@@ -2749,9 +2756,9 @@ struct ContentView: View {
     /// them lit up far more often than the other.
     private func mapControlFace(_ symbol: String, isOn: Bool) -> some View {
         Image(systemName: symbol)
-            .font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(theme.textPrimary)
-            .frame(width: 44, height: 42)
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(isOn ? theme.accent : theme.textPrimary)
+            .frame(width: Self.mapControlSide, height: Self.mapControlSide)
             .background {
                 // On is a wash of the accent, not a block of it.
                 //

@@ -128,7 +128,7 @@ struct VaPartnerLine: View {
     private func line(_ partner: VaPartner) -> some View {
         HStack(spacing: 6) {
             Text(kicker(for: partner.basis))
-                .font(.system(size: 8.5, weight: .bold))
+                .font(FlightInfoType.kicker)
                 .tracking(0.9)
                 .foregroundStyle(theme.textDim)
                 .fixedSize()
@@ -139,10 +139,10 @@ struct VaPartnerLine: View {
             // airline's mark says "this is that airline" before it has said
             // "VA". The kicker gets read first; the mark and the name then
             // arrive together as the one thing they describe.
-            VaLogoMark(ad: partner.ad, side: 16)
+            VaLogoMark(ad: partner.ad, side: 18)
 
             Text(partner.ad.name)
-                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .font(.system(size: 12.5, weight: .bold, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
                 .flightInfoLine(minimumScale: 0.7)
 
@@ -150,7 +150,7 @@ struct VaPartnerLine: View {
             // chevron is a promise the line doesn't keep.
             if onOpen != nil {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 8, weight: .bold))
+                    .font(.system(size: 9, weight: .bold))
                     .foregroundStyle(theme.textDim)
             }
         }

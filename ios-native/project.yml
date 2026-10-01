@@ -14,13 +14,26 @@ packages:
   SocketIO:
     url: https://github.com/socketio/socket.io-client-swift
     from: "16.1.1"
+  # The map. Vector tiles drawn on the GPU by Metal, with an on-disk tile
+  # cache, rather than MapKit's raster-ish pipeline that blanks to grey
+  # squares on every zoom. Pinned to the minor version the map code was
+  # written against: Mapbox renames style and annotation API between minors
+  # often enough that a floating `from:` is a compile break waiting to land.
+  MapboxMaps:
+    url: https://github.com/mapbox/mapbox-maps-ios.git
+    minorVersion: "11.26.0"
 
 settings:
   base:
     # Must stay above the Capacitor build's 1.0. TestFlight groups builds by
     # this string and iOS only offers an update when it actually increases —
     # 1.0.0 reads as equal to 1.0, so testers never saw an update prompt.
-    MARKETING_VERSION: "1.1.0"
+    #
+    # Raise it after every App Store approval. Once a version is approved,
+    # App Store Connect closes its train and refuses any further upload under
+    # it (ITMS-90062 / ITMS-90186) — the archive builds and signs, and only
+    # the publishing step fails. 1.1.0 was approved; this is the next one.
+    MARKETING_VERSION: "1.2.0"
     CURRENT_PROJECT_VERSION: "1"
     VERSIONING_SYSTEM: apple-generic
     SWIFT_VERSION: "5.0"
@@ -50,6 +63,8 @@ targets:
     dependencies:
       - package: SocketIO
         product: SocketIO
+      - package: MapboxMaps
+        product: MapboxMaps
       - target: InflightWidgets
         embed: true
 

@@ -40,6 +40,12 @@ workflows:
         certificates:
           - inflight_distribution_cert
 
+      # MAPBOX_ACCESS_TOKEN — the map's public (pk.) token — is kept in a
+      # Codemagic variable group called `mapbox` (App settings -> Environment
+      # variables), never in the repository. See the "Mapbox token" step.
+      groups:
+        - mapbox
+
       vars:
         XCODE_PROJECT_DIR: "ios-native"
         XCODE_PROJECT: "InflightTracker.xcodeproj"
@@ -111,6 +117,10 @@ workflows:
           # package reference shows up as confusing 'no such module' errors.
           if ! grep -q 'socket.io-client-swift' "$XCODE_PROJECT/project.pbxproj"; then
             echo "FATAL: SocketIO package reference missing from project.pbxproj."
+            exit 1
+          fi
+          if ! grep -q 'mapbox-maps-ios' "$XCODE_PROJECT/project.pbxproj"; then
+            echo "FATAL: MapboxMaps package reference missing from project.pbxproj."
             exit 1
           fi
 
@@ -280,6 +290,36 @@ workflows:
             fi
             echo "==> $TARGET signs with: $SPECIFIER"
           done
+
+      - name: Mapbox token
+        script: |
+          set -euo pipefail
+
+          # The map draws nothing without it, and nothing fails to say so: a
+          # missing token is a 401 per tile and an empty canvas on every
+          # tester's phone, which looks exactly like a slow network. So the
+          # build that would ship that stops here instead.
+          if [ -z "${MAPBOX_ACCESS_TOKEN:-}" ]; then
+            echo "FATAL: MAPBOX_ACCESS_TOKEN is not set."
+            echo "Add it in Codemagic under App settings -> Environment variables,"
+            echo "in a group named 'mapbox' (the group codemagic.yaml imports)."
+            exit 1
+          fi
+          case "$MAPBOX_ACCESS_TOKEN" in
+            pk.*) ;;
+            *)
+              echo "FATAL: MAPBOX_ACCESS_TOKEN must be a public token (pk.…)."
+              echo "A secret (sk.…) token would be readable by anyone with the .ipa."
+              exit 1
+              ;;
+          esac
+
+          # Written into the builder's checkout only, never committed. Set
+          # directly rather than left to the $(MAPBOX_ACCESS_TOKEN) expansion,
+          # so the archive cannot depend on how xcodebuild inherits variables.
+          /usr/libexec/PlistBuddy -c "Set :MBXAccessToken $MAPBOX_ACCESS_TOKEN" \
+            "$XCODE_PROJECT_DIR/Support/Info.plist"
+          echo "==> Mapbox token written into Info.plist"
 
       - name: Build IPA (Signed)
         script: |

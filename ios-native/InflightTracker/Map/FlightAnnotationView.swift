@@ -108,7 +108,13 @@ final class FlightAnnotationView: MKAnnotationView {
     /// A callsign is typed by a pilot and some of them are very long indeed. A
     /// band wider than this stops being a label on an aeroplane and starts
     /// being a banner across the map.
-    private static let callsignMaxWidth: CGFloat = 108
+    ///
+    /// A hundred and thirty rather than the hundred and eight it was: an
+    /// airline name and a flight number ("Singapore 318", "Norwegian 7015")
+    /// run to about a hundred and twenty at this size, and at a hundred and
+    /// eight the last digits — the part that says which flight it is — were
+    /// the part that turned into an ellipsis.
+    private static let callsignMaxWidth: CGFloat = 130
 
     /// How the callsign is drawn, for one way round the map.
     private struct CallsignStyle {
