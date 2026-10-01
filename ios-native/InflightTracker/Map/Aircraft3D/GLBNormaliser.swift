@@ -90,7 +90,7 @@ enum GLBNormaliser {
     /// — every triangle of it — drawn larger than life when it is shorter
     /// than `farMinimumLength`: in true proportion to an airliner a light
     /// aircraft is a few points long on a zoomed-out map, and nobody can see
-    /// it. The map draws it until close enough for its real size to show.
+    /// it. The map draws light aircraft from this copy at every zoom.
     enum Detail {
         case near
         case far
