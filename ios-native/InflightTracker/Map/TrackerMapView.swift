@@ -282,6 +282,13 @@ struct TrackerMapView: UIViewRepresentable {
                 self?.cameraDidChange()
             }.store(in: &cancelables)
 
+            // A pinch that ends between two of the air path's rewrites still
+            // leaves it drawn for the zoom it came to rest at.
+            map.onMapIdle.observe { [weak self] _ in
+                self?.refreshAirPath(force: true)
+                self?.refreshSky(force: true)
+            }.store(in: &cancelables)
+
             // What lifts the opening screen — see `LaunchGate`. The map has its
             // style and the tiles it needed for the first frame, which is the
             // moment the app looks like a map.
@@ -362,6 +369,8 @@ struct TrackerMapView: UIViewRepresentable {
             isStyleLoaded = true
             images.removeAll()
             styleModels.removeAll()
+            appliedAirPath = nil
+            appliedSky = nil
 
             MapLayerStyle.install(on: map, labelMinZoom: labelMinZoom)
             registerStaticImages()
@@ -380,6 +389,8 @@ struct TrackerMapView: UIViewRepresentable {
             MapLayerStyle.applyWash(parent.style.wash, on: map)
             appliedWash = parent.style.wash
             applySelectionFilters(force: true)
+            applyAirPathLayers()
+            refreshSky(force: true)
 
             cameraDidChange()
             update()
@@ -429,6 +440,7 @@ struct TrackerMapView: UIViewRepresentable {
             syncTrafficIfNeeded()
             syncAirports(on: map)
             applySelectionFilters(force: false)
+            applyAirPathLayers()
             syncRoute(on: map)
             syncReplay(on: map)
             syncGround(on: map)
@@ -527,6 +539,7 @@ struct TrackerMapView: UIViewRepresentable {
 
             if schemeChanged {
                 MapLayerStyle.applyScheme(isLight: scheme == .light, on: map)
+                refreshSky(force: true)
                 // The pieces of the map whose colours are baked into their
                 // features rather than their layers: the night, the fixes and
                 // the barbs are drawn per scheme, and the pavement per ground.
@@ -1220,16 +1233,14 @@ struct TrackerMapView: UIViewRepresentable {
             let now = CACurrentMediaTime()
             let pitch: Double
             let bank: Double
-            let height: Double
             if let own = ownAttitude, own.flightId == marker.flightId {
                 pitch = own.pitch
                 bank = own.bank
-                height = own.heightMetres ?? marker.attitude.heightMetres(at: now)
             } else {
                 pitch = marker.attitude.pitch(at: now)
                 bank = marker.attitude.bank(at: now)
-                height = marker.attitude.heightMetres(at: now)
             }
+            let height = modelHeight(for: marker, at: now)
             marker.writtenBank = bank
 
             let pose = AircraftModelStyle.properties(
@@ -1241,6 +1252,16 @@ struct TrackerMapView: UIViewRepresentable {
             for (key, values) in pose {
                 properties[key] = JSONValue.array(values.map { JSONValue.number($0) })
             }
+        }
+
+        /// How high a model is flown, in metres above the ground: the
+        /// simulator's own height for the aeroplane flown here, and the feed's
+        /// for everything else.
+        private func modelHeight(for marker: FlightMarker, at now: CFTimeInterval) -> Double {
+            if let own = ownAttitude, own.flightId == marker.flightId, let height = own.heightMetres {
+                return height
+            }
+            return marker.attitude.heightMetres(at: now)
         }
 
         /// The aeroplane being flown here, from Connect: its real pitch and
@@ -1548,6 +1569,7 @@ struct TrackerMapView: UIViewRepresentable {
             let nextFixKey: String = nextFix?.description ?? "-"
             let schemeKey: String = isLight ? "light" : "dark"
             let pathKey: String = parent.showsFlownPath ? "path" : "nopath"
+            let airKey: String = isAirPathOn ? "air" : "flat"
             let taxiKey: String = taxiways.map { "\($0.icao)/\($0.edgeCount)" }.joined(separator: "+")
 
             let parts: [String] = [
@@ -1563,6 +1585,7 @@ struct TrackerMapView: UIViewRepresentable {
                 pathKey,
                 taxiKey,
                 schemeKey,
+                airKey,
             ]
             let key = parts.joined(separator: "|")
 
@@ -1589,6 +1612,8 @@ struct TrackerMapView: UIViewRepresentable {
             }
 
             flownTail = nil
+            airRuns = []
+            airTailHeight = nil
             var inferred: [Feature] = []
             var runs: [Feature] = []
 
@@ -1597,18 +1622,38 @@ struct TrackerMapView: UIViewRepresentable {
                 // `GroundTrack`.
                 let drawn = GroundTrack.following(flown, on: taxiways)
 
+                let bands = FlownPath.heightBands(of: drawn.points)
+
+                // Beside the 3D aircraft the path is drawn at the heights it
+                // was flown at — see `FlownPathProfile`.
+                var heights: [Double] = []
+                if isAirPathOn {
+                    let profile = FlownPathProfile.heights(of: drawn.points, bands: bands)
+                    heights = profile.heights
+                    if let ground = profile.groundFeet { markers[flight.id]?.adoptGroundAltitude(ground) }
+                }
+
                 if let path = FlownPath(
                     points: drawn.points,
-                    bands: FlownPath.heightBands(of: drawn.points),
-                    onPavement: drawn.onPavement
+                    bands: bands,
+                    onPavement: drawn.onPavement,
+                    heights: heights
                 ) {
                     for (index, run) in path.runs.enumerated() {
-                        runs.append(Self.lineFeature(run.coordinates, id: "run-\(index)", [
+                        let feature = Self.lineFeature(run.coordinates, id: "run-\(index)", [
                             "color": .string(MapLayerStyle.rgba(run.color)),
                             "halo": .string(MapLayerStyle.rgba(FlownPathStyle.halo(for: run.color))),
-                        ]))
+                        ])
+                        runs.append(feature)
+                        if !run.heights.isEmpty {
+                            airRuns.append(AirRun(
+                                feature: feature,
+                                profile: FlownPathProfile.resampled(run.coordinates, heights: run.heights)
+                            ))
+                        }
                     }
                     flownTail = (path.tail, path.tailColor)
+                    airTailHeight = path.tailHeight
                 }
 
                 // Before we were watching: departure to the first point we
@@ -1620,6 +1665,12 @@ struct TrackerMapView: UIViewRepresentable {
                 }
             }
 
+            if !airRuns.isEmpty {
+                airHighest = airRuns.flatMap(\.profile).max() ?? 0
+                airWrittenZoom = zoom
+                airWrittenAt = CACurrentMediaTime()
+                runs = liftedAirRuns(atZoom: zoom)
+            }
             push(runs, to: Source.flown)
             push(inferred, to: Source.inferred)
             flownHeadWritten = nil
@@ -1650,6 +1701,8 @@ struct TrackerMapView: UIViewRepresentable {
             renderedRouteKey = nil
             flownTail = nil
             flownHeadWritten = nil
+            airRuns = []
+            airTailHeight = nil
             for source in [Source.plan, Source.flown, Source.flownHead, Source.inferred, Source.fixes] {
                 clear(source)
             }
@@ -1736,17 +1789,133 @@ struct TrackerMapView: UIViewRepresentable {
             }
 
             let head = marker.coordinate
+
+            // In the air, from where the path ends to where the model is
+            // drawn — the path at the zoom it was last written for, the model
+            // at this one, so the two stay joined through a pinch.
+            var elevation: [Double]?
+            if isAirPathOn, let tailHeight = airTailHeight {
+                let start = AircraftModelStyle.drawnLift(heightMetres: tailHeight, atZoom: airWrittenZoom)
+                let end = AircraftModelStyle.drawnLift(
+                    heightMetres: modelHeight(for: marker, at: CACurrentMediaTime()), atZoom: zoom
+                )
+                elevation = [(start * 10).rounded() / 10, (end * 10).rounded() / 10]
+            }
+
             if let written = flownHeadWritten,
-               FlightMotion.pointsApart(written, head, pointsPerMetre: pointsPerMetre) < 0.2 {
+               FlightMotion.pointsApart(written, head, pointsPerMetre: pointsPerMetre) < 0.2,
+               !Self.elevationMoved(from: flownHeadElevation, to: elevation) {
                 return
             }
             flownHeadWritten = head
+            flownHeadElevation = elevation
 
             let end = GreatCircle.unwrapped(head, after: tail.coordinate)
-            push([Self.lineFeature([tail.coordinate, end], [
+            var properties: JSONObject = [
                 "color": .string(MapLayerStyle.rgba(tail.color)),
                 "halo": .string(MapLayerStyle.rgba(FlownPathStyle.halo(for: tail.color))),
-            ])], to: Source.flownHead)
+            ]
+            if let elevation {
+                properties["elevation"] = .array(elevation.map { JSONValue.number($0) })
+            }
+            push([Self.lineFeature([tail.coordinate, end], properties)], to: Source.flownHead)
+        }
+
+        /// The heights the head was last written with.
+        private var flownHeadElevation: [Double]?
+
+        /// Whether either end of the head has moved up or down by enough to
+        /// be worth a rewrite: a metre, or half a percent of the height.
+        private static func elevationMoved(from old: [Double]?, to new: [Double]?) -> Bool {
+            guard let old, let new, old.count == new.count else { return old != new }
+            return zip(old, new).contains { abs($0 - $1) > max(1, abs($0) * 0.005) }
+        }
+
+        // MARK: The path in the air
+
+        /// Whether the flown path is drawn at its heights: with the 3D
+        /// aircraft, and on the flat map — Mapbox lifts lines off a flat map
+        /// only.
+        private var isAirPathOn: Bool {
+            parent.aircraftModels != .off && parent.style.projection != .globe
+        }
+
+        private var appliedAirPath: Bool?
+
+        /// One run of the path, as written to the map without its heights,
+        /// and its heights sampled evenly along it, before the cap.
+        private struct AirRun {
+            let feature: Feature
+            let profile: [Double]
+        }
+
+        private var airRuns: [AirRun] = []
+        private var airTailHeight: Double?
+        private var airHighest = 0.0
+        private var airWrittenZoom = 0.0
+        private var airWrittenAt: CFTimeInterval = 0
+
+        private func applyAirPathLayers() {
+            guard let map = map, isStyleLoaded else { return }
+            let isOn = isAirPathOn
+            guard isOn != appliedAirPath else { return }
+            appliedAirPath = isOn
+            MapLayerStyle.applyAirPath(isOn, on: map)
+        }
+
+        private func liftedAirRuns(atZoom zoom: Double) -> [Feature] {
+            airRuns.map { run in
+                var feature = run.feature
+                var properties = feature.properties ?? [:]
+                properties["elevation"] = .array(FlownPathProfile.lifted(run.profile, atZoom: zoom).map { JSONValue.number($0) })
+                feature.properties = properties
+                return feature
+            }
+        }
+
+        /// Rewrites the path's heights for the zoom the map is at now, when
+        /// the cap they were written under has moved by enough to see — which
+        /// for a track that never climbs above the cap is never. A few times a
+        /// second at most while the fingers are on the map, and once more
+        /// where they leave it.
+        private func refreshAirPath(force: Bool) {
+            guard !airRuns.isEmpty, isAirPathOn, isStyleLoaded else { return }
+            let now = CACurrentMediaTime()
+            guard force || now - airWrittenAt > 0.25 else { return }
+            let before = AircraftModelStyle.drawnLift(heightMetres: airHighest, atZoom: airWrittenZoom)
+            let after = AircraftModelStyle.drawnLift(heightMetres: airHighest, atZoom: zoom)
+            guard abs(after - before) > max(before * (force ? 0.002 : 0.03), 1) else { return }
+            airWrittenZoom = zoom
+            airWrittenAt = now
+            push(liftedAirRuns(atZoom: zoom), to: Source.flown)
+            flownHeadWritten = nil
+        }
+
+        // MARK: The sky
+
+        private var appliedSky: SkyStyle.Palette?
+        private var skyCheckedAt: CFTimeInterval = 0
+
+        /// The real sky over wherever the map is looking — see `SkyStyle`.
+        /// Looked at every few seconds and on every settle; written only when
+        /// it has changed by enough to see.
+        private func refreshSky(force: Bool) {
+            guard let map = map, isStyleLoaded else { return }
+            let now = CACurrentMediaTime()
+            guard force || now - skyCheckedAt > 5 else { return }
+            skyCheckedAt = now
+            let palette = SkyStyle.palette(at: map.cameraState.center, isLight: isLight)
+            if let applied = appliedSky, !Self.skyMoved(from: applied, to: palette) { return }
+            appliedSky = palette
+            try? map.setAtmosphere(properties: SkyStyle.atmosphere(palette))
+        }
+
+        private static func skyMoved(from old: SkyStyle.Palette, to new: SkyStyle.Palette) -> Bool {
+            func apart(_ a: SkyStyle.RGB, _ b: SkyStyle.RGB) -> Double {
+                max(abs(a.red - b.red), abs(a.green - b.green), abs(a.blue - b.blue))
+            }
+            return apart(old.horizon, new.horizon) > 2 || apart(old.high, new.high) > 2
+                || apart(old.space, new.space) > 2 || abs(old.stars - new.stars) > 0.02
         }
 
         /// The line from the open aircraft to where it is going, and what it
@@ -2501,8 +2670,10 @@ struct TrackerMapView: UIViewRepresentable {
             // whichever way this one ends.
             defer { followSelection() }
 
+            refreshAirPath(force: false)
             updateFlownHead()
             syncDirectLine()
+            refreshSky(force: false)
             stepWindParticles(at: now)
             stepOwnModel()
 

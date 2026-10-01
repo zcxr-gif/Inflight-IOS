@@ -68,6 +68,19 @@ enum FlownPathStyle {
         return closeWidth + (farWidth - closeWidth) * CGFloat(travel)
     }
 
+    /// The path drawn in the air, beside the 3D aircraft: about two thirds
+    /// as wide as the one on the map. Up there it has nothing to hold its own
+    /// against — no runway edges, no coastline — and it is drawn from two
+    /// sides at once (see `MapLayerStyle.applyAirPath`), so a fine line reads
+    /// as a solid one.
+    static func airWidth(forCameraDistance distance: CLLocationDistance) -> CGFloat {
+        width(forCameraDistance: distance) * 0.7
+    }
+
+    /// How much of the flat path stays on the map under the one in the air,
+    /// as its shadow.
+    static let shadowOpacity = 0.3
+
     /// How far the halo stands out past the core, as a multiple of the core's
     /// width.
     ///
@@ -166,6 +179,9 @@ struct FlownPath {
     struct Run {
         let coordinates: [CLLocationCoordinate2D]
         let color: UIColor
+        /// Height above the ground at each coordinate, in metres, for the
+        /// path drawn in the air. Empty when no heights were given.
+        let heights: [Double]
     }
 
     let runs: [Run]
@@ -175,6 +191,8 @@ struct FlownPath {
     /// `TrackerMapView.Coordinator.updateFlownHead`.
     let tail: CLLocationCoordinate2D
     let tailColor: UIColor
+    /// And the height it ends at, in metres, when heights were given.
+    let tailHeight: Double?
 
     /// At most this many samples are coloured individually.
     ///
@@ -198,12 +216,18 @@ struct FlownPath {
     /// the concrete. It is handed straight to the smoothing, which leaves those
     /// corners alone — see `PathSmoothing`. Empty means nothing is on pavement,
     /// which is every track drawn without the ground layout.
+    ///
+    /// `heights` is parallel too, when given: each sample's height above the
+    /// ground in metres — see `FlownPathProfile.heights(of:bands:)`. The
+    /// curve between two samples climbs smoothly from one to the next.
     init?(
         points: [TrackPoint],
         bands: [Int?],
-        onPavement: [Bool] = []
+        onPavement: [Bool] = [],
+        heights: [Double] = []
     ) {
         guard points.count >= 2, bands.count == points.count else { return nil }
+        let sampleHeights = heights.count == points.count ? heights : []
 
         // The colour at each *sample*, before the curve is drawn through them.
         let step = max(1, Int((Double(points.count) / Double(Self.maximumColourSamples)).rounded(.up)))
@@ -246,6 +270,7 @@ struct FlownPath {
         // one continuous line.
         var coordinates: [CLLocationCoordinate2D] = []
         var colors: [UIColor] = []
+        var curveHeights: [Double] = []
         coordinates.reserveCapacity(smoothed.coordinates.count)
         colors.reserveCapacity(smoothed.coordinates.count)
         for (index, coordinate) in smoothed.coordinates.enumerated() {
@@ -254,6 +279,11 @@ struct FlownPath {
             let continuous = coordinates.last.map { GreatCircle.unwrapped(coordinate, after: $0) } ?? coordinate
             coordinates.append(continuous)
             colors.append(sampleColors[origin])
+            if !sampleHeights.isEmpty {
+                curveHeights.append(FlownPathProfile.height(
+                    at: coordinate, after: origin, of: points, heights: sampleHeights
+                ))
+            }
         }
         guard coordinates.count >= 2 else { return nil }
 
@@ -268,13 +298,18 @@ struct FlownPath {
             while end + 1 < segments, colors[end + 1] == colors[start] {
                 end += 1
             }
-            runs.append(Run(coordinates: Array(coordinates[start...(end + 1)]), color: colors[start]))
+            runs.append(Run(
+                coordinates: Array(coordinates[start...(end + 1)]),
+                color: colors[start],
+                heights: curveHeights.isEmpty ? [] : Array(curveHeights[start...(end + 1)])
+            ))
             start = end + 1
         }
 
         self.runs = runs
         self.tail = coordinates[coordinates.count - 1]
         self.tailColor = colors[colors.count - 1]
+        self.tailHeight = curveHeights.last
     }
 
     /// A sample's colour: the unknown grey where no height was sent, white

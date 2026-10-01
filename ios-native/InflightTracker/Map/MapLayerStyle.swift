@@ -49,6 +49,10 @@ enum MapLayerStyle {
         static let direct = "inflight-direct"
         static let flown = "inflight-flown"
         static let flownHead = "inflight-flown-head"
+        static let flownAirBlade = "inflight-flown-air-blade"
+        static let flownAir = "inflight-flown-air"
+        static let flownHeadAirBlade = "inflight-flown-head-air-blade"
+        static let flownHeadAir = "inflight-flown-head-air"
         static let measure = "inflight-measure"
         static let barbs = "inflight-barbs"
         static let fields = "inflight-fields"
@@ -131,6 +135,9 @@ enum MapLayerStyle {
             // not need the default's slack: a symbol is drawn whole across a
             // tile edge, and only lines and fills are clipped to their tiles.
             var tuning = frequent.contains(id) ? #", "buffer": 16"# : ""
+            // The flown path's heights are read off how far along it each
+            // vertex is, which Mapbox only works out when asked to.
+            if id == Source.flown || id == Source.flownHead { tuning += #", "lineMetrics": true"# }
             // And no deeper tiles than the data has detail for. Past a
             // source's maxzoom Mapbox overzooms the deepest tiles it made
             // instead of cutting new ones — which for a world-sized night band
@@ -212,6 +219,30 @@ enum MapLayerStyle {
         let modelScale = json(AircraftModelStyle.scaleExpression())
         let iconOpacity = json(AircraftModelStyle.iconOpacityExpression())
         let modelLift = json(AircraftModelStyle.liftExpression())
+        let airWidth = json(zoomRamp { FlownPathStyle.airWidth(forCameraDistance: $0) })
+        let airElevation = json(["case", ["has", "elevation"], FlownPathProfile.elevationExpression(), 0] as [Any])
+
+        // The flown path in the air, twice over: a ribbon lying level, which
+        // is what is seen from above, and a blade standing on edge, which is
+        // what is seen from the side. Together they read as one line from
+        // every angle, rather than one that thins to nothing as the map tilts.
+        func air(_ id: String, _ source: String, standing: Bool) -> String {
+            let shape = standing
+                ? #""line-cross-slope": 1"#
+                : #""line-cap": "round", "line-join": "round""#
+            return """
+            {
+                "id": "\(id)", "type": "line", "source": "\(source)", "slot": "top",
+                "layout": {
+                    "visibility": "none",
+                    "line-elevation-reference": "ground",
+                    "line-z-offset": \(airElevation),
+                    \(shape)
+                },
+                "paint": {"line-color": ["get", "color"], "line-width": \(airWidth)}
+            }
+            """
+        }
 
         func traffic(_ icon: String) -> String {
             """
@@ -479,6 +510,10 @@ enum MapLayerStyle {
                     "text-halo-blur": 0.6
                 }
             },
+            \(air(Layer.flownAirBlade, Source.flown, standing: true)),
+            \(air(Layer.flownAir, Source.flown, standing: false)),
+            \(air(Layer.flownHeadAirBlade, Source.flownHead, standing: true)),
+            \(air(Layer.flownHeadAir, Source.flownHead, standing: false)),
             {
                 "id": "\(Layer.trafficModels)", "type": "model", "source": "\(Source.traffic)",
                 "filter": ["has", "model"],
@@ -705,6 +740,25 @@ enum MapLayerStyle {
         for layer in [Layer.trafficLabels, Layer.selectedLabel] {
             set(layer, "icon-image", plate)
             set(layer, "text-color", ink)
+        }
+    }
+
+    /// The flown path drawn in the air, at the aeroplane's height, or flat on
+    /// the map. In the air, the flat path stays as its shadow on the ground:
+    /// faint, and the thing that shows how high the line above it is.
+    static func applyAirPath(_ isInAir: Bool, on map: MapboxMap) {
+        func set(_ layer: String, _ property: String, _ value: Any) {
+            guard map.layerExists(withId: layer) else { return }
+            try? map.setLayerProperty(for: layer, property: property, value: value)
+        }
+        for layer in [Layer.flownAirBlade, Layer.flownAir, Layer.flownHeadAirBlade, Layer.flownHeadAir] {
+            set(layer, "visibility", isInAir ? "visible" : "none")
+        }
+        for layer in [Layer.flown, Layer.flownHead] {
+            set(layer, "line-opacity", isInAir ? FlownPathStyle.shadowOpacity : 1)
+        }
+        for layer in [Layer.flownHalo, Layer.flownHeadHalo] {
+            set(layer, "line-opacity", isInAir ? 0 : Double(FlownPathStyle.glowOpacity))
         }
     }
 

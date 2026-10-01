@@ -27,6 +27,13 @@ final class FlightMarker {
     /// Pitch and bank for the 3D model, and the bank last written — see
     /// `AircraftAttitude`.
     private(set) var attitude = AircraftAttitude()
+
+    /// The field the aeroplane was last on the ground at, from its track,
+    /// when it has not been seen there live — so the model and its flown path
+    /// measure height from the same ground.
+    func adoptGroundAltitude(_ feet: Double) {
+        attitude.adoptGroundAltitude(feet)
+    }
     var writtenBank: Double?
 
     /// Dead reckoning between packets, while this aircraft is being smoothed.

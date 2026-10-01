@@ -102,6 +102,21 @@ enum AircraftModelStyle {
         return expression
     }
 
+    /// The height the lift expression above draws an aeroplane at, at a
+    /// zoom — worked out the same way Mapbox does, so the flown path can be
+    /// drawn to meet it (see `FlownPathProfile`).
+    static func drawnLift(heightMetres: Double, atZoom zoom: Double) -> Double {
+        let height = max(heightMetres, 0)
+        func at(_ index: Int) -> Double { min(height, liftCeiling(atZoom: liftZooms[index])) }
+        guard zoom > liftZooms[0] else { return at(0) }
+        for index in 1..<liftZooms.count where zoom <= liftZooms[index] {
+            let low = liftZooms[index - 1]
+            let share = (zoom - low) / (liftZooms[index] - low)
+            return at(index - 1) + (at(index) - at(index - 1)) * share
+        }
+        return at(liftZooms.count - 1)
+    }
+
     /// The per-aircraft half of the above, written into its feature.
     static func properties(
         heading: Double,
@@ -181,6 +196,13 @@ struct AircraftAttitude {
         let reportedHeight = onGround ? 0 : max(flight.altitudeFeet - (groundAltitudeFeet ?? 0), 0) * 0.3048
         let climb = onGround ? 0 : flight.verticalSpeedFPM * 0.3048 / 60
         height.report(reportedHeight, rate: climb, now: now)
+    }
+
+    /// A field altitude from elsewhere — the track — used until the feed
+    /// shows the aeroplane on the ground itself.
+    mutating func adoptGroundAltitude(_ feet: Double) {
+        guard groundAltitudeFeet == nil, feet.isFinite else { return }
+        groundAltitudeFeet = feet
     }
 
     func bank(at now: CFTimeInterval) -> Double { easedBank.value(at: now) }
