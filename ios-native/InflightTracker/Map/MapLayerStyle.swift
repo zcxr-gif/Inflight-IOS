@@ -144,7 +144,7 @@ enum MapLayerStyle {
         for layer in layers(labelMinZoom: labelMinZoom) {
             guard let id = layer["id"] as? String, !map.layerExists(withId: id) else { continue }
             do {
-                try map.addLayer(with: layer, layerPosition: nil)
+                try map.addLayer(with: selfLit(layer), layerPosition: nil)
             } catch {
                 NSLog("[Map] layer %@ could not be added: %@", id, String(describing: error))
             }
@@ -542,6 +542,25 @@ enum MapLayerStyle {
             return []
         }
         return parsed
+    }
+
+    /// A layer that ignores the basemap's lighting and shows its own colours.
+    ///
+    /// Mapbox Standard lights everything placed in its slots, and lines,
+    /// fills, circles, rasters and backgrounds take none of their own light
+    /// by default. Under the night preset — the Black palette, and Auto in
+    /// dark mode — that shades every track, taxiway and runway down to near
+    /// black. An emissive strength of one draws the colour as written.
+    /// Symbols already default to one.
+    static func selfLit(_ layer: [String: Any]) -> [String: Any] {
+        guard let type = layer["type"] as? String,
+              ["line", "fill", "circle", "raster", "background"].contains(type)
+        else { return layer }
+        var lit = layer
+        var paint = layer["paint"] as? [String: Any] ?? [:]
+        paint["\(type)-emissive-strength"] = 1
+        lit["paint"] = paint
+        return lit
     }
 
     /// JSON text to Foundation objects, the form Mapbox's style calls take.

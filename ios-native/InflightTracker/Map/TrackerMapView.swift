@@ -1793,7 +1793,7 @@ struct TrackerMapView: UIViewRepresentable {
                 ] as [String: Any],
             ]
             do {
-                try map.addLayer(with: definition, layerPosition: MapLayerStyle.position(below: below, on: map))
+                try map.addLayer(with: MapLayerStyle.selfLit(definition), layerPosition: MapLayerStyle.position(below: below, on: map))
             } catch {
                 NSLog("[Map] raster layer %@ could not be added: %@", layer, String(describing: error))
                 try? map.removeSource(withId: source)
