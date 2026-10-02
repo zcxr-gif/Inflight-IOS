@@ -4,14 +4,29 @@ import Foundation
 ///
 /// ## Size
 ///
-/// Real size, always, and never rescaled. Every model is stored in metres
-/// (see `GLBNormaliser`) and drawn at a scale of exactly one, with nothing
-/// in the layer that depends on the zoom: an aeroplane is fixed to the map
-/// the way the runway under it is, and an A380 is always twice an A320.
+/// Real size wherever real size can be seen, and never smaller on screen than
+/// can be seen — the way the 3D views of other trackers draw them. Every
+/// model is stored in metres (see `GLBNormaliser`).
 ///
-/// The model is drawn at every zoom, however small that makes it: pulled
-/// back, an aeroplane is a speck, exactly as big as it really is. The flat
-/// icon is only drawn for an aeroplane whose model has not arrived.
+/// - Close in, an aeroplane is exactly its real size, fixed to the map the
+///   way the runway under it is. From about zoom 15 an airliner is never
+///   rescaled at all.
+/// - Pulled back, real size is a speck, so the model is drawn larger than
+///   life: an A320 is held at `farLength` points long on screen, everything
+///   else in proportion to it, and nothing shorter than `shortestLength`
+///   points however small it really is.
+///
+/// The two meet where real size grows past the floor, so the change from one
+/// to the other cannot be seen. See `magnification`.
+///
+/// Mapbox does not support a zoom-dependent `model-scale` on a GeoJSON
+/// source — it bakes the value in when it lays a tile out — so the factor is
+/// worked out here and written into each aeroplane's feature (`msc`), and
+/// rewritten as the zoom moves for the aeroplanes whose factor changes: see
+/// `TrackerMapView`'s `refreshModelScale`. Close in, where everything is real
+/// size, nothing is rewritten at all.
+///
+/// The flat icon is only drawn for an aeroplane whose model has not arrived.
 ///
 /// ## Height
 ///
@@ -31,9 +46,35 @@ import Foundation
 /// right wing down is a positive y.
 enum AircraftModelStyle {
 
-    /// The model is drawn at real size: one.
+    /// How long an A320 is on screen, at least, in points. About the length
+    /// of its flat icon.
+    static let farLength = 19.0
+
+    /// The airliner `farLength` is measured on.
+    private static let referenceLength = 38.0
+
+    /// Nothing is drawn shorter than this on screen, in points — a light
+    /// aircraft in true proportion to an airliner would be four.
+    static let shortestLength = 10.0
+
+    /// Metres to a point at zoom zero, on Mapbox's 512-point world.
+    private static let metresPerPointAtZoomZero = 40_075_016.686 / 512
+
+    /// The factor a model `lengthMetres` long is drawn at, at a zoom, where
+    /// it is: one — real size — whenever real size is at least the floor,
+    /// and just enough larger to reach the floor when it is not. Mercator
+    /// draws a metre bigger away from the equator, so the floor is measured
+    /// in metres at the aeroplane's own latitude.
+    static func magnification(lengthMetres: Double, latitude: Double, zoom: Double) -> Double {
+        let metresPerPoint = metresPerPointAtZoomZero * max(cos(latitude * .pi / 180), 0.01) / pow(2, zoom)
+        let shared = farLength * metresPerPoint / referenceLength
+        let own = shortestLength * metresPerPoint / max(lengthMetres, 1)
+        return max(1, shared, own)
+    }
+
+    /// The scale, as each aeroplane's feature carries it.
     static func scaleExpression() -> [Any] {
-        ["literal", [1, 1, 1]]
+        ["get", "msc"]
     }
 
     /// Which model each aeroplane is drawn from: its own, at real size.
@@ -63,11 +104,13 @@ enum AircraftModelStyle {
         heading: Double,
         pitch: Double,
         bank: Double,
-        heightMetres: Double
+        heightMetres: Double,
+        scale: Double
     ) -> [String: [Double]] {
         [
             "mrot": [-pitch, bank, heading],
             "mt": [0, 0, drawnLift(heightMetres: heightMetres)],
+            "msc": [scale, scale, scale],
         ]
     }
 }

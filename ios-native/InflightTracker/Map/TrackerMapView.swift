@@ -286,6 +286,7 @@ struct TrackerMapView: UIViewRepresentable {
             // leaves it drawn for the zoom it came to rest at.
             map.onMapIdle.observe { [weak self] _ in
                 self?.refreshSky(force: true)
+                self?.refreshModelScale(force: true)
             }.store(in: &cancelables)
 
             // What lifts the opening screen — see `LaunchGate`. The map has its
@@ -1244,15 +1245,68 @@ struct TrackerMapView: UIViewRepresentable {
             }
             let height = modelHeight(for: marker, at: now)
             marker.writtenBank = bank
+            let scale = modelScale(for: marker)
+            writtenScale[marker.flightId] = scale
 
             let pose = AircraftModelStyle.properties(
                 heading: marker.drawnHeading,
                 pitch: pitch,
                 bank: bank,
-                heightMetres: height
+                heightMetres: height,
+                scale: scale
             )
             for (key, values) in pose {
                 properties[key] = JSONValue.array(values.map { JSONValue.number($0) })
+            }
+        }
+
+        /// The factor each model was last written at, and the zoom the models
+        /// were last looked over for — see `refreshModelScale`.
+        private var writtenScale: [String: Double] = [:]
+        private var scaleCheckedZoom = 2.0
+        private var scaleStaleOffScreen = false
+
+        /// The factor a model is drawn at right now — see
+        /// `AircraftModelStyle.magnification`.
+        private func modelScale(for marker: FlightMarker) -> Double {
+            AircraftModelStyle.magnification(
+                lengthMetres: modelled[marker.flightId] ?? 38,
+                latitude: marker.coordinate.latitude,
+                zoom: zoom
+            )
+        }
+
+        /// Keeps each model at its size as the zoom moves. Mapbox will not
+        /// work a zoom-dependent scale out on this source, so the factor is
+        /// written into the features — and only for the aeroplanes whose
+        /// factor has changed: close in every model is real size, its factor
+        /// is one at both zooms, and nothing is written. While the map is
+        /// moving only those on screen are kept up; the rest are caught up
+        /// when it rests.
+        private func refreshModelScale(force: Bool) {
+            guard isStyleLoaded, let map = map else { return }
+            guard abs(zoom - scaleCheckedZoom) > 0.004 || (force && scaleStaleOffScreen) else { return }
+            scaleCheckedZoom = zoom
+
+            var features: [Feature] = []
+            var skipped = false
+            for id in modelled.keys {
+                guard let marker = markers[id], trafficInSource.contains(id) else { continue }
+                let scale = modelScale(for: marker)
+                if let written = writtenScale[id], abs(scale / written - 1) < 0.003 { continue }
+                if !force, !isInSmoothingBox(marker.coordinate) {
+                    skipped = true
+                    continue
+                }
+                features.append(trafficFeature(for: marker))
+            }
+            if force {
+                scaleStaleOffScreen = false
+            } else if skipped {
+                scaleStaleOffScreen = true
+            }
+            if !features.isEmpty {
+                map.updateGeoJSONSourceFeatures(forSourceId: Source.traffic, features: features)
             }
         }
 
@@ -2636,6 +2690,7 @@ struct TrackerMapView: UIViewRepresentable {
             // whichever way this one ends.
             defer { followSelection() }
 
+            refreshModelScale(force: false)
             updateFlownHead()
             syncDirectLine()
             refreshSky(force: false)
