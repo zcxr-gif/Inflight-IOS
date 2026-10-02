@@ -7,19 +7,14 @@ import UniformTypeIdentifiers
 ///
 /// ## Why the models are rewritten rather than used as they come
 ///
-/// The three sources were built for three different viewers, and Mapbox's
-/// model loader is the narrowest of them:
-///
-/// - **FlightAirMap** points its noses wherever its exporter left them, keeps
-///   its origin at the nose or the wingtip, and indexes most of its meshes with
-///   single bytes.
-/// - **Flightradar24** is glTF 1.0, which Mapbox does not read at all.
-/// - **All of them** interleave vertex attributes in places, and Mapbox's
-///   loader copies positions as one tight run of floats.
+/// FlightAirMap's models were exported for other viewers, and Mapbox's model
+/// loader is narrower than any of them: the noses point wherever the exporter
+/// left them, the origin sits at the nose or the wingtip, most meshes are
+/// indexed with single bytes, and vertex attributes are interleaved in places
+/// where Mapbox's loader copies positions as one tight run of floats.
 ///
 /// So every model goes through the same pass, on the phone, the first time it
-/// is wanted: glTF 1.0 is read as well as 2.0, every node's transform is baked
-/// into its vertices, the aeroplane is turned to face the way the map expects
+/// is wanted: every node's transform is baked into its vertices, the aeroplane is turned to face the way the map expects
 /// (nose along −Z, up along +Y), centred, stood on Y = 0, kept in metres,
 /// and written back out as the simplest glTF there is — one
 /// buffer, tightly packed floats, 16-bit indices, one primitive per material.
@@ -30,10 +25,10 @@ import UniformTypeIdentifiers
 ///
 /// Each picture is written once however many materials share it, shrunk to
 /// at most `maximumTextureSide` and re-encoded as plain 8-bit JPEG or PNG.
-/// The first version copied a shared picture once per material: a Flightradar24
-/// 737 shares one 2048-pixel livery between 94 materials, which is 94 copies
-/// and over a gigabyte of graphics memory for one aeroplane — and iOS ends an
-/// app that asks for that.
+/// The first version copied a shared picture once per material: a model that
+/// shares one 2048-pixel livery between 94 materials became 94 copies and over
+/// a gigabyte of graphics memory for one aeroplane — and iOS ends an app that
+/// asks for that.
 ///
 /// ## Licences
 ///
@@ -43,9 +38,9 @@ import UniformTypeIdentifiers
 /// `asset.copyright`, and what was changed is recorded beside it, as the GPL
 /// asks of a modified copy.
 ///
-/// The design was prototyped and checked against every model in all three
-/// sources — the Khronos validator, and Mapbox's own renderer — before it was
-/// written here.
+/// The design was prototyped and checked against every model in the
+/// collection — the Khronos validator, and Mapbox's own renderer — before it
+/// was written here.
 enum GLBNormaliser {
 
     enum Failure: Error {
@@ -82,21 +77,7 @@ enum GLBNormaliser {
 
     /// Bumped whenever the output changes, so the cache throws away models
     /// rewritten by an older version of this pass.
-    static let version = 4
-
-    /// Which copy of the model to write.
-    ///
-    /// `near` is the model as published, cleaned up. `far` is the same model
-    /// — every triangle of it — drawn larger than life when it is shorter
-    /// than `farMinimumLength`: in true proportion to an airliner a light
-    /// aircraft is a few points long on a zoomed-out map, and nobody can see
-    /// it. The map draws light aircraft from this copy at every zoom.
-    enum Detail {
-        case near
-        case far
-    }
-
-    static let farMinimumLength: Float = 16
+    static let version = 5
 
     /// The longest side any texture is written at. A model on a map is never
     /// more than a few hundred points long, and 512 pixels across a fuselage
@@ -107,12 +88,10 @@ enum GLBNormaliser {
         _ data: Data,
         forward: Axis,
         up: Axis,
-        notice: String,
-        detail: Detail = .near
+        notice: String
     ) throws -> Output {
-        var document = try Document(glb: data)
-        if document.version == 1 { document.upgradeFromVersion1() }
-        return try document.repack(forward: forward, up: up, notice: notice, detail: detail)
+        let document = try Document(glb: data)
+        return try document.repack(forward: forward, up: up, notice: notice)
     }
 }
 
@@ -156,17 +135,6 @@ private struct Document {
             self.json = parsed
             self.body = chunk
 
-        case 1:
-            // KHR_binary_glTF: a 20-byte header, the JSON, then the body.
-            let length = Int(Self.u32(bytes, 12))
-            let end = 20 + length
-            guard end <= bytes.count else { throw GLBNormaliser.Failure.notGLB }
-            guard let parsed = try JSONSerialization.jsonObject(with: Data(bytes[20..<end])) as? [String: Any] else {
-                throw GLBNormaliser.Failure.notGLB
-            }
-            self.json = parsed
-            self.body = Array(bytes[end...])
-
         default:
             throw GLBNormaliser.Failure.unsupportedVersion(version)
         }
@@ -174,207 +142,6 @@ private struct Document {
 
     static func u32(_ bytes: [UInt8], _ at: Int) -> UInt32 {
         UInt32(bytes[at]) | UInt32(bytes[at + 1]) << 8 | UInt32(bytes[at + 2]) << 16 | UInt32(bytes[at + 3]) << 24
-    }
-
-    // MARK: glTF 1.0
-
-    /// Rewrites a 1.0 document's JSON as 2.0 over the same body.
-    ///
-    /// 1.0 keys everything by name and 2.0 by index; 1.0 puts a stride on the
-    /// accessor and 2.0 on the view, so every accessor gets a view of its own;
-    /// 1.0 describes materials as shader parameters, of which only the
-    /// diffuse colour or texture, transparency and emission are carried
-    /// across. Animations, skins, cameras and lights are dropped.
-    mutating func upgradeFromVersion1() {
-        let buffers = json["buffers"] as? [String: [String: Any]] ?? [:]
-        let bodyKey = buffers["binary_glTF"] != nil
-            ? "binary_glTF"
-            : buffers.first(where: { $0.key == "KHR_binary_glTF" || ($0.value["uri"] as? String ?? "") == "data:," })?.key
-
-        let views1 = json["bufferViews"] as? [String: [String: Any]] ?? [:]
-        var views: [[String: Any]] = []
-        var accessors: [[String: Any]] = []
-        var images: [[String: Any]] = []
-        var samplers: [[String: Any]] = []
-        var textures: [[String: Any]] = []
-        var materials: [[String: Any]] = []
-        var meshes: [[String: Any]] = []
-        var nodes: [[String: Any]] = []
-
-        func newView(_ id: String, stride: Int? = nil) -> Int? {
-            guard let view = views1[id], let bodyKey, view["buffer"] as? String == bodyKey else { return nil }
-            var out: [String: Any] = [
-                "buffer": 0,
-                "byteOffset": Self.int(view["byteOffset"]) ?? 0,
-                "byteLength": Self.int(view["byteLength"]) ?? 0,
-            ]
-            if let stride { out["byteStride"] = stride }
-            views.append(out)
-            return views.count - 1
-        }
-
-        var accessorIndex: [String: Int] = [:]
-        for (id, accessor) in json["accessors"] as? [String: [String: Any]] ?? [:] {
-            guard let viewId = accessor["bufferView"] as? String,
-                  let componentType = Self.int(accessor["componentType"]),
-                  let componentSize = Accessor.componentSize(componentType),
-                  let type = accessor["type"] as? String,
-                  let components = Accessor.components(type) else { continue }
-            let stride = Self.int(accessor["byteStride"]) ?? 0
-            let element = componentSize * components
-            guard let view = newView(viewId, stride: stride > 0 && stride != element ? stride : nil) else { continue }
-            var out: [String: Any] = [
-                "bufferView": view,
-                "byteOffset": Self.int(accessor["byteOffset"]) ?? 0,
-                "componentType": componentType,
-                "count": Self.int(accessor["count"]) ?? 0,
-                "type": type,
-            ]
-            if let min = accessor["min"], let max = accessor["max"] {
-                out["min"] = min
-                out["max"] = max
-            }
-            accessors.append(out)
-            accessorIndex[id] = accessors.count - 1
-        }
-
-        var samplerIndex: [String: Int] = [:]
-        for (id, sampler) in json["samplers"] as? [String: [String: Any]] ?? [:] {
-            samplers.append(sampler.filter { ["magFilter", "minFilter", "wrapS", "wrapT"].contains($0.key) })
-            samplerIndex[id] = samplers.count - 1
-        }
-
-        var imageIndex: [String: Int] = [:]
-        for (id, image) in json["images"] as? [String: [String: Any]] ?? [:] {
-            let extensions = image["extensions"] as? [String: Any]
-            if let binary = extensions?["KHR_binary_glTF"] as? [String: Any],
-               let viewId = binary["bufferView"] as? String,
-               let view = newView(viewId) {
-                images.append(["bufferView": view, "mimeType": binary["mimeType"] as? String ?? "image/png"])
-            } else if let uri = image["uri"] as? String, uri.hasPrefix("data:image/") {
-                images.append(["uri": uri])
-            } else {
-                continue
-            }
-            imageIndex[id] = images.count - 1
-        }
-
-        var textureIndex: [String: Int] = [:]
-        for (id, texture) in json["textures"] as? [String: [String: Any]] ?? [:] {
-            guard let source = texture["source"] as? String, let image = imageIndex[source] else { continue }
-            var out: [String: Any] = ["source": image]
-            if let sampler = texture["sampler"] as? String, let index = samplerIndex[sampler] { out["sampler"] = index }
-            textures.append(out)
-            textureIndex[id] = textures.count - 1
-        }
-
-        var materialIndex: [String: Int] = [:]
-        for (id, material) in json["materials"] as? [String: [String: Any]] ?? [:] {
-            var values = material["values"] as? [String: Any] ?? [:]
-            if let common = (material["extensions"] as? [String: Any])?["KHR_materials_common"] as? [String: Any],
-               let commonValues = common["values"] as? [String: Any] {
-                values = commonValues
-            }
-            var pbr: [String: Any] = ["metallicFactor": 0.0, "roughnessFactor": 0.8]
-            var out: [String: Any] = ["doubleSided": true]
-            var alpha = 1.0
-            if let name = values["diffuse"] as? String, let texture = textureIndex[name] {
-                pbr["baseColorTexture"] = ["index": texture]
-            } else if let colour = Self.doubles(values["diffuse"]), colour.count >= 3 {
-                let rgba = Array(colour.prefix(4)) + Array(repeating: 1.0, count: max(0, 4 - colour.count))
-                alpha = rgba[3]
-                pbr["baseColorFactor"] = rgba
-            }
-            if let transparency = Self.double(values["transparency"]), transparency < 1 { alpha *= transparency }
-            if alpha < 0.999 {
-                var factor = Self.doubles(pbr["baseColorFactor"]) ?? [1, 1, 1, 1]
-                factor[3] = alpha
-                pbr["baseColorFactor"] = factor
-                out["alphaMode"] = "BLEND"
-            }
-            if let emission = Self.doubles(values["emission"]), emission.count >= 3, emission.prefix(3).max() ?? 0 > 0 {
-                out["emissiveFactor"] = Array(emission.prefix(3))
-            }
-            out["pbrMetallicRoughness"] = pbr
-            materials.append(out)
-            materialIndex[id] = materials.count - 1
-        }
-
-        var meshIndex: [String: Int] = [:]
-        for (id, mesh) in json["meshes"] as? [String: [String: Any]] ?? [:] {
-            var primitives: [[String: Any]] = []
-            for primitive in mesh["primitives"] as? [[String: Any]] ?? [] {
-                guard (Self.int(primitive["mode"]) ?? 4) == 4 else { continue }
-                var attributes: [String: Int] = [:]
-                for (name, accessor) in primitive["attributes"] as? [String: String] ?? [:] {
-                    guard ["POSITION", "NORMAL", "TEXCOORD_0"].contains(name), let index = accessorIndex[accessor] else { continue }
-                    attributes[name] = index
-                }
-                guard attributes["POSITION"] != nil else { continue }
-                var out: [String: Any] = ["attributes": attributes, "mode": 4]
-                if let indices = primitive["indices"] as? String {
-                    guard let index = accessorIndex[indices] else { continue }
-                    out["indices"] = index
-                }
-                if let material = primitive["material"] as? String, let index = materialIndex[material] {
-                    out["material"] = index
-                }
-                primitives.append(out)
-            }
-            guard !primitives.isEmpty else { continue }
-            meshes.append(["primitives": primitives])
-            meshIndex[id] = meshes.count - 1
-        }
-
-        let nodes1 = json["nodes"] as? [String: [String: Any]] ?? [:]
-        let order = Array(nodes1.keys)
-        var nodeIndex: [String: Int] = [:]
-        for (offset, id) in order.enumerated() { nodeIndex[id] = offset }
-        nodes = Array(repeating: [:], count: order.count)
-        for id in order {
-            guard let node1 = nodes1[id], let index = nodeIndex[id] else { continue }
-            var node: [String: Any] = [:]
-            if let matrix = Self.doubles(node1["matrix"]), matrix.count == 16 {
-                node["matrix"] = matrix
-            } else {
-                for key in ["translation", "rotation", "scale"] { if let value = node1[key] { node[key] = value } }
-            }
-            var children = (node1["children"] as? [String] ?? []).compactMap { nodeIndex[$0] }
-            let attached = (node1["meshes"] as? [String] ?? []).compactMap { meshIndex[$0] }
-            if let first = attached.first {
-                node["mesh"] = first
-                for extra in attached.dropFirst() {
-                    nodes.append(["mesh": extra])
-                    children.append(nodes.count - 1)
-                }
-            }
-            if !children.isEmpty { node["children"] = children }
-            nodes[index] = node
-        }
-
-        let scenes = json["scenes"] as? [String: [String: Any]] ?? [:]
-        let sceneId = json["scene"] as? String ?? scenes.keys.first
-        let roots = (sceneId.flatMap { scenes[$0] }?["nodes"] as? [String] ?? []).compactMap { nodeIndex[$0] }
-
-        var upgraded: [String: Any] = [
-            "asset": ["version": "2.0"],
-            "buffers": [["byteLength": body.count]],
-            "bufferViews": views,
-            "accessors": accessors,
-            "meshes": meshes,
-            "nodes": nodes,
-            "scenes": [["nodes": roots]],
-            "scene": 0,
-        ]
-        if let copyright = (json["asset"] as? [String: Any])?["copyright"] {
-            upgraded["asset"] = ["version": "2.0", "copyright": copyright]
-        }
-        if !materials.isEmpty { upgraded["materials"] = materials }
-        if !textures.isEmpty { upgraded["textures"] = textures }
-        if !images.isEmpty { upgraded["images"] = images }
-        if !samplers.isEmpty { upgraded["samplers"] = samplers }
-        json = upgraded
-        version = 2
     }
 
     // MARK: Reading data
@@ -482,8 +249,7 @@ private struct Document {
     func repack(
         forward: GLBNormaliser.Axis,
         up: GLBNormaliser.Axis,
-        notice: String,
-        detail: GLBNormaliser.Detail
+        notice: String
     ) throws -> GLBNormaliser.Output {
         // Model axes to the map's: X right, Y up, the nose along −Z.
         let f = forward.vector
@@ -494,8 +260,8 @@ private struct Document {
         var groups: [Int: Group] = [:]
 
         // Materials that would draw identically are drawn as one: the same
-        // picture, colour, glow and transparency. Flightradar24's 737s carry
-        // over ninety materials that come down to nine.
+        // picture, colour, glow and transparency. Some models carry over
+        // ninety materials that come down to nine.
         var representative: [String: Int] = [:]
         var mergedMaterial: [Int: Int] = [:]
         func merged(_ material: Int) -> Int {
@@ -595,8 +361,6 @@ private struct Document {
         guard length > 0.01 else { throw GLBNormaliser.Failure.noGeometry }
         let offset = SIMD3<Float>(-(low.x + high.x) / 2, -low.y, -(low.z + high.z) / 2)
 
-        // The far copy: light aircraft drawn larger than life.
-        let boost = detail == .far ? max(1, GLBNormaliser.farMinimumLength / Float(length)) : 1
         let textureSide = GLBNormaliser.maximumTextureSide
 
         var writer = Writer()
@@ -643,7 +407,7 @@ private struct Document {
                 for vertex in used { remap[vertex] = -1 }
                 guard !chunk.isEmpty else { break }
 
-                let positions = used.map { (group.positions[$0] + offset) * boost }
+                let positions = used.map { group.positions[$0] + offset }
                 writer.addPrimitive(
                     positions: positions,
                     normals: used.map { group.normals[$0] },

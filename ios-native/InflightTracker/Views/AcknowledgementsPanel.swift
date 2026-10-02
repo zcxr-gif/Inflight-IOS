@@ -6,8 +6,9 @@ import SwiftUI
 /// their notices to travel with the app. This panel is where they travel: the
 /// BSD text is reproduced in full because that licence asks for exactly that,
 /// and the CC0 set is credited because it deserves to be even though it asks
-/// for nothing. The 3D aircraft are GPL, and are credited here with where
-/// they are published and under which version — see `AircraftModelSource`.
+/// for nothing. The 3D aircraft are GPL, and each one is credited here by
+/// name: its authors, its licence, and where its source files are — see
+/// `AircraftModelCatalog.credits`.
 struct AcknowledgementsPanel: View {
 
     @ObservedObject private var appearance = FlightInfoAppearance.shared
@@ -66,17 +67,38 @@ struct AcknowledgementsPanel: View {
                     detail: """
                     The 3D aircraft are free models published under the GNU \
                     General Public License. None of them is part of this app: \
-                    each is downloaded from the repository its authors publish \
-                    it in, the first time it is needed, and adapted on this \
-                    device so the map can draw it — turned to face the right \
-                    way, centred, sized, and repacked. Every model keeps its \
-                    authors' copyright notice, and records what was changed.
+                    each is downloaded from the FlightAirMap repository the \
+                    first time it is needed, and adapted on this device so the \
+                    map can draw it — turned to face the right way, centred, \
+                    and repacked, with its textures shrunk. Every model keeps \
+                    its authors' copyright notice, and records what was changed. \
+                    Each model's source files and licence are in its folder in \
+                    the repository, linked below.
                     """
                 )
 
-                ForEach(AircraftModelSource.allCases.filter { $0 != .off }) { source in
+                PanelDivider()
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("FlightAirMap 3D models")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(theme.textPrimary)
+
+                    Text(AircraftModelSource.credit)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    repositoryLink(AircraftModelSource.repository)
+                    ForEach(AircraftModelSource.upstream, id: \.self) { repositoryLink($0) }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+
+                ForEach(AircraftModelCatalog.credits, id: \.folder) { model in
                     PanelDivider()
-                    modelCredit(source)
+                    modelCredit(model)
                 }
 
                 PanelDivider()
@@ -95,25 +117,28 @@ struct AcknowledgementsPanel: View {
         }
     }
 
-    private func modelCredit(_ source: AircraftModelSource) -> some View {
+    private func modelCredit(_ model: AircraftModelCatalog.Credit) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(source.label)
+            Text(model.aircraft)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(theme.textPrimary)
 
-            Text("\(source.credit) Licence: \(source.licence).")
+            Text("By \(model.authors). Licence: \(model.licenceName).")
                 .font(.system(size: 11.5))
                 .foregroundStyle(theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            if let repository = source.repository {
-                Link(repository.absoluteString.replacingOccurrences(of: "https://", with: ""), destination: repository)
-                    .font(.system(size: 11.5, weight: .medium))
-            }
+            repositoryLink(model.folderURL, title: "Model, source and licence")
+            repositoryLink(model.originURL, title: "FlightGear aircraft: FGMEMBERS/\(model.origin)")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
+    }
+
+    private func repositoryLink(_ url: URL, title: String? = nil) -> some View {
+        Link(title ?? url.absoluteString.replacingOccurrences(of: "https://", with: ""), destination: url)
+            .font(.system(size: 11.5, weight: .medium))
     }
 
     private func link(_ title: String, _ address: String) -> some View {

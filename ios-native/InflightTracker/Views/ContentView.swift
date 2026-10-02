@@ -2749,35 +2749,16 @@ struct ContentView: View {
         }
     }
 
-    /// Which 3D aircraft the map draws: off, or one of the three collections.
-    ///
-    /// A menu rather than a cycle button so the three can be compared by name,
-    /// and so the credits are one tap away from the choice that uses them.
+    /// 3D aircraft on or off. One collection, so one tap — the credits are in
+    /// Settings › Acknowledgements.
     private var aircraftModelsControl: some View {
-        Menu {
-            Section("3D aircraft") {
-                ForEach(AircraftModelSource.allCases) { source in
-                    Button {
-                        aircraftModelsRaw = source.rawValue
-                    } label: {
-                        Label {
-                            Text(source.label)
-                            Text(source.detail)
-                        } icon: {
-                            Image(systemName: aircraftModels == source ? "checkmark" : source.symbol)
-                        }
-                    }
-                }
-            }
-            Section {
-                Text("Free models under the GNU GPL, downloaded from their authors' repositories. Credits are in Settings › Acknowledgements.")
-            }
-        } label: {
-            mapControlFace(aircraftModels == .off ? "cube" : "cube.fill", isOn: aircraftModels != .off)
+        mapButton(
+            aircraftModels == .off ? "cube" : "cube.fill",
+            aircraftModels == .off ? "Show 3D aircraft" : "Hide 3D aircraft",
+            isOn: aircraftModels != .off
+        ) {
+            aircraftModelsRaw = (aircraftModels == .off ? AircraftModelSource.flightAirMap : .off).rawValue
         }
-        .accessibilityLabel(
-            aircraftModels == .off ? "3D aircraft: off" : "3D aircraft: \(aircraftModels.label)"
-        )
     }
 
     /// `isOn` is for the one control in the hub that is a mode rather than a
