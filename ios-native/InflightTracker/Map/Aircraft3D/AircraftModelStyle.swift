@@ -4,34 +4,17 @@ import Foundation
 ///
 /// ## Size
 ///
-/// One size on screen, at every zoom: an A320 is `screenLength` points long
-/// whether the map shows a continent or a gate, and every other aeroplane is
-/// in proportion to it — an A380 twice as long, a regional jet two thirds.
-/// Models are stored in metres (see `GLBNormaliser`) and scaled by a factor
-/// that halves with every zoom in, exactly as the map doubles.
+/// Real size, always, and never rescaled. Every model is stored in metres
+/// (see `GLBNormaliser`) and drawn at a scale of exactly one, with nothing
+/// in the layer that depends on the zoom: an aeroplane is fixed to the map
+/// the way the runway under it is, and an A380 is always twice an A320.
 ///
-/// That factor is worked out here and written into each aeroplane's feature
-/// (`msc`), never left to a zoom expression. Mapbox does not support a
-/// zoom-dependent `model-scale` on a GeoJSON source: it bakes the value in
-/// when it lays a tile out, so the models grew with the map through a pinch
-/// and snapped back whenever a tile was rebuilt. The map rewrites the factor
-/// as the zoom moves — see `TrackerMapView`'s `refreshModelView`.
-///
-/// The factor also carries the two things that would otherwise change an
-/// aeroplane's size on screen without the zoom moving at all:
-///
-/// - Latitude. A model is drawn in real metres where it is, and Mercator
-///   draws a metre bigger the further it is from the equator — twice as big
-///   at 60°. The factor shrinks by the same cosine.
-/// - Height. An aeroplane lifted towards the camera is drawn bigger, by
-///   perspective. The factor shrinks by exactly that much, so a cruising
-///   airliner is the same size as one on the stand.
-///
-/// Light aircraft are drawn from their copy made 16 m long
-/// (`GLBNormaliser.Detail.far`): in true proportion to an airliner a Cessna is
-/// four points long, and an aeroplane nobody can see is not on the map.
-///
-/// The flat icon is only drawn for an aeroplane whose model has not arrived.
+/// Pulled back, real size is too small to see, so there the aeroplane is its
+/// flat icon, and the model is drawn once it is big enough to read — about
+/// sixteen points long. That happens at a different zoom for different
+/// aeroplanes: an A380 is ready long before a Cessna, so each one changes
+/// over on its own, by its real length (`handover`). Below
+/// `firstModelZoom` no model is drawn at all.
 ///
 /// ## Height
 ///
@@ -42,10 +25,10 @@ import Foundation
 /// The one limit is the camera. Close in over a cruising airliner, the camera
 /// is itself only a few kilometres up, and an aeroplane drawn at 11 km would
 /// be above it. So the height is capped at `cameraShare` of the camera's own
-/// height at each zoom (`liftZooms`): from a country's width out nothing is
-/// capped, and over an airport only an aeroplane well above it is. Like the
-/// scale, the height is worked out for the zoom here and written into the
-/// feature (`mt`).
+/// height at each zoom (`liftZooms`). Mapbox only works a zoom-dependent value
+/// out when it lays a tile out, so the height is worked out here and written
+/// into each aeroplane's feature (`mt`) as the zoom moves — see
+/// `TrackerMapView`'s `refreshModelLift`.
 ///
 /// ## Attitude
 ///
@@ -55,68 +38,50 @@ import Foundation
 /// right wing down is a positive y.
 enum AircraftModelStyle {
 
-    /// How long an A320 is on screen, in points, at every zoom. About the
-    /// length of its flat icon.
-    static let screenLength = 19.0
+    /// Below this zoom no model is drawn at all; every aeroplane is an icon.
+    static let firstModelZoom = 15.0
 
-    /// The airliner `screenLength` is measured on.
-    private static let referenceLength = 38.0
+    /// When each size of aeroplane changes from icon to model: from `zoom`
+    /// on, everything at least `length` metres long is a model. Each change
+    /// fades the icon out over the half zoom before it.
+    private static let handover: [(zoom: Double, length: Double)] = [
+        (15.5, 30),
+        (16.5, 15),
+        (17.5, 7),
+        (18, 0),
+    ]
 
-    /// Metres to a point at zoom zero, on Mapbox's 512-point world.
-    private static let metresPerPointAtZoomZero = 40_075_016.686 / 512
+    private static var length: [Any] { ["to-number", ["get", "mlen"], 0] }
 
-    /// Mapbox's camera is this many view heights from the middle of the map:
-    /// half the height over the tangent of half its 36.87° field of view.
-    private static let cameraDistanceInViewHeights = 1.5
-
-    /// What the camera is doing, as far as the size of a model on screen
-    /// goes. Every model on the map is written for one of these.
-    struct View: Equatable {
-        var zoom: Double
-        /// Degrees from looking straight down.
-        var pitch: Double
-        /// The map's height on screen, in points.
-        var height: Double
-
-        /// Whether models written for `other` would be drawn a visibly
-        /// different size from ones written for this — a quarter of a
-        /// percent of zoom, or a quarter of a degree of tilt.
-        func differs(from other: View) -> Bool {
-            abs(zoom - other.zoom) > 0.004 || abs(pitch - other.pitch) > 0.25 || abs(height - other.height) > 0.5
-        }
-    }
-
-    /// Metres to a point at a zoom, where the map is at `latitude`.
-    private static func metresPerPoint(atZoom zoom: Double, latitude: Double) -> Double {
-        metresPerPointAtZoomZero * max(cos(latitude * .pi / 180), 0.01) / pow(2, zoom)
-    }
-
-    /// The factor a model is scaled by: `screenLength` for an A320 at every
-    /// zoom and every latitude, made smaller by as much as being `lift`
-    /// metres nearer the camera makes it bigger.
-    static func magnification(latitude: Double, lift: Double, in view: View) -> Double {
-        let perPoint = metresPerPoint(atZoom: view.zoom, latitude: latitude)
-        let factor = screenLength * perPoint / referenceLength
-        let cameraDistance = cameraDistanceInViewHeights * max(view.height, 1) * perPoint
-        let nearer = lift * cos(view.pitch * .pi / 180)
-        return factor * min(max(1 - nearer / cameraDistance, 0.3), 1)
-    }
-
-    /// The scale, as each aeroplane's feature carries it. Deliberately not a
-    /// function of the zoom — see the type's notes on size.
+    /// The model is drawn at real size: one.
     static func scaleExpression() -> [Any] {
-        ["get", "msc"]
+        ["literal", [1, 1, 1]]
     }
 
-    /// Which model each aeroplane is drawn from: `modelFar`, which is the
-    /// light aircraft's 16 m copy and the model itself for everything else.
+    /// Which model each aeroplane is drawn from: its own, at real size.
     static func modelIdExpression() -> [Any] {
-        ["to-string", ["get", "modelFar"]]
+        ["to-string", ["get", "model"]]
     }
 
-    /// The flat icon: drawn only for an aeroplane with no model yet.
+    /// The flat icon's opacity: gone for an aeroplane whose model has taken
+    /// over at this zoom, and always there for one with no model yet.
     static func iconOpacityExpression() -> [Any] {
-        ["case", ["has", "model"], 0, 1]
+        var expression: [Any] = ["interpolate", ["linear"], ["zoom"], firstModelZoom, 1]
+        var lastZoom = firstModelZoom
+        var previous: Any = 1
+        for stop in handover {
+            let fadeStart = stop.zoom - 0.5
+            if fadeStart > lastZoom {
+                expression.append(fadeStart)
+                expression.append(previous)
+            }
+            let now: [Any] = ["case", ["all", ["has", "model"], [">=", length, stop.length]], 0, 1]
+            expression.append(stop.zoom)
+            expression.append(now)
+            previous = now
+            lastZoom = stop.zoom
+        }
+        return expression
     }
 
     /// The zooms the height cap is set at, each with the most it may be
@@ -126,12 +91,15 @@ enum AircraftModelStyle {
     private static let cameraShare = 0.13
     private static let cameraHeightPoints = 1_275.0
 
+    /// Metres to a point at zoom zero, on Mapbox's 512-point world.
+    private static let metresPerPointAtZoomZero = 40_075_016.686 / 512
+
     private static func liftCeiling(atZoom zoom: Double) -> Double {
         cameraShare * cameraHeightPoints * metresPerPointAtZoomZero / pow(2, zoom)
     }
 
-    /// The height, as each aeroplane's feature carries it — like the scale,
-    /// not a function of the zoom.
+    /// The height, as each aeroplane's feature carries it — not a function
+    /// of the zoom in the layer itself.
     static func liftExpression() -> [Any] {
         ["get", "mt"]
     }
@@ -157,15 +125,11 @@ enum AircraftModelStyle {
         pitch: Double,
         bank: Double,
         heightMetres: Double,
-        latitude: Double,
-        in view: View
+        atZoom zoom: Double
     ) -> [String: [Double]] {
-        let lift = drawnLift(heightMetres: heightMetres, atZoom: view.zoom)
-        let scale = magnification(latitude: latitude, lift: lift, in: view)
-        return [
+        [
             "mrot": [-pitch, bank, heading],
-            "mt": [0, 0, lift],
-            "msc": [scale, scale, scale],
+            "mt": [0, 0, drawnLift(heightMetres: heightMetres, atZoom: zoom)],
         ]
     }
 }

@@ -516,6 +516,7 @@ enum MapLayerStyle {
             \(air(Layer.flownHeadAir, Source.flownHead, standing: false)),
             {
                 "id": "\(Layer.trafficModels)", "type": "model", "source": "\(Source.traffic)",
+                "minzoom": \(AircraftModelStyle.firstModelZoom),
                 "filter": ["has", "model"],
                 "layout": {"model-id": \(modelId)},
                 "paint": {

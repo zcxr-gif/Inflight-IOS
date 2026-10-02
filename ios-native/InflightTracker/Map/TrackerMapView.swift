@@ -287,7 +287,7 @@ struct TrackerMapView: UIViewRepresentable {
             map.onMapIdle.observe { [weak self] _ in
                 self?.refreshAirPath(force: true)
                 self?.refreshSky(force: true)
-                self?.refreshModelView(force: true)
+                self?.refreshModelLift(force: true)
             }.store(in: &cancelables)
 
             // What lifts the opening screen — see `LaunchGate`. The map has its
@@ -759,9 +759,6 @@ struct TrackerMapView: UIViewRepresentable {
         private var zoom: Double = 2
         private var pointsPerMetre: Double = 0
 
-        /// The camera's tilt, in degrees from straight down.
-        private var cameraPitch: Double = 0
-
         /// The visible box, widened, that the smoothing works inside.
         private var smoothingBox: (south: Double, north: Double, west: Double, east: Double)?
 
@@ -801,7 +798,6 @@ struct TrackerMapView: UIViewRepresentable {
 
             let state = map.cameraState
             zoom = Double(state.zoom)
-            cameraPitch = Double(state.pitch)
 
             let latitude = state.center.latitude
             let circumference = 40_075_016.686 * max(cos(latitude * .pi / 180), 0.01)
@@ -1155,20 +1151,13 @@ struct TrackerMapView: UIViewRepresentable {
 
             // The 3D model, when one is chosen and has arrived. Until it has,
             // the aeroplane stays a flat icon — and asking is what fetches it.
-            //
-            // `modelFar` is the light aircraft's larger-than-life copy, and the
-            // model itself for everything else — see `AircraftModelStyle`.
+            // Always the model itself, at real size — see `AircraftModelStyle`.
             modelled.removeValue(forKey: flight.id)
             if parent.aircraftModels != .off,
                let entry = AircraftModelCatalog.entry(for: flight, in: parent.aircraftModels),
                let ready = AircraftModelStore.shared.ready(entry),
                registerModel(id: ready.entry.styleId, file: ready.file) {
-                var farId = ready.entry.styleId
-                if ready.farFile != ready.file, registerModel(id: ready.entry.styleId + "-far", file: ready.farFile) {
-                    farId = ready.entry.styleId + "-far"
-                }
                 properties["model"] = JSONValue.string(ready.entry.styleId)
-                properties["modelFar"] = JSONValue.string(farId)
                 modelled[flight.id] = ready.lengthMetres
                 properties["mlen"] = JSONValue.number(ready.lengthMetres)
                 if let tint {
@@ -1263,45 +1252,54 @@ struct TrackerMapView: UIViewRepresentable {
                 pitch: pitch,
                 bank: bank,
                 heightMetres: height,
-                latitude: marker.coordinate.latitude,
-                in: modelView
+                atZoom: modelZoom
             )
             for (key, values) in pose {
                 properties[key] = JSONValue.array(values.map { JSONValue.number($0) })
             }
         }
 
-        /// The camera every model on the map is written for, and whether every
-        /// one of them has been: while the map is moving only those on screen
-        /// are kept up, and the rest are caught up once it comes to rest.
-        private var modelView = AircraftModelStyle.View(zoom: 2, pitch: 0, height: 800)
-        private var modelViewEverywhere = true
+        /// The zoom every model's height on the map is written for, and whether
+        /// every one of them has been: while the map is moving only those on
+        /// screen are kept up, and the rest are caught up once it rests.
+        private var modelZoom = 2.0
+        private var modelZoomEverywhere = true
 
-        /// Holds every model at its one size on screen as the camera moves —
-        /// see `AircraftModelStyle`. Mapbox will not do that from the zoom
-        /// itself on a GeoJSON source, so each model's scale and height are
-        /// written again whenever the zoom or tilt has moved by enough to
-        /// see: those on screen on every frame, the rest when the map rests.
-        private func refreshModelView(force: Bool) {
-            guard isStyleLoaded, let map = map, let mapView = mapView else { return }
-            let height = Double(mapView.bounds.height)
-            guard height > 1 else { return }
-            let current = AircraftModelStyle.View(zoom: zoom, pitch: cameraPitch, height: height)
-            let moved = current.differs(from: modelView)
-            guard moved || (force && !modelViewEverywhere) else { return }
-            modelView = current
+        /// Keeps each model's height under its cap as the zoom moves — see
+        /// `AircraftModelStyle`. Mapbox only works a zoom-dependent height out
+        /// when it lays a tile out, so it is written into the features here,
+        /// and only for the aeroplanes high enough for the cap to touch: an
+        /// aeroplane on the ground, or under the cap at both zooms, keeps the
+        /// height it has. Nothing is written while the map is too far out for
+        /// any model to be drawn.
+        private func refreshModelLift(force: Bool) {
+            guard isStyleLoaded, let map = map else { return }
+            guard zoom >= AircraftModelStyle.firstModelZoom - 0.5 else { return }
+            let moved = abs(zoom - modelZoom) > 0.004
+            guard moved || (force && !modelZoomEverywhere) else { return }
+            let before = modelZoom
+            modelZoom = zoom
 
+            let now = CACurrentMediaTime()
             var features: [Feature] = []
             var skipped = false
             for id in modelled.keys {
                 guard let marker = markers[id], trafficInSource.contains(id) else { continue }
+                let height = modelHeight(for: marker, at: now)
+                let was = AircraftModelStyle.drawnLift(heightMetres: height, atZoom: before)
+                let lift = AircraftModelStyle.drawnLift(heightMetres: height, atZoom: zoom)
+                guard force || lift != was else { continue }
                 if !force, !isInSmoothingBox(marker.coordinate) {
                     skipped = true
                     continue
                 }
                 features.append(trafficFeature(for: marker))
             }
-            modelViewEverywhere = !skipped
+            if force {
+                modelZoomEverywhere = true
+            } else if skipped {
+                modelZoomEverywhere = false
+            }
             if !features.isEmpty {
                 map.updateGeoJSONSourceFeatures(forSourceId: Source.traffic, features: features)
             }
@@ -2723,7 +2721,7 @@ struct TrackerMapView: UIViewRepresentable {
             // whichever way this one ends.
             defer { followSelection() }
 
-            refreshModelView(force: false)
+            refreshModelLift(force: false)
             refreshAirPath(force: false)
             updateFlownHead()
             syncDirectLine()
