@@ -1270,11 +1270,9 @@ struct TrackerMapView: UIViewRepresentable {
         /// when it lays a tile out, so it is written into the features here,
         /// and only for the aeroplanes high enough for the cap to touch: an
         /// aeroplane on the ground, or under the cap at both zooms, keeps the
-        /// height it has. Nothing is written while the map is too far out for
-        /// any model to be drawn.
+        /// height it has.
         private func refreshModelLift(force: Bool) {
             guard isStyleLoaded, let map = map else { return }
-            guard zoom >= AircraftModelStyle.firstModelZoom - 0.5 else { return }
             let moved = abs(zoom - modelZoom) > 0.004
             guard moved || (force && !modelZoomEverywhere) else { return }
             let before = modelZoom

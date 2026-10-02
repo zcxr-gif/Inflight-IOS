@@ -9,12 +9,9 @@ import Foundation
 /// in the layer that depends on the zoom: an aeroplane is fixed to the map
 /// the way the runway under it is, and an A380 is always twice an A320.
 ///
-/// Pulled back, real size is too small to see, so there the aeroplane is its
-/// flat icon, and the model is drawn once it is big enough to read — about
-/// sixteen points long. That happens at a different zoom for different
-/// aeroplanes: an A380 is ready long before a Cessna, so each one changes
-/// over on its own, by its real length (`handover`). Below
-/// `firstModelZoom` no model is drawn at all.
+/// The model is drawn at every zoom, however small that makes it: pulled
+/// back, an aeroplane is a speck, exactly as big as it really is. The flat
+/// icon is only drawn for an aeroplane whose model has not arrived.
 ///
 /// ## Height
 ///
@@ -38,21 +35,6 @@ import Foundation
 /// right wing down is a positive y.
 enum AircraftModelStyle {
 
-    /// Below this zoom no model is drawn at all; every aeroplane is an icon.
-    static let firstModelZoom = 15.0
-
-    /// When each size of aeroplane changes from icon to model: from `zoom`
-    /// on, everything at least `length` metres long is a model. Each change
-    /// fades the icon out over the half zoom before it.
-    private static let handover: [(zoom: Double, length: Double)] = [
-        (15.5, 30),
-        (16.5, 15),
-        (17.5, 7),
-        (18, 0),
-    ]
-
-    private static var length: [Any] { ["to-number", ["get", "mlen"], 0] }
-
     /// The model is drawn at real size: one.
     static func scaleExpression() -> [Any] {
         ["literal", [1, 1, 1]]
@@ -63,25 +45,9 @@ enum AircraftModelStyle {
         ["to-string", ["get", "model"]]
     }
 
-    /// The flat icon's opacity: gone for an aeroplane whose model has taken
-    /// over at this zoom, and always there for one with no model yet.
+    /// The flat icon: drawn only for an aeroplane with no model yet.
     static func iconOpacityExpression() -> [Any] {
-        var expression: [Any] = ["interpolate", ["linear"], ["zoom"], firstModelZoom, 1]
-        var lastZoom = firstModelZoom
-        var previous: Any = 1
-        for stop in handover {
-            let fadeStart = stop.zoom - 0.5
-            if fadeStart > lastZoom {
-                expression.append(fadeStart)
-                expression.append(previous)
-            }
-            let now: [Any] = ["case", ["all", ["has", "model"], [">=", length, stop.length]], 0, 1]
-            expression.append(stop.zoom)
-            expression.append(now)
-            previous = now
-            lastZoom = stop.zoom
-        }
-        return expression
+        ["case", ["has", "model"], 0, 1]
     }
 
     /// The zooms the height cap is set at, each with the most it may be
