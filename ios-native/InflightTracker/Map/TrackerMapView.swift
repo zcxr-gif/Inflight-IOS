@@ -285,9 +285,7 @@ struct TrackerMapView: UIViewRepresentable {
             // A pinch that ends between two of the air path's rewrites still
             // leaves it drawn for the zoom it came to rest at.
             map.onMapIdle.observe { [weak self] _ in
-                self?.refreshAirPath(force: true)
                 self?.refreshSky(force: true)
-                self?.refreshModelLift(force: true)
             }.store(in: &cancelables)
 
             // What lifts the opening screen — see `LaunchGate`. The map has its
@@ -1251,55 +1249,10 @@ struct TrackerMapView: UIViewRepresentable {
                 heading: marker.drawnHeading,
                 pitch: pitch,
                 bank: bank,
-                heightMetres: height,
-                atZoom: modelZoom
+                heightMetres: height
             )
             for (key, values) in pose {
                 properties[key] = JSONValue.array(values.map { JSONValue.number($0) })
-            }
-        }
-
-        /// The zoom every model's height on the map is written for, and whether
-        /// every one of them has been: while the map is moving only those on
-        /// screen are kept up, and the rest are caught up once it rests.
-        private var modelZoom = 2.0
-        private var modelZoomEverywhere = true
-
-        /// Keeps each model's height under its cap as the zoom moves — see
-        /// `AircraftModelStyle`. Mapbox only works a zoom-dependent height out
-        /// when it lays a tile out, so it is written into the features here,
-        /// and only for the aeroplanes high enough for the cap to touch: an
-        /// aeroplane on the ground, or under the cap at both zooms, keeps the
-        /// height it has.
-        private func refreshModelLift(force: Bool) {
-            guard isStyleLoaded, let map = map else { return }
-            let moved = abs(zoom - modelZoom) > 0.004
-            guard moved || (force && !modelZoomEverywhere) else { return }
-            let before = modelZoom
-            modelZoom = zoom
-
-            let now = CACurrentMediaTime()
-            var features: [Feature] = []
-            var skipped = false
-            for id in modelled.keys {
-                guard let marker = markers[id], trafficInSource.contains(id) else { continue }
-                let height = modelHeight(for: marker, at: now)
-                let was = AircraftModelStyle.drawnLift(heightMetres: height, atZoom: before)
-                let lift = AircraftModelStyle.drawnLift(heightMetres: height, atZoom: zoom)
-                guard force || lift != was else { continue }
-                if !force, !isInSmoothingBox(marker.coordinate) {
-                    skipped = true
-                    continue
-                }
-                features.append(trafficFeature(for: marker))
-            }
-            if force {
-                modelZoomEverywhere = true
-            } else if skipped {
-                modelZoomEverywhere = false
-            }
-            if !features.isEmpty {
-                map.updateGeoJSONSourceFeatures(forSourceId: Source.traffic, features: features)
             }
         }
 
@@ -1715,10 +1668,7 @@ struct TrackerMapView: UIViewRepresentable {
             }
 
             if !airRuns.isEmpty {
-                airHighest = airRuns.flatMap(\.profile).max() ?? 0
-                airWrittenZoom = zoom
-                airWrittenAt = CACurrentMediaTime()
-                runs = liftedAirRuns(atZoom: zoom)
+                runs = liftedAirRuns()
             }
             push(runs, to: Source.flown)
             push(inferred, to: Source.inferred)
@@ -1840,14 +1790,11 @@ struct TrackerMapView: UIViewRepresentable {
             let head = marker.coordinate
 
             // In the air, from where the path ends to where the model is
-            // drawn — the path at the zoom it was last written for, the model
-            // at this one, so the two stay joined through a pinch.
+            // drawn, so the two stay joined.
             var elevation: [Double]?
             if isAirPathOn, let tailHeight = airTailHeight {
-                let start = AircraftModelStyle.drawnLift(heightMetres: tailHeight, atZoom: airWrittenZoom)
-                let end = AircraftModelStyle.drawnLift(
-                    heightMetres: modelHeight(for: marker, at: CACurrentMediaTime()), atZoom: zoom
-                )
+                let start = AircraftModelStyle.drawnLift(heightMetres: tailHeight)
+                let end = AircraftModelStyle.drawnLift(heightMetres: modelHeight(for: marker, at: CACurrentMediaTime()))
                 elevation = [(start * 10).rounded() / 10, (end * 10).rounded() / 10]
             }
 
@@ -1900,9 +1847,6 @@ struct TrackerMapView: UIViewRepresentable {
 
         private var airRuns: [AirRun] = []
         private var airTailHeight: Double?
-        private var airHighest = 0.0
-        private var airWrittenZoom = 0.0
-        private var airWrittenAt: CFTimeInterval = 0
 
         private func applyAirPathLayers() {
             guard let map = map, isStyleLoaded else { return }
@@ -1912,32 +1856,14 @@ struct TrackerMapView: UIViewRepresentable {
             MapLayerStyle.applyAirPath(isOn, on: map)
         }
 
-        private func liftedAirRuns(atZoom zoom: Double) -> [Feature] {
+        private func liftedAirRuns() -> [Feature] {
             airRuns.map { run in
                 var feature = run.feature
                 var properties = feature.properties ?? [:]
-                properties["elevation"] = .array(FlownPathProfile.lifted(run.profile, atZoom: zoom).map { JSONValue.number($0) })
+                properties["elevation"] = .array(FlownPathProfile.lifted(run.profile).map { JSONValue.number($0) })
                 feature.properties = properties
                 return feature
             }
-        }
-
-        /// Rewrites the path's heights for the zoom the map is at now, when
-        /// the cap they were written under has moved by enough to see — which
-        /// for a track that never climbs above the cap is never. A few times a
-        /// second at most while the fingers are on the map, and once more
-        /// where they leave it.
-        private func refreshAirPath(force: Bool) {
-            guard !airRuns.isEmpty, isAirPathOn, isStyleLoaded else { return }
-            let now = CACurrentMediaTime()
-            guard force || now - airWrittenAt > 0.25 else { return }
-            let before = AircraftModelStyle.drawnLift(heightMetres: airHighest, atZoom: airWrittenZoom)
-            let after = AircraftModelStyle.drawnLift(heightMetres: airHighest, atZoom: zoom)
-            guard abs(after - before) > max(before * (force ? 0.002 : 0.03), 1) else { return }
-            airWrittenZoom = zoom
-            airWrittenAt = now
-            push(liftedAirRuns(atZoom: zoom), to: Source.flown)
-            flownHeadWritten = nil
         }
 
         // MARK: The sky
@@ -2679,15 +2605,6 @@ struct TrackerMapView: UIViewRepresentable {
         private var lastFlightTick: CFTimeInterval = 0
         private var flyingCount = 0
 
-        /// Below this an aircraft's own progress is under a fifth of a point a
-        /// second — a movement nobody can see. Those are left exactly where
-        /// their packets put them, which is both correct and free.
-        private static let visibleMotion: Double = 0.2
-
-        /// The same floor for traffic that is swept rather than pushed, whose
-        /// jumps are several times larger at the same speed.
-        private static let visibleMotionSwept: Double = 0.05
-
         private func startFlying() {
             guard flightLink == nil else { return }
             let link = CADisplayLink(target: self, selector: #selector(flyOneFrame))
@@ -2719,8 +2636,6 @@ struct TrackerMapView: UIViewRepresentable {
             // whichever way this one ends.
             defer { followSelection() }
 
-            refreshModelLift(force: false)
-            refreshAirPath(force: false)
             updateFlownHead()
             syncDirectLine()
             refreshSky(force: false)
@@ -2751,7 +2666,7 @@ struct TrackerMapView: UIViewRepresentable {
 
             for marker in markers.values {
                 // Cheapest first: is it on screen, is it to be carried at all,
-                // is it flying, and would any of it be visible at this zoom.
+                // and is it moving.
                 let inView = isInSmoothingBox(marker.coordinate)
 
                 let flight = marker.flight
@@ -2759,12 +2674,11 @@ struct TrackerMapView: UIViewRepresentable {
                 // The aircraft the camera is following is always carried, so
                 // the camera has a smooth path to move along.
                 let followed = parent.isFollowing && flight.id == parent.selection?.id
-                var wanted = inView && (smoothing || required || followed)
-                if wanted {
-                    let floor = required ? Self.visibleMotionSwept : Self.visibleMotion
-                    wanted = flight.isWorthSmoothing
-                        && marker.drawnPointsPerSecond(pointsPerMetre: pointsPerMetre) >= floor
-                }
+                // Every moving aeroplane on screen, however slowly it crosses
+                // it: one left on its packets hops, and one that started or
+                // stopped being carried as the zoom moved past a speed floor
+                // was put back on its last packet — a jump, mid-pinch.
+                let wanted = inView && (smoothing || required || followed) && flight.isWorthSmoothing
 
                 let was = marker.isSmoothing
                 if wanted != was {

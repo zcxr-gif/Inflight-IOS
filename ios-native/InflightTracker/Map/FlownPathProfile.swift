@@ -19,12 +19,9 @@ import Foundation
 /// ## Which heights
 ///
 /// The same as the aeroplane's (`AircraftAttitude.heightMetres`): above the
-/// field it was last seen on the ground at, and capped the same way close in,
-/// by `AircraftModelStyle.drawnLift`, so the track and the model meet. The
-/// cap depends on the zoom and `line-z-offset` cannot — it is worked out when
-/// the tiles are cut — so the capped heights are written for a zoom and
-/// written again when the zoom has moved far enough to matter. See
-/// `TrackerMapView.Coordinator.refreshAirPath`.
+/// field it was last seen on the ground at, through
+/// `AircraftModelStyle.drawnLift`, so the track and the model meet. Real
+/// heights, the same at every zoom.
 enum FlownPathProfile {
 
     /// The most samples one run's heights are written as. A run is drawn
@@ -171,11 +168,10 @@ enum FlownPathProfile {
         return out
     }
 
-    /// Heights as the map draws them at a zoom: capped with the aeroplanes',
-    /// and to the decimetre, which is as fine as anyone will see and keeps the
-    /// feature small.
-    static func lifted(_ profile: [Double], atZoom zoom: Double) -> [Double] {
-        profile.map { (AircraftModelStyle.drawnLift(heightMetres: $0, atZoom: zoom) * 10).rounded() / 10 }
+    /// Heights as the map draws them: the aeroplanes', to the decimetre,
+    /// which is as fine as anyone will see and keeps the feature small.
+    static func lifted(_ profile: [Double]) -> [Double] {
+        profile.map { (AircraftModelStyle.drawnLift(heightMetres: $0) * 10).rounded() / 10 }
     }
 
     /// The vertex's height: its progress along the line, read off the

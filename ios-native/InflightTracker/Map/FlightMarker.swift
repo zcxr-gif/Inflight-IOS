@@ -107,11 +107,4 @@ final class FlightMarker {
         if let bank = writtenBank, abs(bank - attitude.bank(at: CACurrentMediaTime())) > 0.75 { return true }
         return FlightMotion.pointsApart(written, coordinate, pointsPerMetre: pointsPerMetre) >= 0.1
     }
-
-    /// How far this aircraft travels in a second, in points on the map as it is
-    /// currently scaled. Below a fraction of one, there is nothing to animate
-    /// and the smoothing is not worth running.
-    func drawnPointsPerSecond(pointsPerMetre: Double) -> Double {
-        flight.groundSpeedKnots * 0.514444 * pointsPerMetre
-    }
 }

@@ -19,13 +19,9 @@ import Foundation
 /// `AircraftAttitude.heightMetres`) — carried between packets at the
 /// aeroplane's own vertical speed, so a climb is a climb rather than a stair.
 ///
-/// The one limit is the camera. Close in over a cruising airliner, the camera
-/// is itself only a few kilometres up, and an aeroplane drawn at 11 km would
-/// be above it. So the height is capped at `cameraShare` of the camera's own
-/// height at each zoom (`liftZooms`). Mapbox only works a zoom-dependent value
-/// out when it lays a tile out, so the height is worked out here and written
-/// into each aeroplane's feature (`mt`) as the zoom moves — see
-/// `TrackerMapView`'s `refreshModelLift`.
+/// That height is the same at every zoom: nothing about it depends on where
+/// the camera is. Close in over a cruising airliner, the camera can be below
+/// the aeroplane — which is where it really is.
 ///
 /// ## Attitude
 ///
@@ -50,39 +46,16 @@ enum AircraftModelStyle {
         ["case", ["has", "model"], 0, 1]
     }
 
-    /// The zooms the height cap is set at, each with the most it may be
-    /// there: `cameraShare` of the camera's height above the map, which is
-    /// about 1,275 points' worth of map at any zoom. Blended between.
-    private static let liftZooms: [Double] = [6, 9, 11, 13, 15, 17]
-    private static let cameraShare = 0.13
-    private static let cameraHeightPoints = 1_275.0
-
-    /// Metres to a point at zoom zero, on Mapbox's 512-point world.
-    private static let metresPerPointAtZoomZero = 40_075_016.686 / 512
-
-    private static func liftCeiling(atZoom zoom: Double) -> Double {
-        cameraShare * cameraHeightPoints * metresPerPointAtZoomZero / pow(2, zoom)
-    }
-
-    /// The height, as each aeroplane's feature carries it — not a function
-    /// of the zoom in the layer itself.
+    /// The height, as each aeroplane's feature carries it.
     static func liftExpression() -> [Any] {
         ["get", "mt"]
     }
 
-    /// The height an aeroplane is drawn at, at a zoom — what is written into
-    /// its feature, and what the flown path is drawn to meet (see
-    /// `FlownPathProfile`).
-    static func drawnLift(heightMetres: Double, atZoom zoom: Double) -> Double {
-        let height = max(heightMetres, 0)
-        func at(_ index: Int) -> Double { min(height, liftCeiling(atZoom: liftZooms[index])) }
-        guard zoom > liftZooms[0] else { return at(0) }
-        for index in 1..<liftZooms.count where zoom <= liftZooms[index] {
-            let low = liftZooms[index - 1]
-            let share = (zoom - low) / (liftZooms[index] - low)
-            return at(index - 1) + (at(index) - at(index - 1)) * share
-        }
-        return at(liftZooms.count - 1)
+    /// The height an aeroplane is drawn at: its real height above the
+    /// ground, at every zoom. What is written into its feature, and what the
+    /// flown path is drawn to meet (see `FlownPathProfile`).
+    static func drawnLift(heightMetres: Double) -> Double {
+        max(heightMetres, 0)
     }
 
     /// The per-aircraft half of the above, written into its feature.
@@ -90,12 +63,11 @@ enum AircraftModelStyle {
         heading: Double,
         pitch: Double,
         bank: Double,
-        heightMetres: Double,
-        atZoom zoom: Double
+        heightMetres: Double
     ) -> [String: [Double]] {
         [
             "mrot": [-pitch, bank, heading],
-            "mt": [0, 0, drawnLift(heightMetres: heightMetres, atZoom: zoom)],
+            "mt": [0, 0, drawnLift(heightMetres: heightMetres)],
         ]
     }
 }
