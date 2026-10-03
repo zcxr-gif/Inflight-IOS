@@ -2,7 +2,7 @@ import CoreLocation
 import simd
 
 /// Everything the engine draws around the models: the sun on them, their
-/// lights, their shadows and their contrails.
+/// lights and their shadows.
 ///
 /// ## The sun
 ///
@@ -16,14 +16,14 @@ import simd
 /// ## Lights
 ///
 /// As an airliner wears them: red on the left wingtip, green on the right,
-/// white at the tail, a red beacon on top flashing once a second, white
-/// strobes double-flashing on both wingtips, and landing lights at the nose
-/// below 3,000 m. Each sits where that part of the model is — found from the
-/// model's own geometry (`AircraftAnchors`) and carried through the same
+/// white at the tail, a red beacon on top flashing once a second, and
+/// landing lights at the nose below 3,000 m. Each sits where that part of
+/// the model is — found from the model's own geometry (`AircraftAnchors`)
+/// and carried through the same
 /// matrices that draw it, so they stay on the wingtips however the aeroplane
-/// banks and however large it is drawn. Brightest at night; in daylight only
-/// the strobes are much use, as on the real thing. Each aeroplane flashes on
-/// its own phase, so a crowded sky does not blink in unison.
+/// banks and however large it is drawn. Brightest at night, faint by day.
+/// Each beacon flashes on its own phase, so a crowded sky does not blink in
+/// unison.
 ///
 /// ## Shadows
 ///
@@ -32,12 +32,6 @@ import simd
 /// and sharp on the ground, fainter, larger and softer the higher it flies,
 /// gone above a few kilometres and at night. The best single cue there is to
 /// how high something is.
-///
-/// ## Contrails
-///
-/// Behind every aeroplane above 26,000 ft: a white trail from its tail, a
-/// moment behind it, spreading and fading over 45 seconds. Kept as a short
-/// history of where each aeroplane has been (`AircraftEngine.TrailPoint`).
 enum AircraftEffects {
 
     // MARK: - The sun
@@ -112,15 +106,6 @@ enum AircraftEffects {
                          colour: SIMD4<Float>(red, 0.55 + 0.45 * night), frame: frame)
         }
 
-        // Strobes: a double flash on both wingtips, bright day or night.
-        let strobeTime = (time / 1.3 + phase * 0.73).truncatingRemainder(dividingBy: 1) * 1.3
-        if strobeTime < 0.05 || (strobeTime > 0.13 && strobeTime < 0.18) {
-            let radius = min(max(size * 0.11, 6), 22)
-            let colour = SIMD4<Float>(white, 0.75 + 0.25 * night)
-            batch.sprite(frame.clip(SIMD3<Double>(anchors.leftTip), on: placement), radius: radius, colour: colour, frame: frame)
-            batch.sprite(frame.clip(SIMD3<Double>(anchors.rightTip), on: placement), radius: radius, colour: colour, frame: frame)
-        }
-
         // Landing lights, low down — and on the ground, as taxi lights.
         if plane.heightMetres < 3_000, night > 0.05 {
             let low = Float(1 - plane.heightMetres / 3_000)
@@ -183,74 +168,6 @@ enum AircraftEffects {
             }
             let clips = frame.clip(plane.coordinate, altitude: ground + 0.5, offsets: corners)
             batch.quad(clips, colour: colour)
-        }
-    }
-
-    // MARK: - Contrails
-
-    /// Contrails above this altitude above the sea, in metres: 26,000 ft.
-    static let contrailFloor = 7_925.0
-
-    /// How long a contrail lasts, in seconds.
-    static let contrailLife = 45.0
-
-    static func contrail(
-        _ history: [AircraftEngine.TrailPoint],
-        for plane: AircraftEngine.Aircraft,
-        on placement: AircraftFrame.Placement,
-        anchors: AircraftAnchors,
-        sunlight: Sunlight,
-        now: Double,
-        frame: AircraftFrame,
-        into mesh: inout AircraftPathMesh
-    ) {
-        guard history.count >= 1 else { return }
-        let size = frame.screenSize
-        guard size.x > 0, size.y > 0 else { return }
-
-        // From the tail as drawn, back through where it has been.
-        var clips: [SIMD4<Double>] = [frame.clip(SIMD3<Double>(anchors.tail), on: placement)]
-        var ages: [Double] = [0]
-        for point in history.reversed() {
-            let altitude = frame.altitude(ground: 0, height: point.heightMetres, sea: point.seaAltitudeMetres)
-            clips.append(frame.clip(point.coordinate, altitude: altitude))
-            ages.append(now - point.time)
-        }
-        guard clips.count >= 2 else { return }
-
-        let base = min(max(placement.screenLength * 0.06, 1.0), 3.5)
-        let light = Float(0.35 + 0.65 * sunlight.daylight)
-        let screens = clips.map { frame.screen($0) }
-
-        var corners: [(UInt32, UInt32)?] = []
-        for i in clips.indices {
-            guard let here = screens[i] else { corners.append(nil); continue }
-            var direction = SIMD2<Double>(0, 0)
-            if i + 1 < screens.count, let next = screens[i + 1] { direction += next - here }
-            if i > 0, let previous = screens[i - 1] { direction += here - previous }
-            let length = simd_length(direction)
-            guard length > 1e-6 else { corners.append(nil); continue }
-            let normal = SIMD2<Double>(-direction.y, direction.x) / length
-
-            let age = ages[i]
-            let life = max(1 - age / contrailLife, 0)
-            let alpha = Float(0.5 * pow(life, 1.5) * min(age / 1.2, 1)) * light
-            let width = base * (1 + age / 15)
-            let colour = SIMD4<Float>(0.96, 0.97, 1.0, alpha)
-
-            let clip = clips[i]
-            func pushed(_ by: Double) -> SIMD4<Float> {
-                let ndc = SIMD2<Double>(2 * normal.x * by / size.x, -2 * normal.y * by / size.y)
-                return SIMD4<Float>(SIMD4<Double>(clip.x + ndc.x * clip.w, clip.y + ndc.y * clip.w, clip.z, clip.w))
-            }
-            let first = UInt32(mesh.vertices.count)
-            mesh.vertices.append(.init(position: pushed(width / 2), colour: colour))
-            mesh.vertices.append(.init(position: pushed(-width / 2), colour: colour))
-            corners.append((first, first + 1))
-        }
-        for i in 0..<(corners.count - 1) {
-            guard let a = corners[i], let b = corners[i + 1] else { continue }
-            mesh.line.append(contentsOf: [a.0, a.1, b.0, a.1, b.1, b.0])
         }
     }
 }

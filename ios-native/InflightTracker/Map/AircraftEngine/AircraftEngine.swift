@@ -59,17 +59,8 @@ final class AircraftEngine: NSObject, CustomLayerHost {
         var tint: SIMD4<Float>
     }
 
-    /// The id the replayed aeroplane is drawn under. It leaves no contrail:
-    /// a replay jumps when it is scrubbed, and a trail would draw the jump.
+    /// The id the replayed aeroplane is drawn under.
     static let replayId = "inflight-replay"
-
-    /// Where an aeroplane has been, for its contrail.
-    struct TrailPoint {
-        var coordinate: CLLocationCoordinate2D
-        var heightMetres: Double
-        var seaAltitudeMetres: Double
-        var time: Double
-    }
 
     /// Called on the main thread when a model has been loaded and can be
     /// drawn.
@@ -80,7 +71,6 @@ final class AircraftEngine: NSObject, CustomLayerHost {
     private let lock = NSLock()
     private var aircraft: [Aircraft] = []
     private var path: AircraftPath?
-    private var trails: [String: [TrailPoint]] = [:]
     private var drawn: [(id: String, point: CGPoint, radius: CGFloat)] = []
     private var models: [String: Model] = [:]
     private var loading: Set<String> = []
@@ -105,42 +95,10 @@ final class AircraftEngine: NSObject, CustomLayerHost {
 
     /// The aircraft to draw on the next frame, replacing the last set.
     func update(_ aircraft: [Aircraft]) {
-        let now = CACurrentMediaTime()
         lock.lock()
         self.aircraft = aircraft
-        recordTrails(aircraft, now: now)
         lock.unlock()
     }
-
-    /// A point every `trailStep` seconds for each aeroplane high enough to
-    /// leave a contrail, kept for `AircraftEffects.contrailLife`. One that
-    /// descends or leaves the map leaves its trail to fade where it was.
-    /// Must be called with the lock held.
-    private func recordTrails(_ aircraft: [Aircraft], now: Double) {
-        var seen = Set<String>()
-        for plane in aircraft where plane.seaAltitudeMetres > AircraftEffects.contrailFloor && plane.id != Self.replayId {
-            seen.insert(plane.id)
-            var history = trails[plane.id] ?? []
-            if let last = history.last, now - last.time < Self.trailStep { continue }
-            history.append(TrailPoint(
-                coordinate: plane.coordinate,
-                heightMetres: plane.heightMetres,
-                seaAltitudeMetres: plane.seaAltitudeMetres,
-                time: now
-            ))
-            history.removeAll { now - $0.time > AircraftEffects.contrailLife }
-            trails[plane.id] = history
-        }
-        guard now - lastTrailSweep > 2 else { return }
-        lastTrailSweep = now
-        for (id, history) in trails where !seen.contains(id) {
-            let kept = history.filter { now - $0.time <= AircraftEffects.contrailLife }
-            trails[id] = kept.isEmpty ? nil : kept
-        }
-    }
-
-    private var lastTrailSweep: Double = 0
-    private static let trailStep = 1.5
 
     /// The open aircraft's flown path, or nil for none — see `AircraftPath`.
     /// Its end is joined to the aeroplane on every frame, so this is only
@@ -272,7 +230,7 @@ final class AircraftEngine: NSObject, CustomLayerHost {
         glass.isDepthWriteEnabled = false
         blendDepth = metalDevice.makeDepthStencilState(descriptor: glass)
 
-        // Lights glow over whatever is in front of them, the way a strobe
+        // Lights glow over whatever is in front of them, the way a beacon
         // seen through haze does.
         let overlay = MTLDepthStencilDescriptor()
         overlay.depthCompareFunction = .always
@@ -313,7 +271,6 @@ final class AircraftEngine: NSObject, CustomLayerHost {
         lock.lock()
         let aircraft = self.aircraft
         let path = self.path
-        let trails = self.trails
         let models = self.models
         let isLight = self.isLight
         let device = self.device
@@ -329,7 +286,6 @@ final class AircraftEngine: NSObject, CustomLayerHost {
         var head: AircraftPathMesh.Head?
         var shadows = GlowBatch()
         var lights = GlowBatch()
-        var contrailCandidates: [(plane: Aircraft, placement: AircraftFrame.Placement, anchors: AircraftAnchors, sunlight: AircraftEffects.Sunlight)] = []
 
         for plane in aircraft {
             guard let model = models[plane.model] else { continue }
@@ -371,20 +327,6 @@ final class AircraftEngine: NSObject, CustomLayerHost {
                 for: plane, on: placed, anchors: model.anchors, sunlight: sunlight,
                 time: now, frame: frame, into: &lights
             )
-            if trails[plane.id] != nil, placed.screenLength >= Self.contrailFromPoints {
-                contrailCandidates.append((plane, placed, model.anchors, sunlight))
-            }
-        }
-
-        // The largest on screen first, as many as are worth the triangles.
-        var contrails = AircraftPathMesh()
-        contrailCandidates.sort { $0.placement.screenLength > $1.placement.screenLength }
-        for candidate in contrailCandidates.prefix(Self.mostContrails) {
-            guard let history = trails[candidate.plane.id] else { continue }
-            AircraftEffects.contrail(
-                history, for: candidate.plane, on: candidate.placement, anchors: candidate.anchors,
-                sunlight: candidate.sunlight, now: now, frame: frame, into: &contrails
-            )
         }
 
         lock.lock()
@@ -395,7 +337,7 @@ final class AircraftEngine: NSObject, CustomLayerHost {
         let pathMesh = path.map { AircraftPathMesh($0, head: head, frame: frame, halo: haloColour) } ?? AircraftPathMesh()
 
         let total = groups.values.reduce(0) { $0 + $1.count }
-        guard total > 0 || !pathMesh.isEmpty || !contrails.isEmpty else { return }
+        guard total > 0 || !pathMesh.isEmpty else { return }
 
         // One buffer for every instance on the frame, each group a run of it.
         let stride = MemoryLayout<AircraftShaders.Instance>.stride
@@ -465,27 +407,6 @@ final class AircraftEngine: NSObject, CustomLayerHost {
             }
         }
 
-        // Contrails, with the path's own program.
-        if !contrails.isEmpty, let pathPipeline, let blendDepth,
-           let vertices = device.makeBuffer(
-               bytes: contrails.vertices,
-               length: contrails.vertices.count * MemoryLayout<AircraftShaders.PathVertex>.stride,
-               options: .storageModeShared
-           ),
-           let indices = device.makeBuffer(
-               bytes: contrails.line,
-               length: contrails.line.count * MemoryLayout<UInt32>.stride,
-               options: .storageModeShared
-           ) {
-            encoder.setRenderPipelineState(pathPipeline)
-            encoder.setDepthStencilState(blendDepth)
-            encoder.setVertexBuffer(vertices, offset: 0, index: 0)
-            encoder.drawIndexedPrimitives(
-                type: .triangle, indexCount: contrails.line.count, indexType: .uint32,
-                indexBuffer: indices, indexBufferOffset: 0
-            )
-        }
-
         encoder.setVertexBytes(&uniforms, length: MemoryLayout<AircraftShaders.FrameUniforms>.stride, index: 2)
         encoder.setFragmentBytes(&uniforms, length: MemoryLayout<AircraftShaders.FrameUniforms>.stride, index: 1)
 
@@ -551,11 +472,6 @@ final class AircraftEngine: NSObject, CustomLayerHost {
     /// Where the middle of a model is, as a share of its length above the
     /// ground it stands on — roughly the fuselage's centre line.
     private static let middleShare = 0.08
-
-    /// Contrails only behind aeroplanes drawn at least this long, in points,
-    /// and at most this many of them on a frame.
-    private static let contrailFromPoints = 5.0
-    private static let mostContrails = 250
 
     /// However small an aeroplane is drawn, a tap this close to it finds it.
     private static let smallestTapRadius = 18.0
