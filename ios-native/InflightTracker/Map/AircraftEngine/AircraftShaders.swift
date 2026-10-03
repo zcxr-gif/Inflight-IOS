@@ -26,6 +26,10 @@ enum AircraftShaders {
         var rotation2: SIMD4<Float>
         /// A colour mixed into the model, and how much of it.
         var tint: SIMD4<Float>
+        /// Towards the sun where this aeroplane is, in east, north and up
+        /// (xyz), and how much daylight there is there (w): 1 in full day,
+        /// 0 at night.
+        var light: SIMD4<Float>
     }
 
     struct FrameUniforms {
@@ -34,7 +38,8 @@ enum AircraftShaders {
         var ambient: Float
         var diffuse: Float
         var emission: Float
-        /// Towards the light, in east, north, up.
+        /// Unused direction (xyz); how much light reaches a model at night,
+        /// from the moon, the sky glow and the airfield (w).
         var light: SIMD4<Float>
     }
 
@@ -42,6 +47,14 @@ enum AircraftShaders {
     struct PathVertex {
         var position: SIMD4<Float>
         var colour: SIMD4<Float>
+    }
+
+    /// One corner of a glow — a light, or a shadow: in clip space, its
+    /// colour, and where the corner is across the glow (±1, ±1).
+    struct GlowVertex {
+        var position: SIMD4<Float>
+        var colour: SIMD4<Float>
+        var corner: SIMD4<Float>
     }
 
     struct MaterialUniforms {
@@ -69,6 +82,7 @@ enum AircraftShaders {
         float4 rotation1;
         float4 rotation2;
         float4 tint;
+        float4 light;
     };
 
     struct FrameUniforms {
@@ -90,6 +104,7 @@ enum AircraftShaders {
         float3 normal;
         float2 uv;
         float4 tint;
+        float4 light;
     };
 
     vertex Varyings aircraftVertex(uint vid [[vertex_id]],
@@ -108,6 +123,7 @@ enum AircraftShaders {
         out.normal = rotation * float3(v.normal);
         out.uv = float2(v.uv);
         out.tint = aircraft.tint;
+        out.light = aircraft.light;
         return out;
     }
 
@@ -126,10 +142,14 @@ enum AircraftShaders {
         }
         float alpha = material.alpha.y > 0.5 ? base.a : 1.0;
 
-        // Lit from both sides: thin surfaces in these models face either way.
+        // Lit by the sun where the aeroplane is, from both sides: thin
+        // surfaces in these models face either way. At night only the dim
+        // light of the night is left.
         float3 normal = normalize(in.normal);
-        float lambert = abs(dot(normal, frame.light.xyz));
-        float3 colour = base.rgb * (frame.ambient + frame.diffuse * lambert)
+        float daylight = in.light.w;
+        float lambert = abs(dot(normal, normalize(in.light.xyz)));
+        float ambient = mix(frame.light.w, frame.ambient, daylight);
+        float3 colour = base.rgb * (ambient + frame.diffuse * daylight * lambert)
             + material.emissive.rgb * frame.emission;
         colour = mix(colour, in.tint.rgb, in.tint.a);
         return float4(colour * alpha, alpha);
@@ -157,6 +177,37 @@ enum AircraftShaders {
     fragment float4 pathFragment(PathVaryings in [[stage_in]])
     {
         return float4(in.colour.rgb * in.colour.a, in.colour.a);
+    }
+
+    struct GlowVertex {
+        float4 position;
+        float4 colour;
+        float4 corner;
+    };
+
+    struct GlowVaryings {
+        float4 position [[position]];
+        float4 colour;
+        float2 corner;
+    };
+
+    vertex GlowVaryings glowVertex(uint vid [[vertex_id]],
+                                   const device GlowVertex *vertices [[buffer(0)]])
+    {
+        GlowVaryings out;
+        out.position = vertices[vid].position;
+        out.colour = vertices[vid].colour;
+        out.corner = vertices[vid].corner.xy;
+        return out;
+    }
+
+    // Brightest in the middle, nothing at the edge of the quad.
+    fragment float4 glowFragment(GlowVaryings in [[stage_in]])
+    {
+        float r2 = dot(in.corner, in.corner);
+        float strength = exp(-3.2 * r2) * saturate(1.0 - r2);
+        float alpha = in.colour.a * strength;
+        return float4(in.colour.rgb * alpha, alpha);
     }
     """
 }

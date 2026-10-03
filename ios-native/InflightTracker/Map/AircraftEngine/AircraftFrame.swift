@@ -80,6 +80,14 @@ struct AircraftFrame {
         let screenLength: Double
         /// How many times its real size it is drawn.
         let magnification: Double
+        /// Model metres to clip space, through each world — for putting
+        /// things on the model as drawn: its lights.
+        let mercatorMatrix: simd_double4x4
+        let globeMatrix: simd_double4x4
+        /// How many points a metre is on screen at the aeroplane.
+        let pointsPerMetre: Double
+        /// The altitude it is drawn at, above the sea.
+        let altitude: Double
     }
 
     /// Where an aeroplane goes on this frame, how big, and which way up — or
@@ -87,7 +95,8 @@ struct AircraftFrame {
     func place(
         _ plane: AircraftEngine.Aircraft,
         groundMetres: Double,
-        lengthMetres: Double
+        lengthMetres: Double,
+        light: SIMD4<Float>
     ) -> Placement? {
         let latitude = min(max(plane.coordinate.latitude, -85), 85)
         let drawnAltitude = altitude(ground: groundMetres, height: plane.heightMetres, sea: plane.seaAltitudeMetres)
@@ -141,13 +150,18 @@ struct AircraftFrame {
             rotation0: SIMD4<Float>(SIMD3<Float>(rotation.columns.0), 0),
             rotation1: SIMD4<Float>(SIMD3<Float>(rotation.columns.1), 0),
             rotation2: SIMD4<Float>(SIMD3<Float>(rotation.columns.2), 0),
-            tint: plane.tint
+            tint: plane.tint,
+            light: light
         )
         return Placement(
             instance: instance,
             screenPoint: CGPoint(x: centre.x, y: centre.y),
             screenLength: screenLength,
-            magnification: magnification
+            magnification: magnification,
+            mercatorMatrix: mercator * model,
+            globeMatrix: globe * model,
+            pointsPerMetre: pointsPerMetre,
+            altitude: drawnAltitude
         )
     }
 
@@ -181,6 +195,30 @@ struct AircraftFrame {
             if transition >= 1 { mercator = globe }
         }
         return (mercator, globe)
+    }
+
+    /// A point on a placed model, in model metres, in clip space.
+    func clip(_ local: SIMD3<Double>, on placement: Placement) -> SIMD4<Double> {
+        let point = SIMD4<Double>(local, 1)
+        let flat = placement.mercatorMatrix * point
+        guard transition > 0 else { return flat }
+        return flat + (placement.globeMatrix * point - flat) * transition
+    }
+
+    /// Points `offsets` metres east, north and up of a place at a height, in
+    /// clip space.
+    func clip(
+        _ coordinate: CLLocationCoordinate2D,
+        altitude: Double,
+        offsets: [SIMD3<Double>]
+    ) -> [SIMD4<Double>] {
+        let (mercator, globe) = frames(coordinate, altitude: altitude)
+        return offsets.map { offset in
+            let point = SIMD4<Double>(offset, 1)
+            let flat = mercator * point
+            guard transition > 0 else { return flat }
+            return flat + (globe * point - flat) * transition
+        }
     }
 
     /// A point at a height above the sea, in clip space.
