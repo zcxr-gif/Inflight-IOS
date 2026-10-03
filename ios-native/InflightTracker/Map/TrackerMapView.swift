@@ -133,6 +133,11 @@ struct TrackerMapView: UIViewRepresentable {
     /// can sit still through a gesture.
     var onCameraMoving: (Bool) -> Void = { _ in }
 
+    /// Told which way the map is turned, in whole degrees clockwise from
+    /// north, whenever that changes — so the compass knows when to show
+    /// itself and which way its needle points.
+    var onBearingChanged: (Double) -> Void = { _ in }
+
     /// Where the map has come to rest — its centre, and how many degrees of
     /// latitude are on screen. Reported on the settle rather than through the
     /// gesture, because the one thing that reads it goes to the network.
@@ -572,7 +577,9 @@ struct TrackerMapView: UIViewRepresentable {
 
         private func applyGestures(for look: MapLook) {
             guard let mapView = mapView else { return }
-            mapView.gestures.options.rotateEnabled = look.isFreeCamera
+            // Every map can be turned with two fingers; the compass puts it
+            // back to north.
+            mapView.gestures.options.rotateEnabled = true
             // A 3D aircraft seen only from straight above is a plan view, so
             // with models on the map can always be tilted to look at them.
             mapView.gestures.options.pitchEnabled = look.isPitchEnabled || parent.aircraftModels != .off
@@ -622,11 +629,10 @@ struct TrackerMapView: UIViewRepresentable {
                     to: CameraOptions(center: state.center, zoom: min(state.zoom, zoom), bearing: 0, pitch: 0),
                     duration: 0.9
                 )
-            } else if !look.isFreeCamera, state.bearing != 0 || (state.pitch != 0 && !look.isPitchEnabled) {
-                mapView.camera.ease(
-                    to: CameraOptions(bearing: 0, pitch: look.isPitchEnabled ? state.pitch : 0),
-                    duration: 0.5
-                )
+            } else if state.pitch != 0, !look.isPitchEnabled, parent.aircraftModels == .off {
+                // Level again on a look that does not tilt. The way the map is
+                // turned is the user's, and stays.
+                mapView.camera.ease(to: CameraOptions(pitch: 0), duration: 0.5)
             }
         }
 
@@ -809,6 +815,7 @@ struct TrackerMapView: UIViewRepresentable {
 
             let state = map.cameraState
             zoom = Double(state.zoom)
+            reportBearing(Double(state.bearing))
 
             let latitude = state.center.latitude
             let circumference = 40_075_016.686 * max(cos(latitude * .pi / 180), 0.01)
@@ -850,6 +857,22 @@ struct TrackerMapView: UIViewRepresentable {
                 parent.onCameraMoving(true)
             }
             scheduleSettle()
+        }
+
+        /// The bearing last told to the compass, to the degree.
+        private var reportedBearing: Double?
+
+        private func reportBearing(_ bearing: Double) {
+            var degrees = bearing.truncatingRemainder(dividingBy: 360)
+            if degrees > 180 { degrees -= 360 }
+            if degrees < -180 { degrees += 360 }
+            let rounded = degrees.rounded()
+            guard rounded != reportedBearing else { return }
+            reportedBearing = rounded
+            // Off this pass: a camera change can arrive inside a view update,
+            // and the compass is SwiftUI state.
+            let report = parent.onBearingChanged
+            DispatchQueue.main.async { report(rounded) }
         }
 
         /// Everything that waits for the map to stop moving, coalesced so a
@@ -2840,6 +2863,11 @@ struct TrackerMapView: UIViewRepresentable {
                     on: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
                     spanMeters: spanMeters
                 )
+            case .northUp:
+                // Only the bearing is animated, so a follow carrying the camera
+                // with an aeroplane keeps carrying it through the turn.
+                mapView.camera.ease(to: CameraOptions(bearing: 0), duration: 0.45, curve: .easeInOut)
+                carried = true
             }
 
             // Or there is nothing left to wait for: the three moves above are
@@ -3061,6 +3089,10 @@ struct MapCommand: Equatable {
         /// numbers because `CLLocationCoordinate2D` is not `Equatable`, and
         /// the command has to be comparable to be one-shot.
         case focus(latitude: Double, longitude: Double, spanMeters: Double)
+
+        /// Turns the map back to north-up, keeping where it is looking, how
+        /// close and how tilted.
+        case northUp
     }
 
     let kind: Kind

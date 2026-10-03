@@ -105,6 +105,10 @@ struct ContentView: View {
     /// Latest camera request from the chrome around the map.
     @State private var mapCommand: MapCommand?
 
+    /// Which way the map is turned, in whole degrees clockwise from north —
+    /// see `compassControl`.
+    @State private var mapBearing: Double = 0
+
     /// The ruler: whether it is down, and the leg it is measuring.
     @State private var measurement = MapMeasurement()
 
@@ -776,6 +780,7 @@ struct ContentView: View {
             showsVaMarks: filters.showsVaMarks,
             weatherTiles: mapWeather.tiles,
             onCameraMoving: { mapWeather.report(cameraMoving: $0) },
+            onBearingChanged: { mapBearing = $0 },
             // Where to sweep for real traffic, on the settle rather than
             // through the gesture. The planet reports the same pair from its
             // own camera, so the layer behaves the same on both shapes of the
@@ -2416,6 +2421,8 @@ struct ContentView: View {
             // furniture rather than as loose buttons that happen to be near
             // each other.
             VStack(spacing: 0) {
+                compassControl
+
                 // Top of the stack, because it is the one that leaves the map
                 // rather than changing it.
                 mapButton("camera.viewfinder", "Point the camera at the sky") {
@@ -2642,6 +2649,8 @@ struct ContentView: View {
             // One grouped control rather than free-floating circles: it reads
             // as part of the window's chrome instead of three loose buttons.
             VStack(spacing: 0) {
+                compassControl
+
                 // The whole flight, in the part of the map the window is not
                 // standing on: both ends of the route, everything flown so far,
                 // and the aeroplane itself, framed in the middle of the gap
@@ -2746,6 +2755,41 @@ struct ContentView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))
+        }
+    }
+
+    /// Whether the map is turned away from north by enough to offer turning
+    /// it back.
+    private var isMapTurned: Bool {
+        !isPlanetMap && abs(mapBearing) >= 1
+    }
+
+    /// The compass: only there while the map is turned, its needle pointing
+    /// where north is on screen, and one tap turns the map back to north-up —
+    /// keeping where it is looking, how close and how tilted. At the top of
+    /// whichever stack of map controls is showing, so it is in the same place
+    /// with a flight open or without.
+    @ViewBuilder
+    private var compassControl: some View {
+        if isMapTurned {
+            Button {
+                mapCommand = MapCommand(kind: .northUp)
+            } label: {
+                Image(systemName: "location.north.line.fill")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(theme.textPrimary)
+                    .rotationEffect(.degrees(-mapBearing))
+                    .frame(width: 44, height: 42)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Face north")
+            .accessibilityValue("The map is turned \(Int(abs(mapBearing))) degrees \(mapBearing > 0 ? "clockwise" : "anticlockwise")")
+            .transition(.opacity)
+
+            Rectangle()
+                .fill(theme.stroke)
+                .frame(height: 1)
         }
     }
 
