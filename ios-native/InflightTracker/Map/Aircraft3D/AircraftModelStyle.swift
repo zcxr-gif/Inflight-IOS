@@ -1,54 +1,34 @@
 import Foundation
 
-/// How a 3D aircraft sits on the map: how big, how high, and which way up.
+/// How big a 3D aircraft is drawn, and how high.
 ///
-/// ## Size
+/// The rules `AircraftEngine` draws by, on every frame, from how large a metre
+/// is on screen at each aeroplane — measured from that frame's camera, so the
+/// same rules hold on the flat map, on the globe and down a tilted view.
 ///
-/// Three rules, together — see `magnification`. Every model is stored in
-/// metres (see `GLBNormaliser`).
+/// ## Size — see `magnification`
 ///
-/// - **Close in, real size.** An aeroplane is exactly its real size, fixed to
-///   the map the way the runway under it is. From about zoom 15 an airliner
-///   is never rescaled at all.
-/// - **Pulled back, a size curve.** Real size is a speck there, so the model
-///   is drawn larger than life — but not at one fixed size: an A320 is about
-///   six points long over the whole globe and grows gently to about
-///   seventeen over a city (`farLengths`), so a zoomed-out map is a field of
-///   small aeroplanes rather than a pile of large ones. Everything else is in
-///   proportion to the A320, and nothing is drawn under `smallestShare` of it.
-///   The curve meets real size where real size overtakes it, so the change
-///   cannot be seen.
+/// - **Close in, real size.** Once an aeroplane at real size is at least the
+///   size curve, it is drawn exactly its real size, fixed to the map the way
+///   the runway under it is, and never rescaled.
+/// - **Further out, a size curve.** Real size is a speck there, so the model
+///   is drawn larger than life — an A320 about six points long over the whole
+///   globe, growing gently to about seventeen over a city (`farLengths`).
+///   Everything else is in proportion to the A320, and nothing is drawn under
+///   `smallestShare` of it. The curve meets real size where real size
+///   overtakes it, so the change cannot be seen. The curve is read at each
+///   aeroplane's own scale, so down a tilted view the far ones are smaller.
 /// - **On the ground, never bigger than the airport.** A parked or taxiing
-///   aeroplane is never drawn longer than `groundLongest` metres, so it stays
-///   a small thing on its airfield at every zoom. The limit lifts smoothly
-///   with height after take-off (doubling every `groundLiftDoubling` metres),
-///   so nothing jumps at rotation.
-///
-/// Mapbox does not support a zoom-dependent `model-scale` on a GeoJSON
-/// source — it bakes the value in when it lays a tile out — so the factor is
-/// worked out here and written into each aeroplane's feature (`msc`), and
-/// rewritten as the zoom moves for the aeroplanes whose factor changes: see
-/// `TrackerMapView`'s `refreshModelScale`. Close in, where everything is real
-/// size, nothing is rewritten at all.
-///
-/// The flat icon is only drawn for an aeroplane whose model has not arrived.
+///   aeroplane is never drawn longer than `groundLongest` metres. The limit
+///   lifts smoothly with height after take-off, so nothing jumps at rotation.
 ///
 /// ## Height
 ///
 /// Real height above the ground, as near as the feed allows (see
 /// `AircraftAttitude.heightMetres`) — carried between packets at the
 /// aeroplane's own vertical speed, so a climb is a climb rather than a stair.
-///
-/// That height is the same at every zoom: nothing about it depends on where
-/// the camera is. Close in over a cruising airliner, the camera can be below
-/// the aeroplane — which is where it really is.
-///
-/// ## Attitude
-///
-/// Mapbox turns a model by `[x, y, z]` degrees: heading about the vertical,
-/// then pitch about the wings, then roll about the fuselage — checked in
-/// Mapbox's renderer before it was written here. Nose up is a *negative* x;
-/// right wing down is a positive y.
+/// The same at every zoom: close in over a cruising airliner, the camera can
+/// be below the aeroplane, which is where it really is.
 enum AircraftModelStyle {
 
     /// How long an A320 is drawn on screen, in points, at each zoom, while
@@ -90,67 +70,42 @@ enum AircraftModelStyle {
         return last.points
     }
 
-    /// The factor a model `lengthMetres` long is drawn at: one — real size —
-    /// whenever real size is at least the size curve, just enough larger to
-    /// reach the curve when it is not, and never so large on or near the
-    /// ground that it outgrows the airfield. Mercator draws a metre bigger
-    /// away from the equator, so the curve is measured in metres at the
-    /// aeroplane's own latitude.
+    /// The factor a model `lengthMetres` long is drawn at, where a metre is
+    /// `pointsPerMetre` long on screen: one — real size — whenever real size
+    /// is at least the size curve, just enough larger to reach the curve when
+    /// it is not, and never so large on or near the ground that it outgrows
+    /// the airfield.
+    ///
+    /// The curve is read at the zoom that scale would be on a flat map at
+    /// this latitude, so on the flat map it is simply the zoom, and anywhere
+    /// else it is what the zoom looks like where the aeroplane is.
     static func magnification(
         lengthMetres: Double,
+        pointsPerMetre: Double,
         latitude: Double,
-        zoom: Double,
         heightMetres: Double
     ) -> Double {
         let length = max(lengthMetres, 1)
-        let metresPerPoint = metresPerPointAtZoomZero * max(cos(latitude * .pi / 180), 0.01) / pow(2, zoom)
-        let a320 = farLength(atZoom: zoom)
+        guard pointsPerMetre > 0, pointsPerMetre.isFinite else { return 1 }
+        let localZoom = log2(pointsPerMetre * metresPerPointAtZoomZero * max(cos(latitude * .pi / 180), 0.01))
+        let a320 = farLength(atZoom: localZoom)
         let points = max(a320 * length / referenceLength, a320 * smallestShare)
-        let curve = max(1, points * metresPerPoint / length)
+        let curve = max(1, points / (length * pointsPerMetre))
         let longest = groundLongest * pow(2, min(max(heightMetres, 0), 3_000) / groundLiftDoubling)
         return min(curve, max(1, longest / length))
     }
 
-    /// The scale, as each aeroplane's feature carries it.
-    static func scaleExpression() -> [Any] {
-        ["get", "msc"]
-    }
-
-    /// Which model each aeroplane is drawn from: its own, at real size.
-    static func modelIdExpression() -> [Any] {
-        ["to-string", ["get", "model"]]
-    }
-
-    /// The flat icon: drawn only for an aeroplane with no model yet.
+    /// The flat icon: drawn only for an aeroplane whose model is not ready to
+    /// draw yet.
     static func iconOpacityExpression() -> [Any] {
         ["case", ["has", "model"], 0, 1]
     }
 
-    /// The height, as each aeroplane's feature carries it.
-    static func liftExpression() -> [Any] {
-        ["get", "mt"]
-    }
-
     /// The height an aeroplane is drawn at: its real height above the
-    /// ground, at every zoom. What is written into its feature, and what the
-    /// flown path is drawn to meet (see `FlownPathProfile`).
+    /// ground, at every zoom — and what the flown path is drawn to meet (see
+    /// `FlownPathProfile`).
     static func drawnLift(heightMetres: Double) -> Double {
         max(heightMetres, 0)
-    }
-
-    /// The per-aircraft half of the above, written into its feature.
-    static func properties(
-        heading: Double,
-        pitch: Double,
-        bank: Double,
-        heightMetres: Double,
-        scale: Double
-    ) -> [String: [Double]] {
-        [
-            "mrot": [-pitch, bank, heading],
-            "mt": [0, 0, drawnLift(heightMetres: heightMetres)],
-            "msc": [scale, scale, scale],
-        ]
     }
 }
 

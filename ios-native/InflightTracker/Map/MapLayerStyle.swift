@@ -96,6 +96,7 @@ enum MapLayerStyle {
         static let natLabels = "inflight-nat-labels"
         static let fields = "inflight-fields"
         static let fixes = "inflight-fixes"
+        /// Drawn by `AircraftEngine`, not by Mapbox — a custom layer.
         static let trafficModels = "inflight-traffic-models"
         static let traffic = "inflight-traffic"
         static let trafficMarks = "inflight-traffic-marks"
@@ -109,7 +110,7 @@ enum MapLayerStyle {
     }
 
     /// The layers a tap can open something from, in the order they are asked.
-    static let tappableTraffic = [Layer.trafficModels, Layer.selected, Layer.replay, Layer.traffic]
+    static let tappableTraffic = [Layer.selected, Layer.replay, Layer.traffic]
     static let tappableFields = [Layer.fields]
 
     // MARK: - Installing
@@ -215,10 +216,7 @@ enum MapLayerStyle {
         let plate = FlightMarkStyle.plateImage(isLight: false)
         let bold = json(boldFont)
         let medium = json(mediumFont)
-        let modelId = json(AircraftModelStyle.modelIdExpression())
-        let modelScale = json(AircraftModelStyle.scaleExpression())
         let iconOpacity = json(AircraftModelStyle.iconOpacityExpression())
-        let modelLift = json(AircraftModelStyle.liftExpression())
         let airWidth = json(zoomRamp { FlownPathStyle.airWidth(forCameraDistance: $0) })
         let airElevation = json(["case", ["has", "elevation"], FlownPathProfile.elevationExpression(), 0] as [Any])
 
@@ -515,22 +513,6 @@ enum MapLayerStyle {
             \(air(Layer.flownHeadAirBlade, Source.flownHead, standing: true)),
             \(air(Layer.flownHeadAir, Source.flownHead, standing: false)),
             {
-                "id": "\(Layer.trafficModels)", "type": "model", "source": "\(Source.traffic)",
-                "filter": ["has", "model"],
-                "layout": {"model-id": \(modelId), "model-allow-density-reduction": false},
-                "paint": {
-                    "model-type": "common-3d",
-                    "model-rotation": ["get", "mrot"],
-                    "model-scale": \(modelScale),
-                    "model-translation": \(modelLift),
-                    "model-cast-shadows": false,
-                    "model-receive-shadows": false,
-                    "model-emissive-strength": 0.8,
-                    "model-color": "#ffffff",
-                    "model-color-mix-intensity": 0
-                }
-            },
-            {
                 "id": "\(Layer.traffic)", "type": "symbol", "source": "\(Source.traffic)",
                 "layout": \(traffic("icon")),
                 "paint": {"icon-opacity": \(iconOpacity)}
@@ -731,7 +713,6 @@ enum MapLayerStyle {
         // Lit by the style's own light, which at night is very little. The
         // models carry some light of their own so they stay aeroplanes rather
         // than silhouettes, and more of it on the dark map.
-        set(Layer.trafficModels, "model-emissive-strength", isLight ? 0.3 : 0.8)
 
         // The callsign's plate and its ink follow the map underneath, so the
         // label is dark on a light map and light on a dark one.
