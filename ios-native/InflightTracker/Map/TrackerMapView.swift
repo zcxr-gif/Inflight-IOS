@@ -279,8 +279,13 @@ struct TrackerMapView: UIViewRepresentable {
             // And the engine having a model ready to draw: until it has, the
             // aeroplanes of that type keep their flat icon.
             engine.onModelReady = { [weak self] _ in
-                self?.trafficPropertiesStale = true
-                self?.pushTraffic()
+                guard let self else { return }
+                self.trafficPropertiesStale = true
+                self.pushTraffic()
+                // The replay too swaps its flat icon for the model.
+                if self.parent.replayFrame != nil, self.isStyleLoaded, let map = self.map {
+                    self.syncReplay(on: map)
+                }
             }
         }
 
@@ -1291,7 +1296,8 @@ struct TrackerMapView: UIViewRepresentable {
         /// frame — where it is, how high, which way up, what colour — and asks
         /// the map to draw a frame for it.
         private func feedEngine(at now: CFTimeInterval) {
-            guard parent.aircraftModels != .off, !modelled.isEmpty else {
+            let replay = replayAircraft(at: now)
+            guard parent.aircraftModels != .off, !modelled.isEmpty || replay != nil else {
                 if engineFed {
                     engine.update([])
                     engineFed = false
@@ -1336,6 +1342,7 @@ struct TrackerMapView: UIViewRepresentable {
                     tint: tint
                 ))
             }
+            if let replay { list.append(replay) }
             engine.update(list)
             engineFed = true
             map?.triggerRepaint()
@@ -2595,6 +2602,7 @@ struct TrackerMapView: UIViewRepresentable {
                     clear(Source.replay)
                     renderedReplay = false
                 }
+                replayModel = nil
                 return
             }
 
@@ -2603,17 +2611,56 @@ struct TrackerMapView: UIViewRepresentable {
             let key = selectedFlight()?.spriteKey ?? replaySpriteKey ?? "TRIANGLE"
             replaySpriteKey = key
 
-            let icon = planeImage(key: key, tint: nil, selected: true)
-            push([Self.pointFeature(frame.coordinate, [
-                "icon": .string(icon),
-                "heading": .number(frame.heading),
-            ])], to: Source.replay)
+            // In 3D the engine flies the replay as the aeroplane's own model —
+            // see `feedEngine` — and the flat icon steps aside.
+            replayModel = selectedFlight().flatMap { engineModel(for: $0) }
+            if replayModel != nil {
+                if renderedReplay { clear(Source.replay) }
+            } else {
+                let icon = planeImage(key: key, tint: nil, selected: true)
+                push([Self.pointFeature(frame.coordinate, [
+                    "icon": .string(icon),
+                    "heading": .number(frame.heading),
+                ])], to: Source.replay)
+            }
             renderedReplay = true
 
             keepInView(frame.coordinate)
         }
 
         private var replaySpriteKey: String?
+
+        /// The model the replay is flown in, when the engine has it.
+        private var replayModel: String?
+
+        /// The model the engine draws an aircraft from, once it is ready —
+        /// asking is what loads it.
+        private func engineModel(for flight: Flight) -> String? {
+            guard parent.aircraftModels != .off,
+                  let entry = AircraftModelCatalog.entry(for: flight, in: parent.aircraftModels),
+                  let ready = AircraftModelStore.shared.ready(entry) else { return nil }
+            engine.load(ready.entry.styleId, file: ready.file)
+            return engine.isReady(ready.entry.styleId) ? ready.entry.styleId : nil
+        }
+
+        /// The replayed aeroplane, as the engine draws it: its own colours with
+        /// a wash of amber, so it is never mistaken for the live one.
+        private func replayAircraft(at now: CFTimeInterval) -> AircraftEngine.Aircraft? {
+            guard let frame = parent.replayFrame, let model = replayModel else { return nil }
+            let field = selectedFlight().flatMap { markers[$0.id]?.attitude.groundAltitudeFeet } ?? 0
+            let sea = frame.altitudeFeet * 0.3048
+            return AircraftEngine.Aircraft(
+                id: AircraftEngine.replayId,
+                model: model,
+                coordinate: frame.coordinate,
+                heightMetres: max(frame.altitudeFeet - field, 0) * 0.3048,
+                seaAltitudeMetres: sea,
+                heading: frame.heading,
+                pitch: 0,
+                bank: 0,
+                tint: SIMD4<Float>(1.00, 0.62, 0.04, 0.22)
+            )
+        }
 
         // MARK: Following
 
