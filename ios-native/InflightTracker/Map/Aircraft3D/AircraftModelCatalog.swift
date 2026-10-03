@@ -4,9 +4,9 @@ import Foundation
 ///
 /// Two steps. An aircraft is first named by its ICAO type designator —
 /// Infinite Flight's own names ("Boeing 737-800", "Airbus A320neo") are read
-/// into one, and real traffic reports one already. Then each source is asked
-/// for that designator, and failing that for the nearest thing it has: an A321
-/// becomes an A320 where there is no A321, a 787 a 767. Nothing falls back to
+/// into one, and real traffic reports one already. Then the collection is
+/// asked for that designator, and failing that for the nearest thing it has:
+/// a 737 becomes an A320, a 777 an A340. Nothing falls back to
 /// a different *kind* of aeroplane: a fighter, a helicopter with no model or a
 /// balloon keeps its flat icon rather than turning into an airliner.
 enum AircraftModelCatalog {
@@ -15,15 +15,16 @@ enum AircraftModelCatalog {
         let source: AircraftModelSource
         /// Stable within the source. Part of the cache key and the style id.
         let id: String
-        /// Where to fetch it. Nil for Skytrails, whose release manifest names
-        /// the file — see `AircraftModelStore`.
-        let url: URL?
+        /// Where to fetch it.
+        let url: URL
         /// Which way the nose and the roof point in the file as published.
         let forward: GLBNormaliser.Axis
         let up: GLBNormaliser.Axis
         /// The designators this model is drawn for directly.
         let designators: [String]
         let licence: String
+        /// Who made it — see `credits`.
+        let credit: Credit
 
         var styleId: String { "ac3d-\(source.key)-\(id)" }
     }
@@ -46,7 +47,7 @@ enum AircraftModelCatalog {
 
     private static let index: [AircraftModelSource: [String: Entry]] = {
         var out: [AircraftModelSource: [String: Entry]] = [:]
-        for entry in skytrails + flightAirMap + flightradar24 {
+        for entry in flightAirMap {
             for designator in entry.designators where out[entry.source]?[designator] == nil {
                 out[entry.source, default: [:]][designator] = entry
             }
@@ -88,7 +89,7 @@ enum AircraftModelCatalog {
     }
 
     /// Every designator some source has a model or a fallback for.
-    private static let modelled: Set<String> = Set((skytrails + flightAirMap + flightradar24).flatMap(\.designators))
+    private static let modelled: Set<String> = Set(flightAirMap.flatMap(\.designators))
 
     /// Infinite Flight's aircraft names, read into designators. Order matters:
     /// the variant before the family it belongs to.
@@ -256,52 +257,6 @@ enum AircraftModelCatalog {
         return out
     }()
 
-    // MARK: - Skytrails
-
-    /// Downloaded from the repository's latest release, whose manifest names
-    /// each file. Already in the map's frame: nose along −Z, up along +Y.
-    static let skytrails: [Entry] = {
-        func model(_ id: String, _ designators: [String]) -> Entry {
-            Entry(source: .skytrails, id: id, url: nil, forward: .nz, up: .py, designators: designators,
-                  licence: "GPL-2.0-only")
-        }
-        return [
-            model("a320", ["A320", "A321", "A319", "A318", "A20N", "A21N", "A19N"]),
-            model("a220", ["BCS1", "BCS3", "A221", "A223"]),
-            model("a333", ["A333", "A332", "A339", "A338"]),
-            model("a343", ["A343", "A346", "A342", "A345"]),
-            model("a359", ["A359", "A35K"]),
-            model("a380", ["A388"]),
-            model("b738", ["B738", "B737", "B739", "B736", "B38M", "B39M", "B37M"]),
-            model("b744", ["B744", "B748", "B742", "B741"]),
-            model("b752", ["B752", "B753"]),
-            model("b77w", ["B77W", "B773", "B772", "B77L", "B779", "B778"]),
-            model("e190", ["E190", "E170", "E175", "E75L"]),
-            model("e195", ["E195", "E290", "E295"]),
-            model("at72", ["AT76", "AT75", "AT72", "AT73"]),
-            model("dh8c", ["DH8C", "DH8A", "DH8B", "D228", "D328"]),
-            model("dh8d", ["DH8D"]),
-            model("crj2", ["CRJ2", "CRJ1"]),
-            model("crj7", ["CRJ7", "CRJ9", "CRJX"]),
-            model("e145", ["E145", "E135"]),
-            model("sf34", ["SF34"]),
-            model("c550", ["C550", "C750", "C56X", "C680", "C510", "C525", "HDJT", "SF50", "E55P", "E50P", "LJ45",
-                           "PC24", "EA50"]),
-            model("cl60", ["CL35", "CL30", "CL60", "G280", "F900", "FA7X"]),
-            model("legacy", ["GLEX", "GLF5", "GLF6"]),
-            model("c172", ["C172", "C152"]),
-            model("c182", ["C182"]),
-            model("c208", ["C208"]),
-            model("pa18", ["PA18"]),
-            model("pa28", ["P28A", "SR22", "SR20", "DA40", "TBM9", "PC12", "PA32"]),
-            model("dr40", ["DR40"]),
-            model("da42", ["DA42", "DA62", "PA34"]),
-            model("c310", ["C310", "BE58"]),
-            model("be20", ["BE20", "B350"]),
-            model("centrair101", ["AS21"]),
-        ]
-    }()
-
     // MARK: - FlightAirMap
 
     /// Pinned to the commit the orientations were checked against, so a
@@ -312,12 +267,15 @@ enum AircraftModelCatalog {
     /// exceptions were found by drawing every model from above and the side.
     /// Four folders with no licence file (B407, BCS1, BCS3, C421) are left out.
     static let flightAirMap: [Entry] = {
-        func model(_ path: String, _ forward: GLBNormaliser.Axis, _ designators: [String],
-                   licence: String = "GPL-2.0") -> Entry {
+        func model(_ path: String, _ forward: GLBNormaliser.Axis, _ designators: [String]) -> Entry {
             let base = "https://raw.githubusercontent.com/Ysurac/FlightAirMap-3dmodels/\(flightAirMapCommit)/"
             let id = path.replacingOccurrences(of: "/glTF2/", with: "-").replacingOccurrences(of: ".glb", with: "")
-            return Entry(source: .flightAirMap, id: id.lowercased(), url: URL(string: base + path), forward: forward,
-                         up: .py, designators: designators, licence: licence)
+            let folder = String(path.prefix { $0 != "/" })
+            guard let credit = credits.first(where: { $0.folder == folder }) else {
+                preconditionFailure("No credit for FlightAirMap folder \(folder)")
+            }
+            return Entry(source: .flightAirMap, id: id.lowercased(), url: URL(string: base + path)!, forward: forward,
+                         up: .py, designators: designators, licence: credit.licence, credit: credit)
         }
         return [
             model("a320/glTF2/A318.glb", .pz, ["A318"]),
@@ -331,8 +289,8 @@ enum AircraftModelCatalog {
             model("a380/glTF2/A380.glb", .pz, ["A388"]),
             model("ask21/glTF2/AS21.glb", .pz, ["AS21"]),
             model("atr42/glTF2/AT45.glb", .pz, ["AT45", "AT43", "AT44", "AT46"]),
-            model("atr72/glTF2/AT75.glb", .pz, ["AT76", "AT75", "AT72", "AT73"], licence: "GPL-3.0"),
-            model("b707/glTF2/707.glb", .px, ["B703", "B701"], licence: "GPL-3.0"),
+            model("atr72/glTF2/AT75.glb", .pz, ["AT76", "AT75", "AT72", "AT73"]),
+            model("b707/glTF2/707.glb", .px, ["B703", "B701"]),
             model("b744/glTF2/B747.glb", .pz, ["B744", "B741", "B742", "B743"]),
             model("b748/glTF2/B748.glb", .pz, ["B748"]),
             model("b752/glTF2/757.glb", .pz, ["B752", "B753"]),
@@ -358,63 +316,153 @@ enum AircraftModelCatalog {
             model("pa28/glTF2/PA28.glb", .pz, ["P28A"]),
             model("pa32/glTF2/PA32.glb", .pz, ["PA32"]),
             model("pc12/glTF2/PC12.glb", .pz, ["PC12", "TBM9"]),
-            model("pc21/glTF2/PC21.glb", .pz, ["PC21"], licence: "GPL-3.0"),
+            model("pc21/glTF2/PC21.glb", .pz, ["PC21"]),
             model("sr22/glTF2/SR22.glb", .pz, ["SR22", "SR20", "DA40"]),
             model("t134/glTF2/T134.glb", .pz, ["T134"]),
         ]
     }()
 
-    // MARK: - Flightradar24
+    // MARK: - Credits
 
-    static let flightradar24Commit = "dd53267690c6a4ecbb290a3acf0284333a5d68a9"
+    /// Who made each model, as their own work records it.
+    ///
+    /// FlightAirMap collects the models; nearly every one is a FlightGear
+    /// aircraft from FGMEMBERS, linked from its folder at the commit the
+    /// conversion was made from. The authors are the ones that aircraft
+    /// names in its own `-set.xml` or `AUTHORS`, and the licence is the one
+    /// in its FlightAirMap folder.
+    struct Credit: Hashable {
+        /// The folder in the FlightAirMap repository.
+        let folder: String
+        let aircraft: String
+        let authors: String
+        let licence: String
+        /// The FlightGear aircraft it was converted from, at FGMEMBERS.
+        let origin: String
 
-    /// glTF 1.0 throughout, every one with its nose along −Z.
-    static let flightradar24: [Entry] = {
-        func model(_ name: String, _ designators: [String]) -> Entry {
-            let url = "https://raw.githubusercontent.com/Flightradar24/fr24-3d-models/\(flightradar24Commit)/models/\(name).glb"
-            return Entry(source: .flightradar24, id: name, url: URL(string: url), forward: .nz, up: .py,
-                         designators: designators, licence: "GPL-2.0")
+        var licenceName: String {
+            switch licence {
+            case "GPL-3.0": return "GNU GPL v3"
+            case "GPL-2.0-or-later": return "GNU GPL v2 or later"
+            default: return "GNU GPL v2"
+            }
         }
-        return [
-            model("a318", ["A318"]),
-            model("a319", ["A319", "A19N"]),
-            model("a320", ["A320", "A20N"]),
-            model("a321", ["A321", "A21N"]),
-            model("a332", ["A332"]),
-            model("a333", ["A333", "A338", "A339"]),
-            model("a343", ["A343", "A342", "A345"]),
-            model("a346", ["A346"]),
-            model("a359", ["A359", "A35K"]),
-            model("a380", ["A388"]),
-            model("ask21", ["AS21"]),
-            model("atr42", ["AT45", "AT43", "AT76", "AT75", "AT72", "AT73"]),
-            model("b736", ["B736"]),
-            model("b737", ["B737", "B37M"]),
-            model("b738", ["B738", "B38M"]),
-            model("b739", ["B739", "B39M"]),
-            model("b744", ["B744", "B741", "B742", "B743"]),
-            model("b748", ["B748"]),
-            model("b752", ["B752"]),
-            model("b753", ["B753"]),
-            model("b762", ["B762"]),
-            model("b763", ["B763"]),
-            model("b764", ["B764"]),
-            model("b772", ["B772", "B77L"]),
-            model("b773", ["B773", "B77W", "B778", "B779"]),
-            model("b788", ["B788"]),
-            model("b789", ["B789", "B78X"]),
-            model("bae146", ["B463", "B462", "B461", "RJ85", "RJ1H", "RJ70"]),
-            model("beluga", ["A3ST"]),
-            model("citation", ["C550", "C750", "C56X", "C680", "C510", "C525"]),
-            model("crj700", ["CRJ7", "CRJ2", "CRJ1"]),
-            model("crj900", ["CRJ9", "CRJX"]),
-            model("cs100", ["BCS1", "A221"]),
-            model("cs300", ["BCS3", "A223"]),
-            model("e170", ["E170", "E175", "E75L"]),
-            model("e190", ["E190", "E195", "E290", "E295"]),
-            model("heli", ["EC35"]),
-            model("pa28", ["P28A"]),
-            model("q400", ["DH8D", "DH8C"]),
-        ]
-    }()
+
+        /// The folder, with its licence file and the model's source files.
+        var folderURL: URL {
+            URL(string: "https://github.com/Ysurac/FlightAirMap-3dmodels/tree/\(flightAirMapCommit)/\(folder)")!
+        }
+
+        var originURL: URL {
+            URL(string: "https://github.com/FGMEMBERS/\(origin)")!
+        }
+    }
+
+    static let credits: [Credit] = [
+        Credit(folder: "a320", aircraft: "Airbus A318, A319, A320 and A321",
+               authors: "Ampere K. Hardraade (3D, FDM), Skyop (systems, instruments)",
+               licence: "GPL-2.0", origin: "A320-family"),
+        Credit(folder: "a332", aircraft: "Airbus A330-200",
+               authors: "Ampere K. Hardraade (3D, FDM), Skyop (systems, instruments)",
+               licence: "GPL-2.0", origin: "A330-200"),
+        Credit(folder: "a333", aircraft: "Airbus A330-300",
+               authors: "Ampere K. Hardraade (3D, FDM), Skyop (systems, instruments)",
+               licence: "GPL-2.0", origin: "A330-300"),
+        Credit(folder: "a343", aircraft: "Airbus A340-300",
+               authors: "Liam Gathercole, Andino",
+               licence: "GPL-2.0", origin: "A340-313X"),
+        Credit(folder: "a350", aircraft: "Airbus A350 XWB",
+               authors: "vezza",
+               licence: "GPL-2.0", origin: "A350XWB"),
+        Credit(folder: "a380", aircraft: "Airbus A380",
+               authors: "N. Muraleedharan, Ampere K., I. Cunningham, F. Dalvi, S. Hamilton, et al.",
+               licence: "GPL-2.0", origin: "A380-omega"),
+        Credit(folder: "ask21", aircraft: "Schleicher ASK 21",
+               authors: "Patrice Poly, D-ECHO",
+               licence: "GPL-2.0", origin: "ASK21"),
+        Credit(folder: "atr42", aircraft: "ATR 42-500",
+               authors: "Narendran Muraleedharan, Malik Daniels (3D), from the ATR 42 by Jon, Eric and Victhor",
+               licence: "GPL-2.0", origin: "ATR-42-500"),
+        Credit(folder: "atr72", aircraft: "ATR 72-500",
+               authors: "Narendran Muraleedharan, Donald Belcham, Dwayne Gable, Oliver (ot-666), camelon",
+               licence: "GPL-3.0", origin: "ATR72"),
+        Credit(folder: "b707", aircraft: "Boeing 707",
+               authors: "Innis Cunningham, Isaias Prestes",
+               licence: "GPL-3.0", origin: "707-400"),
+        Credit(folder: "b744", aircraft: "Boeing 747-400",
+               authors: "Gijs de Rooy, Ivan Ngeow, Markus Bulik",
+               licence: "GPL-2.0", origin: "747-400"),
+        Credit(folder: "b748", aircraft: "Boeing 747-8",
+               authors: "John Williams, Grupo FGBr",
+               licence: "GPL-2.0", origin: "747-8i"),
+        Credit(folder: "b752", aircraft: "Boeing 757",
+               authors: "Juuso Tapaninen, John Williams, from the 757-200 by Liam Gathercole, Skyop and Isaias Prestes",
+               licence: "GPL-2.0-or-later", origin: "757-200"),
+        Credit(folder: "b767", aircraft: "Boeing 767",
+               authors: "Isaias V. Prestes (3D), Peter Brendt, Liam Gathercole",
+               licence: "GPL-2.0", origin: "767"),
+        Credit(folder: "b788", aircraft: "Boeing 787",
+               authors: "Joshua W. (model), Omega95, Redneck, Jentron and the 787-8 team",
+               licence: "GPL-2.0", origin: "787-8"),
+        Credit(folder: "c182", aircraft: "Cessna 182",
+               authors: "HHS81",
+               licence: "GPL-2.0", origin: "c182s"),
+        Credit(folder: "c208", aircraft: "Cessna 208 Caravan",
+               authors: "Emmanuel Baranger",
+               licence: "GPL-2.0", origin: "Cessna-208-Caravan"),
+        Credit(folder: "c550", aircraft: "Cessna Citation II",
+               authors: "Curtis L. Olson, Ludovic Brenta, chris_blues",
+               licence: "GPL-2.0-or-later", origin: "Citation"),
+        Credit(folder: "crj2", aircraft: "Bombardier CRJ200",
+               authors: "Joshua Wilson, Nick I.",
+               licence: "GPL-2.0", origin: "CRJ-200"),
+        Credit(folder: "crj9", aircraft: "Bombardier CRJ700 and CRJ900",
+               authors: "Ryan Miller",
+               licence: "GPL-2.0-or-later", origin: "CRJ700-family"),
+        Credit(folder: "dhc4", aircraft: "de Havilland Canada DHC-4 Caribou",
+               authors: "Emmanuel Baranger",
+               licence: "GPL-2.0", origin: "dhc4"),
+        Credit(folder: "dr40", aircraft: "Robin DR400",
+               authors: "Emmanuel Baranger, Laurent Wromman, Laurent Hayvel, F-JJTH",
+               licence: "GPL-2.0", origin: "DR400"),
+        Credit(folder: "e145", aircraft: "Embraer ERJ 145",
+               authors: "Emmanuel Baranger",
+               licence: "GPL-2.0", origin: "Embraer-ERJ-145"),
+        Credit(folder: "e190", aircraft: "Embraer E170, E175 and E190",
+               authors: "Narendran Muraleedharan",
+               licence: "GPL-2.0", origin: "E-jet-family"),
+        Credit(folder: "ec35", aircraft: "Eurocopter EC135",
+               authors: "Heiko Schulz, Maik Justus, Melchior Franz, Oliver Thurau, et al.",
+               licence: "GPL-2.0", origin: "ec135"),
+        Credit(folder: "gazl", aircraft: "Aérospatiale Gazelle",
+               authors: "3dregenerator, Lester Bofo (3D), StuartC (FlightGear)",
+               licence: "GPL-2.0", origin: "Gazelle"),
+        Credit(folder: "md11", aircraft: "McDonnell Douglas MD-11",
+               authors: "Juuso Tapaninen (3D), John Williams, Joshua Davidson",
+               licence: "GPL-2.0-or-later", origin: "MD-11"),
+        Credit(folder: "pa18", aircraft: "Piper PA-18 Super Cub",
+               authors: "Emmanuel Baranger",
+               licence: "GPL-2.0", origin: "Piper-PA-18"),
+        Credit(folder: "pa22", aircraft: "Piper PA-22",
+               authors: "Robert Leda (3D), Pawel Luchowski",
+               licence: "GPL-2.0", origin: "pa22"),
+        Credit(folder: "pa28", aircraft: "Piper PA-28",
+               authors: "Emmanuel Baranger, 5H1N0B1",
+               licence: "GPL-2.0", origin: "Piper-PA-28"),
+        Credit(folder: "pa32", aircraft: "Piper PA-32",
+               authors: "Emmanuel Baranger",
+               licence: "GPL-2.0", origin: "Piper-PA-32"),
+        Credit(folder: "pc12", aircraft: "Pilatus PC-12",
+               authors: "Emmanuel Baranger",
+               licence: "GPL-2.0", origin: "PC-12"),
+        Credit(folder: "pc21", aircraft: "Pilatus PC-21",
+               authors: "Petar Jedvaj, Ernest Teuscher",
+               licence: "GPL-3.0", origin: "PC-21"),
+        Credit(folder: "sr22", aircraft: "Cirrus SR22",
+               authors: "Emmanuel Baranger",
+               licence: "GPL-2.0", origin: "Cirrus-SR22"),
+        Credit(folder: "t134", aircraft: "Tupolev Tu-134",
+               authors: "Emmanuel Baranger (3D), Artem Kovalchuk, Gary Buckaroo",
+               licence: "GPL-2.0", origin: "Tu-134"),
+    ]
 }

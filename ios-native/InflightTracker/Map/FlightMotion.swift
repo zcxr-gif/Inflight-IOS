@@ -22,26 +22,36 @@ import Foundation
 ///
 /// The prediction will be a little wrong, and a packet landing is the moment it
 /// finds out. Snapping to the new truth is exactly the jank this exists to
-/// remove, so nothing here ever snaps for a small error: two positions are kept
-/// — the prediction, and what is actually drawn — and both advance by the same
-/// step every frame. That leaves the smoothing with nothing to do except close
-/// whatever gap the last packet opened, which it does over about a second.
+/// remove — and so is closing the gap quickly, which was the first version:
+/// a correction spent over a second is a surge or a stall every few seconds,
+/// on every aeroplane, and reads as exactly the jerkiness it was hiding.
 ///
-/// The consequence is the one worth having: a correction is spent as a slight
-/// change of pace along the aircraft's own track rather than as a slide across
-/// it. The aeroplane never moves sideways, never stops, and never reverses —
-/// it is simply, briefly, going a fraction faster or slower than it says.
+/// So a packet starts a *leg*: a straight line, flown at one constant speed,
+/// from where the aeroplane is drawn to where the new packet says it will be
+/// two packets later (`legSpan`). The next packet normally lands halfway along
+/// and starts the next leg from wherever the aeroplane has got to; if packets
+/// stop, the leg ends exactly on the prediction and dead reckoning carries on
+/// at the reported speed. The error is spread over seconds instead of a
+/// fraction of one, so the speed changes only a little, once, when a packet
+/// lands — and never surges, stalls or reverses.
 struct FlightMotion {
 
     // MARK: - Tuning
 
-    /// How long a correction takes to be about two thirds spent.
-    ///
-    /// Long enough that no single packet is visible as an event, short enough
-    /// that the drawn position is never far behind what has been reported. A
-    /// packet arrives every few seconds; a correction that outlived the gap
-    /// between two of them would never finish.
-    private static let correctionTimeConstant: Double = 0.9
+    /// The gap between packets assumed before two have been seen: the
+    /// simulator's feed every few seconds, the real-world sweep every fifteen.
+    private static let simulatorInterval: Double = 4
+    private static let realWorldInterval: Double = 15
+
+    /// How many packet-gaps a leg spans. Two halves the change of pace a
+    /// packet causes compared with one, at no cost in accuracy — tried
+    /// against a feed with jittered timing and noisy positions before it was
+    /// written here.
+    private static let legSpan: Double = 2
+
+    /// The shortest leg. A burst of packets close together should not make
+    /// the aeroplane lurch to catch each one.
+    private static let shortestLeg: Double = 1
 
     /// The same, for the heading the sprite is turned to. Matched to the
     /// instruments, which have been settling headings at this rate for as long
@@ -98,10 +108,19 @@ struct FlightMotion {
     private var headingDegrees: Double
     private var metresPerSecond: Double
 
+    /// How long this aircraft's packets have been apart, smoothed — the
+    /// length of the next leg.
+    private var interval: Double
+
     // MARK: - What is on the map
 
-    /// The last packet run forward to now. Never drawn directly.
-    private var predicted: CLLocationCoordinate2D
+    /// The leg being flown: from where the aeroplane was drawn when the last
+    /// packet landed to where that packet puts it `legDuration` later. Zero
+    /// duration is no leg, and the prediction is drawn as it is.
+    private var legFrom: CLLocationCoordinate2D
+    private var legTo: CLLocationCoordinate2D
+    private var legStart: CFTimeInterval
+    private var legDuration: Double = 0
 
     /// What the annotation is actually set to.
     private(set) var drawn: CLLocationCoordinate2D
@@ -130,19 +149,25 @@ struct FlightMotion {
     /// aeroplane that jumped the instant smoothing was switched on would be
     /// advertising the very thing it is here to hide.
     init(flight: Flight, drawnAt coordinate: CLLocationCoordinate2D, now: CFTimeInterval) {
-        self.maximumLead = flight.origin == .realWorld ? Self.realWorldLead : Self.simulatorLead
+        let isRealWorld = flight.origin == .realWorld
+        self.maximumLead = isRealWorld ? Self.realWorldLead : Self.simulatorLead
+        self.interval = isRealWorld ? Self.realWorldInterval : Self.simulatorInterval
         self.reported = flight.coordinate
         self.reportedAt = now
         self.headingDegrees = flight.heading
         self.metresPerSecond = Self.metresPerSecond(knots: flight.groundSpeedKnots)
-        self.predicted = flight.coordinate
-        self.drawn = CLLocationCoordinate2DIsValid(coordinate) ? coordinate : flight.coordinate
+        let start = CLLocationCoordinate2DIsValid(coordinate) ? coordinate : flight.coordinate
+        self.drawn = start
+        self.legFrom = start
+        self.legTo = start
+        self.legStart = now
         self.unwrappedHeading = flight.heading
         self.lastStep = now
+        startLeg(from: start, now: now)
     }
 
-    /// A fresh packet. The drawn position is left exactly where it is: the gap
-    /// this opens is what `advance(to:)` spends the next second closing.
+    /// A fresh packet. The drawn position is left exactly where it is, and a
+    /// new leg starts from there — see the notes at the top.
     ///
     /// ## A packet already told about is not a fresh one
     ///
@@ -165,17 +190,50 @@ struct FlightMotion {
     mutating func report(_ flight: Flight, now: CFTimeInterval) {
         guard !isSameFix(as: flight) else { return }
 
+        // Where it is drawn at this moment, under the leg being replaced.
+        let from = position(at: now)
+
+        // How far apart this aircraft's packets come, eased so one late
+        // packet does not stretch the next leg out of shape.
+        let gap = now - reportedAt
+        if gap > 0.25, gap < maximumLead {
+            interval = interval * 0.6 + gap * 0.4
+        }
+
         reported = flight.coordinate
         reportedAt = now
         headingDegrees = flight.heading
         metresPerSecond = Self.metresPerSecond(knots: flight.groundSpeedKnots)
-        predicted = flight.coordinate
 
         // Unless it is not a gap at all but a different place. See `snapMetres`.
-        if Self.metres(from: drawn, to: predicted) > Self.snapMetres {
-            drawn = predicted
+        if Self.metres(from: from, to: reported) > Self.snapMetres {
+            drawn = reported
+            legDuration = 0
             unwrappedHeading = flight.heading
+            return
         }
+        startLeg(from: from, now: now)
+    }
+
+    /// A straight leg, at one speed, from `from` to where the last packet puts
+    /// the aeroplane `legSpan` packet-gaps from now.
+    private mutating func startLeg(from: CLLocationCoordinate2D, now: CFTimeInterval) {
+        let duration = min(max(interval * Self.legSpan, Self.shortestLeg), maximumLead)
+        legFrom = from
+        legTo = predictedNow(at: now + duration)
+        legStart = now
+        legDuration = duration
+    }
+
+    /// Where the aeroplane is drawn at a moment: along the leg while it lasts,
+    /// and the prediction itself after — the two meet where the leg ends.
+    private func position(at now: CFTimeInterval) -> CLLocationCoordinate2D {
+        guard legDuration > 0 else { return predictedNow(at: now) }
+        let share = (now - legStart) / legDuration
+        guard share < 1 else { return predictedNow(at: now) }
+        let leg = Self.offset(from: legFrom, to: legTo)
+        let along = max(share, 0)
+        return Self.moved(legFrom, north: leg.north * along, east: leg.east * along)
     }
 
     /// Whether this is the packet already being flown forward.
@@ -199,42 +257,15 @@ struct FlightMotion {
         let elapsed = now - lastStep
         lastStep = now
 
+        let here = position(at: now)
+        drawn = CLLocationCoordinate2DIsValid(here) ? here : reported
+
         // Not a frame: a resume from the background, or a clock that has gone
-        // backwards. Take the prediction whole rather than integrating a minute
-        // of it in one step.
+        // backwards. The heading is taken whole rather than eased.
         guard elapsed > 0, elapsed < 1 else {
-            predicted = predictedNow(at: now)
-            drawn = predicted
             unwrappedHeading = Self.unwrap(unwrappedHeading, towards: headingDegrees)
             return drawn
         }
-
-        // The step the prediction itself took, which is the step the drawn
-        // position takes too. Taking it as a *difference* rather than
-        // integrating the drawn point separately is what keeps the two in step
-        // when the prediction stops: past `maximumLead` this is zero, and the
-        // aeroplane coasts to a stop instead of running on and being hauled
-        // back.
-        let next = predictedNow(at: now)
-        let step = Self.offset(from: predicted, to: next)
-        predicted = next
-
-        var position = Self.moved(drawn, north: step.north, east: step.east)
-
-        // And whatever is left of the last packet's correction.
-        let error = Self.offset(from: position, to: predicted)
-        if hypot(error.north, error.east) > Self.snapMetres {
-            position = predicted
-        } else {
-            let closed = 1 - exp(-elapsed / Self.correctionTimeConstant)
-            position = Self.moved(
-                position,
-                north: error.north * closed,
-                east: error.east * closed
-            )
-        }
-
-        drawn = CLLocationCoordinate2DIsValid(position) ? position : predicted
 
         let target = Self.unwrap(unwrappedHeading, towards: headingDegrees)
         let turned = 1 - exp(-elapsed / Self.headingTimeConstant)
@@ -390,18 +421,22 @@ extension Flight {
 
     /// Whether this aircraft's position is worth carrying between packets.
     ///
-    /// Flying, and fast enough for a heading to mean something. Both halves
-    /// matter, and the second is the one that is easy to miss: an aeroplane at
-    /// a gate reports a heading that is whichever way the nose happens to be
-    /// pointing and a ground speed that is noise, and dead reckoning from those
-    /// would have it creeping steadily through the terminal building. On the
-    /// ground the reported position is the whole truth and is drawn exactly as
-    /// it arrives, which is what it has always done.
+    /// Moving fast enough for a heading to mean something: flying, or taxiing.
+    /// An aeroplane at a gate reports a heading that is whichever way the nose
+    /// happens to be pointing and a ground speed that is noise, and dead
+    /// reckoning from those would have it creeping through the terminal
+    /// building — so one parked or barely moving is drawn exactly where its
+    /// packets put it.
     var isWorthSmoothing: Bool {
         guard heading.isFinite, groundSpeedKnots.isFinite else { return false }
-        guard groundSpeedKnots >= 40 else { return false }
-        return FlightPhase.from(self) != .ground
+        if FlightPhase.from(self) == .ground { return groundSpeedKnots >= Self.taxiSmoothingKnots }
+        return groundSpeedKnots >= 40
     }
+
+    /// On the ground, an aeroplane taxiing faster than this is carried too:
+    /// drawn straight from its packets it hops along the taxiway. Below it is
+    /// one parked or pushing back, whose heading and speed are noise.
+    private static let taxiSmoothingKnots = 5.0
 
     /// Whether carrying this aircraft forward is a preference or a requirement.
     ///

@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 import UIKit
 
@@ -7,8 +6,8 @@ import UIKit
 /// Nothing is fetched until an aeroplane of that type is on the map with a
 /// source chosen, and then only once: the adapted model is written to Caches
 /// and read from there for as long as iOS keeps it. Each model is downloaded
-/// from the repository its authors publish it in — the app ships none of them,
-/// see `AircraftModelSource`.
+/// from the FlightAirMap repository, pinned to one commit — the app ships none
+/// of them, see `AircraftModelSource`.
 ///
 /// Main-thread state throughout, like the map's other stores; the download
 /// and the rewrite happen off it.
@@ -18,12 +17,8 @@ final class AircraftModelStore {
 
     struct Ready: Equatable {
         let entry: AircraftModelCatalog.Entry
-        /// The model, for a map zoomed in.
+        /// The model, adapted, at real size.
         let file: URL
-        /// The model drawn larger than life, for a light aircraft on a map
-        /// zoomed out — see `GLBNormaliser.Detail`. The same file as `file`
-        /// for everything else.
-        let farFile: URL
         /// The aeroplane's real length.
         let lengthMetres: Double
     }
@@ -105,54 +100,30 @@ final class AircraftModelStore {
 
     private static func fetch(_ entry: AircraftModelCatalog.Entry) async -> Result<Ready, Error> {
         do {
-            let url: URL
-            var expectedHash: String?
-            if let direct = entry.url {
-                url = direct
-            } else {
-                let file = try await SkytrailsManifest.shared.file(for: entry.id)
-                url = file.url
-                expectedHash = file.sha256
-            }
-
+            let url = entry.url
             let (data, response) = try await URLSession.shared.data(from: url)
             if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
                 throw URLError(.badServerResponse)
             }
-            if let expectedHash {
-                let actual = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-                guard actual == expectedHash.lowercased() else { throw URLError(.cannotDecodeContentData) }
-            }
 
-            let notice = "Adapted on this device by Inflight from \(url.absoluteString) "
-                + "(\(entry.licence)): node transforms baked in, turned to face −Z with +Y up, centred, "
-                + "kept in metres, glTF 1.0 read as 2.0 where needed, repacked as tightly packed "
-                + "floats with 16-bit indices, materials reduced to base colour, transparency and emission, "
+            let notice = "\(entry.credit.aircraft) by \(entry.credit.authors), from the FlightGear aircraft "
+                + "FGMEMBERS/\(entry.credit.origin), via the FlightAirMap 3D models collection; \(entry.licence). "
+                + "Adapted on this device by Inflight from \(url.absoluteString): node transforms baked in, "
+                + "turned to face −Z with +Y up, centred, kept in metres, repacked as tightly packed floats "
+                + "with 16-bit indices, materials reduced to base colour, transparency and emission, "
                 + "textures shrunk."
-            let (near, far) = try await Task.detached(priority: .utility) {
-                () throws -> (GLBNormaliser.Output, GLBNormaliser.Output?) in
-                let near = try GLBNormaliser.normalise(data, forward: entry.forward, up: entry.up, notice: notice)
-                guard Float(near.lengthMetres) < GLBNormaliser.farMinimumLength else { return (near, nil) }
-                let far = try GLBNormaliser.normalise(
-                    data, forward: entry.forward, up: entry.up,
-                    notice: notice + " Drawn larger than life for a distant view.", detail: .far
-                )
-                return (near, far)
+            let output = try await Task.detached(priority: .utility) {
+                try GLBNormaliser.normalise(data, forward: entry.forward, up: entry.up, notice: notice)
             }.value
 
             let file = Self.file(for: entry)
             try FileManager.default.createDirectory(
                 at: file.deletingLastPathComponent(), withIntermediateDirectories: true
             )
-            try near.data.write(to: file, options: .atomic)
-            var farFile = file
-            if let far {
-                farFile = Self.farFile(for: entry)
-                try far.data.write(to: farFile, options: .atomic)
-            }
-            let info: [String: Any] = ["length": near.lengthMetres, "far": far != nil]
+            try output.data.write(to: file, options: .atomic)
+            let info: [String: Any] = ["length": output.lengthMetres]
             try JSONSerialization.data(withJSONObject: info).write(to: Self.infoFile(for: entry), options: .atomic)
-            return .success(Ready(entry: entry, file: file, farFile: farFile, lengthMetres: near.lengthMetres))
+            return .success(Ready(entry: entry, file: file, lengthMetres: output.lengthMetres))
         } catch {
             return .failure(error)
         }
@@ -181,6 +152,10 @@ final class AircraftModelStore {
     /// Call at launch, before anything reads the setting.
     static func recoverFromCrashIfNeeded() {
         let defaults = UserDefaults.standard
+        // The retired collections: anyone who had 3D aircraft on keeps them on.
+        if let stored = defaults.string(forKey: settingKey), AircraftModelSource(rawValue: stored) == nil {
+            defaults.set(AircraftModelSource.flightAirMap.rawValue, forKey: settingKey)
+        }
         if !defaults.bool(forKey: resetKey) {
             defaults.set(true, forKey: resetKey)
             defaults.set(AircraftModelSource.off.rawValue, forKey: settingKey)
@@ -233,12 +208,7 @@ final class AircraftModelStore {
               let data = try? Data(contentsOf: Self.infoFile(for: entry)),
               let info = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let length = info["length"] as? Double, length > 0 else { return nil }
-        var farFile = file
-        if info["far"] as? Bool == true {
-            farFile = Self.farFile(for: entry)
-            guard FileManager.default.fileExists(atPath: farFile.path) else { return nil }
-        }
-        return Ready(entry: entry, file: file, farFile: farFile, lengthMetres: length)
+        return Ready(entry: entry, file: file, lengthMetres: length)
     }
 
     private static var directory: URL {
@@ -250,58 +220,7 @@ final class AircraftModelStore {
         directory.appendingPathComponent(entry.source.key).appendingPathComponent("\(entry.id).glb")
     }
 
-    private static func farFile(for entry: AircraftModelCatalog.Entry) -> URL {
-        directory.appendingPathComponent(entry.source.key).appendingPathComponent("\(entry.id)-far.glb")
-    }
-
     private static func infoFile(for entry: AircraftModelCatalog.Entry) -> URL {
         directory.appendingPathComponent(entry.source.key).appendingPathComponent("\(entry.id).json")
-    }
-}
-
-/// The Skytrails release manifest, which names each model's file.
-///
-/// The repository asks apps to follow its latest release rather than pin one,
-/// and its file names carry a hash, so the manifest is the only way to them.
-/// Fetched once a session.
-private actor SkytrailsManifest {
-
-    static let shared = SkytrailsManifest()
-
-    private static let base = URL(string: "https://github.com/stagworksde/skytrails-aircraft-models/releases/latest/download/")!
-
-    private var models: [String: [String: Any]]?
-    private var loading: Task<[String: [String: Any]], Error>?
-
-    func file(for id: String) async throws -> (url: URL, sha256: String?) {
-        let models = try await load()
-        guard let model = models[id], let name = model["file"] as? String,
-              let url = URL(string: name, relativeTo: Self.base) else {
-            throw URLError(.fileDoesNotExist)
-        }
-        return (url.absoluteURL, model["sha256"] as? String)
-    }
-
-    private func load() async throws -> [String: [String: Any]] {
-        if let models { return models }
-        if let loading { return try await loading.value }
-        let task = Task<[String: [String: Any]], Error> {
-            let (data, _) = try await URLSession.shared.data(from: Self.base.appendingPathComponent("manifest.json"))
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let models = json["models"] as? [String: [String: Any]] else {
-                throw URLError(.cannotParseResponse)
-            }
-            return models
-        }
-        loading = task
-        do {
-            let loaded = try await task.value
-            models = loaded
-            loading = nil
-            return loaded
-        } catch {
-            loading = nil
-            throw error
-        }
     }
 }
