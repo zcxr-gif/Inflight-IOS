@@ -74,6 +74,11 @@ struct TrackerMapView: UIViewRepresentable {
     /// was following, so the follow control can show it has let go.
     var onFollowEnded: () -> Void = {}
 
+    /// Whether the follow rides behind the aeroplane's tail, the map turning
+    /// as it turns — a chase camera. Only while following, and only once the
+    /// aeroplane is drawn as a 3D model.
+    var isChasing = false
+
     /// Whether airborne traffic is carried between packets rather than jumping
     /// on each one. See `FlightMotion`.
     var smoothsTraffic = true
@@ -2688,33 +2693,108 @@ struct TrackerMapView: UIViewRepresentable {
         private func followSelection() {
             guard parent.isFollowing, let flight = selectedFlight(), let mapView = mapView, let map = map else {
                 followLockedId = nil
+                wasChasing = false
+                chaseHeld = nil
                 releaseFollowZoom()
                 return
             }
             guard !isGestureActive else { return }
             let bounds = mapView.bounds
             guard bounds.width > 1, bounds.height > 1 else { return }
-            let target = followCentre(for: flight, state: map.cameraState)
-            guard CLLocationCoordinate2DIsValid(target) else { return }
             let padding = edgeInsets(in: bounds)
             let now = CACurrentMediaTime()
             limitFollowZoom(for: flight, in: bounds, on: map)
 
-            if followLockedId != flight.id || followNeedsGlide {
+            // The chase: on, off, or riding along.
+            let chaseMarker = parent.isChasing && modelled[flight.id] != nil ? markers[flight.id] : nil
+            let isChasing = chaseMarker != nil
+            var entersChase = false
+            if isChasing != wasChasing {
+                wasChasing = isChasing
+                entersChase = isChasing
+                followNeedsGlide = true
+            }
+
+            let state = map.cameraState
+            let glides = followLockedId != flight.id || followNeedsGlide
+            var bearing = Double(state.bearing)
+            var pitch = Double(state.pitch)
+            if let chaseMarker {
+                let heading = chaseMarker.drawnHeading
+                if glides {
+                    bearing = heading
+                    chaseHeld = nil
+                } else {
+                    bearing = chaseBearing(towards: heading, from: bearing, at: now)
+                }
+                if entersChase { pitch = Self.chasePitch }
+            }
+            let target = followCentre(for: flight, bearing: bearing, pitch: pitch)
+            guard CLLocationCoordinate2DIsValid(target) else { return }
+
+            if glides {
                 followLockedId = flight.id
                 followNeedsGlide = false
                 followGlideEnds = now + Self.followGlide
                 let moving = markers[flight.id]?.isSmoothing ?? false
                 let landing = moving ? Self.ahead(of: target, flight: flight, seconds: Self.followGlide) : target
+                // Into the chase: down behind the tail, a few lengths back.
+                var zoom: CGFloat?
+                if entersChase, let chaseMarker {
+                    zoom = CGFloat(closestZoom(for: flight, marker: chaseMarker, pitch: pitch, in: bounds) - Self.chaseStandOff)
+                }
                 mapView.camera.ease(
-                    to: CameraOptions(center: landing, padding: padding),
+                    to: CameraOptions(
+                        center: landing,
+                        padding: padding,
+                        zoom: zoom,
+                        bearing: isChasing ? CLLocationDirection(bearing) : nil,
+                        pitch: entersChase ? CGFloat(pitch) : nil
+                    ),
                     duration: Self.followGlide,
                     curve: .easeInOut
                 )
                 return
             }
             guard now >= followGlideEnds else { return }
-            map.setCamera(to: CameraOptions(center: target, padding: padding))
+            map.setCamera(to: CameraOptions(
+                center: target,
+                padding: padding,
+                bearing: isChasing ? CLLocationDirection(bearing) : nil
+            ))
+        }
+
+        // MARK: Chase
+
+        private var wasChasing = false
+        private var chaseHeld: (value: Double, at: CFTimeInterval)?
+
+        /// The tilt the chase settles into: low behind the tail, the horizon
+        /// in view ahead.
+        private static let chasePitch = 70.0
+
+        /// How far back from the closest approach the chase sits, in zoom
+        /// levels: a little over one is a few of its lengths behind.
+        private static let chaseStandOff = 1.2
+
+        /// How quickly the map turns after the aeroplane, per second: it swings
+        /// round behind a turn over a second or two rather than snapping to
+        /// every wobble of the heading.
+        private static let chaseTurnRate = 1.6
+
+        /// The map's bearing on this frame, eased from the last one towards the
+        /// aeroplane's heading the short way round.
+        private func chaseBearing(towards heading: Double, from current: Double, at now: CFTimeInterval) -> Double {
+            let last = chaseHeld ?? (value: current, at: now)
+            let step = min(max(now - last.at, 0), 0.25)
+            var delta = (heading - last.value).truncatingRemainder(dividingBy: 360)
+            if delta > 180 { delta -= 360 }
+            if delta < -180 { delta += 360 }
+            var value = last.value + delta * (1 - exp(-step * Self.chaseTurnRate))
+            value = value.truncatingRemainder(dividingBy: 360)
+            if value < 0 { value += 360 }
+            chaseHeld = (value: value, at: now)
+            return value
         }
 
         /// The point on the ground to put in the middle of the screen so that
@@ -2726,16 +2806,16 @@ struct TrackerMapView: UIViewRepresentable {
         /// times the tangent of the tilt further along the way the camera
         /// faces. Centring that point puts the aeroplane on the camera's own
         /// axis, so zooming moves straight towards it rather than past it.
-        private func followCentre(for flight: Flight, state: CameraState) -> CLLocationCoordinate2D {
+        private func followCentre(for flight: Flight, bearing: Double, pitch: Double) -> CLLocationCoordinate2D {
             let ground = drawnCoordinate(for: flight)
             guard parent.aircraftModels != .off, let marker = markers[flight.id], modelled[flight.id] != nil else {
                 return ground
             }
             let height = modelHeight(for: marker, at: CACurrentMediaTime())
-            let tilt = min(Double(state.pitch), Self.followTiltLimit) * .pi / 180
+            let tilt = min(pitch, Self.followTiltLimit) * .pi / 180
             let ahead = height * tan(tilt)
             guard ahead > 1 else { return ground }
-            return GreatCircle.coordinate(from: ground, bearing: Double(state.bearing), metres: ahead)
+            return GreatCircle.coordinate(from: ground, bearing: bearing, metres: ahead)
         }
 
         /// Beyond this tilt the point on the ground runs off towards the
@@ -2762,14 +2842,7 @@ struct TrackerMapView: UIViewRepresentable {
                 releaseFollowZoom()
                 return
             }
-            let state = map.cameraState
-            let height = modelHeight(for: marker, at: CACurrentMediaTime())
-            let tilt = min(Double(state.pitch), Self.followTiltLimit) * .pi / 180
-            let alongAxis = height / max(cos(tilt), 0.1)
-            let metresPerPoint = (alongAxis + Self.followClosestMetres) / (1.5 * Double(bounds.height))
-            let latitude = drawnCoordinate(for: flight).latitude
-            let worldMetresPerPoint = 40_075_016.686 / 512 * max(cos(latitude * .pi / 180), 0.01)
-            let limit = min(max(log2(worldMetresPerPoint / metresPerPoint), 1), Self.defaultMaximumZoom)
+            let limit = closestZoom(for: flight, marker: marker, pitch: Double(map.cameraState.pitch), in: bounds)
 
             if let held = followZoomLimit, abs(held - limit) < 0.02 { return }
             followZoomLimit = limit
@@ -2781,6 +2854,18 @@ struct TrackerMapView: UIViewRepresentable {
                     y: insets.top + (bounds.height - insets.top - insets.bottom) / 2
                 )
             }
+        }
+
+        /// The zoom at which the camera, at this tilt, is `followClosestMetres`
+        /// from the aeroplane.
+        private func closestZoom(for flight: Flight, marker: FlightMarker, pitch: Double, in bounds: CGRect) -> Double {
+            let height = modelHeight(for: marker, at: CACurrentMediaTime())
+            let tilt = min(pitch, Self.followTiltLimit) * .pi / 180
+            let alongAxis = height / max(cos(tilt), 0.1)
+            let metresPerPoint = (alongAxis + Self.followClosestMetres) / (1.5 * Double(bounds.height))
+            let latitude = drawnCoordinate(for: flight).latitude
+            let worldMetresPerPoint = 40_075_016.686 / 512 * max(cos(latitude * .pi / 180), 0.01)
+            return min(max(log2(worldMetresPerPoint / metresPerPoint), 1), Self.defaultMaximumZoom)
         }
 
         /// Back to the map's own limits, and pinches about the fingers again.

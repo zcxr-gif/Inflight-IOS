@@ -133,6 +133,10 @@ struct ContentView: View {
     /// it — framing a whole route, or closing the window entirely.
     @State private var isFollowing = false
 
+    /// Whether the follow is a chase: behind the tail, turning with the
+    /// aeroplane. Part of following, so it ends whenever the follow does.
+    @State private var isChasing = false
+
     /// The flight an open field panel was reached from, so it can be gone back
     /// to. Nil whenever the field was opened from anywhere with nothing behind
     /// it — the search results, the ATC panel, the board.
@@ -757,6 +761,7 @@ struct ContentView: View {
             replayFrame: replay.frame,
             isFollowing: isFollowingLive,
             onFollowEnded: { isFollowing = false },
+            isChasing: isChasing && aircraftModels != .off,
             // The setting, and the system's own request for less movement —
             // which is the one audience a map full of gliding aeroplanes is
             // actively worse for. Resolved here rather than in the map: the map
@@ -1096,6 +1101,9 @@ struct ContentView: View {
         // The same spring the dock settles its own handle with, so the card
         // and everything that lifts out of its way move as one thing.
         .motion(Motion.chrome, value: isStatsUp)
+        .onChange(of: isFollowing) { _, following in
+            if !following { isChasing = false }
+        }
         .onChange(of: selection?.id) { wasOpen, id in
             // A replay belongs to the aircraft it was started from, and to the
             // window that drew the track under it. Opening another aircraft,
@@ -2736,6 +2744,25 @@ struct ContentView: View {
                         .frame(height: 1)
 
                     aircraftModelsControl
+
+                    // Behind the tail, the map turning as the aeroplane
+                    // turns. Only with the models on: an icon has no tail to
+                    // sit behind. Turning it on follows the aeroplane, and the
+                    // follow's own glide takes the camera round behind it.
+                    if aircraftModels != .off {
+                        Rectangle()
+                            .fill(theme.stroke)
+                            .frame(height: 1)
+
+                        mapButton(
+                            "video.fill",
+                            isChasing ? "Stop chasing this aircraft" : "Chase this aircraft from behind",
+                            isOn: isChasing
+                        ) {
+                            isChasing.toggle()
+                            if isChasing { isFollowing = true }
+                        }
+                    }
                 }
             }
             .frame(width: 44)
@@ -2773,6 +2800,8 @@ struct ContentView: View {
     private var compassControl: some View {
         if isMapTurned {
             Button {
+                // Facing north and riding behind the tail cannot both hold.
+                isChasing = false
                 mapCommand = MapCommand(kind: .northUp)
             } label: {
                 Image(systemName: "location.north.line.fill")
