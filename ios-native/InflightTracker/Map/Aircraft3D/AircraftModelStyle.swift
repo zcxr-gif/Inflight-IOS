@@ -4,20 +4,25 @@ import Foundation
 ///
 /// ## Size
 ///
-/// Real size wherever real size can be seen, and never smaller on screen than
-/// can be seen — the way the 3D views of other trackers draw them. Every
-/// model is stored in metres (see `GLBNormaliser`).
+/// Three rules, together — see `magnification`. Every model is stored in
+/// metres (see `GLBNormaliser`).
 ///
-/// - Close in, an aeroplane is exactly its real size, fixed to the map the
-///   way the runway under it is. From about zoom 15 an airliner is never
-///   rescaled at all.
-/// - Pulled back, real size is a speck, so the model is drawn larger than
-///   life: an A320 is held at `farLength` points long on screen, everything
-///   else in proportion to it, and nothing shorter than `shortestLength`
-///   points however small it really is.
-///
-/// The two meet where real size grows past the floor, so the change from one
-/// to the other cannot be seen. See `magnification`.
+/// - **Close in, real size.** An aeroplane is exactly its real size, fixed to
+///   the map the way the runway under it is. From about zoom 15 an airliner
+///   is never rescaled at all.
+/// - **Pulled back, a size curve.** Real size is a speck there, so the model
+///   is drawn larger than life — but not at one fixed size: an A320 is about
+///   six points long over the whole globe and grows gently to about
+///   seventeen over a city (`farLengths`), so a zoomed-out map is a field of
+///   small aeroplanes rather than a pile of large ones. Everything else is in
+///   proportion to the A320, and nothing is drawn under `smallestShare` of it.
+///   The curve meets real size where real size overtakes it, so the change
+///   cannot be seen.
+/// - **On the ground, never bigger than the airport.** A parked or taxiing
+///   aeroplane is never drawn longer than `groundLongest` metres, so it stays
+///   a small thing on its airfield at every zoom. The limit lifts smoothly
+///   with height after take-off (doubling every `groundLiftDoubling` metres),
+///   so nothing jumps at rotation.
 ///
 /// Mapbox does not support a zoom-dependent `model-scale` on a GeoJSON
 /// source — it bakes the value in when it lays a tile out — so the factor is
@@ -46,30 +51,64 @@ import Foundation
 /// right wing down is a positive y.
 enum AircraftModelStyle {
 
-    /// How long an A320 is on screen, at least, in points. About the length
-    /// of its flat icon.
-    static let farLength = 19.0
+    /// How long an A320 is drawn on screen, in points, at each zoom, while
+    /// real size is smaller. Read between stops on a log scale, and held at
+    /// the ends.
+    private static let farLengths: [(zoom: Double, points: Double)] = [
+        (3, 6), (6, 9), (9, 13), (12, 17), (15, 19),
+    ]
 
-    /// The airliner `farLength` is measured on.
+    /// The airliner `farLengths` is measured on.
     private static let referenceLength = 38.0
 
-    /// Nothing is drawn shorter than this on screen, in points — a light
-    /// aircraft in true proportion to an airliner would be four.
-    static let shortestLength = 10.0
+    /// Nothing is drawn shorter than this share of an A320 — a light aircraft
+    /// in true proportion would be a fifth of one, and lost.
+    private static let smallestShare = 0.6
+
+    /// The longest an aeroplane on the ground is ever drawn, in metres: a
+    /// small thing on any airfield, whatever the zoom.
+    private static let groundLongest = 150.0
+
+    /// After take-off that limit doubles with every this many metres of
+    /// height, and by cruise it is no limit at all.
+    private static let groundLiftDoubling = 150.0
 
     /// Metres to a point at zoom zero, on Mapbox's 512-point world.
     private static let metresPerPointAtZoomZero = 40_075_016.686 / 512
 
-    /// The factor a model `lengthMetres` long is drawn at, at a zoom, where
-    /// it is: one — real size — whenever real size is at least the floor,
-    /// and just enough larger to reach the floor when it is not. Mercator
-    /// draws a metre bigger away from the equator, so the floor is measured
-    /// in metres at the aeroplane's own latitude.
-    static func magnification(lengthMetres: Double, latitude: Double, zoom: Double) -> Double {
+    /// How long an A320 is drawn far out, in points, at a zoom.
+    static func farLength(atZoom zoom: Double) -> Double {
+        guard let first = farLengths.first, let last = farLengths.last else { return 19 }
+        if zoom <= first.zoom { return first.points }
+        if zoom >= last.zoom { return last.points }
+        for index in 1..<farLengths.count where zoom <= farLengths[index].zoom {
+            let low = farLengths[index - 1]
+            let high = farLengths[index]
+            let share = (zoom - low.zoom) / (high.zoom - low.zoom)
+            return low.points * pow(high.points / low.points, share)
+        }
+        return last.points
+    }
+
+    /// The factor a model `lengthMetres` long is drawn at: one — real size —
+    /// whenever real size is at least the size curve, just enough larger to
+    /// reach the curve when it is not, and never so large on or near the
+    /// ground that it outgrows the airfield. Mercator draws a metre bigger
+    /// away from the equator, so the curve is measured in metres at the
+    /// aeroplane's own latitude.
+    static func magnification(
+        lengthMetres: Double,
+        latitude: Double,
+        zoom: Double,
+        heightMetres: Double
+    ) -> Double {
+        let length = max(lengthMetres, 1)
         let metresPerPoint = metresPerPointAtZoomZero * max(cos(latitude * .pi / 180), 0.01) / pow(2, zoom)
-        let shared = farLength * metresPerPoint / referenceLength
-        let own = shortestLength * metresPerPoint / max(lengthMetres, 1)
-        return max(1, shared, own)
+        let a320 = farLength(atZoom: zoom)
+        let points = max(a320 * length / referenceLength, a320 * smallestShare)
+        let curve = max(1, points * metresPerPoint / length)
+        let longest = groundLongest * pow(2, min(max(heightMetres, 0), 3_000) / groundLiftDoubling)
+        return min(curve, max(1, longest / length))
     }
 
     /// The scale, as each aeroplane's feature carries it.

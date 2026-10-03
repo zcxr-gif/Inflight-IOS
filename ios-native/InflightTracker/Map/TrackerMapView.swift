@@ -1245,7 +1245,7 @@ struct TrackerMapView: UIViewRepresentable {
             }
             let height = modelHeight(for: marker, at: now)
             marker.writtenBank = bank
-            let scale = modelScale(for: marker)
+            let scale = modelScale(for: marker, at: now)
             writtenScale[marker.flightId] = scale
 
             let pose = AircraftModelStyle.properties(
@@ -1260,51 +1260,70 @@ struct TrackerMapView: UIViewRepresentable {
             }
         }
 
-        /// The factor each model was last written at, and the zoom the models
-        /// were last looked over for — see `refreshModelScale`.
+        /// The factor each model was last written at, the zoom the models were
+        /// last looked over at, and what is still owed — see
+        /// `refreshModelScale`.
         private var writtenScale: [String: Double] = [:]
         private var scaleCheckedZoom = 2.0
         private var scaleStaleOffScreen = false
+        private var scalePending = false
+
+        /// The most models whose size is rewritten in one frame. Zoomed out
+        /// over thousands of aeroplanes, rewriting every one every frame is
+        /// more than Mapbox can take in, and a backlog is aeroplanes drawn at
+        /// the size of several frames ago. The furthest off go first.
+        private static let scaleWritesPerFrame = 300
 
         /// The factor a model is drawn at right now — see
         /// `AircraftModelStyle.magnification`.
-        private func modelScale(for marker: FlightMarker) -> Double {
+        private func modelScale(for marker: FlightMarker, at now: CFTimeInterval) -> Double {
             AircraftModelStyle.magnification(
                 lengthMetres: modelled[marker.flightId] ?? 38,
                 latitude: marker.coordinate.latitude,
-                zoom: zoom
+                zoom: zoom,
+                heightMetres: modelHeight(for: marker, at: now)
             )
         }
 
         /// Keeps each model at its size as the zoom moves. Mapbox will not
         /// work a zoom-dependent scale out on this source, so the factor is
-        /// written into the features — and only for the aeroplanes whose
-        /// factor has changed: close in every model is real size, its factor
-        /// is one at both zooms, and nothing is written. While the map is
-        /// moving only those on screen are kept up; the rest are caught up
-        /// when it rests.
+        /// written into the features — only for the aeroplanes whose factor
+        /// has moved by more than a percent (close in, where everything is
+        /// real size, none), at most `scaleWritesPerFrame` a frame with the
+        /// furthest off first, and while the map moves only those on screen.
+        /// The rest are caught up on the frames after, and everything is
+        /// exact once the map rests.
         private func refreshModelScale(force: Bool) {
             guard isStyleLoaded, let map = map else { return }
-            guard abs(zoom - scaleCheckedZoom) > 0.004 || (force && scaleStaleOffScreen) else { return }
+            let moved = abs(zoom - scaleCheckedZoom) > 0.004
+            guard moved || scalePending || (force && scaleStaleOffScreen) else { return }
             scaleCheckedZoom = zoom
 
-            var features: [Feature] = []
+            let now = CACurrentMediaTime()
+            var due: [(error: Double, marker: FlightMarker)] = []
             var skipped = false
             for id in modelled.keys {
                 guard let marker = markers[id], trafficInSource.contains(id) else { continue }
-                let scale = modelScale(for: marker)
-                if let written = writtenScale[id], abs(scale / written - 1) < 0.003 { continue }
+                let scale = modelScale(for: marker, at: now)
+                let error = writtenScale[id].map { abs(log(scale / $0)) } ?? .infinity
+                guard error > 0.01 else { continue }
                 if !force, !isInSmoothingBox(marker.coordinate) {
                     skipped = true
                     continue
                 }
-                features.append(trafficFeature(for: marker))
+                due.append((error, marker))
             }
+
+            let budget = force ? due.count : Self.scaleWritesPerFrame
+            if due.count > budget { due.sort { $0.error > $1.error } }
+            scalePending = due.count > budget
             if force {
                 scaleStaleOffScreen = false
             } else if skipped {
                 scaleStaleOffScreen = true
             }
+
+            let features = due.prefix(budget).map { trafficFeature(for: $0.marker) }
             if !features.isEmpty {
                 map.updateGeoJSONSourceFeatures(forSourceId: Source.traffic, features: features)
             }
