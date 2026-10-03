@@ -52,9 +52,13 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+// The website (pilotCardEditor.js) sends `apikey` alongside the bearer token,
+// and supabase-js adds `x-client-info`. A header missing from this list fails
+// the browser's preflight, so the POST is never sent; the app has no CORS and
+// never noticed.
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
