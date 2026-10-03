@@ -1626,6 +1626,8 @@ struct TrackerMapView: UIViewRepresentable {
             flownTail = nil
             airRuns = []
             airTailHeight = nil
+            enginePath = nil
+            defer { engine.setPath(enginePath) }
             var inferred: [Feature] = []
             var runs: [Feature] = []
 
@@ -1651,6 +1653,16 @@ struct TrackerMapView: UIViewRepresentable {
                     onPavement: drawn.onPavement,
                     heights: heights
                 ) {
+                    if isAirPathOn {
+                        let air = path.runs.filter { !$0.heights.isEmpty }.map { run in
+                            AircraftPath.Run(
+                                coordinates: run.coordinates,
+                                heights: run.heights,
+                                colour: Self.engineTint(run.color, share: 1)
+                            )
+                        }
+                        enginePath = air.isEmpty ? nil : AircraftPath(aircraftId: flight.id, runs: air)
+                    }
                     for (index, run) in path.runs.enumerated() {
                         let feature = Self.lineFeature(run.coordinates, id: "run-\(index)", [
                             "color": .string(MapLayerStyle.rgba(run.color)),
@@ -1712,6 +1724,8 @@ struct TrackerMapView: UIViewRepresentable {
             flownHeadWritten = nil
             airRuns = []
             airTailHeight = nil
+            enginePath = nil
+            engine.setPath(nil)
             for source in [Source.plan, Source.flown, Source.flownHead, Source.inferred, Source.fixes] {
                 clear(source)
             }
@@ -1840,11 +1854,14 @@ struct TrackerMapView: UIViewRepresentable {
         // MARK: The path in the air
 
         /// Whether the flown path is drawn at its heights: with the 3D
-        /// aircraft, and on the flat map — Mapbox lifts lines off a flat map
-        /// only.
+        /// aircraft, on the flat map and the globe alike. The engine draws it
+        /// — see `AircraftPath` — and the flat line stays as its shadow.
         private var isAirPathOn: Bool {
-            parent.aircraftModels != .off && parent.style.projection != .globe
+            parent.aircraftModels != .off
         }
+
+        /// The path the engine was last handed.
+        private var enginePath: AircraftPath?
 
         private var appliedAirPath: Bool?
 
@@ -1864,6 +1881,13 @@ struct TrackerMapView: UIViewRepresentable {
             guard isOn != appliedAirPath else { return }
             appliedAirPath = isOn
             MapLayerStyle.applyAirPath(isOn, on: map)
+            // The flat line becomes the shadow; the line in the air is the
+            // engine's, so Mapbox's own lifted copies stay hidden.
+            MapLayerStyle.setVisible(
+                false,
+                layers: [Layer.flownAirBlade, Layer.flownAir, Layer.flownHeadAirBlade, Layer.flownHeadAir],
+                on: map
+            )
         }
 
         private func liftedAirRuns() -> [Feature] {
@@ -2548,15 +2572,17 @@ struct TrackerMapView: UIViewRepresentable {
         private func followSelection() {
             guard parent.isFollowing, let flight = selectedFlight(), let mapView = mapView, let map = map else {
                 followLockedId = nil
+                releaseFollowZoom()
                 return
             }
             guard !isGestureActive else { return }
             let bounds = mapView.bounds
             guard bounds.width > 1, bounds.height > 1 else { return }
-            let target = drawnCoordinate(for: flight)
+            let target = followCentre(for: flight, state: map.cameraState)
             guard CLLocationCoordinate2DIsValid(target) else { return }
             let padding = edgeInsets(in: bounds)
             let now = CACurrentMediaTime()
+            limitFollowZoom(for: flight, in: bounds, on: map)
 
             if followLockedId != flight.id || followNeedsGlide {
                 followLockedId = flight.id
@@ -2573,6 +2599,80 @@ struct TrackerMapView: UIViewRepresentable {
             }
             guard now >= followGlideEnds else { return }
             map.setCamera(to: CameraOptions(center: target, padding: padding))
+        }
+
+        /// The point on the ground to put in the middle of the screen so that
+        /// the aeroplane itself — drawn at its height by the engine — is in
+        /// the middle of it.
+        ///
+        /// Looking down a tilted map, an aeroplane in the air is seen in front
+        /// of the ground point beyond it on the line of sight: its height
+        /// times the tangent of the tilt further along the way the camera
+        /// faces. Centring that point puts the aeroplane on the camera's own
+        /// axis, so zooming moves straight towards it rather than past it.
+        private func followCentre(for flight: Flight, state: CameraState) -> CLLocationCoordinate2D {
+            let ground = drawnCoordinate(for: flight)
+            guard parent.aircraftModels != .off, let marker = markers[flight.id], modelled[flight.id] != nil else {
+                return ground
+            }
+            let height = modelHeight(for: marker, at: CACurrentMediaTime())
+            let tilt = min(Double(state.pitch), Self.followTiltLimit) * .pi / 180
+            let ahead = height * tan(tilt)
+            guard ahead > 1 else { return ground }
+            return GreatCircle.coordinate(from: ground, bearing: Double(state.bearing), metres: ahead)
+        }
+
+        /// Beyond this tilt the point on the ground runs off towards the
+        /// horizon; the aeroplane is put on axis as if it were this.
+        private static let followTiltLimit = 75.0
+
+        /// The nearest the camera comes to a followed aeroplane, in metres —
+        /// a few of its lengths, close enough to fill the screen with it.
+        private static let followClosestMetres = 160.0
+
+        /// The zoom the follow last held the camera under.
+        private var followZoomLimit: Double?
+        private static let defaultMaximumZoom = 22.0
+
+        /// Holds the camera off the followed aeroplane. Zooming in moves the
+        /// camera along its axis towards the aeroplane; past it, the camera
+        /// would fly through it and out the other side, so the zoom stops
+        /// where the aeroplane is `followClosestMetres` away. Mapbox's camera
+        /// stands 1.5 screen heights from the middle of the map, so that is
+        /// the zoom at which that distance is the aeroplane's along the axis
+        /// plus the closest approach. Pinches are held to it too.
+        private func limitFollowZoom(for flight: Flight, in bounds: CGRect, on map: MapboxMap) {
+            guard parent.aircraftModels != .off, let marker = markers[flight.id], modelled[flight.id] != nil else {
+                releaseFollowZoom()
+                return
+            }
+            let state = map.cameraState
+            let height = modelHeight(for: marker, at: CACurrentMediaTime())
+            let tilt = min(Double(state.pitch), Self.followTiltLimit) * .pi / 180
+            let alongAxis = height / max(cos(tilt), 0.1)
+            let metresPerPoint = (alongAxis + Self.followClosestMetres) / (1.5 * Double(bounds.height))
+            let latitude = drawnCoordinate(for: flight).latitude
+            let worldMetresPerPoint = 40_075_016.686 / 512 * max(cos(latitude * .pi / 180), 0.01)
+            let limit = min(max(log2(worldMetresPerPoint / metresPerPoint), 1), Self.defaultMaximumZoom)
+
+            if let held = followZoomLimit, abs(held - limit) < 0.02 { return }
+            followZoomLimit = limit
+            try? map.setCameraBounds(with: CameraBoundsOptions(maxZoom: CGFloat(limit)))
+            if let mapView, mapView.gestures.options.focalPoint == nil {
+                let insets = edgeInsets(in: bounds)
+                mapView.gestures.options.focalPoint = CGPoint(
+                    x: insets.left + (bounds.width - insets.left - insets.right) / 2,
+                    y: insets.top + (bounds.height - insets.top - insets.bottom) / 2
+                )
+            }
+        }
+
+        /// Back to the map's own limits, and pinches about the fingers again.
+        private func releaseFollowZoom() {
+            guard followZoomLimit != nil else { return }
+            followZoomLimit = nil
+            try? map?.setCameraBounds(with: CameraBoundsOptions(maxZoom: CGFloat(Self.defaultMaximumZoom)))
+            mapView?.gestures.options.focalPoint = nil
         }
 
         /// Where an aircraft will be in `seconds`, at its heading and speed.

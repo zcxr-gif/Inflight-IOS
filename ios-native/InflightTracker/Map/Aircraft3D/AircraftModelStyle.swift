@@ -12,8 +12,11 @@ import Foundation
 ///   size curve, it is drawn exactly its real size, fixed to the map the way
 ///   the runway under it is, and never rescaled.
 /// - **Further out, a size curve.** Real size is a speck there, so the model
-///   is drawn larger than life — an A320 about six points long over the whole
-///   globe, growing gently to about seventeen over a city (`farLengths`).
+///   is drawn larger than life — an A320 about five points long over the
+///   whole globe, twelve over a country, twenty-six over a city
+///   (`farLengths`). The curve always rises, by a fifth or more a zoom level,
+///   so zooming in towards an aeroplane always brings it closer; it never
+///   sits still while the map grows around it.
 ///   Everything else is in proportion to the A320, and nothing is drawn under
 ///   `smallestShare` of it. The curve meets real size where real size
 ///   overtakes it, so the change cannot be seen. The curve is read at each
@@ -35,7 +38,7 @@ enum AircraftModelStyle {
     /// real size is smaller. Read between stops on a log scale, and held at
     /// the ends.
     private static let farLengths: [(zoom: Double, points: Double)] = [
-        (3, 6), (6, 9), (9, 13), (12, 17), (15, 19),
+        (2, 5), (5, 8), (8, 12), (11, 18), (13, 26), (15, 38), (16, 46),
     ]
 
     /// The airliner `farLengths` is measured on.

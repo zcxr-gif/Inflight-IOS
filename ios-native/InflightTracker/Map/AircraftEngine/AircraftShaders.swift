@@ -38,6 +38,12 @@ enum AircraftShaders {
         var light: SIMD4<Float>
     }
 
+    /// One corner of the flown path: already in clip space, and its colour.
+    struct PathVertex {
+        var position: SIMD4<Float>
+        var colour: SIMD4<Float>
+    }
+
     struct MaterialUniforms {
         var baseColor: SIMD4<Float>
         /// Glow, and whether the picture is used (w).
@@ -127,6 +133,30 @@ enum AircraftShaders {
             + material.emissive.rgb * frame.emission;
         colour = mix(colour, in.tint.rgb, in.tint.a);
         return float4(colour * alpha, alpha);
+    }
+
+    struct PathVertex {
+        float4 position;
+        float4 colour;
+    };
+
+    struct PathVaryings {
+        float4 position [[position]];
+        float4 colour;
+    };
+
+    vertex PathVaryings pathVertex(uint vid [[vertex_id]],
+                                   const device PathVertex *vertices [[buffer(0)]])
+    {
+        PathVaryings out;
+        out.position = vertices[vid].position;
+        out.colour = vertices[vid].colour;
+        return out;
+    }
+
+    fragment float4 pathFragment(PathVaryings in [[stage_in]])
+    {
+        return float4(in.colour.rgb * in.colour.a, in.colour.a);
     }
     """
 }

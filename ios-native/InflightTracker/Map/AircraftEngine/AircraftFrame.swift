@@ -74,6 +74,8 @@ struct AircraftFrame {
         let screenPoint: CGPoint
         /// How long it is drawn, in points.
         let screenLength: Double
+        /// How many times its real size it is drawn.
+        let magnification: Double
     }
 
     /// Where an aeroplane goes on this frame, how big, and which way up — or
@@ -84,40 +86,13 @@ struct AircraftFrame {
         lengthMetres: Double
     ) -> Placement? {
         let latitude = min(max(plane.coordinate.latitude, -85), 85)
-        let coordinate = CLLocationCoordinate2D(latitude: latitude, longitude: plane.coordinate.longitude)
         let altitude = groundMetres + max(plane.heightMetres, 0)
-
-        // East, north and up, in metres, to clip space — through each world.
-        var mercator = matrix_identity_double4x4
-        if transition < 1 {
-            let pixelsPerMetre = 1 / Projection.metersPerPoint(for: latitude, zoom: CGFloat(zoom))
-            let world = Projection.project(coordinate, zoomScale: CGFloat(zoomScale))
-            let upPerMetre = pixelsPerMetre / centrePixelsPerMetre
-            let frame = simd_double4x4(columns: (
-                SIMD4<Double>(pixelsPerMetre, 0, 0, 0),
-                SIMD4<Double>(0, -pixelsPerMetre, 0, 0),
-                SIMD4<Double>(0, 0, upPerMetre, 0),
-                SIMD4<Double>(Double(world.x), Double(world.y), altitude * upPerMetre, 1)
-            ))
-            mercator = mercatorToClip * frame
-        }
-        var globe = mercator
-        if transition > 0 {
-            globe = globeToClip * Self.globeFrame(coordinate, altitude: altitude)
-            if transition >= 1 { mercator = globe }
-        }
+        let (mercator, globe) = frames(plane.coordinate, altitude: altitude)
 
         func clip(_ local: SIMD4<Double>) -> SIMD4<Double> {
             let flat = mercator * local
             guard transition > 0 else { return flat }
             return flat + (globe * local - flat) * transition
-        }
-        func screen(_ clip: SIMD4<Double>) -> SIMD2<Double>? {
-            guard clip.w > 1e-9 else { return nil }
-            return SIMD2<Double>(
-                (clip.x / clip.w * 0.5 + 0.5) * width,
-                (0.5 - clip.y / clip.w * 0.5) * height
-            )
         }
 
         guard let centre = screen(clip(SIMD4<Double>(0, 0, 0, 1))) else { return nil }
@@ -167,9 +142,62 @@ struct AircraftFrame {
         return Placement(
             instance: instance,
             screenPoint: CGPoint(x: centre.x, y: centre.y),
-            screenLength: screenLength
+            screenLength: screenLength,
+            magnification: magnification
         )
     }
+
+    // MARK: - Points
+
+    /// East, north and up in metres at a point and height, to clip space
+    /// through each world: the flat map's, and the globe's. Each is the other
+    /// when only one world is on screen.
+    private func frames(
+        _ coordinate: CLLocationCoordinate2D,
+        altitude: Double
+    ) -> (mercator: simd_double4x4, globe: simd_double4x4) {
+        let latitude = min(max(coordinate.latitude, -85), 85)
+        let clamped = CLLocationCoordinate2D(latitude: latitude, longitude: coordinate.longitude)
+        var mercator = matrix_identity_double4x4
+        if transition < 1 {
+            let pixelsPerMetre = 1 / Projection.metersPerPoint(for: latitude, zoom: CGFloat(zoom))
+            let world = Projection.project(clamped, zoomScale: CGFloat(zoomScale))
+            let upPerMetre = pixelsPerMetre / centrePixelsPerMetre
+            let frame = simd_double4x4(columns: (
+                SIMD4<Double>(pixelsPerMetre, 0, 0, 0),
+                SIMD4<Double>(0, -pixelsPerMetre, 0, 0),
+                SIMD4<Double>(0, 0, upPerMetre, 0),
+                SIMD4<Double>(Double(world.x), Double(world.y), altitude * upPerMetre, 1)
+            ))
+            mercator = mercatorToClip * frame
+        }
+        var globe = mercator
+        if transition > 0 {
+            globe = globeToClip * Self.globeFrame(clamped, altitude: altitude)
+            if transition >= 1 { mercator = globe }
+        }
+        return (mercator, globe)
+    }
+
+    /// A point at a height above the sea, in clip space.
+    func clip(_ coordinate: CLLocationCoordinate2D, altitude: Double) -> SIMD4<Double> {
+        let (mercator, globe) = frames(coordinate, altitude: altitude)
+        let flat = mercator.columns.3
+        guard transition > 0 else { return flat }
+        return flat + (globe.columns.3 - flat) * transition
+    }
+
+    /// A clip-space point on screen, in points — or nil behind the camera.
+    func screen(_ clip: SIMD4<Double>) -> SIMD2<Double>? {
+        guard clip.w > 1e-9 else { return nil }
+        return SIMD2<Double>(
+            (clip.x / clip.w * 0.5 + 0.5) * width,
+            (0.5 - clip.y / clip.w * 0.5) * height
+        )
+    }
+
+    /// The screen's size, in points.
+    var screenSize: SIMD2<Double> { SIMD2<Double>(width, height) }
 
     // MARK: - Geometry
 

@@ -64,6 +64,7 @@ final class AircraftEngine: NSObject, CustomLayerHost {
 
     private let lock = NSLock()
     private var aircraft: [Aircraft] = []
+    private var path: AircraftPath?
     private var drawn: [(id: String, point: CGPoint, radius: CGFloat)] = []
     private var models: [String: Model] = [:]
     private var loading: Set<String> = []
@@ -75,6 +76,7 @@ final class AircraftEngine: NSObject, CustomLayerHost {
 
     private var opaquePipeline: MTLRenderPipelineState?
     private var blendPipeline: MTLRenderPipelineState?
+    private var pathPipeline: MTLRenderPipelineState?
     private var opaqueDepth: MTLDepthStencilState?
     private var blendDepth: MTLDepthStencilState?
     private var sampler: MTLSamplerState?
@@ -86,6 +88,15 @@ final class AircraftEngine: NSObject, CustomLayerHost {
     func update(_ aircraft: [Aircraft]) {
         lock.lock()
         self.aircraft = aircraft
+        lock.unlock()
+    }
+
+    /// The open aircraft's flown path, or nil for none — see `AircraftPath`.
+    /// Its end is joined to the aeroplane on every frame, so this is only
+    /// handed over when the track itself changes.
+    func setPath(_ path: AircraftPath?) {
+        lock.lock()
+        self.path = path
         lock.unlock()
     }
 
@@ -156,11 +167,17 @@ final class AircraftEngine: NSObject, CustomLayerHost {
         do {
             let library = try metalDevice.makeLibrary(source: AircraftShaders.source, options: nil)
             guard let vertex = library.makeFunction(name: "aircraftVertex"),
-                  let fragment = library.makeFunction(name: "aircraftFragment") else { return }
+                  let fragment = library.makeFunction(name: "aircraftFragment"),
+                  let pathVertex = library.makeFunction(name: "pathVertex"),
+                  let pathFragment = library.makeFunction(name: "pathFragment") else { return }
 
-            func pipeline(blending: Bool) throws -> MTLRenderPipelineState {
+            func pipeline(
+                _ label: String,
+                vertex: MTLFunction,
+                fragment: MTLFunction
+            ) throws -> MTLRenderPipelineState {
                 let descriptor = MTLRenderPipelineDescriptor()
-                descriptor.label = blending ? "Aircraft (see-through)" : "Aircraft"
+                descriptor.label = label
                 descriptor.vertexFunction = vertex
                 descriptor.fragmentFunction = fragment
                 if let colour = MTLPixelFormat(rawValue: colorPixelFormat), let attachment = descriptor.colorAttachments[0] {
@@ -181,8 +198,9 @@ final class AircraftEngine: NSObject, CustomLayerHost {
                 }
                 return try metalDevice.makeRenderPipelineState(descriptor: descriptor)
             }
-            opaquePipeline = try pipeline(blending: false)
-            blendPipeline = try pipeline(blending: true)
+            opaquePipeline = try pipeline("Aircraft", vertex: vertex, fragment: fragment)
+            blendPipeline = try pipeline("Aircraft (see-through)", vertex: vertex, fragment: fragment)
+            pathPipeline = try pipeline("Flown path", vertex: pathVertex, fragment: pathFragment)
         } catch {
             NSLog("[Engine] could not build its pipelines: %@", String(describing: error))
             return
@@ -231,6 +249,7 @@ final class AircraftEngine: NSObject, CustomLayerHost {
     ) {
         lock.lock()
         let aircraft = self.aircraft
+        let path = self.path
         let models = self.models
         let isLight = self.isLight
         let device = self.device
@@ -241,15 +260,28 @@ final class AircraftEngine: NSObject, CustomLayerHost {
         let frame = AircraftFrame(parameters)
         var marks: [(id: String, point: CGPoint, radius: CGFloat)] = []
         var groups: [GroupKey: [AircraftShaders.Instance]] = [:]
+        var head: AircraftPathMesh.Head?
 
         for plane in aircraft {
             guard let model = models[plane.model] else { continue }
             let elevation = frame.elevation(at: plane.coordinate)
-            guard let placed = frame.place(
+            let placement = frame.place(
                 plane,
                 groundMetres: elevation,
                 lengthMetres: Double(model.lengthMetres)
-            ) else { continue }
+            )
+
+            // The path ends in the middle of the model as it is drawn.
+            if plane.id == path?.aircraftId {
+                let middle = Double(model.lengthMetres) * Self.middleShare * (placement?.magnification ?? 1)
+                head = AircraftPathMesh.Head(
+                    coordinate: plane.coordinate,
+                    altitude: elevation + max(plane.heightMetres, 0) + middle,
+                    ground: elevation
+                )
+            }
+
+            guard let placed = placement else { continue }
 
             let lod = placed.screenLength < Self.farDetailBelowPoints && model.meshes.count > 1 ? 1 : 0
             groups[GroupKey(model: plane.model, lod: lod), default: []].append(placed.instance)
@@ -261,21 +293,27 @@ final class AircraftEngine: NSObject, CustomLayerHost {
         drawn = marks
         lock.unlock()
 
+        let haloColour = isLight ? SIMD4<Float>(1, 1, 1, 0.55) : SIMD4<Float>(0, 0, 0, 0.45)
+        let pathMesh = path.map { AircraftPathMesh($0, head: head, frame: frame, halo: haloColour) } ?? AircraftPathMesh()
+
         let total = groups.values.reduce(0) { $0 + $1.count }
-        guard total > 0 else { return }
+        guard total > 0 || !pathMesh.isEmpty else { return }
 
         // One buffer for every instance on the frame, each group a run of it.
         let stride = MemoryLayout<AircraftShaders.Instance>.stride
-        guard let instances = device.makeBuffer(length: total * stride, options: .storageModeShared) else { return }
+        var instances: MTLBuffer?
         var runs: [(key: GroupKey, offset: Int, count: Int)] = []
-        var cursor = 0
-        let base = instances.contents()
-        for (key, list) in groups {
-            list.withUnsafeBytes { bytes in
-                base.advanced(by: cursor * stride).copyMemory(from: bytes.baseAddress!, byteCount: list.count * stride)
+        if total > 0, let buffer = device.makeBuffer(length: total * stride, options: .storageModeShared) {
+            var cursor = 0
+            let base = buffer.contents()
+            for (key, list) in groups {
+                list.withUnsafeBytes { bytes in
+                    base.advanced(by: cursor * stride).copyMemory(from: bytes.baseAddress!, byteCount: list.count * stride)
+                }
+                runs.append((key, cursor, list.count))
+                cursor += list.count
             }
-            runs.append((key, cursor, list.count))
-            cursor += list.count
+            instances = buffer
         }
 
         guard let encoder = mtlCommandBuffer.makeRenderCommandEncoder(descriptor: mtlRenderPassDescriptor) else { return }
@@ -297,17 +335,43 @@ final class AircraftEngine: NSObject, CustomLayerHost {
             emission: isLight ? 0.3 : 0.8,
             light: SIMD4<Float>(simd_normalize(SIMD3<Float>(0.35, -0.3, 0.88)), 0)
         )
+        // The path first, under the aeroplanes: curtain, halo, line.
+        if !pathMesh.isEmpty, let pathPipeline, let blendDepth,
+           let pathVertices = device.makeBuffer(
+               bytes: pathMesh.vertices,
+               length: pathMesh.vertices.count * MemoryLayout<AircraftShaders.PathVertex>.stride,
+               options: .storageModeShared
+           ) {
+            encoder.setRenderPipelineState(pathPipeline)
+            encoder.setDepthStencilState(blendDepth)
+            encoder.setVertexBuffer(pathVertices, offset: 0, index: 0)
+            for indices in [pathMesh.curtain, pathMesh.halo, pathMesh.line] where !indices.isEmpty {
+                guard let indexBuffer = device.makeBuffer(
+                    bytes: indices,
+                    length: indices.count * MemoryLayout<UInt32>.stride,
+                    options: .storageModeShared
+                ) else { continue }
+                encoder.drawIndexedPrimitives(
+                    type: .triangle,
+                    indexCount: indices.count,
+                    indexType: .uint32,
+                    indexBuffer: indexBuffer,
+                    indexBufferOffset: 0
+                )
+            }
+        }
+
         encoder.setVertexBytes(&uniforms, length: MemoryLayout<AircraftShaders.FrameUniforms>.stride, index: 2)
         encoder.setFragmentBytes(&uniforms, length: MemoryLayout<AircraftShaders.FrameUniforms>.stride, index: 1)
 
-        for blending in [false, true] {
+        for blending in [false, true] where instances != nil {
             encoder.setRenderPipelineState(blending ? blendPipeline : opaquePipeline)
             if let state = blending ? blendDepth : opaqueDepth { encoder.setDepthStencilState(state) }
             for run in runs {
                 guard let model = models[run.key.model], run.key.lod < model.meshes.count else { continue }
                 let mesh = model.meshes[run.key.lod]
                 encoder.setVertexBuffer(mesh.vertices, offset: 0, index: 0)
-                encoder.setVertexBuffer(instances, offset: run.offset * stride, index: 1)
+                encoder.setVertexBuffer(instances!, offset: run.offset * stride, index: 1)
                 for part in mesh.parts {
                     let material = model.materials[part.material]
                     guard material.blends == blending else { continue }
@@ -334,6 +398,10 @@ final class AircraftEngine: NSObject, CustomLayerHost {
 
     /// Below this length on screen an aeroplane is drawn from its reduced copy.
     private static let farDetailBelowPoints = 70.0
+
+    /// Where the middle of a model is, as a share of its length above the
+    /// ground it stands on — roughly the fuselage's centre line.
+    private static let middleShare = 0.08
 
     /// However small an aeroplane is drawn, a tap this close to it finds it.
     private static let smallestTapRadius = 18.0
