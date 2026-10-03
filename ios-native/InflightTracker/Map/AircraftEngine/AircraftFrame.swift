@@ -46,6 +46,9 @@ struct AircraftFrame {
     private let height: Double
     private let terrainHeight: (CLLocationCoordinate2D) -> Double?
 
+    /// Whether the map has real terrain under it on this frame.
+    let hasTerrain: Bool
+
     init(_ parameters: CustomLayerRenderParameters) {
         let projection = Self.matrix(parameters.projectionMatrix)
         mercatorToClip = projection * Self.matrix(parameters.projection.getTransitionMatrix())
@@ -58,6 +61,7 @@ struct AircraftFrame {
         width = Double(parameters.width)
         height = Double(parameters.height)
         let terrain = parameters.elevationData
+        hasTerrain = terrain != nil
         terrainHeight = { coordinate in terrain?.getElevationFor(coordinate)?.doubleValue }
     }
 
@@ -86,8 +90,8 @@ struct AircraftFrame {
         lengthMetres: Double
     ) -> Placement? {
         let latitude = min(max(plane.coordinate.latitude, -85), 85)
-        let altitude = groundMetres + max(plane.heightMetres, 0)
-        let (mercator, globe) = frames(plane.coordinate, altitude: altitude)
+        let drawnAltitude = altitude(ground: groundMetres, height: plane.heightMetres, sea: plane.seaAltitudeMetres)
+        let (mercator, globe) = frames(plane.coordinate, altitude: drawnAltitude)
 
         func clip(_ local: SIMD4<Double>) -> SIMD4<Double> {
             let flat = mercator * local
@@ -195,6 +199,30 @@ struct AircraftFrame {
             (0.5 - clip.y / clip.w * 0.5) * height
         )
     }
+
+    /// The altitude above the sea something is drawn at, from its height
+    /// above the field it flew from and its altitude above the sea, over
+    /// ground `ground` metres up.
+    ///
+    /// With no terrain the map is flat at sea level and the height is all
+    /// there is. With terrain, height above a field added to the ground under
+    /// each point would ride every ridge and valley a path crossed — and move
+    /// as finer terrain loads — so in the air the true altitude is drawn,
+    /// never below the ground. Close to the ground the height is added to the
+    /// terrain under it instead, so a taxi and a take-off roll sit exactly on
+    /// it, and the one gives way to the other between `hugBelow` and
+    /// `trueAbove` metres up.
+    func altitude(ground: Double, height: Double, sea: Double) -> Double {
+        let height = max(height, 0)
+        guard hasTerrain else { return ground + height }
+        let hugging = ground + height
+        let flown = max(sea, ground)
+        let share = min(max((height - Self.hugBelow) / (Self.trueAbove - Self.hugBelow), 0), 1)
+        return hugging + (flown - hugging) * share
+    }
+
+    private static let hugBelow = 30.0
+    private static let trueAbove = 150.0
 
     /// The screen's size, in points.
     var screenSize: SIMD2<Double> { SIMD2<Double>(width, height) }

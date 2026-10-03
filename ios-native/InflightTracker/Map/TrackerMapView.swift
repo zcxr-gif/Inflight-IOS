@@ -1248,8 +1248,38 @@ struct TrackerMapView: UIViewRepresentable {
             }
         }
 
-        /// The open aircraft in the selection amber.
+        /// The open aircraft in the selection amber — for a moment, to show
+        /// which one was picked, and then back to its own colours.
         private static let selectionTint = SIMD4<Float>(1.00, 0.62, 0.04, 0.55)
+
+        /// How long the amber stays, and how long it takes to fade out of it.
+        private static let selectionHold: CFTimeInterval = 3.4
+        private static let selectionFade: CFTimeInterval = 0.6
+
+        /// The aircraft the amber was last put on, and when.
+        private var tintedSelectionId: String?
+        private var selectionTintedAt: CFTimeInterval = 0
+
+        /// How much of the amber is mixed in, `elapsed` seconds after picking.
+        private static func selectionShare(after elapsed: CFTimeInterval) -> Float {
+            guard elapsed > selectionHold else { return 1 }
+            let faded = (elapsed - selectionHold) / selectionFade
+            guard faded < 1 else { return 0 }
+            // Eased out, so it melts away rather than switching off.
+            return Float(0.5 + 0.5 * cos(faded * .pi))
+        }
+
+        /// How high above the sea a model is flown, in metres: the field it
+        /// last stood on plus its height above it, which is the reported
+        /// altitude carried smoothly between packets. For the aeroplane flown
+        /// here, whose height comes from its own simulator, the reported
+        /// altitude itself.
+        private func modelSeaAltitude(for marker: FlightMarker, height: Double) -> Double {
+            if let own = ownAttitude, own.flightId == marker.flightId, own.heightMetres != nil {
+                return marker.flight.altitudeFeet * 0.3048
+            }
+            return (marker.attitude.groundAltitudeFeet ?? 0) * 0.3048 + height
+        }
 
         private static func engineTint(_ colour: UIColor, share: Float) -> SIMD4<Float> {
             var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
@@ -1270,6 +1300,11 @@ struct TrackerMapView: UIViewRepresentable {
                 return
             }
             let selectedId = parent.selection?.id
+            if selectedId != tintedSelectionId {
+                tintedSelectionId = selectedId
+                selectionTintedAt = now
+            }
+            let amber = Self.selectionShare(after: now - selectionTintedAt)
             var list: [AircraftEngine.Aircraft] = []
             list.reserveCapacity(modelled.count)
             for (id, model) in modelled {
@@ -1283,15 +1318,22 @@ struct TrackerMapView: UIViewRepresentable {
                     pitch = marker.attitude.pitch(at: now)
                     bank = marker.attitude.bank(at: now)
                 }
+                let own = modelTint[id] ?? .zero
+                var tint = own
+                if id == selectedId, amber > 0 {
+                    tint = own + (Self.selectionTint - own) * amber
+                }
+                let height = modelHeight(for: marker, at: now)
                 list.append(AircraftEngine.Aircraft(
                     id: id,
                     model: model,
                     coordinate: marker.coordinate,
-                    heightMetres: modelHeight(for: marker, at: now),
+                    heightMetres: height,
+                    seaAltitudeMetres: modelSeaAltitude(for: marker, height: height),
                     heading: marker.drawnHeading,
                     pitch: pitch,
                     bank: bank,
-                    tint: id == selectedId ? Self.selectionTint : (modelTint[id] ?? .zero)
+                    tint: tint
                 ))
             }
             engine.update(list)
@@ -1664,9 +1706,11 @@ struct TrackerMapView: UIViewRepresentable {
                 // Beside the 3D aircraft the path is drawn at the heights it
                 // was flown at — see `FlownPathProfile`.
                 var heights: [Double] = []
+                var seaHeights: [Double] = []
                 if isAirPathOn {
                     let profile = FlownPathProfile.heights(of: drawn.points, bands: bands)
                     heights = profile.heights
+                    seaHeights = FlownPathProfile.seaHeights(of: drawn.points, bands: bands)
                     if let ground = profile.groundFeet { markers[flight.id]?.adoptGroundAltitude(ground) }
                 }
 
@@ -1674,13 +1718,15 @@ struct TrackerMapView: UIViewRepresentable {
                     points: drawn.points,
                     bands: bands,
                     onPavement: drawn.onPavement,
-                    heights: heights
+                    heights: heights,
+                    seaHeights: seaHeights
                 ) {
                     if isAirPathOn {
                         let air = path.runs.filter { !$0.heights.isEmpty }.map { run in
                             AircraftPath.Run(
                                 coordinates: run.coordinates,
                                 heights: run.heights,
+                                seaHeights: run.seaHeights,
                                 colour: Self.engineTint(run.color, share: 1)
                             )
                         }

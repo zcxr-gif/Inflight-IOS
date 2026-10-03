@@ -34,6 +34,9 @@ struct AircraftPath {
         var coordinates: [CLLocationCoordinate2D]
         /// Height above the ground at each coordinate, in metres.
         var heights: [Double]
+        /// Altitude above the sea at each coordinate, in metres — what is
+        /// drawn over real terrain. See `AircraftFrame.altitude`.
+        var seaHeights: [Double]
         var colour: SIMD4<Float>
     }
 
@@ -76,7 +79,8 @@ struct AircraftPathMesh {
             for (i, coordinate) in run.coordinates.enumerated() {
                 let ground = frame.elevation(at: coordinate)
                 let height = i < run.heights.count ? max(run.heights[i], 0) : 0
-                points.append((coordinate, ground + height, ground))
+                let sea = i < run.seaHeights.count ? run.seaHeights[i] : ground + height
+                points.append((coordinate, frame.altitude(ground: ground, height: height, sea: sea), ground))
             }
             if index == path.runs.count - 1, let head {
                 points.append((head.coordinate, head.altitude, head.ground))

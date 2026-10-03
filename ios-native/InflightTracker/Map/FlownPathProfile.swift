@@ -68,6 +68,18 @@ enum FlownPathProfile {
         return (filled(known), lastGround)
     }
 
+    /// Each sample's altitude above the sea, in metres, as the aeroplane
+    /// reported it — for a map with real terrain under the path, where a
+    /// height above a field would ride every ridge and valley the path
+    /// crosses. Gaps are filled the same way as the heights above.
+    static func seaHeights(of points: [TrackPoint], bands: [Int?]) -> [Double] {
+        guard !points.isEmpty, bands.count == points.count else { return [] }
+        let known: [Double?] = points.indices.map { index in
+            bands[index] != nil ? points[index].altitudeFeet * 0.3048 : nil
+        }
+        return filled(known)
+    }
+
     /// Gaps closed by straight lines between the heights either side of
     /// them, and held level past the last one at either end.
     private static func filled(_ values: [Double?]) -> [Double] {

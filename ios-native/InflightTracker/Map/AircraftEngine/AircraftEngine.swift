@@ -48,6 +48,9 @@ final class AircraftEngine: NSObject, CustomLayerHost {
         var coordinate: CLLocationCoordinate2D
         /// Above the ground under it, in metres.
         var heightMetres: Double
+        /// Above the sea, in metres — what is drawn over real terrain. See
+        /// `AircraftFrame.altitude`.
+        var seaAltitudeMetres: Double
         /// Degrees: heading clockwise from north, nose up, right wing down.
         var heading: Double
         var pitch: Double
@@ -276,7 +279,11 @@ final class AircraftEngine: NSObject, CustomLayerHost {
                 let middle = Double(model.lengthMetres) * Self.middleShare * (placement?.magnification ?? 1)
                 head = AircraftPathMesh.Head(
                     coordinate: plane.coordinate,
-                    altitude: elevation + max(plane.heightMetres, 0) + middle,
+                    altitude: frame.altitude(
+                        ground: elevation,
+                        height: plane.heightMetres,
+                        sea: plane.seaAltitudeMetres
+                    ) + middle,
                     ground: elevation
                 )
             }
