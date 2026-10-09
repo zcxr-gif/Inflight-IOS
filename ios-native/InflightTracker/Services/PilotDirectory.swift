@@ -50,6 +50,11 @@ final class PilotDirectory: ObservableObject {
     /// aeroplane was tapped.
     private var byIfUsername: [String: Cached<String?>] = [:]
 
+    /// Window styles by lowercased Infinite Flight name, nil for a pilot who
+    /// has none. Kept ten minutes, as the website keeps them: a look changes
+    /// rarely, and a window re-renders often.
+    private var windowStyles: [String: (style: PilotWindowStyle?, at: Date)] = [:]
+
     private init() {}
 
     /// Dropped when somebody signs in or out. Every card carries the reader's
@@ -58,6 +63,35 @@ final class PilotDirectory: ObservableObject {
     func accountChanged() {
         cards.removeAll()
         byIfUsername.removeAll()
+        windowStyles.removeAll()
+    }
+
+    /// How the pilot flying under this Infinite Flight name has styled the
+    /// window others see, or nil. Never throws: a pilot whose look cannot be
+    /// read simply has none.
+    func windowStyle(ifUsername: String) async -> PilotWindowStyle? {
+        let key = ifUsername.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !key.isEmpty else { return nil }
+        if let hit = windowStyles[key], Date().timeIntervalSince(hit.at) < 600 { return hit.style }
+
+        let token = await AccountStore.shared.currentAccessToken()
+        do {
+            let rows: [PilotWindowStyle] = try await SupabaseData.rpc(
+                "pilot_window_style",
+                arguments: ["p_username": key],
+                accessToken: token
+            )
+            let style = rows.first.flatMap { $0.hasLook ? $0 : nil }
+            windowStyles[key] = (style, Date())
+            return style
+        } catch {
+            return windowStyles[key]?.style
+        }
+    }
+
+    /// Drops a cached look, after the signed-in pilot changes their own.
+    func forgetWindowStyle(ifUsername: String) {
+        windowStyles[ifUsername.lowercased()] = nil
     }
 
     // MARK: - Reading

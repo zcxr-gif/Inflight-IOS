@@ -60,6 +60,7 @@ struct ProfileEditorView: View {
 
                 identitySection
                 if !isNew { picturesSection }
+                if !isNew { WindowLookSection(isShowingPaywall: $isShowingPaywall) }
                 aboutSection
                 favouriteSection
                 vaSection

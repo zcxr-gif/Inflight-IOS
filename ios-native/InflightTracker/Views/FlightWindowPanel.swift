@@ -68,7 +68,7 @@ struct FlightWindowPanel: View {
     }
 
     private var theme: FlightInfoTheme {
-        appearance.theme.accented(by: accent)
+        appearance.windowTheme.accented(by: accent)
     }
 
     /// The preview's airline colour, so the switch below it does something
@@ -77,7 +77,7 @@ struct FlightWindowPanel: View {
         guard appearance.showsAirlineAccent else { return nil }
         return AirlineAccent.colours(
             forLivery: Self.sample.liveryName,
-            isLight: appearance.theme.isLight
+            isLight: appearance.windowTheme.isLight
         )
     }
 
@@ -137,6 +137,7 @@ struct FlightWindowPanel: View {
                     return
                 }
                 appearance.windowStyle = style
+                appearance.hasChosenWindowStyle = true
             }
         )
     }
@@ -181,6 +182,15 @@ struct FlightWindowPanel: View {
                         action: { isShowingBlocks = true }
                     )
                 }
+
+                // Horizon's colour and background, which are the look rather
+                // than an extra on it — so they are only here while it is the
+                // one chosen.
+                if appearance.resolvedWindowStyle == .horizon {
+                    PanelDivider()
+
+                    HorizonSettingsRows()
+                }
             }
             .panelEntrance(2)
 
@@ -192,6 +202,15 @@ struct FlightWindowPanel: View {
                     label: { $0.label },
                     detail: appearance.pilotCardBackdrop.detail,
                     selection: $appearance.pilotCardBackdrop
+                )
+
+                PanelDivider()
+
+                PanelToggleRow(
+                    title: "Pilots' window styles",
+                    symbol: "paintbrush.pointed",
+                    detail: "Show the colour, photo or theme a pilot has given their own flight window, as everyone sees it on the website. Off, every window is drawn your way.",
+                    isOn: $appearance.showsPilotStyles
                 )
             }
             .panelEntrance(3)
@@ -246,9 +265,11 @@ struct FlightWindowPanel: View {
 
             window
 
+            // On the panel's ground rather than the window's, so the panel's
+            // ink: a Paper window in a dark app is still a dark panel.
             Text(caption)
                 .font(.system(size: 10.5, weight: .medium))
-                .foregroundStyle(theme.textDim)
+                .foregroundStyle(appearance.theme.textDim)
                 .fixedSize(horizontal: false, vertical: true)
                 .motionWords(caption)
         }
@@ -263,15 +284,23 @@ struct FlightWindowPanel: View {
             // In a band of its own rather than floating over the photograph.
             // The real window floats it because the photo runs to the top edge
             // of the sheet; here there is a card border above it either way.
-            WindowGrabber(theme: theme)
+            if appearance.resolvedWindowStyle != .horizon {
+                WindowGrabber(theme: theme)
+            }
 
             content
                 .padding(.bottom, 14)
         }
         .frame(maxWidth: .infinity)
         .background {
-            RoundedRectangle(cornerRadius: theme.radiusLarge + 6, style: .continuous)
-                .fill(appearance.theme.windowFill)
+            if appearance.resolvedWindowStyle == .horizon {
+                // The reader's own image when they have one; the aircraft
+                // here does not exist, so it has no photograph to blur.
+                FlightHorizonBackdrop(theme: theme, source: .viewer(aircraftImage: nil))
+            } else {
+                RoundedRectangle(cornerRadius: theme.radiusLarge + 6, style: .continuous)
+                    .fill(theme.windowFill)
+            }
         }
         .overlay {
             RoundedRectangle(cornerRadius: theme.radiusLarge + 6, style: .continuous)
@@ -297,11 +326,54 @@ struct FlightWindowPanel: View {
         .motion(Motion.panel, value: appearance.resolvedPeakStyle)
         .motion(Motion.panel, value: appearance.resolvedWindowStyle)
         .motion(Motion.panel, value: appearance.showsAirlineAccent)
+        .motion(Motion.panel, value: appearance.horizonColour)
         .motion(Motion.panel, value: stage)
+    }
+
+    /// Horizon's colours for the drawing. No photograph, so no glow.
+    private var horizonPalette: HorizonPalette {
+        HorizonPalette(
+            colour: HorizonColour(hex: appearance.horizonColour),
+            glow: nil,
+            hasImageBackground: appearance.horizonBackground == .custom && HorizonBackdropStore.shared.image != nil
+        )
     }
 
     @ViewBuilder
     private var content: some View {
+        if appearance.resolvedWindowStyle == .horizon {
+            horizonDrawing
+        } else {
+            standardContent
+        }
+    }
+
+    /// Horizon, drawn with the same views the window uses: its peek is the top
+    /// of the window, and open it carries on into the pilot and the glance.
+    private var horizonDrawing: some View {
+        VStack(spacing: 0) {
+            FlightHorizonPeek(
+                flight: Self.sample,
+                palette: horizonPalette,
+                image: nil,
+                contributor: nil,
+                width: width,
+                heroCeiling: 128
+            )
+
+            if stage == .open {
+                VStack(spacing: 12) {
+                    FlightHorizonPilotButton(flight: Self.sample, palette: horizonPalette)
+                    FlightHorizonGlance(flight: Self.sample, palette: horizonPalette)
+                }
+                .padding(.horizontal, 14)
+                .padding(.bottom, 4)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var standardContent: some View {
         switch stage {
         case .peek:
             FlightInfoPeak(
@@ -385,6 +457,10 @@ struct FlightWindowPanel: View {
                 width: width,
                 began: Self.departed
             )
+
+        case .horizon:
+            // Drawn by `horizonDrawing` instead; never reached.
+            EmptyView()
         }
     }
 
@@ -409,6 +485,8 @@ struct FlightWindowPanel: View {
                 return "Open, the window leads with the photograph under the operator's own bar, then the route and the live numbers."
             case .cards:
                 return "Open, the window leads with the aircraft and a card for the route."
+            case .horizon:
+                return "Open, the window is Horizon: the live numbers first, then the route with the aircraft on it — in your colour, over your background."
             }
         }
     }

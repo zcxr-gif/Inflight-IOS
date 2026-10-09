@@ -32,6 +32,10 @@ struct FlightKeepMenu: View {
     let flight: Flight
     let theme: FlightInfoTheme
 
+    /// Drawn as one of Horizon's round glass buttons on the photo rather than
+    /// as a tile in the action row.
+    var heroButton = false
+
     @ObservedObject private var friends = FriendsStore.shared
     @ObservedObject private var entitlements = Entitlements.shared
     @ObservedObject private var liveActivity = LiveActivityController.shared
@@ -105,7 +109,11 @@ struct FlightKeepMenu: View {
                 )
             }
         } label: {
-            face
+            if heroButton {
+                HorizonHeroButtonFace(symbol: "pin.fill", isOn: isOn)
+            } else {
+                face
+            }
         }
         .accessibilityLabel("Keep hold of this flight")
         .accessibilityValue(accessibilityState)

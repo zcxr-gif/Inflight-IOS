@@ -1,4 +1,4 @@
-// Sets the calling pilot's own avatar or banner, and nothing else.
+// Sets the calling pilot's own avatar, banner or window photo, and nothing else.
 //
 // WHY THIS IS NOT A DIRECT UPLOAD. Supabase Storage will happily take a signed
 // upload straight from the app, and for a private bucket that is the right
@@ -21,8 +21,8 @@
 //   4. the bytes really are a JPEG, PNG or WebP, by magic number rather than
 //      by the Content-Type the caller claimed
 //   5. the image's own dimensions are sane, read out of its header
-//   6. a banner needs Inflight Pro, asked of `pro_entitlement()` with the
-//      caller's own token
+//   6. a banner or window photo needs Inflight Pro, asked of
+//      `pro_entitlement()` with the caller's own token
 //   7. if an image-moderation endpoint is configured, it agrees the picture is
 //      safe for work
 //
@@ -52,22 +52,33 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+// The website (pilotCardEditor.js) sends `apikey` alongside the bearer token,
+// and supabase-js adds `x-client-info`. A header missing from this list fails
+// the browser's preflight, so the POST is never sent; the app has no CORS and
+// never noticed.
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-/// The two kinds of picture a profile has, and what each is allowed to be.
+/// The kinds of picture a profile has, and what each is allowed to be.
 ///
 /// The byte caps are the same numbers the buckets carry, kept here as well so
 /// an oversized upload is refused with a sentence rather than with Storage's
 /// own error. Avatars are drawn at 96pt and banners at full width, which is
-/// the whole reason the two limits differ.
+/// the whole reason the two limits differ. The window photo (drawn behind a
+/// pilot's flight window for everyone who opens it — see
+/// supabase/sql/pilot-window-style.sql in the tracker) is banner-sized and
+/// lives in the banners bucket beside it.
+///
+/// Kept in step with the deployed function, which the website and the app's
+/// "Your flight window" both upload window photos through.
 const KINDS = {
   avatar: {
     bucket: "pilot-avatars",
     column: "avatar_path",
+    label: "avatar",
     maxBytes: 2 * 1024 * 1024,
     minSide: 96,
     maxSide: 4096,
@@ -76,6 +87,16 @@ const KINDS = {
   banner: {
     bucket: "pilot-banners",
     column: "banner_path",
+    label: "banner",
+    maxBytes: 5 * 1024 * 1024,
+    minSide: 320,
+    maxSide: 8192,
+    pro: true,
+  },
+  window: {
+    bucket: "pilot-banners",
+    column: "window_bg_path",
+    label: "window photo",
     maxBytes: 5 * 1024 * 1024,
     minSide: 320,
     maxSide: 8192,
@@ -233,8 +254,8 @@ Deno.serve(async (request: Request) => {
   }
 
   const kind = body.kind as Kind;
-  if (kind !== "avatar" && kind !== "banner") {
-    return json({ error: "kind must be avatar or banner." }, 400);
+  if (!Object.prototype.hasOwnProperty.call(KINDS, kind)) {
+    return json({ error: "kind must be avatar, banner or window." }, 400);
   }
   const spec = KINDS[kind];
 
@@ -264,7 +285,7 @@ Deno.serve(async (request: Request) => {
   // a picture with no profile attached is an orphan in a public bucket.
   const { data: profile } = await asCaller
     .from("pilot_profiles")
-    .select("avatar_path, banner_path")
+    .select(spec.column)
     .eq("user_id", userId)
     .maybeSingle();
 
@@ -332,7 +353,7 @@ Deno.serve(async (request: Request) => {
   // where a 50MB payload would cost us memory.
   if ((body.data.length * 3) / 4 > spec.maxBytes) {
     return json(
-      { error: `That ${kind} is larger than ${Math.round(spec.maxBytes / 1024 / 1024)}MB.` },
+      { error: `That ${spec.label} is larger than ${Math.round(spec.maxBytes / 1024 / 1024)}MB.` },
       413,
     );
   }
@@ -347,7 +368,7 @@ Deno.serve(async (request: Request) => {
   }
 
   if (bytes.byteLength > spec.maxBytes) {
-    return json({ error: `That ${kind} is too large.` }, 413);
+    return json({ error: `That ${spec.label} is too large.` }, 413);
   }
 
   const shape = inspect(bytes);
@@ -364,19 +385,19 @@ Deno.serve(async (request: Request) => {
 
   if (shape.width < spec.minSide || shape.height < spec.minSide) {
     return json(
-      { error: `A ${kind} needs to be at least ${spec.minSide} pixels on its short side.` },
+      { error: `A ${spec.label} needs to be at least ${spec.minSide} pixels on its short side.` },
       422,
     );
   }
 
   if (shape.width > spec.maxSide || shape.height > spec.maxSide) {
-    return json({ error: `That ${kind} is larger than ${spec.maxSide} pixels.` }, 422);
+    return json({ error: `That ${spec.label} is larger than ${spec.maxSide} pixels.` }, 422);
   }
 
-  // Pro, before the upload rather than after it. The write guard on
-  // `pilot_profiles` refuses a banner from a free account anyway, so this
-  // cannot be the only check — but without it the file would already be in a
-  // public bucket by the time the row write failed.
+  // Pro, before the upload rather than after it. The write guards on
+  // `pilot_profiles` refuse a banner or window photo from a free account
+  // anyway, so this cannot be the only check — but without it the file would
+  // already be in a public bucket by the time the row write failed.
   if (spec.pro) {
     const { data: entitlement } = await asCaller.rpc("pro_entitlement");
     const isPro = Array.isArray(entitlement)
@@ -384,7 +405,7 @@ Deno.serve(async (request: Request) => {
       : (entitlement as { is_pro?: boolean } | null)?.is_pro === true;
 
     if (!isPro) {
-      return json({ error: "A custom banner is part of Inflight Pro.", pro: true }, 402);
+      return json({ error: `A custom ${spec.label} is part of Inflight Pro.`, pro: true }, 402);
     }
   }
 

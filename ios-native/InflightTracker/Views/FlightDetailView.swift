@@ -34,6 +34,11 @@ struct FlightDetailView: View {
     /// keeps the image in memory for as long as it is on screen and no longer.
     @StateObject private var realPhotoLoader = PlanespottersImageLoader()
 
+    /// How the pilot flying this aircraft has styled the window others see,
+    /// and the photo it names. See `PilotWindowStyle`.
+    @State private var ownerStyle: PilotWindowStyle?
+    @StateObject private var ownerPhotoLoader = RemoteImageLoader()
+
     /// What that lookup came back with: the picture, whose it is, and where it
     /// lives. All three are drawn together or not at all.
     @State private var realPhoto: PlanespottersPhoto?
@@ -173,17 +178,59 @@ struct FlightDetailView: View {
     /// colour on all of them and the two phases can never disagree about what
     /// colour they are.
     private var theme: FlightInfoTheme {
-        appearance.theme.accented(by: airlineAccent)
+        // Under Horizon the window is the pilot's colour when they have set
+        // one, and the viewer's otherwise.
+        if usesHorizon { return .horizon(HorizonColour(hex: horizonColourHex)) }
+        return appearance.windowTheme.accented(by: airlineAccent)
+    }
+
+    /// The pilot's own look, when there is one and this viewer shows them.
+    /// Never on real traffic, which has no pilot behind it.
+    private var ownerLook: PilotWindowStyle? {
+        guard appearance.showsPilotStyles, !isRealWorld, let style = ownerStyle, style.hasLook else { return nil }
+        return style
+    }
+
+    private var horizonColourHex: String {
+        ownerLook?.windowColourHex ?? appearance.horizonColour
+    }
+
+    /// What is behind the window: the pilot's photo or painted theme when they
+    /// have one, the viewer's own background otherwise — `resolveOwnerBackground`
+    /// and `resolveWindowBackground` on the web.
+    private var backdropSource: HorizonBackdropSource {
+        if let look = ownerLook {
+            if let photo = ownerPhotoLoader.image {
+                return .picture(photo, blur: 0, dim: look.dim)
+            }
+            if let theme = look.theme, look.colour == nil {
+                return .painted(PilotWindowStyle.stops(theme), dim: usesHorizon ? 0.55 : 0.4)
+            }
+            if let colour = look.colour {
+                // Horizon paints the colour itself; the other looks get it as
+                // a gentle three-stop wash.
+                if usesHorizon { return .none }
+                return .painted(
+                    [PilotWindowStyle.mix(colour, "#ffffff", 0.18), colour, PilotWindowStyle.mix(colour, "#000000", 0.55)],
+                    dim: 0.35
+                )
+            }
+            // A photo that has not landed yet: the colour, rather than the
+            // viewer's own picture flashing up first.
+            if look.photoPath != nil { return .none }
+        }
+        guard usesHorizon else { return .none }
+        return .viewer(aircraftImage: isRealWorld ? nil : imageLoader.image)
     }
 
     /// The airline's colours for the aircraft that is open, or nil — no livery,
     /// none we hold a colour for, or the switch turned off. All three are the
     /// same outcome: the app's own accent, exactly as it was.
     private var airlineAccent: AirlineAccent.Colours? {
-        guard appearance.showsAirlineAccent, let flight = flight else { return nil }
+        guard appearance.showsAirlineAccent, !usesHorizon, let flight = flight else { return nil }
         return AirlineAccent.colours(
             forLivery: flight.liveryName,
-            isLight: appearance.theme.isLight
+            isLight: appearance.windowTheme.isLight
         )
     }
 
@@ -303,34 +350,7 @@ struct FlightDetailView: View {
 
             ZStack(alignment: .top) {
                 if let flight = flight {
-                    FlightInfoPeak(
-                        flight: flight,
-                        image: heroImage,
-                        contributor: heroContributor,
-                        registration: registration(for: flight),
-                        theme: theme,
-                        style: appearance.resolvedPeakStyle,
-                        width: geometry.size.width,
-                        // The peak pages the whole set now, the same as the
-                        // window above it. See `FlightInfoPeak.photos`.
-                        photos: heroPhotos,
-                        // Both halves are mounted the whole time; only the one
-                        // actually on screen turns its photographs over.
-                        isAutoplaying: settled,
-                        heroCeiling: heroCeiling,
-                        partner: vaPartner,
-                        began: departed
-                    )
-                        // The peak shows the same photograph, so it carries
-                        // the same credit and the same way back to it. Their
-                        // terms are about every area that includes a photo,
-                        // not about whichever one is the main header.
-                        .modifier(
-                            RealPhotoAttribution(
-                                credit: realPhotoCredit,
-                                link: realPhotoLink
-                            )
-                        )
+                    peak(for: flight, width: geometry.size.width, settled: settled)
                         // The peak lays out to the height it *wants*, not to
                         // the height the sheet currently is — and that is the
                         // whole of why the measurement below can be believed.
@@ -423,6 +443,15 @@ struct FlightDetailView: View {
     /// it is cut at all.
     private var dressed: some View {
         phases
+            // The background, behind both phases, so the peek and the open
+            // window are one window over one picture: Horizon's own, or the
+            // pilot's look under any style. Nothing otherwise — the ground is
+            // the dock's.
+            .background {
+                if usesHorizon || !backdropSource.isNone {
+                    FlightHorizonBackdrop(theme: theme, source: backdropSource)
+                }
+            }
             .flightInfoLegible(theme)
             // Handed the feed explicitly, like every other sheet this app
             // presents: the partner panel counts that VA's aircraft out of the
@@ -468,6 +497,16 @@ struct FlightDetailView: View {
             let resolved = await VaAdsService.shared.partner(for: flight)
             guard !Task.isCancelled else { return }
             vaPartner = resolved
+        }
+        // The pilot's own window look, re-asked when the pilot changes.
+        .task(id: flight?.username ?? "") {
+            ownerStyle = nil
+            ownerPhotoLoader.load(nil)
+            guard let pilot = flight?.username, !pilot.isEmpty, flight?.origin != .realWorld else { return }
+            let style = await PilotDirectory.shared.windowStyle(ifUsername: pilot)
+            guard !Task.isCancelled else { return }
+            ownerStyle = style
+            ownerPhotoLoader.load(style?.photoURL)
         }
         // Another aircraft, in the same window. See `resetForNewFlight()`.
         .onChange(of: flightId) { _, _ in resetForNewFlight() }
@@ -896,9 +935,132 @@ struct FlightDetailView: View {
         .padding(.top, 64)
     }
 
+    /// The peek: the chosen peek style, or under Horizon the top of the
+    /// Horizon window, which is what the web's sheet peeks at.
+    @ViewBuilder
+    private func peak(for flight: Flight, width: CGFloat, settled: Bool) -> some View {
+        if usesHorizon {
+            FlightHorizonPeek(
+                flight: flight,
+                palette: horizonPalette,
+                image: heroImage,
+                contributor: heroContributor,
+                photos: heroPhotos,
+                isAutoplaying: settled,
+                width: width,
+                heroCeiling: heroCeiling,
+                track: track,
+                realCredit: horizonRealCredit,
+                realLink: realPhotoLink
+            )
+        } else {
+            FlightInfoPeak(
+                flight: flight,
+                image: heroImage,
+                contributor: heroContributor,
+                registration: registration(for: flight),
+                theme: theme,
+                style: appearance.resolvedPeakStyle,
+                width: width,
+                // The peak pages the whole set now, the same as the
+                // window above it. See `FlightInfoPeak.photos`.
+                photos: heroPhotos,
+                // Both halves are mounted the whole time; only the one
+                // actually on screen turns its photographs over.
+                isAutoplaying: settled,
+                heroCeiling: heroCeiling,
+                partner: vaPartner,
+                began: departed
+            )
+                // The peak shows the same photograph, so it carries
+                // the same credit and the same way back to it. Their
+                // terms are about every area that includes a photo,
+                // not about whichever one is the main header.
+                .modifier(
+                    RealPhotoAttribution(
+                        credit: realPhotoCredit,
+                        link: realPhotoLink
+                    )
+                )
+        }
+    }
+
+    /// A real photograph's credit for Horizon, which carries it where the web
+    /// carries its credit: the photo's top left, clear of the buttons.
+    private var horizonRealCredit: AnyView? {
+        guard let photo = realPhoto, realPhotoLoader.image != nil else { return nil }
+        return AnyView(
+            PlanespottersCredit(photographer: photo.photographer, link: photo.link, theme: theme)
+                .frame(maxWidth: 190, alignment: .leading)
+        )
+    }
+
+    /// Horizon's colours: the chosen colour, the photo's hue for the tint, and
+    /// whether a picture is behind the window.
+    private var horizonPalette: HorizonPalette {
+        HorizonPalette(
+            colour: HorizonColour(hex: horizonColourHex),
+            glow: HorizonGlow.colour(of: heroImage),
+            hasImageBackground: !backdropSource.isNone
+        )
+    }
+
     // MARK: - Expanded window
 
+    @ViewBuilder
     private func expanded(for flight: Flight, width: CGFloat) -> some View {
+        if usesHorizon {
+            ScrollViewReader { proxy in
+                horizonBody(for: flight, width: width)
+                    .onChange(of: isCollapsed) { _, collapsed in
+                        guard collapsed else { return }
+                        proxy.scrollTo(Self.topAnchor, anchor: .top)
+                    }
+            }
+        } else {
+            standardExpanded(for: flight, width: width)
+        }
+    }
+
+    /// The Horizon window. See `FlightHorizonWindow`.
+    private func horizonBody(for flight: Flight, width: CGFloat) -> some View {
+        ScrollView(.vertical) {
+            FlightHorizonWindow(
+                flight: flight,
+                registration: registration(for: flight),
+                palette: horizonPalette,
+                image: heroImage,
+                contributor: heroContributor,
+                photos: heroPhotos,
+                isAutoplaying: !isCollapsed,
+                width: width,
+                track: track,
+                plan: plan,
+                sim: sim,
+                isRealWorld: isRealWorld,
+                instrumentsRunning: !isCollapsed,
+                realCredit: horizonRealCredit,
+                realLink: realPhotoLink,
+                styledBy: ownerLook?.handle,
+                backRow: origin.map { AnyView(backRow($0)) },
+                partnerLine: AnyView(
+                    VaPartnerLine(
+                        partner: vaPartner,
+                        theme: theme,
+                        onOpen: { ad in viewingPartner = ad }
+                    )
+                ),
+                foot: AnyView(foot),
+                onReplay: { onReplay(track) },
+                onSelectAirport: onSelectAirport
+            )
+            .id(Self.topAnchor)
+        }
+        .scrollIndicators(.hidden)
+        .scrollBounceBehavior(.basedOnSize)
+    }
+
+    private func standardExpanded(for flight: Flight, width: CGFloat) -> some View {
         ScrollViewReader { proxy in
             scrollBody(for: flight, width: width)
                 // Rewound while the full window is invisible, so coming back up
@@ -1214,6 +1376,11 @@ struct FlightDetailView: View {
     /// route band inside it says "———" and the window is still the window.
     private var usesDetailHead: Bool {
         appearance.resolvedWindowStyle == .detail
+    }
+
+    /// Whether the open window is wearing Horizon. See `FlightHorizonLook`.
+    private var usesHorizon: Bool {
+        appearance.resolvedWindowStyle == .horizon
     }
 
     private func registration(for flight: Flight) -> String {

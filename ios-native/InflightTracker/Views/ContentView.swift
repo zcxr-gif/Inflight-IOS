@@ -153,8 +153,9 @@ struct ContentView: View {
     /// second answer costs a dictionary lookup.
     private func airlineAccent(forFlightId id: String) -> AirlineAccent.Colours? {
         guard appearance.showsAirlineAccent,
+              appearance.resolvedWindowStyle != .horizon,
               let flight = flight(id: id) else { return nil }
-        return AirlineAccent.colours(forLivery: flight.liveryName, isLight: theme.isLight)
+        return AirlineAccent.colours(forLivery: flight.liveryName, isLight: appearance.windowTheme.isLight)
     }
 
     /// Rebuilt each redraw, and compared by value inside the map — so watching
@@ -614,12 +615,6 @@ struct ContentView: View {
         mapBottomInset + statsLift
     }
 
-    /// Where the chrome in the two bottom corners starts: above the bar, and
-    /// above the lane the legal link now sits in.
-    private var cornerInset: CGFloat {
-        MapDock.reservedHeight + MapDock.legalLane
-    }
-
     /// A replay is driving the camera down the old track; following the live
     /// aircraft at the same time would be two things fighting over one map.
     private var isFollowingLive: Bool { isFollowing && !replay.isActive }
@@ -944,7 +939,7 @@ struct ContentView: View {
                 // the same airline colour the cards inside it are getting —
                 // otherwise the one edge that is actually *around* the window
                 // is the only one that stays neutral.
-                theme: theme.accented(by: airlineAccent(forFlightId: selected.id)),
+                theme: appearance.windowTheme.accented(by: airlineAccent(forFlightId: selected.id)),
                 placement: flightPlacement,
                 onClose: { sheet = nil }
             ) {
@@ -1282,7 +1277,9 @@ struct ContentView: View {
     private var flightDock: some View {
         if isFlightDockUp, let selected = selection {
             FlightWindowDock(
-                theme: theme,
+                // The window's own theme, so a Horizon colour is the dock's
+                // ground and edge too, not only the content's.
+                theme: appearance.windowTheme,
                 peakHeight: peakHeight,
                 isExpanded: $isWindowExpanded,
                 onClose: { sheet = nil }
@@ -2194,8 +2191,10 @@ struct ContentView: View {
                 }
             }
             .padding(.trailing, 16 + mapTrailingInset)
-            // Clears the dock, and the stats while they are up.
-            .padding(.bottom, cornerInset + 8 + statsLift)
+            // Close over the dock, and over the stats while they are up. No
+            // legal lane on this side: the Mapbox logo and attribution are in
+            // the other corner.
+            .padding(.bottom, MapDock.reservedHeight + 8 + statsLift)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))
@@ -2479,7 +2478,7 @@ struct ContentView: View {
             // under a sheet, or the low centred pane, it sits above instead —
             // and one of the two is always zero.
             .padding(.trailing, 16 + mapTrailingInset)
-            .padding(.bottom, flightWindowBottomInset + 14)
+            .padding(.bottom, flightWindowBottomInset + 8)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))

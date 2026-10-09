@@ -56,6 +56,15 @@ struct SyncedSettings: Codable, Equatable {
     var glass: Bool?
     var peakStyle: String?
     var windowStyle: String?
+    /// Horizon's colour, background choice and dim. The custom image itself
+    /// is not here and never will be — see `HorizonBackground.custom`.
+    var horizonColour: String?
+    /// Whether `windowStyle` was picked rather than defaulted. See
+    /// `FlightInfoAppearance.hasChosenWindowStyle`.
+    var windowStyleChosen: Bool?
+    var showsPilotStyles: Bool?
+    var horizonBackground: String?
+    var horizonDim: Double?
     /// Still decoded so a row written by an older build reads cleanly, but
     /// never captured or applied. Where the window goes is a choice about one
     /// screen: a phone is never offered it, yet every phone was uploading its
@@ -154,6 +163,11 @@ struct SyncedSettings: Codable, Equatable {
         settings.glass = appearance.isGlassEnabled
         settings.peakStyle = appearance.peakStyle.rawValue
         settings.windowStyle = appearance.windowStyle.rawValue
+        settings.horizonColour = appearance.horizonColour
+        settings.windowStyleChosen = appearance.hasChosenWindowStyle
+        settings.showsPilotStyles = appearance.showsPilotStyles
+        settings.horizonBackground = appearance.horizonBackground.rawValue
+        settings.horizonDim = Double(appearance.horizonDim)
         // Not `windowPlacement`: that one stays on the device. See the note on
         // the field.
         settings.pilotCardBackdrop = appearance.pilotCardBackdrop.rawValue
@@ -256,7 +270,19 @@ struct SyncedSettings: Codable, Equatable {
             appearance.peakStyle = value
         }
         if let value = windowStyle.flatMap(FlightInfoWindowStyle.init(rawValue:)) {
-            appearance.windowStyle = value
+            // A `cards` nobody picked is the old default every device synced,
+            // and Horizon is the default now.
+            let chosen = windowStyleChosen ?? false
+            appearance.windowStyle = (value == .cards && !chosen) ? .horizon : value
+            if chosen { appearance.hasChosenWindowStyle = true }
+        }
+        if let value = showsPilotStyles { appearance.showsPilotStyles = value }
+        if let value = horizonColour { appearance.horizonColour = HorizonColour(hex: value).hex }
+        if let value = horizonBackground.flatMap(HorizonBackground.init(rawValue:)) {
+            appearance.horizonBackground = value
+        }
+        if let value = horizonDim, value.isFinite {
+            appearance.horizonDim = CGFloat(min(max(value, 0.2), 0.9))
         }
         if let value = pilotCardBackdrop.flatMap(PilotCardBackdrop.init(rawValue:)) {
             appearance.pilotCardBackdrop = value
