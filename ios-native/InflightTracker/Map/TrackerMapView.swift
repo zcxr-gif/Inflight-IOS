@@ -1,4 +1,4 @@
-// Experimental: `addStyleModel`, for the 3D aircraft.
+// Experimental: `addCustomLayer`, for the 3D aircraft engine.
 @_spi(Experimental) import MapboxMaps
 import QuartzCore
 import SwiftUI
@@ -74,6 +74,11 @@ struct TrackerMapView: UIViewRepresentable {
     /// was following, so the follow control can show it has let go.
     var onFollowEnded: () -> Void = {}
 
+    /// Whether the follow rides behind the aeroplane's tail, the map turning
+    /// as it turns — a chase camera. Only while following, and only once the
+    /// aeroplane is drawn as a 3D model.
+    var isChasing = false
+
     /// Whether airborne traffic is carried between packets rather than jumping
     /// on each one. See `FlightMotion`.
     var smoothsTraffic = true
@@ -132,6 +137,11 @@ struct TrackerMapView: UIViewRepresentable {
     /// Told when the camera starts and stops moving, so the radar animation
     /// can sit still through a gesture.
     var onCameraMoving: (Bool) -> Void = { _ in }
+
+    /// Told which way the map is turned, in whole degrees clockwise from
+    /// north, whenever that changes — so the compass knows when to show
+    /// itself and which way its needle points.
+    var onBearingChanged: (Double) -> Void = { _ in }
 
     /// Where the map has come to rest — its centre, and how many degrees of
     /// latitude are on screen. Reported on the settle rather than through the
@@ -244,6 +254,10 @@ struct TrackerMapView: UIViewRepresentable {
         /// uploaded once. Emptied on a style load, which drops them all.
         private var images: Set<String> = []
 
+        /// Draws the 3D aircraft — see `AircraftEngine`. Kept for the life of
+        /// the map and put back on the style after every style load.
+        private let engine = AircraftEngine()
+
         init(_ parent: TrackerMapView) {
             self.parent = parent
             super.init()
@@ -266,6 +280,18 @@ struct TrackerMapView: UIViewRepresentable {
                 self.trafficPropertiesStale = true
                 self.pushTraffic()
             }
+
+            // And the engine having a model ready to draw: until it has, the
+            // aeroplanes of that type keep their flat icon.
+            engine.onModelReady = { [weak self] _ in
+                guard let self else { return }
+                self.trafficPropertiesStale = true
+                self.pushTraffic()
+                // The replay too swaps its flat icon for the model.
+                if self.parent.replayFrame != nil, self.isStyleLoaded, let map = self.map {
+                    self.syncReplay(on: map)
+                }
+            }
         }
 
         // MARK: Life
@@ -285,7 +311,6 @@ struct TrackerMapView: UIViewRepresentable {
             // A pinch that ends between two of the air path's rewrites still
             // leaves it drawn for the zoom it came to rest at.
             map.onMapIdle.observe { [weak self] _ in
-                self?.refreshAirPath(force: true)
                 self?.refreshSky(force: true)
             }.store(in: &cancelables)
 
@@ -368,11 +393,11 @@ struct TrackerMapView: UIViewRepresentable {
             guard let map = map else { return }
             isStyleLoaded = true
             images.removeAll()
-            styleModels.removeAll()
             appliedAirPath = nil
             appliedSky = nil
 
             MapLayerStyle.install(on: map, labelMinZoom: labelMinZoom)
+            installEngine(on: map)
             registerStaticImages()
 
             weatherLayer.styleDidReload()
@@ -386,6 +411,7 @@ struct TrackerMapView: UIViewRepresentable {
             applyProjection(for: parent.style)
             applyTerrain(for: parent.style)
             MapLayerStyle.applyScheme(isLight: isLight, on: map)
+            engine.setLightScheme(isLight)
             MapLayerStyle.applyWash(parent.style.wash, on: map)
             appliedWash = parent.style.wash
             applySelectionFilters(force: true)
@@ -539,6 +565,7 @@ struct TrackerMapView: UIViewRepresentable {
 
             if schemeChanged {
                 MapLayerStyle.applyScheme(isLight: scheme == .light, on: map)
+                engine.setLightScheme(scheme == .light)
                 refreshSky(force: true)
                 // The pieces of the map whose colours are baked into their
                 // features rather than their layers: the night, the fixes and
@@ -560,7 +587,9 @@ struct TrackerMapView: UIViewRepresentable {
 
         private func applyGestures(for look: MapLook) {
             guard let mapView = mapView else { return }
-            mapView.gestures.options.rotateEnabled = look.isFreeCamera
+            // Every map can be turned with two fingers; the compass puts it
+            // back to north.
+            mapView.gestures.options.rotateEnabled = true
             // A 3D aircraft seen only from straight above is a plan view, so
             // with models on the map can always be tilted to look at them.
             mapView.gestures.options.pitchEnabled = look.isPitchEnabled || parent.aircraftModels != .off
@@ -610,11 +639,10 @@ struct TrackerMapView: UIViewRepresentable {
                     to: CameraOptions(center: state.center, zoom: min(state.zoom, zoom), bearing: 0, pitch: 0),
                     duration: 0.9
                 )
-            } else if !look.isFreeCamera, state.bearing != 0 || (state.pitch != 0 && !look.isPitchEnabled) {
-                mapView.camera.ease(
-                    to: CameraOptions(bearing: 0, pitch: look.isPitchEnabled ? state.pitch : 0),
-                    duration: 0.5
-                )
+            } else if state.pitch != 0, !look.isPitchEnabled, parent.aircraftModels == .off {
+                // Level again on a look that does not tilt. The way the map is
+                // turned is the user's, and stays.
+                mapView.camera.ease(to: CameraOptions(pitch: 0), duration: 0.5)
             }
         }
 
@@ -761,6 +789,16 @@ struct TrackerMapView: UIViewRepresentable {
         /// The visible box, widened, that the smoothing works inside.
         private var smoothingBox: (south: Double, north: Double, west: Double, east: Double)?
 
+        /// Whether a point is inside `smoothingBox` — or anywhere, before the
+        /// camera has been seen.
+        private func isInSmoothingBox(_ coordinate: CLLocationCoordinate2D) -> Bool {
+            guard let box = smoothingBox else { return true }
+            var longitude = coordinate.longitude
+            if longitude < box.west { longitude += 360 }
+            return coordinate.latitude >= box.south && coordinate.latitude <= box.north
+                && longitude >= box.west && longitude <= box.east
+        }
+
         /// The label zoom: as far in as a dozen degrees of latitude on this
         /// screen. See `MapFilters.labelZoomSpan`, which is the same rule.
         private var labelMinZoom: Double {
@@ -787,6 +825,7 @@ struct TrackerMapView: UIViewRepresentable {
 
             let state = map.cameraState
             zoom = Double(state.zoom)
+            reportBearing(Double(state.bearing))
 
             let latitude = state.center.latitude
             let circumference = 40_075_016.686 * max(cos(latitude * .pi / 180), 0.01)
@@ -828,6 +867,22 @@ struct TrackerMapView: UIViewRepresentable {
                 parent.onCameraMoving(true)
             }
             scheduleSettle()
+        }
+
+        /// The bearing last told to the compass, to the degree.
+        private var reportedBearing: Double?
+
+        private func reportBearing(_ bearing: Double) {
+            var degrees = bearing.truncatingRemainder(dividingBy: 360)
+            if degrees > 180 { degrees -= 360 }
+            if degrees < -180 { degrees += 360 }
+            let rounded = degrees.rounded()
+            guard rounded != reportedBearing else { return }
+            reportedBearing = rounded
+            // Off this pass: a camera change can arrive inside a view update,
+            // and the compass is SwiftUI state.
+            let report = parent.onBearingChanged
+            DispatchQueue.main.async { report(rounded) }
         }
 
         /// Everything that waits for the map to stop moving, coalesced so a
@@ -932,7 +987,6 @@ struct TrackerMapView: UIViewRepresentable {
                 appliedVaMarks = parent.showsVaMarks
                 if appliedModelSource != parent.aircraftModels {
                     appliedModelSource = parent.aircraftModels
-                    dropModels(except: parent.aircraftModels)
                     applyGestures(for: parent.style)
                     // Back to level on a look that does not tilt, now there is
                     // nothing standing up to tilt for.
@@ -1004,6 +1058,7 @@ struct TrackerMapView: UIViewRepresentable {
                 trafficProperties.removeValue(forKey: id)
                 trafficSignatures.removeValue(forKey: id)
                 modelled.removeValue(forKey: id)
+                modelTint.removeValue(forKey: id)
             }
         }
 
@@ -1104,9 +1159,6 @@ struct TrackerMapView: UIViewRepresentable {
             properties["heading"] = JSONValue.number(marker.drawnHeading)
             marker.writtenCoordinate = marker.coordinate
             marker.writtenHeading = marker.drawnHeading
-            if modelled[marker.flightId] != nil {
-                addModelPose(to: &properties, for: marker)
-            }
             return Self.pointFeature(marker.coordinate, id: marker.flightId, properties)
         }
 
@@ -1138,26 +1190,22 @@ struct TrackerMapView: UIViewRepresentable {
                 }
             }
 
-            // The 3D model, when one is chosen and has arrived. Until it has,
-            // the aeroplane stays a flat icon — and asking is what fetches it.
-            //
-            // `modelFar` is the light aircraft's larger-than-life copy, and the
-            // model itself for everything else — see `AircraftModelStyle`.
+            // The 3D model, when one is chosen, has arrived and the engine has
+            // it ready to draw. Until then the aeroplane stays a flat icon —
+            // and asking is what fetches it. The `model` property is only what
+            // hides the icon; the model itself is drawn by `AircraftEngine`.
             modelled.removeValue(forKey: flight.id)
+            modelTint.removeValue(forKey: flight.id)
             if parent.aircraftModels != .off,
                let entry = AircraftModelCatalog.entry(for: flight, in: parent.aircraftModels),
-               let ready = AircraftModelStore.shared.ready(entry),
-               registerModel(id: ready.entry.styleId, file: ready.file) {
-                var farId = ready.entry.styleId
-                if ready.farFile != ready.file, registerModel(id: ready.entry.styleId + "-far", file: ready.farFile) {
-                    farId = ready.entry.styleId + "-far"
-                }
-                properties["model"] = JSONValue.string(ready.entry.styleId)
-                properties["modelFar"] = JSONValue.string(farId)
-                modelled[flight.id] = ready.lengthMetres
-                properties["mlen"] = JSONValue.number(ready.lengthMetres)
-                if let tint {
-                    properties["tint"] = JSONValue.string(MapLayerStyle.rgba(tint))
+               let ready = AircraftModelStore.shared.ready(entry) {
+                let model = ready.entry.styleId
+                engine.load(model, file: ready.file)
+                if engine.isReady(model) {
+                    AircraftModelStore.armCrashGuard()
+                    properties["model"] = JSONValue.string(model)
+                    modelled[flight.id] = model
+                    if let tint { modelTint[flight.id] = Self.engineTint(tint, share: 0.45) }
                 }
             }
 
@@ -1176,12 +1224,14 @@ struct TrackerMapView: UIViewRepresentable {
 
         // MARK: 3D aircraft
 
-        /// The models the style holds, by style id. Emptied on a style load,
-        /// which drops them with everything else.
-        private var styleModels: Set<String> = []
+        /// The aeroplanes drawn as models, and the model each is drawn from.
+        private var modelled: [String: String] = [:]
 
-        /// The aeroplanes drawn as models, and each one's real length.
-        private var modelled: [String: Double] = [:]
+        /// A pilot's highlight colour, mixed into their model.
+        private var modelTint: [String: SIMD4<Float>] = [:]
+
+        /// Whether the engine was last handed any aircraft at all.
+        private var engineFed = false
 
         /// The aircraft flown on this phone, as its own simulator reports it.
         private struct OwnAttitude: Equatable {
@@ -1192,66 +1242,115 @@ struct TrackerMapView: UIViewRepresentable {
         }
 
         private var ownAttitude: OwnAttitude?
-        private var writtenOwnAttitude: OwnAttitude?
 
-        /// Puts a model on the style, once. False if Mapbox would not take it.
-        private func registerModel(id: String, file: URL) -> Bool {
-            if styleModels.contains(id) { return true }
-            guard let map = map, isStyleLoaded else { return false }
+        /// Puts the engine's layer on the style, under the flat icons and the
+        /// labels, so callsigns stay readable over the models.
+        private func installEngine(on map: MapboxMap) {
+            guard !map.layerExists(withId: Layer.trafficModels) else { return }
             do {
-                AircraftModelStore.armCrashGuard()
-                try map.addStyleModel(modelId: id, modelUri: file.absoluteString)
-                styleModels.insert(id)
-                return true
+                try map.addCustomLayer(
+                    withId: Layer.trafficModels,
+                    layerHost: engine,
+                    layerPosition: map.layerExists(withId: Layer.traffic) ? .below(Layer.traffic) : nil
+                )
             } catch {
-                NSLog("[Map] model %@ could not be added: %@", id, String(describing: error))
-                return false
+                NSLog("[Map] the aircraft engine could not be added: %@", String(describing: error))
             }
         }
 
-        /// Takes another source's models off the style, so switching between
-        /// them does not keep three fleets in memory at once.
-        ///
-        /// A few seconds later rather than now. The features that name the old
-        /// models are rewritten on this same pass, but Mapbox applies that on
-        /// its own thread, and a model taken away while a feature still asks
-        /// for it is not something to find out about on a live map.
-        private func dropModels(except source: AircraftModelSource) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
-                guard let self, let map = self.map, self.parent.aircraftModels == source else { return }
-                let keep = "ac3d-\(source.key)-"
-                for id in self.styleModels where !id.hasPrefix(keep) {
-                    try? map.removeStyleModel(modelId: id)
-                    self.styleModels.remove(id)
+        /// The open aircraft in the selection amber — for a moment, to show
+        /// which one was picked, and then back to its own colours.
+        private static let selectionTint = SIMD4<Float>(1.00, 0.62, 0.04, 0.55)
+
+        /// How long the amber stays, and how long it takes to fade out of it.
+        private static let selectionHold: CFTimeInterval = 3.4
+        private static let selectionFade: CFTimeInterval = 0.6
+
+        /// The aircraft the amber was last put on, and when.
+        private var tintedSelectionId: String?
+        private var selectionTintedAt: CFTimeInterval = 0
+
+        /// How much of the amber is mixed in, `elapsed` seconds after picking.
+        private static func selectionShare(after elapsed: CFTimeInterval) -> Float {
+            guard elapsed > selectionHold else { return 1 }
+            let faded = (elapsed - selectionHold) / selectionFade
+            guard faded < 1 else { return 0 }
+            // Eased out, so it melts away rather than switching off.
+            return Float(0.5 + 0.5 * cos(faded * .pi))
+        }
+
+        /// How high above the sea a model is flown, in metres: the field it
+        /// last stood on plus its height above it, which is the reported
+        /// altitude carried smoothly between packets. For the aeroplane flown
+        /// here, whose height comes from its own simulator, the reported
+        /// altitude itself.
+        private func modelSeaAltitude(for marker: FlightMarker, height: Double) -> Double {
+            if let own = ownAttitude, own.flightId == marker.flightId, own.heightMetres != nil {
+                return marker.flight.altitudeFeet * 0.3048
+            }
+            return (marker.attitude.groundAltitudeFeet ?? 0) * 0.3048 + height
+        }
+
+        private static func engineTint(_ colour: UIColor, share: Float) -> SIMD4<Float> {
+            var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+            colour.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+            return SIMD4<Float>(Float(red), Float(green), Float(blue), share)
+        }
+
+        /// Hands the engine every modelled aeroplane as it is drawn on this
+        /// frame — where it is, how high, which way up, what colour — and asks
+        /// the map to draw a frame for it.
+        private func feedEngine(at now: CFTimeInterval) {
+            let replay = replayAircraft(at: now)
+            guard parent.aircraftModels != .off, !modelled.isEmpty || replay != nil else {
+                if engineFed {
+                    engine.update([])
+                    engineFed = false
+                    map?.triggerRepaint()
                 }
+                return
             }
-        }
-
-        /// Where the model points and how high it flies, written beside the
-        /// heading on every write of the feature.
-        private func addModelPose(to properties: inout JSONObject, for marker: FlightMarker) {
-            let now = CACurrentMediaTime()
-            let pitch: Double
-            let bank: Double
-            if let own = ownAttitude, own.flightId == marker.flightId {
-                pitch = own.pitch
-                bank = own.bank
-            } else {
-                pitch = marker.attitude.pitch(at: now)
-                bank = marker.attitude.bank(at: now)
+            let selectedId = parent.selection?.id
+            if selectedId != tintedSelectionId {
+                tintedSelectionId = selectedId
+                selectionTintedAt = now
             }
-            let height = modelHeight(for: marker, at: now)
-            marker.writtenBank = bank
-
-            let pose = AircraftModelStyle.properties(
-                heading: marker.drawnHeading,
-                pitch: pitch,
-                bank: bank,
-                heightMetres: height
-            )
-            for (key, values) in pose {
-                properties[key] = JSONValue.array(values.map { JSONValue.number($0) })
+            let amber = Self.selectionShare(after: now - selectionTintedAt)
+            var list: [AircraftEngine.Aircraft] = []
+            list.reserveCapacity(modelled.count)
+            for (id, model) in modelled {
+                guard let marker = markers[id] else { continue }
+                let pitch: Double
+                let bank: Double
+                if let own = ownAttitude, own.flightId == id {
+                    pitch = own.pitch
+                    bank = own.bank
+                } else {
+                    pitch = marker.attitude.pitch(at: now)
+                    bank = marker.attitude.bank(at: now)
+                }
+                let own = modelTint[id] ?? .zero
+                var tint = own
+                if id == selectedId, amber > 0 {
+                    tint = own + (Self.selectionTint - own) * amber
+                }
+                let height = modelHeight(for: marker, at: now)
+                list.append(AircraftEngine.Aircraft(
+                    id: id,
+                    model: model,
+                    coordinate: marker.coordinate,
+                    heightMetres: height,
+                    seaAltitudeMetres: modelSeaAltitude(for: marker, height: height),
+                    heading: marker.drawnHeading,
+                    pitch: pitch,
+                    bank: bank,
+                    tint: tint
+                ))
             }
+            if let replay { list.append(replay) }
+            engine.update(list)
+            engineFed = true
+            map?.triggerRepaint()
         }
 
         /// How high a model is flown, in metres above the ground: the
@@ -1265,8 +1364,8 @@ struct TrackerMapView: UIViewRepresentable {
         }
 
         /// The aeroplane being flown here, from Connect: its real pitch and
-        /// bank rather than the ones worked out from the feed, written every
-        /// frame they change. This is the one aircraft on the map that moves
+        /// bank rather than the ones worked out from the feed, read on every
+        /// frame and handed to the engine with the rest. This is the one aircraft on the map that moves
         /// exactly as its pilot is flying it.
         private func stepOwnModel() {
             ownAttitude = MainActor.assumeIsolated {
@@ -1277,23 +1376,6 @@ struct TrackerMapView: UIViewRepresentable {
                 let height = telemetry.altitudeAGL.flatMap { $0.isFinite ? max($0, 0) * 0.3048 : nil }
                 return OwnAttitude(flightId: id, pitch: pitch, bank: bank, heightMetres: height)
             }
-            guard let own = ownAttitude, own != writtenOwnAttitude,
-                  let marker = markers[own.flightId], modelled[own.flightId] != nil,
-                  trafficInSource.contains(own.flightId) else { return }
-            writtenOwnAttitude = own
-            map?.updateGeoJSONSourceFeatures(forSourceId: Source.traffic, features: [trafficFeature(for: marker)])
-        }
-
-        /// The open aircraft in the selection amber, and a highlighted pilot
-        /// in their colour, mixed into the model's own paint.
-        private func applyModelSelection(selectedId id: String, on map: MapboxMap) {
-            guard map.layerExists(withId: Layer.trafficModels) else { return }
-            let amber = MapLayerStyle.rgba(UIColor(red: 1.00, green: 0.62, blue: 0.04, alpha: 1))
-            let isOpen: [Any] = ["==", ["get", "fid"], id]
-            let colour: [Any] = ["case", isOpen, amber, ["has", "tint"], ["to-color", ["get", "tint"]], "#ffffff"]
-            let mix: [Any] = ["case", isOpen, 0.55, ["has", "tint"], 0.45, 0.0]
-            try? map.setLayerProperty(for: Layer.trafficModels, property: "model-color", value: colour)
-            try? map.setLayerProperty(for: Layer.trafficModels, property: "model-color-mix-intensity", value: mix)
         }
 
         // MARK: Selection
@@ -1328,7 +1410,6 @@ struct TrackerMapView: UIViewRepresentable {
             for (layer, filter) in filters where map.layerExists(withId: layer) {
                 try? map.setLayerProperty(for: layer, property: "filter", value: filter)
             }
-            applyModelSelection(selectedId: id, on: map)
         }
 
         /// The open aircraft, without walking the server for it.
@@ -1353,6 +1434,14 @@ struct TrackerMapView: UIViewRepresentable {
         /// is down, then a field, and a tap on empty map closes the window.
         private func handleTap(at point: CGPoint, coordinate: CLLocationCoordinate2D) {
             guard let map = map, isStyleLoaded else { return }
+
+            // A 3D aeroplane is drawn at its height, which down a tilted map
+            // can be well above the point Mapbox knows it by — so the engine,
+            // which knows where it drew each one, is asked first.
+            if let id = engine.hitTest(point), markers[id] != nil {
+                parent.selection = SelectedFlight(id: id)
+                return
+            }
 
             let box = CGRect(x: point.x - 22, y: point.y - 22, width: 44, height: 44)
             let trafficQuery = RenderedQueryOptions(layerIds: MapLayerStyle.tappableTraffic, filter: nil)
@@ -1614,6 +1703,8 @@ struct TrackerMapView: UIViewRepresentable {
             flownTail = nil
             airRuns = []
             airTailHeight = nil
+            enginePath = nil
+            defer { engine.setPath(enginePath) }
             var inferred: [Feature] = []
             var runs: [Feature] = []
 
@@ -1627,9 +1718,11 @@ struct TrackerMapView: UIViewRepresentable {
                 // Beside the 3D aircraft the path is drawn at the heights it
                 // was flown at — see `FlownPathProfile`.
                 var heights: [Double] = []
+                var seaHeights: [Double] = []
                 if isAirPathOn {
                     let profile = FlownPathProfile.heights(of: drawn.points, bands: bands)
                     heights = profile.heights
+                    seaHeights = FlownPathProfile.seaHeights(of: drawn.points, bands: bands)
                     if let ground = profile.groundFeet { markers[flight.id]?.adoptGroundAltitude(ground) }
                 }
 
@@ -1637,8 +1730,20 @@ struct TrackerMapView: UIViewRepresentable {
                     points: drawn.points,
                     bands: bands,
                     onPavement: drawn.onPavement,
-                    heights: heights
+                    heights: heights,
+                    seaHeights: seaHeights
                 ) {
+                    if isAirPathOn {
+                        let air = path.runs.filter { !$0.heights.isEmpty }.map { run in
+                            AircraftPath.Run(
+                                coordinates: run.coordinates,
+                                heights: run.heights,
+                                seaHeights: run.seaHeights,
+                                colour: Self.engineTint(run.color, share: 1)
+                            )
+                        }
+                        enginePath = air.isEmpty ? nil : AircraftPath(aircraftId: flight.id, runs: air)
+                    }
                     for (index, run) in path.runs.enumerated() {
                         let feature = Self.lineFeature(run.coordinates, id: "run-\(index)", [
                             "color": .string(MapLayerStyle.rgba(run.color)),
@@ -1666,10 +1771,7 @@ struct TrackerMapView: UIViewRepresentable {
             }
 
             if !airRuns.isEmpty {
-                airHighest = airRuns.flatMap(\.profile).max() ?? 0
-                airWrittenZoom = zoom
-                airWrittenAt = CACurrentMediaTime()
-                runs = liftedAirRuns(atZoom: zoom)
+                runs = liftedAirRuns()
             }
             push(runs, to: Source.flown)
             push(inferred, to: Source.inferred)
@@ -1703,6 +1805,8 @@ struct TrackerMapView: UIViewRepresentable {
             flownHeadWritten = nil
             airRuns = []
             airTailHeight = nil
+            enginePath = nil
+            engine.setPath(nil)
             for source in [Source.plan, Source.flown, Source.flownHead, Source.inferred, Source.fixes] {
                 clear(source)
             }
@@ -1791,14 +1895,11 @@ struct TrackerMapView: UIViewRepresentable {
             let head = marker.coordinate
 
             // In the air, from where the path ends to where the model is
-            // drawn — the path at the zoom it was last written for, the model
-            // at this one, so the two stay joined through a pinch.
+            // drawn, so the two stay joined.
             var elevation: [Double]?
             if isAirPathOn, let tailHeight = airTailHeight {
-                let start = AircraftModelStyle.drawnLift(heightMetres: tailHeight, atZoom: airWrittenZoom)
-                let end = AircraftModelStyle.drawnLift(
-                    heightMetres: modelHeight(for: marker, at: CACurrentMediaTime()), atZoom: zoom
-                )
+                let start = AircraftModelStyle.drawnLift(heightMetres: tailHeight)
+                let end = AircraftModelStyle.drawnLift(heightMetres: modelHeight(for: marker, at: CACurrentMediaTime()))
                 elevation = [(start * 10).rounded() / 10, (end * 10).rounded() / 10]
             }
 
@@ -1834,11 +1935,14 @@ struct TrackerMapView: UIViewRepresentable {
         // MARK: The path in the air
 
         /// Whether the flown path is drawn at its heights: with the 3D
-        /// aircraft, and on the flat map — Mapbox lifts lines off a flat map
-        /// only.
+        /// aircraft, on the flat map and the globe alike. The engine draws it
+        /// — see `AircraftPath` — and the flat line stays as its shadow.
         private var isAirPathOn: Bool {
-            parent.aircraftModels != .off && parent.style.projection != .globe
+            parent.aircraftModels != .off
         }
+
+        /// The path the engine was last handed.
+        private var enginePath: AircraftPath?
 
         private var appliedAirPath: Bool?
 
@@ -1851,9 +1955,6 @@ struct TrackerMapView: UIViewRepresentable {
 
         private var airRuns: [AirRun] = []
         private var airTailHeight: Double?
-        private var airHighest = 0.0
-        private var airWrittenZoom = 0.0
-        private var airWrittenAt: CFTimeInterval = 0
 
         private func applyAirPathLayers() {
             guard let map = map, isStyleLoaded else { return }
@@ -1861,34 +1962,23 @@ struct TrackerMapView: UIViewRepresentable {
             guard isOn != appliedAirPath else { return }
             appliedAirPath = isOn
             MapLayerStyle.applyAirPath(isOn, on: map)
+            // The flat line becomes the shadow; the line in the air is the
+            // engine's, so Mapbox's own lifted copies stay hidden.
+            MapLayerStyle.setVisible(
+                false,
+                layers: [Layer.flownAirBlade, Layer.flownAir, Layer.flownHeadAirBlade, Layer.flownHeadAir],
+                on: map
+            )
         }
 
-        private func liftedAirRuns(atZoom zoom: Double) -> [Feature] {
+        private func liftedAirRuns() -> [Feature] {
             airRuns.map { run in
                 var feature = run.feature
                 var properties = feature.properties ?? [:]
-                properties["elevation"] = .array(FlownPathProfile.lifted(run.profile, atZoom: zoom).map { JSONValue.number($0) })
+                properties["elevation"] = .array(FlownPathProfile.lifted(run.profile).map { JSONValue.number($0) })
                 feature.properties = properties
                 return feature
             }
-        }
-
-        /// Rewrites the path's heights for the zoom the map is at now, when
-        /// the cap they were written under has moved by enough to see — which
-        /// for a track that never climbs above the cap is never. A few times a
-        /// second at most while the fingers are on the map, and once more
-        /// where they leave it.
-        private func refreshAirPath(force: Bool) {
-            guard !airRuns.isEmpty, isAirPathOn, isStyleLoaded else { return }
-            let now = CACurrentMediaTime()
-            guard force || now - airWrittenAt > 0.25 else { return }
-            let before = AircraftModelStyle.drawnLift(heightMetres: airHighest, atZoom: airWrittenZoom)
-            let after = AircraftModelStyle.drawnLift(heightMetres: airHighest, atZoom: zoom)
-            guard abs(after - before) > max(before * (force ? 0.002 : 0.03), 1) else { return }
-            airWrittenZoom = zoom
-            airWrittenAt = now
-            push(liftedAirRuns(atZoom: zoom), to: Source.flown)
-            flownHeadWritten = nil
         }
 
         // MARK: The sky
@@ -2517,6 +2607,7 @@ struct TrackerMapView: UIViewRepresentable {
                     clear(Source.replay)
                     renderedReplay = false
                 }
+                replayModel = nil
                 return
             }
 
@@ -2525,17 +2616,56 @@ struct TrackerMapView: UIViewRepresentable {
             let key = selectedFlight()?.spriteKey ?? replaySpriteKey ?? "TRIANGLE"
             replaySpriteKey = key
 
-            let icon = planeImage(key: key, tint: nil, selected: true)
-            push([Self.pointFeature(frame.coordinate, [
-                "icon": .string(icon),
-                "heading": .number(frame.heading),
-            ])], to: Source.replay)
+            // In 3D the engine flies the replay as the aeroplane's own model —
+            // see `feedEngine` — and the flat icon steps aside.
+            replayModel = selectedFlight().flatMap { engineModel(for: $0) }
+            if replayModel != nil {
+                if renderedReplay { clear(Source.replay) }
+            } else {
+                let icon = planeImage(key: key, tint: nil, selected: true)
+                push([Self.pointFeature(frame.coordinate, [
+                    "icon": .string(icon),
+                    "heading": .number(frame.heading),
+                ])], to: Source.replay)
+            }
             renderedReplay = true
 
             keepInView(frame.coordinate)
         }
 
         private var replaySpriteKey: String?
+
+        /// The model the replay is flown in, when the engine has it.
+        private var replayModel: String?
+
+        /// The model the engine draws an aircraft from, once it is ready —
+        /// asking is what loads it.
+        private func engineModel(for flight: Flight) -> String? {
+            guard parent.aircraftModels != .off,
+                  let entry = AircraftModelCatalog.entry(for: flight, in: parent.aircraftModels),
+                  let ready = AircraftModelStore.shared.ready(entry) else { return nil }
+            engine.load(ready.entry.styleId, file: ready.file)
+            return engine.isReady(ready.entry.styleId) ? ready.entry.styleId : nil
+        }
+
+        /// The replayed aeroplane, as the engine draws it: its own colours with
+        /// a wash of amber, so it is never mistaken for the live one.
+        private func replayAircraft(at now: CFTimeInterval) -> AircraftEngine.Aircraft? {
+            guard let frame = parent.replayFrame, let model = replayModel else { return nil }
+            let field = selectedFlight().flatMap { markers[$0.id]?.attitude.groundAltitudeFeet } ?? 0
+            let sea = frame.altitudeFeet * 0.3048
+            return AircraftEngine.Aircraft(
+                id: AircraftEngine.replayId,
+                model: model,
+                coordinate: frame.coordinate,
+                heightMetres: max(frame.altitudeFeet - field, 0) * 0.3048,
+                seaAltitudeMetres: sea,
+                heading: frame.heading,
+                pitch: 0,
+                bank: 0,
+                tint: SIMD4<Float>(1.00, 0.62, 0.04, 0.22)
+            )
+        }
 
         // MARK: Following
 
@@ -2563,31 +2693,187 @@ struct TrackerMapView: UIViewRepresentable {
         private func followSelection() {
             guard parent.isFollowing, let flight = selectedFlight(), let mapView = mapView, let map = map else {
                 followLockedId = nil
+                wasChasing = false
+                chaseHeld = nil
+                releaseFollowZoom()
                 return
             }
             guard !isGestureActive else { return }
             let bounds = mapView.bounds
             guard bounds.width > 1, bounds.height > 1 else { return }
-            let target = drawnCoordinate(for: flight)
-            guard CLLocationCoordinate2DIsValid(target) else { return }
             let padding = edgeInsets(in: bounds)
             let now = CACurrentMediaTime()
+            limitFollowZoom(for: flight, in: bounds, on: map)
 
-            if followLockedId != flight.id || followNeedsGlide {
+            // The chase: on, off, or riding along.
+            let chaseMarker = parent.isChasing && modelled[flight.id] != nil ? markers[flight.id] : nil
+            let isChasing = chaseMarker != nil
+            var entersChase = false
+            if isChasing != wasChasing {
+                wasChasing = isChasing
+                entersChase = isChasing
+                followNeedsGlide = true
+            }
+
+            let state = map.cameraState
+            let glides = followLockedId != flight.id || followNeedsGlide
+            var bearing = Double(state.bearing)
+            var pitch = Double(state.pitch)
+            if let chaseMarker {
+                let heading = chaseMarker.drawnHeading
+                if glides {
+                    bearing = heading
+                    chaseHeld = nil
+                } else {
+                    bearing = chaseBearing(towards: heading, from: bearing, at: now)
+                }
+                if entersChase { pitch = Self.chasePitch }
+            }
+            let target = followCentre(for: flight, bearing: bearing, pitch: pitch)
+            guard CLLocationCoordinate2DIsValid(target) else { return }
+
+            if glides {
                 followLockedId = flight.id
                 followNeedsGlide = false
                 followGlideEnds = now + Self.followGlide
                 let moving = markers[flight.id]?.isSmoothing ?? false
                 let landing = moving ? Self.ahead(of: target, flight: flight, seconds: Self.followGlide) : target
+                // Into the chase: down behind the tail, a few lengths back.
+                var zoom: CGFloat?
+                if entersChase, let chaseMarker {
+                    zoom = CGFloat(closestZoom(for: flight, marker: chaseMarker, pitch: pitch, in: bounds) - Self.chaseStandOff)
+                }
                 mapView.camera.ease(
-                    to: CameraOptions(center: landing, padding: padding),
+                    to: CameraOptions(
+                        center: landing,
+                        padding: padding,
+                        zoom: zoom,
+                        bearing: isChasing ? CLLocationDirection(bearing) : nil,
+                        pitch: entersChase ? CGFloat(pitch) : nil
+                    ),
                     duration: Self.followGlide,
                     curve: .easeInOut
                 )
                 return
             }
             guard now >= followGlideEnds else { return }
-            map.setCamera(to: CameraOptions(center: target, padding: padding))
+            map.setCamera(to: CameraOptions(
+                center: target,
+                padding: padding,
+                bearing: isChasing ? CLLocationDirection(bearing) : nil
+            ))
+        }
+
+        // MARK: Chase
+
+        private var wasChasing = false
+        private var chaseHeld: (value: Double, at: CFTimeInterval)?
+
+        /// The tilt the chase settles into: low behind the tail, the horizon
+        /// in view ahead.
+        private static let chasePitch = 70.0
+
+        /// How far back from the closest approach the chase sits, in zoom
+        /// levels: a little over one is a few of its lengths behind.
+        private static let chaseStandOff = 1.2
+
+        /// How quickly the map turns after the aeroplane, per second: it swings
+        /// round behind a turn over a second or two rather than snapping to
+        /// every wobble of the heading.
+        private static let chaseTurnRate = 1.6
+
+        /// The map's bearing on this frame, eased from the last one towards the
+        /// aeroplane's heading the short way round.
+        private func chaseBearing(towards heading: Double, from current: Double, at now: CFTimeInterval) -> Double {
+            let last = chaseHeld ?? (value: current, at: now)
+            let step = min(max(now - last.at, 0), 0.25)
+            var delta = (heading - last.value).truncatingRemainder(dividingBy: 360)
+            if delta > 180 { delta -= 360 }
+            if delta < -180 { delta += 360 }
+            var value = last.value + delta * (1 - exp(-step * Self.chaseTurnRate))
+            value = value.truncatingRemainder(dividingBy: 360)
+            if value < 0 { value += 360 }
+            chaseHeld = (value: value, at: now)
+            return value
+        }
+
+        /// The point on the ground to put in the middle of the screen so that
+        /// the aeroplane itself — drawn at its height by the engine — is in
+        /// the middle of it.
+        ///
+        /// Looking down a tilted map, an aeroplane in the air is seen in front
+        /// of the ground point beyond it on the line of sight: its height
+        /// times the tangent of the tilt further along the way the camera
+        /// faces. Centring that point puts the aeroplane on the camera's own
+        /// axis, so zooming moves straight towards it rather than past it.
+        private func followCentre(for flight: Flight, bearing: Double, pitch: Double) -> CLLocationCoordinate2D {
+            let ground = drawnCoordinate(for: flight)
+            guard parent.aircraftModels != .off, let marker = markers[flight.id], modelled[flight.id] != nil else {
+                return ground
+            }
+            let height = modelHeight(for: marker, at: CACurrentMediaTime())
+            let tilt = min(pitch, Self.followTiltLimit) * .pi / 180
+            let ahead = height * tan(tilt)
+            guard ahead > 1 else { return ground }
+            return GreatCircle.coordinate(from: ground, bearing: bearing, metres: ahead)
+        }
+
+        /// Beyond this tilt the point on the ground runs off towards the
+        /// horizon; the aeroplane is put on axis as if it were this.
+        private static let followTiltLimit = 75.0
+
+        /// The nearest the camera comes to a followed aeroplane, in metres —
+        /// a few of its lengths, close enough to fill the screen with it.
+        private static let followClosestMetres = 160.0
+
+        /// The zoom the follow last held the camera under.
+        private var followZoomLimit: Double?
+        private static let defaultMaximumZoom = 22.0
+
+        /// Holds the camera off the followed aeroplane. Zooming in moves the
+        /// camera along its axis towards the aeroplane; past it, the camera
+        /// would fly through it and out the other side, so the zoom stops
+        /// where the aeroplane is `followClosestMetres` away. Mapbox's camera
+        /// stands 1.5 screen heights from the middle of the map, so that is
+        /// the zoom at which that distance is the aeroplane's along the axis
+        /// plus the closest approach. Pinches are held to it too.
+        private func limitFollowZoom(for flight: Flight, in bounds: CGRect, on map: MapboxMap) {
+            guard parent.aircraftModels != .off, let marker = markers[flight.id], modelled[flight.id] != nil else {
+                releaseFollowZoom()
+                return
+            }
+            let limit = closestZoom(for: flight, marker: marker, pitch: Double(map.cameraState.pitch), in: bounds)
+
+            if let held = followZoomLimit, abs(held - limit) < 0.02 { return }
+            followZoomLimit = limit
+            try? map.setCameraBounds(with: CameraBoundsOptions(maxZoom: CGFloat(limit)))
+            if let mapView, mapView.gestures.options.focalPoint == nil {
+                let insets = edgeInsets(in: bounds)
+                mapView.gestures.options.focalPoint = CGPoint(
+                    x: insets.left + (bounds.width - insets.left - insets.right) / 2,
+                    y: insets.top + (bounds.height - insets.top - insets.bottom) / 2
+                )
+            }
+        }
+
+        /// The zoom at which the camera, at this tilt, is `followClosestMetres`
+        /// from the aeroplane.
+        private func closestZoom(for flight: Flight, marker: FlightMarker, pitch: Double, in bounds: CGRect) -> Double {
+            let height = modelHeight(for: marker, at: CACurrentMediaTime())
+            let tilt = min(pitch, Self.followTiltLimit) * .pi / 180
+            let alongAxis = height / max(cos(tilt), 0.1)
+            let metresPerPoint = (alongAxis + Self.followClosestMetres) / (1.5 * Double(bounds.height))
+            let latitude = drawnCoordinate(for: flight).latitude
+            let worldMetresPerPoint = 40_075_016.686 / 512 * max(cos(latitude * .pi / 180), 0.01)
+            return min(max(log2(worldMetresPerPoint / metresPerPoint), 1), Self.defaultMaximumZoom)
+        }
+
+        /// Back to the map's own limits, and pinches about the fingers again.
+        private func releaseFollowZoom() {
+            guard followZoomLimit != nil else { return }
+            followZoomLimit = nil
+            try? map?.setCameraBounds(with: CameraBoundsOptions(maxZoom: CGFloat(Self.defaultMaximumZoom)))
+            mapView?.gestures.options.focalPoint = nil
         }
 
         /// Where an aircraft will be in `seconds`, at its heading and speed.
@@ -2630,15 +2916,6 @@ struct TrackerMapView: UIViewRepresentable {
         private var lastFlightTick: CFTimeInterval = 0
         private var flyingCount = 0
 
-        /// Below this an aircraft's own progress is under a fifth of a point a
-        /// second — a movement nobody can see. Those are left exactly where
-        /// their packets put them, which is both correct and free.
-        private static let visibleMotion: Double = 0.2
-
-        /// The same floor for traffic that is swept rather than pushed, whose
-        /// jumps are several times larger at the same speed.
-        private static let visibleMotionSwept: Double = 0.05
-
         private func startFlying() {
             guard flightLink == nil else { return }
             let link = CADisplayLink(target: self, selector: #selector(flyOneFrame))
@@ -2669,8 +2946,9 @@ struct TrackerMapView: UIViewRepresentable {
             // The camera goes with the followed aircraft on every frame,
             // whichever way this one ends.
             defer { followSelection() }
+            // Last of all, once every aeroplane has been carried to this frame.
+            defer { feedEngine(at: now) }
 
-            refreshAirPath(force: false)
             updateFlownHead()
             syncDirectLine()
             refreshSky(force: false)
@@ -2696,33 +2974,24 @@ struct TrackerMapView: UIViewRepresentable {
                 return
             }
 
-            let box = smoothingBox
             var flying = 0
             var changed: [Feature] = []
 
             for marker in markers.values {
                 // Cheapest first: is it on screen, is it to be carried at all,
-                // is it flying, and would any of it be visible at this zoom.
-                let coordinate = marker.coordinate
-                var inView = true
-                if let box = box {
-                    var longitude = coordinate.longitude
-                    if longitude < box.west { longitude += 360 }
-                    inView = coordinate.latitude >= box.south && coordinate.latitude <= box.north
-                        && longitude >= box.west && longitude <= box.east
-                }
+                // and is it moving.
+                let inView = isInSmoothingBox(marker.coordinate)
 
                 let flight = marker.flight
                 let required = flight.requiresSmoothing
                 // The aircraft the camera is following is always carried, so
                 // the camera has a smooth path to move along.
                 let followed = parent.isFollowing && flight.id == parent.selection?.id
-                var wanted = inView && (smoothing || required || followed)
-                if wanted {
-                    let floor = required ? Self.visibleMotionSwept : Self.visibleMotion
-                    wanted = flight.isWorthSmoothing
-                        && marker.drawnPointsPerSecond(pointsPerMetre: pointsPerMetre) >= floor
-                }
+                // Every moving aeroplane on screen, however slowly it crosses
+                // it: one left on its packets hops, and one that started or
+                // stopped being carried as the zoom moved past a speed floor
+                // was put back on its last packet — a jump, mid-pinch.
+                let wanted = inView && (smoothing || required || followed) && flight.isWorthSmoothing
 
                 let was = marker.isSmoothing
                 if wanted != was {
@@ -2772,6 +3041,11 @@ struct TrackerMapView: UIViewRepresentable {
                     on: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
                     spanMeters: spanMeters
                 )
+            case .northUp:
+                // Only the bearing is animated, so a follow carrying the camera
+                // with an aeroplane keeps carrying it through the turn.
+                mapView.camera.ease(to: CameraOptions(bearing: 0), duration: 0.45, curve: .easeInOut)
+                carried = true
             }
 
             // Or there is nothing left to wait for: the three moves above are
@@ -2993,6 +3267,10 @@ struct MapCommand: Equatable {
         /// numbers because `CLLocationCoordinate2D` is not `Equatable`, and
         /// the command has to be comparable to be one-shot.
         case focus(latitude: Double, longitude: Double, spanMeters: Double)
+
+        /// Turns the map back to north-up, keeping where it is looking, how
+        /// close and how tilted.
+        case northUp
     }
 
     let kind: Kind

@@ -553,6 +553,11 @@ struct PlanetSurface: View {
                 scale: zoomScale(forSpan: spanMeters),
                 token: command.id
             )
+
+        case .northUp:
+            // The planet is not turned the way the map is, and has no compass
+            // to ask for this — see `ContentView.compassControl`.
+            return nil
         }
     }
 

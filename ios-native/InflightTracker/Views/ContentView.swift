@@ -105,6 +105,10 @@ struct ContentView: View {
     /// Latest camera request from the chrome around the map.
     @State private var mapCommand: MapCommand?
 
+    /// Which way the map is turned, in whole degrees clockwise from north —
+    /// see `compassControl`.
+    @State private var mapBearing: Double = 0
+
     /// The ruler: whether it is down, and the leg it is measuring.
     @State private var measurement = MapMeasurement()
 
@@ -128,6 +132,16 @@ struct ContentView: View {
     /// than in the map so it can be turned off by the things that contradict
     /// it — framing a whole route, or closing the window entirely.
     @State private var isFollowing = false
+
+    /// Whether the follow is a chase: behind the tail, turning with the
+    /// aeroplane. Part of following, so it ends whenever the follow does.
+    @State private var isChasing = false
+
+    /// Whether the map's control stack in the bottom-right corner is folded
+    /// down to its handle. Open on every launch: the controls are how the map
+    /// is found to do anything, and a stack that came back folded would hide
+    /// them from somebody who folded it once and forgot.
+    @State private var areMapControlsCollapsed = false
 
     /// The flight an open field panel was reached from, so it can be gone back
     /// to. Nil whenever the field was opened from anywhere with nothing behind
@@ -694,9 +708,15 @@ struct ContentView: View {
     ///
     /// The sky and the map's own styles, always; and on the flat map and the
     /// globe the ruler and the 3D aircraft as well — the planet draws neither.
-    private var mapControlRows: Int { isPlanetMap ? 2 : 4 }
+    ///
+    /// Folded, only the handle is left — and the compass, while the map is
+    /// turned, which is a row of its own either way.
+    private var mapControlRows: Int {
+        (areMapControlsCollapsed ? 0 : (isPlanetMap ? 2 : 4)) + (isMapTurned ? 1 : 0)
+    }
     private var mapControlsHeight: CGFloat {
-        42 * CGFloat(mapControlRows) + CGFloat(mapControlRows - 1)
+        // Each row and the hairline under it, then the handle.
+        43 * CGFloat(mapControlRows) + Self.collapseHandleHeight
     }
 
     /// A replay is driving the camera down the old track; following the live
@@ -753,6 +773,7 @@ struct ContentView: View {
             replayFrame: replay.frame,
             isFollowing: isFollowingLive,
             onFollowEnded: { isFollowing = false },
+            isChasing: isChasing && aircraftModels != .off,
             // The setting, and the system's own request for less movement —
             // which is the one audience a map full of gliding aeroplanes is
             // actively worse for. Resolved here rather than in the map: the map
@@ -776,6 +797,7 @@ struct ContentView: View {
             showsVaMarks: filters.showsVaMarks,
             weatherTiles: mapWeather.tiles,
             onCameraMoving: { mapWeather.report(cameraMoving: $0) },
+            onBearingChanged: { mapBearing = $0 },
             // Where to sweep for real traffic, on the settle rather than
             // through the gesture. The planet reports the same pair from its
             // own camera, so the layer behaves the same on both shapes of the
@@ -1091,6 +1113,9 @@ struct ContentView: View {
         // The same spring the dock settles its own handle with, so the card
         // and everything that lifts out of its way move as one thing.
         .motion(Motion.chrome, value: isStatsUp)
+        .onChange(of: isFollowing) { _, following in
+            if !following { isChasing = false }
+        }
         .onChange(of: selection?.id) { wasOpen, id in
             // A replay belongs to the aircraft it was started from, and to the
             // window that drew the track under it. Opening another aircraft,
@@ -2416,131 +2441,141 @@ struct ContentView: View {
             // furniture rather than as loose buttons that happen to be near
             // each other.
             VStack(spacing: 0) {
-                // Top of the stack, because it is the one that leaves the map
-                // rather than changing it.
-                mapButton("camera.viewfinder", "Point the camera at the sky") {
-                    isShowingSky = true
-                }
+                compassControl
 
-                Rectangle()
-                    .fill(theme.stroke)
-                    .frame(height: 1)
-
-                Menu {
-                    // Buttons rather than a `Picker` bound to the setting: some
-                    // of these are Pro, and a binding would have already
-                    // changed the map by the time anything could check. Each
-                    // one decides for itself whether it is switching the map or
-                    // opening the paywall.
-                    Section("Shape") {
-                        ForEach(MapProjection.allCases) { projection in
-                            Button {
-                                select(projection)
-                            } label: {
-                                Label(
-                                    locked(projection.isPro) ? "\(projection.label) (Pro)" : projection.label,
-                                    systemImage: appearance.mapProjection == projection
-                                        ? "checkmark"
-                                        : projection.symbol
-                                )
-                            }
-                        }
+                if !areMapControlsCollapsed {
+                    // Top of the stack, because it is the one that leaves the map
+                    // rather than changing it.
+                    mapButton("camera.viewfinder", "Point the camera at the sky") {
+                        isShowingSky = true
                     }
 
-                    // The flat map's finish, and only its. The globe is one
-                    // look — see `MapLook.palette` — so on the planet these are
-                    // shown ticked on Satellite and switched off rather than
-                    // taken away: a section that vanishes reads as a feature
-                    // that has gone missing, where a disabled one that agrees
-                    // with what is on screen reads as an answer.
-                    Section(usesOwnPalette ? "Map (flat only)" : "Map") {
-                        ForEach(MapPalette.allCases) { palette in
+                    Rectangle()
+                        .fill(theme.stroke)
+                        .frame(height: 1)
+
+                    Menu {
+                        // Buttons rather than a `Picker` bound to the setting: some
+                        // of these are Pro, and a binding would have already
+                        // changed the map by the time anything could check. Each
+                        // one decides for itself whether it is switching the map or
+                        // opening the paywall.
+                        Section("Shape") {
+                            ForEach(MapProjection.allCases) { projection in
+                                Button {
+                                    select(projection)
+                                } label: {
+                                    Label(
+                                        locked(projection.isPro) ? "\(projection.label) (Pro)" : projection.label,
+                                        systemImage: appearance.mapProjection == projection
+                                            ? "checkmark"
+                                            : projection.symbol
+                                    )
+                                }
+                            }
+                        }
+
+                        // The flat map's finish, and only its. The globe is one
+                        // look — see `MapLook.palette` — so on the planet these are
+                        // shown ticked on Satellite and switched off rather than
+                        // taken away: a section that vanishes reads as a feature
+                        // that has gone missing, where a disabled one that agrees
+                        // with what is on screen reads as an answer.
+                        Section(usesOwnPalette ? "Map (flat only)" : "Map") {
+                            ForEach(MapPalette.allCases) { palette in
+                                Button {
+                                    select(palette)
+                                } label: {
+                                    Label(
+                                        locked(palette.isPro) ? "\(palette.label) (Pro)" : palette.label,
+                                        // What is drawn rather than what is stored,
+                                        // so the tick is on Satellite while the
+                                        // globe is up and back on the stored choice
+                                        // the moment it is not.
+                                        systemImage: appearance.resolvedMapStyle.resolvedPalette == palette
+                                            ? "checkmark"
+                                            : palette.symbol
+                                    )
+                                }
+                                .disabled(usesOwnPalette)
+                            }
+                        }
+
+                        planetStyleSection
+
+                        Section {
+                            // Nothing to turn up on imagery: it has no roads, no
+                            // terrain shading and no emphasis to set.
                             Button {
-                                select(palette)
+                                appearance.isMapDetailed.toggle()
                             } label: {
                                 Label(
-                                    locked(palette.isPro) ? "\(palette.label) (Pro)" : palette.label,
-                                    // What is drawn rather than what is stored,
-                                    // so the tick is on Satellite while the
-                                    // globe is up and back on the stored choice
-                                    // the moment it is not.
-                                    systemImage: appearance.resolvedMapStyle.resolvedPalette == palette
+                                    "Full detail",
+                                    systemImage: appearance.isMapDetailed ? "checkmark" : "map.fill"
+                                )
+                            }
+                            .disabled(
+                                appearance.resolvedMapStyle.resolvedPalette.usesImagery || isPlanetMap
+                            )
+
+                            // Real height under the map, and a camera free to lean
+                            // over and look along it.
+                            //
+                            // Shown ticked and disabled on the globe rather than
+                            // hidden: elevation is what rounds the planet off at
+                            // the edges, so the globe has always had it and there
+                            // is nothing here to turn off. Hiding the row would
+                            // make it look as though the globe had no terrain.
+                            Button {
+                                appearance.isMapTerrain.toggle()
+                            } label: {
+                                Label(
+                                    "3D terrain",
+                                    systemImage: appearance.resolvedMapStyle.hasTerrain
                                         ? "checkmark"
-                                        : palette.symbol
+                                        : "mountain.2.fill"
                                 )
                             }
                             .disabled(usesOwnPalette)
                         }
+                    } label: {
+                        mapControlFace(mapStyleSymbol, isOn: false)
                     }
+                    .accessibilityLabel(mapStyleLabel)
 
-                    planetStyleSection
+                    // The ruler lives beside the style rather than in the flight
+                    // window's hub: measuring is about the map, and it is most
+                    // wanted when no aircraft is open and you are looking at the
+                    // shape of somewhere.
+                    //
+                    // Gone on the planet, where the two ends of a measurement would
+                    // be points on a map that is not there.
+                    if !isPlanetMap {
+                        Rectangle()
+                            .fill(theme.stroke)
+                            .frame(height: 1)
 
-                    Section {
-                        // Nothing to turn up on imagery: it has no roads, no
-                        // terrain shading and no emphasis to set.
-                        Button {
-                            appearance.isMapDetailed.toggle()
-                        } label: {
-                            Label(
-                                "Full detail",
-                                systemImage: appearance.isMapDetailed ? "checkmark" : "map.fill"
-                            )
+                        mapButton(
+                            "ruler",
+                            measurement.isOn ? "Put the ruler away" : "Measure a distance",
+                            isOn: measurement.isOn
+                        ) {
+                            measurement.isOn.toggle()
                         }
-                        .disabled(
-                            appearance.resolvedMapStyle.resolvedPalette.usesImagery || isPlanetMap
-                        )
 
-                        // Real height under the map, and a camera free to lean
-                        // over and look along it.
-                        //
-                        // Shown ticked and disabled on the globe rather than
-                        // hidden: elevation is what rounds the planet off at
-                        // the edges, so the globe has always had it and there
-                        // is nothing here to turn off. Hiding the row would
-                        // make it look as though the globe had no terrain.
-                        Button {
-                            appearance.isMapTerrain.toggle()
-                        } label: {
-                            Label(
-                                "3D terrain",
-                                systemImage: appearance.resolvedMapStyle.hasTerrain
-                                    ? "checkmark"
-                                    : "mountain.2.fill"
-                            )
-                        }
-                        .disabled(usesOwnPalette)
-                    }
-                } label: {
-                    mapControlFace(mapStyleSymbol, isOn: false)
-                }
-                .accessibilityLabel(mapStyleLabel)
+                        Rectangle()
+                            .fill(theme.stroke)
+                            .frame(height: 1)
 
-                // The ruler lives beside the style rather than in the flight
-                // window's hub: measuring is about the map, and it is most
-                // wanted when no aircraft is open and you are looking at the
-                // shape of somewhere.
-                //
-                // Gone on the planet, where the two ends of a measurement would
-                // be points on a map that is not there.
-                if !isPlanetMap {
-                    Rectangle()
-                        .fill(theme.stroke)
-                        .frame(height: 1)
-
-                    mapButton(
-                        "ruler",
-                        measurement.isOn ? "Put the ruler away" : "Measure a distance",
-                        isOn: measurement.isOn
-                    ) {
-                        measurement.isOn.toggle()
+                        aircraftModelsControl
                     }
 
                     Rectangle()
                         .fill(theme.stroke)
                         .frame(height: 1)
-
-                    aircraftModelsControl
                 }
+
+                collapseControl
             }
             .frame(width: 44)
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -2642,92 +2677,121 @@ struct ContentView: View {
             // One grouped control rather than free-floating circles: it reads
             // as part of the window's chrome instead of three loose buttons.
             VStack(spacing: 0) {
-                // The whole flight, in the part of the map the window is not
-                // standing on: both ends of the route, everything flown so far,
-                // and the aeroplane itself, framed in the middle of the gap
-                // above the window rather than in the middle of the screen —
-                // which is behind it.
-                //
-                // This is what the bottom button used to do, and it is here
-                // because this is the button people press. A viewfinder is the
-                // glyph for "show me this thing", and what it was wired to was
-                // a mode: pressing it centred on the aeroplane and then quietly
-                // kept doing so, while the button that actually framed the
-                // flight sat at the far end of the stack where nobody found it.
-                mapButton("viewfinder", "Show the whole flight") {
-                    // Framing the route and staying glued to the aeroplane pull
-                    // the camera in opposite directions, so following stands
-                    // down.
-                    isFollowing = false
-                    mapCommand = MapCommand(kind: .fitRoute)
-                }
+                compassControl
 
-                Rectangle()
-                    .fill(theme.stroke)
-                    .frame(height: 1)
+                if !areMapControlsCollapsed {
+                    // The whole flight, in the part of the map the window is not
+                    // standing on: both ends of the route, everything flown so far,
+                    // and the aeroplane itself, framed in the middle of the gap
+                    // above the window rather than in the middle of the screen —
+                    // which is behind it.
+                    //
+                    // This is what the bottom button used to do, and it is here
+                    // because this is the button people press. A viewfinder is the
+                    // glyph for "show me this thing", and what it was wired to was
+                    // a mode: pressing it centred on the aeroplane and then quietly
+                    // kept doing so, while the button that actually framed the
+                    // flight sat at the far end of the stack where nobody found it.
+                    mapButton("viewfinder", "Show the whole flight") {
+                        // Framing the route and staying glued to the aeroplane pull
+                        // the camera in opposite directions, so following stands
+                        // down.
+                        isFollowing = false
+                        mapCommand = MapCommand(kind: .fitRoute)
+                    }
 
-                // The aeroplane, at the zoom the map is already at — and then
-                // it stays there.
-                //
-                // One control rather than two, because a single centring and a
-                // mode that centres are the same intent a moment apart: nobody
-                // presses "put the map on this aircraft" hoping to watch it
-                // slide back off. Pressing it again lets go.
-                mapButton(
-                    "location.fill",
-                    isFollowing ? "Stop following this aircraft" : "Centre on this aircraft and follow it",
-                    isOn: isFollowing
-                ) {
-                    isFollowing.toggle()
-                    // Either way round the map goes to the aeroplane now.
-                    // Follow on its own only acts once the aircraft has drifted
-                    // out of the middle of the view, which from a map pointed
-                    // somewhere else entirely would leave the mode looking like
-                    // it had done nothing.
-                    mapCommand = MapCommand(kind: .centerOnFlight)
-                }
-
-                Rectangle()
-                    .fill(theme.stroke)
-                    .frame(height: 1)
-
-                // The flown track: on or off, and framed the moment it goes on.
-                //
-                // There was nothing here for it before. The track was simply
-                // always drawn, with no way to ask for it and no way to be
-                // shown it — the nearest thing was the button at the top,
-                // which frames the whole route including both airports, so on
-                // a long-haul it answers "where has this been" with an ocean
-                // and a line across a corner of it. Somebody looking for the
-                // path pressed that, got a view of the Atlantic, and reasonably
-                // concluded the button did nothing.
-                //
-                // So the switch is here, beside the aeroplane it applies to,
-                // and turning it on takes the map to the path rather than
-                // leaving it to be found.
-                mapButton(
-                    "point.topleft.down.to.point.bottomright.curvepath",
-                    filters.showsFlownPath ? "Hide the flown path" : "Show the flown path",
-                    isOn: filters.showsFlownPath
-                ) {
-                    filters.showsFlownPath.toggle()
-                    guard filters.showsFlownPath else { return }
-                    // Framing the track and staying glued to the aeroplane pull
-                    // the camera in opposite directions, so following stands
-                    // down — the same bargain the button at the top makes.
-                    isFollowing = false
-                    mapCommand = MapCommand(kind: .fitFlownPath)
-                }
-
-                // The 3D aircraft, here as well as beside the map's style: the
-                // aeroplane you have open is the one you most want to see in 3D.
-                if !isPlanetMap {
                     Rectangle()
                         .fill(theme.stroke)
                         .frame(height: 1)
 
-                    aircraftModelsControl
+                    // The aeroplane, at the zoom the map is already at — and then
+                    // it stays there.
+                    //
+                    // One control rather than two, because a single centring and a
+                    // mode that centres are the same intent a moment apart: nobody
+                    // presses "put the map on this aircraft" hoping to watch it
+                    // slide back off. Pressing it again lets go.
+                    mapButton(
+                        "location.fill",
+                        isFollowing ? "Stop following this aircraft" : "Centre on this aircraft and follow it",
+                        isOn: isFollowing
+                    ) {
+                        isFollowing.toggle()
+                        // Either way round the map goes to the aeroplane now.
+                        // Follow on its own only acts once the aircraft has drifted
+                        // out of the middle of the view, which from a map pointed
+                        // somewhere else entirely would leave the mode looking like
+                        // it had done nothing.
+                        mapCommand = MapCommand(kind: .centerOnFlight)
+                    }
+
+                    Rectangle()
+                        .fill(theme.stroke)
+                        .frame(height: 1)
+
+                    // The flown track: on or off, and framed the moment it goes on.
+                    //
+                    // There was nothing here for it before. The track was simply
+                    // always drawn, with no way to ask for it and no way to be
+                    // shown it — the nearest thing was the button at the top,
+                    // which frames the whole route including both airports, so on
+                    // a long-haul it answers "where has this been" with an ocean
+                    // and a line across a corner of it. Somebody looking for the
+                    // path pressed that, got a view of the Atlantic, and reasonably
+                    // concluded the button did nothing.
+                    //
+                    // So the switch is here, beside the aeroplane it applies to,
+                    // and turning it on takes the map to the path rather than
+                    // leaving it to be found.
+                    mapButton(
+                        "point.topleft.down.to.point.bottomright.curvepath",
+                        filters.showsFlownPath ? "Hide the flown path" : "Show the flown path",
+                        isOn: filters.showsFlownPath
+                    ) {
+                        filters.showsFlownPath.toggle()
+                        guard filters.showsFlownPath else { return }
+                        // Framing the track and staying glued to the aeroplane pull
+                        // the camera in opposite directions, so following stands
+                        // down — the same bargain the button at the top makes.
+                        isFollowing = false
+                        mapCommand = MapCommand(kind: .fitFlownPath)
+                    }
+
+                    // The 3D aircraft, here as well as beside the map's style: the
+                    // aeroplane you have open is the one you most want to see in 3D.
+                    if !isPlanetMap {
+                        Rectangle()
+                            .fill(theme.stroke)
+                            .frame(height: 1)
+
+                        aircraftModelsControl
+
+                        // Behind the tail, the map turning as the aeroplane
+                        // turns. Only with the models on: an icon has no tail to
+                        // sit behind. Turning it on follows the aeroplane, and the
+                        // follow's own glide takes the camera round behind it.
+                        if aircraftModels != .off {
+                            Rectangle()
+                                .fill(theme.stroke)
+                                .frame(height: 1)
+
+                            mapButton(
+                                "video.fill",
+                                isChasing ? "Stop chasing this aircraft" : "Chase this aircraft from behind",
+                                isOn: isChasing
+                            ) {
+                                isChasing.toggle()
+                                if isChasing { isFollowing = true }
+                            }
+                        }
+                    }
+
+                    Rectangle()
+                        .fill(theme.stroke)
+                        .frame(height: 1)
                 }
+
+                collapseControl
             }
             .frame(width: 44)
             // Two of the three fill themselves when they are on, and one of
@@ -2749,35 +2813,71 @@ struct ContentView: View {
         }
     }
 
-    /// Which 3D aircraft the map draws: off, or one of the three collections.
-    ///
-    /// A menu rather than a cycle button so the three can be compared by name,
-    /// and so the credits are one tap away from the choice that uses them.
-    private var aircraftModelsControl: some View {
-        Menu {
-            Section("3D aircraft") {
-                ForEach(AircraftModelSource.allCases) { source in
-                    Button {
-                        aircraftModelsRaw = source.rawValue
-                    } label: {
-                        Label {
-                            Text(source.label)
-                            Text(source.detail)
-                        } icon: {
-                            Image(systemName: aircraftModels == source ? "checkmark" : source.symbol)
-                        }
-                    }
-                }
+    /// Whether the map is turned away from north by enough to offer turning
+    /// it back.
+    private var isMapTurned: Bool {
+        !isPlanetMap && abs(mapBearing) >= 1
+    }
+
+    /// The compass: only there while the map is turned, its needle pointing
+    /// where north is on screen, and one tap turns the map back to north-up —
+    /// keeping where it is looking, how close and how tilted. At the top of
+    /// whichever stack of map controls is showing, so it is in the same place
+    /// with a flight open or without.
+    @ViewBuilder
+    private var compassControl: some View {
+        if isMapTurned {
+            Button {
+                // Facing north and riding behind the tail cannot both hold.
+                isChasing = false
+                mapCommand = MapCommand(kind: .northUp)
+            } label: {
+                Image(systemName: "location.north.line.fill")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(theme.textPrimary)
+                    .rotationEffect(.degrees(-mapBearing))
+                    .frame(width: 44, height: 42)
+                    .contentShape(Rectangle())
             }
-            Section {
-                Text("Free models under the GNU GPL, downloaded from their authors' repositories. Credits are in Settings › Acknowledgements.")
-            }
-        } label: {
-            mapControlFace(aircraftModels == .off ? "cube" : "cube.fill", isOn: aircraftModels != .off)
+            .buttonStyle(.plain)
+            .accessibilityLabel("Face north")
+            .accessibilityValue("The map is turned \(Int(abs(mapBearing))) degrees \(mapBearing > 0 ? "clockwise" : "anticlockwise")")
+            .transition(.opacity)
+
+            Rectangle()
+                .fill(theme.stroke)
+                .frame(height: 1)
         }
-        .accessibilityLabel(
-            aircraftModels == .off ? "3D aircraft: off" : "3D aircraft: \(aircraftModels.label)"
-        )
+    }
+
+    /// Folds the corner's control stack down to this handle, and opens it
+    /// again. The chevron points the way the stack will go.
+    private var collapseControl: some View {
+        Button {
+            withAnimation(Motion.chrome) { areMapControlsCollapsed.toggle() }
+        } label: {
+            Image(systemName: areMapControlsCollapsed ? "chevron.up" : "chevron.down")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(theme.textSecondary)
+                .frame(width: 44, height: Self.collapseHandleHeight)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(areMapControlsCollapsed ? "Show map controls" : "Hide map controls")
+    }
+
+    private static let collapseHandleHeight: CGFloat = 32
+
+    /// 3D aircraft on or off. One collection, so one tap — the credits are in
+    /// Settings › Acknowledgements.
+    private var aircraftModelsControl: some View {
+        mapButton(
+            aircraftModels == .off ? "cube" : "cube.fill",
+            aircraftModels == .off ? "Show 3D aircraft" : "Hide 3D aircraft",
+            isOn: aircraftModels != .off
+        ) {
+            aircraftModelsRaw = (aircraftModels == .off ? AircraftModelSource.flightAirMap : .off).rawValue
+        }
     }
 
     /// `isOn` is for the one control in the hub that is a mode rather than a

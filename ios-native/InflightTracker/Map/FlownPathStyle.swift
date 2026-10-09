@@ -182,6 +182,9 @@ struct FlownPath {
         /// Height above the ground at each coordinate, in metres, for the
         /// path drawn in the air. Empty when no heights were given.
         let heights: [Double]
+        /// Altitude above the sea at each coordinate, in metres, for the path
+        /// drawn over real terrain. Empty when none were given.
+        let seaHeights: [Double]
     }
 
     let runs: [Run]
@@ -224,10 +227,12 @@ struct FlownPath {
         points: [TrackPoint],
         bands: [Int?],
         onPavement: [Bool] = [],
-        heights: [Double] = []
+        heights: [Double] = [],
+        seaHeights: [Double] = []
     ) {
         guard points.count >= 2, bands.count == points.count else { return nil }
         let sampleHeights = heights.count == points.count ? heights : []
+        let sampleSea = seaHeights.count == points.count ? seaHeights : []
 
         // The colour at each *sample*, before the curve is drawn through them.
         let step = max(1, Int((Double(points.count) / Double(Self.maximumColourSamples)).rounded(.up)))
@@ -271,6 +276,7 @@ struct FlownPath {
         var coordinates: [CLLocationCoordinate2D] = []
         var colors: [UIColor] = []
         var curveHeights: [Double] = []
+        var curveSea: [Double] = []
         coordinates.reserveCapacity(smoothed.coordinates.count)
         colors.reserveCapacity(smoothed.coordinates.count)
         for (index, coordinate) in smoothed.coordinates.enumerated() {
@@ -282,6 +288,11 @@ struct FlownPath {
             if !sampleHeights.isEmpty {
                 curveHeights.append(FlownPathProfile.height(
                     at: coordinate, after: origin, of: points, heights: sampleHeights
+                ))
+            }
+            if !sampleSea.isEmpty {
+                curveSea.append(FlownPathProfile.height(
+                    at: coordinate, after: origin, of: points, heights: sampleSea
                 ))
             }
         }
@@ -301,7 +312,8 @@ struct FlownPath {
             runs.append(Run(
                 coordinates: Array(coordinates[start...(end + 1)]),
                 color: colors[start],
-                heights: curveHeights.isEmpty ? [] : Array(curveHeights[start...(end + 1)])
+                heights: curveHeights.isEmpty ? [] : Array(curveHeights[start...(end + 1)]),
+                seaHeights: curveSea.isEmpty ? [] : Array(curveSea[start...(end + 1)])
             ))
             start = end + 1
         }
