@@ -11,10 +11,13 @@ enum MapDockDetent: Int, CaseIterable {
 }
 
 /// What a toolbar panel is handed when it opens inside the dock's sheet rather
-/// than as a window of its own: the way to close it, and the way its title band
-/// moves the sheet, since the title stands where the search field did.
+/// than as a window of its own: the width it is laid out at, and the way its
+/// title band moves the sheet, since the title stands where the search field
+/// did. There is no close button — the sheet is swiped down to close it.
 struct DockPanelHost {
-    let close: () -> Void
+    /// The sheet's inner width. Stated rather than left to the panel's rows,
+    /// one of which is always long enough to push the sheet off the screen.
+    let width: CGFloat
     /// The finger's travel so far, upwards positive.
     let pullChanged: (CGFloat) -> Void
     /// Where the flick would land, upwards positive.
@@ -39,8 +42,9 @@ extension EnvironmentValues {
 ///
 /// The toolbar's panels open inside it too. Friends, ATC, filters and the rest
 /// take the search field's place with their own title and fill the sheet's
-/// body, rather than throwing a second window up over the map; the close
-/// button, or letting the sheet down to the bar, puts the field back.
+/// body, rather than throwing a second window up over the map; letting the
+/// sheet down to the bar, or the same item on the bar again, puts the field
+/// back.
 ///
 /// Where the drag is taken from depends on the stop. Short of the top, the
 /// whole sheet is a handle and the lists do not scroll — a drag anywhere moves
@@ -72,6 +76,10 @@ struct MapDock: View {
     /// foot of it, less the keyboard while one is up.
     let room: CGFloat
 
+    /// The screen's width. The sheet is held to it, so nothing inside can make
+    /// the sheet wider than the screen it stands on.
+    let width: CGFloat
+
     let onPanel: (MapPanelKind) -> Void
 
     /// The whole stats window.
@@ -84,7 +92,6 @@ struct MapDock: View {
     /// mark, and the panel itself.
     let panelKind: MapPanelKind?
     let panel: AnyView?
-    let onClosePanel: () -> Void
 
     @Binding var query: String
     let results: [MapSearchResult]
@@ -206,6 +213,7 @@ struct MapDock: View {
                 Group {
                     if let panel {
                         panel
+                            .frame(width: innerWidth)
                             .environment(\.dockPanelHost, host)
                             // Short of the top the sheet takes the drags; the
                             // panel's list scrolls once the sheet is all the
@@ -241,7 +249,7 @@ struct MapDock: View {
         .padding(.horizontal, Self.cardInset)
         .padding(.top, Self.cardTop)
         .padding(.bottom, Self.cardBottom)
-        .frame(height: liveHeight, alignment: .top)
+        .frame(width: width, height: liveHeight, alignment: .top)
         .background {
             // Down past the safe area and off the foot of the screen, so the
             // sheet fills both bottom corners rather than hovering above them.
@@ -350,10 +358,12 @@ struct MapDock: View {
             }
     }
 
+    private var innerWidth: CGFloat { max(width - Self.cardInset * 2, 0) }
+
     /// What a docked panel's title band is handed to move the sheet with.
     private var host: DockPanelHost {
         DockPanelHost(
-            close: onClosePanel,
+            width: innerWidth,
             // Only at the top stop. Short of it the whole body already moves
             // the sheet, and counting the title's drag as well would move it
             // twice as far as the finger.

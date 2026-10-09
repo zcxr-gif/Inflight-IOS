@@ -1762,6 +1762,7 @@ struct ContentView: View {
                         watched: friends.watched,
                         detent: $dockDetent,
                         room: proxy.size.height,
+                        width: proxy.size.width,
                         // The bar's own item again closes its panel, the way a
                         // tab you are already on puts you back at its root.
                         onPanel: { kind in
@@ -1783,9 +1784,6 @@ struct ContentView: View {
                         },
                         panelKind: dockPanel,
                         panel: dockPanel.map { kind in AnyView(panel(kind).id(kind)) },
-                        onClosePanel: {
-                            withAnimation(Motion.chrome) { dockPanel = nil }
-                        },
                         query: $query,
                         results: results,
                         onSelect: { result in

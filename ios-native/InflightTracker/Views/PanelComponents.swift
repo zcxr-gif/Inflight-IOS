@@ -63,21 +63,9 @@ struct MapPanel<Content: View>: View {
     /// ground, no grabber of its own.
     private func docked(_ host: DockPanelHost) -> some View {
         VStack(spacing: 0) {
+            // No close button: the sheet is swiped down to the bar to close a
+            // panel, the way every pull-up sheet on the phone is.
             header
-                .padding(.trailing, 36)
-                .overlay(alignment: .topTrailing) {
-                    Button(action: host.close) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(theme.textSecondary)
-                            .frame(width: 30, height: 30)
-                            .background { Circle().fill(theme.surfaceFill) }
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.pressable(scale: 0.9))
-                    .padding(.top, 2)
-                    .accessibilityLabel("Close \(title)")
-                }
                 .contentShape(Rectangle())
                 // The title band moves the sheet, the way the search field it
                 // stands in for does.
@@ -87,8 +75,9 @@ struct MapPanel<Content: View>: View {
                         .onEnded { host.pullEnded(-$0.predictedEndTranslation.height) }
                 )
 
-            scroller(inset: 0)
+            scroller(inset: 0, width: host.width)
         }
+        .frame(width: host.width)
         // Anything this panel presents is a sheet, whatever it is.
         .environment(\.dockPanelHost, nil)
         .environment(\.colorScheme, theme.colorScheme)
@@ -98,12 +87,14 @@ struct MapPanel<Content: View>: View {
         SheetWindow(theme: theme, peakHeight: peakHeight, presentation: presentation) {
             header
         } content: {
-            scroller(inset: 16)
+            scroller(inset: 16, width: nil)
         }
         .environment(\.colorScheme, theme.colorScheme)
     }
 
-    private func scroller(inset: CGFloat) -> some View {
+    /// `width` pins the content to the dock's inner width; nil sizes it to the
+    /// window, as a sheet always has.
+    private func scroller(inset: CGFloat, width: CGFloat?) -> some View {
         ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 14) {
                 content
@@ -127,7 +118,7 @@ struct MapPanel<Content: View>: View {
             // left and right, springing back when let go. Sizing the
             // content to the container means there is no horizontal
             // overflow to scroll, whatever a row measures.
-            .containerRelativeFrame(.horizontal)
+            .modifier(PinnedWidth(width: width))
         }
         // ...and this stops the vertical rubber-banding on a short panel,
         // so a field with nothing on it no longer bounces against a fixed
@@ -171,6 +162,21 @@ struct MapPanel<Content: View>: View {
         .padding(.top, 2)
         .padding(.bottom, 14)
         .flightInfoLegible(theme)
+    }
+}
+
+/// Holds a panel's content to an exact width when it has one, and to its
+/// scroll view's otherwise. See the note in `MapPanel.scroller`.
+private struct PinnedWidth: ViewModifier {
+    let width: CGFloat?
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let width {
+            content.frame(width: width)
+        } else {
+            content.containerRelativeFrame(.horizontal)
+        }
     }
 }
 

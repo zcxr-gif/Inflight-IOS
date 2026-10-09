@@ -183,14 +183,19 @@ struct FlightWindowPanel: View {
                     )
                 }
 
-                // Horizon's colour and background, which are the look rather
-                // than an extra on it — so they are only here while it is the
-                // one chosen.
+                // Horizon's colour, which is the look rather than an extra on
+                // it — so it is only here while it is the one chosen.
                 if appearance.resolvedWindowStyle == .horizon {
                     PanelDivider()
 
                     HorizonSettingsRows()
                 }
+            }
+            .panelEntrance(2)
+
+            // Behind the window, whichever style it is.
+            PanelSection(title: "BACKGROUND") {
+                WindowBackgroundRows()
             }
             .panelEntrance(2)
 

@@ -313,15 +313,11 @@ struct FlightHorizonBackdrop: View {
 
 // MARK: - Settings
 
-/// The rows under Horizon in Settings › Flight window: the colour, the
-/// background, and how much of the colour sits over it.
+/// The row under Horizon in Settings › Flight window: its colour. What is
+/// behind the window is `WindowBackgroundRows`, under every style.
 struct HorizonSettingsRows: View {
 
     @ObservedObject private var appearance = FlightInfoAppearance.shared
-    @ObservedObject private var store = HorizonBackdropStore.shared
-
-    @State private var pick: PhotosPickerItem?
-    @State private var problem: String?
 
     private var theme: FlightInfoTheme { appearance.theme }
 
@@ -332,49 +328,8 @@ struct HorizonSettingsRows: View {
         )
     }
 
-    private var dim: Binding<CGFloat> {
-        Binding(
-            get: { appearance.horizonDim },
-            set: { appearance.horizonDim = min(max($0, 0.2), 0.9) }
-        )
-    }
-
     var body: some View {
-        VStack(spacing: 0) {
-            colourRow
-
-            PanelDivider()
-
-            PanelPickerRow(
-                title: "Background",
-                symbol: "photo",
-                options: HorizonBackground.allCases,
-                label: { $0.label },
-                detail: appearance.horizonBackground.detail,
-                selection: $appearance.horizonBackground
-            )
-
-            if appearance.horizonBackground == .custom {
-                imageRow
-            }
-
-            if appearance.horizonBackground != .colour {
-                PanelDivider()
-
-                PanelSliderRow(
-                    title: "Dim",
-                    symbol: "circle.lefthalf.filled",
-                    detail: "How much of the colour is laid over the picture. More keeps the text crisper.",
-                    reading: { "\(Int(($0 * 100).rounded()))%" },
-                    neutral: 0.6,
-                    range: 0.2...0.9,
-                    lowSymbol: "photo",
-                    highSymbol: "paintpalette",
-                    value: dim
-                )
-            }
-        }
-        .onChange(of: pick) { _, item in load(item) }
+        colourRow
     }
 
     private var colourRow: some View {
@@ -428,6 +383,74 @@ struct HorizonSettingsRows: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
     }
+}
+
+/// What is behind the flight window, under every style: the colour alone, the
+/// aircraft's photo, or a picture of your own — and how much of the window's
+/// colour sits over it.
+///
+/// With Pro, your own picture is also the one other pilots see behind the
+/// window when they open your flight: picking one here replaces whatever
+/// photo your window had for them. A pilot who has a picture of their own
+/// wins on their flight — see `FlightDetailView.backdropSource`.
+struct WindowBackgroundRows: View {
+
+    @ObservedObject private var appearance = FlightInfoAppearance.shared
+    @ObservedObject private var store = HorizonBackdropStore.shared
+    @ObservedObject private var profiles = ProfileStore.shared
+    @ObservedObject private var entitlements = Entitlements.shared
+    @ObservedObject private var accounts = AccountStore.shared
+
+    @State private var pick: PhotosPickerItem?
+    @State private var problem: String?
+
+    private var theme: FlightInfoTheme { appearance.theme }
+
+    private var dim: Binding<CGFloat> {
+        Binding(
+            get: { appearance.horizonDim },
+            set: { appearance.horizonDim = min(max($0, 0.2), 0.9) }
+        )
+    }
+
+    /// Whether a picture chosen here goes up for other pilots as well.
+    private var shares: Bool {
+        entitlements.has(.profileBanner) && accounts.isSignedIn && profiles.profile != nil
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            PanelPickerRow(
+                title: "Background",
+                symbol: "photo",
+                options: HorizonBackground.allCases,
+                label: { $0.label },
+                detail: appearance.horizonBackground.detail,
+                selection: $appearance.horizonBackground
+            )
+
+            if appearance.horizonBackground == .custom {
+                imageRow
+            }
+
+            if appearance.horizonBackground != .colour {
+                PanelDivider()
+
+                PanelSliderRow(
+                    title: "Dim",
+                    symbol: "circle.lefthalf.filled",
+                    detail: "How much of the colour is laid over the picture. More keeps the text crisper.",
+                    reading: { "\(Int(($0 * 100).rounded()))%" },
+                    neutral: 0.6,
+                    range: 0.2...0.9,
+                    lowSymbol: "photo",
+                    highSymbol: "paintpalette",
+                    value: dim
+                )
+            }
+        }
+        .onChange(of: pick) { _, item in load(item) }
+    }
 
     private var imageRow: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -444,6 +467,11 @@ struct HorizonSettingsRows: View {
                 if store.image != nil {
                     Button(role: .destructive) {
                         store.remove()
+                        // The same picture is the one other pilots see, so it
+                        // comes down for them too.
+                        if shares, profiles.profile?.windowPhotoPath != nil {
+                            Task { await profiles.removeImage(.window) }
+                        }
                     } label: {
                         Label("Remove", systemImage: "trash")
                             .font(.system(size: 13, weight: .semibold))
@@ -457,7 +485,7 @@ struct HorizonSettingsRows: View {
                 Spacer(minLength: 0)
             }
 
-            if let problem = problem {
+            if let problem = problem ?? profiles.problem.flatMap({ profiles.uploading == nil ? $0 : nil }) {
                 Text(problem)
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(theme.textDim)
@@ -466,6 +494,10 @@ struct HorizonSettingsRows: View {
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(theme.textDim)
             }
+
+            Label(sharingLine, systemImage: shares ? "person.2.fill" : "sparkles")
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(theme.textDim)
         }
         .padding(.horizontal, 14)
         .padding(.bottom, 12)
@@ -484,6 +516,16 @@ struct HorizonSettingsRows: View {
             }
             problem = nil
             store.save(image)
+            // Pro: the same picture behind your window for everyone who opens
+            // your flight, in place of whatever was there.
+            if shares { await profiles.upload(image, as: .window) }
         }
+    }
+
+    private var sharingLine: String {
+        if profiles.uploading == .window { return "Sharing with other pilots…" }
+        if shares { return "Pilots who open your flight see this picture too." }
+        if entitlements.has(.profileBanner) { return "Claim a profile to show it to pilots who open your flight." }
+        return "With Inflight Pro, pilots who open your flight see it too."
     }
 }

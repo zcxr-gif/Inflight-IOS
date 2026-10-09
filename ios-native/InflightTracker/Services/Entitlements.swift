@@ -24,7 +24,7 @@ enum ProFeature: String, CaseIterable, Identifiable {
     /// see `PilotHighlighting.current()`.
     case pilotColours
 
-    /// Satellite, and the globe.
+    /// The globe. Satellite imagery is free.
     case mapStyles
 
     /// The controlled airspace behind the traffic: which sectors are staffed
@@ -109,7 +109,7 @@ enum ProFeature: String, CaseIterable, Identifiable {
         case .replay: return "Flight replay"
         case .watchlist: return "The whole watchlist"
         case .pilotColours: return "A colour for every pilot"
-        case .mapStyles: return "Satellite and the globe"
+        case .mapStyles: return "The globe"
         case .planetLook: return "The planet, in your colours"
         case .atcBoundaries: return "The airspace, drawn"
         case .findMyAircraft: return "Jump to your aircraft"
@@ -129,7 +129,7 @@ enum ProFeature: String, CaseIterable, Identifiable {
         case .pilotColours:
             return "Paint each pilot you watch their own colour, and your own aircraft whatever you like. Free keeps one colour for the whole watchlist."
         case .mapStyles:
-            return "Imagery, and the whole planet — free to spin and tilt with the traffic on it."
+            return "The whole planet — free to spin and tilt with the traffic on it."
         case .atcBoundaries:
             return "See the controlled airspace behind the traffic — every sector with somebody working it, outlined and named, on the map and on the planet. Who is on frequency is free either way."
         case .planetLook:
