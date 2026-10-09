@@ -199,6 +199,19 @@ final class ProfileStore: ObservableObject {
         var moderationState: String = "ok"
         var moderationNote: String?
 
+        /// "Your window, seen by others" — see `PilotWindowStyle`. The theme
+        /// is free; the colour and the photo are Pro, and the server refuses
+        /// either from a free account.
+        var windowTheme: BannerPreset?
+        var windowColour: String?
+        var windowPhotoPath: String?
+        /// 20 … 90.
+        var windowDim: Int = 60
+
+        var windowPhotoURL: URL? {
+            AppConfig.profileImageURL(bucket: "pilot-banners", path: windowPhotoPath)
+        }
+
         var avatarURL: URL? {
             AppConfig.profileImageURL(bucket: "pilot-avatars", path: avatarPath)
         }
@@ -253,6 +266,9 @@ final class ProfileStore: ObservableObject {
     enum ImageKind: String, Equatable {
         case avatar
         case banner
+        /// The photo behind this pilot's flight window, for everybody who
+        /// opens it. Banner-sized, and Pro like the banner.
+        case window
 
         /// The longest side the picture is scaled to before it is sent.
         ///
@@ -266,14 +282,14 @@ final class ProfileStore: ObservableObject {
         var longestSide: CGFloat {
             switch self {
             case .avatar: return 720
-            case .banner: return 1800
+            case .banner, .window: return 1800
             }
         }
 
         var feature: ProFeature? {
             switch self {
             case .avatar: return nil
-            case .banner: return .profileBanner
+            case .banner, .window: return .profileBanner
             }
         }
     }
@@ -560,6 +576,67 @@ final class ProfileStore: ObservableObject {
         }
     }
 
+    // MARK: - Your window, seen by others
+
+    /// Saves the window look others see for this pilot's flight: the painted
+    /// theme, the colour, and how strongly the colour sits over the photo.
+    /// The photo itself goes up through `upload(_:as: .window)`.
+    ///
+    /// A patch of these columns only, as the website writes them, so nothing
+    /// else on the profile is touched.
+    @discardableResult
+    func saveWindowStyle(theme: BannerPreset?, colour: String?, dim: Int) async -> Bool {
+        guard let account = AccountStore.shared.account,
+              let token = await AccountStore.shared.currentAccessToken() else {
+            problem = "Sign in to style your window."
+            return false
+        }
+        guard profile != nil else {
+            problem = "Claim a handle before styling your window."
+            return false
+        }
+
+        isSaving = true
+        problem = nil
+        notice = nil
+        needsProFor = nil
+        defer { isSaving = false }
+
+        let row: [String: Any] = [
+            "window_theme": theme?.rawValue ?? NSNull(),
+            "window_color": colour.map { HorizonColour(hex: $0).hex } ?? NSNull(),
+            "window_bg_dim": min(max(dim, 20), 90)
+        ]
+        do {
+            try await SupabaseData.patch(
+                table: "pilot_profiles",
+                filters: ["user_id": "eq.\(account.id)"],
+                row: row,
+                accessToken: token
+            )
+            profile?.windowTheme = theme
+            profile?.windowColour = colour.map { HorizonColour(hex: $0).hex }
+            profile?.windowDim = min(max(dim, 20), 90)
+            notice = "Window saved."
+            forgetOwnWindowStyle()
+            return true
+        } catch let failure as SupabaseData.Failure {
+            problem = failure.message
+            if failure.needsPro { needsProFor = .profileBanner }
+            return false
+        } catch {
+            problem = error.localizedDescription
+            return false
+        }
+    }
+
+    /// So this pilot's own flight window shows the change straight away
+    /// rather than after the ten-minute cache.
+    private func forgetOwnWindowStyle() {
+        guard let name = profile?.ifUsername, !name.isEmpty else { return }
+        PilotDirectory.shared.forgetWindowStyle(ifUsername: name)
+    }
+
     // MARK: - Pictures
 
     /// Scales, encodes and uploads a picture, then adopts the path the server
@@ -643,8 +720,14 @@ final class ProfileStore: ObservableObject {
             switch kind {
             case .avatar: profile?.avatarPath = path
             case .banner: profile?.bannerPath = path
+            case .window: profile?.windowPhotoPath = path
             }
-            notice = kind == .avatar ? "Picture updated." : "Banner updated."
+            switch kind {
+            case .avatar: notice = "Picture updated."
+            case .banner: notice = "Banner updated."
+            case .window: notice = "Window photo updated."
+            }
+            if kind == .window { forgetOwnWindowStyle() }
         } catch {
             problem = error.localizedDescription
         }
@@ -679,7 +762,9 @@ final class ProfileStore: ObservableObject {
         switch kind {
         case .avatar: profile?.avatarPath = nil
         case .banner: profile?.bannerPath = nil
+        case .window: profile?.windowPhotoPath = nil
         }
+        if kind == .window { forgetOwnWindowStyle() }
     }
 
     // MARK: - Encoding
@@ -740,6 +825,10 @@ final class ProfileStore: ObservableObject {
             let moderation_state: String?
             let moderation_note: String?
             let va_ad_ids: [String]?
+            let window_theme: String?
+            let window_color: String?
+            let window_bg_path: String?
+            let window_bg_dim: Int?
         }
 
         guard let row = (try? JSONDecoder().decode([Row].self, from: data))?.first else {
@@ -765,7 +854,11 @@ final class ProfileStore: ObservableObject {
             bannerPath: row.banner_path,
             vaAdIds: row.va_ad_ids ?? [],
             moderationState: row.moderation_state ?? "ok",
-            moderationNote: row.moderation_note
+            moderationNote: row.moderation_note,
+            windowTheme: row.window_theme.flatMap(BannerPreset.init(rawValue:)),
+            windowColour: row.window_color,
+            windowPhotoPath: row.window_bg_path,
+            windowDim: min(max(row.window_bg_dim ?? 60, 20), 90)
         )
     }
 }

@@ -615,12 +615,6 @@ struct ContentView: View {
         mapBottomInset + statsLift
     }
 
-    /// Where the chrome in the two bottom corners starts: above the bar, and
-    /// above the lane the legal link now sits in.
-    private var cornerInset: CGFloat {
-        MapDock.reservedHeight + MapDock.legalLane
-    }
-
     /// A replay is driving the camera down the old track; following the live
     /// aircraft at the same time would be two things fighting over one map.
     private var isFollowingLive: Bool { isFollowing && !replay.isActive }
@@ -2197,8 +2191,10 @@ struct ContentView: View {
                 }
             }
             .padding(.trailing, 16 + mapTrailingInset)
-            // Clears the dock, and the stats while they are up.
-            .padding(.bottom, cornerInset + 8 + statsLift)
+            // Close over the dock, and over the stats while they are up. No
+            // legal lane on this side: the Mapbox logo and attribution are in
+            // the other corner.
+            .padding(.bottom, MapDock.reservedHeight + 8 + statsLift)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))
@@ -2482,7 +2478,7 @@ struct ContentView: View {
             // under a sheet, or the low centred pane, it sits above instead —
             // and one of the two is always zero.
             .padding(.trailing, 16 + mapTrailingInset)
-            .padding(.bottom, flightWindowBottomInset + 14)
+            .padding(.bottom, flightWindowBottomInset + 8)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))

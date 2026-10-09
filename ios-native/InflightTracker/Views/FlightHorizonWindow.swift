@@ -892,8 +892,9 @@ struct FlightHorizonPeek: View {
             FlightHorizonRouteStrip(flight: flight, track: track, palette: palette)
                 .allowsHitTesting(false)
         }
-        // Clear of the home indicator, which the window draws under.
-        .padding(.bottom, 14)
+        // No gap of its own under the strip: the strip ends on the same 18
+        // points the other peeks do, and the dock adds the home indicator's
+        // band underneath.
         .frame(width: width)
         .background(palette.hasImageBackground ? Color.clear : palette.tint)
     }
@@ -901,8 +902,9 @@ struct FlightHorizonPeek: View {
 
 // MARK: - The pilot button
 
-/// The pilot, as the web's tab-bar button: initials or their picture, the
-/// name, and "View profile ›".
+/// The pilot, as the web's tab-bar button: their picture (or initials), their
+/// name and "View profile ›" — and, when they have a profile, their banner
+/// behind it all under a scrim, the way everybody else sees it on the web.
 struct FlightHorizonPilotButton: View {
 
     let flight: Flight
@@ -910,6 +912,7 @@ struct FlightHorizonPilotButton: View {
 
     @State private var profile: PilotProfile?
     @State private var opened: ProfileLink?
+    @StateObject private var banner = RemoteImageLoader()
 
     private var pilot: String? {
         guard let username = flight.username, !username.isEmpty else { return nil }
@@ -934,20 +937,29 @@ struct FlightHorizonPilotButton: View {
         }
         .task(id: flight.username) {
             profile = nil
+            banner.load(nil)
             guard let pilot = pilot else { return }
-            profile = await PilotDirectory.shared.card(ifUsername: pilot)
+            let card = await PilotDirectory.shared.card(ifUsername: pilot)
+            guard !Task.isCancelled else { return }
+            profile = card
+            banner.load(card?.bannerURL)
         }
         .sheet(item: $opened) { link in PublicProfileView(link: link) }
     }
 
+    private var hasProfile: Bool { profile != nil }
+
+    private var textColour: Color { hasProfile ? .white : palette.text }
+
     private func face(_ pilot: String) -> some View {
-        HStack(spacing: 12) {
+        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+        return HStack(spacing: 12) {
             avatar(pilot)
 
             Text(profile?.displayName ?? pilot)
                 .font(.system(size: 13.5, weight: .semibold))
                 .tracking(0.135)
-                .foregroundStyle(palette.text)
+                .foregroundStyle(textColour)
                 .lineLimit(1)
 
             Spacer(minLength: 8)
@@ -956,33 +968,56 @@ struct FlightHorizonPilotButton: View {
                 Text("View profile")
                     .font(.system(size: 11, weight: .medium))
                     .tracking(0.6)
-                    .foregroundStyle(palette.text.opacity(0.75))
+                    .foregroundStyle(textColour.opacity(0.75))
                 Image(systemName: "chevron.right")
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(Color(red: 0xf5 / 255, green: 0x9e / 255, blue: 0x0b / 255))
             }
         }
+        .shadow(color: hasProfile ? .black.opacity(0.6) : .clear, radius: 2, y: 1)
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background {
-            let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
-            if palette.hasImageBackground {
-                ZStack { shape.fill(.ultraThinMaterial); shape.fill(palette.bg(0.55)) }
-            } else {
-                shape.fill(palette.surfaceHi)
-            }
-        }
+        .background { ground(shape) }
+        .clipShape(shape)
         .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(palette.line, lineWidth: 1)
+            if !hasProfile { shape.strokeBorder(palette.line, lineWidth: 1) }
         }
         .shadow(color: .black.opacity(palette.isLight ? 0.08 : 0.2), radius: palette.isLight ? 9 : 12, y: palette.isLight ? 6 : 8)
-        .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .contentShape(shape)
+        .animation(.easeOut(duration: 0.45), value: hasProfile)
+        .animation(.easeOut(duration: 0.45), value: banner.image != nil)
+    }
+
+    /// Their banner photo over their painted preset, under a scrim so the
+    /// name reads on any photograph. The window's own surface without a
+    /// profile.
+    @ViewBuilder
+    private func ground(_ shape: RoundedRectangle) -> some View {
+        if let profile = profile {
+            ZStack {
+                BannerPreset.resolved(profile.bannerPreset).gradient
+                if let image = banner.image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .transition(.opacity)
+                }
+                LinearGradient(
+                    colors: [Color.black.opacity(0.62), Color.black.opacity(0.28)],
+                    startPoint: .leading, endPoint: .trailing
+                )
+            }
+        } else if palette.hasImageBackground {
+            ZStack { shape.fill(.ultraThinMaterial); shape.fill(palette.bg(0.55)) }
+        } else {
+            shape.fill(palette.surfaceHi)
+        }
     }
 
     private func avatar(_ pilot: String) -> some View {
         let initials = String(pilot.filter { $0.isLetter || $0.isNumber }.prefix(2)).uppercased()
         return ZStack {
-            Circle().fill(palette.isLight
+            Circle().fill(palette.isLight && !hasProfile
                 ? Color(red: 0xd9 / 255, green: 0xdc / 255, blue: 0xe2 / 255)
                 : Color(red: 0x3a / 255, green: 0x40 / 255, blue: 0x4b / 255))
             if let url = profile?.avatarURL {
@@ -990,13 +1025,72 @@ struct FlightHorizonPilotButton: View {
             } else {
                 Text(initials)
                     .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(palette.isLight ? Color(red: 0x1b / 255, green: 0x1e / 255, blue: 0x24 / 255) : .white)
+                    .foregroundStyle(palette.isLight && !hasProfile ? Color(red: 0x1b / 255, green: 0x1e / 255, blue: 0x24 / 255) : .white)
             }
         }
         .frame(width: 40, height: 40)
         .clipShape(Circle())
         .overlay {
-            Circle().strokeBorder(palette.isLight ? Color.black.opacity(0.12) : Color.white.opacity(0.7), lineWidth: 1)
+            // A Pro pilot's accent on the ring.
+            Circle().strokeBorder(
+                profile?.accentColor
+                    ?? (palette.isLight && !hasProfile ? Color.black.opacity(0.12) : Color.white.opacity(0.7)),
+                lineWidth: profile?.accentColor == nil ? 1 : 2
+            )
+        }
+    }
+}
+
+/// A quiet line under the pilot whenever the window is wearing the pilot's
+/// look rather than the viewer's: who styled it, a way to stop seeing pilots'
+/// styles, and a report — the web's `mountOwnerStyleNote`.
+struct FlightHorizonOwnerNote: View {
+
+    let handle: String
+    let palette: HorizonPalette
+
+    @ObservedObject private var appearance = FlightInfoAppearance.shared
+    @State private var isReporting = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "paintbrush.pointed.fill")
+                .font(.system(size: 10))
+                .opacity(0.8)
+            Text("Window styled by \(Text("@\(handle)").fontWeight(.semibold))")
+                .font(.system(size: 11))
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            Menu {
+                Button {
+                    appearance.showsPilotStyles = false
+                } label: {
+                    Label("Hide pilots' window styles", systemImage: "eye.slash")
+                }
+                Button(role: .destructive) {
+                    isReporting = true
+                } label: {
+                    Label("Report @\(handle)", systemImage: "flag")
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 12, weight: .semibold))
+                    .frame(width: 28, height: 20)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("Window style options")
+        }
+        .foregroundStyle(palette.muted)
+        .padding(.horizontal, 2)
+        .sheet(isPresented: $isReporting) {
+            ReportProfileSheet(handle: handle) { reason, detail in
+                do {
+                    try await PilotDirectory.shared.report(handle: handle, reason: reason, detail: detail)
+                    return nil
+                } catch {
+                    return (error as? SupabaseData.Failure)?.message ?? error.localizedDescription
+                }
+            }
         }
     }
 }
@@ -1638,6 +1732,9 @@ struct FlightHorizonWindow: View {
     var instrumentsRunning = true
     var realCredit: AnyView? = nil
     var realLink: URL? = nil
+    /// The handle of the pilot whose own look this window is wearing, if it
+    /// is wearing one.
+    var styledBy: String? = nil
     var backRow: AnyView? = nil
     var partnerLine: AnyView? = nil
     var foot: AnyView? = nil
@@ -1668,11 +1765,16 @@ struct FlightHorizonWindow: View {
             FlightHorizonRouteStrip(flight: flight, track: track, palette: palette, onSelectAirport: onSelectAirport)
 
             if !isRealWorld, flight.username?.isEmpty == false {
-                FlightHorizonPilotButton(flight: flight, palette: palette)
-                    .padding(.top, 14)
-                    .padding(.horizontal, 14)
-                    .padding(.bottom, 4)
-                    .frame(maxWidth: 560)
+                VStack(spacing: 10) {
+                    FlightHorizonPilotButton(flight: flight, palette: palette)
+                    if let styledBy = styledBy {
+                        FlightHorizonOwnerNote(handle: styledBy, palette: palette)
+                    }
+                }
+                .padding(.top, 14)
+                .padding(.horizontal, 14)
+                .padding(.bottom, 4)
+                .frame(maxWidth: 560)
             }
 
             column

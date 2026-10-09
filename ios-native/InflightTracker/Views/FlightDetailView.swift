@@ -34,6 +34,11 @@ struct FlightDetailView: View {
     /// keeps the image in memory for as long as it is on screen and no longer.
     @StateObject private var realPhotoLoader = PlanespottersImageLoader()
 
+    /// How the pilot flying this aircraft has styled the window others see,
+    /// and the photo it names. See `PilotWindowStyle`.
+    @State private var ownerStyle: PilotWindowStyle?
+    @StateObject private var ownerPhotoLoader = RemoteImageLoader()
+
     /// What that lookup came back with: the picture, whose it is, and where it
     /// lives. All three are drawn together or not at all.
     @State private var realPhoto: PlanespottersPhoto?
@@ -173,7 +178,49 @@ struct FlightDetailView: View {
     /// colour on all of them and the two phases can never disagree about what
     /// colour they are.
     private var theme: FlightInfoTheme {
-        appearance.windowTheme.accented(by: airlineAccent)
+        // Under Horizon the window is the pilot's colour when they have set
+        // one, and the viewer's otherwise.
+        if usesHorizon { return .horizon(HorizonColour(hex: horizonColourHex)) }
+        return appearance.windowTheme.accented(by: airlineAccent)
+    }
+
+    /// The pilot's own look, when there is one and this viewer shows them.
+    /// Never on real traffic, which has no pilot behind it.
+    private var ownerLook: PilotWindowStyle? {
+        guard appearance.showsPilotStyles, !isRealWorld, let style = ownerStyle, style.hasLook else { return nil }
+        return style
+    }
+
+    private var horizonColourHex: String {
+        ownerLook?.windowColourHex ?? appearance.horizonColour
+    }
+
+    /// What is behind the window: the pilot's photo or painted theme when they
+    /// have one, the viewer's own background otherwise — `resolveOwnerBackground`
+    /// and `resolveWindowBackground` on the web.
+    private var backdropSource: HorizonBackdropSource {
+        if let look = ownerLook {
+            if let photo = ownerPhotoLoader.image {
+                return .picture(photo, blur: 0, dim: look.dim)
+            }
+            if let theme = look.theme, look.colour == nil {
+                return .painted(PilotWindowStyle.stops(theme), dim: usesHorizon ? 0.55 : 0.4)
+            }
+            if let colour = look.colour {
+                // Horizon paints the colour itself; the other looks get it as
+                // a gentle three-stop wash.
+                if usesHorizon { return .none }
+                return .painted(
+                    [PilotWindowStyle.mix(colour, "#ffffff", 0.18), colour, PilotWindowStyle.mix(colour, "#000000", 0.55)],
+                    dim: 0.35
+                )
+            }
+            // A photo that has not landed yet: the colour, rather than the
+            // viewer's own picture flashing up first.
+            if look.photoPath != nil { return .none }
+        }
+        guard usesHorizon else { return .none }
+        return .viewer(aircraftImage: isRealWorld ? nil : imageLoader.image)
     }
 
     /// The airline's colours for the aircraft that is open, or nil — no livery,
@@ -396,15 +443,13 @@ struct FlightDetailView: View {
     /// it is cut at all.
     private var dressed: some View {
         phases
-            // Horizon's background, behind both phases, so the peek and the
-            // open window are one window over one picture. Nothing for the
-            // other looks, whose ground is the dock's.
+            // The background, behind both phases, so the peek and the open
+            // window are one window over one picture: Horizon's own, or the
+            // pilot's look under any style. Nothing otherwise — the ground is
+            // the dock's.
             .background {
-                if usesHorizon {
-                    FlightHorizonBackdrop(
-                        theme: theme,
-                        aircraftImage: isRealWorld ? nil : imageLoader.image
-                    )
+                if usesHorizon || !backdropSource.isNone {
+                    FlightHorizonBackdrop(theme: theme, source: backdropSource)
                 }
             }
             .flightInfoLegible(theme)
@@ -452,6 +497,16 @@ struct FlightDetailView: View {
             let resolved = await VaAdsService.shared.partner(for: flight)
             guard !Task.isCancelled else { return }
             vaPartner = resolved
+        }
+        // The pilot's own window look, re-asked when the pilot changes.
+        .task(id: flight?.username ?? "") {
+            ownerStyle = nil
+            ownerPhotoLoader.load(nil)
+            guard let pilot = flight?.username, !pilot.isEmpty, flight?.origin != .realWorld else { return }
+            let style = await PilotDirectory.shared.windowStyle(ifUsername: pilot)
+            guard !Task.isCancelled else { return }
+            ownerStyle = style
+            ownerPhotoLoader.load(style?.photoURL)
         }
         // Another aircraft, in the same window. See `resetForNewFlight()`.
         .onChange(of: flightId) { _, _ in resetForNewFlight() }
@@ -943,16 +998,10 @@ struct FlightDetailView: View {
     /// Horizon's colours: the chosen colour, the photo's hue for the tint, and
     /// whether a picture is behind the window.
     private var horizonPalette: HorizonPalette {
-        let picture: Bool
-        switch appearance.horizonBackground {
-        case .colour: picture = false
-        case .aircraft: picture = !isRealWorld && imageLoader.image != nil
-        case .custom: picture = HorizonBackdropStore.shared.image != nil
-        }
-        return HorizonPalette(
-            colour: HorizonColour(hex: appearance.horizonColour),
+        HorizonPalette(
+            colour: HorizonColour(hex: horizonColourHex),
             glow: HorizonGlow.colour(of: heroImage),
-            hasImageBackground: picture
+            hasImageBackground: !backdropSource.isNone
         )
     }
 
@@ -992,6 +1041,7 @@ struct FlightDetailView: View {
                 instrumentsRunning: !isCollapsed,
                 realCredit: horizonRealCredit,
                 realLink: realPhotoLink,
+                styledBy: ownerLook?.handle,
                 backRow: origin.map { AnyView(backRow($0)) },
                 partnerLine: AnyView(
                     VaPartnerLine(

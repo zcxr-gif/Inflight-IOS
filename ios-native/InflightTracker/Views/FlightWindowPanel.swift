@@ -137,6 +137,7 @@ struct FlightWindowPanel: View {
                     return
                 }
                 appearance.windowStyle = style
+                appearance.hasChosenWindowStyle = true
             }
         )
     }
@@ -201,6 +202,15 @@ struct FlightWindowPanel: View {
                     label: { $0.label },
                     detail: appearance.pilotCardBackdrop.detail,
                     selection: $appearance.pilotCardBackdrop
+                )
+
+                PanelDivider()
+
+                PanelToggleRow(
+                    title: "Pilots' window styles",
+                    symbol: "paintbrush.pointed",
+                    detail: "Show the colour, photo or theme a pilot has given their own flight window, as everyone sees it on the website. Off, every window is drawn your way.",
+                    isOn: $appearance.showsPilotStyles
                 )
             }
             .panelEntrance(3)
@@ -286,7 +296,7 @@ struct FlightWindowPanel: View {
             if appearance.resolvedWindowStyle == .horizon {
                 // The reader's own image when they have one; the aircraft
                 // here does not exist, so it has no photograph to blur.
-                FlightHorizonBackdrop(theme: theme, aircraftImage: nil)
+                FlightHorizonBackdrop(theme: theme, source: .viewer(aircraftImage: nil))
             } else {
                 RoundedRectangle(cornerRadius: theme.radiusLarge + 6, style: .continuous)
                     .fill(theme.windowFill)

@@ -227,6 +227,35 @@ final class HorizonBackdropStore: ObservableObject {
     }
 }
 
+/// What is behind the window: nothing, a picture, or a painted theme — each
+/// with how much of the window's colour is laid over it.
+enum HorizonBackdropSource: Equatable {
+    case none
+    case picture(UIImage, blur: CGFloat, dim: Double)
+    /// A pilot's painted theme, as `#rrggbb` stops top to bottom.
+    case painted([String], dim: Double)
+
+    /// The viewer's own choice in Settings. `aircraftImage` is nil for real
+    /// traffic: those photographs are another site's, lent on condition they
+    /// are shown as they are.
+    static func viewer(aircraftImage: UIImage?) -> HorizonBackdropSource {
+        let appearance = FlightInfoAppearance.shared
+        let dim = Double(appearance.horizonDim)
+        switch appearance.horizonBackground {
+        case .colour:
+            return .none
+        case .aircraft:
+            // The web blurs the photo 18px at 640 wide before covering the
+            // window with it.
+            return aircraftImage.map { .picture($0, blur: 14, dim: dim) } ?? .none
+        case .custom:
+            return HorizonBackdropStore.shared.image.map { .picture($0, blur: 0, dim: dim) } ?? .none
+        }
+    }
+
+    var isNone: Bool { self == .none }
+}
+
 /// The background, drawn behind the whole window.
 ///
 /// Cover-fitted so it always fills the window from top to bottom, and it stays
@@ -236,42 +265,47 @@ final class HorizonBackdropStore: ObservableObject {
 struct FlightHorizonBackdrop: View {
 
     let theme: FlightInfoTheme
-
-    /// The aircraft's photograph, when there is one this window may draw
-    /// blurred. Nil for real traffic: those photographs are another site's,
-    /// lent on condition they are shown as they are.
-    let aircraftImage: UIImage?
-
-    @ObservedObject private var appearance = FlightInfoAppearance.shared
-    @ObservedObject private var store = HorizonBackdropStore.shared
-
-    private var picture: UIImage? {
-        switch appearance.horizonBackground {
-        case .colour: return nil
-        case .aircraft: return aircraftImage
-        case .custom: return store.image
-        }
-    }
+    let source: HorizonBackdropSource
 
     var body: some View {
         theme.windowFill
             .overlay {
-                if let picture = picture {
+                switch source {
+                case .none:
+                    EmptyView()
+                case .picture(let image, let blur, let dim):
                     GeometryReader { proxy in
-                        Image(uiImage: picture)
+                        Image(uiImage: image)
                             .resizable()
                             .scaledToFill()
                             .frame(width: proxy.size.width, height: proxy.size.height)
-                            // The web blurs the photo 18px at 640 wide before
-                            // covering the window with it.
-                            .blur(radius: appearance.horizonBackground == .aircraft ? 14 : 0, opaque: true)
+                            .blur(radius: blur, opaque: true)
                             .clipped()
                     }
-                    .overlay { theme.windowFill.opacity(Double(appearance.horizonDim)) }
+                    .overlay { theme.windowFill.opacity(dim) }
+                    .transition(.opacity)
+                case .painted(let stops, let dim):
+                    // `paintedBackgroundUrl`: the stops top to bottom, with a
+                    // soft glow near the top where the photo fades in.
+                    LinearGradient(
+                        colors: stops.map { HorizonColour(hex: $0).color },
+                        startPoint: .top, endPoint: .bottom
+                    )
+                    .overlay {
+                        GeometryReader { proxy in
+                            RadialGradient(
+                                colors: [Color.white.opacity(0.14), Color.white.opacity(0)],
+                                center: UnitPoint(x: 0.5, y: 0.12),
+                                startRadius: 0,
+                                endRadius: proxy.size.width * 0.9
+                            )
+                        }
+                    }
+                    .overlay { theme.windowFill.opacity(dim) }
                     .transition(.opacity)
                 }
             }
-            .animation(Motion.panel, value: picture)
+            .animation(Motion.panel, value: source)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
     }

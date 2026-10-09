@@ -154,6 +154,8 @@ final class FlightInfoAppearance: ObservableObject {
     /// note where it is migrated.
     private static let legacyWindowPlacementKey = "flightWindowPlacement"
     private static let pilotCardBackdropKey = "flightInfoPilotBackdrop"
+    private static let windowStyleChosenKey = "flightInfo.windowStyle.chosen"
+    private static let showsPilotStylesKey = "flightInfo.showsPilotStyles"
     private static let horizonColourKey = "flightInfo.horizon.colour"
     private static let horizonBackgroundKey = "flightInfo.horizon.background"
     private static let horizonDimKey = "flightInfo.horizon.dim"
@@ -182,6 +184,23 @@ final class FlightInfoAppearance: ObservableObject {
     /// How the window is laid out once it is open. See `FlightInfoWindowStyle`.
     @Published var windowStyle: FlightInfoWindowStyle {
         didSet { UserDefaults.standard.set(windowStyle.rawValue, forKey: Self.windowStyleKey) }
+    }
+
+    /// Whether the layout above was picked by somebody, rather than being the
+    /// default every device wrote down and synced.
+    ///
+    /// The difference is what lets Horizon become the default: a stored
+    /// `cards` that nobody chose is the old default and moves to Horizon,
+    /// while a `cards` somebody picked stays exactly where they put it.
+    @Published var hasChosenWindowStyle: Bool {
+        didSet { UserDefaults.standard.set(hasChosenWindowStyle, forKey: Self.windowStyleChosenKey) }
+    }
+
+    /// Whether a pilot's own window look — their colour, their photo or their
+    /// painted theme — replaces this viewer's for that pilot's flight. On by
+    /// default, as on the web, where it is "Show pilots' window styles".
+    @Published var showsPilotStyles: Bool {
+        didSet { UserDefaults.standard.set(showsPilotStyles, forKey: Self.showsPilotStylesKey) }
     }
 
     /// Whether the flight window's edges and small accents take the colour of
@@ -491,8 +510,13 @@ final class FlightInfoAppearance: ObservableObject {
         // rather than on a case that no longer exists.
         peakStyle = FlightInfoPeakStyle(rawValue: defaults.string(forKey: Self.peakStyleKey) ?? "")
             ?? .compact
-        windowStyle = FlightInfoWindowStyle(rawValue: defaults.string(forKey: Self.windowStyleKey) ?? "")
-            ?? .cards
+        // Horizon is the default. Anybody still on the old default — Cards, never
+        // picked — moves to it once; a layout somebody chose is left alone.
+        let chosen = defaults.bool(forKey: Self.windowStyleChosenKey)
+        let stored = FlightInfoWindowStyle(rawValue: defaults.string(forKey: Self.windowStyleKey) ?? "")
+        hasChosenWindowStyle = chosen
+        windowStyle = (stored == nil || (stored == .cards && !chosen)) ? .horizon : (stored ?? .horizon)
+        showsPilotStyles = defaults.object(forKey: Self.showsPilotStylesKey) as? Bool ?? true
         showsAirlineAccent = defaults.object(forKey: Self.airlineAccentKey) as? Bool ?? true
         smoothsTraffic = defaults.object(forKey: Self.smoothTrafficKey) as? Bool ?? true
         // Everybody who has not chosen gets the right-hand column, including
