@@ -173,7 +173,7 @@ struct FlightDetailView: View {
     /// colour on all of them and the two phases can never disagree about what
     /// colour they are.
     private var theme: FlightInfoTheme {
-        appearance.theme.accented(by: airlineAccent)
+        appearance.windowTheme.accented(by: airlineAccent)
     }
 
     /// The airline's colours for the aircraft that is open, or nil — no livery,
@@ -183,7 +183,7 @@ struct FlightDetailView: View {
         guard appearance.showsAirlineAccent, let flight = flight else { return nil }
         return AirlineAccent.colours(
             forLivery: flight.liveryName,
-            isLight: appearance.theme.isLight
+            isLight: appearance.windowTheme.isLight
         )
     }
 
@@ -423,6 +423,17 @@ struct FlightDetailView: View {
     /// it is cut at all.
     private var dressed: some View {
         phases
+            // Horizon's background, behind both phases, so the peek and the
+            // open window are one window over one picture. Nothing for the
+            // other looks, whose ground is the dock's.
+            .background {
+                if usesHorizon {
+                    FlightHorizonBackdrop(
+                        theme: theme,
+                        aircraftImage: isRealWorld ? nil : imageLoader.image
+                    )
+                }
+            }
             .flightInfoLegible(theme)
             // Handed the feed explicitly, like every other sheet this app
             // presents: the partner panel counts that VA's aircraft out of the
@@ -1011,7 +1022,7 @@ struct FlightDetailView: View {
                         // said where this flight is going and how far is left,
                         // in bigger type and in one place. Drawing the route
                         // card under either would be the same three facts twice.
-                        if !usesBoard(for: flight), !usesDetailHead {
+                        if !usesBoard(for: flight), !usesDetailHead, !usesHorizon {
                             situationCard(for: flight)
                         }
 
@@ -1031,7 +1042,9 @@ struct FlightDetailView: View {
                     // them twice before this, once at the top of the window and
                     // once again four cards down. One place, and under that
                     // look it is the one you can move and colour.
-                    if !usesDetailHead {
+                    // Nor under Horizon, whose glance row at the top is these
+                    // four numbers.
+                    if !usesDetailHead, !usesHorizon {
                         telemetry(for: flight)
                     }
 
@@ -1142,6 +1155,22 @@ struct FlightDetailView: View {
             // full bleed, in the slot the photograph has under the other two.
             if usesDetailHead {
                 EmptyView()
+            } else if usesHorizon {
+                // The web's order: who, what it is doing now, then where it is
+                // going. A flight with no route filed gets the same situation
+                // card the cards look draws, rather than a line to nowhere.
+                FlightHorizonIdentity(flight: flight, theme: theme)
+                FlightHorizonGlance(flight: flight, theme: theme)
+                if let progress = FlightProgress(flight: flight) {
+                    FlightHorizonRoute(
+                        flight: flight,
+                        progress: progress,
+                        theme: theme,
+                        onSelectAirport: onSelectAirport
+                    )
+                } else {
+                    situationCard(for: flight)
+                }
             } else if let progress = boardProgress(for: flight) {
                 FlightInfoBoard(
                     flight: flight,
@@ -1214,6 +1243,11 @@ struct FlightDetailView: View {
     /// route band inside it says "———" and the window is still the window.
     private var usesDetailHead: Bool {
         appearance.resolvedWindowStyle == .detail
+    }
+
+    /// Whether the open window is wearing Horizon. See `FlightHorizonLook`.
+    private var usesHorizon: Bool {
+        appearance.resolvedWindowStyle == .horizon
     }
 
     private func registration(for flight: Flight) -> String {

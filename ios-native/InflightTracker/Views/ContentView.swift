@@ -154,7 +154,7 @@ struct ContentView: View {
     private func airlineAccent(forFlightId id: String) -> AirlineAccent.Colours? {
         guard appearance.showsAirlineAccent,
               let flight = flight(id: id) else { return nil }
-        return AirlineAccent.colours(forLivery: flight.liveryName, isLight: theme.isLight)
+        return AirlineAccent.colours(forLivery: flight.liveryName, isLight: appearance.windowTheme.isLight)
     }
 
     /// Rebuilt each redraw, and compared by value inside the map — so watching
@@ -944,7 +944,7 @@ struct ContentView: View {
                 // the same airline colour the cards inside it are getting —
                 // otherwise the one edge that is actually *around* the window
                 // is the only one that stays neutral.
-                theme: theme.accented(by: airlineAccent(forFlightId: selected.id)),
+                theme: appearance.windowTheme.accented(by: airlineAccent(forFlightId: selected.id)),
                 placement: flightPlacement,
                 onClose: { sheet = nil }
             ) {
@@ -1282,7 +1282,9 @@ struct ContentView: View {
     private var flightDock: some View {
         if isFlightDockUp, let selected = selection {
             FlightWindowDock(
-                theme: theme,
+                // The window's own theme, so a Horizon colour is the dock's
+                // ground and edge too, not only the content's.
+                theme: appearance.windowTheme,
                 peakHeight: peakHeight,
                 isExpanded: $isWindowExpanded,
                 onClose: { sheet = nil }

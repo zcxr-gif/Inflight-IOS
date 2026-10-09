@@ -154,6 +154,9 @@ final class FlightInfoAppearance: ObservableObject {
     /// note where it is migrated.
     private static let legacyWindowPlacementKey = "flightWindowPlacement"
     private static let pilotCardBackdropKey = "flightInfoPilotBackdrop"
+    private static let horizonColourKey = "flightInfo.horizon.colour"
+    private static let horizonBackgroundKey = "flightInfo.horizon.background"
+    private static let horizonDimKey = "flightInfo.horizon.dim"
     private static let modeKey = "appAppearanceMode"
     private static let paletteKey = "appPalette"
     /// The old single map style, read once so an install that predates the
@@ -226,6 +229,25 @@ final class FlightInfoAppearance: ObservableObject {
         didSet {
             UserDefaults.standard.set(pilotCardBackdrop.rawValue, forKey: Self.pilotCardBackdropKey)
         }
+    }
+
+    /// The Horizon window's colour, as `#rrggbb`. See `HorizonColour`.
+    ///
+    /// Stored as the hex the web stores, so the same account's window is the
+    /// same colour on both — and so a value synced from either side is one
+    /// either side can read without a conversion in between.
+    @Published var horizonColour: String {
+        didSet { UserDefaults.standard.set(horizonColour, forKey: Self.horizonColourKey) }
+    }
+
+    /// What is behind the Horizon window. See `HorizonBackground`.
+    @Published var horizonBackground: HorizonBackground {
+        didSet { UserDefaults.standard.set(horizonBackground.rawValue, forKey: Self.horizonBackgroundKey) }
+    }
+
+    /// How much of the window's colour is laid over that background, 0...1.
+    @Published var horizonDim: CGFloat {
+        didSet { UserDefaults.standard.set(Double(horizonDim), forKey: Self.horizonDimKey) }
     }
 
     @Published var mode: AppAppearanceMode {
@@ -352,6 +374,17 @@ final class FlightInfoAppearance: ObservableObject {
 
     var theme: FlightInfoTheme {
         FlightInfoTheme.resolved(palette: palette, scheme: resolvedScheme, glass: isGlassEnabled)
+    }
+
+    /// What the flight window itself is drawn in: the app's own theme, or —
+    /// under Horizon — one worked out from the colour the reader picked.
+    ///
+    /// The window and only the window. The panels, the chrome over the map and
+    /// the settings that pick this colour all stay on `theme`, so a Paper
+    /// window on a dark app is a light window on a dark app rather than a light
+    /// app.
+    var windowTheme: FlightInfoTheme {
+        resolvedWindowStyle == .horizon ? .horizon(HorizonColour(hex: horizonColour)) : theme
     }
 
     /// What the map should actually draw.
@@ -481,6 +514,13 @@ final class FlightInfoAppearance: ObservableObject {
         pilotCardBackdrop = PilotCardBackdrop(
             rawValue: defaults.string(forKey: Self.pilotCardBackdropKey) ?? ""
         ) ?? .picture
+        horizonColour = HorizonColour(hex: defaults.string(forKey: Self.horizonColourKey) ?? "").hex
+        horizonBackground = HorizonBackground(
+            rawValue: defaults.string(forKey: Self.horizonBackgroundKey) ?? ""
+        ) ?? .colour
+        // Sixty, which is where the web starts its slider: enough of the colour
+        // over a photograph that the type keeps the colour's contrast.
+        horizonDim = CGFloat(defaults.object(forKey: Self.horizonDimKey) as? Double ?? 0.6)
         // Dark was the only look the app had, so an install that predates this
         // setting keeps what it had rather than turning light overnight. New
         // installs follow iOS.
@@ -680,6 +720,11 @@ enum FlightInfoWindowStyle: String, CaseIterable, Identifiable {
     /// The photograph-led look. Pro — see `ProFeature.flightInfoLook`.
     case detail
 
+    /// The web's Horizon window: the cards' own story told more quietly, in a
+    /// colour the reader picks, over a background they can choose. Free, as it
+    /// is on the web. See `FlightHorizonLook.swift`.
+    case horizon
+
     var id: String { rawValue }
 
     /// Whether this style is behind `ProFeature.flightInfoLook`. Same reason
@@ -691,6 +736,7 @@ enum FlightInfoWindowStyle: String, CaseIterable, Identifiable {
         case .cards: return "Cards"
         case .board: return "Board"
         case .detail: return "Detail"
+        case .horizon: return "Horizon"
         }
     }
 
@@ -699,6 +745,7 @@ enum FlightInfoWindowStyle: String, CaseIterable, Identifiable {
         case .cards: return "rectangle.grid.1x2"
         case .board: return "arrow.left.arrow.right"
         case .detail: return "photo.on.rectangle"
+        case .horizon: return "sun.horizon"
         }
     }
 
@@ -710,6 +757,8 @@ enum FlightInfoWindowStyle: String, CaseIterable, Identifiable {
             return "Both ends of the route, the times either side of them, and how far is left — the way a departures board reads. The cards follow underneath."
         case .detail:
             return "The photograph across the top, the operator's own bar over it, both ends of the route under it, and the live numbers beside them. The cards follow underneath."
+        case .horizon:
+            return "The full window in a calmer skin, in any colour you pick — text and panels adjust by themselves so it always reads. The live numbers first, then where it is going."
         }
     }
 }
