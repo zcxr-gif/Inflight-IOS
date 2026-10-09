@@ -10,6 +10,21 @@ enum MapDockDetent: Int, CaseIterable {
     case full
 }
 
+/// What a toolbar panel is handed when it opens inside the dock's sheet rather
+/// than as a window of its own: the way to close it, and the way its title band
+/// moves the sheet, since the title stands where the search field did.
+struct DockPanelHost {
+    let close: () -> Void
+    /// The finger's travel so far, upwards positive.
+    let pullChanged: (CGFloat) -> Void
+    /// Where the flick would land, upwards positive.
+    let pullEnded: (CGFloat) -> Void
+}
+
+extension EnvironmentValues {
+    @Entry var dockPanelHost: DockPanelHost? = nil
+}
+
 /// The furniture along the bottom of the map: one sheet, with a handle on it.
 ///
 /// It is one shape that grows, not a bar that opens a window. Pull it and the
@@ -21,6 +36,11 @@ enum MapDockDetent: Int, CaseIterable {
 /// The pull is measured in screen coordinates rather than in the dock's own,
 /// because the dock *moves while you are dragging it*. Measured locally, every
 /// point it grew was subtracted from the distance the finger had travelled.
+///
+/// The toolbar's panels open inside it too. Friends, ATC, filters and the rest
+/// take the search field's place with their own title and fill the sheet's
+/// body, rather than throwing a second window up over the map; the close
+/// button, or letting the sheet down to the bar, puts the field back.
 ///
 /// Where the drag is taken from depends on the stop. Short of the top, the
 /// whole sheet is a handle and the lists do not scroll — a drag anywhere moves
@@ -60,6 +80,12 @@ struct MapDock: View {
     let onOpenFlight: (String) -> Void
     let onOpenAirport: (String) -> Void
 
+    /// The toolbar panel open in the sheet, if one is: which, for the bar to
+    /// mark, and the panel itself.
+    let panelKind: MapPanelKind?
+    let panel: AnyView?
+    let onClosePanel: () -> Void
+
     @Binding var query: String
     let results: [MapSearchResult]
     let onSelect: (MapSearchResult) -> Void
@@ -70,6 +96,11 @@ struct MapDock: View {
     private var pull: CGFloat = 0
 
     @GestureState private var isHeld = false
+
+    /// The same pull, from a docked panel's title band — which is the panel's
+    /// view rather than this one's, so it reports in rather than holding a
+    /// gesture state of its own.
+    @State private var titlePull: CGFloat = 0
 
     @State private var isSearchFocused = false
 
@@ -125,7 +156,7 @@ struct MapDock: View {
     /// The sheet's height on this frame: the stop, plus the finger, never below
     /// the bar and resisted past the top.
     private var liveHeight: CGFloat {
-        let raw = restingHeight + pull
+        let raw = restingHeight + pull + titlePull
         if raw > fullHeight {
             let over = raw - fullHeight
             return fullHeight + over * Self.overshootLimit / (over + 60)
@@ -139,7 +170,8 @@ struct MapDock: View {
 
     /// Everything in the sheet that is not the scrolling body.
     private var chromeHeight: CGFloat {
-        Self.cardTop + Self.handleBand + MapSearchField.fieldHeight + Self.cardBottom
+        Self.cardTop + Self.handleBand + Self.cardBottom
+            + (panel == nil ? MapSearchField.fieldHeight : 0)
             + (showsToolbar ? Self.rowGap + MapToolbar.height : 0)
     }
 
@@ -154,20 +186,36 @@ struct MapDock: View {
             VStack(spacing: 0) {
                 handle
 
-                MapSearchField(
-                    query: $query,
-                    results: results,
-                    theme: theme,
-                    isInDock: true,
-                    showsResults: false,
-                    focus: $isSearchFocused,
-                    onSelect: pick
-                )
+                // A panel's title takes the field's place while one is open.
+                if panel == nil {
+                    MapSearchField(
+                        query: $query,
+                        results: results,
+                        theme: theme,
+                        isInDock: true,
+                        showsResults: false,
+                        focus: $isSearchFocused,
+                        onSelect: pick
+                    )
+                    .transition(.opacity)
+                }
             }
             .simultaneousGesture(pullGesture)
 
             if bodyHeight > 0.5 {
-                sheetBody
+                Group {
+                    if let panel {
+                        panel
+                            .environment(\.dockPanelHost, host)
+                            // Short of the top the sheet takes the drags; the
+                            // panel's list scrolls once the sheet is all the
+                            // way up, the same as the sheet's own lists.
+                            .scrollDisabled(detent != .full)
+                            .transition(.opacity)
+                    } else {
+                        sheetBody
+                    }
+                }
                     .frame(height: bodyHeight, alignment: .top)
                     .clipped()
                     // Faded on the way up, so the first inch of lists hanging
@@ -182,6 +230,7 @@ struct MapDock: View {
                     atcCount: atcCount,
                     activeFilters: activeFilters,
                     friendsAloft: friendsAloft,
+                    selected: panelKind,
                     action: onPanel
                 )
                 .padding(.top, Self.rowGap)
@@ -205,12 +254,16 @@ struct MapDock: View {
                 .ignoresSafeArea(edges: .bottom)
         }
         .motion(Motion.chrome, value: showsToolbar)
+        .motion(Motion.chrome, value: panelKind)
         .motion(Motion.chrome, value: isSearching)
         .environment(\.colorScheme, theme.colorScheme)
         .onChange(of: isSearchFocused) { _, focused in
             // Typing wants the room: the field goes to the top of the screen
             // and the results come up under it.
             if focused, detent != .full { settle(to: .full) }
+        }
+        .onChange(of: panelKind) { _, kind in
+            if kind != nil, isSearchFocused { isSearchFocused = false }
         }
         .onChange(of: detent) { _, stop in
             if stop != .full {
@@ -293,13 +346,36 @@ struct MapDock: View {
                 state = -value.translation.height
             }
             .onEnded { value in
-                let landing = restingHeight - value.predictedEndTranslation.height
-                let nearest = MapDockDetent.allCases.min { lhs, rhs in
-                    abs(Self.height(for: lhs, in: room) - landing)
-                        < abs(Self.height(for: rhs, in: room) - landing)
-                } ?? detent
-                settle(to: nearest)
+                land(flick: -value.predictedEndTranslation.height)
             }
+    }
+
+    /// What a docked panel's title band is handed to move the sheet with.
+    private var host: DockPanelHost {
+        DockPanelHost(
+            close: onClosePanel,
+            // Only at the top stop. Short of it the whole body already moves
+            // the sheet, and counting the title's drag as well would move it
+            // twice as far as the finger.
+            pullChanged: { travel in
+                if detent == .full { titlePull = travel }
+            },
+            pullEnded: { flick in
+                guard detent == .full else { return }
+                land(flick: flick)
+                withAnimation(Motion.chrome) { titlePull = 0 }
+            }
+        )
+    }
+
+    /// Settles on whichever stop is nearest where the flick would land.
+    private func land(flick: CGFloat) {
+        let landing = restingHeight + flick
+        let nearest = MapDockDetent.allCases.min { lhs, rhs in
+            abs(Self.height(for: lhs, in: room) - landing)
+                < abs(Self.height(for: rhs, in: room) - landing)
+        } ?? detent
+        settle(to: nearest)
     }
 
     /// A tap on the handle: up a stop, and from the top back down to the bar.

@@ -99,6 +99,10 @@ struct ContentView: View {
     /// so the keyboard is counted.
     @State private var dockRoom: CGFloat = 0
 
+    /// The toolbar panel open inside the dock's sheet, if one is. See
+    /// `openPanel(_:)`.
+    @State private var dockPanel: MapPanelKind?
+
     /// Whether the sky view is up: the camera, with the traffic drawn over it.
     @State private var isShowingSky = false
 
@@ -1010,6 +1014,10 @@ struct ContentView: View {
         .onChange(of: isFollowing) { _, following in
             if !following { isChasing = false }
         }
+        // Let down to the bar, the sheet is the search field again.
+        .onChange(of: dockDetent) { _, stop in
+            if stop == .collapsed, dockPanel != nil { dockPanel = nil }
+        }
         .onChange(of: selection?.id) { wasOpen, id in
             // A replay belongs to the aircraft it was started from, and to the
             // window that drew the track under it. Opening another aircraft,
@@ -1523,10 +1531,28 @@ struct ContentView: View {
         // as.
         if kind != .plans { planningFrom = nil }
 
+        // With the dock on screen the panel opens inside its sheet, in the
+        // search field's place, rather than as a second window over the map.
+        // Anywhere else — a flight open, a field's panel up — it is a window.
+        if isDockUp {
+            query = ""
+            withAnimation(Motion.chrome) {
+                dockPanel = kind
+                if dockDetent == .collapsed { dockDetent = kind.dockDetent }
+            }
+            return
+        }
+
         withAnimation(Motion.content) {
             panelKind = kind
             sheet = .panel
         }
+    }
+
+    /// Whether the dock is what stands on the bottom of the map — the same
+    /// conditions `mapToolbar` draws it on, with nothing presented over it.
+    private var isDockUp: Bool {
+        selection == nil && airportPaneIcao == nil && sheet == nil
     }
 
     /// Opens the plans panel with a field already filled in.
@@ -1736,7 +1762,15 @@ struct ContentView: View {
                         watched: friends.watched,
                         detent: $dockDetent,
                         room: proxy.size.height,
-                        onPanel: { kind in openPanel(kind) },
+                        // The bar's own item again closes its panel, the way a
+                        // tab you are already on puts you back at its root.
+                        onPanel: { kind in
+                            if dockPanel == kind {
+                                withAnimation(Motion.chrome) { dockPanel = nil }
+                            } else {
+                                openPanel(kind)
+                            }
+                        },
                         onOpenStats: { openPanel(.stats) },
                         onOpenFlight: { id in
                             dockDetent = .collapsed
@@ -1746,6 +1780,11 @@ struct ContentView: View {
                             guard let field = AirportStore.shared.airport(icao) else { return }
                             dockDetent = .collapsed
                             openAirport(field)
+                        },
+                        panelKind: dockPanel,
+                        panel: dockPanel.map { kind in AnyView(panel(kind).id(kind)) },
+                        onClosePanel: {
+                            withAnimation(Motion.chrome) { dockPanel = nil }
                         },
                         query: $query,
                         results: results,

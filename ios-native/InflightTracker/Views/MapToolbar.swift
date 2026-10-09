@@ -33,6 +33,16 @@ enum MapPanelKind: String, Identifiable, CaseIterable {
 
     var id: String { rawValue }
 
+    /// The stop the dock's sheet opens to for this panel, from the bar.
+    /// Lists you glance at with the map still showing open halfway; the ones
+    /// you read or set things in take the screen.
+    var dockDetent: MapDockDetent {
+        switch self {
+        case .friends, .atc, .airports: return .half
+        default: return .full
+        }
+    }
+
     /// What the bar itself shows, in order.
     static let barItems: [MapPanelKind] = [.friends, .atc, .airports, .filters, .settings]
 
@@ -103,6 +113,10 @@ struct MapToolbar: View {
     /// it is the one number you would open the panel to find out.
     let friendsAloft: Int
 
+    /// The panel open in the dock's sheet, marked on the bar so it reads as
+    /// the tab you are on.
+    var selected: MapPanelKind? = nil
+
     let action: (MapPanelKind) -> Void
 
     // MARK: - Metrics
@@ -157,8 +171,9 @@ struct MapToolbar: View {
                 } label: {
                     item(kind)
                 }
-                .buttonStyle(ToolbarItemStyle(theme: theme))
+                .buttonStyle(ToolbarItemStyle(theme: theme, isSelected: selected == kind))
                 .accessibilityLabel(accessibilityLabel(for: kind))
+                .accessibilityAddTraits(selected == kind ? .isSelected : [])
             }
         }
         .padding(Self.inset)
@@ -286,13 +301,15 @@ struct MapToolbar: View {
 private struct ToolbarItemStyle: ButtonStyle {
 
     let theme: FlightInfoTheme
+    var isSelected = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .background {
                 Capsule()
-                    .fill(theme.textPrimary.opacity(0.12))
-                    .opacity(configuration.isPressed ? 1 : 0)
+                    .fill(theme.textPrimary.opacity(isSelected ? 0.16 : 0.12))
+                    .opacity(configuration.isPressed || isSelected ? 1 : 0)
+                    .animation(Motion.control, value: isSelected)
             }
             .scaleEffect(configuration.isPressed ? 0.94 : 1)
             .animation(Motion.control, value: configuration.isPressed)
