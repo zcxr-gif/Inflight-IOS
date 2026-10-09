@@ -44,6 +44,12 @@ struct MapDock: View {
     /// The whole stats window — what the second pull asks for.
     let onOpenStats: () -> Void
 
+    /// The search, which lives in the dock now rather than across the top of
+    /// the map: the field is where the thumb already is.
+    @Binding var query: String
+    let results: [MapSearchResult]
+    let onSelect: (MapSearchResult) -> Void
+
     /// How far the finger has carried the dock open, upwards positive. Reset
     /// the instant the drag ends — with the spring below, so a dock let go of
     /// halfway settles rather than snapping.
@@ -54,40 +60,29 @@ struct MapDock: View {
 
     // MARK: - Metrics
 
-    /// The card's own radius, and how far inside it everything sits. Public
-    /// because the bar reads them to work out its own radius: a bar whose
-    /// curve is not the card's curve less the inset reads as a rectangle in a
-    /// rounded box.
-    static let cornerRadius: CGFloat = 26
-    static let cardInset: CGFloat = 6
+    /// The radius along the dock's top. The bottom is square — it runs off the
+    /// foot of the screen and the display rounds it. See `BottomEdge`.
+    static let cornerRadius: CGFloat = BottomEdge.cornerRadius
 
-    private static let cardTop: CGFloat = 4
+    /// How far in from the sides of the screen everything in the dock sits.
+    static let cardInset: CGFloat = 14
+
+    private static let cardTop: CGFloat = 2
     private static let cardBottom: CGFloat = 6
-    private static let rowGap: CGFloat = 6
+    private static let rowGap: CGFloat = 10
 
-    /// The band the grabber sits in.
-    ///
-    /// This was twenty-eight, on the theory that a bigger target is an easier
-    /// one. It is, and it also put thirty-six points of empty card above a bar
-    /// that is only forty-eight tall — the handle stopped reading as a marker
-    /// on the dock and started reading as a second row of nothing. Twenty is
-    /// still a third taller than the fifteen it started at, and the drag does
-    /// not depend on hitting it anyway: the gesture is on the whole card, so
-    /// this only has to be big enough to *tap*, and the tap has the card's own
-    /// top padding under it as well.
-    static let handleBand: CGFloat = 20
+    /// The band the grabber sits in. Big enough to tap; the drag is on the
+    /// whole dock anyway.
+    static let handleBand: CGFloat = 18
 
-    /// The gap the map leaves between the card and the safe area.
-    static let liftOffSafeArea: CGFloat = 4
-
-    /// How much of the map's bottom edge the dock covers, closed, including the
-    /// gap underneath it. The map keeps this much clear when it frames
-    /// something, the same way it keeps clear of the flight window.
+    /// How much of the map's bottom edge the dock covers, measured up from the
+    /// safe area — the part under the home indicator is the dock's too, but
+    /// the map was never using it.
     ///
     /// Added up from the parts rather than rounded up from a guess, so it
     /// cannot drift the next time one of them changes.
     static let reservedHeight: CGFloat =
-        cardTop + handleBand + rowGap + MapToolbar.height + cardBottom + liftOffSafeArea
+        cardTop + handleBand + MapSearchField.fieldHeight + rowGap + MapToolbar.height + cardBottom
 
     /// The strip immediately above the dock, kept empty for the Mapbox logo and
     /// attribution button.
@@ -142,11 +137,18 @@ struct MapDock: View {
         restingHeight + pull > StatsPanel.height + Self.fullThreshold
     }
 
+    /// Whether a search is under way. The dock gives the results its room
+    /// while one is: the bar and the stats step aside, and the list rises out
+    /// of the field.
+    private var isSearching: Bool {
+        !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var body: some View {
-        VStack(spacing: Self.rowGap) {
+        VStack(spacing: 0) {
             handle
 
-            if revealed > 0 {
+            if revealed > 0, !isSearching {
                 StatsPanel(theme: theme, onOpenFull: onOpenStats)
                     .environmentObject(feed)
                     // Bottom-aligned inside a frame that grows: the numbers
@@ -161,26 +163,49 @@ struct MapDock: View {
                     // button under a moving finger is a mis-tap waiting to be
                     // blamed on the app.
                     .allowsHitTesting(revealed >= StatsPanel.height && pull == 0)
+                    .padding(.bottom, Self.rowGap)
             }
 
-            MapToolbar(
+            MapSearchField(
+                query: $query,
+                results: results,
                 theme: theme,
-                atcCount: atcCount,
-                activeFilters: activeFilters,
-                friendsAloft: friendsAloft,
-                action: onPanel
+                isInDock: true,
+                onSelect: onSelect
             )
+
+            if !isSearching {
+                MapToolbar(
+                    theme: theme,
+                    atcCount: atcCount,
+                    activeFilters: activeFilters,
+                    friendsAloft: friendsAloft,
+                    action: onPanel
+                )
+                .padding(.top, Self.rowGap)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
         }
         .padding(.horizontal, Self.cardInset)
-        .padding(.top, Self.cardTop)
+        // The overshoot is the dock growing at the top, not moving: its foot is
+        // the bottom of the screen and stays there. It is the give at the end
+        // of the travel that says there is one more stop.
+        .padding(.top, Self.cardTop + overshoot)
         .padding(.bottom, Self.cardBottom)
-        // The overshoot is the card itself lifting, not the stats growing —
-        // they have run out of height by then. It is the give at the end of the
-        // travel that says there is one more stop.
-        .offset(y: -overshoot)
-        .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
+        .background {
+            // Down past the safe area and off the foot of the screen, so the
+            // dock fills both bottom corners rather than hovering above them.
+            theme.sheetBackground
+                .clipShape(BottomEdge.shape)
+                .overlay {
+                    BottomEdge.shape.stroke(theme.stroke, lineWidth: 1)
+                }
+                .shadow(color: .black.opacity(0.22), radius: 18, y: -2)
+                .ignoresSafeArea(edges: .bottom)
+        }
+        .motion(Motion.chrome, value: isSearching)
         .environment(\.colorScheme, theme.colorScheme)
-        // On the whole card rather than the handle alone: once the stats are
+        // On the whole dock rather than the handle alone: once the stats are
         // up, pushing them back down from anywhere on the dock is the gesture
         // people try. Simultaneous, so the bar's buttons still take their own
         // taps — a drag past a button's cancel distance stops it firing, so the

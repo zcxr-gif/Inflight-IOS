@@ -435,12 +435,7 @@ struct FlightDetailView: View {
                 FlightInfoWindowChrome(
                     theme: theme,
                     presentation: presentation,
-                    accent: airlineAccent,
-                    // Read off the window's own measured height rather than off
-                    // the detent, so it answers the same question the peak and
-                    // the full window answer when they cross-fade — see
-                    // `isCollapsed`.
-                    hidesGround: hidesWindowGround
+                    accent: airlineAccent
                 )
             )
             .environment(\.colorScheme, theme.colorScheme)
@@ -678,14 +673,6 @@ struct FlightDetailView: View {
     /// Answered against the display: on a large phone this is the flat ceiling
     /// it has always been, and on a small one the photograph gives its room to
     /// the route card underneath it rather than pushing it off the sheet.
-    /// Whether this window should be drawing no ground behind it.
-    ///
-    /// The widget peek, and only while the sheet is actually sitting at it. See
-    /// `FlightInfoWindowChrome.hidesGround`.
-    private var hidesWindowGround: Bool {
-        presentation == .sheet && isCollapsed && appearance.resolvedPeakStyle == .widget
-    }
-
     private var heroCeiling: CGFloat {
         presentation == .sheet
             ? FlightInfoLayout.peakHeroCeiling(inScreenHeight: FlightInfoLayout.screenHeight)
@@ -1433,70 +1420,32 @@ private struct FlightInfoWindowChrome: ViewModifier {
     /// tinted theme, and knows where its edges are.
     var accent: AirlineAccent.Colours? = nil
 
-    /// Whether the sheet draws no ground at all, leaving whatever it is sitting
-    /// over to show through.
-    ///
-    /// True for exactly one thing: the widget peek, at rest. That peek is not a
-    /// card cut from the window the way the other three are — it is a tile, and
-    /// a tile with a panel behind it is a tile on a tray. Margins and a shadow
-    /// got it as far as floating *inside* something; this is what removes the
-    /// something. What is left over the map is the tile, its shadow and the
-    /// grabber, which is what a widget lying on a home screen looks like.
-    ///
-    /// Only at rest, and that is not a compromise. The moment the window is
-    /// pulled the ground fades up under it, because everything above the peek —
-    /// the cards, the scroll view, the text — is written to be read on a
-    /// surface. It reads as the window materialising around the tile as you
-    /// open it, which is the truth of what is happening.
-    var hidesGround: Bool = false
-
-    /// The radius the sheet is actually rounded to, so the outline traces the
-    /// sheet's edge rather than sitting a couple of points off it.
-    private var cornerRadius: CGFloat { theme.radiusLarge + 6 }
-
     @ViewBuilder
     func body(content: Content) -> some View {
         switch presentation {
         case .sheet:
+            // The window on the bottom edge. Its ground, its corners and its
+            // shadow are `FlightWindowDock`'s, which knows where its edges are;
+            // all this adds is the airline's colour round the same shape.
             content
-                // The sheet's own ground already covers the home indicator, and
-                // the peak's card should sit close to the bottom edge rather
-                // than above a band of empty sheet the width of that inset.
+                // The dock runs under the home indicator, and the peek's own
+                // bottom gap clears it — so nothing here should leave a band
+                // of empty window the height of that inset as well.
                 .ignoresSafeArea(edges: .bottom)
                 .overlay {
-                    // Nothing to outline when there is no sheet to see. The
-                    // accent belongs to the window's edge, and with the ground
-                    // gone the edge is the tile's own.
-                    if let accent = accent, !hidesGround {
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            // A stroke *border* rather than a stroke: it is laid
-                            // inside the shape, so none of it is cut off by the
-                            // sheet's own clip.
-                            .strokeBorder(accent.tint.opacity(0.55), lineWidth: 1)
+                    if let accent = accent {
+                        BottomEdge.shape
+                            .stroke(accent.tint.opacity(0.55), lineWidth: 1.5)
                             .ignoresSafeArea(edges: .bottom)
                             // Over the whole window, including its scroll view.
                             // Nothing here is meant to be pressed.
                             .allowsHitTesting(false)
                     }
                 }
-                // Faded rather than swapped: `presentationBackground` is
-                // rebuilt when this changes, and a ground that appears between
-                // one frame and the next reads as a glitch under a finger that
-                // is mid-drag. See `hidesGround`.
-                .presentationBackground {
-                    theme.sheetBackground
-                        .opacity(hidesGround ? 0 : 1)
-                        .animation(Motion.chrome, value: hidesGround)
-                }
-                .presentationCornerRadius(cornerRadius)
 
         case .pane:
-            // None of the above applies, and it is not that they are harmless
-            // — the presentation modifiers would be talking to a presentation
-            // that isn't there, and the safe area is one the pane's own layout
-            // has already inset it from. The pane draws its own ground and
-            // clips its own corners, because it knows where its edges are and
-            // a modifier hung on a sheet does not.
+            // The pane draws its own ground and clips its own corners, and its
+            // layout has already inset it from the safe area.
             content
         }
     }

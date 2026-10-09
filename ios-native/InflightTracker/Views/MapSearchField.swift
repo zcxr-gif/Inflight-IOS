@@ -16,9 +16,19 @@ struct MapSearchField: View {
 
     let theme: FlightInfoTheme
 
+    /// Set inside the map's dock: the results rise out of the field rather
+    /// than dropping below it — the field is at the bottom of the screen and
+    /// below it is the keyboard — and the field is a well in the dock rather
+    /// than a pane of glass of its own lying on top of one.
+    var isInDock: Bool = false
+
     let onSelect: (MapSearchResult) -> Void
 
     @FocusState private var isFocused: Bool
+
+    /// The field's own height in the dock, stated so the dock can add itself
+    /// up before anything has drawn.
+    static let fieldHeight: CGFloat = 46
 
     /// The results card is up whenever there is something to show for what has
     /// been typed — including nothing, which is worth saying rather than
@@ -29,11 +39,20 @@ struct MapSearchField: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            field
+            if isInDock {
+                if isSearching {
+                    resultsCard
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
 
-            if isSearching {
-                resultsCard
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                field
+            } else {
+                field
+
+                if isSearching {
+                    resultsCard
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
             }
         }
         .motion(Motion.chrome, value: isSearching)
@@ -88,9 +107,10 @@ struct MapSearchField: View {
                 .accessibilityLabel("Dismiss keyboard")
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 11)
-        .flightInfoChrome(theme, in: Capsule())
+        .padding(.horizontal, 16)
+        .padding(.vertical, isInDock ? 0 : 11)
+        .frame(height: isInDock ? Self.fieldHeight : nil)
+        .modifier(SearchSurface(theme: theme, isInDock: isInDock, shape: Capsule()))
         .contentShape(Capsule())
     }
 
@@ -118,7 +138,13 @@ struct MapSearchField: View {
                 }
             }
         }
-        .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: theme.radiusMedium, style: .continuous))
+        .modifier(
+            SearchSurface(
+                theme: theme,
+                isInDock: isInDock,
+                shape: RoundedRectangle(cornerRadius: theme.radiusMedium, style: .continuous)
+            )
+        )
     }
 
     @ViewBuilder
@@ -203,5 +229,30 @@ struct MapSearchField: View {
         isFocused = false
         query = ""
         onSelect(result)
+    }
+}
+
+/// What the field and its results are drawn on: glass of their own over the
+/// map, or a well pressed into the dock — which is already glass, and glass on
+/// glass reads as two cards stacked rather than as a field in a panel.
+private struct SearchSurface<S: Shape>: ViewModifier {
+
+    let theme: FlightInfoTheme
+    let isInDock: Bool
+    let shape: S
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isInDock {
+            content
+                .background {
+                    shape
+                        .fill(theme.surfaceFill)
+                        .overlay { shape.stroke(theme.stroke, lineWidth: 1) }
+                }
+                .clipShape(shape)
+        } else {
+            content.flightInfoChrome(theme, in: shape)
+        }
     }
 }

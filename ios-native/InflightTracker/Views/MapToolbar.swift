@@ -107,9 +107,9 @@ struct MapToolbar: View {
 
     // MARK: - Metrics
 
-    /// The bar's own corner radius: the dock's radius, less the horizontal
-    /// padding the dock holds the bar at. Concentric with the card around it.
-    static let radius: CGFloat = MapDock.cornerRadius - MapDock.cardInset
+    /// The bar's own corner radius: a pill, the same shape as the search field
+    /// above it, so the two rows in the dock read as one set of furniture.
+    static let radius: CGFloat = height / 2
 
     /// How far the items sit inside the bar. The same on all four sides, so the
     /// row is centred in the shape it is drawn on rather than being pushed at
@@ -165,6 +165,13 @@ struct MapToolbar: View {
         // Stated rather than left to the content, so the dock knows how tall
         // its own bar is before either of them has drawn.
         .frame(height: Self.height)
+        // A track for the five to sit in. Not glass: the dock under it is the
+        // glass, and this is a well pressed into it, the same as the field.
+        .background {
+            Capsule()
+                .fill(theme.surfaceFill)
+                .overlay { Capsule().stroke(theme.stroke, lineWidth: 1) }
+        }
     }
 
     private func item(_ kind: MapPanelKind) -> some View {
@@ -209,7 +216,7 @@ struct MapToolbar: View {
         // into five equal boxes with a tool centred in each.
         .frame(minWidth: 0, maxWidth: .infinity)
         .frame(height: Self.itemHeight)
-        .contentShape(RoundedRectangle(cornerRadius: Self.itemRadius, style: .continuous))
+        .contentShape(Capsule())
     }
 
     @ViewBuilder
@@ -283,8 +290,8 @@ private struct ToolbarItemStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .background {
-                RoundedRectangle(cornerRadius: MapToolbar.itemRadius, style: .continuous)
-                    .fill(theme.surfaceFill)
+                Capsule()
+                    .fill(theme.textPrimary.opacity(0.12))
                     .opacity(configuration.isPressed ? 1 : 0)
             }
             .scaleEffect(configuration.isPressed ? 0.94 : 1)

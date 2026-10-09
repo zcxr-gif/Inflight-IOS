@@ -214,10 +214,15 @@ struct FlightWindowPane<Content: View>: View {
 }
 
 /// Not a setting and not a placement — that is `FlightWindowPlacement`, which is
-/// a choice somebody makes. This is the mechanism underneath it: a sheet the
-/// system presents, or a pane the app lays out. A phone has no choice to make
-/// and is always the first; a screen wide enough to offer the choice is always
-/// the second, whichever of the two placements it lands on.
+/// a choice somebody makes. This is the mechanism underneath it: a window on
+/// the bottom edge with a peek and a full stop, or a pane the app lays out
+/// beside the map. A phone has no choice to make and is always the first; a
+/// screen wide enough to offer the choice is always the second, whichever of
+/// the two placements it lands on.
+///
+/// `sheet` is still the name of the first, and for a field's panel it still is
+/// one. The flight window's is `FlightWindowDock`, which stands flush on the
+/// bottom edge where an iOS 26 sheet would float.
 enum FlightWindowPresentation {
     case sheet
     case pane

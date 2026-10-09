@@ -63,27 +63,6 @@ struct ContentView: View {
     /// window once it has measured itself.
     @State private var peakHeight = FlightInfoLayout.basePeakHeight
 
-    /// The flight window's handle, held under a finger.
-    @GestureState private var isWindowHeld = false
-
-    /// Which stop the flight window was at when the pull on its handle began,
-    /// or nil between pulls.
-    ///
-    /// Remembered because the pull changes the answer under itself. A pull down
-    /// on the full window puts it back on its peak while the finger is still
-    /// moving, so by the time it is let go `isWindowExpanded` describes where
-    /// the window is, not where the gesture started — and the two want opposite
-    /// endings. A pull that began at the full window has done its job by
-    /// landing on the peak; one that began at the peak is the gesture that
-    /// closes the window. Reading the live flag at that point is what used to
-    /// make a small flick down from the full window close it outright, which is
-    /// the opposite of what a small flick down asks for.
-    ///
-    /// Cleared when the finger leaves rather than only in `onEnded`: collapsing
-    /// moves the pill out from under the touch, which is one of the ways a
-    /// gesture is cancelled, and a cancelled gesture never ends.
-    @State private var windowPullFromFull: Bool?
-
     /// Which phase the info window is in. Owned here so it can be reset to the
     /// peak state each time a different aircraft is tapped.
     ///
@@ -176,28 +155,6 @@ struct ContentView: View {
         guard appearance.showsAirlineAccent,
               let flight = flight(id: id) else { return nil }
         return AirlineAccent.colours(forLivery: flight.liveryName, isLight: theme.isLight)
-    }
-
-    /// The stop the window opens at: exactly as tall as the peak measured
-    /// itself, and nothing else.
-    ///
-    /// Rebuilt from `peakHeight` every pass rather than stored, so it is always
-    /// the current measurement. See `windowDetent` for the half of this that
-    /// used to go wrong.
-    private var peakDetent: PresentationDetent { .height(peakHeight) }
-
-    /// Which stop the window is at, as the sheet's selection binding wants it.
-    ///
-    /// Derived, not stored. Reading it builds the peak's stop from today's
-    /// measurement — the same expression `presentationDetents` is handed — so
-    /// the selection is a member of the set by construction. Writing it records
-    /// only *which* stop was landed on, which is the part that survives the
-    /// height changing underneath it.
-    private var windowDetent: Binding<PresentationDetent> {
-        Binding<PresentationDetent>(
-            get: { self.isWindowExpanded ? .large : self.peakDetent },
-            set: { self.isWindowExpanded = ($0 == .large) }
-        )
     }
 
     /// Rebuilt each redraw, and compared by value inside the map — so watching
@@ -382,8 +339,10 @@ struct ContentView: View {
                 // middle of the map, which is exactly where opening it has just
                 // put the field. See `airportPane`.
                 if case .airport = sheet, usesFlightPane { return nil }
-                guard sheet == .flight else { return sheet }
-                return usesFlightPane || isFlightWindowHidden ? nil : sheet
+                // The flight window is never a presentation: a dock on a
+                // phone, a pane on a tablet, both laid out in the map's own
+                // stack.
+                return sheet == .flight ? nil : sheet
             },
             set: { value in
                 // A nil arriving while the window is only *hidden* is the
@@ -539,6 +498,13 @@ struct ContentView: View {
             && (sheet == .flight || sheet == nil)
     }
 
+    /// Whether the flight window is up as the phone's dock — the same
+    /// conditions as the pane, on a screen without room for one.
+    private var isFlightDockUp: Bool {
+        !usesFlightPane && selection != nil && !isFlightWindowHidden
+            && (sheet == .flight || sheet == nil)
+    }
+
     /// The field whose panel is on screen as a pane, if there is one.
     private var airportPaneIcao: String? {
         guard usesFlightPane, case .airport(let icao) = sheet else { return nil }
@@ -652,71 +618,6 @@ struct ContentView: View {
     /// above the lane the legal link now sits in.
     private var cornerInset: CGFloat {
         MapDock.reservedHeight + MapDock.legalLane
-    }
-
-    /// How far a pull on the flight window's handle has to be heading, from the
-    /// peak, to close it — and how far the other way to open it out. Judged on
-    /// where the drag was predicted to end rather than where the finger
-    /// stopped, so a flick does it without the travel.
-    ///
-    /// The close figure was ninety, which was most of the height of the peak
-    /// state: a pull that had visibly dragged the window most of the way off
-    /// the screen still put it back, and asking for twice the travel to close a
-    /// window as to open it out was never the right way round. It is the same
-    /// distance as the other now — both are the same question, has this pull
-    /// committed.
-    ///
-    /// Both are asked of a pull that *started* at the peak. A pull that started
-    /// at the full window is a different question and is answered by the figure
-    /// below.
-    private static let windowCloseTravel: CGFloat = 44
-    private static let windowOpenTravel: CGFloat = 44
-
-    /// How far a pull down on the full window has to go — or, on a flick, to be
-    /// heading — before the window falls back to its peak.
-    ///
-    /// Small on purpose. This is the whole of what a pull down on an open
-    /// window means: put it back. It was forty-four and was only ever read
-    /// while the finger was still moving, so a short flick — which is what
-    /// asking for the peak actually looks like — travelled no distance at all,
-    /// fell through to the figures above, and closed the window instead. Now it
-    /// is asked on release too, and a pull from the full window can only ever
-    /// land on the peak.
-    private static let windowFallTravel: CGFloat = 32
-
-    /// How far a pull has actually travelled — not where it is predicted to end
-    /// — before the window closes without waiting to be let go.
-    ///
-    /// The safety net rather than the way out, which is why it is well beyond
-    /// the figures above: collapsing resizes the sheet under the finger, and a
-    /// gesture whose view moves that far can be cancelled, taking `onEnded`
-    /// with it. Past this, a pull is heading off the bottom of the screen
-    /// whatever happens next, so there is nothing left worth waiting for.
-    ///
-    /// Counted from the peak. A pull that began at the full window spends
-    /// `windowFallTravel` getting there first and this distance is measured
-    /// after it, so the window is never a short pull away from being gone:
-    /// let go anywhere in between and it simply stays on its peak.
-    private static let windowCloseCommit: CGFloat = 96
-
-    /// How tall the map's own control stack is: its rows, with a hairline
-    /// between each. Written down because the find-me button stacks on top of
-    /// it, and a control that overlaps the one underneath is the kind of thing
-    /// a fixed offset quietly becomes when a row is added — or, as here, taken
-    /// away. Derived from the count rather than written out as a number, so the
-    /// next change to the stack cannot leave this behind.
-    ///
-    /// The sky and the map's own styles, always; and on the flat map and the
-    /// globe the ruler and the 3D aircraft as well — the planet draws neither.
-    ///
-    /// Folded, only the handle is left — and the compass, while the map is
-    /// turned, which is a row of its own either way.
-    private var mapControlRows: Int {
-        (areMapControlsCollapsed ? 0 : (isPlanetMap ? 2 : 4)) + (isMapTurned ? 1 : 0)
-    }
-    private var mapControlsHeight: CGFloat {
-        // Each row and the hairline under it, then the handle.
-        43 * CGFloat(mapControlRows) + Self.collapseHandleHeight
     }
 
     /// A replay is driving the camera down the old track; following the live
@@ -927,13 +828,9 @@ struct ContentView: View {
     private var topRow: some View {
         HStack(alignment: .top, spacing: 10) {
             if selection == nil {
-                MapSearchField(
-                    query: $query,
-                    results: results,
-                    theme: theme,
-                    onSelect: open
-                )
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                // The search is in the dock along the bottom now, where the
+                // thumb is. The top of the map is left to the map.
+                Spacer(minLength: 0)
             } else {
                 // In the corner the search field has just vacated, rather than
                 // on a line of its own underneath it. The chip used to sit
@@ -1014,11 +911,10 @@ struct ContentView: View {
             mapLayer
             topChrome
             mapControls
-            weatherControl
             mapStyleControl
-            findMeControl
             mapToolbar
             replayBar
+            flightDock
             flightPane
             airportPane
         }
@@ -1362,7 +1258,9 @@ struct ContentView: View {
     private func sheetContent(for which: WindowSheet) -> some View {
         switch which {
         case .flight:
-            flightWindow
+            // Never presented: the window stands in the map's own stack on
+            // every device now. See `flightDock`.
+            EmptyView()
         case .panel:
             panel(panelKind)
                 // Keyed, so each panel starts with its own scroll position and
@@ -1374,24 +1272,26 @@ struct ContentView: View {
         }
     }
 
-    private var flightWindow: some View {
-        Group {
-            if let selected = selection {
+    /// The flight window on a phone, standing on the bottom edge.
+    ///
+    /// In the stack over the map rather than in a presentation — see
+    /// `FlightWindowDock` for why it stopped being a sheet. Nothing about which
+    /// aircraft is open changes: `sheet` stays `.flight` while it is up, and
+    /// closing it sets the same `sheet = nil` the sheet's own dismissal did.
+    @ViewBuilder
+    private var flightDock: some View {
+        if isFlightDockUp, let selected = selection {
+            FlightWindowDock(
+                theme: theme,
+                peakHeight: peakHeight,
+                isExpanded: $isWindowExpanded,
+                onClose: { sheet = nil }
+            ) {
                 FlightDetailView(
                     flightId: selected.id,
                     peakHeight: $peakHeight,
-                    // A pull down on the open window has been let go, and it
-                    // went far enough to have meant it. The drag itself is the
-                    // sheet's own from start to finish — see
-                    // `FlightDetailView.trackFall(to:)` — and this is the only
-                    // thing the app adds to it: the stop it lands on. Without
-                    // it the window springs back to full unless the pull
-                    // dragged it past the middle of the phone.
-                    //
-                    // Guarded because the peak is also where a pull that UIKit
-                    // itself sent there ends up, and being told to go where it
-                    // already is would be a state change with nothing behind
-                    // it.
+                    // A pull down on the open window that went far enough to
+                    // have meant it. See `FlightDetailView.trackFall(to:)`.
                     onFallToPeak: {
                         guard isWindowExpanded else { return }
                         isWindowExpanded = false
@@ -1400,176 +1300,13 @@ struct ContentView: View {
                     onSelectAirport: { field in openAirport(field, from: selected) },
                     origin: flightReturn(for: selected)
                 )
-                    // No `.id` here, and that is the whole of why tapping one
-                    // aeroplane while another is open now changes the window
-                    // instead of flashing it.
-                    //
-                    // Keying the window on the aircraft looked like the tidy
-                    // way to get a clean slate — the view is rebuilt, so no
-                    // state can survive that shouldn't. What it actually did
-                    // was throw the window away and put a new one in its place
-                    // mid-flight: the photograph went back to a placeholder,
-                    // the measured peak height went back to zero, and the sheet
-                    // dropped to the opening guess, remeasured, and grew again.
-                    // Three resizes and a blank photo between one aeroplane and
-                    // the next, which is the flicker.
-                    //
-                    // The window is the same window now, and it changes its
-                    // mind about which flight it is showing — see
-                    // `FlightDetailView.resetForNewFlight()`, which clears
-                    // exactly the state that belonged to the old aircraft and
-                    // keeps the measurements that make the sheet sit still.
+                    // No `.id`: tapping another aeroplane changes the window
+                    // rather than replacing it — see
+                    // `FlightDetailView.resetForNewFlight()`.
                     .environmentObject(feed)
             }
+            .transition(.move(edge: .bottom))
         }
-        .presentationDetents([peakDetent, .large], selection: windowDetent)
-        // The window draws its own handle over the top of itself, so the
-        // system's indicator would be a second pill in the same place.
-        .presentationDragIndicator(.hidden)
-        .overlay(alignment: .top) { flightWindowHandle }
-        .flightInfoSheetInteraction()
-        // Belt and braces: however the sheet came to be on screen, it starts in
-        // the peak state.
-        .onAppear { isWindowExpanded = false }
-    }
-
-    /// The flight window's handle.
-    ///
-    /// The window keeps its two stops — the peak it opens in, and the full
-    /// window above that — and the sheet's own drag still moves between them,
-    /// one to one, from anywhere on the window that is not a list. What that
-    /// drag could not do was close: from full height a pull down landed on the
-    /// peak, so shutting the window took two separate gestures, and the second
-    /// only worked if you had not scrolled. This pill is the way through both.
-    /// Pull it and the window steps down — to the peak from the full window, and
-    /// shut from the peak — or keep pulling and it does both at once; push it
-    /// and the whole window opens.
-    ///
-    /// Only as wide as the pill it draws. The rest of the top of the window is
-    /// left to the sheet's own gesture, which is better at following a finger
-    /// than anything that can be written on top of it.
-    ///
-    /// A tap closes it too, and that is the part worth spelling out. Everything
-    /// above describes a pull, and a pull is the one thing this window asks for
-    /// that no other window in the app does: a panel has a single stop, so the
-    /// system closes it on any pull down, while this one has two and lands on
-    /// the peak instead. Somebody who has not found the pill is left dragging
-    /// the body of the window down the screen and watching it stop half way,
-    /// which is the report this came from. The tap is the way out that needs
-    /// nothing discovered — and it is the same action VoiceOver has always had
-    /// on this element, which is why the label already reads as it does.
-    private var flightWindowHandle: some View {
-        WindowGrabber(theme: theme, isHeld: isWindowHeld, floating: flightWindowIsGroundless)
-            .frame(width: 132)
-            .frame(maxWidth: .infinity)
-            .gesture(flightWindowPull)
-            // The pull's memory of where it started, let go of when the finger
-            // is. `onEnded` clears it too, and cannot be relied on to: bringing
-            // the window down moves this pill away from the touch, which
-            // cancels the gesture rather than ending it. A stale answer here
-            // would spend the next pull as the wrong kind.
-            .onChange(of: isWindowHeld) { _, held in
-                if !held { windowPullFromFull = nil }
-            }
-            // After the drag, so a pull is never read as a tap. A tap on its
-            // own still lands here: the pull needs four points of travel before
-            // it claims the touch.
-            .onTapGesture { sheet = nil }
-            .accessibilityElement()
-            .accessibilityLabel("Close the flight window")
-            .accessibilityAddTraits(.isButton)
-            .accessibilityAction { sheet = nil }
-            .accessibilityAction(named: "Open the full window") { isWindowExpanded = true }
-    }
-
-    /// Whether the flight window is currently drawing no ground behind it,
-    /// which is the widget peek at rest. See
-    /// `FlightInfoWindowChrome.hidesGround` — this is the same question asked
-    /// from out here, where the grabber is drawn.
-    ///
-    /// It matters to the pill and to nothing else: with the sheet gone the
-    /// grabber is a mark on the map, and a mark taken from the window's own
-    /// palette disappears into a coastline. `floating` is the form that carries
-    /// its own darkness — the same one a window opening on a photograph uses,
-    /// for the same reason.
-    ///
-    /// Answered from the detent rather than from the window's measured height,
-    /// which is the one thing out here cannot see. The two agree wherever it
-    /// shows: the ground is hidden only at the peek, and this is false anywhere
-    /// else.
-    private var flightWindowIsGroundless: Bool {
-        !isWindowExpanded && appearance.resolvedPeakStyle == .widget
-    }
-
-    /// Global, like every other pull in the app: the sheet resizes underneath
-    /// the finger while this is running, and a translation measured against
-    /// something that is itself moving is a translation that fights itself.
-    ///
-    /// One pull is one step down. From the full window it lands on the peak;
-    /// from the peak it closes. Only a pull that carries on well past the point
-    /// the window came to rest — `windowCloseCommit` beyond it — takes both
-    /// steps at once, which is the gesture somebody makes when they want the
-    /// window gone and are not stopping to look at it on the way.
-    private var flightWindowPull: some Gesture {
-        DragGesture(minimumDistance: 4, coordinateSpace: .global)
-            .updating($isWindowHeld) { _, state, _ in state = true }
-            .onChanged { value in
-                // Where this pull started, taken on its first update and kept
-                // for the rest of it. See `windowPullFromFull`: the next few
-                // lines are about to change the thing it would otherwise be
-                // read from.
-                let fromFull = windowPullFromFull ?? isWindowExpanded
-                if windowPullFromFull == nil { windowPullFromFull = fromFull }
-
-                let travel = value.translation.height
-
-                // The window comes down with the finger rather than waiting to
-                // be let go, so the pull has something to show for itself on
-                // the way.
-                if fromFull, isWindowExpanded, travel > Self.windowFallTravel {
-                    isWindowExpanded = false
-                }
-
-                // Closing is decided here as well as on release. Collapsing
-                // sets the detent, which resizes the sheet under the finger and
-                // moves this pill most of the screen away from it — and a
-                // gesture whose view is pulled out from under it can be
-                // cancelled, in which case `onEnded` never runs and a pull that
-                // was clearly heading off the bottom of the screen leaves the
-                // window sitting at the peak instead. That is the second half
-                // of why closing this window used to take a drag and then
-                // another drag.
-                //
-                // Measured from wherever this pull's first step ended, so the
-                // distance that closes the window is the same whichever stop
-                // the pull began at.
-                let commit = fromFull
-                    ? Self.windowFallTravel + Self.windowCloseCommit
-                    : Self.windowCloseCommit
-                if travel > commit { sheet = nil }
-            }
-            .onEnded { value in
-                let fromFull = windowPullFromFull ?? isWindowExpanded
-                windowPullFromFull = nil
-
-                let landing = value.predictedEndTranslation.height
-
-                // A pull that began at the full window has done everything it
-                // was ever going to do by landing on the peak — including the
-                // flick that never travelled far enough to bring the window
-                // down on the way, which is the whole reason this is asked on
-                // release as well.
-                if fromFull {
-                    if landing > Self.windowFallTravel { isWindowExpanded = false }
-                    return
-                }
-
-                if landing > Self.windowCloseTravel {
-                    sheet = nil
-                } else if landing < -Self.windowOpenTravel {
-                    isWindowExpanded = true
-                }
-            }
     }
 
     /// A field. Resolved here rather than carried in the sheet's case: the
@@ -1986,6 +1723,7 @@ struct ContentView: View {
                 // permanently shrinking where the map can frame things for
                 // something that goes away would be the wrong trade.
                 HintStrip(placement: .map, isFloating: true)
+                    .padding(.horizontal, 10)
 
                 // One card, with the handle on it and the bar inside it. What
                 // the handle pulls up opens within the same card rather than
@@ -2006,19 +1744,19 @@ struct ContentView: View {
                     onOpenStats: {
                         isStatsUp = false
                         openPanel(.stats)
-                    }
+                    },
+                    query: $query,
+                    results: results,
+                    onSelect: open
                 )
                 .environmentObject(feed)
             }
-            // Ten, not fourteen. With the card's own inset and the bar's
-            // inside that, fourteen put twenty-six points of nothing between
-            // the screen edge and the first tool.
-            .padding(.horizontal, 10)
-            .padding(.bottom, MapDock.liftOffSafeArea)
+            // Side to side and down to the foot of the screen: the dock stands
+            // on the bottom edge rather than floating above it. See `BottomEdge`.
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-            // The keyboard is the search field's business. Without this the bar
-            // rides up on top of it while a query is being typed.
-            .ignoresSafeArea(.keyboard, edges: .bottom)
+            // Not deaf to the keyboard any more. The search field is in the
+            // dock, so the dock rides up on top of the keyboard while a query
+            // is being typed, with the results rising out of the field.
             .transition(.opacity.combined(with: .move(edge: .bottom)))
         }
     }
@@ -2160,92 +1898,64 @@ struct ContentView: View {
         isStatsUp && selection == nil && !replay.isActive ? MapDock.statsLift : 0
     }
 
-    /// Weather, on the map's left shoulder.
+    /// Weather, at the top of the map's corner stack on the right.
     ///
-    /// The mirror of the style and the ruler on the right: the same chrome, the
-    /// same height, the opposite corner. It used to be a seventh of the toolbar
-    /// — a whole destination for what is mostly one decision, which layer is
-    /// drawn — and putting it here makes that decision one tap from the map
-    /// instead of a tap, a panel and a scroll.
+    /// It used to be a seventh of the toolbar — a whole destination for what
+    /// is mostly one decision, which layer is drawn — and then a chip of its
+    /// own on the left shoulder. It sits with the map's other controls now, in
+    /// the one stack, the way the map apps people already know lay it out.
     ///
     /// The glyph is the cloud, always, and the cell takes a wash of the accent
-    /// while anything is drawn — the same face the ruler and the map style wear
-    /// on the opposite shoulder, from the same method. The panel behind it
-    /// still exists for the units, the sample and the rest; it is the last item
-    /// in the menu.
-    @ViewBuilder
+    /// while anything is drawn. The panel behind it still exists for the units,
+    /// the sample and the rest; it is the last item in the menu.
+    ///
+    /// On both shapes of the world: the planet draws the radar, the satellite
+    /// and the barbs too — see `GlobeWeather`.
     private var weatherControl: some View {
-        // On both shapes of the world now. This used to be hidden on the
-        // planet, on the reasoning that the radar, the satellite and the barbs
-        // are the map's own layers and the planet is not the map — which was true,
-        // and which is why the planet drew none of them. It draws all of them
-        // now: see `GlobeWeather`, where the tiles are read backwards onto the
-        // sphere a pixel at a time because no transform will put them there.
-        if selection == nil, !replay.isActive {
-            Menu {
-                Section("Layer") {
-                    // Buttons rather than a `Picker`, for the same reason the
-                    // style menu uses them: each one is a decision, and a
-                    // checkmark beside the current answer is how the rest of
-                    // the app's menus read.
-                    //
-                    // Only the layers the tile service is actually serving.
-                    // RainViewer has been withdrawing its free tier in stages,
-                    // and offering a switch that draws nothing is worse than
-                    // not offering it.
-                    ForEach(availableWeatherLayers) { layer in
-                        Button {
-                            weatherPreferences.mapLayer = layer
-                        } label: {
-                            Label(
-                                layer.label,
-                                systemImage: weatherPreferences.mapLayer == layer ? "checkmark" : layer.symbol
-                            )
-                        }
-                    }
-                }
-
-                Section {
+        Menu {
+            Section("Layer") {
+                // Buttons rather than a `Picker`, for the same reason the
+                // style menu uses them: each one is a decision, and a
+                // checkmark beside the current answer is how the rest of
+                // the app's menus read.
+                //
+                // Only the layers the tile service is actually serving.
+                // RainViewer has been withdrawing its free tier in stages,
+                // and offering a switch that draws nothing is worse than
+                // not offering it.
+                ForEach(availableWeatherLayers) { layer in
                     Button {
-                        weatherPreferences.showsWinds.toggle()
+                        weatherPreferences.mapLayer = layer
                     } label: {
                         Label(
-                            "Winds at \(weatherPreferences.windLevel.longLabel)",
-                            systemImage: weatherPreferences.showsWinds ? "checkmark" : "wind"
+                            layer.label,
+                            systemImage: weatherPreferences.mapLayer == layer ? "checkmark" : layer.symbol
                         )
                     }
-
-                    Button {
-                        openPanel(.weather)
-                    } label: {
-                        Label("Weather settings", systemImage: "slider.horizontal.3")
-                    }
                 }
-            } label: {
-                mapControlFace(weatherSymbol, isOn: isWeatherOnMap)
             }
-            .accessibilityLabel(weatherLabel)
-            .accessibilityAddTraits(isWeatherOnMap ? .isSelected : [])
-            .frame(width: 44)
-            // Glass draws behind its content rather than clipping it, so
-            // without this the accent squares off the chip's corners when a
-            // layer is on.
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .flightInfoChrome(
-                theme,
-                in: RoundedRectangle(cornerRadius: 16, style: .continuous),
-                interactive: true
-            )
-            .environment(\.colorScheme, theme.colorScheme)
-            // The mirror of what the hub does with the trailing inset: in the
-            // corner a docked column stands in, the chip steps aside by the
-            // width of it. One of the two is always zero.
-            .padding(.leading, 16 + mapLeadingInset)
-            .padding(.bottom, cornerInset + 8 + statsLift)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-            .ignoresSafeArea(.keyboard, edges: .bottom)
-            .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomLeading)))
+
+            Section {
+                Button {
+                    weatherPreferences.showsWinds.toggle()
+                } label: {
+                    Label(
+                        "Winds at \(weatherPreferences.windLevel.longLabel)",
+                        systemImage: weatherPreferences.showsWinds ? "checkmark" : "wind"
+                    )
+                }
+
+                Button {
+                    openPanel(.weather)
+                } label: {
+                    Label("Weather settings", systemImage: "slider.horizontal.3")
+                }
+            }
+        } label: {
+            mapControlFace(weatherSymbol, isOn: isWeatherOnMap)
         }
+        .accessibilityLabel(weatherLabel)
+        .accessibilityAddTraits(isWeatherOnMap ? .isSelected : [])
     }
 
     /// The tile layers there is any point offering. A withdrawn one stays in
@@ -2436,158 +2146,155 @@ struct ContentView: View {
     @ViewBuilder
     private var mapStyleControl: some View {
         if selection == nil, !replay.isActive {
-            // Three controls sharing one piece of chrome, the way the flight
-            // window's hub does — so this corner reads as the map's own
-            // furniture rather than as loose buttons that happen to be near
-            // each other.
-            VStack(spacing: 0) {
-                compassControl
+            VStack(spacing: 10) {
+                // One stack, one piece of chrome, so this corner reads as the
+                // map's own furniture rather than as loose buttons that happen
+                // to be near each other. Weather and your own aeroplane lead,
+                // because they are the two you reach for most.
+                cornerStack {
+                    compassControl
 
-                if !areMapControlsCollapsed {
-                    // Top of the stack, because it is the one that leaves the map
-                    // rather than changing it.
-                    mapButton("camera.viewfinder", "Point the camera at the sky") {
-                        isShowingSky = true
+                    if !areMapControlsCollapsed {
+                        weatherControl
+
+                        findMeControl
+
+                        mapStyleMenu
+
+                        // The one that leaves the map rather than changing it.
+                        mapButton("camera.viewfinder", "Point the camera at the sky") {
+                            isShowingSky = true
+                        }
+
+                        // The ruler lives beside the style rather than in the
+                        // flight window's hub: measuring is about the map, and
+                        // it is most wanted when no aircraft is open.
+                        //
+                        // Gone on the planet, where the two ends of a
+                        // measurement would be points on a map that is not
+                        // there.
+                        if !isPlanetMap {
+                            mapButton(
+                                "ruler",
+                                measurement.isOn ? "Put the ruler away" : "Measure a distance",
+                                isOn: measurement.isOn
+                            ) {
+                                measurement.isOn.toggle()
+                            }
+                        }
                     }
 
-                    Rectangle()
-                        .fill(theme.stroke)
-                        .frame(height: 1)
-
-                    Menu {
-                        // Buttons rather than a `Picker` bound to the setting: some
-                        // of these are Pro, and a binding would have already
-                        // changed the map by the time anything could check. Each
-                        // one decides for itself whether it is switching the map or
-                        // opening the paywall.
-                        Section("Shape") {
-                            ForEach(MapProjection.allCases) { projection in
-                                Button {
-                                    select(projection)
-                                } label: {
-                                    Label(
-                                        locked(projection.isPro) ? "\(projection.label) (Pro)" : projection.label,
-                                        systemImage: appearance.mapProjection == projection
-                                            ? "checkmark"
-                                            : projection.symbol
-                                    )
-                                }
-                            }
-                        }
-
-                        // The flat map's finish, and only its. The globe is one
-                        // look — see `MapLook.palette` — so on the planet these are
-                        // shown ticked on Satellite and switched off rather than
-                        // taken away: a section that vanishes reads as a feature
-                        // that has gone missing, where a disabled one that agrees
-                        // with what is on screen reads as an answer.
-                        Section(usesOwnPalette ? "Map (flat only)" : "Map") {
-                            ForEach(MapPalette.allCases) { palette in
-                                Button {
-                                    select(palette)
-                                } label: {
-                                    Label(
-                                        locked(palette.isPro) ? "\(palette.label) (Pro)" : palette.label,
-                                        // What is drawn rather than what is stored,
-                                        // so the tick is on Satellite while the
-                                        // globe is up and back on the stored choice
-                                        // the moment it is not.
-                                        systemImage: appearance.resolvedMapStyle.resolvedPalette == palette
-                                            ? "checkmark"
-                                            : palette.symbol
-                                    )
-                                }
-                                .disabled(usesOwnPalette)
-                            }
-                        }
-
-                        planetStyleSection
-
-                        Section {
-                            // Nothing to turn up on imagery: it has no roads, no
-                            // terrain shading and no emphasis to set.
-                            Button {
-                                appearance.isMapDetailed.toggle()
-                            } label: {
-                                Label(
-                                    "Full detail",
-                                    systemImage: appearance.isMapDetailed ? "checkmark" : "map.fill"
-                                )
-                            }
-                            .disabled(
-                                appearance.resolvedMapStyle.resolvedPalette.usesImagery || isPlanetMap
-                            )
-
-                            // Real height under the map, and a camera free to lean
-                            // over and look along it.
-                            //
-                            // Shown ticked and disabled on the globe rather than
-                            // hidden: elevation is what rounds the planet off at
-                            // the edges, so the globe has always had it and there
-                            // is nothing here to turn off. Hiding the row would
-                            // make it look as though the globe had no terrain.
-                            Button {
-                                appearance.isMapTerrain.toggle()
-                            } label: {
-                                Label(
-                                    "3D terrain",
-                                    systemImage: appearance.resolvedMapStyle.hasTerrain
-                                        ? "checkmark"
-                                        : "mountain.2.fill"
-                                )
-                            }
-                            .disabled(usesOwnPalette)
-                        }
-                    } label: {
-                        mapControlFace(mapStyleSymbol, isOn: false)
-                    }
-                    .accessibilityLabel(mapStyleLabel)
-
-                    // The ruler lives beside the style rather than in the flight
-                    // window's hub: measuring is about the map, and it is most
-                    // wanted when no aircraft is open and you are looking at the
-                    // shape of somewhere.
-                    //
-                    // Gone on the planet, where the two ends of a measurement would
-                    // be points on a map that is not there.
-                    if !isPlanetMap {
-                        Rectangle()
-                            .fill(theme.stroke)
-                            .frame(height: 1)
-
-                        mapButton(
-                            "ruler",
-                            measurement.isOn ? "Put the ruler away" : "Measure a distance",
-                            isOn: measurement.isOn
-                        ) {
-                            measurement.isOn.toggle()
-                        }
-
-                        Rectangle()
-                            .fill(theme.stroke)
-                            .frame(height: 1)
-
-                        aircraftModelsControl
-                    }
-
-                    Rectangle()
-                        .fill(theme.stroke)
-                        .frame(height: 1)
+                    collapseControl
                 }
 
-                collapseControl
+                // On a button of its own under the stack. The planet draws no
+                // models, so there is nothing for it to switch there.
+                if !isPlanetMap {
+                    aircraftModelsControl
+                }
             }
-            .frame(width: 44)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .environment(\.colorScheme, theme.colorScheme)
             .padding(.trailing, 16 + mapTrailingInset)
-            // Clears the toolbar, and the stats card while it is up.
+            // Clears the dock, and the stats while they are up.
             .padding(.bottom, cornerInset + 8 + statsLift)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))
         }
+    }
+
+    /// The map's shape and finish.
+    ///
+    /// A menu rather than a cycle button, and two lists in one menu: the shape
+    /// of the world, and what it is drawn in.
+    private var mapStyleMenu: some View {
+        Menu {
+            // Buttons rather than a `Picker` bound to the setting: some
+            // of these are Pro, and a binding would have already
+            // changed the map by the time anything could check. Each
+            // one decides for itself whether it is switching the map or
+            // opening the paywall.
+            Section("Shape") {
+                ForEach(MapProjection.allCases) { projection in
+                    Button {
+                        select(projection)
+                    } label: {
+                        Label(
+                            locked(projection.isPro) ? "\(projection.label) (Pro)" : projection.label,
+                            systemImage: appearance.mapProjection == projection
+                                ? "checkmark"
+                                : projection.symbol
+                        )
+                    }
+                }
+            }
+
+            // The flat map's finish, and only its. The globe is one
+            // look — see `MapLook.palette` — so on the planet these are
+            // shown ticked on Satellite and switched off rather than
+            // taken away: a section that vanishes reads as a feature
+            // that has gone missing, where a disabled one that agrees
+            // with what is on screen reads as an answer.
+            Section(usesOwnPalette ? "Map (flat only)" : "Map") {
+                ForEach(MapPalette.allCases) { palette in
+                    Button {
+                        select(palette)
+                    } label: {
+                        Label(
+                            locked(palette.isPro) ? "\(palette.label) (Pro)" : palette.label,
+                            // What is drawn rather than what is stored,
+                            // so the tick is on Satellite while the
+                            // globe is up and back on the stored choice
+                            // the moment it is not.
+                            systemImage: appearance.resolvedMapStyle.resolvedPalette == palette
+                                ? "checkmark"
+                                : palette.symbol
+                        )
+                    }
+                    .disabled(usesOwnPalette)
+                }
+            }
+
+            planetStyleSection
+
+            Section {
+                // Nothing to turn up on imagery: it has no roads, no
+                // terrain shading and no emphasis to set.
+                Button {
+                    appearance.isMapDetailed.toggle()
+                } label: {
+                    Label(
+                        "Full detail",
+                        systemImage: appearance.isMapDetailed ? "checkmark" : "map.fill"
+                    )
+                }
+                .disabled(
+                    appearance.resolvedMapStyle.resolvedPalette.usesImagery || isPlanetMap
+                )
+
+                // Real height under the map, and a camera free to lean
+                // over and look along it.
+                //
+                // Shown ticked and disabled on the globe rather than
+                // hidden: elevation is what rounds the planet off at
+                // the edges, so the globe has always had it and there
+                // is nothing here to turn off. Hiding the row would
+                // make it look as though the globe had no terrain.
+                Button {
+                    appearance.isMapTerrain.toggle()
+                } label: {
+                    Label(
+                        "3D terrain",
+                        systemImage: appearance.resolvedMapStyle.hasTerrain
+                            ? "checkmark"
+                            : "mountain.2.fill"
+                    )
+                }
+                .disabled(usesOwnPalette)
+            }
+        } label: {
+            mapControlFace(mapStyleSymbol, isOn: false)
+        }
+        .accessibilityLabel(mapStyleLabel)
     }
 
     /// Straight to the aeroplane you are flying, and its window open on it.
@@ -2598,14 +2305,15 @@ struct ContentView: View {
     /// solves the half of that where the aeroplane is already on screen. This is
     /// the other half.
     ///
-    /// Only there when there is somewhere to go — a name on the profile and at
+    /// A row in the corner stack, under the weather. Only there when there is
+    /// somewhere to go — a name on the profile and at
     /// least one aeroplane in the air under it — because a control that does
     /// nothing when tapped is worse than one that is absent. Pro is checked on
     /// the tap rather than by hiding it: somebody who does not have Pro should
     /// be able to see that this exists.
     @ViewBuilder
     private var findMeControl: some View {
-        if selection == nil, !replay.isActive, !myFlights.isEmpty {
+        if !myFlights.isEmpty {
             Group {
                 if myFlights.count == 1 {
                     Button { goToMyAircraft(myFlights[0]) } label: { findMeLabel }
@@ -2630,30 +2338,18 @@ struct ContentView: View {
                     .accessibilityLabel("Go to one of my aircraft")
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .flightInfoChrome(
-                theme,
-                in: RoundedRectangle(cornerRadius: 16, style: .continuous),
-                interactive: true
-            )
-            .environment(\.colorScheme, theme.colorScheme)
-            .padding(.trailing, 16 + mapTrailingInset)
-            // Above the map's own control stack, which sits in the same corner.
-            .padding(.bottom, cornerInset + 8 + mapControlsHeight + 8 + statsLift)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-            .ignoresSafeArea(.keyboard, edges: .bottom)
-            .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))
         }
     }
 
+    /// The arrow, in the blue every map on the phone uses for "where I am" —
+    /// which, in this app, is wherever your aeroplane is. A lock in its place
+    /// until Pro is there to open it.
     private var findMeLabel: some View {
-        Image(systemName: entitlements.has(.findMyAircraft) ? "location.magnifyingglass" : "lock")
-            // The same fourteen every other glyph over the map is set at. Its
-            // cell is a point taller because it is a card on its own rather
-            // than a row in the stack, but the glyph in it is not.
-            .font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(theme.textPrimary)
-            .frame(width: 44, height: 44)
+        let isOpen = entitlements.has(.findMyAircraft)
+        return Image(systemName: isOpen ? "location.fill" : "lock")
+            .font(.system(size: Self.cornerGlyphSize, weight: .semibold))
+            .foregroundStyle(isOpen ? Color.blue : theme.textPrimary)
+            .frame(width: Self.cornerWidth, height: Self.cornerRowHeight)
             .contentShape(Rectangle())
     }
 
@@ -2674,133 +2370,110 @@ struct ContentView: View {
     @ViewBuilder
     private var mapControls: some View {
         if selection != nil, !replay.isActive {
-            // One grouped control rather than free-floating circles: it reads
-            // as part of the window's chrome instead of three loose buttons.
-            VStack(spacing: 0) {
-                compassControl
+            VStack(spacing: 10) {
+                // One grouped control rather than free-floating circles: it reads
+                // as part of the window's chrome instead of three loose buttons.
+                cornerStack {
+                    compassControl
 
-                if !areMapControlsCollapsed {
-                    // The whole flight, in the part of the map the window is not
-                    // standing on: both ends of the route, everything flown so far,
-                    // and the aeroplane itself, framed in the middle of the gap
-                    // above the window rather than in the middle of the screen —
-                    // which is behind it.
-                    //
-                    // This is what the bottom button used to do, and it is here
-                    // because this is the button people press. A viewfinder is the
-                    // glyph for "show me this thing", and what it was wired to was
-                    // a mode: pressing it centred on the aeroplane and then quietly
-                    // kept doing so, while the button that actually framed the
-                    // flight sat at the far end of the stack where nobody found it.
-                    mapButton("viewfinder", "Show the whole flight") {
-                        // Framing the route and staying glued to the aeroplane pull
-                        // the camera in opposite directions, so following stands
-                        // down.
-                        isFollowing = false
-                        mapCommand = MapCommand(kind: .fitRoute)
-                    }
+                    if !areMapControlsCollapsed {
+                        // The whole flight, in the part of the map the window is not
+                        // standing on: both ends of the route, everything flown so far,
+                        // and the aeroplane itself, framed in the middle of the gap
+                        // above the window rather than in the middle of the screen —
+                        // which is behind it.
+                        //
+                        // This is what the bottom button used to do, and it is here
+                        // because this is the button people press. A viewfinder is the
+                        // glyph for "show me this thing", and what it was wired to was
+                        // a mode: pressing it centred on the aeroplane and then quietly
+                        // kept doing so, while the button that actually framed the
+                        // flight sat at the far end of the stack where nobody found it.
+                        mapButton("viewfinder", "Show the whole flight") {
+                            // Framing the route and staying glued to the aeroplane pull
+                            // the camera in opposite directions, so following stands
+                            // down.
+                            isFollowing = false
+                            mapCommand = MapCommand(kind: .fitRoute)
+                        }
 
-                    Rectangle()
-                        .fill(theme.stroke)
-                        .frame(height: 1)
+                        // The aeroplane, at the zoom the map is already at — and then
+                        // it stays there.
+                        //
+                        // One control rather than two, because a single centring and a
+                        // mode that centres are the same intent a moment apart: nobody
+                        // presses "put the map on this aircraft" hoping to watch it
+                        // slide back off. Pressing it again lets go.
+                        mapButton(
+                            "location.fill",
+                            isFollowing ? "Stop following this aircraft" : "Centre on this aircraft and follow it",
+                            isOn: isFollowing
+                        ) {
+                            isFollowing.toggle()
+                            // Either way round the map goes to the aeroplane now.
+                            // Follow on its own only acts once the aircraft has drifted
+                            // out of the middle of the view, which from a map pointed
+                            // somewhere else entirely would leave the mode looking like
+                            // it had done nothing.
+                            mapCommand = MapCommand(kind: .centerOnFlight)
+                        }
 
-                    // The aeroplane, at the zoom the map is already at — and then
-                    // it stays there.
-                    //
-                    // One control rather than two, because a single centring and a
-                    // mode that centres are the same intent a moment apart: nobody
-                    // presses "put the map on this aircraft" hoping to watch it
-                    // slide back off. Pressing it again lets go.
-                    mapButton(
-                        "location.fill",
-                        isFollowing ? "Stop following this aircraft" : "Centre on this aircraft and follow it",
-                        isOn: isFollowing
-                    ) {
-                        isFollowing.toggle()
-                        // Either way round the map goes to the aeroplane now.
-                        // Follow on its own only acts once the aircraft has drifted
-                        // out of the middle of the view, which from a map pointed
-                        // somewhere else entirely would leave the mode looking like
-                        // it had done nothing.
-                        mapCommand = MapCommand(kind: .centerOnFlight)
-                    }
+                        // The flown track: on or off, and framed the moment it goes on.
+                        //
+                        // There was nothing here for it before. The track was simply
+                        // always drawn, with no way to ask for it and no way to be
+                        // shown it — the nearest thing was the button at the top,
+                        // which frames the whole route including both airports, so on
+                        // a long-haul it answers "where has this been" with an ocean
+                        // and a line across a corner of it. Somebody looking for the
+                        // path pressed that, got a view of the Atlantic, and reasonably
+                        // concluded the button did nothing.
+                        //
+                        // So the switch is here, beside the aeroplane it applies to,
+                        // and turning it on takes the map to the path rather than
+                        // leaving it to be found.
+                        mapButton(
+                            "point.topleft.down.to.point.bottomright.curvepath",
+                            filters.showsFlownPath ? "Hide the flown path" : "Show the flown path",
+                            isOn: filters.showsFlownPath
+                        ) {
+                            filters.showsFlownPath.toggle()
+                            guard filters.showsFlownPath else { return }
+                            // Framing the track and staying glued to the aeroplane pull
+                            // the camera in opposite directions, so following stands
+                            // down — the same bargain the button at the top makes.
+                            isFollowing = false
+                            mapCommand = MapCommand(kind: .fitFlownPath)
+                        }
 
-                    Rectangle()
-                        .fill(theme.stroke)
-                        .frame(height: 1)
-
-                    // The flown track: on or off, and framed the moment it goes on.
-                    //
-                    // There was nothing here for it before. The track was simply
-                    // always drawn, with no way to ask for it and no way to be
-                    // shown it — the nearest thing was the button at the top,
-                    // which frames the whole route including both airports, so on
-                    // a long-haul it answers "where has this been" with an ocean
-                    // and a line across a corner of it. Somebody looking for the
-                    // path pressed that, got a view of the Atlantic, and reasonably
-                    // concluded the button did nothing.
-                    //
-                    // So the switch is here, beside the aeroplane it applies to,
-                    // and turning it on takes the map to the path rather than
-                    // leaving it to be found.
-                    mapButton(
-                        "point.topleft.down.to.point.bottomright.curvepath",
-                        filters.showsFlownPath ? "Hide the flown path" : "Show the flown path",
-                        isOn: filters.showsFlownPath
-                    ) {
-                        filters.showsFlownPath.toggle()
-                        guard filters.showsFlownPath else { return }
-                        // Framing the track and staying glued to the aeroplane pull
-                        // the camera in opposite directions, so following stands
-                        // down — the same bargain the button at the top makes.
-                        isFollowing = false
-                        mapCommand = MapCommand(kind: .fitFlownPath)
-                    }
-
-                    // The 3D aircraft, here as well as beside the map's style: the
-                    // aeroplane you have open is the one you most want to see in 3D.
-                    if !isPlanetMap {
-                        Rectangle()
-                            .fill(theme.stroke)
-                            .frame(height: 1)
-
-                        aircraftModelsControl
-
-                        // Behind the tail, the map turning as the aeroplane
-                        // turns. Only with the models on: an icon has no tail to
-                        // sit behind. Turning it on follows the aeroplane, and the
-                        // follow's own glide takes the camera round behind it.
-                        if aircraftModels != .off {
-                            Rectangle()
-                                .fill(theme.stroke)
-                                .frame(height: 1)
-
-                            mapButton(
-                                "video.fill",
-                                isChasing ? "Stop chasing this aircraft" : "Chase this aircraft from behind",
-                                isOn: isChasing
-                            ) {
-                                isChasing.toggle()
-                                if isChasing { isFollowing = true }
+                        if !isPlanetMap {
+                            // Behind the tail, the map turning as the aeroplane
+                            // turns. Only with the models on: an icon has no tail to
+                            // sit behind. Turning it on follows the aeroplane, and the
+                            // follow's own glide takes the camera round behind it.
+                            if aircraftModels != .off {
+                                mapButton(
+                                    "video.fill",
+                                    isChasing ? "Stop chasing this aircraft" : "Chase this aircraft from behind",
+                                    isOn: isChasing
+                                ) {
+                                    isChasing.toggle()
+                                    if isChasing { isFollowing = true }
+                                }
                             }
                         }
                     }
 
-                    Rectangle()
-                        .fill(theme.stroke)
-                        .frame(height: 1)
+                    collapseControl
                 }
 
-                collapseControl
+                // The 3D aircraft, on a button of its own under the stack, the
+                // same as with no aircraft open: the aeroplane you have open is
+                // the one you most want to see in 3D.
+                if !isPlanetMap {
+                    aircraftModelsControl
+                }
             }
-            .frame(width: 44)
-            // Two of the three fill themselves when they are on, and one of
-            // those is the bottom of the stack. Glass draws behind its content
-            // rather than clipping it, so without this the accent squares off
-            // the hub's rounded corners.
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .environment(\.colorScheme, theme.colorScheme)
             // Both insets are the window's, not the sheet's. In the corner the
             // docked column stands in, the hub steps aside by the width of it;
             // under a sheet, or the low centred pane, it sits above instead —
@@ -2836,17 +2509,13 @@ struct ContentView: View {
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(theme.textPrimary)
                     .rotationEffect(.degrees(-mapBearing))
-                    .frame(width: 44, height: 42)
+                    .frame(width: Self.cornerWidth, height: Self.cornerRowHeight)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Face north")
             .accessibilityValue("The map is turned \(Int(abs(mapBearing))) degrees \(mapBearing > 0 ? "clockwise" : "anticlockwise")")
             .transition(.opacity)
-
-            Rectangle()
-                .fill(theme.stroke)
-                .frame(height: 1)
         }
     }
 
@@ -2859,7 +2528,7 @@ struct ContentView: View {
             Image(systemName: areMapControlsCollapsed ? "chevron.up" : "chevron.down")
                 .font(.system(size: 13, weight: .bold))
                 .foregroundStyle(theme.textSecondary)
-                .frame(width: 44, height: Self.collapseHandleHeight)
+                .frame(width: Self.cornerWidth, height: Self.collapseHandleHeight)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -2870,15 +2539,54 @@ struct ContentView: View {
 
     /// 3D aircraft on or off. One collection, so one tap — the credits are in
     /// Settings › Acknowledgements.
+    ///
+    /// A round button of its own under the stack, with the words on it rather
+    /// than a glyph: "3D" is what it is, and a cube was a guess at what it did.
     private var aircraftModelsControl: some View {
-        mapButton(
-            aircraftModels == .off ? "cube" : "cube.fill",
-            aircraftModels == .off ? "Show 3D aircraft" : "Hide 3D aircraft",
-            isOn: aircraftModels != .off
-        ) {
-            aircraftModelsRaw = (aircraftModels == .off ? AircraftModelSource.flightAirMap : .off).rawValue
+        let isOn = aircraftModels != .off
+        return Button {
+            aircraftModelsRaw = (isOn ? AircraftModelSource.off : .flightAirMap).rawValue
+        } label: {
+            Text("3D")
+                .font(.system(size: 17, weight: .bold, design: .rounded))
+                .foregroundStyle(theme.textPrimary)
+                .frame(width: Self.cornerWidth, height: Self.cornerWidth)
+                .background {
+                    if isOn { Circle().fill(theme.accent.opacity(0.22)) }
+                }
+                .contentShape(Circle())
         }
+        .buttonStyle(.plain)
+        .clipShape(Circle())
+        .flightInfoChrome(theme, in: Circle(), interactive: true)
+        .environment(\.colorScheme, theme.colorScheme)
+        .accessibilityLabel(isOn ? "Hide 3D aircraft" : "Show 3D aircraft")
+        .accessibilityAddTraits(isOn ? .isSelected : [])
     }
+
+    /// The map's own controls, stacked in one pill.
+    ///
+    /// No hairlines between the rows: each one is a glyph in a cell of its own
+    /// height, and the gaps already say where one stops and the next begins.
+    private func cornerStack<Rows: View>(@ViewBuilder rows: () -> Rows) -> some View {
+        VStack(spacing: 0) {
+            rows()
+        }
+        .padding(.vertical, 4)
+        .frame(width: Self.cornerWidth)
+        // A selected row fills itself with a wash, and glass draws behind its
+        // content rather than clipping it — without this the wash squares off
+        // the ends of the pill.
+        .clipShape(RoundedRectangle(cornerRadius: Self.cornerWidth / 2, style: .continuous))
+        .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: Self.cornerWidth / 2, style: .continuous))
+        .environment(\.colorScheme, theme.colorScheme)
+    }
+
+    /// The corner controls' measurements: the pill's width, which is also the
+    /// 3D button's diameter, and the height of one row in it.
+    private static let cornerWidth: CGFloat = 50
+    private static let cornerRowHeight: CGFloat = 46
+    private static let cornerGlyphSize: CGFloat = 17
 
     /// `isOn` is for the one control in the hub that is a mode rather than a
     /// move. It reads as on the way every other switched-on thing in the app
@@ -2900,16 +2608,13 @@ struct ContentView: View {
 
     /// The face of a map control: one glyph, and the way it says it is on.
     ///
-    /// Written once and used by both corners. The weather control on the left
-    /// and the stack on the right are the same control in two places, and the
-    /// only reason they ever looked like different things is that they were
-    /// written out twice and drifted — a point of type size apart, and one of
-    /// them lit up far more often than the other.
+    /// Written once and used by every row in both stacks, so no two of them
+    /// drift a point of type size apart.
     private func mapControlFace(_ symbol: String, isOn: Bool) -> some View {
         Image(systemName: symbol)
-            .font(.system(size: 14, weight: .semibold))
+            .font(.system(size: Self.cornerGlyphSize, weight: .semibold))
             .foregroundStyle(theme.textPrimary)
-            .frame(width: 44, height: 42)
+            .frame(width: Self.cornerWidth, height: Self.cornerRowHeight)
             .background {
                 // On is a wash of the accent, not a block of it.
                 //
@@ -2918,8 +2623,8 @@ struct ContentView: View {
                 // glass into a solid white or solid black tile and flipped the
                 // glyph to match. On the weather control that was almost its
                 // permanent state — it counts as on whenever any layer is
-                // drawn — so the map's left shoulder was a white square sitting
-                // next to three pieces of glass.
+                // drawn — so it was a white square sitting next to three
+                // pieces of glass.
                 //
                 // A wash is how a selected control reads on glass: the pane
                 // tints, the glyph stays where it was, and the thing still
