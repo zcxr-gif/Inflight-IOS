@@ -110,12 +110,12 @@ extension FlightInfoTheme {
             chromeTint: .clear,
             surfaceTint: .clear,
             elevatedTint: .clear,
-            // The web's surfaces are barely there — one deep surface rather
-            // than grey bands is the point of the look. A shade heavier than
-            // its 0.035 here, because a card on a phone is also a target.
-            surfaceFill: ink.opacity(0.05),
-            elevatedFill: ink.opacity(light ? 0.08 : 0.09),
-            stroke: ink.opacity(light ? 0.09 : 0.08),
+            // The web's --sr-surface, --sr-surface-hi and --sr-line, so the
+            // app's own cards dropped into the window (instruments, the filed
+            // route, the sim's readout) sit on it the way the web's do.
+            surfaceFill: ink.opacity(light ? 0.04 : 0.035),
+            elevatedFill: ink.opacity(light ? 0.055 : 0.06),
+            stroke: ink.opacity(light ? 0.09 : 0.07),
             strokeStrong: ink.opacity(light ? 0.16 : 0.14),
             textPrimary: light
                 ? Color(red: 0x15 / 255, green: 0x17 / 255, blue: 0x1b / 255)
@@ -262,7 +262,9 @@ struct FlightHorizonBackdrop: View {
                             .resizable()
                             .scaledToFill()
                             .frame(width: proxy.size.width, height: proxy.size.height)
-                            .blur(radius: appearance.horizonBackground == .aircraft ? 22 : 0, opaque: true)
+                            // The web blurs the photo 18px at 640 wide before
+                            // covering the window with it.
+                            .blur(radius: appearance.horizonBackground == .aircraft ? 14 : 0, opaque: true)
                             .clipped()
                     }
                     .overlay { theme.windowFill.opacity(Double(appearance.horizonDim)) }
@@ -272,231 +274,6 @@ struct FlightHorizonBackdrop: View {
             .animation(Motion.panel, value: picture)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
-    }
-}
-
-// MARK: - The head
-
-/// Who this is: an eyebrow of operator and type, then the callsign.
-///
-/// The web's "cinematic identity". The registration is not here — it lives with
-/// the aircraft, further down — and neither is the pilot, who has the card
-/// directly underneath.
-struct FlightHorizonIdentity: View {
-
-    let flight: Flight
-    let theme: FlightInfoTheme
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            if !eyebrow.isEmpty {
-                Text(eyebrow)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(theme.textSecondary)
-                    .flightInfoLine(minimumScale: 0.75)
-                    .motionWords(eyebrow)
-            }
-
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(flight.displayName)
-                    .font(.system(size: 28, weight: .semibold, design: .rounded))
-                    .foregroundStyle(theme.textPrimary)
-                    .flightInfoLine(minimumScale: 0.6)
-                    .motionWords(flight.displayName)
-
-                Spacer(minLength: 0)
-
-                FlightPhaseChip(phase: FlightPhase.from(flight), theme: theme, elevated: true)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 2)
-    }
-
-    /// "Ethiopian Airlines · Boeing 787-9", or whichever half there is.
-    private var eyebrow: String {
-        let livery = flight.liveryName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let aircraft = flight.aircraftName.trimmingCharacters(in: .whitespacesAndNewlines)
-        return [livery, aircraft].filter { !$0.isEmpty }.joined(separator: " · ")
-    }
-}
-
-/// The four live numbers, at a glance.
-///
-/// First in the window, as on the web: the story starts with what the
-/// aeroplane is doing now. Sentence-case labels and a lighter weight than the
-/// telemetry grid it replaces, which is most of what "calmer" means.
-struct FlightHorizonGlance: View {
-
-    let flight: Flight
-    let theme: FlightInfoTheme
-
-    var body: some View {
-        HStack(spacing: 0) {
-            cell("Altitude", symbol: "arrow.up", value: Format.number(flight.altitudeFeet), unit: "ft", figure: flight.altitudeFeet)
-            divider
-            cell("Ground speed", symbol: "gauge.with.needle", value: Format.number(flight.groundSpeedKnots), unit: "kts", figure: flight.groundSpeedKnots)
-            divider
-            cell("Vertical", symbol: "arrow.up.arrow.down", value: Format.signed(flight.verticalSpeedFPM), unit: "fpm", figure: flight.verticalSpeedFPM)
-            divider
-            cell("Heading", symbol: "location.north.fill", value: Format.heading(flight.heading), unit: "°", figure: flight.heading, turns: true)
-        }
-        .padding(.vertical, 12)
-        .padding(.horizontal, 4)
-        .flightInfoSurface(theme, radius: theme.radiusMedium)
-    }
-
-    private var divider: some View {
-        Rectangle()
-            .fill(theme.stroke)
-            .frame(width: 1, height: 30)
-    }
-
-    /// One reading. The heading's glyph is a needle and turns with the
-    /// aeroplane, which is the web's one flourish and worth keeping.
-    private func cell(
-        _ title: String,
-        symbol: String,
-        value: String,
-        unit: String,
-        figure: Double,
-        turns: Bool = false
-    ) -> some View {
-        VStack(spacing: 5) {
-            HStack(spacing: 4) {
-                Image(systemName: symbol)
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(theme.accent)
-                    .rotationEffect(.degrees(turns && flight.heading.isFinite ? flight.heading : 0))
-
-                Text(title)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(theme.textDim)
-                    .flightInfoLine(minimumScale: 0.7)
-            }
-
-            HStack(alignment: .firstTextBaseline, spacing: 2) {
-                Text(value)
-                    .font(.system(size: 16, weight: .medium, design: .rounded).monospacedDigit())
-                    .foregroundStyle(theme.textPrimary)
-                    .flightInfoLine(minimumScale: 0.6)
-                    .motionFigure(figure)
-
-                Text(unit)
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(theme.textDim)
-                    .fixedSize()
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .accessibilityElement(children: .combine)
-    }
-}
-
-/// Where it is going: both ends, and a line between them with the aircraft's
-/// own silhouette at the point it has reached.
-struct FlightHorizonRoute: View {
-
-    let flight: Flight
-    let progress: FlightProgress
-    let theme: FlightInfoTheme
-    var onSelectAirport: (Airport) -> Void = { _ in }
-
-    var body: some View {
-        VStack(spacing: 12) {
-            HStack(alignment: .top, spacing: 10) {
-                end(progress.departure, label: "From", alignment: .leading)
-                Spacer(minLength: 8)
-                end(progress.arrival, label: "To", alignment: .trailing)
-            }
-
-            track
-
-            HStack {
-                Text("\(Format.number(progress.flownNM)) nm flown")
-                Spacer(minLength: 8)
-                Text(remaining)
-            }
-            .font(.system(size: 10.5, weight: .medium).monospacedDigit())
-            .foregroundStyle(theme.textDim)
-            .flightInfoLine(minimumScale: 0.75)
-        }
-        .padding(14)
-        .flightInfoSurface(theme, radius: theme.radiusMedium)
-    }
-
-    private var remaining: String {
-        let left = "\(Format.number(progress.remainingNM)) nm to go"
-        guard let ete = progress.estimatedTimeEnroute(groundSpeedKnots: flight.groundSpeedKnots) else {
-            return left
-        }
-        return "\(left) · \(Format.duration(ete))"
-    }
-
-    private func end(_ airport: Airport, label: String, alignment: HorizontalAlignment) -> some View {
-        Button { onSelectAirport(airport) } label: {
-            VStack(alignment: alignment, spacing: 2) {
-                Text(label)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(theme.textDim)
-
-                Text(airport.icao)
-                    .font(.system(size: 22, weight: .medium, design: .rounded))
-                    .foregroundStyle(theme.textPrimary)
-                    .flightInfoLine(minimumScale: 0.7)
-
-                Text(airport.name)
-                    .font(.system(size: 11, weight: .regular))
-                    .foregroundStyle(theme.textSecondary)
-                    .multilineTextAlignment(alignment == .leading ? .leading : .trailing)
-                    .flightInfoLine(minimumScale: 0.75)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(label) \(airport.icao), \(airport.name)")
-    }
-
-    /// The line, filled to where the aeroplane is, with the aeroplane on it.
-    private var track: some View {
-        GeometryReader { proxy in
-            let fraction = CGFloat(progress.fraction)
-            let plane: CGFloat = 20
-            let x = min(max(proxy.size.width * fraction, plane / 2), proxy.size.width - plane / 2)
-
-            ZStack(alignment: .leading) {
-                Capsule().fill(theme.trackFill).frame(height: 3)
-                Capsule().fill(theme.accent).frame(width: x, height: 3)
-
-                silhouette
-                    .frame(width: plane, height: plane)
-                    .position(x: x, y: proxy.size.height / 2)
-            }
-            .frame(height: proxy.size.height)
-        }
-        .frame(height: 22)
-        .accessibilityElement()
-        .accessibilityLabel("\(Int((progress.fraction * 100).rounded())) percent of the way")
-    }
-
-    /// The map's own sprite for this type, turned to fly along the line. The
-    /// SF aeroplane when there is none, which is what the web falls back to.
-    @ViewBuilder
-    private var silhouette: some View {
-        if let icon = PlaneSprites.shared.icon(
-            forKey: flight.spriteKey,
-            selected: false,
-            tint: UIColor(theme.accent)
-        ) {
-            Image(uiImage: icon)
-                .resizable()
-                .scaledToFit()
-                .rotationEffect(.degrees(90))
-        } else {
-            Image(systemName: "airplane")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(theme.accent)
-        }
     }
 }
 
@@ -524,7 +301,7 @@ struct HorizonSettingsRows: View {
     private var dim: Binding<CGFloat> {
         Binding(
             get: { appearance.horizonDim },
-            set: { appearance.horizonDim = min(max($0, 0), 1) }
+            set: { appearance.horizonDim = min(max($0, 0.2), 0.9) }
         )
     }
 
@@ -556,7 +333,7 @@ struct HorizonSettingsRows: View {
                     detail: "How much of the colour is laid over the picture. More keeps the text crisper.",
                     reading: { "\(Int(($0 * 100).rounded()))%" },
                     neutral: 0.6,
-                    range: 0...1,
+                    range: 0.2...0.9,
                     lowSymbol: "photo",
                     highSymbol: "paintpalette",
                     value: dim

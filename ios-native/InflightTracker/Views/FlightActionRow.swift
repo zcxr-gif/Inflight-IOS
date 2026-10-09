@@ -281,7 +281,10 @@ struct FlightActionRow: View {
 
     /// What gets sent. Plain text: it has to read as well pasted into a message
     /// as it does in a share sheet's preview.
-    private var summary: String {
+    private var summary: String { Self.summary(for: flight) }
+
+    /// The text Share sends. Static so Horizon's camera button sends the same.
+    static func summary(for flight: Flight) -> String {
         var lines: [String] = []
 
         let aircraft = [flight.aircraftName, flight.liveryName]

@@ -271,7 +271,7 @@ struct SyncedSettings: Codable, Equatable {
             appearance.horizonBackground = value
         }
         if let value = horizonDim, value.isFinite {
-            appearance.horizonDim = CGFloat(min(max(value, 0), 1))
+            appearance.horizonDim = CGFloat(min(max(value, 0.2), 0.9))
         }
         if let value = pilotCardBackdrop.flatMap(PilotCardBackdrop.init(rawValue:)) {
             appearance.pilotCardBackdrop = value

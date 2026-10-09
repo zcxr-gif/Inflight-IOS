@@ -274,7 +274,9 @@ struct FlightWindowPanel: View {
             // In a band of its own rather than floating over the photograph.
             // The real window floats it because the photo runs to the top edge
             // of the sheet; here there is a card border above it either way.
-            WindowGrabber(theme: theme)
+            if appearance.resolvedWindowStyle != .horizon {
+                WindowGrabber(theme: theme)
+            }
 
             content
                 .padding(.bottom, 14)
@@ -318,8 +320,50 @@ struct FlightWindowPanel: View {
         .motion(Motion.panel, value: stage)
     }
 
+    /// Horizon's colours for the drawing. No photograph, so no glow.
+    private var horizonPalette: HorizonPalette {
+        HorizonPalette(
+            colour: HorizonColour(hex: appearance.horizonColour),
+            glow: nil,
+            hasImageBackground: appearance.horizonBackground == .custom && HorizonBackdropStore.shared.image != nil
+        )
+    }
+
     @ViewBuilder
     private var content: some View {
+        if appearance.resolvedWindowStyle == .horizon {
+            horizonDrawing
+        } else {
+            standardContent
+        }
+    }
+
+    /// Horizon, drawn with the same views the window uses: its peek is the top
+    /// of the window, and open it carries on into the pilot and the glance.
+    private var horizonDrawing: some View {
+        VStack(spacing: 0) {
+            FlightHorizonPeek(
+                flight: Self.sample,
+                palette: horizonPalette,
+                image: nil,
+                contributor: nil,
+                width: width,
+                heroCeiling: 128
+            )
+
+            if stage == .open {
+                VStack(spacing: 12) {
+                    FlightHorizonPilotButton(flight: Self.sample, palette: horizonPalette)
+                    FlightHorizonGlance(flight: Self.sample, palette: horizonPalette)
+                }
+                .padding(.horizontal, 14)
+                .padding(.bottom, 4)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var standardContent: some View {
         switch stage {
         case .peek:
             FlightInfoPeak(
@@ -405,13 +449,8 @@ struct FlightWindowPanel: View {
             )
 
         case .horizon:
-            VStack(spacing: 12) {
-                FlightHorizonIdentity(flight: Self.sample, theme: theme)
-                FlightHorizonGlance(flight: Self.sample, theme: theme)
-                if let progress = FlightProgress(flight: Self.sample) {
-                    FlightHorizonRoute(flight: Self.sample, progress: progress, theme: theme)
-                }
-            }
+            // Drawn by `horizonDrawing` instead; never reached.
+            EmptyView()
         }
     }
 

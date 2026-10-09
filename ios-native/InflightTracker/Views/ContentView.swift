@@ -153,6 +153,7 @@ struct ContentView: View {
     /// second answer costs a dictionary lookup.
     private func airlineAccent(forFlightId id: String) -> AirlineAccent.Colours? {
         guard appearance.showsAirlineAccent,
+              appearance.resolvedWindowStyle != .horizon,
               let flight = flight(id: id) else { return nil }
         return AirlineAccent.colours(forLivery: flight.liveryName, isLight: appearance.windowTheme.isLight)
     }
