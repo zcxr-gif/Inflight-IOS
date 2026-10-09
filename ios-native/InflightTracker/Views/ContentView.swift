@@ -103,6 +103,11 @@ struct ContentView: View {
     /// `openPanel(_:)`.
     @State private var dockPanel: MapPanelKind?
 
+    /// Whether the chrome over the map is put away, leaving the map and the
+    /// app's mark. A tap on empty map toggles it; dragging and zooming do not
+    /// touch it; opening an aircraft, a field or a panel brings it all back.
+    @State private var isChromeHidden = false
+
     /// Whether the sky view is up: the camera, with the traffic drawn over it.
     @State private var isShowingSky = false
 
@@ -619,7 +624,10 @@ struct ContentView: View {
     /// clears it by the safe area as well — a little generous, and generous is
     /// the side of this to be wrong on.
     private var mapLegalInset: CGFloat {
-        mapBottomInset + dockLift
+        // With the chrome put away the logo and attribution drop to the foot
+        // of the map, where there is nothing left to cover them.
+        if isChromeHidden { return 0 }
+        return mapBottomInset + dockLift
     }
 
     /// A replay is driving the camera down the old track; following the live
@@ -654,6 +662,50 @@ struct ContentView: View {
         // Nothing is flying anywhere: the Atlantic, which puts most of the
         // world's traffic on the near side when it comes back.
         return CLLocationCoordinate2D(latitude: 25, longitude: -20)
+    }
+
+    /// A tap on empty map with nothing open. A sheet pulled up comes down
+    /// first; otherwise the chrome over the map is put away, or brought back.
+    /// Never during a replay, which is driving the map and owns its bar.
+    private func tapEmptyMap() {
+        guard selection == nil, sheet == nil, !replay.isActive else { return }
+        withAnimation(Motion.chrome) {
+            if !isChromeHidden, dockDetent != .collapsed {
+                dockDetent = .collapsed
+            } else {
+                if !isChromeHidden { isWeatherExpanded = false }
+                isChromeHidden.toggle()
+            }
+        }
+    }
+
+    /// The app's mark across the top of a bare map: the icon and the name, the
+    /// way the map wears its maker's name when nothing else is on it. Deaf to
+    /// touches, so a tap on it is a tap on the map.
+    private var brandMark: some View {
+        let ink: Color = appearance.resolvedMapScheme == .light ? .black : .white
+        return HStack(spacing: 10) {
+            Image("InflightLogo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 30, height: 30)
+                .padding(5)
+                .background {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(theme.windowFill)
+                }
+
+            Text("inflight")
+                .font(.system(size: 30, weight: .semibold, design: .rounded))
+                .foregroundStyle(ink)
+        }
+        .shadow(color: .black.opacity(ink == .white ? 0.35 : 0.1), radius: 8, y: 2)
+        .padding(.top, 10)
+        .frame(maxWidth: .infinity, alignment: .center)
+        .allowsHitTesting(false)
+        .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .top)))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Inflight. Tap the map to show the controls.")
     }
 
     private func openAirport(fromMap icao: String) {
@@ -722,6 +774,7 @@ struct ContentView: View {
             windHeat: weatherPreferences.windHeat,
             showsFieldConditions: weatherPreferences.showsFieldConditions,
             onSelectAirport: { openAirport(fromMap: $0) },
+            onTapEmpty: { tapEmptyMap() },
             highlighting: highlighting,
             aircraftModels: aircraftModels
         )
@@ -773,7 +826,8 @@ struct ContentView: View {
             onSelectAirport: { field in
                 selection = nil
                 openAirport(field)
-            }
+            },
+            onTapEmpty: { tapEmptyMap() }
         )
         .ignoresSafeArea()
     }
@@ -911,10 +965,14 @@ struct ContentView: View {
     private var mapStack: some View {
         ZStack(alignment: .top) {
             mapLayer
-            topChrome
-            mapControls
-            mapStyleControl
-            mapToolbar
+            if isChromeHidden {
+                brandMark
+            } else {
+                topChrome
+                mapControls
+                mapStyleControl
+                mapToolbar
+            }
             replayBar
             flightDock
             flightPane
@@ -1011,6 +1069,7 @@ struct ContentView: View {
         // The same spring the dock settles its own sheet with, so the sheet
         // and everything that steps out of its way move as one thing.
         .motion(Motion.chrome, value: dockDetent)
+        .motion(Motion.chrome, value: isChromeHidden)
         .onChange(of: isFollowing) { _, following in
             if !following { isChasing = false }
         }
@@ -1069,6 +1128,10 @@ struct ContentView: View {
             // three aeroplanes later.
             dockDetent = .collapsed
 
+            // Tapping an aeroplane while the map is bare brings everything
+            // back with its window.
+            isChromeHidden = false
+
             updateWeather(force: true)
         }
         // The aircraft keeps moving while its window is open, so the field it
@@ -1115,6 +1178,9 @@ struct ContentView: View {
             // A field's pane takes the dock away — see `mapToolbar`. Left up,
             // the sheet would go on hiding the corner controls for nothing.
             if case .airport = value, usesFlightPane { dockDetent = .collapsed }
+            // A field tapped, or a window opened from anywhere, with the
+            // chrome put away: it comes back with it.
+            if value != nil { isChromeHidden = false }
         }
     }
 
@@ -1530,6 +1596,7 @@ struct ContentView: View {
         // toolbar starts blank, which is the only thing it can honestly start
         // as.
         if kind != .plans { planningFrom = nil }
+        isChromeHidden = false
 
         // With the dock on screen the panel opens inside its sheet, in the
         // search field's place, rather than as a second window over the map.

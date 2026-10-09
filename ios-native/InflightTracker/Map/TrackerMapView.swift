@@ -191,6 +191,10 @@ struct TrackerMapView: UIViewRepresentable {
     /// Opening a field that was tapped on the map.
     var onSelectAirport: (String) -> Void = { _ in }
 
+    /// A tap on empty map with no aircraft open — what hides the chrome over
+    /// the map, and brings it back. A tap with one open closes it instead.
+    var onTapEmpty: () -> Void = {}
+
     /// Which aircraft get picked out of the traffic, and in what colour.
     var highlighting = PilotHighlighting()
 
@@ -1479,9 +1483,12 @@ struct TrackerMapView: UIViewRepresentable {
                         return
                     }
                     // Empty map: the window closes, the way tapping away from a
-                    // selected marker always has.
+                    // selected marker always has — and with nothing open, the
+                    // chrome over the map hides or comes back.
                     if self.parent.selection != nil {
                         self.parent.selection = nil
+                    } else {
+                        self.parent.onTapEmpty()
                     }
                 }
             }

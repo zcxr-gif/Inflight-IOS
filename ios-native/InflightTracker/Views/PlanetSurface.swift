@@ -122,6 +122,8 @@ struct PlanetSurface: View {
 
     var onSelectFlight: (Flight) -> Void = { _ in }
     var onSelectAirport: (Airport) -> Void = { _ in }
+    /// A tap on nothing in particular. See `TrackerMapView.onTapEmpty`.
+    var onTapEmpty: () -> Void = {}
 
     /// Where the sun is overhead. Refreshed on a slow timer rather than per
     /// frame: the terminator moves a quarter of a degree a minute.
@@ -245,7 +247,8 @@ struct PlanetSurface: View {
             onSelectField: { icao in
                 guard let field = airports.first(where: { $0.airport.icao == icao }) else { return }
                 onSelectAirport(field.airport)
-            }
+            },
+            onTapEmpty: { onTapEmpty() }
         )
         // No SwiftUI gesture, and no SwiftUI camera. Turning the planet is a
         // `UIPanGestureRecognizer` on the canvas itself, mutating a struct it

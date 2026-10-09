@@ -108,6 +108,8 @@ struct GlobeCanvas: UIViewRepresentable {
 
     var onSelectFlight: ((String) -> Void)? = nil
     var onSelectField: ((String) -> Void)? = nil
+    /// A tap that landed on neither an aeroplane nor a field.
+    var onTapEmpty: (() -> Void)? = nil
 
     func makeUIView(context: Context) -> GlobeCanvasView {
         let view = GlobeCanvasView()
@@ -123,6 +125,7 @@ struct GlobeCanvas: UIViewRepresentable {
     func updateUIView(_ view: GlobeCanvasView, context: Context) {
         view.onSelectFlight = onSelectFlight
         view.onSelectField = onSelectField
+        view.onTapEmpty = onTapEmpty
         view.onCameraMoved = onCameraMoved
         view.apply(
             palette: palette,
@@ -318,6 +321,7 @@ final class GlobeCanvasView: UIView {
 
     var onSelectFlight: ((String) -> Void)?
     var onSelectField: ((String) -> Void)?
+    var onTapEmpty: (() -> Void)?
     var onCameraMoved: ((CLLocationCoordinate2D, Double) -> Void)?
 
     // MARK: - What the view owns
@@ -1718,6 +1722,8 @@ final class GlobeCanvasView: UIView {
         }
         if let id = flight(near: point) {
             onSelectFlight?(id)
+        } else {
+            onTapEmpty?()
         }
     }
 
