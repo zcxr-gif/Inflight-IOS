@@ -24,6 +24,25 @@ enum BottomEdge {
     }
 }
 
+/// The dock's measurements. Outside the view because the view is generic over
+/// its content, and a generic type cannot hold stored statics.
+enum FlightWindowDockMetrics {
+
+    /// Room left above the full window, under the status bar.
+    static let topGap: CGFloat = 8
+
+    /// How far a pull has to be heading before it moves the window to another
+    /// stop. Judged on where the flick would land, so a short flick does it.
+    static let stepTravel: CGFloat = 60
+
+    /// How far past the peek a pull has to go to close the window. Longer than
+    /// a step, so the window is never a nudge away from being gone.
+    static let closeTravel: CGFloat = 90
+
+    /// How far the window gives above the full stop, however hard it is pulled.
+    static let overshootLimit: CGFloat = 24
+}
+
 /// The flight window on a phone: standing on the bottom edge, side to side,
 /// rather than presented as a sheet.
 ///
@@ -62,27 +81,13 @@ struct FlightWindowDock<Content: View>: View {
 
     @GestureState private var isHeld = false
 
-    /// Room left above the full window, under the status bar.
-    private static let topGap: CGFloat = 8
-
-    /// How far a pull has to be heading before it moves the window to another
-    /// stop. Judged on where the flick would land, so a short flick does it.
-    private static let stepTravel: CGFloat = 60
-
-    /// How far past the peek a pull has to go to close the window. Longer than
-    /// a step, so the window is never a nudge away from being gone.
-    private static let closeTravel: CGFloat = 90
-
-    /// How far the window gives above the full stop, however hard it is pulled.
-    private static let overshootLimit: CGFloat = 24
-
     var body: some View {
         GeometryReader { geometry in
             // The reader runs down to the foot of the screen, so what it
             // reports as the bottom of its safe area is the band the home
             // indicator sits in.
             let bottomBand = geometry.safeAreaInsets.bottom
-            let full = max(geometry.size.height - Self.topGap, 0)
+            let full = max(geometry.size.height - FlightWindowDockMetrics.topGap, 0)
             let resting = isExpanded ? full : min(peakHeight + bottomBand, full)
             let height = drawnHeight(resting: resting, full: full)
 
@@ -105,7 +110,7 @@ struct FlightWindowDock<Content: View>: View {
         guard raw > full else { return max(raw, 0) }
         let past = raw - full
         // Asymptotic rather than clamped, so the stop is felt rather than hit.
-        return full + past * Self.overshootLimit / (past + 60)
+        return full + past * FlightWindowDockMetrics.overshootLimit / (past + 60)
     }
 
     private func window(height: CGFloat) -> some View {
@@ -164,10 +169,10 @@ struct FlightWindowDock<Content: View>: View {
 
                 withAnimation(Motion.chrome) {
                     if isExpanded {
-                        if landing > Self.stepTravel { isExpanded = false }
-                    } else if landing < -Self.stepTravel {
+                        if landing > FlightWindowDockMetrics.stepTravel { isExpanded = false }
+                    } else if landing < -FlightWindowDockMetrics.stepTravel {
                         isExpanded = true
-                    } else if travelled > Self.closeTravel || landing > Self.closeTravel * 1.6 {
+                    } else if travelled > FlightWindowDockMetrics.closeTravel || landing > FlightWindowDockMetrics.closeTravel * 1.6 {
                         onClose()
                     }
                 }
