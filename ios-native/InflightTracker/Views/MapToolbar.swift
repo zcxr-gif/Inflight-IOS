@@ -59,6 +59,19 @@ enum MapPanelKind: String, Identifiable, CaseIterable {
         }
     }
 
+    /// The bar's own glyphs: one family, drawn as outlines and filled only on
+    /// the item that is open — the way the phone's own tab bars read.
+    var barSymbol: String {
+        switch self {
+        case .friends: return "person.2"
+        case .atc: return "dot.radiowaves.left.and.right"
+        case .airports: return "building.2"
+        case .filters: return "slider.horizontal.3"
+        case .settings: return "gearshape"
+        default: return symbol
+        }
+    }
+
     var symbol: String {
         switch self {
         case .friends: return "person.2.fill"
@@ -139,11 +152,11 @@ struct MapToolbar: View {
     /// wider than "ATC"; left to size themselves, the five items came out five
     /// different heights and their glyphs sat on five different lines. Boxed,
     /// they are one row of five identical cells.
-    static let iconRow: CGFloat = 20
-    static let labelRow: CGFloat = 12
-    static let iconBox: CGFloat = 26
-    static let rowGap: CGFloat = 4
-    static let itemPadding: CGFloat = 6
+    static let iconRow: CGFloat = 22
+    static let labelRow: CGFloat = 13
+    static let iconBox: CGFloat = 30
+    static let rowGap: CGFloat = 3
+    static let itemPadding: CGFloat = 5
 
     /// One item, and then the bar around them.
     ///
@@ -183,17 +196,21 @@ struct MapToolbar: View {
         // A track for the five to sit in. Not glass: the dock under it is the
         // glass, and this is a well pressed into it, the same as the field.
         .background {
+            // A soft fill and no outline: the dock is the edge, and a second
+            // hairline inside it was one line too many.
             Capsule()
                 .fill(theme.surfaceFill)
-                .overlay { Capsule().stroke(theme.stroke, lineWidth: 1) }
         }
     }
 
     private func item(_ kind: MapPanelKind) -> some View {
-        VStack(spacing: Self.rowGap) {
-            Image(systemName: kind.symbol)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(theme.textPrimary)
+        let isSelected = selected == kind
+        return VStack(spacing: Self.rowGap) {
+            Image(systemName: kind.barSymbol)
+                .symbolVariant(isSelected ? .fill : .none)
+                .font(.system(size: 18, weight: .regular))
+                .foregroundStyle(isSelected ? theme.textPrimary : theme.textSecondary)
+                .symbolEffect(.bounce, value: isSelected)
                 // A fixed box, identical for all five. The badge hangs off the
                 // corner of the box rather than off the glyph, so a badge
                 // arriving never shifts the item under it and every badge on
@@ -201,7 +218,7 @@ struct MapToolbar: View {
                 .frame(width: Self.iconBox, height: Self.iconRow)
                 .overlay(alignment: .topTrailing) {
                     badge(for: kind)
-                        .offset(x: 4, y: -4)
+                        .offset(x: 6, y: -5)
                         // A badge arriving is the one thing on this bar that
                         // happens without anybody pressing anything — a
                         // controller opening a position, a friend getting
@@ -216,8 +233,8 @@ struct MapToolbar: View {
             // before it truncates: a toolbar item whose name is cut in half is
             // an item nobody presses.
             Text(kind.label)
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(theme.textSecondary)
+                .font(.system(size: 10.5, weight: isSelected ? .semibold : .medium))
+                .foregroundStyle(isSelected ? theme.textPrimary : theme.textSecondary)
                 .flightInfoLine(minimumScale: 0.75)
                 .frame(height: Self.labelRow)
         }
@@ -245,8 +262,9 @@ struct MapToolbar: View {
 
         case .filters where activeFilters > 0:
             Circle()
-                .fill(theme.accent)
-                .frame(width: 6, height: 6)
+                .fill(Color.accentColor)
+                .frame(width: 8, height: 8)
+                .overlay { Circle().strokeBorder(theme.windowFill, lineWidth: 1.5) }
 
         default:
             EmptyView()
@@ -256,12 +274,17 @@ struct MapToolbar: View {
     /// A number on a glyph. Written once rather than twice: two copies of this
     /// drift apart the first time either is touched.
     private func count(_ value: Int) -> some View {
+        // The system's blue rather than the theme's accent, which is white on
+        // the dark themes — a white pill on a white glyph read as a smudge.
+        // Ringed in the dock's own colour so it sits on the glyph instead of
+        // running into it.
         Text(value > 99 ? "99+" : "\(value)")
-            .font(.system(size: 8.5, weight: .bold))
-            .foregroundStyle(theme.onAccent)
-            .padding(.horizontal, 3.5)
-            .padding(.vertical, 1.5)
-            .background { Capsule().fill(theme.accent) }
+            .font(.system(size: 9, weight: .bold, design: .rounded))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 4.5)
+            .frame(minWidth: 16, minHeight: 16)
+            .background { Capsule().fill(Color.accentColor) }
+            .overlay { Capsule().strokeBorder(theme.windowFill, lineWidth: 1.5) }
             .fixedSize()
             .motionFigure(Double(min(value, 100)))
     }
@@ -307,7 +330,7 @@ private struct ToolbarItemStyle: ButtonStyle {
         configuration.label
             .background {
                 Capsule()
-                    .fill(theme.textPrimary.opacity(isSelected ? 0.16 : 0.12))
+                    .fill(theme.textPrimary.opacity(isSelected ? 0.14 : 0.08))
                     .opacity(configuration.isPressed || isSelected ? 1 : 0)
                     .animation(Motion.control, value: isSelected)
             }

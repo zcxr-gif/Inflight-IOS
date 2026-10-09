@@ -79,7 +79,7 @@ struct MapSearchField: View {
     private var field: some View {
         HStack(spacing: 9) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(theme.textSecondary)
 
             TextField("Search flights or airports", text: $query)
@@ -280,11 +280,8 @@ private struct SearchSurface<S: Shape>: ViewModifier {
     func body(content: Content) -> some View {
         if isInDock {
             content
-                .background {
-                    shape
-                        .fill(theme.surfaceFill)
-                        .overlay { shape.stroke(theme.stroke, lineWidth: 1) }
-                }
+                // The same soft well as the bar under it, with no outline.
+                .background { shape.fill(theme.surfaceFill) }
                 .clipShape(shape)
         } else {
             content.flightInfoChrome(theme, in: shape)
