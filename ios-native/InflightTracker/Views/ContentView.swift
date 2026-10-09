@@ -91,10 +91,13 @@ struct ContentView: View {
     /// The ruler: whether it is down, and the leg it is measuring.
     @State private var measurement = MapMeasurement()
 
-    /// Whether the stats are pulled up over the toolbar. Here rather than in
-    /// the tab itself because the chrome in the two bottom corners has to move
-    /// out of the way of the card while it is up.
-    @State private var isStatsUp = false
+    /// Where the dock's sheet is resting. Here rather than in the dock because
+    /// the map's corner controls step aside while it is up.
+    @State private var dockDetent: MapDockDetent = .collapsed
+
+    /// The height the dock's sheet can grow into, measured off its container
+    /// so the keyboard is counted.
+    @State private var dockRoom: CGFloat = 0
 
     /// Whether the sky view is up: the camera, with the traffic drawn over it.
     @State private var isShowingSky = false
@@ -612,7 +615,7 @@ struct ContentView: View {
     /// clears it by the safe area as well — a little generous, and generous is
     /// the side of this to be wrong on.
     private var mapLegalInset: CGFloat {
-        mapBottomInset + statsLift
+        mapBottomInset + dockLift
     }
 
     /// A replay is driving the camera down the old track; following the live
@@ -1001,9 +1004,9 @@ struct ContentView: View {
         // A field's pane arrives and leaves on the same beat the flight
         // window's does, and so does the chrome that steps aside for it.
         .motion(Motion.chrome, value: airportPaneIcao)
-        // The same spring the dock settles its own handle with, so the card
-        // and everything that lifts out of its way move as one thing.
-        .motion(Motion.chrome, value: isStatsUp)
+        // The same spring the dock settles its own sheet with, so the sheet
+        // and everything that steps out of its way move as one thing.
+        .motion(Motion.chrome, value: dockDetent)
         .onChange(of: isFollowing) { _, following in
             if !following { isChasing = false }
         }
@@ -1053,10 +1056,10 @@ struct ContentView: View {
 
             isWeatherExpanded = false
 
-            // The toolbar and its tab are going away with the window opening
-            // over them; the stats should not be waiting up when it closes
-            // again, half an hour and three aeroplanes later.
-            isStatsUp = false
+            // The dock is going away with the window opening over it; it should
+            // not be waiting up when the window closes again, half an hour and
+            // three aeroplanes later.
+            dockDetent = .collapsed
 
             updateWeather(force: true)
         }
@@ -1101,10 +1104,9 @@ struct ContentView: View {
         // lets the map go of the aircraft.
         .onChange(of: sheet) { _, value in
             if value != .flight, selection != nil { selection = nil }
-            // The stats ride on the dock, and a field's pane takes the dock
-            // away — see `mapToolbar`. Left up, they would go on lifting the
-            // corner controls for a card nobody can see.
-            if case .airport = value, usesFlightPane { isStatsUp = false }
+            // A field's pane takes the dock away — see `mapToolbar`. Left up,
+            // the sheet would go on hiding the corner controls for nothing.
+            if case .airport = value, usesFlightPane { dockDetent = .collapsed }
         }
     }
 
@@ -1712,48 +1714,57 @@ struct ContentView: View {
         // one, and a dock running under a column's foot is a dock half hidden.
         // Gone while either window is up, the same on both devices.
         if selection == nil, airportPaneIcao == nil {
-            VStack(spacing: 8) {
-                // Above the bar rather than over the map proper: it is an
-                // aside about the chrome it is sitting on, and anywhere else
-                // it would be something laid over the traffic. The map's
-                // reserved inset is not grown to match — hints retire, and
-                // permanently shrinking where the map can frame things for
-                // something that goes away would be the wrong trade.
-                HintStrip(placement: .map, isFloating: true)
-                    .padding(.horizontal, 10)
+            GeometryReader { proxy in
+                VStack(spacing: 8) {
+                    // Above the sheet rather than over the map proper: it is an
+                    // aside about the chrome it is sitting on. Only while the
+                    // sheet is down — pulled up, it is the sheet's screen.
+                    if dockDetent == .collapsed {
+                        HintStrip(placement: .map, isFloating: true)
+                            .padding(.horizontal, 10)
+                    }
 
-                // One card, with the handle on it and the bar inside it. What
-                // the handle pulls up opens within the same card rather than
-                // as a second one floating above — so there is one shape on
-                // the bottom of the screen and it grows when you pull it.
-                //
-                // The map's reserved inset is not grown to match, for the same
-                // reason the hint above is not: the stats are up for as long as
-                // they are being read and then gone, and the corners lift out
-                // of their way while they are.
-                MapDock(
-                    theme: theme,
-                    atcCount: feed.atcCount,
-                    activeFilters: filters.activeCount,
-                    friendsAloft: friendsAloft,
-                    isStatsUp: $isStatsUp,
-                    onPanel: { kind in openPanel(kind) },
-                    onOpenStats: {
-                        isStatsUp = false
-                        openPanel(.stats)
-                    },
-                    query: $query,
-                    results: results,
-                    onSelect: open
-                )
-                .environmentObject(feed)
+                    // One sheet, with the handle on it, the search field across
+                    // its top and the bar along its foot. Pulled up, the field
+                    // rides to the top of the screen and the lists come up
+                    // underneath it.
+                    MapDock(
+                        theme: theme,
+                        atcCount: feed.atcCount,
+                        activeFilters: filters.activeCount,
+                        friendsAloft: friendsAloft,
+                        watched: friends.watched,
+                        detent: $dockDetent,
+                        room: proxy.size.height,
+                        onPanel: { kind in openPanel(kind) },
+                        onOpenStats: { openPanel(.stats) },
+                        onOpenFlight: { id in
+                            dockDetent = .collapsed
+                            openFlight(id)
+                        },
+                        onOpenAirport: { icao in
+                            guard let field = AirportStore.shared.airport(icao) else { return }
+                            dockDetent = .collapsed
+                            openAirport(field)
+                        },
+                        query: $query,
+                        results: results,
+                        onSelect: { result in
+                            dockDetent = .collapsed
+                            open(result)
+                        }
+                    )
+                    .environmentObject(feed)
+                }
+                // Side to side and down to the foot of the screen: the dock
+                // stands on the bottom edge rather than floating above it.
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .onChange(of: proxy.size.height, initial: true) { _, height in
+                    dockRoom = height
+                }
             }
-            // Side to side and down to the foot of the screen: the dock stands
-            // on the bottom edge rather than floating above it. See `BottomEdge`.
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-            // Not deaf to the keyboard any more. The search field is in the
-            // dock, so the dock rides up on top of the keyboard while a query
-            // is being typed, with the results rising out of the field.
+            // Not deaf to the keyboard: the sheet rides up on it while a query
+            // is being typed, and its full height is what is left above it.
             .transition(.opacity.combined(with: .move(edge: .bottom)))
         }
     }
@@ -1889,10 +1900,12 @@ struct ContentView: View {
         return entitlements.isPro ? "\(account.handle), Pro account" : account.handle
     }
 
-    /// How far the chrome in the bottom corners moves while the stats card is
-    /// up, so it sits above the card rather than behind it.
-    private var statsLift: CGFloat {
-        isStatsUp && selection == nil && !replay.isActive ? MapDock.statsLift : 0
+    /// How far the Mapbox logo and attribution lift while the dock's sheet is
+    /// pulled up, so they stay visible above it. At the top stop the sheet is
+    /// the whole screen and they are behind it with everything else.
+    private var dockLift: CGFloat {
+        guard dockDetent != .collapsed, selection == nil, !replay.isActive else { return 0 }
+        return MapDock.height(for: .half, in: dockRoom) - MapDock.reservedHeight
     }
 
     /// Weather, at the top of the map's corner stack on the right.
@@ -2142,8 +2155,8 @@ struct ContentView: View {
     /// the flat map could never be black.
     @ViewBuilder
     private var mapStyleControl: some View {
-        if selection == nil, !replay.isActive {
-            VStack(spacing: 10) {
+        if selection == nil, !replay.isActive, dockDetent == .collapsed {
+            VStack(spacing: 8) {
                 // One stack, one piece of chrome, so this corner reads as the
                 // map's own furniture rather than as loose buttons that happen
                 // to be near each other. Weather and your own aeroplane lead,
@@ -2181,7 +2194,7 @@ struct ContentView: View {
                         }
                     }
 
-                    collapseControl
+                    collapseControl()
                 }
 
                 // On a button of its own under the stack. The planet draws no
@@ -2194,7 +2207,7 @@ struct ContentView: View {
             // Close over the dock, and over the stats while they are up. No
             // legal lane on this side: the Mapbox logo and attribution are in
             // the other corner.
-            .padding(.bottom, MapDock.reservedHeight + 8 + statsLift)
+            .padding(.bottom, MapDock.reservedHeight + 8)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))
@@ -2369,10 +2382,12 @@ struct ContentView: View {
     @ViewBuilder
     private var mapControls: some View {
         if selection != nil, !replay.isActive {
-            VStack(spacing: 10) {
+            let axis = hubAxis
+            let layout = axis == .vertical ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
+            layout {
                 // One grouped control rather than free-floating circles: it reads
                 // as part of the window's chrome instead of three loose buttons.
-                cornerStack {
+                cornerStack(axis: axis) {
                     compassControl
 
                     if !areMapControlsCollapsed {
@@ -2463,7 +2478,7 @@ struct ContentView: View {
                         }
                     }
 
-                    collapseControl
+                    collapseControl(axis)
                 }
 
                 // The 3D aircraft, on a button of its own under the stack, the
@@ -2480,6 +2495,7 @@ struct ContentView: View {
             .padding(.trailing, 16 + mapTrailingInset)
             .padding(.bottom, flightWindowBottomInset + 8)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+            .motion(Motion.chrome, value: axis)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))
         }
@@ -2520,21 +2536,48 @@ struct ContentView: View {
 
     /// Folds the corner's control stack down to this handle, and opens it
     /// again. The chevron points the way the stack will go.
-    private var collapseControl: some View {
-        Button {
+    private func collapseControl(_ axis: Axis = .vertical) -> some View {
+        let isVertical = axis == .vertical
+        let symbol = isVertical
+            ? (areMapControlsCollapsed ? "chevron.up" : "chevron.down")
+            : (areMapControlsCollapsed ? "chevron.left" : "chevron.right")
+        return Button {
             withAnimation(Motion.chrome) { areMapControlsCollapsed.toggle() }
         } label: {
-            Image(systemName: areMapControlsCollapsed ? "chevron.up" : "chevron.down")
-                .font(.system(size: 13, weight: .bold))
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(theme.textSecondary)
-                .frame(width: Self.cornerWidth, height: Self.collapseHandleHeight)
+                .frame(
+                    width: isVertical ? Self.cornerWidth : Self.collapseHandleHeight,
+                    height: isVertical ? Self.collapseHandleHeight : Self.cornerWidth
+                )
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(areMapControlsCollapsed ? "Show map controls" : "Hide map controls")
     }
 
-    private static let collapseHandleHeight: CGFloat = 32
+    private static let collapseHandleHeight: CGFloat = 24
+
+    /// Which way the hub stacks with an aircraft open.
+    ///
+    /// Upright when it fits between the top of the window and the avatar, on
+    /// its side along the top of the window when it does not. A tall peak —
+    /// the Horizon window's, or any window with the instruments on it — left
+    /// less room than an upright stack needs, and the stack ran up into the
+    /// avatar in the corner.
+    private var hubAxis: Axis {
+        let rowCount = (isMapTurned ? 1 : 0)
+            + (areMapControlsCollapsed ? 0 : 3 + (!isPlanetMap && aircraftModels != .off ? 1 : 0))
+        let stack = CGFloat(rowCount) * Self.cornerRowHeight + Self.collapseHandleHeight + 8
+        let height = stack + (isPlanetMap ? 0 : 8 + Self.cornerWidth)
+        let room = mapAreaSize.height - (flightWindowBottomInset + 8) - Self.avatarClearance
+        return height <= room ? .vertical : .horizontal
+    }
+
+    /// The top of the map the hub has to keep out of: the top row's padding,
+    /// the avatar, and a gap under it.
+    private static let avatarClearance: CGFloat = 8 + 44 + 10
 
     /// 3D aircraft on or off. One collection, so one tap — the credits are in
     /// Settings › Acknowledgements.
@@ -2547,7 +2590,7 @@ struct ContentView: View {
             aircraftModelsRaw = (isOn ? AircraftModelSource.off : .flightAirMap).rawValue
         } label: {
             Text("3D")
-                .font(.system(size: 17, weight: .bold, design: .rounded))
+                .font(.system(size: 14, weight: .bold, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
                 .frame(width: Self.cornerWidth, height: Self.cornerWidth)
                 .background {
@@ -2567,25 +2610,33 @@ struct ContentView: View {
     ///
     /// No hairlines between the rows: each one is a glyph in a cell of its own
     /// height, and the gaps already say where one stops and the next begins.
-    private func cornerStack<Rows: View>(@ViewBuilder rows: () -> Rows) -> some View {
-        VStack(spacing: 0) {
+    private func cornerStack<Rows: View>(
+        axis: Axis = .vertical,
+        @ViewBuilder rows: () -> Rows
+    ) -> some View {
+        let isVertical = axis == .vertical
+        let layout = isVertical ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 0))
+        let shape = RoundedRectangle(cornerRadius: Self.cornerWidth / 2, style: .continuous)
+        return layout {
             rows()
         }
-        .padding(.vertical, 4)
-        .frame(width: Self.cornerWidth)
+        .padding(isVertical ? .vertical : .horizontal, 4)
+        .frame(width: isVertical ? Self.cornerWidth : nil, height: isVertical ? nil : Self.cornerWidth)
         // A selected row fills itself with a wash, and glass draws behind its
         // content rather than clipping it — without this the wash squares off
         // the ends of the pill.
-        .clipShape(RoundedRectangle(cornerRadius: Self.cornerWidth / 2, style: .continuous))
-        .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: Self.cornerWidth / 2, style: .continuous))
+        .clipShape(shape)
+        .flightInfoChrome(theme, in: shape)
         .environment(\.colorScheme, theme.colorScheme)
     }
 
     /// The corner controls' measurements: the pill's width, which is also the
     /// 3D button's diameter, and the height of one row in it.
-    private static let cornerWidth: CGFloat = 50
-    private static let cornerRowHeight: CGFloat = 46
-    private static let cornerGlyphSize: CGFloat = 17
+    ///
+    /// Square cells, so the same pill can stand upright or lie on its side.
+    private static let cornerWidth: CGFloat = 40
+    private static let cornerRowHeight: CGFloat = 40
+    private static let cornerGlyphSize: CGFloat = 15
 
     /// `isOn` is for the one control in the hub that is a mode rather than a
     /// move. It reads as on the way every other switched-on thing in the app

@@ -1,25 +1,31 @@
 import SwiftUI
 
-/// The furniture along the bottom of the map: one card, with a handle on it.
+/// Where the dock is resting.
 ///
-/// One shape on the bottom of the screen, which grows when you pull it, and the
-/// thing you pull is on the thing that grows.
+/// Three stops, the way every pull-up sheet on the phone has them: the bar
+/// along the bottom, half the screen, and the whole of it under the status bar.
+enum MapDockDetent: Int, CaseIterable {
+    case collapsed
+    case half
+    case full
+}
+
+/// The furniture along the bottom of the map: one sheet, with a handle on it.
 ///
-/// The handle has three stops rather than two, because the stats have two sizes
-/// and the old handle only knew about the small one. Pull once and the figures
-/// come up inside the dock — how many are flying, how many are on the ground,
-/// who is on frequency. Pull again, from there, and the whole stats window
-/// opens: the breakdown, the boards, everything the strip in the dock is too
-/// short to carry. That is the second pull the dock used to ignore, leaving the
-/// full panel reachable only by finding a small caption inside the small one.
+/// It is one shape that grows, not a bar that opens a window. Pull it and the
+/// search field rides up with the top edge, all the way to the status bar, and
+/// the lists come up underneath it — friends in the air, the server's numbers,
+/// the longest flights, what is landing, the busiest fields. The bar of
+/// destinations stays on the foot of it the whole way.
 ///
-/// The pull itself was rebuilt as well. It measures in screen coordinates
-/// rather than in the dock's own, and the dock *moves while you are dragging
-/// it* — it is the thing being opened. Measured locally, every point the card
-/// grew was subtracted from the distance the finger had travelled, which fed
-/// straight back into how far it grew: the handle stuck, jumped, and let go
-/// halfway. And the handle is no longer a button with a drag laid over it, so
-/// there is nothing left to argue with the gesture about who has the touch.
+/// The pull is measured in screen coordinates rather than in the dock's own,
+/// because the dock *moves while you are dragging it*. Measured locally, every
+/// point it grew was subtracted from the distance the finger had travelled.
+///
+/// Where the drag is taken from depends on the stop. Short of the top, the
+/// whole sheet is a handle and the lists do not scroll — a drag anywhere moves
+/// it. At the top the lists scroll, the field and the bar still move the sheet,
+/// and pulling the lists down past their top lets the sheet back down to half.
 struct MapDock: View {
 
     @EnvironmentObject private var feed: LiveFeed
@@ -35,32 +41,43 @@ struct MapDock: View {
     /// Watched pilots currently in the air.
     let friendsAloft: Int
 
-    /// Whether the stats are resting open. Held by the map so the chrome in the
-    /// two bottom corners can move up out of their way.
-    @Binding var isStatsUp: Bool
+    /// Who is being watched, for the friends list in the sheet.
+    let watched: Set<String>
+
+    /// Where the sheet is resting. Held by the map so the chrome in the corners
+    /// can step aside while it is up.
+    @Binding var detent: MapDockDetent
+
+    /// The height the sheet can grow into: from the top of the safe area to the
+    /// foot of it, less the keyboard while one is up.
+    let room: CGFloat
 
     let onPanel: (MapPanelKind) -> Void
 
-    /// The whole stats window — what the second pull asks for.
+    /// The whole stats window.
     let onOpenStats: () -> Void
 
-    /// The search, which lives in the dock now rather than across the top of
-    /// the map: the field is where the thumb already is.
+    let onOpenFlight: (String) -> Void
+    let onOpenAirport: (String) -> Void
+
     @Binding var query: String
     let results: [MapSearchResult]
     let onSelect: (MapSearchResult) -> Void
 
-    /// How far the finger has carried the dock open, upwards positive. Reset
-    /// the instant the drag ends — with the spring below, so a dock let go of
-    /// halfway settles rather than snapping.
+    /// How far the finger has carried the sheet, upwards positive. Reset with
+    /// the spring below, so a sheet let go of between stops settles.
     @GestureState(resetTransaction: Transaction(animation: Motion.chrome))
     private var pull: CGFloat = 0
 
     @GestureState private var isHeld = false
 
+    @State private var isSearchFocused = false
+
+    @State private var scroll = ScrollPosition(edge: .top)
+
     // MARK: - Metrics
 
-    /// The radius along the dock's top. The bottom is square — it runs off the
+    /// The radius along the sheet's top. The bottom is square — it runs off the
     /// foot of the screen and the display rounds it. See `BottomEdge`.
     static let cornerRadius: CGFloat = BottomEdge.cornerRadius
 
@@ -71,110 +88,95 @@ struct MapDock: View {
     private static let cardBottom: CGFloat = 6
     private static let rowGap: CGFloat = 10
 
-    /// The band the grabber sits in. Big enough to tap; the drag is on the
-    /// whole dock anyway.
+    /// The band the grabber sits in.
     static let handleBand: CGFloat = 18
 
-    /// How much of the map's bottom edge the dock covers, measured up from the
-    /// safe area — the part under the home indicator is the dock's too, but
-    /// the map was never using it.
-    ///
-    /// Added up from the parts rather than rounded up from a guess, so it
-    /// cannot drift the next time one of them changes.
+    /// How much of the map's bottom edge the collapsed dock covers, measured up
+    /// from the safe area. Added up from the parts so it cannot drift.
     static let reservedHeight: CGFloat =
         cardTop + handleBand + MapSearchField.fieldHeight + rowGap + MapToolbar.height + cardBottom
 
-    /// The strip immediately above the dock, kept empty for the Mapbox logo and
-    /// attribution button.
-    ///
-    /// Mapbox draws both in the bottom corners of the map, and its terms
-    /// require them to stay visible and tappable — so the map lifts them to
-    /// just above the dock, and the chrome in the two bottom corners starts
-    /// above this lane rather than on top of it.
-    static let legalLane: CGFloat = 20
+    /// Room left above the full sheet, under the status bar.
+    private static let topGap: CGFloat = 6
 
-    /// How far everything else has to move while the stats are up: the panel,
-    /// and the gap between it and the bar.
-    static let statsLift: CGFloat = StatsPanel.height + rowGap
+    /// How far the sheet gives above the top stop, however hard it is pulled.
+    private static let overshootLimit: CGFloat = 24
 
-    /// How far a drag has to be heading before it counts as a drag at all.
-    /// Below this it is a tap, and a tap does the same thing anyway.
-    private static let stageThreshold: CGFloat = 26
+    /// How far the lists have to be pulled past their top, with the sheet at
+    /// full, before the sheet comes down to half.
+    private static let releaseOverscroll: CGFloat = 70
 
-    /// How far past fully open the finger has to carry it to ask for the whole
-    /// window. Short, because by then the dock has already stopped growing and
-    /// the only thing left for the gesture to mean is "more".
-    private static let fullThreshold: CGFloat = 46
-
-    /// How far the card will lift at the top of the travel, however hard it is
-    /// pulled.
-    private static let overshootLimit: CGFloat = 34
+    /// The height of the sheet at a stop, above the safe area's foot.
+    static func height(for detent: MapDockDetent, in room: CGFloat) -> CGFloat {
+        let full = max(room - topGap, reservedHeight)
+        switch detent {
+        case .collapsed: return reservedHeight
+        case .half: return min(max(reservedHeight + 280, room * 0.5), full)
+        case .full: return full
+        }
+    }
 
     // MARK: - Where the pull has got to
 
-    /// Where the stats are resting, before the finger is taken into account.
-    private var restingHeight: CGFloat { isStatsUp ? StatsPanel.height : 0 }
+    private var restingHeight: CGFloat { Self.height(for: detent, in: room) }
 
-    /// How much of the stats is showing right now: where they are resting, plus
-    /// whatever the finger has added, never past the panel's own height.
-    private var revealed: CGFloat {
-        min(max(restingHeight + pull, 0), StatsPanel.height)
+    private var fullHeight: CGFloat { Self.height(for: .full, in: room) }
+
+    /// The sheet's height on this frame: the stop, plus the finger, never below
+    /// the bar and resisted past the top.
+    private var liveHeight: CGFloat {
+        let raw = restingHeight + pull
+        if raw > fullHeight {
+            let over = raw - fullHeight
+            return fullHeight + over * Self.overshootLimit / (over + 60)
+        }
+        return max(raw, Self.reservedHeight)
     }
 
-    /// How far past fully open the finger has carried it — resisted, so the
-    /// stop is something you can feel rather than a wall the drag runs into.
-    private var overshoot: CGFloat {
-        let raw = restingHeight + pull - StatsPanel.height
-        guard raw > 0 else { return 0 }
-        // Asymptotic rather than clamped: the card keeps giving a little for as
-        // long as the finger keeps going, and never reaches the stop. A hard
-        // limit reads as the gesture having been dropped.
-        return raw * Self.overshootLimit / (raw + 60)
+    /// The bar stays on the foot of the sheet, except while the keyboard is up
+    /// — then the room is the results'.
+    private var showsToolbar: Bool { !isSearchFocused }
+
+    /// Everything in the sheet that is not the scrolling body.
+    private var chromeHeight: CGFloat {
+        Self.cardTop + Self.handleBand + MapSearchField.fieldHeight + Self.cardBottom
+            + (showsToolbar ? Self.rowGap + MapToolbar.height : 0)
     }
 
-    /// Whether letting go now would open the whole window.
-    private var willOpenFull: Bool {
-        restingHeight + pull > StatsPanel.height + Self.fullThreshold
-    }
+    private var bodyHeight: CGFloat { max(liveHeight - chromeHeight, 0) }
 
-    /// Whether a search is under way. The dock gives the results its room
-    /// while one is: the bar and the stats step aside, and the list rises out
-    /// of the field.
     private var isSearching: Bool {
-        !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        query.trimmingCharacters(in: .whitespacesAndNewlines).count >= MapSearch.minimumLength
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            handle
+            VStack(spacing: 0) {
+                handle
 
-            if revealed > 0, !isSearching {
-                StatsPanel(theme: theme, onOpenFull: onOpenStats)
-                    .environmentObject(feed)
-                    // Bottom-aligned inside a frame that grows: the numbers
-                    // rise out of the bar rather than being squashed against
-                    // it.
-                    .frame(height: revealed, alignment: .bottom)
+                MapSearchField(
+                    query: $query,
+                    results: results,
+                    theme: theme,
+                    isInDock: true,
+                    showsResults: false,
+                    focus: $isSearchFocused,
+                    onSelect: pick
+                )
+            }
+            .simultaneousGesture(pullGesture)
+
+            if bodyHeight > 0.5 {
+                sheetBody
+                    .frame(height: bodyHeight, alignment: .top)
                     .clipped()
-                    // Faded on the way, so an inch of panel hanging out of the
-                    // dock reads as one opening rather than one that gave up.
-                    .opacity(Double(min(revealed / (StatsPanel.height * 0.6), 1)))
-                    // Nothing in it is worth pressing until it has settled — a
-                    // button under a moving finger is a mis-tap waiting to be
-                    // blamed on the app.
-                    .allowsHitTesting(revealed >= StatsPanel.height && pull == 0)
-                    .padding(.bottom, Self.rowGap)
+                    // Faded on the way up, so the first inch of lists hanging
+                    // under the field reads as an opening, not a cut.
+                    .opacity(Double(min(bodyHeight / 90, 1)))
+                    .simultaneousGesture(pullGesture, including: detent == .full ? .subviews : .all)
             }
 
-            MapSearchField(
-                query: $query,
-                results: results,
-                theme: theme,
-                isInDock: true,
-                onSelect: onSelect
-            )
-
-            if !isSearching {
+            if showsToolbar {
                 MapToolbar(
                     theme: theme,
                     atcCount: atcCount,
@@ -183,18 +185,17 @@ struct MapDock: View {
                     action: onPanel
                 )
                 .padding(.top, Self.rowGap)
+                .simultaneousGesture(pullGesture)
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
         }
         .padding(.horizontal, Self.cardInset)
-        // The overshoot is the dock growing at the top, not moving: its foot is
-        // the bottom of the screen and stays there. It is the give at the end
-        // of the travel that says there is one more stop.
-        .padding(.top, Self.cardTop + overshoot)
+        .padding(.top, Self.cardTop)
         .padding(.bottom, Self.cardBottom)
+        .frame(height: liveHeight, alignment: .top)
         .background {
             // Down past the safe area and off the foot of the screen, so the
-            // dock fills both bottom corners rather than hovering above them.
+            // sheet fills both bottom corners rather than hovering above them.
             theme.sheetBackground
                 .clipShape(BottomEdge.shape)
                 .overlay {
@@ -203,71 +204,88 @@ struct MapDock: View {
                 .shadow(color: .black.opacity(0.22), radius: 18, y: -2)
                 .ignoresSafeArea(edges: .bottom)
         }
+        .motion(Motion.chrome, value: showsToolbar)
         .motion(Motion.chrome, value: isSearching)
         .environment(\.colorScheme, theme.colorScheme)
-        // On the whole dock rather than the handle alone: once the stats are
-        // up, pushing them back down from anywhere on the dock is the gesture
-        // people try. Simultaneous, so the bar's buttons still take their own
-        // taps — a drag past a button's cancel distance stops it firing, so the
-        // two never both act on one gesture.
-        .simultaneousGesture(pullGesture)
-    }
-
-    /// The grabber, the way every pull-up on the phone marks itself, with the
-    /// cue for the stop above it.
-    private var handle: some View {
-        ZStack {
-            // The pill hands over to the cue as the travel runs out, in the
-            // same band rather than beside it: two things in a twenty-eight
-            // point strip is a strip with two things crammed into it.
-            let cue = Double(min(overshoot / 14, 1))
-
-            Capsule()
-                .fill(theme.textSecondary.opacity(isHeld || isStatsUp ? 0.9 : 0.45))
-                .frame(width: isHeld ? 56 : 44, height: isHeld ? 6 : 5)
-                .opacity(1 - cue)
-                .motion(Motion.control, value: isHeld)
-
-            // Only once the finger is past the top of the travel: the dock has
-            // stopped growing by then, so without this the last inch of the
-            // pull reads as nothing happening rather than as the next stop
-            // arriving.
-            if overshoot > 0 {
-                Text(willOpenFull ? "RELEASE FOR THE FULL STATS" : "KEEP PULLING FOR THE FULL STATS")
-                    .font(.system(size: 8.5, weight: .bold))
-                    .tracking(0.6)
-                    .foregroundStyle(willOpenFull ? theme.textSecondary : theme.textDim)
-                    .flightInfoLine(minimumScale: 0.8)
-                    .padding(.horizontal, 12)
-                    .opacity(cue)
-                    .allowsHitTesting(false)
+        .onChange(of: isSearchFocused) { _, focused in
+            // Typing wants the room: the field goes to the top of the screen
+            // and the results come up under it.
+            if focused, detent != .full { settle(to: .full) }
+        }
+        .onChange(of: detent) { _, stop in
+            if stop != .full {
+                scroll.scrollTo(edge: .top)
+                if isSearchFocused { isSearchFocused = false }
             }
         }
-        .frame(maxWidth: .infinity, minHeight: Self.handleBand)
-        .contentShape(Rectangle())
-        // A tap, not a button. A button claims the touch it is under and then
-        // spends the rest of the gesture arguing with the drag about who has
-        // it; this is the same two behaviours with nothing to arbitrate.
-        .onTapGesture { toggle() }
-        .accessibilityElement()
-        .accessibilityLabel(isStatsUp ? "Hide the stats" : "Show the stats")
-        .accessibilityHint("Pull up for the numbers on this server, and again for the full stats")
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAddTraits(isStatsUp ? .isSelected : [])
-        .accessibilityAction { toggle() }
-        .accessibilityAction(named: "Open the full stats") { onOpenStats() }
     }
 
-    /// The pull itself.
-    ///
-    /// Measured against the screen rather than against the dock. The dock grows
-    /// under the finger as it opens, and a translation read in a coordinate
-    /// space that is itself moving subtracts the growth from the travel — which
-    /// is precisely the stick-and-jump the handle used to have.
-    ///
-    /// `predictedEndTranslation` decides where it lands, so a short flick opens
-    /// the dock the way a flick opens a sheet: the finger does not have to
-    /// travel the whole height of the thing it is moving.
+    /// The scrolling body: what was searched for while there is a query, the
+    /// lists otherwise.
+    private var sheetBody: some View {
+        ScrollView {
+            if isSearching {
+                MapSearchResultsCard(
+                    query: query,
+                    results: results,
+                    theme: theme,
+                    isInDock: true,
+                    onSelect: pick
+                )
+                .padding(.top, 12)
+                .padding(.bottom, 16)
+            } else {
+                MapDockSections(
+                    theme: theme,
+                    watched: watched,
+                    onOpenStats: onOpenStats,
+                    onOpenFlight: onOpenFlight,
+                    onOpenAirport: onOpenAirport,
+                    onPanel: onPanel
+                )
+                .environmentObject(feed)
+            }
+        }
+        .scrollPosition($scroll)
+        .scrollIndicators(.hidden)
+        .scrollDisabled(detent != .full)
+        .scrollDismissesKeyboard(.immediately)
+        .onScrollGeometryChange(for: CGFloat.self) { geometry in
+            geometry.contentOffset.y + geometry.contentInsets.top
+        } action: { _, offset in
+            if offset < -Self.releaseOverscroll, detent == .full, !isSearchFocused {
+                settle(to: .half)
+            }
+        }
+    }
+
+    /// The grabber, the way every pull-up on the phone marks itself.
+    private var handle: some View {
+        Capsule()
+            .fill(theme.textSecondary.opacity(isHeld || detent != .collapsed ? 0.9 : 0.45))
+            .frame(width: isHeld ? 56 : 40, height: 5)
+            .motion(Motion.control, value: isHeld)
+            .frame(maxWidth: .infinity, minHeight: Self.handleBand)
+            .contentShape(Rectangle())
+            .onTapGesture { step() }
+            .accessibilityElement()
+            .accessibilityLabel(accessibilityLabel)
+            .accessibilityHint("Pull up for flights, airports and the numbers on this server")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { step() }
+            .accessibilityAction(named: "Open the full stats") { onOpenStats() }
+    }
+
+    private var accessibilityLabel: String {
+        switch detent {
+        case .collapsed: return "Show more"
+        case .half: return "Expand"
+        case .full: return "Collapse"
+        }
+    }
+
+    /// The pull itself, judged on where the flick would land, so a short flick
+    /// moves the sheet the way a flick moves any sheet.
     private var pullGesture: some Gesture {
         DragGesture(minimumDistance: 6, coordinateSpace: .global)
             .updating($isHeld) { _, state, _ in state = true }
@@ -275,42 +293,33 @@ struct MapDock: View {
                 state = -value.translation.height
             }
             .onEnded { value in
-                let travelled = -value.translation.height
-                let landing = -value.predictedEndTranslation.height
-
-                if isStatsUp {
-                    // Up from open is the second pull: the whole window.
-                    if landing > Self.stageThreshold {
-                        openFull()
-                    } else if landing < -Self.stageThreshold {
-                        settle(to: false)
-                    }
-                } else {
-                    // One long pull, all the way through the small stats and
-                    // out the other side, goes straight to the window. Judged
-                    // on where the finger actually went rather than on where a
-                    // flick was heading, so a quick flick still lands on the
-                    // figures instead of overshooting into a sheet.
-                    if travelled > StatsPanel.height + Self.fullThreshold {
-                        openFull()
-                    } else if landing > Self.stageThreshold {
-                        settle(to: true)
-                    }
-                }
+                let landing = restingHeight - value.predictedEndTranslation.height
+                let nearest = MapDockDetent.allCases.min { lhs, rhs in
+                    abs(Self.height(for: lhs, in: room) - landing)
+                        < abs(Self.height(for: rhs, in: room) - landing)
+                } ?? detent
+                settle(to: nearest)
             }
     }
 
-    private func toggle() {
-        settle(to: !isStatsUp)
-    }
-
-    private func settle(to open: Bool) {
-        withAnimation(Motion.chrome) {
-            isStatsUp = open
+    /// A tap on the handle: up a stop, and from the top back down to the bar.
+    private func step() {
+        switch detent {
+        case .collapsed: settle(to: .half)
+        case .half: settle(to: .full)
+        case .full: settle(to: .collapsed)
         }
     }
 
-    private func openFull() {
-        onOpenStats()
+    private func settle(to stop: MapDockDetent) {
+        withAnimation(Motion.chrome) {
+            detent = stop
+        }
+    }
+
+    private func pick(_ result: MapSearchResult) {
+        isSearchFocused = false
+        query = ""
+        onSelect(result)
     }
 }
