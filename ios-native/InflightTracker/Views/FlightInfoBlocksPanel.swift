@@ -56,7 +56,7 @@ struct FlightInfoBlocksPanel: View {
                 .panelEntrance(1)
             }
 
-            Text(Self.note)
+            Text(L(Self.note))
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(theme.textDim)
                 .fixedSize(horizontal: false, vertical: true)
@@ -111,7 +111,7 @@ struct FlightInfoBlocksPanel: View {
                 .buttonStyle(.plain)
                 .disabled(!block.kind.wearsColour)
                 .accessibilityLabel("\(block.kind.label). \(block.kind.detail)")
-                .accessibilityHint(block.kind.wearsColour ? "Opens this block's colour" : "")
+                .accessibilityHint(L(block.kind.wearsColour ? "Opens this block's colour" : ""))
 
                 Toggle("", isOn: onBinding(block))
                     .labelsHidden()
@@ -160,7 +160,7 @@ struct FlightInfoBlocksPanel: View {
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
-        .accessibilityLabel(amount < 0 ? "Move \(block.kind.label) up" : "Move \(block.kind.label) down")
+        .accessibilityLabel(L(amount < 0 ? "Move \(block.kind.label) up" : "Move \(block.kind.label) down"))
     }
 
     /// The colour half of a row: how the colour is worn, and which one.
@@ -168,12 +168,12 @@ struct FlightInfoBlocksPanel: View {
         VStack(alignment: .leading, spacing: 10) {
             Picker("Colour", selection: tintBinding(block)) {
                 ForEach(FlightInfoBlockTint.allCases) { tint in
-                    Text(tint.label).tag(tint)
+                    Text(L(tint.label)).tag(tint)
                 }
             }
             .pickerStyle(.segmented)
 
-            Text(block.tint.detail)
+            Text(L(block.tint.detail))
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(theme.textDim)
                 .fixedSize(horizontal: false, vertical: true)
@@ -187,7 +187,7 @@ struct FlightInfoBlocksPanel: View {
                     )
                     .labelsHidden()
 
-                    Text(block.colour == nil ? "The window's own accent" : "This block's colour")
+                    Text(L(block.colour == nil ? "The window's own accent" : "This block's colour"))
                         .font(.system(size: 11.5, weight: .medium))
                         .foregroundStyle(theme.textSecondary)
                         .flightInfoLine(minimumScale: 0.7)

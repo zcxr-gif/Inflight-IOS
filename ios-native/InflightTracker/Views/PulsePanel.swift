@@ -81,7 +81,7 @@ struct PulsePanel: View {
                 "\(pulse.airborne)",
                 label: "IN THE AIR",
                 detail: pulse.total > 0
-                    ? "\(percent(pulse.airborne, of: pulse.total)) of the server"
+                    ? Lf("%@ of the server", "\(percent(pulse.airborne, of: pulse.total))")
                     : nil
             )
             figure(
@@ -102,18 +102,18 @@ struct PulsePanel: View {
 
     private func figure(_ value: String, label: String, detail: String?) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(value)
+            Text(L(value))
                 .font(.system(size: 26, weight: .heavy, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
                 .flightInfoLine(minimumScale: 0.5)
 
-            Text(label)
+            Text(L(label))
                 .font(.system(size: 8.5, weight: .bold))
                 .tracking(0.6)
                 .foregroundStyle(theme.textSecondary)
                 .flightInfoLine(minimumScale: 0.7)
 
-            Text(detail ?? " ")
+            Text(L(detail ?? " "))
                 .font(.system(size: 9.5, weight: .medium))
                 .foregroundStyle(theme.textDim)
                 .flightInfoLine(minimumScale: 0.7)
@@ -257,7 +257,7 @@ struct PulsePanel: View {
     private func liveLine(_ live: Flight?) -> String {
         guard let live else { return "Not flying now" }
         guard let callsign = live.callsign, !callsign.isEmpty else { return "Flying now" }
-        return "Flying now · \(callsign)"
+        return Lf("Flying now · %@", "\(callsign)")
     }
 
     private func watchedRow(
@@ -267,18 +267,18 @@ struct PulsePanel: View {
         peak: Int
     ) -> some View {
         HStack(spacing: 10) {
-            Text(rank < 3 ? ["🥇", "🥈", "🥉"][rank] : "\(rank + 1)")
+            Text(L(rank < 3 ? ["🥇", "🥈", "🥉"][rank] : "\(rank + 1)"))
                 .font(.system(size: rank < 3 ? 17 : 13, weight: .bold, design: .monospaced))
                 .foregroundStyle(theme.textSecondary)
                 .frame(width: 24)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(entry.pilotName)
+                Text(L(entry.pilotName))
                     .font(.system(size: 13.5, weight: .bold))
                     .foregroundStyle(theme.textPrimary)
                     .flightInfoLine(minimumScale: 0.7)
 
-                Text(liveLine(live))
+                Text(L(liveLine(live)))
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(live == nil ? theme.textDim : theme.accent)
                     .flightInfoLine(minimumScale: 0.7)
@@ -293,7 +293,7 @@ struct PulsePanel: View {
                     .font(.system(size: 13, weight: .bold, design: .monospaced))
                     .foregroundStyle(theme.textPrimary)
 
-                Text(entry.viewCount == 1 ? "view" : "views")
+                Text(L(entry.viewCount == 1 ? "view" : "views"))
                     .font(.system(size: 9.5, weight: .medium))
                     .foregroundStyle(theme.textDim)
             }
@@ -355,13 +355,13 @@ struct PulsePanel: View {
                             .tracking(0.6)
                             .foregroundStyle(theme.textDim)
 
-                        Text(longest.name)
+                        Text(L(longest.name))
                             .font(.system(size: 14, weight: .bold, design: .monospaced))
                             .foregroundStyle(theme.textPrimary)
                             .flightInfoLine(minimumScale: 0.7)
 
                         if let detail = longest.detail {
-                            Text(detail)
+                            Text(L(detail))
                                 .font(.system(size: 10.5, weight: .medium))
                                 .foregroundStyle(theme.textDim)
                                 .flightInfoLine(minimumScale: 0.7)
@@ -399,13 +399,13 @@ struct PulsePanel: View {
     ) -> some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(tally.name)
+                Text(L(tally.name))
                     .font(.system(size: 13.5, weight: .bold, design: .monospaced))
                     .foregroundStyle(theme.textPrimary)
                     .flightInfoLine(minimumScale: 0.7)
 
                 if let detail = tally.detail {
-                    Text(detail)
+                    Text(L(detail))
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(theme.textDim)
                         .flightInfoLine(minimumScale: 0.7)
@@ -455,7 +455,7 @@ struct PulsePanel: View {
                     .font(.system(size: 13, weight: .bold, design: .monospaced))
                     .foregroundStyle(theme.textPrimary)
 
-                Text(percent(count, of: total))
+                Text(L(percent(count, of: total)))
                     .font(.system(size: 9.5, weight: .medium, design: .monospaced))
                     .foregroundStyle(theme.textDim)
             }

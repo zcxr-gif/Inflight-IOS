@@ -368,7 +368,7 @@ struct MapDock: View {
             .contentShape(Rectangle())
             .onTapGesture { step() }
             .accessibilityElement()
-            .accessibilityLabel(accessibilityLabel)
+            .accessibilityLabel(L(accessibilityLabel))
             .accessibilityHint("Pull up for flights, airports and the numbers on this server")
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { step() }

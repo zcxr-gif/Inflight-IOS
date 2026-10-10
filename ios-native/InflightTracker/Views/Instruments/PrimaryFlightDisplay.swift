@@ -51,7 +51,11 @@ struct PrimaryFlightDisplay: View {
         static let bankRadius: CGFloat = 74
     }
 
-    var body: some View {
+    /// Geometry, not reading order: in Arabic or Urdu a mirrored instrument would
+    /// show bank, heading or bearing the wrong way round.
+    var body: some View { drawing.environment(\.layoutDirection, .leftToRight) }
+
+    @ViewBuilder private var drawing: some View {
         // The context arrives `inout`, so the transform below applies to the
         // canvas itself rather than to a copy of it.
         Canvas(rendersAsynchronously: false) { context, size in
@@ -82,7 +86,7 @@ struct PrimaryFlightDisplay: View {
         .background(InstrumentPalette.screen)
         .accessibilityElement()
         .accessibilityLabel("Primary flight display")
-        .accessibilityValue(accessibilitySummary)
+        .accessibilityValue(L(accessibilitySummary))
     }
 
     private var accessibilitySummary: String {

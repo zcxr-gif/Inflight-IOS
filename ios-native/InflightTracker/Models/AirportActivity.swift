@@ -36,7 +36,7 @@ struct AirportActivity {
         var etaLabel: String? {
             guard let seconds = etaSeconds, seconds.isFinite, seconds > 0 else { return nil }
             let minutes = max(1, Int((seconds / 60).rounded()))
-            guard minutes >= 60 else { return "\(minutes) min" }
+            guard minutes >= 60 else { return Lf("%@ min", "\(minutes)") }
             return String(format: "%dh %02dm", minutes / 60, minutes % 60)
         }
 

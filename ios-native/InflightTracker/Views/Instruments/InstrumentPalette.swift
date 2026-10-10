@@ -63,7 +63,7 @@ extension GraphicsContext {
         weight: Font.Weight = .bold,
         anchor: UnitPoint = .center
     ) {
-        var text = resolve(Text(string).font(InstrumentPalette.digits(size, weight: weight)))
+        var text = resolve(Text(L(string)).font(InstrumentPalette.digits(size, weight: weight)))
         text.shading = .color(color)
         draw(text, at: point, anchor: anchor)
     }

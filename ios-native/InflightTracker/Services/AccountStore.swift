@@ -234,7 +234,7 @@ final class AccountStore: ObservableObject {
                 try await self.adopt(session)
 
             case .needsConfirmation(let email):
-                self.notice = "Check \(email) for a confirmation link, then sign in."
+                self.notice = Lf("Check %@ for a confirmation link, then sign in.", "\(email)")
             }
         }
     }
@@ -244,7 +244,7 @@ final class AccountStore: ObservableObject {
         await run {
             let address = Self.clean(email)
             try await SupabaseAuth.sendPasswordReset(email: address)
-            self.notice = "If \(address) has an account, a reset link is on its way."
+            self.notice = Lf("If %@ has an account, a reset link is on its way.", "\(address)")
         }
     }
 

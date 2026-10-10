@@ -207,9 +207,9 @@ struct PlannedFlight: Identifiable, Equatable {
         let out = departureStand?.ref
         let arrive = arrivalStand?.ref
         switch (out, arrive) {
-        case let (.some(out), .some(arrive)): return "Gate \(out) → \(arrive)"
-        case let (.some(out), .none): return "Gate \(out) → —"
-        case let (.none, .some(arrive)): return "Gate — → \(arrive)"
+        case let (.some(out), .some(arrive)): return Lf("Gate %@ → %@", "\(out)", "\(arrive)")
+        case let (.some(out), .none): return Lf("Gate %@ → —", "\(out)")
+        case let (.none, .some(arrive)): return Lf("Gate — → %@", "\(arrive)")
         case (.none, .none): return nil
         }
     }

@@ -84,7 +84,7 @@ struct AcknowledgementsPanel: View {
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(theme.textPrimary)
 
-                    Text(AircraftModelSource.credit)
+                    Text(L(AircraftModelSource.credit))
                         .font(.system(size: 11.5))
                         .foregroundStyle(theme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -108,7 +108,7 @@ struct AcknowledgementsPanel: View {
             }
 
             PanelSection(title: "BSD 3-CLAUSE") {
-                Text(Self.bsdNotice)
+                Text(L(Self.bsdNotice))
                     .font(.system(size: 10.5, design: .monospaced))
                     .foregroundStyle(theme.textDim)
                     .textSelection(.enabled)
@@ -119,7 +119,7 @@ struct AcknowledgementsPanel: View {
 
     private func modelCredit(_ model: AircraftModelCatalog.Credit) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(model.aircraft)
+            Text(L(model.aircraft))
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(theme.textPrimary)
 
@@ -151,11 +151,11 @@ struct AcknowledgementsPanel: View {
 
     private func credit(title: String, detail: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(title)
+            Text(L(title))
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(theme.textPrimary)
 
-            Text(detail)
+            Text(L(detail))
                 .font(.system(size: 11.5))
                 .foregroundStyle(theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)

@@ -166,7 +166,7 @@ struct ProPanel: View {
                 Button {
                     Task { await store.restore() }
                 } label: {
-                    Text(store.isRestoring ? "Restoring…" : "Restore")
+                    Text(L(store.isRestoring ? "Restoring…" : "Restore"))
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(theme.textSecondary)
                         .padding(.horizontal, 16)
@@ -203,7 +203,7 @@ struct ProPanel: View {
                 .foregroundStyle(theme.textPrimary)
                 .multilineTextAlignment(.center)
 
-            Text(subtitle)
+            Text(L(subtitle))
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(theme.textDim)
                 .multilineTextAlignment(.center)
@@ -215,7 +215,7 @@ struct ProPanel: View {
 
     private var subtitle: String {
         if let highlighted = highlighted {
-            return "\(highlighted.title) is part of Pro, along with everything below."
+            return Lf("%@ is part of Pro, along with everything below.", "\(highlighted.title)")
         }
         return "Everything the tracker can do, on every device you sign into."
     }
@@ -241,11 +241,11 @@ struct ProPanel: View {
                 }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(feature.title)
+                Text(L(feature.title))
                     .font(.system(size: 14.5, weight: .semibold))
                     .foregroundStyle(theme.textPrimary)
 
-                Text(feature.detail)
+                Text(L(feature.detail))
                     .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .fixedSize(horizontal: false, vertical: true)
@@ -357,12 +357,12 @@ struct ProPanel: View {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 7) {
-                        Text(title(for: plan))
+                        Text(L(title(for: plan)))
                             .font(.system(size: 15.5, weight: .bold, design: .rounded))
                             .foregroundStyle(theme.textPrimary)
 
                         if plan == .annual, let saving = store.annualSavingPercent {
-                            Text("SAVE \(saving)%")
+                            Text(Lf("SAVE %@%%", "\(saving)"))
                                 .font(.system(size: 9, weight: .bold))
                                 .tracking(0.6)
                                 .foregroundStyle(theme.onAccent)
@@ -374,7 +374,7 @@ struct ProPanel: View {
                     }
 
                     if let detail = detail(for: plan) {
-                        Text(detail)
+                        Text(L(detail))
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(theme.textDim)
                     }
@@ -382,7 +382,7 @@ struct ProPanel: View {
 
                 Spacer(minLength: 6)
 
-                Text(store.displayPrice(for: plan) ?? "—")
+                Text(L(store.displayPrice(for: plan) ?? "—"))
                     .font(.system(size: 16, weight: .bold, design: .rounded))
                     .foregroundStyle(theme.textPrimary)
                     .flightInfoLine(minimumScale: 0.7)
@@ -428,7 +428,7 @@ struct ProPanel: View {
         switch plan {
         case .annual:
             guard let perMonth = store.perMonthPrice(for: .annual) else { return "Billed once a year" }
-            return "\(perMonth) a month, billed yearly"
+            return Lf("%@ a month, billed yearly", "\(perMonth)")
         case .monthly:
             return "Billed every month"
         case .lifetime:
@@ -444,7 +444,7 @@ struct ProPanel: View {
                 if store.purchasing != nil {
                     ProgressView().tint(theme.onAccent)
                 }
-                Text(buttonTitle)
+                Text(L(buttonTitle))
                     .font(.system(size: 16, weight: .bold, design: .rounded))
             }
             .foregroundStyle(theme.onAccent)
@@ -515,7 +515,7 @@ struct ProPanel: View {
                     if web.isStarting || web.isConfirming {
                         ProgressView().controlSize(.small).tint(theme.textSecondary)
                     }
-                    Text(webButtonTitle)
+                    Text(L(webButtonTitle))
                         .font(.system(size: 12.5, weight: .semibold))
                 }
                 .foregroundStyle(theme.textSecondary)
@@ -549,7 +549,7 @@ struct ProPanel: View {
             // sell, which is the thing being fixed rather than a smaller
             // version of it.
             if !store.plansForSale.isEmpty {
-                Text(renewalTerms)
+                Text(L(renewalTerms))
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .multilineTextAlignment(.center)
@@ -598,7 +598,7 @@ struct ProPanel: View {
                 .font(.system(size: 20, weight: .heavy, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
 
-            Text(ownedDetail)
+            Text(L(ownedDetail))
                 .font(.system(size: 12.5, weight: .medium))
                 .foregroundStyle(theme.textDim)
                 .multilineTextAlignment(.center)
@@ -638,7 +638,7 @@ struct ProPanel: View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: symbol)
                 .font(.system(size: 11, weight: .semibold))
-            Text(text)
+            Text(L(text))
                 .font(.system(size: 11.5, weight: .medium))
                 .fixedSize(horizontal: false, vertical: true)
         }

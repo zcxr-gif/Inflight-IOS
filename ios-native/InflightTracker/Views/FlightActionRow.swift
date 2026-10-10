@@ -71,7 +71,7 @@ struct FlightActionRow: View {
             )
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(showsRemaining ? "Time to run" : clock.accessibilityLabel)
+        .accessibilityLabel(L(showsRemaining ? "Time to run" : clock.accessibilityLabel))
         .accessibilityHint("Switches between elapsed and remaining")
     }
 
@@ -118,7 +118,7 @@ struct FlightActionRow: View {
                 .foregroundStyle(filled ? theme.onAccent : theme.textPrimary)
                 .frame(height: 18)
 
-            Text(title)
+            Text(L(title))
                 .font(.system(size: 14, weight: .bold, design: .rounded))
                 .foregroundStyle(filled ? theme.onAccent : theme.textPrimary)
                 .flightInfoLine(minimumScale: 0.7)
@@ -127,7 +127,7 @@ struct FlightActionRow: View {
             // and the title on the same baseline across all three tiles;
             // dropping it moved Share's contents up relative to its
             // neighbours' by exactly the height of a caption.
-            Text(caption ?? " ")
+            Text(L(caption ?? " "))
                 .font(.system(size: 8, weight: .bold))
                 .tracking(0.6)
                 .foregroundStyle(filled ? theme.onAccent.opacity(0.6) : theme.textDim)
@@ -310,10 +310,10 @@ struct FlightActionRow: View {
 
         case .grounded(let airport, let isTaxiing):
             let place = airport?.icao ?? "an unknown field"
-            lines.append(isTaxiing ? "Taxiing at \(place)" : "Parked at \(place)")
+            lines.append(isTaxiing ? Lf("Taxiing at %@", place) : Lf("Parked at %@", place))
 
         case .unplanned(_, let nearest):
-            lines.append(nearest.map { "Passing \($0.icao)" } ?? "Airborne, no destination filed")
+            lines.append(nearest.map { Lf("Passing %@", $0.icao) } ?? "Airborne, no destination filed")
         }
 
         lines.append(

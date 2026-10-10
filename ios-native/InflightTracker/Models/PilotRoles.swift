@@ -79,7 +79,7 @@ struct PilotRoleBadge: View {
     var isLight = false
 
     var body: some View {
-        Text(role.badge)
+        Text(L(role.badge))
             .font(.system(size: 8.5, weight: .heavy))
             .tracking(0.6)
             .foregroundStyle(ink)
@@ -88,7 +88,7 @@ struct PilotRoleBadge: View {
             .background { Capsule().fill(role.colour.opacity(isLight ? 0.18 : 0.22)) }
             .overlay { Capsule().strokeBorder(role.colour.opacity(0.6), lineWidth: 1) }
             .fixedSize()
-            .accessibilityLabel(role.detail)
+            .accessibilityLabel(L(role.detail))
     }
 
     /// The light blue is pale enough to vanish on white, and the green dark

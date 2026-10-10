@@ -185,7 +185,7 @@ struct MapToolbar: View {
                     item(kind)
                 }
                 .buttonStyle(ToolbarItemStyle(theme: theme, isSelected: selected == kind))
-                .accessibilityLabel(accessibilityLabel(for: kind))
+                .accessibilityLabel(L(accessibilityLabel(for: kind)))
                 .accessibilityAddTraits(selected == kind ? .isSelected : [])
             }
         }
@@ -232,7 +232,7 @@ struct MapToolbar: View {
             // is room enough to read them properly. Allowed to scale a little
             // before it truncates: a toolbar item whose name is cut in half is
             // an item nobody presses.
-            Text(kind.label)
+            Text(L(kind.label))
                 .font(.system(size: 10.5, weight: isSelected ? .semibold : .medium))
                 .foregroundStyle(isSelected ? theme.textPrimary : theme.textSecondary)
                 .flightInfoLine(minimumScale: 0.75)
@@ -278,7 +278,7 @@ struct MapToolbar: View {
         // the dark themes — a white pill on a white glyph read as a smudge.
         // Ringed in the dock's own colour so it sits on the glyph instead of
         // running into it.
-        Text(value > 99 ? "99+" : "\(value)")
+        Text(L(value > 99 ? "99+" : "\(value)"))
             .font(.system(size: 9, weight: .bold, design: .rounded))
             .foregroundStyle(.white)
             .padding(.horizontal, 4.5)

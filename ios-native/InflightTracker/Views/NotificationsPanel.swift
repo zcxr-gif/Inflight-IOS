@@ -197,12 +197,12 @@ struct NotificationsPanel: View {
                 }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(sampleTitle)
+                Text(L(sampleTitle))
                     .font(.system(size: 13, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
                     .flightInfoLine(minimumScale: 0.7)
 
-                Text(sampleBody)
+                Text(L(sampleBody))
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.white.opacity(0.85))
                     .lineLimit(2)
@@ -232,23 +232,23 @@ struct NotificationsPanel: View {
     }
 
     private var sampleTitle: String {
-        guard let flight = subject else { return "\(approachMinutes) minutes out" }
-        if identity.isMe(flight.username) { return "\(approachMinutes) minutes out" }
+        guard let flight = subject else { return Lf("%@ minutes out", "\(approachMinutes)") }
+        if identity.isMe(flight.username) { return Lf("%@ minutes out", "\(approachMinutes)") }
         return flight.username ?? "A pilot you watch"
     }
 
     private var sampleBody: String {
         guard let flight = subject else {
-            return "About \(approachMinutes) minutes to your destination at your current speed."
+            return Lf("About %@ minutes to your destination at your current speed.", "\(approachMinutes)")
         }
         let route = [flight.departureIcao, flight.arrivalIcao].compactMap { $0 }
         if identity.isMe(flight.username) {
             guard let arrival = flight.arrivalIcao else {
-                return "About \(approachMinutes) minutes to your destination at your current speed."
+                return Lf("About %@ minutes to your destination at your current speed.", "\(approachMinutes)")
             }
-            return "About \(approachMinutes) minutes to \(arrival) at your current speed."
+            return Lf("About %@ minutes to %@ at your current speed.", "\(approachMinutes)", "\(arrival)")
         }
-        guard route.count == 2 else { return "Airborne · \(flight.aircraftName)" }
+        guard route.count == 2 else { return Lf("Airborne · %@", "\(flight.aircraftName)") }
         return "\(route[0]) → \(route[1]) · \(flight.aircraftName)"
     }
 
@@ -277,9 +277,9 @@ struct NotificationsPanel: View {
                             symbol: "bell.badge"
                         )
 
-                        Text(push.authorization == .denied
+                        Text(L(push.authorization == .denied
                              ? "You said no to this once, and iOS will not ask twice — the switch lives in Settings now. Nothing below can arrive until it is on."
-                             : "Nothing on this screen can reach you until iOS is allowed to show a banner.")
+                             : "Nothing on this screen can reach you until iOS is allowed to show a banner."))
                             .font(.system(size: 10.5, weight: .medium))
                             .foregroundStyle(theme.textDim)
                             .padding(.leading, 30)
@@ -323,7 +323,7 @@ struct NotificationsPanel: View {
             PanelDivider()
 
             PanelToggleRow(
-                title: "\(approachMinutes) minutes from your destination",
+                title: Lf("%@ minutes from your destination", "\(approachMinutes)"),
                 symbol: "timer",
                 detail: approachDetail,
                 isOn: binding(\.ownApproach)
@@ -406,7 +406,7 @@ struct NotificationsPanel: View {
                 VStack(alignment: .leading, spacing: 4) {
                     PanelRowLabel(title: obstacle.title, symbol: obstacle.symbol)
 
-                    Text(obstacle.detail)
+                    Text(L(obstacle.detail))
                         .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(theme.textDim)
                         .padding(.leading, 30)
@@ -515,7 +515,7 @@ struct NotificationsPanel: View {
         guard push.canNotify else { return "Not allowed yet" }
         let on = preferences.enabledCount
         if on == 0 { return "Nothing switched on" }
-        return "\(on) of \(FriendsStore.NotificationPreferences.totalCount) on"
+        return Lf("%@ of %@ on", "\(on)", "\(FriendsStore.NotificationPreferences.totalCount)")
     }
 
     private func fetchPhoto() {

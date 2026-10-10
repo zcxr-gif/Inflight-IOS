@@ -74,12 +74,12 @@ struct FileThisFlightRow: View {
                         .frame(width: 22)
 
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(title)
+                        Text(L(title))
                             .font(.system(size: 13.5, weight: .bold, design: .rounded))
                             .foregroundStyle(theme.textPrimary)
                             .flightInfoLine(minimumScale: 0.8)
 
-                        Text(detail)
+                        Text(L(detail))
                             .font(.system(size: 10.5, weight: .medium))
                             .foregroundStyle(theme.textDim)
                             .fixedSize(horizontal: false, vertical: true)
@@ -96,8 +96,8 @@ struct FileThisFlightRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(title)
-            .accessibilityHint(detail)
+            .accessibilityLabel(L(title))
+            .accessibilityHint(L(detail))
             // Only so `filed` can answer. Reads once per launch and not again
             // — see `FlightPlanBook.loadIfNeeded`.
             //
@@ -136,7 +136,7 @@ struct FileThisFlightRow: View {
             return "Plans live with your account so they survive a new phone. Sign in and this flight fills the form in for you."
         }
         guard let filed = filed else {
-            return "Files \(route) with the callsign, aircraft and livery you are flying already in."
+            return Lf("Files %@ with the callsign, aircraft and livery you are flying already in.", "\(route)")
         }
         return "You have \(filed.routeLabel) planned. Opens it with what you are actually flying."
     }

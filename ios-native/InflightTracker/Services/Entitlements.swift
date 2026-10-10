@@ -125,7 +125,7 @@ enum ProFeature: String, CaseIterable, Identifiable {
         case .replay:
             return "Fly any aircraft's track back from departure, at your own speed."
         case .watchlist:
-            return "Watch as many pilots as you like. Free keeps \(Self.freeWatchlistLimit)."
+            return Lf("Watch as many pilots as you like. Free keeps %@.", "\(Self.freeWatchlistLimit)")
         case .pilotColours:
             return "Paint each pilot you watch their own colour, and your own aircraft whatever you like. Free keeps one colour for the whole watchlist."
         case .mapStyles:

@@ -288,8 +288,8 @@ struct PilotLiveStatus: Decodable, Equatable {
     var routeLabel: String? {
         switch (originIcao, destinationIcao) {
         case let (origin?, destination?): return "\(origin) → \(destination)"
-        case let (origin?, nil):          return "From \(origin)"
-        case let (nil, destination?):     return "To \(destination)"
+        case let (origin?, nil):          return Lf("From %@", "\(origin)")
+        case let (nil, destination?):     return Lf("To %@", "\(destination)")
         default:                          return nil
         }
     }
@@ -391,9 +391,9 @@ struct PilotLiveStatus: Decodable, Equatable {
         let seconds = Int(Date().timeIntervalSince(lastLiveAt))
         guard seconds > 0 else { return nil }
         if seconds < 90 { return "a moment ago" }
-        if seconds < 3600 { return "\(seconds / 60) min ago" }
+        if seconds < 3600 { return Lf("%@ min ago", "\(seconds / 60)") }
         let hours = seconds / 3600
-        return hours == 1 ? "an hour ago" : "\(hours) hours ago"
+        return hours == 1 ? "an hour ago" : Lf("%@ hours ago", "\(hours)")
     }
 
     /// Whether there is anything worth drawing at all once the position has
@@ -506,9 +506,9 @@ struct PilotLiveSummary: Decodable, Equatable, Identifiable {
 
         switch (originIcao, destinationIcao) {
         case let (origin?, destination?): parts.append("\(origin) → \(destination)")
-        case let (nil, destination?):     parts.append("to \(destination)")
+        case let (nil, destination?):     parts.append(Lf("to %@", "\(destination)"))
         default:
-            if let field = nearestAirport { parts.append("near \(field)") }
+            if let field = nearestAirport { parts.append(Lf("near %@", "\(field)")) }
         }
 
         if let fuel = fuelLabel { parts.append(fuel) }

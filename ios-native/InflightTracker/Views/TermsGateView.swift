@@ -179,13 +179,13 @@ struct TermsGateView: View {
         VStack(alignment: .leading, spacing: 16) {
 
             VStack(alignment: .leading, spacing: 7) {
-                Text(TermsStore.shared.isUpdate ? "We've updated our terms" : "Welcome to Inflight")
+                Text(L(TermsStore.shared.isUpdate ? "We've updated our terms" : "Welcome to Inflight"))
                     .font(.system(size: 27, weight: .bold, design: .rounded))
                     .foregroundStyle(theme.textPrimary)
 
-                Text(TermsStore.shared.isUpdate
+                Text(L(TermsStore.shared.isUpdate
                      ? "Have another look before carrying on — the same link, the same place."
-                     : "Live Infinite Flight traffic, your own logbook, and a profile other pilots can find you by.")
+                     : "Live Infinite Flight traffic, your own logbook, and a profile other pilots can find you by."))
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -224,7 +224,7 @@ struct TermsGateView: View {
     private func link(_ title: String, _ url: URL?) -> some View {
         Link(destination: url ?? URL(string: "https://inflight.info")!) {
             HStack(spacing: 10) {
-                Text(title)
+                Text(L(title))
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(theme.textPrimary)
                 Spacer(minLength: 8)

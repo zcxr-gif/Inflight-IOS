@@ -1342,7 +1342,7 @@ struct FlightDetailView: View {
                 Image(systemName: "chevron.backward")
                     .font(.system(size: 11, weight: .bold))
 
-                Text("Back to \(origin.label)")
+                Text(Lf("Back to %@", "\(origin.label)"))
                     .font(.system(size: 12.5, weight: .semibold, design: .rounded))
                     .flightInfoLine(minimumScale: 0.8)
 
@@ -1355,7 +1355,7 @@ struct FlightDetailView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Back to \(origin.label)")
+        .accessibilityLabel(Lf("Back to %@", "\(origin.label)"))
     }
 
     /// The route the board would draw, when the board is what is wanted and
@@ -1504,7 +1504,7 @@ struct FlightDetailView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 6) {
-                Text(title)
+                Text(L(title))
                     .font(.system(size: 9, weight: .bold))
                     .tracking(0.5)
                     .foregroundStyle(theme.textSecondary)
@@ -1518,13 +1518,13 @@ struct FlightDetailView: View {
             }
 
             HStack(alignment: .firstTextBaseline, spacing: 3) {
-                Text(value)
+                Text(L(value))
                     .font(.system(size: 17, weight: .semibold, design: .monospaced))
                     .foregroundStyle(theme.textPrimary)
                     .flightInfoLine(minimumScale: 0.6)
                     .motionFigure(figure)
 
-                Text(unit)
+                Text(L(unit))
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .fixedSize()

@@ -110,7 +110,7 @@ struct WidgetsPanel: View {
     }
 
     private var subtitle: String {
-        if let pinned = pinnedFlight { return "Showing \(pinned.displayName)" }
+        if let pinned = pinnedFlight { return Lf("Showing %@", pinned.displayName) }
         if widgets.pinnedFlightId != nil { return "Pinned flight has ended" }
         return "What the home screen is showing"
     }
@@ -232,7 +232,7 @@ struct WidgetsPanel: View {
                 VStack(alignment: .leading, spacing: 4) {
                     PanelRowLabel(title: title, symbol: symbol)
 
-                    Text(detail)
+                    Text(L(detail))
                         .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(theme.textDim)
                         .padding(.leading, 30)
@@ -255,7 +255,7 @@ struct WidgetsPanel: View {
     }
 
     private func note(_ text: String) -> some View {
-        Text(text)
+        Text(L(text))
             .font(.system(size: 11.5, weight: .medium))
             .foregroundStyle(theme.textSecondary)
             .fixedSize(horizontal: false, vertical: true)

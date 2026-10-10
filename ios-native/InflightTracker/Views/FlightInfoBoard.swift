@@ -63,7 +63,7 @@ struct FlightInfoBoard: View {
     private var identity: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 8) {
-                Text(flight.displayName)
+                Text(L(flight.displayName))
                     .font(.system(size: 26, weight: .heavy, design: .rounded))
                     .foregroundStyle(theme.accent)
                     .flightInfoLine(minimumScale: 0.6)
@@ -87,7 +87,7 @@ struct FlightInfoBoard: View {
             // which has room for the face, the grade and the virtual airline
             // rather than an avatar the size of a full stop.
             HStack(spacing: 8) {
-                Text(operatorLine)
+                Text(L(operatorLine))
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(theme.textSecondary)
                     .flightInfoLine(minimumScale: 0.7)
@@ -125,7 +125,7 @@ struct FlightInfoBoard: View {
     }
 
     private func chip(_ text: String) -> some View {
-        Text(text)
+        Text(L(text))
             .font(.system(size: 10.5, weight: .bold, design: .monospaced))
             .foregroundStyle(theme.textSecondary)
             .padding(.horizontal, 7)
@@ -169,19 +169,19 @@ struct FlightInfoBoard: View {
         let frameAlignment: Alignment = alignment == .leading ? .leading : .trailing
 
         let block = VStack(alignment: alignment, spacing: 3) {
-            Text(code.isEmpty ? "———" : code)
+            Text(L(code.isEmpty ? "———" : code))
                 .font(.system(size: 34, weight: .heavy, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
                 .flightInfoLine(minimumScale: 0.5)
 
-            Text((airport?.name ?? "Not filed").uppercased())
+            Text(L((airport?.name ?? "Not filed").uppercased()))
                 .font(.system(size: 10.5, weight: .bold))
                 .tracking(0.5)
                 .foregroundStyle(theme.textSecondary)
                 .flightInfoLine(minimumScale: 0.6)
 
             if let flag = airport?.flag, !flag.isEmpty {
-                Text(flag).font(.system(size: 11))
+                Text(L(flag)).font(.system(size: 11))
             }
         }
         .frame(maxWidth: .infinity, alignment: frameAlignment)
@@ -211,7 +211,7 @@ struct FlightInfoBoard: View {
             timeTile(
                 kicker: "ARRIVING",
                 clock: arrival.map(Self.clock) ?? "—",
-                caption: remaining.map { "in \(Format.duration($0))" } ?? "No estimate",
+                caption: remaining.map { Lf("in %@", Format.duration($0)) } ?? "No estimate",
                 isEstimate: true
             )
         }
@@ -245,20 +245,20 @@ struct FlightInfoBoard: View {
                         .frame(width: 5, height: 5)
                 }
 
-                Text(kicker)
+                Text(L(kicker))
                     .font(.system(size: 9, weight: .bold))
                     .tracking(0.8)
                     .foregroundStyle(theme.textDim)
                     .flightInfoLine(minimumScale: 0.7)
             }
 
-            Text(clock)
+            Text(L(clock))
                 .font(.system(size: 24, weight: .heavy, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
                 .flightInfoLine(minimumScale: 0.6)
                 .motionWords(clock)
 
-            Text(caption)
+            Text(L(caption))
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(theme.textDim)
                 .flightInfoLine(minimumScale: 0.7)
@@ -278,7 +278,7 @@ struct FlightInfoBoard: View {
             RouteTrack(fraction: progress?.fraction ?? 0, theme: theme, planeSize: 12)
 
             HStack(spacing: 8) {
-                Text(flown)
+                Text(L(flown))
                     .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
                     .foregroundStyle(theme.textDim)
                     .flightInfoLine(minimumScale: 0.7)
@@ -286,7 +286,7 @@ struct FlightInfoBoard: View {
 
                 Spacer(minLength: 6)
 
-                Text(toRun)
+                Text(L(toRun))
                     .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
                     .foregroundStyle(theme.textDim)
                     .flightInfoLine(minimumScale: 0.7)
@@ -300,12 +300,12 @@ struct FlightInfoBoard: View {
 
     private var flown: String {
         guard let progress = progress else { return "—" }
-        return "\(Format.number(progress.flownNM)) NM FLOWN"
+        return Lf("%@ NM FLOWN", Format.number(progress.flownNM))
     }
 
     private var toRun: String {
         guard let progress = progress else { return "—" }
-        return "\(Format.number(progress.remainingNM)) NM TO RUN"
+        return Lf("%@ NM TO RUN", Format.number(progress.remainingNM))
     }
 
     // MARK: - Clocks
@@ -338,6 +338,6 @@ struct FlightInfoBoard: View {
     private static func relative(since date: Date) -> String {
         let elapsed = Date().timeIntervalSince(date)
         guard elapsed.isFinite, elapsed >= 60 else { return "Just now" }
-        return "\(Format.duration(elapsed)) ago"
+        return Lf("%@ ago", Format.duration(elapsed))
     }
 }

@@ -18,7 +18,11 @@ struct AirportChartView: View {
 
     private var theme: FlightInfoTheme { appearance.theme }
 
-    var body: some View {
+    /// Geometry, not reading order: in Arabic or Urdu a mirrored instrument would
+    /// show bank, heading or bearing the wrong way round.
+    var body: some View { drawing.environment(\.layoutDirection, .leftToRight) }
+
+    @ViewBuilder private var drawing: some View {
         SheetWindow(theme: theme) {
             header
         } content: {
@@ -31,7 +35,7 @@ struct AirportChartView: View {
     private var header: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("\(icao) AIRPORT DIAGRAM")
+                Text(Lf("%@ AIRPORT DIAGRAM", "\(icao)"))
                     .font(.system(size: 12, weight: .bold))
                     .tracking(0.8)
                     .foregroundStyle(theme.textPrimary)

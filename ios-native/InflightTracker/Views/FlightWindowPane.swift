@@ -136,7 +136,9 @@ struct FlightWindowPane<Content: View>: View {
     @GestureState private var isHeld = false
 
     /// How far the pane has to travel, or be flung, before letting go closes it.
-    private static let closeTravel: CGFloat = 90
+    /// Computed rather than stored: the pane is generic over its content, and
+    /// Swift has no static stored properties in a generic type.
+    private static var closeTravel: CGFloat { 90 }
 
     var body: some View {
         GeometryReader { geometry in
@@ -211,7 +213,7 @@ struct FlightWindowPane<Content: View>: View {
             .frame(width: 132)
             .onTapGesture { onClose() }
             .accessibilityElement()
-            .accessibilityLabel(closeLabel)
+            .accessibilityLabel(L(closeLabel))
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { onClose() }
             .frame(maxWidth: .infinity)

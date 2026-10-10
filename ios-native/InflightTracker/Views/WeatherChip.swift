@@ -129,7 +129,7 @@ struct WeatherChip: View {
                 .foregroundStyle(theme.textPrimary)
                 .frame(width: 22)
 
-            Text(temperature(for: station))
+            Text(L(temperature(for: station)))
                 .font(.system(size: 19, weight: .bold, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
                 .fixedSize()
@@ -137,7 +137,7 @@ struct WeatherChip: View {
 
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 4) {
-                    Text(station.airport.icao)
+                    Text(L(station.airport.icao))
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(theme.textSecondary)
                         .motionWords(station.airport.icao)
@@ -152,7 +152,7 @@ struct WeatherChip: View {
                     }
                 }
 
-                Text(detail(for: station))
+                Text(L(detail(for: station)))
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .flightInfoLine(minimumScale: 0.8)
@@ -206,12 +206,12 @@ struct WeatherChip: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(station.role.label)
+                    Text(L(station.role.label))
                         .font(.system(size: 8.5, weight: .bold))
                         .tracking(0.7)
                         .foregroundStyle(theme.textDim)
 
-                    Text(station.airport.icao)
+                    Text(L(station.airport.icao))
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(theme.textPrimary)
 
@@ -226,14 +226,14 @@ struct WeatherChip: View {
                     dayNight(for: station)
                 }
 
-                Text(detail(for: station))
+                Text(L(detail(for: station)))
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .flightInfoLine(minimumScale: 0.75)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text(temperature(for: station))
+            Text(L(temperature(for: station)))
                 .font(.system(size: 16, weight: .bold, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
                 .fixedSize()
@@ -247,7 +247,7 @@ struct WeatherChip: View {
         HStack(spacing: 3) {
             Image(systemName: station.isDaylight ? "sun.max.fill" : "moon.fill")
                 .font(.system(size: 7))
-            Text(station.isDaylight ? "DAY" : "NIGHT")
+            Text(L(station.isDaylight ? "DAY" : "NIGHT"))
                 .font(.system(size: 8, weight: .bold))
                 .tracking(0.5)
         }

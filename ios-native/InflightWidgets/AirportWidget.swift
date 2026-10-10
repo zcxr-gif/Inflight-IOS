@@ -119,7 +119,7 @@ struct AirportWidgetView: View {
                 Spacer(minLength: 0)
 
                 if let stale = WidgetFormat.staleness(since: entry.capturedAt, now: entry.date) {
-                    Text(stale)
+                    Text(L(stale))
                         .font(WidgetType.caption(9))
                         .foregroundStyle(WidgetPalette.dim)
                 }
@@ -131,12 +131,12 @@ struct AirportWidgetView: View {
 
     private func header(_ airport: WidgetAirport) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(airport.icao)
+            Text(L(airport.icao))
                 .font(WidgetType.icao(family == .systemSmall ? 22 : 26))
                 .foregroundStyle(WidgetPalette.text)
 
             if !airport.flag.isEmpty {
-                Text(airport.flag)
+                Text(L(airport.flag))
                     .font(.system(size: family == .systemSmall ? 13 : 15))
             }
 
@@ -153,7 +153,7 @@ struct AirportWidgetView: View {
                         .fill(WidgetPalette.success)
                         .frame(width: 7, height: 7)
                 } else {
-                    Text(airport.atcPositions.joined(separator: " · "))
+                    Text(L(airport.atcPositions.joined(separator: " · ")))
                         .font(WidgetType.label(10))
                         .foregroundStyle(WidgetPalette.success)
                         .lineLimit(1)
@@ -175,11 +175,11 @@ struct AirportWidgetView: View {
 
                 VStack(alignment: .trailing, spacing: 1) {
                     if let temperature = airport.temperature {
-                        Text(temperature)
+                        Text(L(temperature))
                             .font(WidgetType.readout(15))
                             .foregroundStyle(WidgetPalette.text)
                     }
-                    Text(conditions)
+                    Text(L(conditions))
                         .font(WidgetType.caption(9.5))
                         .foregroundStyle(WidgetPalette.dim)
                         .lineLimit(1)
@@ -194,7 +194,7 @@ struct AirportWidgetView: View {
             Text("\(value)")
                 .font(WidgetType.readout(compact ? 15 : 18))
                 .foregroundStyle(WidgetPalette.text)
-            Text(label)
+            Text(L(label))
                 .font(WidgetType.caption(compact ? 8 : 9))
                 .foregroundStyle(WidgetPalette.dim)
         }
@@ -211,14 +211,14 @@ struct AirportWidgetView: View {
                             .font(.system(size: 9.5))
                             .foregroundStyle(WidgetPalette.dim)
 
-                        Text(movement.callsign)
+                        Text(L(movement.callsign))
                             .font(WidgetType.title(12))
                             .foregroundStyle(WidgetPalette.text)
                             .lineLimit(1)
 
                         Spacer(minLength: 4)
 
-                        Text(movement.detail)
+                        Text(L(movement.detail))
                             .font(WidgetType.readout(11))
                             .foregroundStyle(WidgetPalette.secondary)
                             .fixedSize()
@@ -256,7 +256,7 @@ struct AirportWidgetView: View {
         if let airport = entry.airport {
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 4) {
-                    Text(airport.icao)
+                    Text(L(airport.icao))
                         .font(.system(size: 15, weight: .heavy, design: .rounded))
                     if airport.isControlled {
                         Image(systemName: "antenna.radiowaves.left.and.right")

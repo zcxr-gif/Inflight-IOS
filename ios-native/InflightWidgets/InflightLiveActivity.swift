@@ -32,14 +32,14 @@ struct InflightLiveActivity: Widget {
                         HStack(spacing: 6) {
                             Image(systemName: "airplane")
                                 .font(.system(size: 13, weight: .semibold))
-                            Text(context.attributes.callsign)
+                            Text(L(context.attributes.callsign))
                                 .font(WidgetType.title(15))
                                 .flightInfoWidgetLine()
                         }
                         .foregroundStyle(WidgetPalette.text)
 
                         if !context.attributes.aircraftDescriptor.isEmpty {
-                            Text(context.attributes.aircraftDescriptor)
+                            Text(L(context.attributes.aircraftDescriptor))
                                 .font(WidgetType.caption(11))
                                 .foregroundStyle(WidgetPalette.secondary)
                                 .flightInfoWidgetLine()
@@ -162,13 +162,13 @@ struct LiveActivityLockScreen: View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 6) {
-                    Text(context.attributes.callsign)
+                    Text(L(context.attributes.callsign))
                         .font(WidgetType.title(14))
                         .foregroundStyle(WidgetPalette.text)
                         .flightInfoWidgetLine()
 
                     if !context.attributes.registration.isEmpty {
-                        Text(context.attributes.registration)
+                        Text(L(context.attributes.registration))
                             .font(WidgetType.caption(11))
                             .foregroundStyle(WidgetPalette.dim)
                     }
@@ -176,7 +176,7 @@ struct LiveActivityLockScreen: View {
 
                 // An activity the backend raised has to say whose flight it
                 // is — it appeared without anybody asking for it.
-                Text(subtitle)
+                Text(L(subtitle))
                     .font(WidgetType.caption(11))
                     .foregroundStyle(WidgetPalette.secondary)
                     .flightInfoWidgetLine()
@@ -200,7 +200,7 @@ struct LiveActivityLockScreen: View {
         HStack(alignment: .center) {
             if context.state.isLanded {
                 StatusBadge(
-                    text: "Landed at \(context.attributes.arrivalIcao)",
+                    text: Lf("Landed at %@", context.attributes.arrivalIcao),
                     colour: WidgetPalette.success
                 )
             } else {
@@ -320,7 +320,7 @@ struct TimeBlock: View {
         let estimated = (scheduled != nil && actual != nil && abs(driftMinutes) >= 1) ? actual : nil
 
         VStack(alignment: alignment, spacing: 2) {
-            Text(headline.map(WidgetFormat.clock) ?? "—")
+            Text(L(headline.map(WidgetFormat.clock) ?? "—"))
                 .font(WidgetType.readout(15))
                 .foregroundStyle(WidgetPalette.text)
 
@@ -329,7 +329,7 @@ struct TimeBlock: View {
                     Text("Estimated")
                         .font(WidgetType.caption(10))
                         .foregroundStyle(WidgetPalette.dim)
-                    Text(WidgetFormat.clock(estimated))
+                    Text(L(WidgetFormat.clock(estimated)))
                         .font(WidgetType.readout(10.5))
                         // Late is worth flagging; early or on time is not
                         // worth colouring at all.
@@ -346,7 +346,7 @@ struct StatusBadge: View {
     let colour: Color
 
     var body: some View {
-        Text(text)
+        Text(L(text))
             .font(WidgetType.readout(12.5))
             .foregroundStyle(colour)
             .padding(.horizontal, 10)

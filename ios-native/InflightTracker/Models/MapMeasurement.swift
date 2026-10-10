@@ -88,7 +88,7 @@ extension MapMeasurement {
     var timeLabel: String? {
         guard let nm = distanceNM, nm > 1 else { return nil }
         let hours = nm / Self.assumedCruiseKnots
-        return "\(Format.duration(hours * 3600)) at \(Int(Self.assumedCruiseKnots)) kts"
+        return Lf("%@ at %@ kts", "\(Format.duration(hours * 3600))", "\(Int(Self.assumedCruiseKnots))")
     }
 
     /// A middling jet cruise. Round, and stated wherever the estimate is shown.

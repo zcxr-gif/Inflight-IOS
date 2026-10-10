@@ -109,7 +109,7 @@ struct WeatherForecastSection: View {
                 .frame(width: 18)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(alert.summary)
+                Text(L(alert.summary))
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(theme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -145,7 +145,7 @@ struct WeatherForecastSection: View {
                         .foregroundStyle(next.hasPrecipitation ? theme.accent : theme.textDim)
                         .frame(width: 18)
 
-                    Text(next.summary)
+                    Text(L(next.summary))
                         .font(.system(size: 12.5, weight: .semibold))
                         .foregroundStyle(theme.textPrimary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -195,7 +195,7 @@ struct WeatherForecastSection: View {
                 Spacer(minLength: 8)
                 Text(String(format: "%.1f MM PEAK", next.peakMM))
                 Spacer(minLength: 8)
-                Text(next.steps.last.map { Self.clock($0.date, in: zone) } ?? "IN 2 HR")
+                Text(L(next.steps.last.map { Self.clock($0.date, in: zone) } ?? "IN 2 HR"))
             }
             .font(.system(size: 8, weight: .bold))
             .tracking(0.6)
@@ -227,7 +227,7 @@ struct WeatherForecastSection: View {
 
                     PanelDivider()
 
-                    Text(runwayFootnote)
+                    Text(L(runwayFootnote))
                         .font(.system(size: 9.5, weight: .medium))
                         .foregroundStyle(theme.textDim)
                         .fixedSize(horizontal: false, vertical: true)
@@ -265,13 +265,13 @@ struct WeatherForecastSection: View {
     private var isWindFromModel: Bool { filedWind == nil }
 
     private var runwayFootnote: String {
-        let source = isWindFromModel ? ForecastService.sourceName : "the \(airport.icao) report"
+        let source = isWindFromModel ? ForecastService.sourceName : Lf("the %@ report", "\(airport.icao)")
         return "Worked from \(source) against the runway centrelines as mapped. True bearings, not the painted numbers — and a wind calculation, not a recommendation."
     }
 
     private func runwayRow(_ runway: RunwayWind, isFavoured: Bool) -> some View {
         HStack(spacing: 12) {
-            Text(runway.designator)
+            Text(L(runway.designator))
                 .font(.system(size: 15, weight: .heavy, design: .rounded))
                 .foregroundStyle(isFavoured ? theme.onAccent : theme.textPrimary)
                 .frame(minWidth: 38)
@@ -284,7 +284,7 @@ struct WeatherForecastSection: View {
                 .fixedSize()
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(runway.summary())
+                Text(L(runway.summary()))
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(runway.isTailwind ? Self.tailwindColour : theme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -340,7 +340,7 @@ struct WeatherForecastSection: View {
             HStack(alignment: .top, spacing: 15) {
                 ForEach(snapshot.hours) { hour in
                     VStack(spacing: 5) {
-                        Text(Self.hourLabel(hour.date, in: snapshot.timeZone))
+                        Text(L(Self.hourLabel(hour.date, in: snapshot.timeZone)))
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
                             .foregroundStyle(theme.textDim)
 
@@ -350,15 +350,15 @@ struct WeatherForecastSection: View {
                             .foregroundStyle(theme.textPrimary)
                             .frame(height: 20)
 
-                        Text(Self.temperature(hour.temperatureC, in: preferences.temperatureUnit))
+                        Text(L(Self.temperature(hour.temperatureC, in: preferences.temperatureUnit)))
                             .font(.system(size: 12, weight: .semibold, design: .rounded))
                             .foregroundStyle(theme.textPrimary)
 
                         // Only where there is something to say. A column of
                         // zeroes down a dry afternoon is noise.
-                        Text(hour.precipitationChance >= 0.1
+                        Text(L(hour.precipitationChance >= 0.1
                              ? "\(Int((hour.precipitationChance * 100).rounded()))%"
-                             : " ")
+                             : " "))
                             .font(.system(size: 9.5, weight: .semibold))
                             .foregroundStyle(theme.accent)
 
@@ -370,7 +370,7 @@ struct WeatherForecastSection: View {
                             .foregroundStyle(theme.textSecondary)
                             .rotationEffect(.degrees(hour.windDirectionDegrees + 180))
 
-                        Text(Self.wind(hour, in: preferences.windUnit))
+                        Text(L(Self.wind(hour, in: preferences.windUnit)))
                             .font(.system(size: 9, weight: .semibold, design: .monospaced))
                             .foregroundStyle(theme.textSecondary)
                             .fixedSize()
@@ -416,19 +416,19 @@ struct WeatherForecastSection: View {
 
     private func reading(_ title: String, _ value: String, detail: String? = nil) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(title.uppercased())
+            Text(L(title.uppercased()))
                 .font(.system(size: 8.5, weight: .bold))
                 .tracking(0.6)
                 .foregroundStyle(theme.textDim)
                 .flightInfoLine(minimumScale: 0.8)
 
             HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(value)
+                Text(L(value))
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .foregroundStyle(theme.textPrimary)
 
                 if let detail = detail {
-                    Text(detail)
+                    Text(L(detail))
                         .font(.system(size: 8.5, weight: .bold))
                         .foregroundStyle(theme.textDim)
                 }
@@ -459,7 +459,7 @@ struct WeatherForecastSection: View {
         // Tight on purpose: eight columns have to fit the narrowest panel this
         // app draws without any of them scaling down to unreadable.
         HStack(spacing: 9) {
-            Text(day.id == days.first?.id ? "Today" : Self.dayLabel(day.date, in: zone))
+            Text(L(day.id == days.first?.id ? "Today" : Self.dayLabel(day.date, in: zone)))
                 .font(.system(size: 11.5, weight: .semibold))
                 .foregroundStyle(theme.textPrimary)
                 .frame(width: 42, alignment: .leading)
@@ -470,14 +470,14 @@ struct WeatherForecastSection: View {
                 .foregroundStyle(theme.textPrimary)
                 .frame(width: 20)
 
-            Text(day.precipitationChance >= 0.1
+            Text(L(day.precipitationChance >= 0.1
                  ? "\(Int((day.precipitationChance * 100).rounded()))%"
-                 : " ")
+                 : " "))
                 .font(.system(size: 9.5, weight: .semibold))
                 .foregroundStyle(theme.accent)
                 .frame(width: 28, alignment: .leading)
 
-            Text(Self.dayWind(day, in: preferences.windUnit))
+            Text(L(Self.dayWind(day, in: preferences.windUnit)))
                 .font(.system(size: 9.5, weight: .medium, design: .monospaced))
                 .foregroundStyle(theme.textDim)
                 .frame(width: 48, alignment: .leading)
@@ -485,7 +485,7 @@ struct WeatherForecastSection: View {
 
             Spacer(minLength: 4)
 
-            Text(Self.temperature(day.lowC, in: preferences.temperatureUnit))
+            Text(L(Self.temperature(day.lowC, in: preferences.temperatureUnit)))
                 .font(.system(size: 12, weight: .medium, design: .rounded))
                 .foregroundStyle(theme.textDim)
 
@@ -494,7 +494,7 @@ struct WeatherForecastSection: View {
             // much, without anybody reading a single figure.
             temperatureBar(day, across: days)
 
-            Text(Self.temperature(day.highC, in: preferences.temperatureUnit))
+            Text(L(Self.temperature(day.highC, in: preferences.temperatureUnit)))
                 .font(.system(size: 12, weight: .bold, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
         }
@@ -558,11 +558,11 @@ struct WeatherForecastSection: View {
                         .frame(width: 22)
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(Self.moonName(today.moonPhase))
+                        Text(L(Self.moonName(today.moonPhase)))
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(theme.textPrimary)
 
-                        Text(Self.moonTimes(today, in: snapshot.timeZone))
+                        Text(L(Self.moonTimes(today, in: snapshot.timeZone)))
                             .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(theme.textDim)
                     }
@@ -596,13 +596,13 @@ struct WeatherForecastSection: View {
                 .font(.system(size: 12))
                 .foregroundStyle(theme.textSecondary)
 
-            Text(title.uppercased())
+            Text(L(title.uppercased()))
                 .font(.system(size: 8, weight: .bold))
                 .tracking(0.5)
                 .foregroundStyle(theme.textDim)
                 .flightInfoLine(minimumScale: 0.8)
 
-            Text(date.map { Self.clock($0, in: zone) } ?? "—")
+            Text(L(date.map { Self.clock($0, in: zone) } ?? "—"))
                 .font(.system(size: 12.5, weight: .semibold, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
         }
@@ -727,8 +727,8 @@ struct WeatherForecastSection: View {
 
     private static func moonTimes(_ day: ForecastService.Day, in zone: TimeZone) -> String {
         let parts = [
-            day.moonrise.map { "Up \(clock($0, in: zone))" },
-            day.moonset.map { "down \(clock($0, in: zone))" }
+            day.moonrise.map { Lf("Up %@", "\(clock($0, in: zone))") },
+            day.moonset.map { Lf("down %@", "\(clock($0, in: zone))") }
         ].compactMap { $0 }
 
         return parts.isEmpty ? "Neither rising nor setting today." : parts.joined(separator: ", ")
@@ -794,7 +794,7 @@ struct ForecastSourceRow: View {
         HStack(spacing: 8) {
             ForecastSourceMark(size: 10, colour: theme.textDim)
 
-            Text("Forecast by \(ForecastService.sourceName)")
+            Text(Lf("Forecast by %@", "\(ForecastService.sourceName)"))
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(theme.textDim)
 

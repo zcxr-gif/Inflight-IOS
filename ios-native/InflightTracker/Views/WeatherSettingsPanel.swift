@@ -81,7 +81,7 @@ struct WeatherSettingsPanel: View {
                     if let failure = forecast.lastFailure {
                         PanelDivider()
 
-                        Text(failure)
+                        Text(L(failure))
                             .font(.system(size: 9.5, weight: .medium))
                             .foregroundStyle(theme.textDim)
                             .fixedSize(horizontal: false, vertical: true)
@@ -242,9 +242,9 @@ struct WeatherSettingsPanel: View {
     private var subtitle: String {
         guard let station = model.nearby else { return "No field in range" }
         if station.metar == nil, sampleFallback != nil {
-            return "Nearest field · \(station.airport.icao)"
+            return Lf("Nearest field · %@", "\(station.airport.icao)")
         }
-        return "Nearest report · \(station.airport.icao)"
+        return Lf("Nearest report · %@", "\(station.airport.icao)")
     }
 
     private func sampleTemperature(for station: WeatherModel.Station) -> String {
@@ -270,8 +270,8 @@ struct WeatherSettingsPanel: View {
     /// Said outright rather than left as a switch that appears to do nothing.
     private var animateDetail: String {
         let base = "Runs through the two hours of frames behind the newest one. Off, the map draws the newest frame and nothing else, which is a seventh of the tiles and what the free tier is comfortable serving. The strip over the map says which frame is drawn either way, and can be dragged."
-        guard appearance.resolvedMapStyle.isDrawn else { return base }
-        return base + " Held on the planet, which draws each frame itself rather than in tiles — the newest is shown, and the strip still scrubs."
+        guard appearance.resolvedMapStyle.isDrawn else { return L(base) }
+        return L(base) + L(" Held on the planet, which draws each frame itself rather than in tiles — the newest is shown, and the strip still scrubs.")
     }
 
     private func sample(for station: WeatherModel.Station) -> some View {
@@ -286,12 +286,12 @@ struct WeatherSettingsPanel: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(station.airport.icao)
+                    Text(L(station.airport.icao))
                         .font(.system(size: 14, weight: .bold))
                         .foregroundStyle(theme.textPrimary)
 
                     if !station.airport.flag.isEmpty {
-                        Text(station.airport.flag).font(.system(size: 10))
+                        Text(L(station.airport.flag)).font(.system(size: 10))
                     }
 
                     // The sample is whichever source answered for the nearest
@@ -303,16 +303,16 @@ struct WeatherSettingsPanel: View {
                     }
                 }
 
-                Text(station.metar.map { "\($0.conditionLabel) · \($0.windLabel(in: preferences.windUnit))" }
+                Text(L(station.metar.map { "\($0.conditionLabel) · \($0.windLabel(in: preferences.windUnit))" }
                      ?? sampleFallback.map { "\($0.label) · \($0.windLabel(in: preferences.windUnit))" }
-                     ?? station.airport.name)
+                     ?? station.airport.name))
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .flightInfoLine(minimumScale: 0.7)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text(sampleTemperature(for: station))
+            Text(L(sampleTemperature(for: station)))
                 .font(.system(size: 26, weight: .bold, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
                 .fixedSize()

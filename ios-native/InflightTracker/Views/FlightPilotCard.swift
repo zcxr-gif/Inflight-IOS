@@ -154,7 +154,7 @@ struct FlightPilotCard: View {
                     .foregroundStyle(wearsBanner ? overlayDim : theme.textDim)
                     .flightInfoLine(minimumScale: 0.8)
 
-                Text(name)
+                Text(L(name))
                     .font(.system(size: 20, weight: .heavy, design: .rounded))
                     .foregroundStyle(wearsBanner ? overlayInk : theme.textPrimary)
                     .flightInfoLine(minimumScale: 0.6)
@@ -213,7 +213,7 @@ struct FlightPilotCard: View {
             }
 
             if let display = profileName {
-                Text(display)
+                Text(L(display))
                     .font(.system(size: 10, weight: .semibold))
                     .tracking(0.3)
                     .foregroundStyle(wearsBanner ? overlayDim : theme.textDim)
@@ -237,7 +237,7 @@ struct FlightPilotCard: View {
                 }
 
                 if let organisation {
-                    Text(organisation.uppercased())
+                    Text(L(organisation.uppercased()))
                         .font(.system(size: 8.5, weight: .bold))
                         .tracking(0.5)
                         .foregroundStyle(wearsBanner ? overlayDim : theme.textDim)
