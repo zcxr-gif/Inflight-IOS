@@ -860,9 +860,8 @@ private struct ConnectLiveReadings: View {
     /// the pilot's to choose.
     private func identityMismatch(_ name: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(L("Your profile says @\(profiles.profile?.ifUsername ?? "") and the sim says "
-               + "\(name). Announcements about your own flight are addressed by the name on "
-               + "your profile, so while these differ they cannot reach you."))
+            Text(Lf("Your profile says @%@ and the sim says %@. Announcements about your own flight are addressed by the name on your profile, so while these differ they cannot reach you.",
+                    profiles.profile?.ifUsername ?? "", name))
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(.orange)
                 .fixedSize(horizontal: false, vertical: true)

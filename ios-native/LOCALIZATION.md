@@ -41,8 +41,9 @@ the code draws it, so `en.lproj` maps every key to itself.
 
 ## What is not translated yet
 
-The main screens are translated: the map, settings, the flight window, airports,
-ATC, stats, filters, hints, widgets and the Live Activity. Less-visited screens
-(Pro, account and profile editing, Connect setup, notifications settings, flight
-plan editing) still draw English text that has no keys yet. They pass through
-`L()` already, so translating them means adding keys and nothing else.
+Every screen draws through the tables. What stays English on purpose: callsigns,
+registrations, airport and airline names, aircraft types, and anything the
+server or Infinite Flight sends as text (METAR, ATIS, controller names, pilot
+bios). A string built from a few pieces is translated as one key with `Lf()`;
+if a sentence shows up in English, it is usually one that is still glued
+together with `+` in code.
