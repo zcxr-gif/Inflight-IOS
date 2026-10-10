@@ -66,7 +66,7 @@ final class RealWorldRoutes: ObservableObject {
             case .asking:    return "Looking…"
             case .answered(let matched, let asked):
                 guard asked > 0 else { return "Nothing to look up" }
-                return "\(matched) of \(asked) callsigns matched a route"
+                return Lf("%@ of %@ callsigns matched a route", "\(matched)", "\(asked)")
             case .unreadable: return "The route service answered with something unreadable"
             case .failed(let reason): return reason
             }

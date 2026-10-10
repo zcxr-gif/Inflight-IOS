@@ -125,9 +125,9 @@ struct ConnectPanel: View {
         switch session.status {
         case .off:                  return session.isEnabled ? "Idle" : "Off"
         case .searching:            return "Looking for Infinite Flight…"
-        case let .connecting(host): return "Connecting to \(host)"
-        case let .syncing(host):    return "Reading the manifest from \(host)"
-        case let .live(host):       return "Live from \(host)"
+        case let .connecting(host): return Lf("Connecting to %@", "\(host)")
+        case let .syncing(host):    return Lf("Reading the manifest from %@", "\(host)")
+        case let .live(host):       return Lf("Live from %@", "\(host)")
         case .waiting:              return "Waiting for Infinite Flight"
         }
     }
@@ -210,8 +210,8 @@ struct ConnectPanel: View {
 
         let ago = Self.relative.localizedString(for: attempt.at, relativeTo: Date())
         return attempt.succeeded
-            ? "Connected \(ago) · \(attempt.address)"
-            : "Last tried \(ago) · \(attempt.address)"
+            ? Lf("Connected %@ · %@", "\(ago)", "\(attempt.address)")
+            : Lf("Last tried %@ · %@", "\(ago)", "\(attempt.address)")
     }
 
     private var statusColour: Color {
@@ -639,7 +639,7 @@ struct ConnectPanel: View {
             PanelSection(title: "ON FREQUENCY") {
                 VStack(alignment: .leading, spacing: 8) {
                     if let atc = session.telemetry.atcFacility {
-                        Text("Tuned to \(atc).")
+                        Text(Lf("Tuned to %@.", "\(atc)"))
                             .font(.system(size: 12.5, weight: .semibold))
                             .foregroundStyle(theme.textPrimary)
                     }
@@ -870,7 +870,7 @@ private struct ConnectLiveReadings: View {
             Button {
                 Task { await profiles.replaceIFUsername(with: name) }
             } label: {
-                Text("Use \(name)")
+                Text(Lf("Use %@", "\(name)"))
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(theme.accent)
             }

@@ -242,9 +242,9 @@ struct WeatherSettingsPanel: View {
     private var subtitle: String {
         guard let station = model.nearby else { return "No field in range" }
         if station.metar == nil, sampleFallback != nil {
-            return "Nearest field · \(station.airport.icao)"
+            return Lf("Nearest field · %@", "\(station.airport.icao)")
         }
-        return "Nearest report · \(station.airport.icao)"
+        return Lf("Nearest report · %@", "\(station.airport.icao)")
     }
 
     private func sampleTemperature(for station: WeatherModel.Station) -> String {

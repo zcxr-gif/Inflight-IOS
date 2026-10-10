@@ -185,7 +185,7 @@ struct PublicProfileView: View {
             }
         }
         .confirmationDialog(
-            "Block @\(handle)?",
+            Lf("Block @%@?", "\(handle)"),
             isPresented: $isConfirmingBlock,
             titleVisibility: .visible
         ) {
@@ -294,13 +294,13 @@ struct PublicProfileView: View {
 
             if profile.viewerBlocked {
                 Button { Task { await setBlocked(false) } } label: {
-                    Label("Unblock @\(profile.handle)", systemImage: "hand.raised.slash")
+                    Label(Lf("Unblock @%@", "\(profile.handle)"), systemImage: "hand.raised.slash")
                 }
             } else {
                 Button(role: .destructive) {
                     isConfirmingBlock = true
                 } label: {
-                    Label("Block @\(profile.handle)", systemImage: "hand.raised")
+                    Label(Lf("Block @%@", "\(profile.handle)"), systemImage: "hand.raised")
                 }
             }
         } label: {
@@ -432,8 +432,8 @@ struct PublicProfileView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel(
                         L(friends.contains(name)
-                            ? "Stop being told when \(name) flies"
-                            : "Tell me when \(name) flies")
+                            ? Lf("Stop being told when %@ flies", "\(name)")
+                            : Lf("Tell me when %@ flies", "\(name)"))
                     )
                 }
             }
@@ -527,7 +527,7 @@ struct PublicProfileView: View {
         let phase = FlightPhase.from(flight)
         let aircraft = flight.aircraftName.isEmpty ? "Aircraft" : flight.aircraftName
         if phase == .ground {
-            return "\(aircraft) · on the ground · \(feed.server)"
+            return Lf("%@ · on the ground · %@", "\(aircraft)", "\(feed.server)")
         }
         return "\(aircraft) · \(Format.number(flight.altitudeFeet)) ft · \(feed.server)"
     }
@@ -684,7 +684,7 @@ struct PublicProfileView: View {
                     // The endurance is the burn made useful, so it goes on the
                     // same line rather than competing with it for space.
                     if let endurance = live.enduranceLabel {
-                        detailLine("Burning", "\(burn) · \(endurance) left", symbol: "fuelpump")
+                        detailLine("Burning", Lf("%@ · %@ left", "\(burn)", "\(endurance)"), symbol: "fuelpump")
                     } else {
                         detailLine("Burning", burn, symbol: "fuelpump")
                     }
@@ -956,8 +956,8 @@ struct PublicProfileView: View {
                     symbol: "lock",
                     title: "Kept private",
                     detail: profile.friendsVisibility == "followers"
-                        ? "\(profile.displayName) shows their friends to the people who follow them."
-                        : "\(profile.displayName) keeps their friends list to themselves."
+                        ? Lf("%@ shows their friends to the people who follow them.", "\(profile.displayName)")
+                        : Lf("%@ keeps their friends list to themselves.", "\(profile.displayName)")
                 )
             }
             .padding(.horizontal, 16)
@@ -1019,15 +1019,15 @@ struct PublicProfileView: View {
                 // Said plainly, because it is not verified and pretending
                 // otherwise is how somebody gets impersonated.
                 Text(L(profile.ifUsernameVerified
-                     ? "Flies as \(name) on Infinite Flight."
-                     : "Says they fly as \(name) on Infinite Flight. We haven't checked."))
+                     ? Lf("Flies as %@ on Infinite Flight.", "\(name)")
+                     : Lf("Says they fly as %@ on Infinite Flight. We haven't checked.", "\(name)")))
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             if let joined = profile.joinedAt {
-                Text("On Inflight since \(joined.formatted(.dateTime.month(.wide).year())).")
+                Text(Lf("On Inflight since %@.", "\(joined.formatted(.dateTime.month(.wide).year()))"))
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(theme.textDim)
             }
@@ -1041,7 +1041,7 @@ struct PublicProfileView: View {
     private var loading: some View {
         VStack(spacing: 10) {
             ProgressView().tint(theme.textSecondary)
-            Text("Looking up @\(handle)")
+            Text(Lf("Looking up @%@", "\(handle)"))
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(theme.textDim)
         }
@@ -1061,7 +1061,7 @@ struct PublicProfileView: View {
                 title: "No profile here",
                 detail: link.kind == .ifUsername
                     ? "\(link.value) hasn't set up an Inflight profile — most pilots on the server haven't yet."
-                    : "@\(link.value) hasn't set up a profile, or theirs isn't public."
+                    : Lf("@%@ hasn't set up a profile, or theirs isn't public.", "\(link.value)")
             )
 
             Button { dismiss() } label: {
@@ -1187,7 +1187,7 @@ struct PublicProfileView: View {
     private func watchToggle(_ name: String) {
         switch friends.toggle(name) {
         case .needsPro(let limit):
-            problem = "Free keeps \(limit) pilots on the watchlist. Inflight Pro lifts the limit."
+            problem = Lf("Free keeps %@ pilots on the watchlist. Inflight Pro lifts the limit.", "\(limit)")
         case .unusableName:
             problem = "That pilot's Infinite Flight name can't be watched."
         default:
@@ -1260,7 +1260,7 @@ private struct FavouriteAircraftCard: View {
             if let contributor = photo?.contributor, !contributor.isEmpty {
                 // The community photographers are credited wherever their work
                 // is used, the same as in the flight window.
-                Text("Photo by \(contributor)")
+                Text(Lf("Photo by %@", "\(contributor)"))
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .padding(.horizontal, 14)
@@ -1270,7 +1270,7 @@ private struct FavouriteAircraftCard: View {
             if let home = homeAirport, !home.isEmpty {
                 PanelDivider()
                 HStack(spacing: 8) {
-                    PanelRowLabel(title: "Flies out of \(home)", symbol: "mappin.and.ellipse")
+                    PanelRowLabel(title: Lf("Flies out of %@", "\(home)"), symbol: "mappin.and.ellipse")
                     Spacer(minLength: 6)
                     if let name = AirportStore.shared.airport(home)?.name {
                         Text(L(name))

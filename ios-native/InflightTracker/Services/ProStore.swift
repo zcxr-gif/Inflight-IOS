@@ -176,8 +176,8 @@ final class ProStore: ObservableObject {
         guard let plan = plan, let price = displayPrice(for: plan) else { return nil }
 
         switch plan {
-        case .annual: return "\(price) a year"
-        case .monthly: return "\(price) a month"
+        case .annual: return Lf("%@ a year", "\(price)")
+        case .monthly: return Lf("%@ a month", "\(price)")
         // Not for sale, so not reachable through `plansForSale` — but the
         // switch has to be exhaustive, and a bare price says the true thing.
         case .lifetime: return price

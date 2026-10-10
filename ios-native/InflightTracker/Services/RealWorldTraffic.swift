@@ -71,7 +71,7 @@ final class RealWorldTraffic: ObservableObject {
             case .waiting:    return "Looking…"
             case .live(let count):
                 guard count > 0 else { return "No real traffic in range" }
-                return "\(count) real aircraft"
+                return Lf("%@ real aircraft", "\(count)")
             case .failed(let reason): return reason
             }
         }

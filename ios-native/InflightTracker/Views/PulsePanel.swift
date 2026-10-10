@@ -81,7 +81,7 @@ struct PulsePanel: View {
                 "\(pulse.airborne)",
                 label: "IN THE AIR",
                 detail: pulse.total > 0
-                    ? "\(percent(pulse.airborne, of: pulse.total)) of the server"
+                    ? Lf("%@ of the server", "\(percent(pulse.airborne, of: pulse.total))")
                     : nil
             )
             figure(
@@ -257,7 +257,7 @@ struct PulsePanel: View {
     private func liveLine(_ live: Flight?) -> String {
         guard let live else { return "Not flying now" }
         guard let callsign = live.callsign, !callsign.isEmpty else { return "Flying now" }
-        return "Flying now · \(callsign)"
+        return Lf("Flying now · %@", "\(callsign)")
     }
 
     private func watchedRow(

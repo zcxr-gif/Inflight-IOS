@@ -62,7 +62,7 @@ struct FlightPlansPanel: View {
         switch count {
         case 0: return book.hasAnswered ? "Nothing planned" : nil
         case 1: return "1 flight planned"
-        default: return "\(count) flights planned"
+        default: return Lf("%@ flights planned", "\(count)")
         }
     }
 
@@ -94,7 +94,7 @@ struct FlightPlansPanel: View {
     private var filing: some View {
         PanelSection(title: "NEW") {
             PanelActionRow(
-                title: startingFrom.map { "Plan a flight from \($0)" } ?? "Plan a flight",
+                title: startingFrom.map { Lf("Plan a flight from %@", "\($0)") } ?? "Plan a flight",
                 symbol: "plus.circle",
                 detail: "Both ends, the stand at each, and when you mean to go."
             ) {
@@ -228,9 +228,9 @@ private struct PlanRow: View {
             let block = plan.blockMinutes.map { " · \($0 / 60)h \(String(format: "%02d", $0 % 60))m" } ?? ""
             return "\(out) → \(arrive)\(block)"
         case let (.some(out), .none):
-            return "Off blocks \(out)"
+            return Lf("Off blocks %@", "\(out)")
         case let (.none, .some(arrive)):
-            return "On blocks \(arrive)"
+            return Lf("On blocks %@", "\(arrive)")
         case (.none, .none):
             let parts = [plan.callsign, plan.aircraft].filter { !$0.isEmpty }
             return parts.isEmpty ? "No time set" : parts.joined(separator: " · ")
@@ -244,7 +244,7 @@ private struct PlanRow: View {
     }
 
     private var accessibility: String {
-        var parts = ["\(plan.originICAO) to \(plan.destinationICAO)"]
+        var parts = [Lf("%@ to %@", "\(plan.originICAO)", "\(plan.destinationICAO)")]
         if let stands = plan.standsLabel { parts.append(stands) }
         if let line = scheduleLine { parts.append(line) }
         return parts.joined(separator: ", ")

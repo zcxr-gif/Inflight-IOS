@@ -262,17 +262,17 @@ struct GateMapPicker: View {
     /// a stand should know which they are looking at.
     private var subtitle: String {
         guard hasMapAnswer else { return airport.name }
-        if isMapped { return "\(gates.count) stands mapped · OpenStreetMap" }
+        if isMapped { return Lf("%@ stands mapped · OpenStreetMap", "\(gates.count)") }
 
         let names = directory.names(for: airport.icao)
-        if !names.isEmpty { return "\(names.count) stands listed · no map for this field" }
+        if !names.isEmpty { return Lf("%@ stands listed · no map for this field", "\(names.count)") }
         return airport.name
     }
 
     private var waiting: some View {
         VStack(spacing: 10) {
             ProgressView().controlSize(.large)
-            Text("Reading \(airport.icao)'s stands…")
+            Text(Lf("Reading %@'s stands…", "\(airport.icao)"))
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(theme.textSecondary)
         }
@@ -357,7 +357,7 @@ struct GateMapPicker: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
                     if refs.isEmpty {
-                        Text("No stand matches “\(query)”.")
+                        Text(Lf("No stand matches “%@”.", "\(query)"))
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(theme.textDim)
                             .padding(.vertical, 8)
@@ -400,7 +400,7 @@ struct GateMapPicker: View {
         }
         .buttonStyle(.pressable(scale: 0.95))
         .motion(Motion.control, value: isPicked)
-        .accessibilityLabel("Stand \(ref)")
+        .accessibilityLabel(Lf("Stand %@", "\(ref)"))
         .accessibilityAddTraits(isPicked ? [.isSelected] : [])
     }
 
@@ -420,13 +420,13 @@ struct GateMapPicker: View {
 
         case .failed:
             trouble(
-                title: "No stands for \(airport.icao)",
+                title: Lf("No stands for %@", "\(airport.icao)"),
                 detail: "Nobody has mapped this field, and the stand list could not be reached. Type the gate by hand — a plan does not need the map."
             )
 
         case .ready:
             trouble(
-                title: "No stands for \(airport.icao)",
+                title: Lf("No stands for %@", "\(airport.icao)"),
                 detail: "Neither OpenStreetMap nor our own stand list has this field's gates. Type the gate by hand — a plan does not need the map."
             )
         }

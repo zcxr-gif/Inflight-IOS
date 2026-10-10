@@ -347,7 +347,7 @@ struct FlightPlanEditor: View {
                     Button("Delete", role: .destructive) { delete() }
                     Button("Keep it", role: .cancel) {}
                 } message: {
-                    Text("\(original.routeLabel) will be removed from your plans.")
+                    Text(Lf("%@ will be removed from your plans.", "\(original.routeLabel)"))
                 }
             }
         }
@@ -577,7 +577,7 @@ private struct GateRow: View {
         guard icao.count >= 3 else {
             return "Fill in the \(role == .departure ? "departure" : "arrival") airport first."
         }
-        if stand?.coordinate != nil { return "Picked at \(icao)." }
+        if stand?.coordinate != nil { return Lf("Picked at %@.", "\(icao)") }
         return AirportStore.shared.airport(icao)?.name ?? icao
     }
 }

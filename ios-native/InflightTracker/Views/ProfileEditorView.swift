@@ -283,8 +283,8 @@ struct ProfileEditorView: View {
     private var handleHint: String {
         if let available = handleAvailable {
             return available
-                ? "@\(draft.handle) is free."
-                : "@\(draft.handle) is taken, reserved, or not one we can allow."
+                ? Lf("@%@ is free.", "\(draft.handle)")
+                : Lf("@%@ is taken, reserved, or not one we can allow.", "\(draft.handle)")
         }
         if draft.handle.count > 0 && draft.handle.count < 3 {
             return "Three characters at least."
@@ -604,7 +604,7 @@ struct ProfileEditorView: View {
                 if await store.save(draft), isNew { dismiss() }
             }
         } label: {
-            Text(L(store.isSaving ? "Saving…" : (isNew ? "Claim @\(draft.handle)" : "Save")))
+            Text(L(store.isSaving ? "Saving…" : (isNew ? Lf("Claim @%@", "\(draft.handle)") : "Save")))
                 .font(.system(size: 14, weight: .bold, design: .rounded))
                 .foregroundStyle(theme.onAccent)
                 .frame(maxWidth: .infinity)

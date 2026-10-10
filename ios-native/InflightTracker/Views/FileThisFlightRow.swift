@@ -136,7 +136,7 @@ struct FileThisFlightRow: View {
             return "Plans live with your account so they survive a new phone. Sign in and this flight fills the form in for you."
         }
         guard let filed = filed else {
-            return "Files \(route) with the callsign, aircraft and livery you are flying already in."
+            return Lf("Files %@ with the callsign, aircraft and livery you are flying already in.", "\(route)")
         }
         return "You have \(filed.routeLabel) planned. Opens it with what you are actually flying."
     }

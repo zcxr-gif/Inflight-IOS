@@ -301,7 +301,7 @@ struct AccountPanel: View {
                 }
 
                 Text(L(identity.isSet
-                     ? "The tracker marks \(identity.username)'s aircraft as yours."
+                     ? Lf("The tracker marks %@'s aircraft as yours.", "\(identity.username)")
                      : "Exactly as it appears in Infinite Flight, so the tracker can pick your aircraft out of the traffic."))
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(theme.textDim)
@@ -741,7 +741,7 @@ struct AccountPanel: View {
                 PanelActionRow(
                     title: "Get Inflight Pro",
                     symbol: "sparkles",
-                    detail: store.priceSummary.map { "From \($0). Cancel any time." }
+                    detail: store.priceSummary.map { Lf("From %@. Cancel any time.", "\($0)") }
                         ?? "Everything the tracker can do. Cancel any time."
                 ) {
                     isShowingPaywall = true
@@ -765,8 +765,8 @@ struct AccountPanel: View {
 
         let date = until.formatted(.dateTime.day().month(.abbreviated).year())
         return accounts.account?.proCancelsAtPeriodEnd == true
-            ? "Runs until \(date), and will not renew after that."
-            : "Renews \(date). Cancel any time in Settings."
+            ? Lf("Runs until %@, and will not renew after that.", "\(date)")
+            : Lf("Renews %@. Cancel any time in Settings.", "\(date)")
     }
 
     // MARK: - Signed out

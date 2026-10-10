@@ -62,7 +62,7 @@ struct AtcActiveSector: Identifiable {
     /// What the label on the map says: the station, and who is working it.
     var label: String {
         guard let first = controllers.first else { return station }
-        guard controllers.count == 1 else { return "\(station) · \(controllers.count) on" }
+        guard controllers.count == 1 else { return Lf("%@ · %@ on", "\(station)", "\(controllers.count)") }
         return "\(station) · \(first)"
     }
 }

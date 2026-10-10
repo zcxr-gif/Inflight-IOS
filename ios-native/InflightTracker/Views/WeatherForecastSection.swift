@@ -265,7 +265,7 @@ struct WeatherForecastSection: View {
     private var isWindFromModel: Bool { filedWind == nil }
 
     private var runwayFootnote: String {
-        let source = isWindFromModel ? ForecastService.sourceName : "the \(airport.icao) report"
+        let source = isWindFromModel ? ForecastService.sourceName : Lf("the %@ report", "\(airport.icao)")
         return "Worked from \(source) against the runway centrelines as mapped. True bearings, not the painted numbers — and a wind calculation, not a recommendation."
     }
 
@@ -727,8 +727,8 @@ struct WeatherForecastSection: View {
 
     private static func moonTimes(_ day: ForecastService.Day, in zone: TimeZone) -> String {
         let parts = [
-            day.moonrise.map { "Up \(clock($0, in: zone))" },
-            day.moonset.map { "down \(clock($0, in: zone))" }
+            day.moonrise.map { Lf("Up %@", "\(clock($0, in: zone))") },
+            day.moonset.map { Lf("down %@", "\(clock($0, in: zone))") }
         ].compactMap { $0 }
 
         return parts.isEmpty ? "Neither rising nor setting today." : parts.joined(separator: ", ")
@@ -794,7 +794,7 @@ struct ForecastSourceRow: View {
         HStack(spacing: 8) {
             ForecastSourceMark(size: 10, colour: theme.textDim)
 
-            Text("Forecast by \(ForecastService.sourceName)")
+            Text(Lf("Forecast by %@", "\(ForecastService.sourceName)"))
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(theme.textDim)
 

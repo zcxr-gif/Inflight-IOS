@@ -271,10 +271,10 @@ struct FriendsPanel: View {
     /// would say there are more people watching than there are.
     private func summary(aloft: Int, flights: Int) -> String {
         guard !friends.friends.isEmpty else { return "Nobody watched yet" }
-        let people = friends.count == 1 ? "1 pilot" : "\(friends.count) pilots"
-        guard aloft > 0 else { return "\(people) · none flying" }
-        guard flights > aloft else { return "\(people) · \(aloft) flying now" }
-        return "\(people) · \(aloft) flying now, \(flights) aircraft"
+        let people = friends.count == 1 ? "1 pilot" : Lf("%@ pilots", "\(friends.count)")
+        guard aloft > 0 else { return Lf("%@ · none flying", "\(people)") }
+        guard flights > aloft else { return Lf("%@ · %@ flying now", "\(people)", "\(aloft)") }
+        return Lf("%@ · %@ flying now, %@ aircraft", "\(people)", "\(aloft)", "\(flights)")
     }
 
     // MARK: - Permission
@@ -413,13 +413,13 @@ struct FriendsPanel: View {
             }
 
         case .alreadyWatching:
-            problem = "\(name) is already on your list."
+            problem = Lf("%@ is already on your list.", "\(name)")
 
         case .unusableName:
             problem = "That doesn't look like a display name."
 
         case .needsPro(let limit):
-            problem = "Free keeps \(limit) pilots. Inflight Pro lifts the limit."
+            problem = Lf("Free keeps %@ pilots. Inflight Pro lifts the limit.", "\(limit)")
             isShowingPaywall = true
         }
     }
@@ -557,7 +557,7 @@ private struct FriendRow: View {
                     .flightInfoSurface(theme, in: Circle(), interactive: true)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Open \(username)'s Inflight profile")
+            .accessibilityLabel(Lf("Open %@'s Inflight profile", "\(username)"))
 
             if let flight = flight {
                 Button { onTrack(flight) } label: {
@@ -580,7 +580,7 @@ private struct FriendRow: View {
                     .flightInfoSurface(theme, in: Circle(), interactive: true)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Stop watching \(username)")
+            .accessibilityLabel(Lf("Stop watching %@", "\(username)"))
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -613,7 +613,7 @@ private struct FriendRow: View {
 
         switch phase {
         case .ground:
-            return "\(route) · on the ground"
+            return Lf("%@ · on the ground", "\(route)")
         default:
             return "\(route) · \(Format.number(flight.altitudeFeet)) ft"
         }
@@ -682,7 +682,7 @@ private struct AlsoFlyingRow: View {
     private var detail: String {
         let route = "\(flight.departureIcao ?? "————") → \(flight.arrivalIcao ?? "————")"
         switch FlightPhase.from(flight) {
-        case .ground: return "\(route) · on the ground"
+        case .ground: return Lf("%@ · on the ground", "\(route)")
         default:      return "\(route) · \(Format.number(flight.altitudeFeet)) ft"
         }
     }

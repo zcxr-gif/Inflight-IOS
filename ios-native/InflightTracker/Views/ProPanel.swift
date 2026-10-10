@@ -215,7 +215,7 @@ struct ProPanel: View {
 
     private var subtitle: String {
         if let highlighted = highlighted {
-            return "\(highlighted.title) is part of Pro, along with everything below."
+            return Lf("%@ is part of Pro, along with everything below.", "\(highlighted.title)")
         }
         return "Everything the tracker can do, on every device you sign into."
     }
@@ -362,7 +362,7 @@ struct ProPanel: View {
                             .foregroundStyle(theme.textPrimary)
 
                         if plan == .annual, let saving = store.annualSavingPercent {
-                            Text("SAVE \(saving)%")
+                            Text(Lf("SAVE %@%%", "\(saving)"))
                                 .font(.system(size: 9, weight: .bold))
                                 .tracking(0.6)
                                 .foregroundStyle(theme.onAccent)
@@ -428,7 +428,7 @@ struct ProPanel: View {
         switch plan {
         case .annual:
             guard let perMonth = store.perMonthPrice(for: .annual) else { return "Billed once a year" }
-            return "\(perMonth) a month, billed yearly"
+            return Lf("%@ a month, billed yearly", "\(perMonth)")
         case .monthly:
             return "Billed every month"
         case .lifetime:

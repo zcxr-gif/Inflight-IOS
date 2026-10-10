@@ -302,7 +302,7 @@ struct SkyView: View {
 
             if nearby.isEmpty, notice == nil {
                 SkyChip(
-                    text: "Nothing flying within \(range.label) of \(vantageName)",
+                    text: Lf("Nothing flying within %@ of %@", "\(range.label)", "\(vantageName)"),
                     symbol: "binoculars.fill",
                     theme: theme
                 )
@@ -340,14 +340,14 @@ struct SkyView: View {
                     Button {
                         vantage = .airport(icao: field)
                     } label: {
-                        Label("Stand at \(field)", systemImage: "mappin.and.ellipse")
+                        Label(Lf("Stand at %@", "\(field)"), systemImage: "mappin.and.ellipse")
                     }
                 }
             }
         } label: {
             SkyChip(text: vantageName, symbol: vantageSymbol, theme: theme)
         }
-        .accessibilityLabel("Looking from \(vantageName)")
+        .accessibilityLabel(Lf("Looking from %@", "\(vantageName)"))
     }
 
     private var rangeMenu: some View {

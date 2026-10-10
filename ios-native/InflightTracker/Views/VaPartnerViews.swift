@@ -170,18 +170,18 @@ struct VaPartnerLine: View {
         switch basis {
         case .member:            return "FLYING WITH VA"
         case .callsign:          return "PARTNER VA"
-        case .hubbed(let icao):  return "PARTNER VA AT \(icao)"
+        case .hubbed(let icao):  return Lf("PARTNER VA AT %@", "\(icao)")
         }
     }
 
     private func accessibilityLabel(for partner: VaPartner) -> String {
         switch partner.basis {
         case .member:
-            return "Flying with \(partner.ad.name), a partner virtual airline."
+            return Lf("Flying with %@, a partner virtual airline.", "\(partner.ad.name)")
         case .callsign:
             return "\(partner.ad.name), the partner virtual airline whose callsign this flight is using."
         case .hubbed(let icao):
-            return "\(partner.ad.name), a partner virtual airline hubbed at \(icao)."
+            return Lf("%@, a partner virtual airline hubbed at %@.", "\(partner.ad.name)", "\(icao)")
         }
     }
 }
@@ -643,7 +643,7 @@ struct VaDetailSheet: View {
         case .callsign:
             return "Flying this airline's callsign, but not marked as a member"
         case .hubbed(let icao):
-            return "Hubbed at \(icao), an end of this route"
+            return Lf("Hubbed at %@, an end of this route", "\(icao)")
         }
     }
 
@@ -654,7 +654,7 @@ struct VaDetailSheet: View {
             let fleet = self.fleet
 
             if fleet.isEmpty {
-                Text("No \(ad.name) aircraft in the air right now.")
+                Text(Lf("No %@ aircraft in the air right now.", "\(ad.name)"))
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .fixedSize(horizontal: false, vertical: true)
@@ -669,7 +669,7 @@ struct VaDetailSheet: View {
 
                 if fleet.count > 8 {
                     PanelDivider()
-                    Text("and \(fleet.count - 8) more.")
+                    Text(Lf("and %@ more.", "\(fleet.count - 8)"))
                         .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(theme.textDim)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -729,7 +729,7 @@ struct VaDetailSheet: View {
                         )
 
                         Text(L(isPinned
-                             ? "The Virtual airline widget is showing \(ad.name)."
+                             ? Lf("The Virtual airline widget is showing %@.", "\(ad.name)")
                              : "Puts this VA's mark, and who is flying for it right now, on the Virtual airline widget."))
                             .font(.system(size: 10.5, weight: .medium))
                             .foregroundStyle(theme.textDim)
@@ -792,7 +792,7 @@ struct VaDetailSheet: View {
     private var links: some View {
         if ad.links.isEmpty {
             PanelSection(title: "LINKS") {
-                Text("\(ad.name) hasn't published anywhere to reach them.")
+                Text(Lf("%@ hasn't published anywhere to reach them.", "\(ad.name)"))
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .fixedSize(horizontal: false, vertical: true)

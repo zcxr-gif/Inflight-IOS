@@ -682,10 +682,10 @@ final class ConnectSession: ObservableObject {
 
         guard announcesConnection else { return }
 
-        let place = address == Self.loopback ? "on this device" : "at \(address)"
+        let place = address == Self.loopback ? "on this device" : Lf("at %@", "\(address)")
         PushService.shared.post(
             title: "Connected to Infinite Flight",
-            body: "Reading your aircraft from the sim \(place).",
+            body: Lf("Reading your aircraft from the sim %@.", "\(place)"),
             // One identifier for this event, so reconnecting through a flaky
             // Wi-Fi replaces the notice instead of stacking a column of them.
             identifier: "connect.attached"
@@ -988,11 +988,11 @@ final class ConnectSession: ObservableObject {
 
         var label: String {
             switch self {
-            case let .attached(fpm):    return "Landing recorded: \(fpm) fpm"
+            case let .attached(fpm):    return Lf("Landing recorded: %@ fpm", "\(fpm)")
             case .nothingToAttach:      return "No new landing to record"
             case .simulatorNotReachable: return "Infinite Flight wasn't running"
             case .needsAccount:         return "Sign in and claim a handle to record landings"
-            case let .refused(reason):  return "Not recorded — \(reason)"
+            case let .refused(reason):  return Lf("Not recorded — %@", "\(reason)")
             }
         }
     }

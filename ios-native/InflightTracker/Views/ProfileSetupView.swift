@@ -219,8 +219,8 @@ struct ProfileSetupView: View {
     private var handleHint: String {
         if let available = handleAvailable {
             return available
-                ? "@\(draft.handle) is free."
-                : "@\(draft.handle) is taken, reserved, or not one we can allow."
+                ? Lf("@%@ is free.", "\(draft.handle)")
+                : Lf("@%@ is taken, reserved, or not one we can allow.", "\(draft.handle)")
         }
         if !draft.handle.isEmpty && draft.handle.count < 3 { return "Three characters at least." }
         return "Letters, numbers and underscores. It can only be changed once a month, so pick one you will still like."
@@ -342,7 +342,7 @@ struct ProfileSetupView: View {
         if let grade = stats.gradeBadge { parts.append(grade.label.capitalized) }
         if let org = stats.virtualOrganization { parts.append(org) }
         if let landings = stats.landingCount, landings > 0 {
-            parts.append("\(Format.number(Double(landings))) landings")
+            parts.append(Lf("%@ landings", "\(Format.number(Double(landings)))"))
         }
         return parts.isEmpty ? "Your flights will be marked as yours." : parts.joined(separator: " · ")
     }

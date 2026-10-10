@@ -1342,7 +1342,7 @@ struct FlightDetailView: View {
                 Image(systemName: "chevron.backward")
                     .font(.system(size: 11, weight: .bold))
 
-                Text("Back to \(origin.label)")
+                Text(Lf("Back to %@", "\(origin.label)"))
                     .font(.system(size: 12.5, weight: .semibold, design: .rounded))
                     .flightInfoLine(minimumScale: 0.8)
 
@@ -1355,7 +1355,7 @@ struct FlightDetailView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Back to \(origin.label)")
+        .accessibilityLabel(Lf("Back to %@", "\(origin.label)"))
     }
 
     /// The route the board would draw, when the board is what is wanted and
