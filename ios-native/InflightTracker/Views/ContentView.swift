@@ -1091,7 +1091,12 @@ struct ContentView: View {
             // Every way into a flight window ends here — the map, search, a
             // field's board, the stats list — so this is the one place the
             // view is counted for the most-watched list.
-            if let flight = flight(id: id) { MostWatched.shared.report(flight) }
+            if let flight = flight(id: id) {
+                MostWatched.shared.report(flight)
+                // The window says which organised track the aircraft is on,
+                // which needs the track set whether or not the layer is on.
+                if NatTrackService.covers(flight.coordinate) { NatTrackService.shared.refresh() }
+            }
 
             // Opening an aircraft follows it: the map glides onto it and goes
             // with it, until a drag on the map or one of the framing buttons

@@ -74,6 +74,7 @@ struct FlightInfoBoard: View {
 
                 Spacer(minLength: 6)
 
+                NatTrackChip(flight: flight, theme: theme, elevated: true)
                 FlightPhaseChip(phase: FlightPhase.from(flight), theme: theme, elevated: true)
             }
 

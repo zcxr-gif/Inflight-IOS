@@ -463,36 +463,40 @@ enum MapLayerStyle {
                 "layout": {
                     "text-field": ["get", "levels"],
                     "text-font": \(bold),
-                    "text-size": 9.5,
-                    "text-offset": [0, 1.5],
-                    "text-allow-overlap": true,
-                    "text-ignore-placement": true
+                    "text-size": 8.5,
+                    "text-offset": [0, 1.7],
+                    "text-padding": 1
                 },
                 "paint": {
-                    "text-color": "#ffffff",
+                    "text-color": ["get", "color"],
                     "text-halo-color": "rgba(0,0,0,0.9)",
-                    "text-halo-width": 1.4,
-                    "text-halo-blur": 0.6
+                    "text-halo-width": 1.2,
+                    "text-halo-blur": 0.4
                 }
             },
             {
                 "id": "\(Layer.natBadges)", "type": "symbol", "source": "\(Source.nat)", "slot": "top",
                 "filter": ["==", ["geometry-type"], "Point"],
                 "layout": {
+                    "symbol-sort-key": ["get", "rank"],
                     "icon-image": ["get", "badge"],
                     "icon-rotate": ["get", "rotate"],
                     "icon-rotation-alignment": "map",
-                    "icon-allow-overlap": true,
-                    "icon-ignore-placement": true,
+                    "icon-pitch-alignment": "viewport",
+                    "icon-padding": 1,
                     "text-field": ["get", "letter"],
                     "text-font": \(bold),
-                    "text-size": 12.5,
+                    "text-size": 9,
                     "text-rotate": ["get", "rotate"],
                     "text-rotation-alignment": "map",
-                    "text-allow-overlap": true,
-                    "text-ignore-placement": true
+                    "text-pitch-alignment": "viewport",
+                    "text-padding": 0
                 },
-                "paint": {"text-color": "#ffffff"}
+                "paint": {
+                    "text-color": "#ffffff",
+                    "text-halo-color": "rgba(0,0,0,0.45)",
+                    "text-halo-width": 0.8
+                }
             },
             {
                 "id": "\(Layer.fields)", "type": "symbol", "source": "\(Source.fields)", "slot": "top",

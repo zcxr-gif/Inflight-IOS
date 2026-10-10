@@ -200,6 +200,7 @@ struct FlightInfoPeak: View {
                         // into the new one instead of cutting to it.
                         .motionWords(flight.displayName)
 
+                    NatTrackChip(flight: flight, theme: theme, compact: true)
                     FlightPhaseChip(phase: FlightPhase.from(flight), theme: theme)
                 }
 

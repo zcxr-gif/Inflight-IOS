@@ -842,11 +842,14 @@ struct FlightHorizonRouteStrip: View {
 
     private var phasePill: some View {
         let phase = FlightPhase.from(flight)
+        // The organised track, when the aircraft is flying one, in the
+        // track's own colour — re-read on every packet, as the flight is.
+        let track = NatTrackService.shared.track(for: flight)
         return HStack(spacing: 6) {
             Circle()
-                .fill(horizonPhaseColour(phase))
+                .fill(track.map { Color(uiColor: NatTrackStyle.colour(for: $0.name)) } ?? horizonPhaseColour(phase))
                 .frame(width: 6, height: 6)
-            Text(phase.label)
+            Text(track.map { "\(phase.label) · Track \($0.name)" } ?? phase.label)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(palette.ink(0.88))
         }

@@ -666,8 +666,13 @@ struct TrackerMapView: UIViewRepresentable {
                     addImage(PlanFixGlyph.image(isNext: next, isLight: light), id: Self.fixImage(isNext: next, isLight: light))
                 }
             }
-            for right in [false, true] {
-                addImage(NatTrackStyle.badge(pointsRight: right), id: NatTrackStyle.badgeImage(pointsRight: right))
+            for (index, colour) in NatTrackStyle.palette.enumerated() {
+                for right in [false, true] {
+                    addImage(
+                        NatTrackStyle.badge(colour: colour, pointsRight: right),
+                        id: NatTrackStyle.badgeImage(colourIndex: index, pointsRight: right)
+                    )
+                }
             }
             for controlled in [false, true] {
                 let key = AirportMarker.spriteKey(isControlled: controlled)
@@ -2474,48 +2479,65 @@ struct TrackerMapView: UIViewRepresentable {
             guard renderedNatKey != key else { return }
             renderedNatKey = key
 
-            let colour = MapLayerStyle.rgba(NatTrackStyle.lineColour)
+            // Ordered north to south, so neighbours on the map are neighbours
+            // here — which is what the badges are staggered against below.
+            let ordered = tracks.sorted { meanLatitude($0) > meanLatitude($1) }
+
             var features: [Feature] = []
-            for track in tracks {
+            for (ordinal, track) in ordered.enumerated() {
                 let fixes = track.coordinatesInFlightOrder
+                let colourIndex = NatTrackStyle.colourIndex(for: track.name)
+                let colour = MapLayerStyle.rgba(NatTrackStyle.colour(for: track.name))
+
                 // Great circles, because a track is flown as one and a straight
                 // line between two North Atlantic fixes is visibly south of
                 // where the aeroplanes actually are.
                 features.append(Self.lineFeature(GreatCircle.path(through: fixes), [
-                    "color": .string(colour),
+                    "color": .string(MapLayerStyle.rgba(NatTrackStyle.lineColour(for: track.name))),
                 ]))
 
-                // A badge at each end, because which end you are looking at
-                // depends entirely on which side of the ocean you are, and one
-                // in the middle for a view of open ocean with neither end on
-                // it. Each sits on a published fix, so on the line exactly, and
-                // points along the leg it starts — the last along the leg it
-                // ends. Fixes are on the same meridians from track to track, so
-                // the badges line up across the system the way the charts draw
-                // them.
                 guard fixes.count > 1 else { continue }
-                var stops = [0, fixes.count - 1]
-                if fixes.count >= 4 { stops.insert(fixes.count / 2, at: 1) }
 
-                for index in stops {
+                // A badge offered at every fix, and Mapbox's collision keeps
+                // only those with room — so none of them is ever drawn over
+                // another, and zooming in brings back the ones a crowded view
+                // had to drop. The fixes sit on the same meridians from track
+                // to track, so neighbouring tracks would fight over the same
+                // column first; the rank staggers them, each track preferring
+                // the fix one along from the track north of it, so the badges
+                // placed first step diagonally across the system and every
+                // track gets one before any track gets two.
+                for index in fixes.indices {
                     let isLast = index == fixes.count - 1
                     let bearing = isLast
                         ? FlightProgress.bearingDegrees(from: fixes[index - 1], to: fixes[index])
                         : FlightProgress.bearingDegrees(from: fixes[index], to: fixes[index + 1])
                     let placement = NatTrackStyle.badgePlacement(bearing: bearing)
+                    let rank = ((index - ordinal) % fixes.count + fixes.count) % fixes.count
 
                     var properties: JSONObject = [
                         "letter": .string(track.name),
-                        "badge": .string(NatTrackStyle.badgeImage(pointsRight: placement.pointsRight)),
+                        "badge": .string(NatTrackStyle.badgeImage(
+                            colourIndex: colourIndex,
+                            pointsRight: placement.pointsRight
+                        )),
                         "rotate": .number(placement.rotation),
+                        "rank": .number(Double(rank)),
+                        "color": .string(colour),
                     ]
-                    if index == 0 || isLast, let levels = NatTrackStyle.levelsLabel(for: track) {
+                    // The levels once, at the entry, where they are read.
+                    if index == 0, let levels = NatTrackStyle.levelsLabel(for: track) {
                         properties["levels"] = .string(levels)
                     }
                     features.append(Self.pointFeature(fixes[index], properties))
                 }
             }
             push(features, to: Source.nat)
+        }
+
+        private func meanLatitude(_ track: NatTrack) -> Double {
+            guard !track.coordinates.isEmpty else { return 0 }
+            return track.coordinates.map(\.latitude).reduce(0, +) / Double(track.coordinates.count)
         }
 
         // MARK: Controlled airspace

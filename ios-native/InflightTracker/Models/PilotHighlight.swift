@@ -32,7 +32,8 @@ final class PilotHighlightPreferences: ObservableObject {
     private static let teamKey = "pilotHighlightTeam"
     private static let controllersKey = "pilotHighlightControllers"
 
-    /// Inflight's moderators in light blue. On by default.
+    /// Inflight's moderators in light blue. Off by default: it is a badge of
+    /// office, not something everybody looking at the map needs picked out.
     @Published var showsTeam: Bool {
         didSet { UserDefaults.standard.set(showsTeam, forKey: Self.teamKey) }
     }
@@ -79,7 +80,7 @@ final class PilotHighlightPreferences: ObservableObject {
         ownColor = Self.read(forKey: Self.ownKey) ?? Self.defaultOwn
         friendColor = Self.read(forKey: Self.friendKey) ?? Self.defaultFriend
         friendColors = Self.readAll(forKey: Self.perFriendKey)
-        showsTeam = defaults.object(forKey: Self.teamKey) as? Bool ?? true
+        showsTeam = defaults.object(forKey: Self.teamKey) as? Bool ?? false
         showsControllers = defaults.object(forKey: Self.controllersKey) as? Bool ?? false
     }
 
