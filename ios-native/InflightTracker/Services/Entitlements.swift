@@ -27,6 +27,15 @@ enum ProFeature: String, CaseIterable, Identifiable {
     /// The globe. Satellite imagery is free.
     case mapStyles
 
+    /// Editing the map: the time of day it is lit for, its colours, the face
+    /// its names are set in and which of them it draws, and buildings standing
+    /// up out of it.
+    ///
+    /// Its own feature rather than part of `mapStyles`, which is a shape of
+    /// the world. Every map and every finish stays free to pick; what is sold
+    /// is changing the one you picked. See `MapCustomisation`.
+    case mapCustomise
+
     /// The controlled airspace behind the traffic: which sectors are staffed
     /// right now, drawn on the map.
     ///
@@ -110,6 +119,7 @@ enum ProFeature: String, CaseIterable, Identifiable {
         case .watchlist: return "The whole watchlist"
         case .pilotColours: return "A colour for every pilot"
         case .mapStyles: return "The globe"
+        case .mapCustomise: return "Your map, your way"
         case .planetLook: return "The planet, in your colours"
         case .atcBoundaries: return "The airspace, drawn"
         case .findMyAircraft: return "Jump to your aircraft"
@@ -130,6 +140,8 @@ enum ProFeature: String, CaseIterable, Identifiable {
             return "Paint each pilot you watch their own colour, and your own aircraft whatever you like. Free keeps one colour for the whole watchlist."
         case .mapStyles:
             return "The whole planet — free to spin and tilt with the traffic on it."
+        case .mapCustomise:
+            return "Light the map for dawn, dusk or night, recolour its water and land, set its names in another face, and choose which it draws."
         case .atcBoundaries:
             return "See the controlled airspace behind the traffic — every sector with somebody working it, outlined and named, on the map and on the planet. Who is on frequency is free either way."
         case .planetLook:
@@ -153,6 +165,7 @@ enum ProFeature: String, CaseIterable, Identifiable {
         case .watchlist: return "person.2.badge.plus"
         case .pilotColours: return "paintpalette"
         case .mapStyles: return "globe"
+        case .mapCustomise: return "slider.horizontal.3"
         case .planetLook: return "paintbrush.pointed"
         case .atcBoundaries: return "square.dashed"
         case .findMyAircraft: return "location.magnifyingglass"

@@ -1687,3 +1687,24 @@
 "GRADE" = "ОЦЕНКА";
 "Terms" = "Условия";
 "Privacy" = "Конфиденциальность";
+
+/* Map window */
+"CUSTOMISE" = "НАСТРОЙКА";
+"PLANET" = "ПЛАНЕТА";
+"Time of day" = "Время суток";
+"Typeface" = "Шрифт";
+"Place names" = "Названия мест";
+"Road names" = "Названия улиц";
+"Borders" = "Границы";
+"3D buildings" = "3D-здания";
+"Reset" = "Сбросить";
+"Day" = "День";
+"Standard" = "Стандарт";
+"Chart" = "Карта";
+"Sand" = "Песок";
+"Your map, your way" = "Ваша карта — по-вашему";
+"Light the map for dawn, dusk or night, recolour its water and land, set its names in another face, and choose which it draws." = "Освещайте карту для рассвета, заката или ночи, меняйте цвет воды и суши, выбирайте другой шрифт для названий и решайте, какие из них показывать.";
+"The globe is drawn in imagery, whatever is picked here." = "Глобус всегда рисуется по спутниковым снимкам, что бы здесь ни было выбрано.";
+"The planet has colours of its own, below." = "У планеты свои цвета — ниже.";
+"Satellite imagery has nothing to edit. Pick a drawn map to customise it." = "В спутниковых снимках нечего настраивать. Выберите нарисованную карту, чтобы её изменить.";
+"The globe takes the light, the names and the borders." = "Для глобуса доступны освещение, названия и границы.";

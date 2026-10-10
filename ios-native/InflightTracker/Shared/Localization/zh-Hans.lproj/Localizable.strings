@@ -1687,3 +1687,24 @@
 "GRADE" = "等级";
 "Terms" = "条款";
 "Privacy" = "隐私";
+
+/* Map window */
+"CUSTOMISE" = "自定义";
+"PLANET" = "星球";
+"Time of day" = "时段";
+"Typeface" = "字体";
+"Place names" = "地名";
+"Road names" = "道路名称";
+"Borders" = "边界";
+"3D buildings" = "3D 建筑";
+"Reset" = "重置";
+"Day" = "白天";
+"Standard" = "标准";
+"Chart" = "航图";
+"Sand" = "沙色";
+"Your map, your way" = "你的地图，由你定义";
+"Light the map for dawn, dusk or night, recolour its water and land, set its names in another face, and choose which it draws." = "为黎明、黄昏或夜晚照亮地图，重新为水域和陆地上色，为地名换一种字体，并选择显示哪些名称。";
+"The globe is drawn in imagery, whatever is picked here." = "无论这里选择什么，地球都以卫星影像绘制。";
+"The planet has colours of its own, below." = "星球有自己的配色，见下方。";
+"Satellite imagery has nothing to edit. Pick a drawn map to customise it." = "卫星影像没有可编辑的内容。选择绘制的地图即可自定义。";
+"The globe takes the light, the names and the borders." = "地球可调整光照、名称和边界。";

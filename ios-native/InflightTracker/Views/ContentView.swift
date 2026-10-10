@@ -265,6 +265,9 @@ struct ContentView: View {
     /// Raised from the avatar's menu, for an account without Pro.
     @State private var isShowingProPaywall = false
 
+    /// The map's own window — see `MapModesWindow`.
+    @State private var isShowingMapModes = false
+
     /// Raised when a locked map style is picked.
     @State private var isShowingStylePaywall = false
 
@@ -1042,10 +1045,47 @@ struct ContentView: View {
             flightDock
             flightPane
             airportPane
+            mapModes
         }
         // What the panes are laid out in, so the map can be told exactly how
         // much of it they cover. See `mapAreaSize`.
         .onGeometryChange(for: CGSize.self) { $0.size } action: { mapAreaSize = $0 }
+        // An aeroplane opening takes the bottom of the screen, and the map's
+        // window gives it up.
+        .onChange(of: selection) { _, opened in
+            if opened != nil, isShowingMapModes { closeMapModes() }
+        }
+    }
+
+    /// The map's window, standing up from the bottom edge over the map it
+    /// changes. A tap on the map around it puts it away.
+    @ViewBuilder
+    private var mapModes: some View {
+        if isShowingMapModes {
+            ZStack(alignment: .bottom) {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { closeMapModes() }
+                    .accessibilityHidden(true)
+
+                MapModesWindow(
+                    onClose: { closeMapModes() },
+                    onProjectionChanged: { projection in
+                        // The ruler is a pair of points on the map's own
+                        // layers, so it has nowhere to be on the drawn planet.
+                        if projection.isDrawn { measurement = MapMeasurement() }
+                    }
+                )
+                .padding(.horizontal, 10)
+                .padding(.bottom, 10)
+            }
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .zIndex(10)
+        }
+    }
+
+    private func closeMapModes() {
+        withAnimation(Motion.panel) { isShowingMapModes = false }
     }
 
     /// The flight window, on a screen wide enough to lay it out beside the map
@@ -2197,46 +2237,6 @@ struct ContentView: View {
         }
     }
 
-    /// Switching the map, or being told why you cannot.
-    ///
-    /// The choice is still stored when it is refused, which is the point: the
-    /// paywall is opened *from* picking the globe, and buying Pro there leaves
-    /// you on the globe rather than back where you started having to pick it
-    /// again.
-    private func select(_ projection: MapProjection) {
-        appearance.mapProjection = projection
-        // The ruler is a pair of points on the map's own layers, so a measurement in
-        // progress has nowhere to be on the drawn planet. Put away rather than
-        // left up over a map that cannot answer it.
-        if projection.isDrawn { measurement = MapMeasurement() }
-        if projection.isPro, !entitlements.isPro {
-            stylePaywallFeature = .mapStyles
-            isShowingStylePaywall = true
-        }
-    }
-
-    private func select(_ palette: MapPalette) {
-        appearance.mapPalette = palette
-        if palette.isPro, !entitlements.isPro {
-            stylePaywallFeature = .mapStyles
-            isShowingStylePaywall = true
-        }
-    }
-
-    /// Whether a Pro choice is one this account cannot have yet. Shown rather
-    /// than hidden — you cannot want something you have never seen.
-    private func locked(_ isPro: Bool) -> Bool { isPro && !entitlements.isPro }
-
-    /// Whether the map is the planet, which is the one look that decides what
-    /// it is drawn in for itself.
-    /// Whether the map decides its own colours, which both round shapes do —
-    /// the globe because it is imagery whatever is picked, the planet because
-    /// it has a list of its own. Either way `MapPalette` has nothing to act on.
-    private var usesOwnPalette: Bool {
-        let projection = appearance.resolvedMapStyle.projection
-        return projection == .globe || projection == .planet
-    }
-
     /// The glyph on the corner button: the shape of the map when it is the
     /// planet, since that is the bigger fact about it, and otherwise whatever
     /// it is drawn in.
@@ -2251,84 +2251,6 @@ struct ContentView: View {
     private var mapStyleLabel: String {
         let style = appearance.resolvedMapStyle
         return "Map style, \(style.projection.label.lowercased()), \(style.resolvedPalette.label.lowercased())"
-    }
-
-    /// The planet's own three, for the style menu.
-    ///
-    /// In submenus rather than laid out in the menu itself: ten colours and
-    /// five backdrops is a good list to choose from and a terrible one to
-    /// scroll past on the way to something else.
-    ///
-    /// Lifted out of `mapStyleControl` for the same reason the map's insets
-    /// were lifted out of its argument list — Swift type-checks a view's body
-    /// as one expression, and this menu was already three sections and two
-    /// `ForEach`es deep before any of this was in it.
-    ///
-    /// All three are Pro — see `ProFeature.planetLook`. Shown rather than
-    /// hidden, and the tick follows what is *drawn* rather than what is stored,
-    /// so a free account is never shown a colour ticked on a planet that is not
-    /// wearing it. Choosing one still stores the choice and opens the paywall,
-    /// which is the same bargain the map's own Pro rows make: buying from there
-    /// leaves you on the thing you picked.
-    @ViewBuilder
-    private var planetStyleSection: some View {
-        if isPlanetMap {
-            Section {
-                Menu("Colour") {
-                    ForEach(GlobeSkin.allCases) { skin in
-                        Button {
-                            selectPlanet { appearance.globeSkin = skin }
-                        } label: {
-                            Label(
-                                L(skin.label),
-                                systemImage: appearance.resolvedGlobeSkin == skin
-                                    ? "checkmark"
-                                    : "circle.fill"
-                            )
-                        }
-                    }
-                }
-
-                Menu("Background") {
-                    ForEach(GlobeBackdrop.allCases) { backdrop in
-                        Button {
-                            selectPlanet { appearance.globeBackdrop = backdrop }
-                        } label: {
-                            Label(
-                                L(backdrop.label),
-                                systemImage: appearance.resolvedGlobeBackdrop == backdrop
-                                    ? "checkmark"
-                                    : backdrop.symbol
-                            )
-                        }
-                    }
-                }
-
-                Button {
-                    selectPlanet { appearance.globeShowsPlanes.toggle() }
-                } label: {
-                    Label(
-                        "Aircraft shapes",
-                        systemImage: appearance.resolvedGlobeShowsPlanes ? "checkmark" : "airplane"
-                    )
-                }
-            } header: {
-                // Said in the heading rather than badged on sixteen rows
-                // inside two submenus, where a badge would be a word in a menu
-                // item's title.
-                Text(L(appearance.canEditPlanet ? "Planet" : "Planet — Pro"))
-            }
-        }
-    }
-
-    /// Stores one of the planet's own choices, and asks for Pro if that is what
-    /// stands between the choice and the planet wearing it.
-    private func selectPlanet(_ change: () -> Void) {
-        change()
-        if !appearance.canEditPlanet {
-            stylePaywallFeature = .planetLook
-            isShowingStylePaywall = true
-        }
     }
 
     /// How the map is drawn, in the corner that holds the map's controls.
@@ -2405,98 +2327,15 @@ struct ContentView: View {
         }
     }
 
-    /// The map's shape and finish.
-    ///
-    /// A menu rather than a cycle button, and two lists in one menu: the shape
-    /// of the world, and what it is drawn in.
+    /// The map's shape and finish, and for Pro the map edited — in a window
+    /// of its own. See `MapModesWindow`.
     private var mapStyleMenu: some View {
-        Menu {
-            // Buttons rather than a `Picker` bound to the setting: some
-            // of these are Pro, and a binding would have already
-            // changed the map by the time anything could check. Each
-            // one decides for itself whether it is switching the map or
-            // opening the paywall.
-            Section("Shape") {
-                ForEach(MapProjection.allCases) { projection in
-                    Button {
-                        select(projection)
-                    } label: {
-                        Label(
-                            L(locked(projection.isPro) ? "\(projection.label) (Pro)" : projection.label),
-                            systemImage: appearance.mapProjection == projection
-                                ? "checkmark"
-                                : projection.symbol
-                        )
-                    }
-                }
-            }
-
-            // The flat map's finish, and only its. The globe is one
-            // look — see `MapLook.palette` — so on the planet these are
-            // shown ticked on Satellite and switched off rather than
-            // taken away: a section that vanishes reads as a feature
-            // that has gone missing, where a disabled one that agrees
-            // with what is on screen reads as an answer.
-            Section(L(usesOwnPalette ? "Map (flat only)" : "Map")) {
-                ForEach(MapPalette.allCases) { palette in
-                    Button {
-                        select(palette)
-                    } label: {
-                        Label(
-                            L(locked(palette.isPro) ? "\(palette.label) (Pro)" : palette.label),
-                            // What is drawn rather than what is stored,
-                            // so the tick is on Satellite while the
-                            // globe is up and back on the stored choice
-                            // the moment it is not.
-                            systemImage: appearance.resolvedMapStyle.resolvedPalette == palette
-                                ? "checkmark"
-                                : palette.symbol
-                        )
-                    }
-                    .disabled(usesOwnPalette)
-                }
-            }
-
-            planetStyleSection
-
-            Section {
-                // Nothing to turn up on imagery: it has no roads, no
-                // terrain shading and no emphasis to set.
-                Button {
-                    appearance.isMapDetailed.toggle()
-                } label: {
-                    Label(
-                        "Full detail",
-                        systemImage: appearance.isMapDetailed ? "checkmark" : "map.fill"
-                    )
-                }
-                .disabled(
-                    appearance.resolvedMapStyle.resolvedPalette.usesImagery || isPlanetMap
-                )
-
-                // Real height under the map, and a camera free to lean
-                // over and look along it.
-                //
-                // Shown ticked and disabled on the globe rather than
-                // hidden: elevation is what rounds the planet off at
-                // the edges, so the globe has always had it and there
-                // is nothing here to turn off. Hiding the row would
-                // make it look as though the globe had no terrain.
-                Button {
-                    appearance.isMapTerrain.toggle()
-                } label: {
-                    Label(
-                        "3D terrain",
-                        systemImage: appearance.resolvedMapStyle.hasTerrain
-                            ? "checkmark"
-                            : "mountain.2.fill"
-                    )
-                }
-                .disabled(usesOwnPalette)
-            }
+        Button {
+            withAnimation(Motion.panel) { isShowingMapModes = true }
         } label: {
-            mapControlFace(mapStyleSymbol, isOn: false)
+            mapControlFace(mapStyleSymbol, isOn: isShowingMapModes)
         }
+        .buttonStyle(.plain)
         .accessibilityLabel(L(mapStyleLabel))
     }
 

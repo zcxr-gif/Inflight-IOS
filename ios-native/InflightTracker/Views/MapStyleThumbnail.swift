@@ -176,6 +176,7 @@ final class MapThumbnailLoader: ObservableObject {
             look.resolvedPalette.rawValue,
             look.isDetailed ? "detail" : "muted",
             look.hasTerrain ? "terrain" : "flat",
+            look.custom.key,
             scheme == .dark ? "night" : "day",
             String(Int(side))
         ].joined(separator: "|")

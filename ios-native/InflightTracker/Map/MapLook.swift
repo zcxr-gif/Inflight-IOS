@@ -308,6 +308,10 @@ struct MapLook: Equatable {
     /// The middle of the slider: the map untouched.
     static let neutralBrightness: CGFloat = 0.5
 
+    /// The map edited — its light, colours, typeface and which names it
+    /// draws. Pro; everybody else's is `.standard`. See `MapCustomisation`.
+    var custom = MapCustomisation.standard
+
     /// How black the map can be washed at the dark end.
     ///
     /// Not to one. A map you cannot see at all is not a setting anybody wants
@@ -367,6 +371,7 @@ struct MapLook: Equatable {
             && palette == other.palette
             && isTerrain == other.isTerrain
             && isDetailed == other.isDetailed
+            && custom == other.custom
     }
 
     /// Whether the app draws this map itself. See `MapProjection.planet`.
@@ -417,15 +422,18 @@ struct MapLook: Equatable {
             // what dims it. The globe keeps place names and borders, because a
             // hemisphere with nothing written on it is a hemisphere you cannot
             // identify, and those need Standard Satellite.
+            //
+            // The light and the names are the customisation's: a dusk-lit
+            // planet is imagery too.
             return .standardSatellite(
-                lightPreset: .day,
+                lightPreset: custom.light.preset ?? .day,
                 showPointOfInterestLabels: false,
                 showTransitLabels: false,
-                showPlaceLabels: true,
+                showPlaceLabels: custom.showsPlaceNames,
                 showRoadLabels: false,
                 showRoadsAndTransit: false,
                 showPedestrianRoads: false,
-                showAdminBoundaries: true
+                showAdminBoundaries: custom.showsBorders
             )
 
         case .standard:
@@ -439,13 +447,24 @@ struct MapLook: Equatable {
             theme = isDetailed ? .default : .faded
         }
 
+        // Everything after the theme is the customisation, and with none it
+        // is exactly the map this always drew: Mapbox's own colours and face,
+        // the light following the scheme, names and borders on, nothing
+        // standing up.
         return .standard(
             theme: theme,
-            lightPreset: isLight ? .day : .night,
+            lightPreset: custom.light.preset ?? (isLight ? .day : .night),
+            font: custom.font.standardFont,
             showPointOfInterestLabels: false,
             showTransitLabels: false,
+            showPlaceLabels: custom.showsPlaceNames,
+            showRoadLabels: custom.showsRoadNames,
             showPedestrianRoads: isDetailed,
-            show3dObjects: false
+            show3dObjects: custom.shows3DBuildings,
+            colorGreenspace: custom.tint.green,
+            colorLand: custom.tint.land,
+            colorWater: custom.tint.water,
+            showAdminBoundaries: custom.showsBorders
         )
     }
 

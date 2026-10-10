@@ -1687,3 +1687,24 @@
 "GRADE" = "ग्रेड";
 "Terms" = "शर्तें";
 "Privacy" = "गोपनीयता";
+
+/* Map window */
+"CUSTOMISE" = "अनुकूलित करें";
+"PLANET" = "ग्रह";
+"Time of day" = "दिन का समय";
+"Typeface" = "टाइपफ़ेस";
+"Place names" = "स्थानों के नाम";
+"Road names" = "सड़कों के नाम";
+"Borders" = "सीमाएँ";
+"3D buildings" = "3D इमारतें";
+"Reset" = "रीसेट करें";
+"Day" = "दिन";
+"Standard" = "मानक";
+"Chart" = "चार्ट";
+"Sand" = "रेत";
+"Your map, your way" = "आपका नक्शा, आपके अंदाज़ में";
+"Light the map for dawn, dusk or night, recolour its water and land, set its names in another face, and choose which it draws." = "नक्शे को भोर, सांझ या रात के लिए रोशन करें, पानी और ज़मीन का रंग बदलें, नामों के लिए दूसरा टाइपफ़ेस चुनें और तय करें कि कौन से नाम दिखें।";
+"The globe is drawn in imagery, whatever is picked here." = "यहाँ कुछ भी चुनें, ग्लोब उपग्रह चित्रों में ही बनता है।";
+"The planet has colours of its own, below." = "ग्रह के अपने रंग हैं, नीचे देखें।";
+"Satellite imagery has nothing to edit. Pick a drawn map to customise it." = "उपग्रह चित्रों में बदलने को कुछ नहीं है। अनुकूलित करने के लिए बनाया गया नक्शा चुनें।";
+"The globe takes the light, the names and the borders." = "ग्लोब पर रोशनी, नाम और सीमाएँ बदली जा सकती हैं।";
