@@ -40,6 +40,10 @@ struct ContentView: View {
     @ObservedObject private var accounts = AccountStore.shared
     @ObservedObject private var identity = PilotIdentity.shared
     @ObservedObject private var highlightPreferences = PilotHighlightPreferences.shared
+
+    /// Observed so the map repaints as controllers are found. See
+    /// `ControllerDirectory`.
+    @ObservedObject private var controllerDirectory = ControllerDirectory.shared
     /// The claimed profile, for the avatar in the corner. Observed rather
     /// than read once: a picture uploaded in the editor should appear up here
     /// without the map being rebuilt.
@@ -1300,6 +1304,12 @@ struct ContentView: View {
             refreshMyFlights()
             refreshMapAirports()
             refreshFriendsAloft()
+            if highlightPreferences.showsControllers {
+                controllerDirectory.note(flights: feed.flights)
+            }
+        }
+        .onChange(of: highlightPreferences.showsControllers) { _, isOn in
+            if isOn { controllerDirectory.note(flights: feed.flights) }
         }
         // The other half of what those three depend on: who is on frequency
         // ranks the fields, the watchlist decides the badge, and the switch

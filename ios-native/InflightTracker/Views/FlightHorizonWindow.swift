@@ -912,7 +912,16 @@ struct FlightHorizonPilotButton: View {
 
     @State private var profile: PilotProfile?
     @State private var opened: ProfileLink?
+    @State private var atcRank: Int?
     @StateObject private var banner = RemoteImageLoader()
+
+    /// MOD and IFATC, as they apply.
+    private var roles: [PilotRole] {
+        PilotRole.roles(
+            username: flight.username,
+            atcRank: atcRank ?? ControllerDirectory.shared.rank(forUsername: flight.username)
+        )
+    }
 
     private var pilot: String? {
         guard let username = flight.username, !username.isEmpty else { return nil }
@@ -944,6 +953,13 @@ struct FlightHorizonPilotButton: View {
             profile = card
             banner.load(card?.bannerURL)
         }
+        .task(id: flight.userId ?? flight.username ?? "") {
+            atcRank = nil
+            guard flight.origin == .infiniteFlight else { return }
+            let stats = await PilotStatsService.shared.stats(for: flight)
+            guard !Task.isCancelled else { return }
+            atcRank = stats?.atcRank
+        }
         .sheet(item: $opened) { link in PublicProfileView(link: link) }
     }
 
@@ -961,6 +977,10 @@ struct FlightHorizonPilotButton: View {
                 .tracking(0.135)
                 .foregroundStyle(textColour)
                 .lineLimit(1)
+
+            ForEach(roles, id: \.badge) { role in
+                PilotRoleBadge(role: role, isLight: palette.isLight && !hasProfile)
+            }
 
             Spacer(minLength: 8)
 
