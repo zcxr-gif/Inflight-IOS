@@ -186,8 +186,9 @@ struct SheetWindow<Header: View, Content: View>: View {
                     .accessibilityAddTraits(.isButton)
                     .accessibilityAction { dismiss() }
             } else {
-                // The handle's band, so the header sits where it does on a
-                // sheet rather than hard against the top edge.
+                // The handle's band. On a tablet the pane draws its own
+                // grabber in it — the one that closes it — so the header sits
+                // where it does on a sheet rather than under the pill.
                 Color.clear.frame(height: WindowGrabber.bandHeight)
             }
 

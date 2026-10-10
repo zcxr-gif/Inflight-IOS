@@ -997,7 +997,7 @@ struct ContentView: View {
     /// its own rectangle so the rest of the map still gets them.
     ///
     /// Nothing about which aircraft is open changes: `sheet` and `selection`
-    /// mean exactly what they always did, and the close button sets the same
+    /// mean exactly what they always did, and the pane's grabber sets the same
     /// `sheet = nil` the sheet's own dismissal does — which is what clears the
     /// selection, further up.
     @ViewBuilder

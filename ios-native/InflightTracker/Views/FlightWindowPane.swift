@@ -121,12 +121,22 @@ struct FlightWindowPane<Content: View>: View {
 
     let theme: FlightInfoTheme
     let placement: FlightWindowPlacement
-    /// What VoiceOver calls the close button. The same pane holds a field's
-    /// panel as well as the flight window.
+    /// What VoiceOver calls the grabber, which is what closes the pane. The
+    /// same pane holds a field's panel as well as the flight window.
     var closeLabel: String = "Close the flight window"
     let onClose: () -> Void
 
     @ViewBuilder let content: Content
+
+    /// The pull on the grabber band, while a finger is on it. Springs back to
+    /// nothing when it lets go short of closing.
+    @GestureState(resetTransaction: Transaction(animation: .spring(response: 0.32, dampingFraction: 0.86)))
+    private var pull: CGSize = .zero
+
+    @GestureState private var isHeld = false
+
+    /// How far the pane has to travel, or be flung, before letting go closes it.
+    private static let closeTravel: CGFloat = 90
 
     var body: some View {
         GeometryReader { geometry in
@@ -159,11 +169,13 @@ struct FlightWindowPane<Content: View>: View {
     }
 
     /// The pane itself: the window's content on the same glass the sheet uses,
-    /// clipped to the same radius, with the one control a pane needs.
+    /// clipped to the same radius, with the same grabber along its top.
     ///
-    /// A sheet is closed by pulling it down, and a pane has nothing to pull it
-    /// against — so the way out is a button. It is the only piece of chrome
-    /// either placement has that the sheet does not.
+    /// There is no close button. The pane is closed the way the window is on a
+    /// phone: a tap on the pill, or a pull on the band it sits in — down for
+    /// the centred pane, out past its edge for a column. A cross in the corner
+    /// was the one piece of chrome the pane had that the phone did not, and it
+    /// sat in the corner a hand reaches last.
     ///
     /// The ground is the same `sheetBackground` the sheet hangs behind itself,
     /// and it is better off here: the note on that property is about a
@@ -179,26 +191,67 @@ struct FlightWindowPane<Content: View>: View {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(theme.stroke, lineWidth: 1)
             }
-            .overlay(alignment: .topTrailing) { closeButton }
+            .overlay(alignment: .top) { grabber }
             .shadow(color: .black.opacity(0.28), radius: 24, y: 10)
             .environment(\.colorScheme, theme.colorScheme)
+            .offset(dismissOffset)
+            .opacity(1 - min(dismissDistance / 400, 0.35))
     }
 
     /// The same radius the sheet is given, so the window is recognisably the
     /// same object on both devices.
     private var cornerRadius: CGFloat { theme.radiusLarge + 6 }
 
-    private var closeButton: some View {
-        Button(action: onClose) {
-            Image(systemName: "xmark")
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(theme.textSecondary)
-                .frame(width: 30, height: 30)
-                .flightInfoSurface(theme, in: Circle(), elevated: true, interactive: true)
+    /// The pill along the top, in the band every panel already leaves for it.
+    /// A tap on the pill closes the pane; a pull anywhere along the band
+    /// carries it away with the finger and closes it past the point of no
+    /// return, or springs it back short of it.
+    private var grabber: some View {
+        WindowGrabber(theme: theme, isHeld: isHeld)
+            .frame(width: 132)
+            .onTapGesture { onClose() }
+            .accessibilityElement()
+            .accessibilityLabel(closeLabel)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { onClose() }
+            .frame(maxWidth: .infinity)
+            .background { Color.clear.contentShape(Rectangle()) }
+            .gesture(pullGesture)
+    }
+
+    private var pullGesture: some Gesture {
+        DragGesture(minimumDistance: 6, coordinateSpace: .global)
+            .updating($isHeld) { _, state, _ in state = true }
+            .updating($pull) { value, state, _ in state = value.translation }
+            .onEnded { value in
+                let travelled = outward(value.translation)
+                let flung = outward(value.predictedEndTranslation)
+                if travelled > Self.closeTravel || flung > Self.closeTravel * 2 {
+                    withAnimation(Motion.chrome) { onClose() }
+                }
+            }
+    }
+
+    /// How far a translation carries the pane the way it leaves: down for the
+    /// centred pane, towards its own edge for a column. Never negative — the
+    /// other way is not a way out.
+    private func outward(_ translation: CGSize) -> CGFloat {
+        switch placement.dockedEdge {
+        case .leading?: return max(-translation.width, 0)
+        case .trailing?: return max(translation.width, 0)
+        case nil: return max(translation.height, 0)
         }
-        .buttonStyle(.plain)
-        .padding(10)
-        .accessibilityLabel(closeLabel)
+    }
+
+    private var dismissDistance: CGFloat { outward(pull) }
+
+    private var dismissOffset: CGSize {
+        let distance = dismissDistance
+        switch placement.dockedEdge {
+        case .leading?: return CGSize(width: -distance, height: 0)
+        case .trailing?: return CGSize(width: distance, height: 0)
+        case nil: return CGSize(width: 0, height: distance)
+        }
     }
 
     /// Low, not middle. A window in the dead centre of a tablet covers the
