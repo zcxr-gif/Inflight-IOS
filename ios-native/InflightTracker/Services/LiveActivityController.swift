@@ -268,6 +268,9 @@ final class LiveActivityController: ObservableObject {
     /// takeoff raise a banner on a phone nobody is holding.
     func registerPushToStartToken() {
         guard isSupported else { return }
+        // Push-to-start arrived in iOS 17.2. Before it, a Live Activity can
+        // only be started from the app, which the app still does.
+        guard #available(iOS 17.2, *) else { return }
         Task { [weak self] in
             for await tokenData in Activity<InflightActivityAttributes>.pushToStartTokenUpdates {
                 await self?.register(token: Self.hex(tokenData), kind: "start", flightId: nil)

@@ -111,7 +111,11 @@ struct MapDock: View {
 
     @State private var isSearchFocused = false
 
-    @State private var scroll = ScrollPosition(edge: .top)
+    /// Bumped to send the lists back to the top. A counter rather than
+    /// `ScrollPosition`, which is iOS 18, so the dock behaves the same on 17.
+    @State private var scrollToTop = 0
+
+    private static let topAnchor = "dock-top"
 
     // MARK: - Metrics
 
@@ -275,7 +279,7 @@ struct MapDock: View {
         }
         .onChange(of: detent) { _, stop in
             if stop != .full {
-                scroll.scrollTo(edge: .top)
+                scrollToTop += 1
                 if isSearchFocused { isSearchFocused = false }
             }
         }
@@ -284,39 +288,73 @@ struct MapDock: View {
     /// The scrolling body: what was searched for while there is a query, the
     /// lists otherwise.
     private var sheetBody: some View {
-        ScrollView {
-            if isSearching {
-                MapSearchResultsCard(
-                    query: query,
-                    results: results,
-                    theme: theme,
-                    isInDock: true,
-                    onSelect: pick
-                )
-                .padding(.top, 12)
-                .padding(.bottom, 16)
+        ScrollViewReader { proxy in
+            let lists = ScrollView {
+                VStack(spacing: 0) {
+                    // The top of the lists: what a collapse scrolls back to,
+                    // and — before iOS 18 — what the overscroll is read from.
+                    Color.clear
+                        .frame(height: 0)
+                        .id(Self.topAnchor)
+                        .background {
+                            GeometryReader { geometry in
+                                Color.clear.preference(
+                                    key: DockOverscrollKey.self,
+                                    value: geometry.frame(in: .named(Self.topAnchor)).minY
+                                )
+                            }
+                        }
+
+                    if isSearching {
+                        MapSearchResultsCard(
+                            query: query,
+                            results: results,
+                            theme: theme,
+                            isInDock: true,
+                            onSelect: pick
+                        )
+                        .padding(.top, 12)
+                        .padding(.bottom, 16)
+                    } else {
+                        MapDockSections(
+                            theme: theme,
+                            watched: watched,
+                            onOpenStats: onOpenStats,
+                            onOpenFlight: onOpenFlight,
+                            onOpenAirport: onOpenAirport,
+                            onPanel: onPanel
+                        )
+                        .environmentObject(feed)
+                    }
+                }
+            }
+            .coordinateSpace(.named(Self.topAnchor))
+            .scrollIndicators(.hidden)
+            .scrollDisabled(detent != .full)
+            .scrollDismissesKeyboard(.immediately)
+            .onChange(of: scrollToTop) { _, _ in
+                proxy.scrollTo(Self.topAnchor, anchor: .top)
+            }
+
+            if #available(iOS 18.0, *) {
+                lists.onScrollGeometryChange(for: CGFloat.self) { geometry in
+                    geometry.contentOffset.y + geometry.contentInsets.top
+                } action: { _, offset in
+                    releaseIfPulledPast(-offset)
+                }
             } else {
-                MapDockSections(
-                    theme: theme,
-                    watched: watched,
-                    onOpenStats: onOpenStats,
-                    onOpenFlight: onOpenFlight,
-                    onOpenAirport: onOpenAirport,
-                    onPanel: onPanel
-                )
-                .environmentObject(feed)
+                lists.onPreferenceChange(DockOverscrollKey.self) { pulled in
+                    releaseIfPulledPast(pulled)
+                }
             }
         }
-        .scrollPosition($scroll)
-        .scrollIndicators(.hidden)
-        .scrollDisabled(detent != .full)
-        .scrollDismissesKeyboard(.immediately)
-        .onScrollGeometryChange(for: CGFloat.self) { geometry in
-            geometry.contentOffset.y + geometry.contentInsets.top
-        } action: { _, offset in
-            if offset < -Self.releaseOverscroll, detent == .full, !isSearchFocused {
-                settle(to: .half)
-            }
+    }
+
+    /// Pulled down past the top of the lists far enough, the full sheet lets
+    /// go to the half. `pulled` is how far past the top, positive downwards.
+    private func releaseIfPulledPast(_ pulled: CGFloat) {
+        if pulled > Self.releaseOverscroll, detent == .full, !isSearchFocused {
+            settle(to: .half)
         }
     }
 
@@ -408,4 +446,12 @@ struct MapDock: View {
         query = ""
         onSelect(result)
     }
+}
+
+/// How far the dock's lists have been pulled down past their top, read from
+/// the top anchor's position in the scroll view. Only used before iOS 18,
+/// which has `onScrollGeometryChange` for it.
+private struct DockOverscrollKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }

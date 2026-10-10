@@ -974,9 +974,15 @@ struct FlightInfoTheme {
     var sheetBackground: some View {
         Group {
             if isGlass {
-                Rectangle()
-                    .fill(windowFill.opacity(groundOpacity))
-                    .glassEffect(.regular.tint(scrim), in: Rectangle())
+                if #available(iOS 26.0, *) {
+                    Rectangle()
+                        .fill(windowFill.opacity(groundOpacity))
+                        .glassEffect(.regular.tint(scrim), in: Rectangle())
+                } else {
+                    Rectangle()
+                        .fill(windowFill.opacity(groundOpacity))
+                        .preGlass(tint: scrim, in: Rectangle())
+                }
             } else {
                 Rectangle().fill(windowFill)
             }
@@ -1333,12 +1339,16 @@ extension View {
         interactive: Bool = false
     ) -> some View {
         if theme.isGlass {
-            glassEffect(
-                .regular
-                    .tint(elevated ? theme.elevatedTint : theme.surfaceTint)
-                    .interactive(interactive),
-                in: shape
-            )
+            if #available(iOS 26.0, *) {
+                glassEffect(
+                    .regular
+                        .tint(elevated ? theme.elevatedTint : theme.surfaceTint)
+                        .interactive(interactive),
+                    in: shape
+                )
+            } else {
+                preGlass(tint: elevated ? theme.elevatedTint : theme.surfaceTint, in: shape)
+            }
         } else {
             background { shape.fill(elevated ? theme.elevatedFill : theme.surfaceFill) }
                 .overlay { shape.stroke(elevated ? theme.strokeStrong : theme.stroke, lineWidth: 1) }
@@ -1380,12 +1390,16 @@ struct FlightInfoSurfaceModifier: ViewModifier {
     /// happens, by the toolbar no longer drawing a surface at all.
     func body(content: Content) -> some View {
         if theme.isGlass {
-            content.glassEffect(
-                .regular
-                    .tint(elevated ? theme.elevatedTint : theme.surfaceTint)
-                    .interactive(interactive),
-                in: shape
-            )
+            if #available(iOS 26.0, *) {
+                content.glassEffect(
+                    .regular
+                        .tint(elevated ? theme.elevatedTint : theme.surfaceTint)
+                        .interactive(interactive),
+                    in: shape
+                )
+            } else {
+                content.preGlass(tint: elevated ? theme.elevatedTint : theme.surfaceTint, in: shape)
+            }
         } else {
             content
                 .background { shape.fill(elevated ? theme.elevatedFill : theme.surfaceFill) }
@@ -1669,12 +1683,35 @@ extension View {
         interactive: Bool = false
     ) -> some View {
         if theme.isGlass {
-            glassEffect(.regular.tint(theme.chromeTint).interactive(interactive), in: shape)
+            if #available(iOS 26.0, *) {
+                glassEffect(.regular.tint(theme.chromeTint).interactive(interactive), in: shape)
+            } else {
+                preGlass(tint: theme.chromeTint, in: shape)
+            }
         } else {
             background { shape.fill(theme.windowFill) }
                 .overlay { shape.stroke(theme.stroke, lineWidth: 1) }
                 .clipShape(shape)
         }
+    }
+}
+
+extension View {
+
+    /// Glass before iOS 26: the system's frosted material in the same shape,
+    /// with the same tint laid over it and a hairline round the edge. It does
+    /// not lens or bend under a finger the way Liquid Glass does, but it is
+    /// translucent where the design is translucent, so the app reads as the
+    /// same app on an older phone rather than as the solid look.
+    func preGlass(tint: Color, in shape: some Shape) -> some View {
+        background {
+            ZStack {
+                shape.fill(.ultraThinMaterial)
+                shape.fill(tint)
+            }
+        }
+        .overlay { shape.stroke(Color.white.opacity(0.14), lineWidth: 0.5) }
+        .clipShape(shape)
     }
 }
 

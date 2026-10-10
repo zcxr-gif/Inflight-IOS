@@ -93,7 +93,8 @@ enum MapLayerStyle {
         static let barbs = "inflight-barbs"
         static let groundLabels = "inflight-ground-labels"
         static let atcLabels = "inflight-atc-labels"
-        static let natLabels = "inflight-nat-labels"
+        static let natBadges = "inflight-nat-badges"
+        static let natLevels = "inflight-nat-levels"
         static let fields = "inflight-fields"
         static let fixes = "inflight-fixes"
         /// Drawn by `AircraftEngine`, not by Mapbox — a custom layer.
@@ -199,6 +200,11 @@ enum MapLayerStyle {
     /// basemap's points of interest. The traffic and its labels go in no slot
     /// at all, which on Mapbox Standard means on top of everything, the
     /// basemap's own labels included.
+    ///
+    /// The flat satellite is the classic raster style, which has no slots;
+    /// Mapbox ignores a slot that does not exist and stacks the layer in the
+    /// order it was added. So this list is kept in slot order — middle, then
+    /// top, then none — and stacks the same way on either.
     private static func layers(labelMinZoom: Double) -> [[String: Any]] {
         let flownWidth = json(zoomRamp { FlownPathStyle.width(forCameraDistance: $0) })
         let haloWidth = json(zoomRamp { FlownPathStyle.width(forCameraDistance: $0) * FlownPathStyle.glowSpread })
@@ -364,7 +370,7 @@ enum MapLayerStyle {
                 "id": "\(Layer.nat)", "type": "line", "source": "\(Source.nat)", "slot": "middle",
                 "filter": ["==", ["geometry-type"], "LineString"],
                 "layout": {"line-cap": "round", "line-join": "round"},
-                "paint": {"line-color": ["get", "color"], "line-width": 2.6}
+                "paint": {"line-color": ["get", "color"], "line-width": 3}
             },
             {
                 "id": "\(Layer.planCasing)", "type": "line", "source": "\(Source.plan)", "slot": "middle",
@@ -452,14 +458,44 @@ enum MapLayerStyle {
                 }
             },
             {
-                "id": "\(Layer.natLabels)", "type": "symbol", "source": "\(Source.nat)", "slot": "top",
+                "id": "\(Layer.natLevels)", "type": "symbol", "source": "\(Source.nat)", "slot": "top",
+                "filter": ["all", ["==", ["geometry-type"], "Point"], ["has", "levels"]],
+                "layout": {
+                    "text-field": ["get", "levels"],
+                    "text-font": \(bold),
+                    "text-size": 8.5,
+                    "text-offset": [0, 1.7],
+                    "text-padding": 1
+                },
+                "paint": {
+                    "text-color": ["get", "color"],
+                    "text-halo-color": "rgba(0,0,0,0.9)",
+                    "text-halo-width": 1.2,
+                    "text-halo-blur": 0.4
+                }
+            },
+            {
+                "id": "\(Layer.natBadges)", "type": "symbol", "source": "\(Source.nat)", "slot": "top",
                 "filter": ["==", ["geometry-type"], "Point"],
-                "layout": {"text-field": ["get", "label"], "text-font": \(bold), "text-size": 10.5},
+                "layout": {
+                    "symbol-sort-key": ["get", "rank"],
+                    "icon-image": ["get", "badge"],
+                    "icon-rotate": ["get", "rotate"],
+                    "icon-rotation-alignment": "map",
+                    "icon-pitch-alignment": "viewport",
+                    "icon-padding": 1,
+                    "text-field": ["get", "letter"],
+                    "text-font": \(bold),
+                    "text-size": 9,
+                    "text-rotate": ["get", "rotate"],
+                    "text-rotation-alignment": "map",
+                    "text-pitch-alignment": "viewport",
+                    "text-padding": 0
+                },
                 "paint": {
                     "text-color": "#ffffff",
-                    "text-halo-color": "rgba(0,0,0,0.9)",
-                    "text-halo-width": 1.4,
-                    "text-halo-blur": 0.6
+                    "text-halo-color": "rgba(0,0,0,0.45)",
+                    "text-halo-width": 0.8
                 }
             },
             {

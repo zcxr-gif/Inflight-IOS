@@ -342,6 +342,11 @@ struct FlightHorizonHeader: View {
 
     @State private var page = 0
 
+    /// Where the controls in the photograph's top corners start: under the
+    /// window's pull band, which runs the full width of the top edge and
+    /// would otherwise take the touches meant for them.
+    static let controlTop: CGFloat = WindowGrabber.bandHeight + 6
+
     /// `fitHorizonHero`: full width, never zoomed past it, the band clamped
     /// between 120 and 300.
     private var photoHeight: CGFloat {
@@ -382,7 +387,7 @@ struct FlightHorizonHeader: View {
 
             if let realCredit = realCredit {
                 realCredit
-                    .padding(.top, 16)
+                    .padding(.top, Self.controlTop)
                     .padding(.leading, 16)
             } else if let contributor = currentContributor {
                 credit(contributor)
@@ -393,7 +398,7 @@ struct FlightHorizonHeader: View {
 
             if let actions = actions {
                 actions
-                    .padding(.top, 16)
+                    .padding(.top, Self.controlTop)
                     .padding(.trailing, 16)
                     .frame(width: width, alignment: .topTrailing)
             }
@@ -842,11 +847,14 @@ struct FlightHorizonRouteStrip: View {
 
     private var phasePill: some View {
         let phase = FlightPhase.from(flight)
+        // The organised track, when the aircraft is flying one, in the
+        // track's own colour — re-read on every packet, as the flight is.
+        let track = NatTrackService.shared.track(for: flight)
         return HStack(spacing: 6) {
             Circle()
-                .fill(horizonPhaseColour(phase))
+                .fill(track.map { Color(uiColor: NatTrackStyle.colour(for: $0.name)) } ?? horizonPhaseColour(phase))
                 .frame(width: 6, height: 6)
-            Text(phase.label)
+            Text(track.map { "\(phase.label) · Track \($0.name)" } ?? phase.label)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(palette.ink(0.88))
         }

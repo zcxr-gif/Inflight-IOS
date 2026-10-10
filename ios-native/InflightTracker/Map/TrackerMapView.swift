@@ -548,11 +548,11 @@ struct TrackerMapView: UIViewRepresentable {
             appliedCartography = look
             appliedScheme = scheme
 
-            // Cartography and imagery are two different styles, and the step
-            // between them is a reload: everything the app put on the old one
-            // goes with it, and nothing is written until the new one lands.
-            if let previous = previous,
-               previous.resolvedPalette.usesImagery != look.resolvedPalette.usesImagery {
+            // Cartography, flat imagery and the imagery globe are three
+            // different styles, and a step between them is a reload: everything
+            // the app put on the old one goes with it, and nothing is written
+            // until the new one lands.
+            if let previous = previous, previous.stylesheet != look.stylesheet {
                 isStyleLoaded = false
             }
 
@@ -664,6 +664,14 @@ struct TrackerMapView: UIViewRepresentable {
                 )
                 for next in [false, true] {
                     addImage(PlanFixGlyph.image(isNext: next, isLight: light), id: Self.fixImage(isNext: next, isLight: light))
+                }
+            }
+            for (index, colour) in NatTrackStyle.palette.enumerated() {
+                for right in [false, true] {
+                    addImage(
+                        NatTrackStyle.badge(colour: colour, pointsRight: right),
+                        id: NatTrackStyle.badgeImage(colourIndex: index, pointsRight: right)
+                    )
                 }
             }
             for controlled in [false, true] {
@@ -2471,27 +2479,65 @@ struct TrackerMapView: UIViewRepresentable {
             guard renderedNatKey != key else { return }
             renderedNatKey = key
 
+            // Ordered north to south, so neighbours on the map are neighbours
+            // here — which is what the badges are staggered against below.
+            let ordered = tracks.sorted { meanLatitude($0) > meanLatitude($1) }
+
             var features: [Feature] = []
-            for track in tracks {
-                let colour = MapLayerStyle.rgba(NatTrackStyle.colour(for: track.name).withAlphaComponent(0.75))
+            for (ordinal, track) in ordered.enumerated() {
+                let fixes = track.coordinatesInFlightOrder
+                let colourIndex = NatTrackStyle.colourIndex(for: track.name)
+                let colour = MapLayerStyle.rgba(NatTrackStyle.colour(for: track.name))
+
                 // Great circles, because a track is flown as one and a straight
                 // line between two North Atlantic fixes is visibly south of
                 // where the aeroplanes actually are.
-                features.append(Self.lineFeature(GreatCircle.path(through: track.coordinates), [
-                    "color": .string(colour),
+                features.append(Self.lineFeature(GreatCircle.path(through: fixes), [
+                    "color": .string(MapLayerStyle.rgba(NatTrackStyle.lineColour(for: track.name))),
                 ]))
 
-                // Named at both ends, because which end you are looking at
-                // depends entirely on which side of the ocean you are.
-                let text = NatTrackStyle.label(for: track)
-                if let first = track.coordinates.first {
-                    features.append(Self.pointFeature(first, ["label": .string(text)]))
-                }
-                if let last = track.coordinates.last, track.coordinates.count > 1 {
-                    features.append(Self.pointFeature(last, ["label": .string(text)]))
+                guard fixes.count > 1 else { continue }
+
+                // A badge offered at every fix, and Mapbox's collision keeps
+                // only those with room — so none of them is ever drawn over
+                // another, and zooming in brings back the ones a crowded view
+                // had to drop. The fixes sit on the same meridians from track
+                // to track, so neighbouring tracks would fight over the same
+                // column first; the rank staggers them, each track preferring
+                // the fix one along from the track north of it, so the badges
+                // placed first step diagonally across the system and every
+                // track gets one before any track gets two.
+                for index in fixes.indices {
+                    let isLast = index == fixes.count - 1
+                    let bearing = isLast
+                        ? FlightProgress.bearingDegrees(from: fixes[index - 1], to: fixes[index])
+                        : FlightProgress.bearingDegrees(from: fixes[index], to: fixes[index + 1])
+                    let placement = NatTrackStyle.badgePlacement(bearing: bearing)
+                    let rank = ((index - ordinal) % fixes.count + fixes.count) % fixes.count
+
+                    var properties: JSONObject = [
+                        "letter": .string(track.name),
+                        "badge": .string(NatTrackStyle.badgeImage(
+                            colourIndex: colourIndex,
+                            pointsRight: placement.pointsRight
+                        )),
+                        "rotate": .number(placement.rotation),
+                        "rank": .number(Double(rank)),
+                        "color": .string(colour),
+                    ]
+                    // The levels once, at the entry, where they are read.
+                    if index == 0, let levels = NatTrackStyle.levelsLabel(for: track) {
+                        properties["levels"] = .string(levels)
+                    }
+                    features.append(Self.pointFeature(fixes[index], properties))
                 }
             }
             push(features, to: Source.nat)
+        }
+
+        private func meanLatitude(_ track: NatTrack) -> Double {
+            guard !track.coordinates.isEmpty else { return 0 }
+            return track.coordinates.map(\.latitude).reduce(0, +) / Double(track.coordinates.count)
         }
 
         // MARK: Controlled airspace

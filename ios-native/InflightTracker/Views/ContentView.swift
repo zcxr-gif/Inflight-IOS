@@ -997,7 +997,7 @@ struct ContentView: View {
     /// its own rectangle so the rest of the map still gets them.
     ///
     /// Nothing about which aircraft is open changes: `sheet` and `selection`
-    /// mean exactly what they always did, and the close button sets the same
+    /// mean exactly what they always did, and the pane's grabber sets the same
     /// `sheet = nil` the sheet's own dismissal does — which is what clears the
     /// selection, further up.
     @ViewBuilder
@@ -1087,6 +1087,16 @@ struct ContentView: View {
             // or closing the window, ends it rather than leaving a ghost
             // flying a path nothing on screen refers to.
             if replay.isActive, id != replay.flightId { replay.stop() }
+
+            // Every way into a flight window ends here — the map, search, a
+            // field's board, the stats list — so this is the one place the
+            // view is counted for the most-watched list.
+            if let flight = flight(id: id) {
+                MostWatched.shared.report(flight)
+                // The window says which organised track the aircraft is on,
+                // which needs the track set whether or not the layer is on.
+                if NatTrackService.covers(flight.coordinate) { NatTrackService.shared.refresh() }
+            }
 
             // Opening an aircraft follows it: the map glides onto it and goes
             // with it, until a drag on the map or one of the framing buttons
@@ -1463,13 +1473,18 @@ struct ContentView: View {
             .environmentObject(feed)
 
         case .stats:
-            PulsePanel { airport in
-                // Same order as everywhere else that hands off to a field:
-                // close first, then move, so the field is not framed under the
-                // panel it was picked in.
-                sheet = nil
-                openAirport(airport)
-            }
+            PulsePanel(
+                onSelectAirport: { airport in
+                    // Same order as everywhere else that hands off to a field:
+                    // close first, then move, so the field is not framed under
+                    // the panel it was picked in.
+                    sheet = nil
+                    openAirport(airport)
+                },
+                onSelectFlight: { flight in
+                    openFlight(flight.id)
+                }
+            )
             .environmentObject(feed)
 
         case .filters:

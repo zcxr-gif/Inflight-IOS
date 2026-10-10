@@ -72,6 +72,22 @@ enum AppConfig {
         return URL(string: "\(socketURLString)/api/pilots/\(encoded)/stats")
     }
 
+    /// Where an opened aircraft is reported, for the most-watched list.
+    ///
+    /// The same route the web tracker posted to on every marker click (see
+    /// `trackPilotView` in `old/www/flight.js`). The backend counts one view per
+    /// viewer per flight per day, so reporting the same aircraft twice is
+    /// harmless — it is simply not counted.
+    static var mostWatchedTrackURL: URL? {
+        URL(string: "\(apiBaseURLString)/api/leaderboard/track")
+    }
+
+    /// Today's most-watched pilots, one row per pilot rather than per flight,
+    /// so somebody who flew twice today is ranked once on their total.
+    static func mostWatchedTopURL(limit: Int) -> URL? {
+        URL(string: "\(apiBaseURLString)/api/leaderboard/top?groupBy=pilot&limit=\(limit)")
+    }
+
     /// The North Atlantic organised track system, republished twice a day.
     /// The same endpoint the web tracker read — see `old/www/natTracksLayer.js`.
     static var natTracksURL: URL? {

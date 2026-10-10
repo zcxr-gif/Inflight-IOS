@@ -30,7 +30,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The app targets iOS 26 and uses APIs from that SDK, so which Xcode the
+      # The app runs on iOS 17 and up but is built against the iOS 26 SDK,
+      # whose APIs it uses behind availability checks, so which Xcode the
       # runner has is the difference between a real answer and a page of noise
       # about unavailable symbols. Printed first, and the newest is selected,
       # so a runner that is simply too old is obvious from the log rather than

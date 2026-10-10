@@ -141,11 +141,9 @@ struct FlightWindowDock<Content: View>: View {
     private var grabber: some View {
         WindowGrabber(theme: theme, isHeld: isHeld)
             .frame(width: 132)
-            .frame(maxWidth: .infinity)
-            // Only while the window is open. At the peek the whole window
-            // already carries this gesture, and two copies of it would both
-            // act on one pull.
-            .gesture(pullGesture, including: isExpanded ? GestureMask.all : GestureMask.none)
+            // The tap is the pill's alone: a tap that lands along the rest of
+            // the band was aimed at the photograph or a control under it, and
+            // closing the window on it would be a surprise.
             .onTapGesture { onClose() }
             .accessibilityElement()
             .accessibilityLabel("Close the flight window")
@@ -154,6 +152,19 @@ struct FlightWindowDock<Content: View>: View {
             .accessibilityAction(named: isExpanded ? "Show less" : "Open the full window") {
                 isExpanded.toggle()
             }
+            .frame(maxWidth: .infinity)
+            // The pull is the whole band, edge to edge, while the window is
+            // open. The pill alone was a target in the middle of the screen,
+            // which is the one place a thumb holding a phone from the side
+            // has to stretch to — and the window could only be put away from
+            // there.
+            .background {
+                if isExpanded { Color.clear.contentShape(Rectangle()) }
+            }
+            // Only while the window is open. At the peek the whole window
+            // already carries this gesture, and two copies of it would both
+            // act on one pull.
+            .gesture(pullGesture, including: isExpanded ? GestureMask.all : GestureMask.none)
     }
 
     /// Measured against the screen: the window grows and shrinks under the

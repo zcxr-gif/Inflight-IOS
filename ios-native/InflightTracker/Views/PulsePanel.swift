@@ -16,13 +16,19 @@ struct PulsePanel: View {
     /// fields are worth ranking is that you then want to look at one.
     var onSelectAirport: (Airport) -> Void = { _ in }
 
+    /// Opening a pilot from the most-watched list, when they are flying now.
+    var onSelectFlight: (Flight) -> Void = { _ in }
+
     @State private var pulse = ServerPulse.empty
+    @ObservedObject private var mostWatched = MostWatched.shared
 
     private var theme: FlightInfoTheme { appearance.theme }
 
     var body: some View {
         MapPanel(title: "Stats", subtitle: subtitle) {
             headline
+
+            watched
 
             if pulse.total == 0 {
                 PanelEmptyState(
@@ -42,13 +48,20 @@ struct PulsePanel: View {
 
             HintStrip(placement: .stats)
 
-            Text("Counted from the same packet the map is drawn from, so these can never disagree with what is on screen. Nothing here is fetched.")
+            Text("Counted from the same packet the map is drawn from, so these can never disagree with what is on screen. Only the most-watched list is fetched.")
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(theme.textDim)
                 .padding(.horizontal, 2)
         }
         .onAppear(perform: recount)
         .onChange(of: feed.lastUpdate) { _, _ in recount() }
+        // Kept current while the panel is open; the task ends with it.
+        .task {
+            while !Task.isCancelled {
+                await mostWatched.refresh()
+                try? await Task.sleep(nanoseconds: 60 * 1_000_000_000)
+            }
+        }
     }
 
     private func recount() {
@@ -193,6 +206,112 @@ struct PulsePanel: View {
                 )
             }
         }
+    }
+
+    // MARK: - Most watched
+
+    /// Today's most-opened pilots, from the backend — the one list here that is
+    /// not counted from the packet. A pilot who is flying now opens straight
+    /// into their window; one who has landed is still ranked, just not a button.
+    @ViewBuilder
+    private var watched: some View {
+        if mostWatched.hasLoaded {
+            PanelSection(title: "MOST WATCHED TODAY") {
+                if mostWatched.entries.isEmpty {
+                    Text("Nobody has been watched yet today. Open an aircraft to start the count.")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(theme.textDim)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                } else {
+                    let peak = mostWatched.entries.first?.viewCount ?? 1
+
+                    ForEach(Array(mostWatched.entries.enumerated()), id: \.element.id) { index, entry in
+                        if index > 0 { PanelDivider() }
+
+                        let live = liveFlight(for: entry)
+                        Button {
+                            if let live { onSelectFlight(live) }
+                        } label: {
+                            watchedRow(entry, rank: index, live: live, peak: peak)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(live == nil)
+                    }
+                }
+            }
+        }
+    }
+
+    /// The pilot's aeroplane in the packet now, if they are flying.
+    private func liveFlight(for entry: MostWatched.Entry) -> Flight? {
+        if let userId = entry.pilotUserId, !userId.isEmpty,
+           let flight = feed.flights.first(where: { $0.userId == userId }) {
+            return flight
+        }
+        let name = entry.pilotName.lowercased()
+        return feed.flights.first { $0.username?.lowercased() == name }
+    }
+
+    private func liveLine(_ live: Flight?) -> String {
+        guard let live else { return "Not flying now" }
+        guard let callsign = live.callsign, !callsign.isEmpty else { return "Flying now" }
+        return "Flying now · \(callsign)"
+    }
+
+    private func watchedRow(
+        _ entry: MostWatched.Entry,
+        rank: Int,
+        live: Flight?,
+        peak: Int
+    ) -> some View {
+        HStack(spacing: 10) {
+            Text(rank < 3 ? ["🥇", "🥈", "🥉"][rank] : "\(rank + 1)")
+                .font(.system(size: rank < 3 ? 17 : 13, weight: .bold, design: .monospaced))
+                .foregroundStyle(theme.textSecondary)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(entry.pilotName)
+                    .font(.system(size: 13.5, weight: .bold))
+                    .foregroundStyle(theme.textPrimary)
+                    .flightInfoLine(minimumScale: 0.7)
+
+                Text(liveLine(live))
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(live == nil ? theme.textDim : theme.accent)
+                    .flightInfoLine(minimumScale: 0.7)
+
+                track(fraction: peak > 0 ? Double(entry.viewCount) / Double(peak) : 0, tint: theme.accent)
+            }
+
+            Spacer(minLength: 6)
+
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("\(entry.viewCount)")
+                    .font(.system(size: 13, weight: .bold, design: .monospaced))
+                    .foregroundStyle(theme.textPrimary)
+
+                Text(entry.viewCount == 1 ? "view" : "views")
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundStyle(theme.textDim)
+            }
+            .fixedSize()
+
+            if live != nil {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(theme.textDim)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            "Number \(rank + 1), \(entry.pilotName), \(entry.viewCount) \(entry.viewCount == 1 ? "view" : "views"), \(live == nil ? "not flying now" : "flying now")"
+        )
     }
 
     // MARK: - Rankings

@@ -39,6 +39,52 @@ struct FlightPhaseChip: View {
     }
 }
 
+/// The organised track an aircraft is flying, as a pill beside its phase —
+/// in the track's own colour, the one its line and badge are drawn in on the
+/// map. Draws nothing at all off the tracks.
+///
+/// The track set is fetched when a window opens on an aircraft over the North
+/// Atlantic (see `ContentView`), so this works whether or not the map layer
+/// has been switched on.
+struct NatTrackChip: View {
+
+    let flight: Flight
+    let theme: FlightInfoTheme
+    var elevated: Bool = false
+
+    /// "TRACK X" alone, for the bar, where the callsign needs the room.
+    var compact: Bool = false
+
+    @ObservedObject private var tracks = NatTrackService.shared
+
+    var body: some View {
+        if let track = tracks.track(for: flight) {
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(Color(uiColor: NatTrackStyle.colour(for: track.name)))
+                    .frame(width: 5, height: 5)
+
+                Text(label(track))
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(0.7)
+                    .foregroundStyle(theme.textPrimary)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .flightInfoSurface(theme, radius: 99, elevated: elevated)
+            .fixedSize()
+            .accessibilityLabel("Flying on NAT Track \(track.name)")
+        }
+    }
+
+    private func label(_ track: NatTrack) -> String {
+        if compact { return "TRACK \(track.name)" }
+        return FlightPhase.from(flight) == .cruise ? "CRUISING TRACK \(track.name)" : "ON TRACK \(track.name)"
+    }
+}
+
 /// What the pilot is doing, as a pill beside their name.
 ///
 /// The phase chip says what the aircraft is doing; this says whether anyone is
@@ -838,6 +884,7 @@ struct FlightIdentityBlock: View {
                             .motionWords(typeCode)
                     }
 
+                    NatTrackChip(flight: flight, theme: theme, elevated: true)
                     FlightPhaseChip(phase: FlightPhase.from(flight), theme: theme, elevated: true)
                 }
 
