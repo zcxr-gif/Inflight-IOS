@@ -1678,3 +1678,12 @@
 "Writes each marked field's wind and temperature under its code, once the map is close enough to read them. The reports are already on the device, so this costs nothing." = "Escreve o vento e a temperatura de cada aeródromo marcado abaixo do código, quando o mapa está perto o suficiente para ler. Os boletins já estão no aparelho, então não custa nada.";
 "Pull the window down to close it" = "Puxe a janela para baixo para fechar";
 "Your profile says @%@ and the sim says %@. Announcements about your own flight are addressed by the name on your profile, so while these differ they cannot reach you." = "Seu perfil diz @%@ e o simulador diz %@. Os avisos sobre seu próprio voo vão para o nome do perfil, então enquanto forem diferentes eles não chegam até você.";
+"OFF" = "DESL.";
+"RESET" = "REDEFINIR";
+"now" = "agora";
+"NOW" = "AGORA";
+"left" = "restantes";
+"YOU" = "VOCÊ";
+"GRADE" = "NOTA";
+"Terms" = "Termos";
+"Privacy" = "Privacidade";

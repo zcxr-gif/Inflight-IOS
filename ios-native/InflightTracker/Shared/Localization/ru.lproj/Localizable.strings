@@ -1678,3 +1678,12 @@
 "Writes each marked field's wind and temperature under its code, once the map is close enough to read them. The reports are already on the device, so this costs nothing." = "Подписывает ветер и температуру под кодом каждого отмеченного аэродрома, когда карта достаточно приближена. Сводки уже на устройстве, так что это ничего не стоит.";
 "Pull the window down to close it" = "Потяните окно вниз, чтобы закрыть";
 "Your profile says @%@ and the sim says %@. Announcements about your own flight are addressed by the name on your profile, so while these differ they cannot reach you." = "В профиле указано @%@, а в симуляторе — %@. Уведомления о вашем рейсе адресуются имени из профиля, поэтому пока они различаются, они до вас не дойдут.";
+"OFF" = "ВЫКЛ";
+"RESET" = "СБРОС";
+"now" = "сейчас";
+"NOW" = "СЕЙЧАС";
+"left" = "осталось";
+"YOU" = "ВЫ";
+"GRADE" = "ОЦЕНКА";
+"Terms" = "Условия";
+"Privacy" = "Конфиденциальность";

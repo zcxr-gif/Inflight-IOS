@@ -1678,3 +1678,12 @@
 "Writes each marked field's wind and temperature under its code, once the map is close enough to read them. The reports are already on the device, so this costs nothing." = "地図が十分に拡大されると、表示中の各空港のコードの下に風と気温を書き込みます。観測報は既に端末にあるため、追加の負荷はありません。";
 "Pull the window down to close it" = "ウィンドウを下に引いて閉じる";
 "Your profile says @%@ and the sim says %@. Announcements about your own flight are addressed by the name on your profile, so while these differ they cannot reach you." = "プロフィールは @%@、シミュレーターは %@ です。自分のフライトの通知はプロフィールの名前宛てに送られるため、両者が異なる間は届きません。";
+"OFF" = "オフ";
+"RESET" = "リセット";
+"now" = "今";
+"NOW" = "現在";
+"left" = "残り";
+"YOU" = "あなた";
+"GRADE" = "評価";
+"Terms" = "利用規約";
+"Privacy" = "プライバシー";

@@ -1678,3 +1678,12 @@
 "Writes each marked field's wind and temperature under its code, once the map is close enough to read them. The reports are already on the device, so this costs nothing." = "Writes each marked field's wind and temperature under its code, once the map is close enough to read them. The reports are already on the device, so this costs nothing.";
 "Pull the window down to close it" = "Pull the window down to close it";
 "Your profile says @%@ and the sim says %@. Announcements about your own flight are addressed by the name on your profile, so while these differ they cannot reach you." = "Your profile says @%@ and the sim says %@. Announcements about your own flight are addressed by the name on your profile, so while these differ they cannot reach you.";
+"OFF" = "OFF";
+"RESET" = "RESET";
+"now" = "now";
+"NOW" = "NOW";
+"left" = "left";
+"YOU" = "YOU";
+"GRADE" = "GRADE";
+"Terms" = "Terms";
+"Privacy" = "Privacy";

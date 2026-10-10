@@ -1678,3 +1678,12 @@
 "Writes each marked field's wind and temperature under its code, once the map is close enough to read them. The reports are already on the device, so this costs nothing." = "지도가 충분히 확대되면 표시된 각 공항 코드 아래에 바람과 기온을 적습니다. 보고는 이미 기기에 있으므로 추가 부담이 없습니다.";
 "Pull the window down to close it" = "창을 아래로 당겨 닫기";
 "Your profile says @%@ and the sim says %@. Announcements about your own flight are addressed by the name on your profile, so while these differ they cannot reach you." = "프로필에는 @%@, 시뮬레이터에는 %@(으)로 되어 있습니다. 내 비행 알림은 프로필 이름으로 보내지므로 둘이 다르면 받을 수 없습니다.";
+"OFF" = "끔";
+"RESET" = "초기화";
+"now" = "지금";
+"NOW" = "지금";
+"left" = "남음";
+"YOU" = "나";
+"GRADE" = "등급";
+"Terms" = "약관";
+"Privacy" = "개인정보";

@@ -1678,3 +1678,12 @@
 "Writes each marked field's wind and temperature under its code, once the map is close enough to read them. The reports are already on the device, so this costs nothing." = "当地图放大到足以阅读时，在每个标记机场的代码下方写出风和温度。报文已在设备上，所以不会产生任何开销。";
 "Pull the window down to close it" = "向下拉动窗口以关闭";
 "Your profile says @%@ and the sim says %@. Announcements about your own flight are addressed by the name on your profile, so while these differ they cannot reach you." = "你的个人资料是 @%@，而模拟器显示的是 %@。关于你自己航班的通知会发往个人资料上的名称，所以两者不一致时你收不到。";
+"OFF" = "关";
+"RESET" = "重置";
+"now" = "现在";
+"NOW" = "现在";
+"left" = "剩余";
+"YOU" = "你";
+"GRADE" = "等级";
+"Terms" = "条款";
+"Privacy" = "隐私";

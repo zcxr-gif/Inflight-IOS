@@ -1678,3 +1678,12 @@
 "Writes each marked field's wind and temperature under its code, once the map is close enough to read them. The reports are already on the device, so this costs nothing." = "मानचित्र पढ़ने लायक पास होने पर हर चिह्नित हवाई अड्डे के कोड के नीचे उसकी हवा और तापमान लिखता है। रिपोर्ट पहले से डिवाइस पर हैं, इसलिए इसका कोई ख़र्च नहीं।";
 "Pull the window down to close it" = "बंद करने के लिए विंडो नीचे खींचें";
 "Your profile says @%@ and the sim says %@. Announcements about your own flight are addressed by the name on your profile, so while these differ they cannot reach you." = "आपकी प्रोफ़ाइल में @%@ है और सिम में %@। आपकी अपनी उड़ान की घोषणाएँ प्रोफ़ाइल के नाम पर भेजी जाती हैं, इसलिए जब तक ये अलग हैं, आप तक नहीं पहुँच सकतीं।";
+"OFF" = "बंद";
+"RESET" = "रीसेट";
+"now" = "अभी";
+"NOW" = "अभी";
+"left" = "बाकी";
+"YOU" = "आप";
+"GRADE" = "ग्रेड";
+"Terms" = "शर्तें";
+"Privacy" = "गोपनीयता";
