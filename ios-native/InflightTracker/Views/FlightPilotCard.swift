@@ -89,6 +89,14 @@ struct FlightPilotCard: View {
 
     private var grade: IFGrade? { stats?.gradeBadge }
 
+    /// MOD and IFATC, as they apply.
+    private var roles: [PilotRole] {
+        PilotRole.roles(
+            username: flight.username,
+            atcRank: stats?.atcRank ?? ControllerDirectory.shared.rank(forUsername: flight.username)
+        )
+    }
+
     /// Whether the pilot's own banner goes behind the card.
     ///
     /// Both halves have to be true: the reader has asked for pictures, and this
@@ -199,6 +207,10 @@ struct FlightPilotCard: View {
     private var secondLine: some View {
         HStack(spacing: 6) {
             PilotStateChip(state: flight.pilotState, theme: theme, elevated: wearsBanner)
+
+            ForEach(roles, id: \.badge) { role in
+                PilotRoleBadge(role: role, isLight: theme.isLight && !wearsBanner)
+            }
 
             if let display = profileName {
                 Text(display)

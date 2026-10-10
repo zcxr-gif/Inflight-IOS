@@ -37,52 +37,99 @@ struct MapPanel<Content: View>: View {
 
     @ObservedObject private var appearance = FlightInfoAppearance.shared
 
+    /// Set when the panel is opened inside the map's pull-up sheet rather than
+    /// as a window of its own. See `DockPanelHost`.
+    @Environment(\.dockPanelHost) private var dockHost
+
+    /// True inside anything presented — so a panel a docked panel opens as a
+    /// sheet of its own is drawn as a sheet, not as part of the dock.
+    @Environment(\.isPresented) private var isPresented
+
     // Last, so a panel's contents are the trailing closure.
     @ViewBuilder let content: Content
 
     private var theme: FlightInfoTheme { appearance.theme }
 
     var body: some View {
+        if let host = dockHost, !isPresented {
+            docked(host)
+        } else {
+            window
+        }
+    }
+
+    /// Inside the dock's sheet: the dock is already the window, so this is
+    /// the title in the search field's place and the sections under it — no
+    /// ground, no grabber of its own.
+    private func docked(_ host: DockPanelHost) -> some View {
+        VStack(spacing: 0) {
+            // No close button: the sheet is swiped down to the bar to close a
+            // panel, the way every pull-up sheet on the phone is.
+            header
+                .contentShape(Rectangle())
+                // The title band moves the sheet, the way the search field it
+                // stands in for does.
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 6, coordinateSpace: .global)
+                        .onChanged { host.pullChanged(-$0.translation.height) }
+                        .onEnded { host.pullEnded(-$0.predictedEndTranslation.height) }
+                )
+
+            scroller(inset: 0, width: host.width)
+        }
+        .frame(width: host.width)
+        // Anything this panel presents is a sheet, whatever it is.
+        .environment(\.dockPanelHost, nil)
+        .environment(\.colorScheme, theme.colorScheme)
+    }
+
+    private var window: some View {
         SheetWindow(theme: theme, peakHeight: peakHeight, presentation: presentation) {
             header
         } content: {
-            ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 14) {
-                    content
-                }
-                .padding(.horizontal, 16)
-                // The panels are opened from a bar at the bottom of the
-                // screen, so the last section wants clearance from the home
-                // indicator the window is sitting over.
-                .padding(.bottom, 24)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                // Pins the content to exactly the window's width, which is what
-                // stops the panel sliding about sideways.
-                //
-                // A vertical `ScrollView` is still a `UIScrollView`, and it
-                // scrolls — with rubber-banding — in *any* direction its
-                // content overflows. Nothing here asks to be wide, but the
-                // panels are full of rows whose two ends are `.fixedSize()`
-                // around feed strings of arbitrary length, and one long airport
-                // name or controller handle is enough to push a row's ideal
-                // width past the window. That made the whole panel draggable
-                // left and right, springing back when let go. Sizing the
-                // content to the container means there is no horizontal
-                // overflow to scroll, whatever a row measures.
-                .containerRelativeFrame(.horizontal)
-            }
-            // ...and this stops the vertical rubber-banding on a short panel,
-            // so a field with nothing on it no longer bounces against a fixed
-            // window — and, more to the point, so a short panel hands a
-            // downward drag straight to the window instead of eating it.
-            .scrollBounceBehavior(.basedOnSize)
-            // The halo that lifts text off whatever the glass is showing
-            // through it. On the content and the header rather than on the
-            // window, so it is a glow behind glyphs rather than a shadow cast
-            // by the pane they are on.
-            .flightInfoLegible(theme)
+            scroller(inset: 16, width: nil)
         }
         .environment(\.colorScheme, theme.colorScheme)
+    }
+
+    /// `width` pins the content to the dock's inner width; nil sizes it to the
+    /// window, as a sheet always has.
+    private func scroller(inset: CGFloat, width: CGFloat?) -> some View {
+        ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: 14) {
+                content
+            }
+            .padding(.horizontal, inset)
+            // The panels are opened from a bar at the bottom of the
+            // screen, so the last section wants clearance from the home
+            // indicator the window is sitting over.
+            .padding(.bottom, 24)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // Pins the content to exactly the window's width, which is what
+            // stops the panel sliding about sideways.
+            //
+            // A vertical `ScrollView` is still a `UIScrollView`, and it
+            // scrolls — with rubber-banding — in *any* direction its
+            // content overflows. Nothing here asks to be wide, but the
+            // panels are full of rows whose two ends are `.fixedSize()`
+            // around feed strings of arbitrary length, and one long airport
+            // name or controller handle is enough to push a row's ideal
+            // width past the window. That made the whole panel draggable
+            // left and right, springing back when let go. Sizing the
+            // content to the container means there is no horizontal
+            // overflow to scroll, whatever a row measures.
+            .modifier(PinnedWidth(width: width))
+        }
+        // ...and this stops the vertical rubber-banding on a short panel,
+        // so a field with nothing on it no longer bounces against a fixed
+        // window — and, more to the point, so a short panel hands a
+        // downward drag straight to the window instead of eating it.
+        .scrollBounceBehavior(.basedOnSize)
+        // The halo that lifts text off whatever the glass is showing
+        // through it. On the content and the header rather than on the
+        // window, so it is a glow behind glyphs rather than a shadow cast
+        // by the pane they are on.
+        .flightInfoLegible(theme)
     }
 
     /// Pinned above the scroll view, and part of the handle: a drag anywhere
@@ -108,13 +155,28 @@ struct MapPanel<Content: View>: View {
                 accessory
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, dockHost != nil && !isPresented ? 4 : 16)
         // Clear of the pane's close button: thirty points of button and ten
         // of inset, less the sixteen already here.
         .padding(.trailing, presentation == .pane ? 34 : 0)
         .padding(.top, 2)
         .padding(.bottom, 14)
         .flightInfoLegible(theme)
+    }
+}
+
+/// Holds a panel's content to an exact width when it has one, and to its
+/// scroll view's otherwise. See the note in `MapPanel.scroller`.
+private struct PinnedWidth: ViewModifier {
+    let width: CGFloat?
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let width {
+            content.frame(width: width)
+        } else {
+            content.containerRelativeFrame(.horizontal)
+        }
     }
 }
 

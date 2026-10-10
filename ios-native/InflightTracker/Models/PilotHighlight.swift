@@ -29,6 +29,20 @@ final class PilotHighlightPreferences: ObservableObject {
     private static let ownKey = "pilotHighlightOwnColor"
     private static let friendKey = "pilotHighlightFriendColor"
     private static let perFriendKey = "pilotHighlightFriendColors"
+    private static let teamKey = "pilotHighlightTeam"
+    private static let controllersKey = "pilotHighlightControllers"
+
+    /// Inflight's moderators in light blue. On by default.
+    @Published var showsTeam: Bool {
+        didSet { UserDefaults.standard.set(showsTeam, forKey: Self.teamKey) }
+    }
+
+    /// IFATC controllers in dark green. Off by default: it asks the backend
+    /// about every pilot on the server while it is on. See
+    /// `ControllerDirectory`.
+    @Published var showsControllers: Bool {
+        didSet { UserDefaults.standard.set(showsControllers, forKey: Self.controllersKey) }
+    }
 
     /// Off is a real choice, not just what free accounts get. The map is
     /// monochrome by design and some people will want it left that way.
@@ -65,6 +79,8 @@ final class PilotHighlightPreferences: ObservableObject {
         ownColor = Self.read(forKey: Self.ownKey) ?? Self.defaultOwn
         friendColor = Self.read(forKey: Self.friendKey) ?? Self.defaultFriend
         friendColors = Self.readAll(forKey: Self.perFriendKey)
+        showsTeam = defaults.object(forKey: Self.teamKey) as? Bool ?? true
+        showsControllers = defaults.object(forKey: Self.controllersKey) as? Bool ?? false
     }
 
     /// What one watched pilot is painted: their own colour if they have been
@@ -194,6 +210,12 @@ struct PilotHighlighting: Equatable {
     /// the common case costs one dictionary lookup that misses.
     let friendColors: [String: Color]
 
+    /// Lowercased usernames painted as Inflight's team, and as IFATC. Both
+    /// apply whether or not the own/watchlist colours are switched on — they
+    /// have switches of their own.
+    let team: Set<String>
+    let controllers: Set<String>
+
     /// The colours, bridged once when the value is made.
     ///
     /// `tint` is asked about an aircraft at a time and hands its answer to the
@@ -203,6 +225,8 @@ struct PilotHighlighting: Equatable {
     private let ownTint: UIColor
     private let friendTint: UIColor
     private let friendTints: [String: UIColor]
+    private static let teamTint = UIColor(PilotRole.moderatorColour)
+    private static let controllerTint = UIColor(PilotRole.controllerColour)
 
     init(
         isActive: Bool = false,
@@ -210,7 +234,9 @@ struct PilotHighlighting: Equatable {
         watched: Set<String> = [],
         ownColor: Color = PilotHighlightPreferences.defaultOwn,
         friendColor: Color = PilotHighlightPreferences.defaultFriend,
-        friendColors: [String: Color] = [:]
+        friendColors: [String: Color] = [:],
+        team: Set<String> = [],
+        controllers: Set<String> = []
     ) {
         self.isActive = isActive
         self.me = me
@@ -218,6 +244,8 @@ struct PilotHighlighting: Equatable {
         self.ownColor = ownColor
         self.friendColor = friendColor
         self.friendColors = friendColors
+        self.team = team
+        self.controllers = controllers
         self.ownTint = UIColor(ownColor)
         self.friendTint = UIColor(friendColor)
         self.friendTints = friendColors.mapValues { UIColor($0) }
@@ -230,6 +258,8 @@ struct PilotHighlighting: Equatable {
             && lhs.ownColor == rhs.ownColor
             && lhs.friendColor == rhs.friendColor
             && lhs.friendColors == rhs.friendColors
+            && lhs.team == rhs.team
+            && lhs.controllers == rhs.controllers
     }
 
     /// What this flight should be painted, or nil to leave it as the sprite
@@ -238,13 +268,20 @@ struct PilotHighlighting: Equatable {
     /// Your own aircraft wins over the watchlist, for the case where you have
     /// somehow ended up watching yourself. Within the watchlist, a pilot's own
     /// colour wins over the shared one — that is what having picked one means.
+    ///
+    /// Then the team, then IFATC: a moderator who is also a controller is
+    /// painted as the team.
     func tint(for username: String?) -> UIColor? {
-        guard isActive, let username = username, !username.isEmpty else { return nil }
+        guard let username = username, !username.isEmpty else { return nil }
 
         let key = username.lowercased()
-        if !me.isEmpty, key == me { return ownTint }
-        guard watched.contains(key) else { return nil }
-        return friendTints[key] ?? friendTint
+        if isActive {
+            if !me.isEmpty, key == me { return ownTint }
+            if watched.contains(key) { return friendTints[key] ?? friendTint }
+        }
+        if team.contains(key) { return Self.teamTint }
+        if controllers.contains(key) { return Self.controllerTint }
+        return nil
     }
 
     /// The live answer, assembled from the stores. One place, so the map, the
@@ -268,8 +305,12 @@ struct PilotHighlighting: Equatable {
     @MainActor
     static func current() -> PilotHighlighting {
         let preferences = PilotHighlightPreferences.shared
+        let team = preferences.showsTeam ? PilotRole.moderators : []
+        let controllers = preferences.showsControllers ? ControllerDirectory.shared.controllerNames : []
 
-        guard preferences.isEnabled else { return PilotHighlighting() }
+        guard preferences.isEnabled else {
+            return PilotHighlighting(team: team, controllers: controllers)
+        }
 
         let isPro = Entitlements.shared.has(.pilotColours)
 
@@ -280,7 +321,9 @@ struct PilotHighlighting: Equatable {
             watched: FriendsStore.shared.watched,
             ownColor: isPro ? preferences.ownColor : defaultOwn,
             friendColor: isPro ? preferences.friendColor : defaultFriend,
-            friendColors: isPro ? preferences.friendColors : [:]
+            friendColors: isPro ? preferences.friendColors : [:],
+            team: team,
+            controllers: controllers
         )
     }
 

@@ -287,6 +287,8 @@ struct MapLayersSettingsPanel: View {
     /// resolves against an entitlement this panel cannot otherwise see change.
     @ObservedObject private var entitlements = Entitlements.shared
 
+    @ObservedObject private var highlight = PilotHighlightPreferences.shared
+
     @State private var isShowingPaywall = false
 
     var body: some View {
@@ -333,6 +335,27 @@ struct MapLayersSettingsPanel: View {
                     symbol: "arrow.left.and.right",
                     detail: "The organised track system, republished twice a day and coloured by letter, with the levels each track is valid at. It is what explains a hundred aircraft flying in parallel lines across the ocean.",
                     isOn: $filters.showsNatTracks
+                )
+            }
+            .panelEntrance(0)
+
+            // Who is flying, in colour: the team and the controllers. Their
+            // own card because they are about pilots rather than the map.
+            PanelSection(title: "PILOTS") {
+                PanelToggleRow(
+                    title: "Inflight moderators",
+                    symbol: "checkmark.shield",
+                    detail: "Paints our moderators' aircraft light blue. Their flight windows carry a MOD badge either way.",
+                    isOn: $highlight.showsTeam
+                )
+
+                PanelDivider()
+
+                PanelToggleRow(
+                    title: "IFATC controllers",
+                    symbol: "headphones",
+                    detail: "Paints the aircraft of pilots who are Infinite Flight controllers — any ATC rank above Observer — dark green. Each pilot is looked up once and remembered for a few days, so the colours fill in over the first minutes. Their flight windows carry an IFATC badge either way.",
+                    isOn: $highlight.showsControllers
                 )
             }
             .panelEntrance(0)

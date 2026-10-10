@@ -219,7 +219,8 @@ struct FlightDetailView: View {
             // viewer's own picture flashing up first.
             if look.photoPath != nil { return .none }
         }
-        guard usesHorizon else { return .none }
+        // The viewer's own background, under every style — it used to be
+        // Horizon's alone.
         return .viewer(aircraftImage: isRealWorld ? nil : imageLoader.image)
     }
 

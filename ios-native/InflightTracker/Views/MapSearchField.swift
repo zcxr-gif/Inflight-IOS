@@ -22,6 +22,14 @@ struct MapSearchField: View {
     /// than a pane of glass of its own lying on top of one.
     var isInDock: Bool = false
 
+    /// Off where the owner lays the results out itself — the dock puts them in
+    /// its own scrolling body, under the field, once the sheet is pulled up.
+    var showsResults: Bool = true
+
+    /// Whether the field has the keyboard, for an owner that moves when it
+    /// does. Kept in step both ways, so the owner can also put it away.
+    var focus: Binding<Bool>? = nil
+
     let onSelect: (MapSearchResult) -> Void
 
     @FocusState private var isFocused: Bool
@@ -40,7 +48,7 @@ struct MapSearchField: View {
     var body: some View {
         VStack(spacing: 8) {
             if isInDock {
-                if isSearching {
+                if showsResults, isSearching {
                     resultsCard
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
@@ -49,7 +57,7 @@ struct MapSearchField: View {
             } else {
                 field
 
-                if isSearching {
+                if showsResults, isSearching {
                     resultsCard
                         .transition(.opacity.combined(with: .move(edge: .top)))
                 }
@@ -58,6 +66,12 @@ struct MapSearchField: View {
         .motion(Motion.chrome, value: isSearching)
         .motion(Motion.row, value: results.map(\.id))
         .environment(\.colorScheme, theme.colorScheme)
+        .onChange(of: isFocused) { _, focused in
+            if let focus, focus.wrappedValue != focused { focus.wrappedValue = focused }
+        }
+        .onChange(of: focus?.wrappedValue ?? false) { _, wanted in
+            if isFocused != wanted { isFocused = wanted }
+        }
     }
 
     // MARK: - Field
@@ -65,7 +79,7 @@ struct MapSearchField: View {
     private var field: some View {
         HStack(spacing: 9) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(theme.textSecondary)
 
             TextField("Search flights or airports", text: $query)
@@ -117,6 +131,33 @@ struct MapSearchField: View {
     // MARK: - Results
 
     private var resultsCard: some View {
+        MapSearchResultsCard(
+            query: query,
+            results: results,
+            theme: theme,
+            isInDock: isInDock,
+            onSelect: select
+        )
+    }
+
+    private func select(_ result: MapSearchResult) {
+        isFocused = false
+        query = ""
+        onSelect(result)
+    }
+}
+
+/// What the search found, as one card of rows. Its own view so the dock can lay
+/// it out in its scrolling body rather than stacked against the field.
+struct MapSearchResultsCard: View {
+
+    let query: String
+    let results: [MapSearchResult]
+    let theme: FlightInfoTheme
+    var isInDock: Bool = false
+    let onSelect: (MapSearchResult) -> Void
+
+    var body: some View {
         VStack(spacing: 0) {
             if results.isEmpty {
                 Text("Nothing matching \"\(query)\"")
@@ -131,7 +172,7 @@ struct MapSearchField: View {
                         Rectangle().fill(theme.stroke).frame(height: 1)
                     }
 
-                    Button { select(result) } label: {
+                    Button { onSelect(result) } label: {
                         row(for: result)
                     }
                     .buttonStyle(.plain)
@@ -224,12 +265,6 @@ struct MapSearchField: View {
         guard flight.altitudeFeet.isFinite, flight.altitudeFeet > 0 else { return nil }
         return "\(Format.number(flight.altitudeFeet)) ft"
     }
-
-    private func select(_ result: MapSearchResult) {
-        isFocused = false
-        query = ""
-        onSelect(result)
-    }
 }
 
 /// What the field and its results are drawn on: glass of their own over the
@@ -245,11 +280,8 @@ private struct SearchSurface<S: Shape>: ViewModifier {
     func body(content: Content) -> some View {
         if isInDock {
             content
-                .background {
-                    shape
-                        .fill(theme.surfaceFill)
-                        .overlay { shape.stroke(theme.stroke, lineWidth: 1) }
-                }
+                // The same soft well as the bar under it, with no outline.
+                .background { shape.fill(theme.surfaceFill) }
                 .clipShape(shape)
         } else {
             content.flightInfoChrome(theme, in: shape)

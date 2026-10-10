@@ -194,10 +194,9 @@ enum MapPalette: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Imagery is Pro, the same as it was when it was a style of its own. The
-    /// three cartography colours are free: they are a finish on the map
-    /// everybody already has.
-    var isPro: Bool { self == .satellite }
+    /// Every finish is free, satellite imagery included. The globe is the
+    /// map-style Pro has left — see `MapProjection.isPro`.
+    var isPro: Bool { false }
 
     /// Which appearance the map draws in, or nil to follow the app.
     ///
